@@ -29,12 +29,12 @@ import {
   type TerminalContextDraft,
   removeInlineTerminalContextPlaceholder,
 } from "../lib/terminalContext";
+import { estimateTimelineMessageHeight } from "~/lib/chat/timelineHeight";
 import { isMacPlatform } from "../lib/utils";
 import { __resetNativeApiForTests } from "../nativeApi";
 import { getRouter } from "../router";
 import { useStore } from "../store";
 import { BrowserWsRpcHarness, type NormalizedWsRpcRequestBody } from "../../test/wsRpcHarness";
-import { estimateTimelineMessageHeight } from "./timelineHeight";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 
 const THREAD_ID = "thread-browser-test" as ThreadId;

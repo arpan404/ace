@@ -3,6 +3,7 @@ import type { DesktopBridge } from "@t3tools/contracts";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
+const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
@@ -14,6 +15,8 @@ const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
+const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
+const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getWsUrl: () => {
@@ -22,6 +25,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
   pickFolder: () => ipcRenderer.invoke(PICK_FOLDER_CHANNEL),
   confirm: (message) => ipcRenderer.invoke(CONFIRM_CHANNEL, message),
+  repairBrowserStorage: () => ipcRenderer.invoke(REPAIR_BROWSER_STORAGE_CHANNEL),
   setTheme: (theme) => ipcRenderer.invoke(SET_THEME_CHANNEL, theme),
   showContextMenu: (items, position) => ipcRenderer.invoke(CONTEXT_MENU_CHANNEL, items, position),
   openExternal: (url: string) => ipcRenderer.invoke(OPEN_EXTERNAL_CHANNEL, url),
@@ -60,6 +64,27 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(BROWSER_OPEN_URL_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(BROWSER_OPEN_URL_CHANNEL, wrappedListener);
+    };
+  },
+  onBrowserContextMenuShown: (listener) => {
+    const wrappedListener = () => {
+      listener();
+    };
+
+    ipcRenderer.on(BROWSER_CONTEXT_MENU_SHOWN_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(BROWSER_CONTEXT_MENU_SHOWN_CHANNEL, wrappedListener);
+    };
+  },
+  onBrowserShortcutAction: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
+      if (typeof action !== "string" || action.length === 0) return;
+      listener(action as Parameters<typeof listener>[0]);
+    };
+
+    ipcRenderer.on(BROWSER_SHORTCUT_ACTION_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(BROWSER_SHORTCUT_ACTION_CHANNEL, wrappedListener);
     };
   },
 } satisfies DesktopBridge);

@@ -23,7 +23,14 @@ export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
 
+export const BrowserSearchEngine = Schema.Literals(["duckduckgo", "google", "brave", "startpage"]);
+export type BrowserSearchEngine = typeof BrowserSearchEngine.Type;
+export const DEFAULT_BROWSER_SEARCH_ENGINE: BrowserSearchEngine = "duckduckgo";
+
 export const ClientSettingsSchema = Schema.Struct({
+  browserSearchEngine: BrowserSearchEngine.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_BROWSER_SEARCH_ENGINE),
+  ),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   diffWordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
