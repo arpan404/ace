@@ -319,6 +319,32 @@ it.effect("accepts provider-scoped model options in thread.turn.start", () =>
   }),
 );
 
+it.effect("accepts github copilot reasoning effort in thread.turn.start", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadTurnStartCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-turn-copilot-options",
+      threadId: "thread-1",
+      message: {
+        messageId: "msg-copilot-options",
+        role: "user",
+        text: "hello",
+        attachments: [],
+      },
+      modelSelection: {
+        provider: "githubCopilot",
+        model: "gpt-5",
+        options: {
+          reasoningEffort: "high",
+        },
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.modelSelection?.provider, "githubCopilot");
+    assert.strictEqual(parsed.modelSelection?.options?.reasoningEffort, "high");
+  }),
+);
+
 it.effect("accepts a title seed in thread.turn.start", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeThreadTurnStartCommand({

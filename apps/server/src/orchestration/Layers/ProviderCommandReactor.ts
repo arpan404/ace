@@ -1,6 +1,7 @@
 import {
   type ChatAttachment,
   CommandId,
+  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
@@ -74,6 +75,13 @@ const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const WORKTREE_BRANCH_PREFIX = "t3code";
 const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
 const DEFAULT_THREAD_TITLE = "New thread";
+
+function toFirstTurnTitleModelSelection(selection: ModelSelection): ModelSelection {
+  return {
+    provider: selection.provider,
+    model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[selection.provider],
+  };
+}
 
 function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolean {
   const trimmedCurrentTitle = currentTitle.trim();
@@ -466,18 +474,16 @@ const make = Effect.gen(function* () {
     readonly cwd: string;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
+    readonly modelSelection: ModelSelection;
     readonly titleSeed?: string;
   }) {
     const attachments = input.attachments ?? [];
     yield* Effect.gen(function* () {
-      const { textGenerationModelSelection: modelSelection } =
-        yield* serverSettingsService.getSettings;
-
       const generated = yield* textGeneration.generateThreadTitle({
         cwd: input.cwd,
         message: input.messageText,
         ...(attachments.length > 0 ? { attachments } : {}),
-        modelSelection,
+        modelSelection: toFirstTurnTitleModelSelection(input.modelSelection),
       });
       if (!generated) return;
 
@@ -555,6 +561,7 @@ const make = Effect.gen(function* () {
         yield* maybeGenerateThreadTitleForFirstTurn({
           threadId: event.payload.threadId,
           cwd: generationCwd,
+          modelSelection: event.payload.modelSelection ?? thread.modelSelection,
           ...generationInput,
         }).pipe(Effect.forkScoped);
       }

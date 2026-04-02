@@ -1,6 +1,7 @@
 import {
   type ClaudeModelOptions,
   type CodexModelOptions,
+  type GitHubCopilotModelOptions,
   type ProviderKind,
   type ProviderModelOptions,
   type ServerProviderModel,
@@ -49,8 +50,10 @@ function getRawEffort(
   provider: ProviderKind,
   modelOptions: ProviderOptions | null | undefined,
 ): string | null {
-  if (provider === "codex") {
-    return trimOrNull((modelOptions as CodexModelOptions | undefined)?.reasoningEffort);
+  if (provider === "codex" || provider === "githubCopilot") {
+    return trimOrNull(
+      (modelOptions as CodexModelOptions | GitHubCopilotModelOptions | undefined)?.reasoningEffort,
+    );
   }
   return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.effort);
 }
@@ -71,9 +74,21 @@ function buildNextOptions(
   patch: Record<string, unknown>,
 ): ProviderOptions {
   if (provider === "codex") {
-    return { ...(modelOptions as CodexModelOptions | undefined), ...patch } as CodexModelOptions;
+    return {
+      ...(modelOptions as CodexModelOptions | undefined),
+      ...patch,
+    } as CodexModelOptions;
   }
-  return { ...(modelOptions as ClaudeModelOptions | undefined), ...patch } as ClaudeModelOptions;
+  if (provider === "githubCopilot") {
+    return {
+      ...(modelOptions as GitHubCopilotModelOptions | undefined),
+      ...patch,
+    } as GitHubCopilotModelOptions;
+  }
+  return {
+    ...(modelOptions as ClaudeModelOptions | undefined),
+    ...patch,
+  } as ClaudeModelOptions;
 }
 
 function getSelectedTraits(
@@ -138,6 +153,45 @@ function getSelectedTraits(
   };
 }
 
+function hasVisibleTraits(input: {
+  effortLevels: ReadonlyArray<{ value: string }>;
+  thinkingEnabled: boolean | null;
+  supportsFastMode: boolean;
+  contextWindowOptions: ReadonlyArray<{ value: string }>;
+}): boolean {
+  return (
+    input.effortLevels.length > 0 ||
+    input.thinkingEnabled !== null ||
+    input.supportsFastMode ||
+    input.contextWindowOptions.length > 1
+  );
+}
+
+export function shouldRenderTraitsPicker(input: {
+  provider: ProviderKind;
+  models: ReadonlyArray<ServerProviderModel>;
+  model: string | null | undefined;
+  prompt: string;
+  modelOptions?: ProviderOptions | null | undefined;
+  allowPromptInjectedEffort?: boolean;
+}): boolean {
+  const { caps, effortLevels, thinkingEnabled, contextWindowOptions } = getSelectedTraits(
+    input.provider,
+    input.models,
+    input.model,
+    input.prompt,
+    input.modelOptions,
+    input.allowPromptInjectedEffort ?? true,
+  );
+
+  return hasVisibleTraits({
+    effortLevels,
+    thinkingEnabled,
+    supportsFastMode: caps.supportsFastMode,
+    contextWindowOptions,
+  });
+}
+
 export interface TraitsMenuContentProps {
   provider: ProviderKind;
   models: ReadonlyArray<ServerProviderModel>;
@@ -167,7 +221,9 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
         persistence.onModelOptionsChange(nextOptions);
         return;
       }
-      setProviderModelOptions(persistence.threadId, provider, nextOptions, { persistSticky: true });
+      setProviderModelOptions(persistence.threadId, provider, nextOptions, {
+        persistSticky: true,
+      });
     },
     [persistence, provider, setProviderModelOptions],
   );
@@ -203,9 +259,11 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
         const stripped = prompt.replace(/^Ultrathink:\s*/i, "");
         onPromptChange(stripped);
       }
-      const effortKey = provider === "codex" ? "reasoningEffort" : "effort";
+      const effortKey = provider === "claudeAgent" ? "effort" : "reasoningEffort";
       updateModelOptions(
-        buildNextOptions(provider, modelOptions, { [effortKey]: nextOption.value }),
+        buildNextOptions(provider, modelOptions, {
+          [effortKey]: nextOption.value,
+        }),
       );
     },
     [
@@ -221,7 +279,14 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     ],
   );
 
-  if (effort === null && thinkingEnabled === null && contextWindowOptions.length <= 1) {
+  if (
+    !hasVisibleTraits({
+      effortLevels,
+      thinkingEnabled,
+      supportsFastMode: caps.supportsFastMode,
+      contextWindowOptions,
+    })
+  ) {
     return null;
   }
 
@@ -260,7 +325,9 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
             value={thinkingEnabled ? "on" : "off"}
             onValueChange={(value) => {
               updateModelOptions(
-                buildNextOptions(provider, modelOptions, { thinking: value === "on" }),
+                buildNextOptions(provider, modelOptions, {
+                  thinking: value === "on",
+                }),
               );
             }}
           >
@@ -278,7 +345,9 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
               value={fastModeEnabled ? "on" : "off"}
               onValueChange={(value) => {
                 updateModelOptions(
-                  buildNextOptions(provider, modelOptions, { fastMode: value === "on" }),
+                  buildNextOptions(provider, modelOptions, {
+                    fastMode: value === "on",
+                  }),
                 );
               }}
             >
@@ -365,7 +434,18 @@ export const TraitsPicker = memo(function TraitsPicker({
     .filter(Boolean)
     .join(" · ");
 
-  const isCodexStyle = provider === "codex";
+  const isCodexStyle = provider === "codex" || provider === "githubCopilot";
+
+  if (
+    !hasVisibleTraits({
+      effortLevels,
+      thinkingEnabled,
+      supportsFastMode: caps.supportsFastMode,
+      contextWindowOptions,
+    })
+  ) {
+    return null;
+  }
 
   return (
     <Menu

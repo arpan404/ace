@@ -59,10 +59,19 @@ function createBaseServerConfig(): ServerConfig {
     settings: {
       enableAssistantStreaming: false,
       defaultThreadEnvMode: "local" as const,
-      textGenerationModelSelection: { provider: "codex" as const, model: "gpt-5.4-mini" },
+      textGenerationModelSelection: {
+        provider: "codex" as const,
+        model: "gpt-5.4-mini",
+      },
       providers: {
-        codex: { enabled: true, binaryPath: "", homePath: "", customModels: [] },
+        codex: {
+          enabled: true,
+          binaryPath: "",
+          homePath: "",
+          customModels: [],
+        },
         claudeAgent: { enabled: true, binaryPath: "", customModels: [] },
+        githubCopilot: { enabled: true, binaryPath: "", customModels: [] },
       },
     },
   };
@@ -257,7 +266,9 @@ async function mountApp(): Promise<{ cleanup: () => Promise<void> }> {
 
   const router = getRouter(createMemoryHistory({ initialEntries: [`/${THREAD_ID}`] }));
 
-  const screen = await render(<RouterProvider router={router} />, { container: host });
+  const screen = await render(<RouterProvider router={router} />, {
+    container: host,
+  });
   await waitForComposerEditor();
 
   return {
@@ -348,7 +359,10 @@ describe("Keybindings update toast", () => {
 
     try {
       sendServerConfigUpdatedPush([
-        { kind: "keybindings.malformed-config", message: "Expected JSON array" },
+        {
+          kind: "keybindings.malformed-config",
+          message: "Expected JSON array",
+        },
       ]);
       await waitForToast("Invalid keybindings configuration");
     } finally {

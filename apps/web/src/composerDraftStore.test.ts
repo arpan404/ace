@@ -1011,6 +1011,26 @@ describe("composerDraftStore provider-scoped option updates", () => {
     expect(draft?.modelSelectionByProvider.claudeAgent?.options).toEqual({ effort: "max" });
     expect(draft?.activeProvider).toBe("codex");
   });
+
+  it("stores github copilot reasoning effort without changing the active selection", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(
+      threadId,
+      modelSelection("codex", "gpt-5.3-codex", {
+        reasoningEffort: "medium",
+      }),
+    );
+    store.setProviderModelOptions(threadId, "githubCopilot", { reasoningEffort: "high" });
+
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.modelSelectionByProvider.codex).toEqual(
+      modelSelection("codex", "gpt-5.3-codex", { reasoningEffort: "medium" }),
+    );
+    expect(draft?.modelSelectionByProvider.githubCopilot?.options).toEqual({
+      reasoningEffort: "high",
+    });
+    expect(draft?.activeProvider).toBe("codex");
+  });
 });
 
 describe("composerDraftStore runtime and interaction settings", () => {

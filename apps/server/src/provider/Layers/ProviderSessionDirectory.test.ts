@@ -204,4 +204,36 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
 
       fs.rmSync(tempDir, { recursive: true, force: true });
     }));
+
+  it("decodes persisted githubCopilot bindings", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const threadId = ThreadId.makeUnsafe("thread-github-copilot");
+
+      yield* runtimeRepository.upsert({
+        threadId,
+        providerName: "githubCopilot",
+        adapterKey: "githubCopilot",
+        runtimeMode: "full-access",
+        status: "running",
+        lastSeenAt: new Date().toISOString(),
+        resumeCursor: { sessionId: "copilot-session-1" },
+        runtimePayload: { model: "gpt-5-mini" },
+      });
+
+      const provider = yield* directory.getProvider(threadId);
+      assert.equal(provider, "githubCopilot");
+
+      const binding = yield* directory.getBinding(threadId);
+      assertSome(binding, {
+        threadId,
+        provider: "githubCopilot",
+        adapterKey: "githubCopilot",
+      });
+      if (Option.isSome(binding)) {
+        assert.deepEqual(binding.value.resumeCursor, { sessionId: "copilot-session-1" });
+        assert.deepEqual(binding.value.runtimePayload, { model: "gpt-5-mini" });
+      }
+    }));
 });

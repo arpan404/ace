@@ -6,6 +6,7 @@ import type { ModelSelection, ProviderRuntimeEvent, ProviderSession } from "@t3t
 import {
   ApprovalRequestId,
   CommandId,
+  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
@@ -358,6 +359,10 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
     expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
       message: "Please investigate reconnect failures after restarting the session.",
+      modelSelection: {
+        provider: "codex",
+        model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
+      },
     });
 
     await waitFor(async () => {
@@ -461,6 +466,51 @@ describe("ProviderCommandReactor", () => {
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.title).toBe("Reconnect spinner resume bug");
+  });
+
+  it("uses the thread provider for first-turn title generation with a lightweight Copilot model", async () => {
+    const harness = await createHarness({
+      threadModelSelection: { provider: "githubCopilot", model: "gpt-5" },
+    });
+    const now = new Date().toISOString();
+    const seededTitle = "hi";
+    harness.generateThreadTitle.mockReturnValue(Effect.succeed({ title: "Copilot title" }));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-title-seed-copilot"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        title: seededTitle,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-title-copilot"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-title-copilot"),
+          role: "user",
+          text: seededTitle,
+          attachments: [],
+        },
+        titleSeed: seededTitle,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
+      message: "hi",
+      modelSelection: {
+        provider: "githubCopilot",
+        model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.githubCopilot,
+      },
+    });
   });
 
   it("generates a worktree branch name for the first turn", async () => {
