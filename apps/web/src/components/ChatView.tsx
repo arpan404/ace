@@ -4763,8 +4763,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
           />
         ) : null}
         {browserOpen && isElectron ? (
-          browserMode === "split" ? (
-            <>
+          <>
+            {browserMode === "split" ? (
               <div
                 role="separator"
                 aria-orientation="vertical"
@@ -4775,48 +4775,36 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-primary/55" />
                 <div className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-primary/10" />
               </div>
-              <div
-                className="min-h-0 shrink-0 overflow-hidden"
-                style={{ width: `${browserSplitWidth}px`, minWidth: `${browserSplitWidth}px` }}
-              >
-                <InAppBrowser
-                  open={browserOpen}
-                  mode={browserMode}
-                  onClose={closeBrowser}
-                  onMinimize={minimizeBrowser}
-                  onRestore={restoreBrowser}
-                  onSplit={openSplitBrowser}
-                  onControllerChange={setBrowserController}
-                  onActiveRuntimeStateChange={(state) => {
-                    setBrowserDevToolsOpen(state.devToolsOpen);
-                  }}
-                  backShortcutLabel={browserBackShortcutLabel}
-                  devToolsShortcutLabel={browserDevToolsShortcutLabel}
-                  forwardShortcutLabel={browserForwardShortcutLabel}
-                  reloadShortcutLabel={browserReloadShortcutLabel}
-                  viewportRef={chatViewportRef}
-                />
-              </div>
-            </>
-          ) : (
-            <InAppBrowser
-              open={browserOpen}
-              mode={browserMode}
-              onClose={closeBrowser}
-              onMinimize={minimizeBrowser}
-              onRestore={restoreBrowser}
-              onSplit={openSplitBrowser}
-              onControllerChange={setBrowserController}
-              onActiveRuntimeStateChange={(state) => {
-                setBrowserDevToolsOpen(state.devToolsOpen);
-              }}
-              backShortcutLabel={browserBackShortcutLabel}
-              devToolsShortcutLabel={browserDevToolsShortcutLabel}
-              forwardShortcutLabel={browserForwardShortcutLabel}
-              reloadShortcutLabel={browserReloadShortcutLabel}
-              viewportRef={chatViewportRef}
-            />
-          )
+            ) : null}
+            <div
+              className={cn(
+                browserMode === "split" ? "min-h-0 shrink-0 overflow-hidden" : "contents",
+              )}
+              style={
+                browserMode === "split"
+                  ? { width: `${browserSplitWidth}px`, minWidth: `${browserSplitWidth}px` }
+                  : undefined
+              }
+            >
+              <InAppBrowser
+                open={browserOpen}
+                mode={browserMode}
+                onClose={closeBrowser}
+                onMinimize={minimizeBrowser}
+                onRestore={restoreBrowser}
+                onSplit={openSplitBrowser}
+                onControllerChange={setBrowserController}
+                onActiveRuntimeStateChange={(state) => {
+                  setBrowserDevToolsOpen(state.devToolsOpen);
+                }}
+                backShortcutLabel={browserBackShortcutLabel}
+                devToolsShortcutLabel={browserDevToolsShortcutLabel}
+                forwardShortcutLabel={browserForwardShortcutLabel}
+                reloadShortcutLabel={browserReloadShortcutLabel}
+                viewportRef={chatViewportRef}
+              />
+            </div>
+          </>
         ) : null}
       </div>
       {/* end horizontal flex container */}
