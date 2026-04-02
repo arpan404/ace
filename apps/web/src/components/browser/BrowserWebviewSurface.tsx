@@ -11,6 +11,25 @@ import {
 } from "~/lib/browser/types";
 import { normalizeBrowserHttpUrl } from "~/lib/browser/url";
 
+function isAbortedWebviewLoad(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    ("code" in error && error.code === "ERR_ABORTED") || ("errno" in error && error.errno === -3)
+  );
+}
+
+function loadWebviewUrl(webview: BrowserWebview, url: string): void {
+  void webview.loadURL(url).catch((error: unknown) => {
+    if (isAbortedWebviewLoad(error)) {
+      return;
+    }
+    throw error;
+  });
+}
+
 function resolveBrowserFaviconSources(url: string): string[] {
   try {
     const parsed = new URL(url);
@@ -116,12 +135,13 @@ export function BrowserTabWebview(props: {
         pendingUrlRef.current = url;
         return;
       }
-      const currentUrl = webview.getURL();
-      if (currentUrl === url) {
+      const currentUrl = normalizeBrowserHttpUrl(webview.getURL());
+      if (currentUrl === normalizeBrowserHttpUrl(url)) {
         emitSnapshot();
         return;
       }
-      webview.loadURL(url);
+
+      loadWebviewUrl(webview, url);
     },
     [emitSnapshot],
   );
@@ -179,8 +199,11 @@ export function BrowserTabWebview(props: {
       readyRef.current = true;
       const pendingUrl = pendingUrlRef.current;
       pendingUrlRef.current = null;
-      if (pendingUrl && pendingUrl !== webview.getURL()) {
-        webview.loadURL(pendingUrl);
+      if (
+        pendingUrl &&
+        normalizeBrowserHttpUrl(pendingUrl) !== normalizeBrowserHttpUrl(webview.getURL())
+      ) {
+        loadWebviewUrl(webview, pendingUrl);
         return;
       }
       emitSnapshot();

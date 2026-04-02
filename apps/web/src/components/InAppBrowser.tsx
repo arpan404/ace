@@ -24,9 +24,17 @@ import { cn } from "~/lib/utils";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { BrowserSettingsPanel, BrowserSuggestionList } from "./browser/BrowserChrome";
+import {
+  BrowserNewTabPanel,
+  BrowserSettingsPanel,
+  BrowserSuggestionList,
+} from "./browser/BrowserChrome";
 import { BrowserFavicon, BrowserTabWebview } from "./browser/BrowserWebviewSurface";
-import { isBrowserSettingsTabUrl } from "~/lib/browser/session";
+import {
+  isBrowserInternalTabUrl,
+  isBrowserNewTabUrl,
+  isBrowserSettingsTabUrl,
+} from "~/lib/browser/session";
 
 export type {
   ActiveBrowserRuntimeState,
@@ -70,6 +78,8 @@ export function InAppBrowser(props: InAppBrowserProps) {
     activateTab,
     activeRuntime,
     activeTab,
+    activeTabIsInternal,
+    activeTabIsNewTab,
     activeTabIsPinned,
     activeTabIsSettings,
     addressBarSuggestions,
@@ -204,6 +214,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                       "bg-amber-500/12 text-amber-800 hover:bg-amber-500/18 dark:text-amber-200",
                   )}
                   onClick={toggleDevTools}
+                  disabled={activeTabIsInternal}
                   aria-label={
                     activeRuntime.devToolsOpen ? "Close Chrome DevTools" : "Open Chrome DevTools"
                   }
@@ -215,7 +226,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                   variant="ghost"
                   size="icon-xs"
                   onClick={goBack}
-                  disabled={!activeRuntime.canGoBack}
+                  disabled={activeTabIsInternal || !activeRuntime.canGoBack}
                   aria-label="Go back"
                   data-browser-control
                 >
@@ -225,7 +236,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                   variant="ghost"
                   size="icon-xs"
                   onClick={goForward}
-                  disabled={!activeRuntime.canGoForward}
+                  disabled={activeTabIsInternal || !activeRuntime.canGoForward}
                   aria-label="Go forward"
                   data-browser-control
                 >
@@ -235,6 +246,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                   variant="ghost"
                   size="icon-xs"
                   onClick={reload}
+                  disabled={activeTabIsInternal}
                   aria-label={activeRuntime.loading ? "Stop loading" : "Reload page"}
                   data-browser-control
                 >
@@ -260,7 +272,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                     openActiveTabExternally();
                   }}
                   aria-label="Open current page externally"
-                  disabled={!activeTab || activeTabIsSettings}
+                  disabled={!activeTab || activeTabIsInternal}
                   data-browser-control
                 >
                   <ExternalLinkIcon className="size-3.5" />
@@ -303,6 +315,8 @@ export function InAppBrowser(props: InAppBrowserProps) {
                       >
                         {isBrowserSettingsTabUrl(tab.url) ? (
                           <Settings2Icon className="size-3 text-muted-foreground" />
+                        ) : isBrowserNewTabUrl(tab.url) ? (
+                          <PlusIcon className="size-3 text-muted-foreground" />
                         ) : (
                           <BrowserFavicon
                             url={tab.url}
@@ -369,7 +383,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                         size="icon-xs"
                         className={devToolsButtonClassName}
                         onClick={toggleDevTools}
-                        disabled={activeTabIsSettings}
+                        disabled={activeTabIsInternal}
                         aria-label={
                           activeRuntime.devToolsOpen
                             ? "Close Chrome DevTools"
@@ -395,7 +409,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                         variant="outline"
                         size="icon-xs"
                         onClick={goBack}
-                        disabled={activeTabIsSettings || !activeRuntime.canGoBack}
+                        disabled={activeTabIsInternal || !activeRuntime.canGoBack}
                         aria-label="Go back"
                       >
                         <ArrowLeftIcon className="size-3.5" />
@@ -413,7 +427,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                         variant="outline"
                         size="icon-xs"
                         onClick={goForward}
-                        disabled={activeTabIsSettings || !activeRuntime.canGoForward}
+                        disabled={activeTabIsInternal || !activeRuntime.canGoForward}
                         aria-label="Go forward"
                       >
                         <ArrowRightIcon className="size-3.5" />
@@ -431,7 +445,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                         variant="outline"
                         size="icon-xs"
                         onClick={reload}
-                        disabled={activeTabIsSettings}
+                        disabled={activeTabIsInternal}
                         aria-label={activeRuntime.loading ? "Stop loading" : "Reload page"}
                       >
                         {activeRuntime.loading ? (
@@ -463,7 +477,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                   {activeTabFavicon}
                   <Input
                     ref={addressInputRef}
-                    className="min-w-0 border-0 bg-transparent text-sm shadow-none before:shadow-none"
+                    className="min-w-0 w-full flex-1 border-0 bg-transparent text-sm shadow-none before:shadow-none"
                     unstyled
                     value={draftUrl}
                     onChange={(event) => setDraftUrl(event.target.value)}
@@ -529,7 +543,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                         variant="outline"
                         size="icon-xs"
                         onClick={togglePinnedActivePage}
-                        disabled={activeTabIsSettings || !activeTab}
+                        disabled={activeTabIsInternal || !activeTab}
                         aria-label={activeTabIsPinned ? "Unpin current page" : "Pin current page"}
                         className={cn(
                           activeTabIsPinned &&
@@ -568,7 +582,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                         onClick={() => {
                           openActiveTabExternally();
                         }}
-                        disabled={!activeTab || activeTabIsSettings}
+                        disabled={!activeTab || activeTabIsInternal}
                         aria-label="Open current page externally"
                       >
                         <ExternalLinkIcon className="size-3.5" />
@@ -598,6 +612,14 @@ export function InAppBrowser(props: InAppBrowserProps) {
         )}
 
         <div className="relative min-h-0 flex-1 bg-background">
+          {activeTabIsNewTab ? (
+            <BrowserNewTabPanel
+              browserSearchEngine={browserSearchEngine}
+              pinnedPages={pinnedPages}
+              onOpenPinnedPage={openPinnedPage}
+              onSubmitQuery={openUrl}
+            />
+          ) : null}
           {activeTabIsSettings ? (
             <BrowserSettingsPanel
               browserSearchEngine={browserSearchEngine}
@@ -618,11 +640,11 @@ export function InAppBrowser(props: InAppBrowserProps) {
             />
           ) : null}
           {browserSession.tabs
-            .filter((tab) => !isBrowserSettingsTabUrl(tab.url))
+            .filter((tab) => !isBrowserInternalTabUrl(tab.url))
             .map((tab) => (
               <BrowserTabWebview
                 key={`${browserResetKey}:${tab.id}`}
-                active={!activeTabIsSettings && activeTab?.id === tab.id}
+                active={!activeTabIsInternal && activeTab?.id === tab.id}
                 onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
                 tab={tab}
                 onHandleChange={registerWebviewHandle}

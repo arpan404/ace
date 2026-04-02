@@ -6,16 +6,130 @@ import {
   SearchIcon,
   Settings2Icon,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import type { BrowserSearchEngine } from "@t3tools/contracts/settings";
 import { cn } from "~/lib/utils";
 import type { BrowserSuggestion } from "~/lib/browser/history";
 import { type BrowserPinnedPage } from "~/lib/browser/pinnedPages";
-import { BROWSER_SETTINGS_TAB_TITLE } from "~/lib/browser/session";
+import { BROWSER_NEW_TAB_TITLE, BROWSER_SETTINGS_TAB_TITLE } from "~/lib/browser/session";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import { BrowserFavicon } from "./BrowserWebviewSurface";
 import { BROWSER_SEARCH_ENGINE_OPTIONS, resolveSuggestionKindLabel } from "~/lib/browser/types";
+
+function resolveSearchEngineLabel(browserSearchEngine: BrowserSearchEngine): string {
+  return (
+    BROWSER_SEARCH_ENGINE_OPTIONS.find((option) => option.value === browserSearchEngine)?.label ??
+    "Search"
+  );
+}
+
+export function BrowserNewTabPanel(props: {
+  browserSearchEngine: BrowserSearchEngine;
+  pinnedPages: readonly BrowserPinnedPage[];
+  onOpenPinnedPage: (url: string) => void;
+  onSubmitQuery: (query: string) => void;
+}) {
+  const { browserSearchEngine, onOpenPinnedPage, onSubmitQuery, pinnedPages } = props;
+  const [query, setQuery] = useState("");
+  const searchEngineLabel = resolveSearchEngineLabel(browserSearchEngine);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[radial-gradient(circle_at_top,#2a2a2a_0%,transparent_38%),linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,black) 0%,var(--background) 100%)] px-5 py-8 sm:px-8 lg:px-12">
+      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center gap-8">
+        <div className="space-y-3 text-center">
+          <div className="inline-flex items-center gap-2 self-center rounded-full border border-border/70 bg-card/55 px-3 py-1 text-xs font-medium tracking-[0.2em] text-muted-foreground uppercase">
+            <SearchIcon className="size-3.5" />
+            {searchEngineLabel}
+          </div>
+          <div>
+            <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+              {BROWSER_NEW_TAB_TITLE}
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+              Search the web or enter an address without leaving the browser shell.
+            </p>
+          </div>
+        </div>
+
+        <form
+          className="mx-auto flex w-full max-w-3xl flex-col gap-3"
+          onSubmit={(event: FormEvent<HTMLFormElement>) => {
+            event.preventDefault();
+            if (query.trim().length === 0) {
+              return;
+            }
+            onSubmitQuery(query);
+          }}
+        >
+          <div className="flex items-center gap-3 rounded-2xl border border-border/80 bg-card/70 px-4 py-3 shadow-[0_28px_60px_-32px_color-mix(in_srgb,var(--foreground)_28%,transparent)] backdrop-blur">
+            <SearchIcon className="size-5 shrink-0 text-muted-foreground" />
+            <Input
+              className="h-auto w-full flex-1 border-0 bg-transparent px-0 text-base shadow-none before:shadow-none sm:text-lg"
+              unstyled
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={`Search with ${searchEngineLabel} or enter an address`}
+              aria-label="Search the web or enter an address"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+            <Button
+              type="submit"
+              size="sm"
+              className="shrink-0 rounded-xl px-4"
+              disabled={query.trim().length === 0}
+            >
+              Go
+            </Button>
+          </div>
+        </form>
+
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-medium text-foreground">Pinned pages</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Jump back into the pages you revisit the most.
+              </p>
+            </div>
+          </div>
+
+          {pinnedPages.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {pinnedPages.map((page) => (
+                <button
+                  key={page.url}
+                  type="button"
+                  className="group flex min-w-0 items-center gap-3 rounded-2xl border border-border/70 bg-card/55 px-4 py-3 text-left transition-colors hover:border-border hover:bg-card/80"
+                  onClick={() => onOpenPinnedPage(page.url)}
+                >
+                  <BrowserFavicon
+                    url={page.url}
+                    title={page.title}
+                    className="size-5"
+                    fallbackClassName="size-5 text-muted-foreground"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-foreground">{page.title}</div>
+                    <div className="truncate text-xs text-muted-foreground">{page.url}</div>
+                  </div>
+                  <PinIcon className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-border/80 bg-card/35 px-4 py-5 text-sm text-muted-foreground">
+              Pin pages from the toolbar and they will appear here on every new tab.
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
 
 export function BrowserSettingsPanel(props: {
   browserSearchEngine: BrowserSearchEngine;
@@ -63,7 +177,7 @@ export function BrowserSettingsPanel(props: {
           <div>
             <h3 className="text-sm font-medium text-foreground">Search engine</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Used for new-tab home pages, search actions, and address-bar suggestions.
+              Used for new-tab search actions, address-bar suggestions, and fallback home links.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

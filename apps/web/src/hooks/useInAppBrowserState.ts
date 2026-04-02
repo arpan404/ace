@@ -30,15 +30,17 @@ import {
   serializePinnedBrowserPages,
 } from "~/lib/browser/pinnedPages";
 import {
+  BROWSER_NEW_TAB_URL,
   BROWSER_SESSION_STORAGE_KEY,
   BrowserSessionStorageSchema,
   addBrowserTab,
   closeBrowserTab,
   createBrowserSettingsTab,
   createBrowserSessionState,
+  isBrowserInternalTabUrl,
+  isBrowserNewTabUrl,
   isBrowserSettingsTabUrl,
   normalizeBrowserSessionState,
-  resolveLegacyBrowserUrl,
   setActiveBrowserTab,
   updateBrowserTab,
 } from "~/lib/browser/session";
@@ -57,7 +59,7 @@ import {
   type BrowserWebviewContextMenuAction,
   DEFAULT_BROWSER_TAB_RUNTIME_STATE,
 } from "~/lib/browser/types";
-import { normalizeBrowserInput, resolveBrowserHomeUrl } from "~/lib/browser/url";
+import { normalizeBrowserInput } from "~/lib/browser/url";
 import { readNativeApi } from "~/nativeApi";
 import { toastManager } from "~/components/ui/toast";
 
@@ -134,10 +136,9 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     startX: number;
     startY: number;
   } | null>(null);
-  const legacyUrl = useMemo(() => resolveLegacyBrowserUrl(), []);
   const [browserSession, setBrowserSession] = useLocalStorage(
     BROWSER_SESSION_STORAGE_KEY,
-    createBrowserSessionState(legacyUrl),
+    createBrowserSessionState(),
     BrowserSessionStorageSchema,
   );
   const [browserHistory, setBrowserHistory] = useLocalStorage(
@@ -150,7 +151,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     [],
     BrowserPinnedPagesSchema,
   );
-  const [draftUrl, setDraftUrl] = useState(legacyUrl);
+  const [draftUrl, setDraftUrl] = useState("");
   const [browserResetKey, setBrowserResetKey] = useState(0);
   const [isRepairingStorage, setIsRepairingStorage] = useState(false);
   const [isAddressBarFocused, setIsAddressBarFocused] = useState(false);
@@ -163,15 +164,21 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const updateBrowserSession = useCallback(
     (updater: (state: typeof browserSession) => typeof browserSession) => {
       setBrowserSession((current) =>
-        normalizeBrowserSessionState(updater(current), legacyUrl, resolveViewportHeight()),
+        normalizeBrowserSessionState(
+          updater(current),
+          BROWSER_NEW_TAB_URL,
+          resolveViewportHeight(),
+        ),
       );
     },
-    [legacyUrl, setBrowserSession],
+    [setBrowserSession],
   );
 
   const activeTab =
     browserSession.tabs.find((tab) => tab.id === browserSession.activeTabId) ??
     browserSession.tabs[0];
+  const activeTabIsInternal = activeTab ? isBrowserInternalTabUrl(activeTab.url) : false;
+  const activeTabIsNewTab = activeTab ? isBrowserNewTabUrl(activeTab.url) : false;
   const activeTabIsSettings = activeTab ? isBrowserSettingsTabUrl(activeTab.url) : false;
   const activeTabId = activeTab?.id ?? null;
   const activeTabIsPinned = activeTab ? isPinnedBrowserPage(pinnedPages, activeTab.url) : false;
@@ -180,8 +187,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     ? (tabRuntimeById[activeTab.id] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE)
     : DEFAULT_BROWSER_TAB_RUNTIME_STATE;
   const addressBarSuggestions = useMemo(() => {
-    const openTabs = browserSession.tabs.filter((tab) => !isBrowserSettingsTabUrl(tab.url));
-    return buildBrowserSuggestions(activeTabIsSettings ? draftUrl : draftUrl || activeTabUrl, {
+    const openTabs = browserSession.tabs.filter((tab) => !isBrowserInternalTabUrl(tab.url));
+    return buildBrowserSuggestions(activeTabIsInternal ? draftUrl : draftUrl || activeTabUrl, {
       ...(activeTabId ? { activeTabId } : {}),
       ...(activeTabUrl ? { activePageUrl: activeTabUrl } : {}),
       history: browserHistory,
@@ -191,7 +198,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     });
   }, [
     activeTabId,
-    activeTabIsSettings,
+    activeTabIsInternal,
     activeTabUrl,
     browserHistory,
     browserSearchEngine,
@@ -247,11 +254,11 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     updateBrowserSession((current) =>
       addBrowserTab(current, {
         activate: true,
-        url: resolveBrowserHomeUrl(browserSearchEngine),
+        url: BROWSER_NEW_TAB_URL,
       }),
     );
     focusAddressBar();
-  }, [browserSearchEngine, focusAddressBar, updateBrowserSession]);
+  }, [focusAddressBar, updateBrowserSession]);
 
   const openBrowserSettingsTab = useCallback(() => {
     const existing = browserSession.tabs.find((tab) => isBrowserSettingsTabUrl(tab.url));
@@ -275,9 +282,9 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
 
   const closeTab = useCallback(
     (tabId: string) => {
-      updateBrowserSession((current) => closeBrowserTab(current, tabId, legacyUrl));
+      updateBrowserSession((current) => closeBrowserTab(current, tabId, BROWSER_NEW_TAB_URL));
     },
-    [legacyUrl, updateBrowserSession],
+    [updateBrowserSession],
   );
 
   const closeActiveTab = useCallback(() => {
@@ -442,7 +449,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   }, [setBrowserHistory]);
 
   const togglePinnedActivePage = useCallback(() => {
-    if (!activeTab || activeTabIsSettings) {
+    if (!activeTab || activeTabIsInternal) {
       return;
     }
 
@@ -459,7 +466,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       type: "success",
       title: activeTabIsPinned ? "Pinned page removed." : "Page pinned.",
     });
-  }, [activeTab, activeTabIsPinned, activeTabIsSettings, setPinnedPages]);
+  }, [activeTab, activeTabIsInternal, activeTabIsPinned, setPinnedPages]);
 
   const removePinnedPage = useCallback(
     (url: string) => {
@@ -619,11 +626,11 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   }, [api]);
 
   const openActiveTabExternally = useCallback(() => {
-    if (!activeTab || activeTabIsSettings) {
+    if (!activeTab || activeTabIsInternal) {
       return;
     }
     void api?.shell.openExternal(activeTab.url);
-  }, [activeTab, activeTabIsSettings, api]);
+  }, [activeTab, activeTabIsInternal, api]);
 
   const handleAddressBarKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -769,7 +776,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         };
       });
       updateBrowserSession((current) => updateBrowserTab(current, tabId, snapshot));
-      if (!isBrowserSettingsTabUrl(snapshot.url)) {
+      if (!isBrowserInternalTabUrl(snapshot.url)) {
         setBrowserHistory((current) =>
           recordBrowserHistory(current, {
             title: snapshot.title,
@@ -902,8 +909,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       : null;
 
   useEffect(() => {
-    setDraftUrl(activeTabIsSettings ? "" : activeTabUrl);
-  }, [activeTabIsSettings, activeTabUrl]);
+    setDraftUrl(activeTabIsInternal ? "" : activeTabUrl);
+  }, [activeTabIsInternal, activeTabUrl]);
 
   useEffect(() => {
     setSelectedSuggestionIndex(0);
@@ -1079,6 +1086,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     activateTab,
     activeRuntime,
     activeTab,
+    activeTabIsInternal,
+    activeTabIsNewTab,
     activeTabIsPinned,
     activeTabIsSettings,
     addressBarSuggestions,

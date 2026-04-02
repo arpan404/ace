@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BROWSER_NEW_TAB_TITLE,
+  BROWSER_NEW_TAB_URL,
   BROWSER_SETTINGS_TAB_URL,
   DEFAULT_BROWSER_PANEL_HEIGHT,
   addBrowserTab,
   clampBrowserPanelHeight,
   closeBrowserTab,
+  createBrowserNewTab,
   createBrowserSessionState,
   createBrowserSettingsTab,
+  isBrowserNewTabUrl,
   isBrowserSettingsTabUrl,
   normalizeBrowserSessionState,
   resolveBrowserTabTitle,
@@ -15,6 +19,14 @@ import {
 } from "./session";
 
 describe("browser session", () => {
+  it("defaults to an internal new tab page", () => {
+    const state = createBrowserSessionState();
+
+    expect(state.tabs).toHaveLength(1);
+    expect(state.tabs[0]?.url).toBe(BROWSER_NEW_TAB_URL);
+    expect(state.tabs[0]?.title).toBe(BROWSER_NEW_TAB_TITLE);
+  });
+
   it("creates a single initial tab", () => {
     const state = createBrowserSessionState("https://example.com/");
 
@@ -31,6 +43,13 @@ describe("browser session", () => {
     expect(state.tabs).toHaveLength(2);
     expect(state.activeTabId).toBe(state.tabs[1]?.id);
     expect(state.tabs[1]?.url).toBe("https://openai.com/");
+  });
+
+  it("creates a new-tab page when no URL is provided", () => {
+    const state = addBrowserTab(createBrowserSessionState("https://example.com/"));
+
+    expect(state.tabs[1]?.url).toBe(BROWSER_NEW_TAB_URL);
+    expect(state.tabs[1]?.title).toBe(BROWSER_NEW_TAB_TITLE);
   });
 
   it("updates tab title and url", () => {
@@ -129,5 +148,17 @@ describe("browser session", () => {
     });
     expect(isBrowserSettingsTabUrl(tab.url)).toBe(true);
     expect(resolveBrowserTabTitle(tab.url)).toBe("Browser settings");
+  });
+
+  it("creates a dedicated new-tab page", () => {
+    const tab = createBrowserNewTab("new-tab");
+
+    expect(tab).toEqual({
+      id: "new-tab",
+      title: BROWSER_NEW_TAB_TITLE,
+      url: BROWSER_NEW_TAB_URL,
+    });
+    expect(isBrowserNewTabUrl(tab.url)).toBe(true);
+    expect(resolveBrowserTabTitle(tab.url)).toBe(BROWSER_NEW_TAB_TITLE);
   });
 });
