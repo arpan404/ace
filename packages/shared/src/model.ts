@@ -4,9 +4,11 @@ import {
   type ClaudeCodeEffort,
   type ClaudeModelOptions,
   type CodexModelOptions,
+  type GitHubCopilotModelOptions,
   type ModelCapabilities,
   type ModelSelection,
   type ProviderKind,
+  type ProviderModelOptions,
 } from "@t3tools/contracts";
 
 export interface SelectableModelOption {
@@ -115,6 +117,66 @@ export function normalizeClaudeModelOptionsWithCapabilities(
     ...(contextWindow !== undefined ? { contextWindow } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
+}
+
+export function normalizeGitHubCopilotModelOptionsWithCapabilities(
+  caps: ModelCapabilities,
+  modelOptions: GitHubCopilotModelOptions | null | undefined,
+): GitHubCopilotModelOptions | undefined {
+  const reasoningEffort = resolveEffort(caps, modelOptions?.reasoningEffort);
+  const nextOptions: GitHubCopilotModelOptions = reasoningEffort
+    ? {
+        reasoningEffort: reasoningEffort as GitHubCopilotModelOptions["reasoningEffort"],
+      }
+    : {};
+  return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
+}
+
+export function buildProviderModelSelection(
+  provider: "codex",
+  model: string,
+  options?: ProviderModelOptions["codex"],
+): Extract<ModelSelection, { provider: "codex" }>;
+export function buildProviderModelSelection(
+  provider: "claudeAgent",
+  model: string,
+  options?: ProviderModelOptions["claudeAgent"],
+): Extract<ModelSelection, { provider: "claudeAgent" }>;
+export function buildProviderModelSelection(
+  provider: "githubCopilot",
+  model: string,
+  options?: ProviderModelOptions["githubCopilot"],
+): Extract<ModelSelection, { provider: "githubCopilot" }>;
+export function buildProviderModelSelection(
+  provider: ProviderKind,
+  model: string,
+  options?: ProviderModelOptions[ProviderKind],
+): ModelSelection;
+export function buildProviderModelSelection(
+  provider: ProviderKind,
+  model: string,
+  options?: unknown,
+): ModelSelection {
+  switch (provider) {
+    case "codex":
+      return {
+        provider,
+        model,
+        ...(options ? { options: options as ProviderModelOptions["codex"] } : {}),
+      } as Extract<ModelSelection, { provider: "codex" }>;
+    case "claudeAgent":
+      return {
+        provider,
+        model,
+        ...(options ? { options: options as ProviderModelOptions["claudeAgent"] } : {}),
+      } as Extract<ModelSelection, { provider: "claudeAgent" }>;
+    case "githubCopilot":
+      return {
+        provider,
+        model,
+        ...(options ? { options: options as ProviderModelOptions["githubCopilot"] } : {}),
+      } as Extract<ModelSelection, { provider: "githubCopilot" }>;
+  }
 }
 
 export function isClaudeUltrathinkPrompt(text: string | null | undefined): boolean {

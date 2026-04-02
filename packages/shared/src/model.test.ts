@@ -10,6 +10,7 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeClaudeModelOptionsWithCapabilities,
   normalizeCodexModelOptionsWithCapabilities,
+  normalizeGitHubCopilotModelOptionsWithCapabilities,
   normalizeModelSlug,
   resolveApiModelId,
   resolveContextWindow,
@@ -44,6 +45,18 @@ const claudeCaps: ModelCapabilities = {
     { value: "1m", label: "1M", isDefault: true },
   ],
   promptInjectedEffortLevels: ["ultrathink"],
+};
+
+const githubCopilotCaps: ModelCapabilities = {
+  reasoningEffortLevels: [
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High", isDefault: true },
+    { value: "xhigh", label: "Extra High" },
+  ],
+  supportsFastMode: false,
+  supportsThinkingToggle: false,
+  contextWindowOptions: [],
+  promptInjectedEffortLevels: [],
 };
 
 describe("normalizeModelSlug", () => {
@@ -280,5 +293,29 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
     ).toEqual({
       thinking: true,
     });
+  });
+
+  it("normalizes GitHub Copilot reasoning effort against capabilities", () => {
+    expect(
+      normalizeGitHubCopilotModelOptionsWithCapabilities(githubCopilotCaps, {
+        reasoningEffort: "medium",
+      }),
+    ).toEqual({
+      reasoningEffort: "medium",
+    });
+  });
+
+  it("drops GitHub Copilot reasoning effort for models without effort controls", () => {
+    expect(
+      normalizeGitHubCopilotModelOptionsWithCapabilities(
+        {
+          ...githubCopilotCaps,
+          reasoningEffortLevels: [],
+        },
+        {
+          reasoningEffort: "high",
+        },
+      ),
+    ).toBeUndefined();
   });
 });

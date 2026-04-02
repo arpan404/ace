@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ServerProviderModel } from "@t3tools/contracts";
-import { getComposerProviderState } from "./composerProviderRegistry";
+import { ThreadId, type ServerProviderModel } from "@t3tools/contracts";
+import { getComposerProviderState, renderProviderTraitsPicker } from "./composerProviderRegistry";
 
 const CODEX_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
@@ -100,6 +100,37 @@ const CLAUDE_MODELS_WITH_CONTEXT_WINDOW: ReadonlyArray<ServerProviderModel> = [
       reasoningEffortLevels: [],
       supportsFastMode: false,
       supportsThinkingToggle: true,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
+    },
+  },
+];
+
+const GITHUB_COPILOT_MODELS: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "gpt-5",
+    name: "GPT-5",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [
+        { value: "medium", label: "Medium" },
+        { value: "high", label: "High", isDefault: true },
+        { value: "xhigh", label: "Extra High" },
+      ],
+      supportsFastMode: false,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
+    },
+  },
+  {
+    slug: "gpt-4.1",
+    name: "GPT-4.1",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [],
+      supportsFastMode: false,
+      supportsThinkingToggle: false,
       contextWindowOptions: [],
       promptInjectedEffortLevels: [],
     },
@@ -415,5 +446,59 @@ describe("getComposerProviderState", () => {
     });
 
     expect(state.modelOptionsForDispatch).not.toHaveProperty("fastMode");
+  });
+
+  it("returns Copilot defaults for reasoning-capable models", () => {
+    const state = getComposerProviderState({
+      provider: "githubCopilot",
+      model: "gpt-5",
+      models: GITHUB_COPILOT_MODELS,
+      prompt: "",
+      modelOptions: undefined,
+    });
+
+    expect(state).toEqual({
+      provider: "githubCopilot",
+      promptEffort: "high",
+      modelOptionsForDispatch: {
+        reasoningEffort: "high",
+      },
+    });
+  });
+
+  it("drops Copilot reasoning effort for models without reasoning controls", () => {
+    const state = getComposerProviderState({
+      provider: "githubCopilot",
+      model: "gpt-4.1",
+      models: GITHUB_COPILOT_MODELS,
+      prompt: "",
+      modelOptions: {
+        githubCopilot: {
+          reasoningEffort: "high",
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "githubCopilot",
+      promptEffort: null,
+      modelOptionsForDispatch: undefined,
+    });
+  });
+});
+
+describe("renderProviderTraitsPicker", () => {
+  it("returns null when the selected provider model exposes no visible traits", () => {
+    const picker = renderProviderTraitsPicker({
+      provider: "githubCopilot",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      model: "gpt-4.1",
+      models: GITHUB_COPILOT_MODELS,
+      modelOptions: undefined,
+      prompt: "",
+      onPromptChange: () => undefined,
+    });
+
+    expect(picker).toBeNull();
   });
 });
