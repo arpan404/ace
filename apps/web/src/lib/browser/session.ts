@@ -6,6 +6,8 @@ import { DEFAULT_BROWSER_HOME_URL, normalizeBrowserHttpUrl } from "~/lib/browser
 
 export const BROWSER_SESSION_STORAGE_KEY = "t3code:browser:session:v1";
 export const LEGACY_BROWSER_LAST_URL_STORAGE_KEY = "t3code:browser:last-url";
+export const BROWSER_NEW_TAB_URL = "t3://browser/new-tab";
+export const BROWSER_NEW_TAB_TITLE = "New tab";
 export const BROWSER_SETTINGS_TAB_URL = "t3://browser/settings";
 export const BROWSER_SETTINGS_TAB_TITLE = "Browser settings";
 export const DEFAULT_BROWSER_PANEL_HEIGHT = 360;
@@ -28,11 +30,23 @@ export const BrowserSessionStorageSchema = Schema.Struct({
 });
 export type BrowserSessionStorage = typeof BrowserSessionStorageSchema.Type;
 
+export function isBrowserNewTabUrl(url: string): boolean {
+  return url === BROWSER_NEW_TAB_URL;
+}
+
 export function isBrowserSettingsTabUrl(url: string): boolean {
   return url === BROWSER_SETTINGS_TAB_URL;
 }
 
+export function isBrowserInternalTabUrl(url: string): boolean {
+  return isBrowserNewTabUrl(url) || isBrowserSettingsTabUrl(url);
+}
+
 export function resolveBrowserTabTitle(url: string, title?: string | null): string {
+  if (isBrowserNewTabUrl(url)) {
+    return BROWSER_NEW_TAB_TITLE;
+  }
+
   if (isBrowserSettingsTabUrl(url)) {
     return BROWSER_SETTINGS_TAB_TITLE;
   }
@@ -60,6 +74,14 @@ export function createBrowserSettingsTab(id = randomUUID()): BrowserTabState {
     id,
     title: BROWSER_SETTINGS_TAB_TITLE,
     url: BROWSER_SETTINGS_TAB_URL,
+  };
+}
+
+export function createBrowserNewTab(id = randomUUID()): BrowserTabState {
+  return {
+    id,
+    title: BROWSER_NEW_TAB_TITLE,
+    url: BROWSER_NEW_TAB_URL,
   };
 }
 
@@ -96,16 +118,14 @@ export function createBrowserTabState(
 }
 
 function normalizeStoredBrowserTabUrl(url: string, fallbackUrl: string): string {
-  if (isBrowserSettingsTabUrl(url)) {
+  if (isBrowserInternalTabUrl(url)) {
     return url;
   }
 
   return normalizeBrowserHttpUrl(url) ?? fallbackUrl;
 }
 
-export function createBrowserSessionState(
-  initialUrl = DEFAULT_BROWSER_HOME_URL,
-): BrowserSessionStorage {
+export function createBrowserSessionState(initialUrl = BROWSER_NEW_TAB_URL): BrowserSessionStorage {
   const initialTab = createBrowserTabState(initialUrl);
   return {
     activeTabId: initialTab.id,
@@ -168,7 +188,7 @@ export function addBrowserTab(
   state: BrowserSessionStorage,
   options?: { activate?: boolean; url?: string },
 ): BrowserSessionStorage {
-  const nextTab = createBrowserTabState(options?.url ?? DEFAULT_BROWSER_HOME_URL);
+  const nextTab = createBrowserTabState(options?.url ?? BROWSER_NEW_TAB_URL);
   return {
     ...state,
     activeTabId: options?.activate === false ? state.activeTabId : nextTab.id,
