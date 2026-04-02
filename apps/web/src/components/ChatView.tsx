@@ -119,6 +119,7 @@ import {
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
+import { deriveTerminalTitleFromCommand } from "~/lib/terminalPresentation";
 import {
   getProviderModelCapabilities,
   getProviderModels,
@@ -573,6 +574,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const storeSplitTerminal = useTerminalStateStore((s) => s.splitTerminal);
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
   const storeSetActiveTerminal = useTerminalStateStore((s) => s.setActiveTerminal);
+  const storeMoveTerminal = useTerminalStateStore((s) => s.moveTerminal);
+  const storeRenameTerminal = useTerminalStateStore((s) => s.renameTerminal);
+  const storeSetTerminalAutoTitle = useTerminalStateStore((s) => s.setTerminalAutoTitle);
+  const storeSetTerminalGroupSplitRatios = useTerminalStateStore(
+    (s) => s.setTerminalGroupSplitRatios,
+  );
   const storeCloseTerminal = useTerminalStateStore((s) => s.closeTerminal);
 
   const setPrompt = useCallback(
@@ -1512,6 +1519,62 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [activeThreadId, storeSetActiveTerminal],
   );
+  const moveTerminal = useCallback(
+    (terminalId: string, targetGroupId: string, targetIndex: number) => {
+      if (!activeThreadId) return;
+      storeMoveTerminal(activeThreadId, terminalId, targetGroupId, targetIndex);
+    },
+    [activeThreadId, storeMoveTerminal],
+  );
+  const renameTerminal = useCallback(
+    (terminalId: string, title: string) => {
+      if (!activeThreadId) return;
+      storeRenameTerminal(activeThreadId, terminalId, title);
+    },
+    [activeThreadId, storeRenameTerminal],
+  );
+  const clearTerminal = useCallback(
+    (terminalId: string) => {
+      const api = readNativeApi();
+      if (!activeThreadId || !api) return;
+      void api.terminal.clear({ threadId: activeThreadId, terminalId }).catch(() => undefined);
+    },
+    [activeThreadId],
+  );
+  const restartTerminal = useCallback(
+    (terminalId: string) => {
+      const api = readNativeApi();
+      if (!activeThreadId || !api || !activeProject) return;
+      void api.terminal
+        .restart({
+          threadId: activeThreadId,
+          terminalId,
+          cwd: gitCwd ?? activeProject.cwd,
+          env: threadTerminalRuntimeEnv,
+          cols: SCRIPT_TERMINAL_COLS,
+          rows: SCRIPT_TERMINAL_ROWS,
+        })
+        .then(() => {
+          setTerminalFocusRequestId((value) => value + 1);
+        })
+        .catch(() => undefined);
+    },
+    [activeProject, activeThreadId, gitCwd, threadTerminalRuntimeEnv],
+  );
+  const setTerminalAutoTitle = useCallback(
+    (terminalId: string, title: string | null) => {
+      if (!activeThreadId) return;
+      storeSetTerminalAutoTitle(activeThreadId, terminalId, title);
+    },
+    [activeThreadId, storeSetTerminalAutoTitle],
+  );
+  const setTerminalGroupSplitRatios = useCallback(
+    (groupId: string, ratios: number[]) => {
+      if (!activeThreadId) return;
+      storeSetTerminalGroupSplitRatios(activeThreadId, groupId, ratios);
+    },
+    [activeThreadId, storeSetTerminalGroupSplitRatios],
+  );
   const closeTerminal = useCallback(
     (terminalId: string) => {
       const api = readNativeApi();
@@ -1579,6 +1642,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
       } else {
         storeSetActiveTerminal(activeThreadId, targetTerminalId);
       }
+      storeSetTerminalAutoTitle(
+        activeThreadId,
+        targetTerminalId,
+        deriveTerminalTitleFromCommand(script.command) ?? script.name,
+      );
       setTerminalFocusRequestId((value) => value + 1);
 
       const runtimeEnv = projectScriptRuntimeEnv({
@@ -1626,6 +1694,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setTerminalOpen,
       setThreadError,
       storeNewTerminal,
+      storeSetTerminalAutoTitle,
       storeSetActiveTerminal,
       setLastInvokedScriptByProjectId,
       terminalState.activeTerminalId,
@@ -2451,6 +2520,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return;
       }
 
+      if (command === "chat.togglePlanMode") {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleInteractionMode();
+        return;
+      }
+
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject) return;
       const script = activeProject.scripts.find((entry) => entry.id === scriptId);
@@ -2473,6 +2549,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     splitTerminal,
     keybindings,
     onToggleDiff,
+    toggleInteractionMode,
     toggleTerminalVisibility,
   ]);
 
@@ -3736,7 +3813,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           </header>
         )}
         {isElectron && (
-          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-5">
+          <div className="drag-region flex h-13 shrink-0 items-center border-b border-border px-5">
             <span className="text-xs text-muted-foreground/50">No active thread</span>
           </div>
         )}
@@ -3755,7 +3832,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       <header
         className={cn(
           "border-b border-border px-3 sm:px-5",
-          isElectron ? "drag-region flex h-[52px] items-center" : "py-2 sm:py-3",
+          isElectron ? "drag-region flex h-13 items-center" : "py-2 sm:py-3",
         )}
       >
         <ChatHeader
@@ -3860,7 +3937,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             <form
               ref={composerFormRef}
               onSubmit={onSend}
-              className="mx-auto w-full min-w-0 max-w-[52rem]"
+              className="mx-auto w-full min-w-0 max-w-208"
               data-chat-composer-form="true"
             >
               <div
@@ -3875,7 +3952,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               >
                 <div
                   className={cn(
-                    "rounded-[20px] border bg-card transition-colors duration-200 has-focus-visible:border-ring/45",
+                    "rounded-4xl border bg-card transition-colors duration-200 has-focus-visible:border-ring/45",
                     isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border",
                     composerProviderState.composerSurfaceClassName,
                   )}
@@ -4119,7 +4196,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                   : "Default mode — click to enter plan mode"
                               }
                             >
-                              <BotIcon />
+                              {interactionMode === "plan" ? (
+                                <ListTodoIcon className="size-4" />
+                              ) : (
+                                <BotIcon className="size-4" />
+                              )}
                               <span className="sr-only sm:not-sr-only">
                                 {interactionMode === "plan" ? "Plan" : "Chat"}
                               </span>
@@ -4299,6 +4380,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
             activeTerminalId={terminalState.activeTerminalId}
             terminalGroups={terminalState.terminalGroups}
             activeTerminalGroupId={terminalState.activeTerminalGroupId}
+            runningTerminalIds={terminalState.runningTerminalIds}
+            customTerminalTitlesById={terminalState.customTerminalTitlesById}
+            autoTerminalTitlesById={terminalState.autoTerminalTitlesById}
+            splitRatiosByGroupId={terminalState.splitRatiosByGroupId}
             focusRequestId={terminalFocusRequestId}
             onSplitTerminal={splitTerminal}
             onNewTerminal={createNewTerminal}
@@ -4306,6 +4391,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
             newShortcutLabel={newTerminalShortcutLabel ?? undefined}
             closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
             onActiveTerminalChange={activateTerminal}
+            onMoveTerminal={moveTerminal}
+            onRenameTerminal={renameTerminal}
+            onClearTerminal={clearTerminal}
+            onRestartTerminal={restartTerminal}
+            onAutoTerminalTitleChange={setTerminalAutoTitle}
+            onSplitRatiosChange={setTerminalGroupSplitRatios}
             onCloseTerminal={closeTerminal}
             onHeightChange={setTerminalHeight}
             onAddTerminalContext={addTerminalContextToDraft}
