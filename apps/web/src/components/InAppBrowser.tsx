@@ -414,7 +414,13 @@ function BrowserTabWebview(props: {
 
   return (
     <div
-      className={cn("absolute inset-0 min-h-0 [&_webview]:size-full", active ? "block" : "hidden")}
+      aria-hidden={!active}
+      className={cn(
+        "absolute inset-0 min-h-0 [&_webview]:size-full",
+        active
+          ? "pointer-events-auto visible opacity-100"
+          : "pointer-events-none invisible opacity-0",
+      )}
     >
       <div ref={hostRef} className="size-full min-h-0" />
     </div>

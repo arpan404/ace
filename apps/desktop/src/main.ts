@@ -14,6 +14,7 @@ import {
   nativeImage,
   nativeTheme,
   protocol,
+  session,
   shell,
 } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
@@ -740,6 +741,21 @@ function configureAppIdentity(): void {
   }
 }
 
+function getInAppBrowserSession(): Electron.Session {
+  return session.fromPartition(IN_APP_BROWSER_PARTITION);
+}
+
+function flushInAppBrowserSessionStorage(): void {
+  try {
+    const browserSession = getInAppBrowserSession();
+    browserSession.flushStorageData();
+  } catch (error) {
+    writeDesktopLogHeader(
+      `in-app browser session lookup failed error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
+  }
+}
+
 function clearUpdatePollTimer(): void {
   if (updateStartupTimer) {
     clearTimeout(updateStartupTimer);
@@ -1455,6 +1471,7 @@ app.on("before-quit", () => {
   isQuitting = true;
   updateInstallInFlight = false;
   writeDesktopLogHeader("before-quit received");
+  flushInAppBrowserSessionStorage();
   clearUpdatePollTimer();
   stopBackend();
   restoreStdIoCapture?.();
