@@ -65,6 +65,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+[", command: "browser.back", when: "browserOpen && !terminalFocus" },
   { key: "mod+]", command: "browser.forward", when: "browserOpen && !terminalFocus" },
   { key: "mod+r", command: "browser.reload", when: "browserOpen && !terminalFocus" },
+  { key: "mod+shift+i", command: "browser.devtools", when: "browserOpen && !terminalFocus" },
   { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },

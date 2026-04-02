@@ -53,6 +53,12 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedBrowserReload.command, "browser.reload");
 
+    const parsedBrowserDevTools = yield* decode(KeybindingRule, {
+      key: "mod+shift+i",
+      command: "browser.devtools",
+    });
+    assert.strictEqual(parsedBrowserDevTools.command, "browser.devtools");
+
     const parsedLocal = yield* decode(KeybindingRule, {
       key: "mod+shift+n",
       command: "chat.newLocal",

@@ -32,6 +32,14 @@ export function createWsNativeApi(): NativeApi {
         return window.confirm(message);
       },
     },
+    browser: {
+      repairStorage: async () => {
+        if (!window.desktopBridge) {
+          return false;
+        }
+        return window.desktopBridge.repairBrowserStorage();
+      },
+    },
     terminal: {
       open: (input) => rpcClient.terminal.open(input as never),
       write: (input) => rpcClient.terminal.write(input as never),

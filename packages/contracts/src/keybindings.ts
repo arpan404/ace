@@ -37,6 +37,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "browser.back",
   "browser.forward",
   "browser.reload",
+  "browser.devtools",
   "chat.new",
   "chat.newLocal",
   "chat.togglePlanMode",

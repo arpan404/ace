@@ -6,7 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
-import { DiffIcon, GlobeIcon, TerminalSquareIcon } from "lucide-react";
+import { BugIcon, DiffIcon, GlobeIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
@@ -31,6 +31,7 @@ interface ChatHeaderProps {
   browserToggleShortcutLabel: string | null;
   browserAvailable: boolean;
   browserOpen: boolean;
+  browserDevToolsOpen: boolean;
   gitCwd: string | null;
   diffOpen: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
@@ -60,6 +61,7 @@ export const ChatHeader = memo(function ChatHeader({
   browserToggleShortcutLabel,
   browserAvailable,
   browserOpen,
+  browserDevToolsOpen,
   gitCwd,
   diffOpen,
   onRunProjectScript,
@@ -129,15 +131,24 @@ export const ChatHeader = memo(function ChatHeader({
                   variant="outline"
                   size="xs"
                 >
-                  <GlobeIcon className="size-3" />
+                  <span className="relative flex items-center justify-center">
+                    <GlobeIcon className="size-3" />
+                    {browserOpen && browserDevToolsOpen ? (
+                      <span className="absolute -top-1 -right-1 flex size-3 items-center justify-center rounded-full border border-background bg-amber-500 text-amber-950 shadow-sm">
+                        <BugIcon className="size-2" />
+                      </span>
+                    ) : null}
+                  </span>
                 </Toggle>
               }
             />
             <TooltipPopup side="bottom">
               {browserOpen
                 ? browserToggleShortcutLabel
-                  ? `Close in-app browser (${browserToggleShortcutLabel})`
-                  : "Close in-app browser"
+                  ? `${browserDevToolsOpen ? "Close in-app browser · DevTools open" : "Close in-app browser"} (${browserToggleShortcutLabel})`
+                  : browserDevToolsOpen
+                    ? "Close in-app browser · DevTools open"
+                    : "Close in-app browser"
                 : browserToggleShortcutLabel
                   ? `Double-click to open in-app browser (${browserToggleShortcutLabel})`
                   : "Double-click to open in-app browser"}

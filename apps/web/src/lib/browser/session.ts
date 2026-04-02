@@ -2,10 +2,12 @@ import * as Schema from "effect/Schema";
 
 import { getLocalStorageItem } from "~/hooks/useLocalStorage";
 import { randomUUID } from "~/lib/utils";
-import { DEFAULT_BROWSER_HOME_URL } from "./browserUrl";
+import { DEFAULT_BROWSER_HOME_URL } from "~/lib/browser/url";
 
 export const BROWSER_SESSION_STORAGE_KEY = "t3code:browser:session:v1";
 export const LEGACY_BROWSER_LAST_URL_STORAGE_KEY = "t3code:browser:last-url";
+export const BROWSER_SETTINGS_TAB_URL = "t3://browser/settings";
+export const BROWSER_SETTINGS_TAB_TITLE = "Browser settings";
 export const DEFAULT_BROWSER_PANEL_HEIGHT = 360;
 export const MIN_BROWSER_PANEL_HEIGHT = 288;
 
@@ -26,7 +28,15 @@ export const BrowserSessionStorageSchema = Schema.Struct({
 });
 export type BrowserSessionStorage = typeof BrowserSessionStorageSchema.Type;
 
+export function isBrowserSettingsTabUrl(url: string): boolean {
+  return url === BROWSER_SETTINGS_TAB_URL;
+}
+
 export function resolveBrowserTabTitle(url: string, title?: string | null): string {
+  if (isBrowserSettingsTabUrl(url)) {
+    return BROWSER_SETTINGS_TAB_TITLE;
+  }
+
   const normalizedTitle = title?.trim();
   if (normalizedTitle && normalizedTitle.length > 0) {
     return normalizedTitle;
@@ -43,6 +53,14 @@ export function resolveBrowserTabTitle(url: string, title?: string | null): stri
   }
 
   return "New tab";
+}
+
+export function createBrowserSettingsTab(id = randomUUID()): BrowserTabState {
+  return {
+    id,
+    title: BROWSER_SETTINGS_TAB_TITLE,
+    url: BROWSER_SETTINGS_TAB_URL,
+  };
 }
 
 export function clampBrowserPanelHeight(

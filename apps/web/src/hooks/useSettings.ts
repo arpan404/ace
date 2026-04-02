@@ -17,6 +17,7 @@ import {
   ThreadEnvMode,
 } from "@t3tools/contracts";
 import {
+  BrowserSearchEngine,
   type ClientSettings,
   ClientSettingsSchema,
   DEFAULT_CLIENT_SETTINGS,
@@ -193,6 +194,10 @@ export function buildLegacyClientSettingsMigrationPatch(
   legacySettings: Record<string, unknown>,
 ): Partial<DeepMutable<ClientSettings>> {
   const patch: Partial<DeepMutable<ClientSettings>> = {};
+
+  if (Schema.is(BrowserSearchEngine)(legacySettings.browserSearchEngine)) {
+    patch.browserSearchEngine = legacySettings.browserSearchEngine;
+  }
 
   if (Predicate.isBoolean(legacySettings.confirmThreadArchive)) {
     patch.confirmThreadArchive = legacySettings.confirmThreadArchive;

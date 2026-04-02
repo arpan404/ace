@@ -69,6 +69,25 @@ export type DesktopUpdateStatus =
 
 export type DesktopRuntimeArch = "arm64" | "x64" | "other";
 export type DesktopTheme = "light" | "dark" | "system";
+export type BrowserShortcutAction =
+  | "back"
+  | "close-tab"
+  | "devtools"
+  | "focus-address-bar"
+  | "forward"
+  | "new-tab"
+  | "next-tab"
+  | "previous-tab"
+  | "reload"
+  | "select-tab-1"
+  | "select-tab-2"
+  | "select-tab-3"
+  | "select-tab-4"
+  | "select-tab-5"
+  | "select-tab-6"
+  | "select-tab-7"
+  | "select-tab-8"
+  | "select-tab-9";
 
 export interface DesktopRuntimeInfo {
   hostArch: DesktopRuntimeArch;
@@ -107,6 +126,7 @@ export interface DesktopBridge {
   getWsUrl: () => string | null;
   pickFolder: () => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
+  repairBrowserStorage: () => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
   showContextMenu: <T extends string>(
     items: readonly ContextMenuItem<T>[],
@@ -120,12 +140,17 @@ export interface DesktopBridge {
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
   onBrowserOpenUrl?: (listener: (url: string) => void) => () => void;
+  onBrowserContextMenuShown?: (listener: () => void) => () => void;
+  onBrowserShortcutAction?: (listener: (action: BrowserShortcutAction) => void) => () => void;
 }
 
 export interface NativeApi {
   dialogs: {
     pickFolder: () => Promise<string | null>;
     confirm: (message: string) => Promise<boolean>;
+  };
+  browser: {
+    repairStorage: () => Promise<boolean>;
   };
   terminal: {
     open: (input: typeof TerminalOpenInput.Encoded) => Promise<TerminalSessionSnapshot>;

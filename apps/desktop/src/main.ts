@@ -20,6 +20,7 @@ import {
 import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
 import type {
+  BrowserShortcutAction,
   DesktopTheme,
   DesktopUpdateActionResult,
   DesktopUpdateCheckResult,
@@ -52,6 +53,7 @@ syncShellEnvironment();
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
+const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
@@ -63,6 +65,8 @@ const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
+const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
+const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
 const BASE_DIR = process.env.T3CODE_HOME?.trim() || Path.join(OS.homedir(), ".t3");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "t3";
@@ -179,6 +183,37 @@ function getSafeExternalUrl(rawUrl: unknown): string | null {
 function getSafeTheme(rawTheme: unknown): DesktopTheme | null {
   if (rawTheme === "light" || rawTheme === "dark" || rawTheme === "system") {
     return rawTheme;
+  }
+
+  return null;
+}
+
+function resolveBrowserShortcutAction(input: Electron.Input): BrowserShortcutAction | null {
+  if (input.type !== "keyDown") {
+    return null;
+  }
+
+  const usesMod = process.platform === "darwin" ? input.meta === true : input.control === true;
+  if (!usesMod || input.alt === true) {
+    return null;
+  }
+
+  const key = input.key.toLowerCase();
+  if (input.shift === true) {
+    if (key === "i") return "devtools";
+    if (key === "[") return "previous-tab";
+    if (key === "]") return "next-tab";
+    return null;
+  }
+
+  if (key === "[") return "back";
+  if (key === "]") return "forward";
+  if (key === "l") return "focus-address-bar";
+  if (key === "n") return "new-tab";
+  if (key === "r") return "reload";
+  if (key === "w") return "close-tab";
+  if (key >= "1" && key <= "9") {
+    return `select-tab-${key}` as BrowserShortcutAction;
   }
 
   return null;
@@ -756,6 +791,22 @@ function flushInAppBrowserSessionStorage(): void {
   }
 }
 
+async function repairInAppBrowserStorage(): Promise<boolean> {
+  try {
+    const browserSession = getInAppBrowserSession();
+    await browserSession.clearStorageData();
+    await browserSession.clearCache();
+    browserSession.flushStorageData();
+    writeDesktopLogHeader("in-app browser storage repaired");
+    return true;
+  } catch (error) {
+    writeDesktopLogHeader(
+      `in-app browser storage repair failed error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
+    return false;
+  }
+}
+
 function clearUpdatePollTimer(): void {
   if (updateStartupTimer) {
     clearTimeout(updateStartupTimer);
@@ -1183,6 +1234,11 @@ function registerIpcHandlers(): void {
     return showDesktopConfirmDialog(message, owner);
   });
 
+  ipcMain.removeHandler(REPAIR_BROWSER_STORAGE_CHANNEL);
+  ipcMain.handle(REPAIR_BROWSER_STORAGE_CHANNEL, async () => {
+    return repairInAppBrowserStorage();
+  });
+
   ipcMain.removeHandler(SET_THEME_CHANNEL);
   ipcMain.handle(SET_THEME_CHANNEL, async (_event, rawTheme: unknown) => {
     const theme = getSafeTheme(rawTheme);
@@ -1398,7 +1454,42 @@ function createWindow(): BrowserWindow {
       }
       return { action: "deny" };
     });
-    attachWindowContextMenu(guestContents);
+    guestContents.on("before-input-event", (event, input) => {
+      const action = resolveBrowserShortcutAction(input);
+      if (!action) {
+        return;
+      }
+      event.preventDefault();
+      window.webContents.send(BROWSER_SHORTCUT_ACTION_CHANNEL, action);
+    });
+    guestContents.on("context-menu", (event, params) => {
+      event.preventDefault();
+      window.webContents.send(BROWSER_CONTEXT_MENU_SHOWN_CHANNEL);
+
+      const linkUrl = getSafeExternalUrl(params.linkURL);
+      const menuTemplate = buildWebContentsContextMenuTemplate(
+        {
+          dictionarySuggestions: params.dictionarySuggestions,
+          editFlags: params.editFlags,
+          misspelledWord: params.misspelledWord,
+        },
+        {
+          ...(linkUrl
+            ? {
+                onCopyLink: () => clipboard.writeText(linkUrl),
+                onOpenLink: () => {
+                  void shell.openExternal(linkUrl);
+                },
+              }
+            : {}),
+          onReplaceMisspelling: (suggestion) => {
+            guestContents.replaceMisspelling(suggestion);
+          },
+        },
+      );
+
+      Menu.buildFromTemplate(menuTemplate).popup({ window });
+    });
   });
 
   attachWindowContextMenu(window.webContents);

@@ -4,116 +4,35 @@ import {
   BugIcon,
   Columns2Icon,
   ExternalLinkIcon,
-  GlobeIcon,
   LoaderCircleIcon,
   Maximize2Icon,
+  PinIcon,
   PictureInPicture2Icon,
   PlusIcon,
   RefreshCwIcon,
+  Settings2Icon,
   XIcon,
 } from "lucide-react";
+import { type FormEvent, type RefObject } from "react";
 import {
-  type CSSProperties,
-  type FormEvent,
-  type PointerEvent as ReactPointerEvent,
-  type RefObject,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-
-import { useLocalStorage } from "~/hooks/useLocalStorage";
-import { readNativeApi } from "~/nativeApi";
+  useInAppBrowserState,
+  type ActiveBrowserRuntimeState,
+  type InAppBrowserController,
+  type InAppBrowserMode,
+} from "~/hooks/useInAppBrowserState";
 import { cn } from "~/lib/utils";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { normalizeBrowserInput } from "./browserUrl";
-import {
-  BROWSER_SESSION_STORAGE_KEY,
-  BrowserSessionStorageSchema,
-  type BrowserTabState,
-  addBrowserTab,
-  closeBrowserTab,
-  createBrowserSessionState,
-  normalizeBrowserSessionState,
-  resolveBrowserTabTitle,
-  resolveLegacyBrowserUrl,
-  setActiveBrowserTab,
-  updateBrowserTab,
-} from "./browserSession";
+import { BrowserSettingsPanel, BrowserSuggestionList } from "./browser/BrowserChrome";
+import { BrowserFavicon, BrowserTabWebview } from "./browser/BrowserWebviewSurface";
+import { isBrowserSettingsTabUrl } from "~/lib/browser/session";
 
-const IN_APP_BROWSER_PARTITION = "persist:t3-browser";
-const PIP_MARGIN_PX = 16;
-const MIN_PIP_WIDTH_PX = 320;
-const MIN_PIP_HEIGHT_PX = 216;
-const DEFAULT_PIP_WIDTH_PX = 440;
-const DEFAULT_PIP_HEIGHT_PX = 280;
-
-type BrowserWebview = HTMLElement & {
-  canGoBack: () => boolean;
-  canGoForward: () => boolean;
-  closeDevTools: () => void;
-  getTitle: () => string;
-  getURL: () => string;
-  goBack: () => void;
-  goForward: () => void;
-  isDevToolsOpened: () => boolean;
-  isLoading: () => boolean;
-  loadURL: (url: string) => void;
-  openDevTools: (options?: { mode?: "detach" | "left" | "right" | "bottom" | "undocked" }) => void;
-  reload: () => void;
-  stop: () => void;
-};
-
-type BrowserTabRuntimeState = {
-  canGoBack: boolean;
-  canGoForward: boolean;
-  devToolsOpen: boolean;
-  loading: boolean;
-};
-
-type BrowserTabSnapshot = BrowserTabRuntimeState & {
-  title: string;
-  url: string;
-};
-
-type BrowserTabHandle = {
-  closeDevTools: () => void;
-  goBack: () => void;
-  goForward: () => void;
-  isDevToolsOpen: () => boolean;
-  navigate: (url: string) => void;
-  openDevTools: () => void;
-  reload: () => void;
-  stop: () => void;
-};
-
-const DEFAULT_BROWSER_TAB_RUNTIME_STATE: BrowserTabRuntimeState = {
-  canGoBack: false,
-  canGoForward: false,
-  devToolsOpen: false,
-  loading: false,
-};
-
-export interface InAppBrowserController {
-  closeDevTools: () => void;
-  goBack: () => void;
-  goForward: () => void;
-  openDevTools: () => void;
-  openUrl: (rawUrl: string, options?: { newTab?: boolean }) => void;
-  reload: () => void;
-  toggleDevTools: () => void;
-}
-
-type ActiveBrowserRuntimeState = {
-  devToolsOpen: boolean;
-  loading: boolean;
-};
-
-export type InAppBrowserMode = "full" | "pip" | "split";
+export type {
+  ActiveBrowserRuntimeState,
+  InAppBrowserController,
+  InAppBrowserMode,
+} from "~/hooks/useInAppBrowserState";
 
 interface InAppBrowserProps {
   open: boolean;
@@ -129,302 +48,6 @@ interface InAppBrowserProps {
   forwardShortcutLabel?: string | null;
   reloadShortcutLabel?: string | null;
   viewportRef?: RefObject<HTMLDivElement | null>;
-}
-
-function resolveViewportHeight(): number {
-  return typeof window !== "undefined" ? window.innerHeight : 900;
-}
-
-type BrowserPipBounds = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
-type BrowserViewportRect = {
-  width: number;
-  height: number;
-};
-
-function resolveViewportRect(viewportRef?: RefObject<HTMLDivElement | null>): BrowserViewportRect {
-  const viewport = viewportRef?.current;
-  if (viewport) {
-    return {
-      width: Math.max(0, Math.round(viewport.clientWidth)),
-      height: Math.max(0, Math.round(viewport.clientHeight)),
-    };
-  }
-  return {
-    width: typeof window !== "undefined" ? window.innerWidth : 1280,
-    height: typeof window !== "undefined" ? window.innerHeight : 900,
-  };
-}
-
-function createDefaultPipBounds(viewportRect: BrowserViewportRect): BrowserPipBounds {
-  const width = Math.min(
-    DEFAULT_PIP_WIDTH_PX,
-    Math.max(MIN_PIP_WIDTH_PX, viewportRect.width - PIP_MARGIN_PX * 2),
-  );
-  const height = Math.min(
-    DEFAULT_PIP_HEIGHT_PX,
-    Math.max(MIN_PIP_HEIGHT_PX, viewportRect.height - PIP_MARGIN_PX * 2),
-  );
-  return {
-    width,
-    height,
-    x: Math.max(PIP_MARGIN_PX, viewportRect.width - width - PIP_MARGIN_PX),
-    y: Math.max(PIP_MARGIN_PX, viewportRect.height - height - PIP_MARGIN_PX),
-  };
-}
-
-function clampPipBounds(
-  bounds: BrowserPipBounds,
-  viewportRect: BrowserViewportRect,
-): BrowserPipBounds {
-  const maxWidth = Math.max(MIN_PIP_WIDTH_PX, viewportRect.width - PIP_MARGIN_PX * 2);
-  const maxHeight = Math.max(MIN_PIP_HEIGHT_PX, viewportRect.height - PIP_MARGIN_PX * 2);
-  const width = Math.min(Math.max(Math.round(bounds.width), MIN_PIP_WIDTH_PX), maxWidth);
-  const height = Math.min(Math.max(Math.round(bounds.height), MIN_PIP_HEIGHT_PX), maxHeight);
-  return {
-    width,
-    height,
-    x: Math.min(
-      Math.max(Math.round(bounds.x), PIP_MARGIN_PX),
-      Math.max(PIP_MARGIN_PX, viewportRect.width - width - PIP_MARGIN_PX),
-    ),
-    y: Math.min(
-      Math.max(Math.round(bounds.y), PIP_MARGIN_PX),
-      Math.max(PIP_MARGIN_PX, viewportRect.height - height - PIP_MARGIN_PX),
-    ),
-  };
-}
-
-function resolveBrowserFaviconSources(url: string): string[] {
-  try {
-    const parsed = new URL(url);
-    const domainUrl = encodeURIComponent(parsed.origin);
-    return [
-      `https://www.google.com/s2/favicons?domain_url=${domainUrl}&sz=64`,
-      new URL("/favicon.ico", parsed.origin).toString(),
-    ];
-  } catch {
-    return [];
-  }
-}
-
-function BrowserFavicon(props: {
-  url: string;
-  title: string;
-  className?: string;
-  fallbackClassName?: string;
-}) {
-  const { className, fallbackClassName, title, url } = props;
-  const sources = useMemo(() => resolveBrowserFaviconSources(url), [url]);
-  const [sourceIndex, setSourceIndex] = useState(0);
-
-  useEffect(() => {
-    setSourceIndex(0);
-  }, [sources]);
-
-  const source = sources[sourceIndex];
-  if (!source) {
-    return (
-      <GlobeIcon className={cn("shrink-0", fallbackClassName, className)} aria-hidden="true" />
-    );
-  }
-
-  return (
-    <img
-      alt=""
-      aria-hidden="true"
-      className={cn("shrink-0 rounded-sm object-cover", className)}
-      src={source}
-      title={title}
-      onError={() => {
-        setSourceIndex((current) => {
-          const nextIndex = current + 1;
-          return nextIndex < sources.length ? nextIndex : current;
-        });
-      }}
-    />
-  );
-}
-
-function BrowserTabWebview(props: {
-  active: boolean;
-  tab: BrowserTabState;
-  onHandleChange: (tabId: string, handle: BrowserTabHandle | null) => void;
-  onSnapshotChange: (tabId: string, snapshot: BrowserTabSnapshot) => void;
-}) {
-  const { active, tab, onHandleChange, onSnapshotChange } = props;
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const webviewRef = useRef<BrowserWebview | null>(null);
-  const readyRef = useRef(false);
-  const pendingUrlRef = useRef<string | null>(null);
-  const requestedUrlRef = useRef(tab.url);
-
-  const emitSnapshot = useCallback(() => {
-    const webview = webviewRef.current;
-    if (!webview || !readyRef.current) {
-      return;
-    }
-    const currentUrl = webview.getURL();
-    const resolvedUrl = currentUrl.trim().length > 0 ? currentUrl : requestedUrlRef.current;
-    onSnapshotChange(tab.id, {
-      canGoBack: webview.canGoBack(),
-      canGoForward: webview.canGoForward(),
-      devToolsOpen: webview.isDevToolsOpened(),
-      loading: webview.isLoading(),
-      title: resolveBrowserTabTitle(resolvedUrl, webview.getTitle()),
-      url: resolvedUrl,
-    });
-  }, [onSnapshotChange, tab.id]);
-
-  const navigate = useCallback(
-    (url: string) => {
-      requestedUrlRef.current = url;
-      const webview = webviewRef.current;
-      if (!webview || !readyRef.current) {
-        pendingUrlRef.current = url;
-        return;
-      }
-      const currentUrl = webview.getURL();
-      if (currentUrl === url) {
-        emitSnapshot();
-        return;
-      }
-      webview.loadURL(url);
-    },
-    [emitSnapshot],
-  );
-
-  useEffect(() => {
-    const handle: BrowserTabHandle = {
-      closeDevTools: () => {
-        if (!readyRef.current || !webviewRef.current?.isDevToolsOpened()) return;
-        webviewRef.current.closeDevTools();
-      },
-      goBack: () => {
-        if (!readyRef.current || !webviewRef.current?.canGoBack()) return;
-        webviewRef.current.goBack();
-      },
-      goForward: () => {
-        if (!readyRef.current || !webviewRef.current?.canGoForward()) return;
-        webviewRef.current.goForward();
-      },
-      isDevToolsOpen: () => {
-        if (!readyRef.current || !webviewRef.current) return false;
-        return webviewRef.current.isDevToolsOpened();
-      },
-      navigate,
-      openDevTools: () => {
-        if (!readyRef.current || !webviewRef.current || webviewRef.current.isDevToolsOpened()) {
-          return;
-        }
-        webviewRef.current.openDevTools({ mode: "detach" });
-      },
-      reload: () => {
-        if (!readyRef.current || !webviewRef.current) return;
-        webviewRef.current.reload();
-      },
-      stop: () => {
-        if (!readyRef.current || !webviewRef.current) return;
-        webviewRef.current.stop();
-      },
-    };
-    onHandleChange(tab.id, handle);
-    return () => {
-      onHandleChange(tab.id, null);
-    };
-  }, [navigate, onHandleChange, tab.id]);
-
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host || webviewRef.current) return;
-
-    const webview = document.createElement("webview") as BrowserWebview;
-    webview.className = "size-full bg-background";
-    webview.setAttribute("partition", IN_APP_BROWSER_PARTITION);
-    webview.setAttribute("src", requestedUrlRef.current);
-
-    const handleDomReady = () => {
-      readyRef.current = true;
-      const pendingUrl = pendingUrlRef.current;
-      pendingUrlRef.current = null;
-      if (pendingUrl && pendingUrl !== webview.getURL()) {
-        webview.loadURL(pendingUrl);
-        return;
-      }
-      emitSnapshot();
-    };
-    const handleLoadStart = () => {
-      onSnapshotChange(tab.id, {
-        canGoBack: readyRef.current ? webview.canGoBack() : false,
-        canGoForward: readyRef.current ? webview.canGoForward() : false,
-        devToolsOpen: readyRef.current ? webview.isDevToolsOpened() : false,
-        loading: true,
-        title: resolveBrowserTabTitle(requestedUrlRef.current),
-        url: requestedUrlRef.current,
-      });
-    };
-    const handleNavigation = () => {
-      emitSnapshot();
-    };
-    const handleFailLoad = (event: Event) => {
-      const detail = event as Event & { errorCode?: number };
-      if (detail.errorCode === -3) {
-        return;
-      }
-      emitSnapshot();
-    };
-
-    webview.addEventListener("dom-ready", handleDomReady);
-    webview.addEventListener("did-start-loading", handleLoadStart);
-    webview.addEventListener("did-stop-loading", handleNavigation);
-    webview.addEventListener("did-navigate", handleNavigation);
-    webview.addEventListener("did-navigate-in-page", handleNavigation);
-    webview.addEventListener("devtools-closed", handleNavigation);
-    webview.addEventListener("devtools-opened", handleNavigation);
-    webview.addEventListener("page-title-updated", handleNavigation);
-    webview.addEventListener("did-fail-load", handleFailLoad);
-
-    host.replaceChildren(webview);
-    webviewRef.current = webview;
-
-    return () => {
-      webview.removeEventListener("dom-ready", handleDomReady);
-      webview.removeEventListener("did-start-loading", handleLoadStart);
-      webview.removeEventListener("did-stop-loading", handleNavigation);
-      webview.removeEventListener("did-navigate", handleNavigation);
-      webview.removeEventListener("did-navigate-in-page", handleNavigation);
-      webview.removeEventListener("devtools-closed", handleNavigation);
-      webview.removeEventListener("devtools-opened", handleNavigation);
-      webview.removeEventListener("page-title-updated", handleNavigation);
-      webview.removeEventListener("did-fail-load", handleFailLoad);
-      host.replaceChildren();
-      webviewRef.current = null;
-      readyRef.current = false;
-    };
-  }, [emitSnapshot, onSnapshotChange, tab.id]);
-
-  useEffect(() => {
-    navigate(tab.url);
-  }, [navigate, tab.url]);
-
-  return (
-    <div
-      aria-hidden={!active}
-      className={cn(
-        "absolute inset-0 min-h-0 [&_webview]:size-full",
-        active
-          ? "pointer-events-auto visible opacity-100"
-          : "pointer-events-none invisible opacity-0",
-      )}
-    >
-      <div ref={hostRef} className="size-full min-h-0" />
-    </div>
-  );
 }
 
 export function InAppBrowser(props: InAppBrowserProps) {
@@ -443,333 +66,64 @@ export function InAppBrowser(props: InAppBrowserProps) {
     reloadShortcutLabel,
     viewportRef,
   } = props;
-  const api = readNativeApi();
-  const addressInputRef = useRef<HTMLInputElement | null>(null);
-  const webviewHandlesRef = useRef(new Map<string, BrowserTabHandle>());
-  const pipBoundsRef = useRef<BrowserPipBounds>(
-    createDefaultPipBounds(resolveViewportRect(viewportRef)),
-  );
-  const pipDragStateRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    startBounds: BrowserPipBounds;
-  } | null>(null);
-  const pipResizeStateRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    startBounds: BrowserPipBounds;
-  } | null>(null);
-  const legacyUrl = useMemo(() => resolveLegacyBrowserUrl(), []);
-  const [browserSession, setBrowserSession] = useLocalStorage(
-    BROWSER_SESSION_STORAGE_KEY,
-    createBrowserSessionState(legacyUrl),
-    BrowserSessionStorageSchema,
-  );
-  const [draftUrl, setDraftUrl] = useState(legacyUrl);
-  const [tabRuntimeById, setTabRuntimeById] = useState<Record<string, BrowserTabRuntimeState>>({});
-  const [pipBounds, setPipBounds] = useState<BrowserPipBounds>(() =>
-    createDefaultPipBounds(resolveViewportRect(viewportRef)),
-  );
-
-  const updateBrowserSession = useCallback(
-    (updater: (state: typeof browserSession) => typeof browserSession) => {
-      setBrowserSession((current) =>
-        normalizeBrowserSessionState(updater(current), legacyUrl, resolveViewportHeight()),
-      );
-    },
-    [legacyUrl, setBrowserSession],
-  );
-
-  const activeTab =
-    browserSession.tabs.find((tab) => tab.id === browserSession.activeTabId) ??
-    browserSession.tabs[0];
-  const activeRuntime = activeTab
-    ? (tabRuntimeById[activeTab.id] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE)
-    : DEFAULT_BROWSER_TAB_RUNTIME_STATE;
-
-  const openUrl = useCallback(
-    (rawUrl: string, options?: { newTab?: boolean }) => {
-      const nextUrl = normalizeBrowserInput(rawUrl);
-      if (!activeTab || options?.newTab) {
-        updateBrowserSession((current) => addBrowserTab(current, { activate: true, url: nextUrl }));
-        return;
-      }
-      updateBrowserSession((current) => updateBrowserTab(current, activeTab.id, { url: nextUrl }));
-      webviewHandlesRef.current.get(activeTab.id)?.navigate(nextUrl);
-    },
-    [activeTab, updateBrowserSession],
-  );
-
-  const goBack = useCallback(() => {
-    if (!activeTab) return;
-    webviewHandlesRef.current.get(activeTab.id)?.goBack();
-  }, [activeTab]);
-
-  const goForward = useCallback(() => {
-    if (!activeTab) return;
-    webviewHandlesRef.current.get(activeTab.id)?.goForward();
-  }, [activeTab]);
-
-  const reload = useCallback(() => {
-    if (!activeTab) return;
-    const handle = webviewHandlesRef.current.get(activeTab.id);
-    if (activeRuntime.loading) {
-      handle?.stop();
-      return;
-    }
-    handle?.reload();
-  }, [activeRuntime.loading, activeTab]);
-
-  const openDevTools = useCallback(() => {
-    if (!activeTab) return;
-    webviewHandlesRef.current.get(activeTab.id)?.openDevTools();
-  }, [activeTab]);
-
-  const closeDevTools = useCallback(() => {
-    if (!activeTab) return;
-    webviewHandlesRef.current.get(activeTab.id)?.closeDevTools();
-  }, [activeTab]);
-
-  const toggleDevTools = useCallback(() => {
-    if (!activeTab) return;
-    const handle = webviewHandlesRef.current.get(activeTab.id);
-    if (!handle) return;
-    if (handle.isDevToolsOpen()) {
-      handle.closeDevTools();
-      return;
-    }
-    handle.openDevTools();
-  }, [activeTab]);
-
-  useEffect(() => {
-    if (!activeTab) {
-      return;
-    }
-    setDraftUrl(activeTab.url);
-  }, [activeTab]);
-
-  useEffect(() => {
-    onActiveRuntimeStateChange?.({
-      devToolsOpen: activeRuntime.devToolsOpen,
-      loading: activeRuntime.loading,
-    });
-  }, [activeRuntime.devToolsOpen, activeRuntime.loading, onActiveRuntimeStateChange]);
-
-  useEffect(() => {
-    if (!open || mode === "pip") {
-      return;
-    }
-    addressInputRef.current?.focus();
-  }, [mode, open]);
-
-  useEffect(() => {
-    pipBoundsRef.current = pipBounds;
-  }, [pipBounds]);
-
-  useEffect(() => {
-    const syncBounds = () => {
-      const viewportRect = resolveViewportRect(viewportRef);
-      setPipBounds((current) => clampPipBounds(current, viewportRect));
-    };
-
-    syncBounds();
-    window.addEventListener("resize", syncBounds);
-    const viewport = viewportRef?.current;
-    const observer =
-      viewport && typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => {
-            syncBounds();
-          })
-        : null;
-    if (observer && viewport) {
-      observer.observe(viewport);
-    }
-
-    return () => {
-      window.removeEventListener("resize", syncBounds);
-      observer?.disconnect();
-    };
-  }, [viewportRef]);
-
-  useEffect(() => {
-    setTabRuntimeById((current) => {
-      const validIds = new Set(browserSession.tabs.map((tab) => tab.id));
-      const entries = Object.entries(current).filter(([tabId]) => validIds.has(tabId));
-      return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
-    });
-  }, [browserSession.tabs]);
-
-  useEffect(() => {
-    const controller: InAppBrowserController = {
-      closeDevTools,
-      goBack,
-      goForward,
-      openDevTools,
-      openUrl,
-      reload,
-      toggleDevTools,
-    };
-    onControllerChange?.(controller);
-    return () => {
-      onControllerChange?.(null);
-    };
-  }, [
-    closeDevTools,
+  const {
+    activateTab,
+    activeRuntime,
+    activeTab,
+    activeTabIsPinned,
+    activeTabIsSettings,
+    addressBarSuggestions,
+    addressInputRef,
+    applySuggestion,
+    browserHistoryCount,
+    browserResetKey,
+    browserSearchEngine,
+    browserSession,
+    browserShellStyle,
+    browserStatusLabel,
+    clearHistory,
+    closeTab,
+    draftUrl,
+    exportPinnedPages,
     goBack,
     goForward,
-    onControllerChange,
-    openDevTools,
+    handleAddressBarKeyDown,
+    handleBrowserKeyDownCapture,
+    handlePipDragPointerDown,
+    handlePipDragPointerEnd,
+    handlePipDragPointerMove,
+    handlePipResizePointerDown,
+    handlePipResizePointerEnd,
+    handlePipResizePointerMove,
+    handleTabSnapshotChange,
+    handleWebviewContextMenuFallbackRequest,
+    importPinnedPages,
+    isRepairingStorage,
+    openActiveTabExternally,
+    openBrowserSettingsTab,
+    openNewTab,
+    openPinnedPage,
     openUrl,
+    pinnedPages,
+    registerWebviewHandle,
     reload,
+    removePinnedPage,
+    repairBrowserStorage,
+    selectSearchEngine,
+    selectedSuggestionIndex,
+    setDraftUrl,
+    setIsAddressBarFocused,
+    setSelectedSuggestionIndex,
+    showAddressBarSuggestions,
     toggleDevTools,
-  ]);
-
-  const registerWebviewHandle = useCallback((tabId: string, handle: BrowserTabHandle | null) => {
-    if (handle) {
-      webviewHandlesRef.current.set(tabId, handle);
-      return;
-    }
-    webviewHandlesRef.current.delete(tabId);
-  }, []);
-
-  const handleTabSnapshotChange = useCallback(
-    (tabId: string, snapshot: BrowserTabSnapshot) => {
-      setTabRuntimeById((current) => {
-        const previous = current[tabId];
-        if (
-          previous?.canGoBack === snapshot.canGoBack &&
-          previous?.canGoForward === snapshot.canGoForward &&
-          previous?.devToolsOpen === snapshot.devToolsOpen &&
-          previous?.loading === snapshot.loading
-        ) {
-          return current;
-        }
-        return {
-          ...current,
-          [tabId]: {
-            canGoBack: snapshot.canGoBack,
-            canGoForward: snapshot.canGoForward,
-            devToolsOpen: snapshot.devToolsOpen,
-            loading: snapshot.loading,
-          },
-        };
-      });
-      updateBrowserSession((current) => updateBrowserTab(current, tabId, snapshot));
-    },
-    [updateBrowserSession],
-  );
-
-  const syncPipBounds = useCallback(
-    (nextBounds: BrowserPipBounds) => {
-      const clamped = clampPipBounds(nextBounds, resolveViewportRect(viewportRef));
-      pipBoundsRef.current = clamped;
-      setPipBounds(clamped);
-    },
-    [viewportRef],
-  );
-
-  const handlePipDragPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (mode !== "pip" || event.button !== 0) return;
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest("button, input, form, [data-browser-control]")) {
-        return;
-      }
-      event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      pipDragStateRef.current = {
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        startBounds: pipBoundsRef.current,
-      };
-    },
-    [mode],
-  );
-
-  const handlePipDragPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const dragState = pipDragStateRef.current;
-      if (!dragState || dragState.pointerId !== event.pointerId) return;
-      event.preventDefault();
-      syncPipBounds({
-        ...dragState.startBounds,
-        x: dragState.startBounds.x + (event.clientX - dragState.startX),
-        y: dragState.startBounds.y + (event.clientY - dragState.startY),
-      });
-    },
-    [syncPipBounds],
-  );
-
-  const handlePipDragPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const dragState = pipDragStateRef.current;
-    if (!dragState || dragState.pointerId !== event.pointerId) return;
-    pipDragStateRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
-
-  const handlePipResizePointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (mode !== "pip" || event.button !== 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      pipResizeStateRef.current = {
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        startBounds: pipBoundsRef.current,
-      };
-    },
-    [mode],
-  );
-
-  const handlePipResizePointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const resizeState = pipResizeStateRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) return;
-      event.preventDefault();
-      syncPipBounds({
-        ...resizeState.startBounds,
-        width: resizeState.startBounds.width + (event.clientX - resizeState.startX),
-        height: resizeState.startBounds.height + (event.clientY - resizeState.startY),
-      });
-    },
-    [syncPipBounds],
-  );
-
-  const handlePipResizePointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const resizeState = pipResizeStateRef.current;
-    if (!resizeState || resizeState.pointerId !== event.pointerId) return;
-    pipResizeStateRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
-
-  const browserShellStyle = useMemo<CSSProperties | undefined>(() => {
-    if (mode === "full") {
-      return {
-        left: 0,
-        top: 0,
-        width: "100%",
-        height: "100%",
-      };
-    }
-    if (mode === "split") {
-      return undefined;
-    }
-    return {
-      left: `${pipBounds.x}px`,
-      top: `${pipBounds.y}px`,
-      width: `${pipBounds.width}px`,
-      height: `${pipBounds.height}px`,
-    };
-  }, [mode, pipBounds.height, pipBounds.width, pipBounds.x, pipBounds.y]);
+    togglePinnedActivePage,
+  } = useInAppBrowserState({
+    mode,
+    open,
+    ...(onActiveRuntimeStateChange ? { onActiveRuntimeStateChange } : {}),
+    ...(onControllerChange ? { onControllerChange } : {}),
+    ...(viewportRef ? { viewportRef } : {}),
+  });
 
   const activeTabFavicon = activeTab ? (
     <BrowserFavicon
@@ -783,13 +137,6 @@ export function InAppBrowser(props: InAppBrowserProps) {
     activeRuntime.devToolsOpen &&
       "border-amber-500/60 bg-amber-500/14 text-amber-800 hover:bg-amber-500/18 dark:text-amber-200",
   );
-  const browserStatusLabel = activeRuntime.devToolsOpen
-    ? activeRuntime.loading
-      ? "Inspecting · Loading"
-      : "Inspecting"
-    : activeRuntime.loading
-      ? "Loading"
-      : null;
 
   if (!open) {
     return null;
@@ -807,6 +154,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
       style={browserShellStyle}
     >
       <section
+        onKeyDownCapture={handleBrowserKeyDownCapture}
         className={cn(
           "flex size-full min-h-0 flex-col overflow-hidden border border-border/70 bg-background/98 text-foreground backdrop-blur-sm [-webkit-app-region:no-drag]",
           mode === "full"
@@ -909,11 +257,10 @@ export function InAppBrowser(props: InAppBrowserProps) {
                   variant="ghost"
                   size="icon-xs"
                   onClick={() => {
-                    if (!activeTab) return;
-                    void api?.shell.openExternal(activeTab.url);
+                    openActiveTabExternally();
                   }}
                   aria-label="Open current page externally"
-                  disabled={!activeTab}
+                  disabled={!activeTab || activeTabIsSettings}
                   data-browser-control
                 >
                   <ExternalLinkIcon className="size-3.5" />
@@ -950,16 +297,20 @@ export function InAppBrowser(props: InAppBrowserProps) {
                         type="button"
                         className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-left"
                         onClick={() => {
-                          updateBrowserSession((current) => setActiveBrowserTab(current, tab.id));
+                          activateTab(tab.id);
                         }}
                         title={tab.title}
                       >
-                        <BrowserFavicon
-                          url={tab.url}
-                          title={tab.title}
-                          className="size-3"
-                          fallbackClassName="size-3 text-muted-foreground"
-                        />
+                        {isBrowserSettingsTabUrl(tab.url) ? (
+                          <Settings2Icon className="size-3 text-muted-foreground" />
+                        ) : (
+                          <BrowserFavicon
+                            url={tab.url}
+                            title={tab.title}
+                            className="size-3"
+                            fallbackClassName="size-3 text-muted-foreground"
+                          />
+                        )}
                         <span className="truncate">{tab.title}</span>
                       </button>
                       <button
@@ -967,9 +318,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                         className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                         aria-label={`Close ${tab.title}`}
                         onClick={() => {
-                          updateBrowserSession((current) =>
-                            closeBrowserTab(current, tab.id, legacyUrl),
-                          );
+                          closeTab(tab.id);
                         }}
                       >
                         <XIcon className="size-3" />
@@ -984,11 +333,22 @@ export function InAppBrowser(props: InAppBrowserProps) {
                     <Button
                       variant="outline"
                       size="icon-xs"
-                      onClick={() => {
-                        updateBrowserSession((current) =>
-                          addBrowserTab(current, { activate: true }),
-                        );
-                      }}
+                      onClick={openBrowserSettingsTab}
+                      aria-label="Open browser settings tab"
+                    >
+                      <Settings2Icon className="size-3.5" />
+                    </Button>
+                  }
+                />
+                <TooltipPopup side="bottom">Browser settings</TooltipPopup>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      size="icon-xs"
+                      onClick={openNewTab}
                       aria-label="Open a new browser tab"
                     >
                       <PlusIcon className="size-3.5" />
@@ -1009,6 +369,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                         size="icon-xs"
                         className={devToolsButtonClassName}
                         onClick={toggleDevTools}
+                        disabled={activeTabIsSettings}
                         aria-label={
                           activeRuntime.devToolsOpen
                             ? "Close Chrome DevTools"
@@ -1034,7 +395,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                         variant="outline"
                         size="icon-xs"
                         onClick={goBack}
-                        disabled={!activeRuntime.canGoBack}
+                        disabled={activeTabIsSettings || !activeRuntime.canGoBack}
                         aria-label="Go back"
                       >
                         <ArrowLeftIcon className="size-3.5" />
@@ -1052,7 +413,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                         variant="outline"
                         size="icon-xs"
                         onClick={goForward}
-                        disabled={!activeRuntime.canGoForward}
+                        disabled={activeTabIsSettings || !activeRuntime.canGoForward}
                         aria-label="Go forward"
                       >
                         <ArrowRightIcon className="size-3.5" />
@@ -1070,6 +431,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                         variant="outline"
                         size="icon-xs"
                         onClick={reload}
+                        disabled={activeTabIsSettings}
                         aria-label={activeRuntime.loading ? "Stop loading" : "Reload page"}
                       >
                         {activeRuntime.loading ? (
@@ -1091,7 +453,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
               </div>
 
               <form
-                className="flex min-w-0 flex-1 items-center gap-2"
+                className="relative flex min-w-0 flex-1 items-center gap-2"
                 onSubmit={(event: FormEvent<HTMLFormElement>) => {
                   event.preventDefault();
                   openUrl(draftUrl);
@@ -1101,54 +463,44 @@ export function InAppBrowser(props: InAppBrowserProps) {
                   {activeTabFavicon}
                   <Input
                     ref={addressInputRef}
-                    className="border-0 bg-transparent shadow-none before:shadow-none"
+                    className="min-w-0 border-0 bg-transparent text-sm shadow-none before:shadow-none"
                     unstyled
                     value={draftUrl}
                     onChange={(event) => setDraftUrl(event.target.value)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onBlur={() => {
+                      window.setTimeout(() => {
+                        setIsAddressBarFocused(false);
+                      }, 100);
+                    }}
+                    onFocusCapture={() => {
+                      setIsAddressBarFocused(true);
+                    }}
+                    onKeyDown={handleAddressBarKeyDown}
                     placeholder="Enter a URL or search the web"
                     aria-label="Browser address bar"
                     autoCapitalize="off"
                     autoCorrect="off"
                     spellCheck={false}
+                    title={draftUrl}
                   />
                 </div>
+                {showAddressBarSuggestions ? (
+                  <BrowserSuggestionList
+                    activeIndex={selectedSuggestionIndex}
+                    onHighlight={setSelectedSuggestionIndex}
+                    suggestions={addressBarSuggestions}
+                    onSelect={applySuggestion}
+                  />
+                ) : null}
                 {browserStatusLabel ? (
                   <span className="hidden shrink-0 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-800 sm:inline-flex dark:text-amber-200">
                     {browserStatusLabel}
                   </span>
                 ) : null}
-                <Button variant="outline" size="xs" type="submit">
-                  Open
-                </Button>
               </form>
 
               <div className="flex shrink-0 items-center gap-1.5">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="outline"
-                        size="icon-xs"
-                        className={devToolsButtonClassName}
-                        onClick={toggleDevTools}
-                        aria-label={
-                          activeRuntime.devToolsOpen
-                            ? "Close Chrome DevTools"
-                            : "Open Chrome DevTools"
-                        }
-                      >
-                        <BugIcon className="size-3.5" />
-                      </Button>
-                    }
-                  />
-                  <TooltipPopup side="bottom">
-                    {devToolsShortcutLabel
-                      ? `${activeRuntime.devToolsOpen ? "Close Chrome DevTools" : "Open Chrome DevTools"} (${devToolsShortcutLabel})`
-                      : activeRuntime.devToolsOpen
-                        ? "Close Chrome DevTools"
-                        : "Open Chrome DevTools"}
-                  </TooltipPopup>
-                </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -1176,6 +528,28 @@ export function InAppBrowser(props: InAppBrowserProps) {
                       <Button
                         variant="outline"
                         size="icon-xs"
+                        onClick={togglePinnedActivePage}
+                        disabled={activeTabIsSettings || !activeTab}
+                        aria-label={activeTabIsPinned ? "Unpin current page" : "Pin current page"}
+                        className={cn(
+                          activeTabIsPinned &&
+                            "border-sky-500/60 bg-sky-500/12 text-sky-700 hover:bg-sky-500/18 dark:text-sky-200",
+                        )}
+                      >
+                        <PinIcon className="size-3.5" />
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="bottom">
+                    {activeTabIsPinned ? "Unpin current page" : "Pin current page"}
+                  </TooltipPopup>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="outline"
+                        size="icon-xs"
                         onClick={onMinimize}
                         aria-label="Minimize browser to picture-in-picture"
                       >
@@ -1192,10 +566,9 @@ export function InAppBrowser(props: InAppBrowserProps) {
                         variant="outline"
                         size="icon-xs"
                         onClick={() => {
-                          if (!activeTab) return;
-                          void api?.shell.openExternal(activeTab.url);
+                          openActiveTabExternally();
                         }}
-                        disabled={!activeTab}
+                        disabled={!activeTab || activeTabIsSettings}
                         aria-label="Open current page externally"
                       >
                         <ExternalLinkIcon className="size-3.5" />
@@ -1225,15 +598,37 @@ export function InAppBrowser(props: InAppBrowserProps) {
         )}
 
         <div className="relative min-h-0 flex-1 bg-background">
-          {browserSession.tabs.map((tab) => (
-            <BrowserTabWebview
-              key={tab.id}
-              active={activeTab?.id === tab.id}
-              tab={tab}
-              onHandleChange={registerWebviewHandle}
-              onSnapshotChange={handleTabSnapshotChange}
+          {activeTabIsSettings ? (
+            <BrowserSettingsPanel
+              browserSearchEngine={browserSearchEngine}
+              historyCount={browserHistoryCount}
+              isRepairingStorage={isRepairingStorage}
+              pinnedPages={pinnedPages}
+              onClearHistory={clearHistory}
+              onExportPinnedPages={exportPinnedPages}
+              onImportPinnedPages={(file) => {
+                void importPinnedPages(file);
+              }}
+              onOpenPinnedPage={openPinnedPage}
+              onRemovePinnedPage={removePinnedPage}
+              onRepairStorage={() => {
+                void repairBrowserStorage();
+              }}
+              onSelectSearchEngine={selectSearchEngine}
             />
-          ))}
+          ) : null}
+          {browserSession.tabs
+            .filter((tab) => !isBrowserSettingsTabUrl(tab.url))
+            .map((tab) => (
+              <BrowserTabWebview
+                key={`${browserResetKey}:${tab.id}`}
+                active={!activeTabIsSettings && activeTab?.id === tab.id}
+                onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
+                tab={tab}
+                onHandleChange={registerWebviewHandle}
+                onSnapshotChange={handleTabSnapshotChange}
+              />
+            ))}
         </div>
 
         {mode === "pip" ? (

@@ -121,6 +121,11 @@ const DEFAULT_BINDINGS = compile([
     command: "browser.reload",
     whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
   },
+  {
+    shortcut: modShortcut("i", { shiftKey: true }),
+    command: "browser.devtools",
+    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
   { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
@@ -272,6 +277,13 @@ describe("shortcutLabelForCommand", () => {
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.toggle", "Linux"),
       "Ctrl+B",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.devtools", {
+        platform: "MacIntel",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "⇧⌘I",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFavorite", "Linux"),
@@ -449,6 +461,13 @@ describe("chat/editor shortcuts", () => {
         context: { browserOpen: true, terminalFocus: false },
       }),
       "browser.reload",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "i", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "browser.devtools",
     );
   });
 });

@@ -118,6 +118,7 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     getWsUrl: () => null,
     pickFolder: async () => null,
     confirm: async () => true,
+    repairBrowserStorage: async () => true,
     setTheme: async () => undefined,
     showContextMenu: async () => null,
     openExternal: async () => true,
@@ -337,6 +338,17 @@ describe("wsNativeApi", () => {
 
     await expect(api.contextMenu.show(items)).resolves.toBe("delete");
     expect(showContextMenu).toHaveBeenCalledWith(items, undefined);
+  });
+
+  it("forwards browser storage repair requests to the desktop bridge", async () => {
+    const repairBrowserStorage = vi.fn().mockResolvedValue(true);
+    getWindowForTest().desktopBridge = makeDesktopBridge({ repairBrowserStorage });
+
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+
+    await expect(api.browser.repairStorage()).resolves.toBe(true);
+    expect(repairBrowserStorage).toHaveBeenCalledWith();
   });
 
   it("falls back to the browser context menu helper when the desktop bridge is missing", async () => {
