@@ -90,7 +90,7 @@ layer("ProviderAdapterRegistryLive", (it) => {
       assert.equal(claude, fakeClaudeAdapter);
 
       const providers = yield* registry.listProviders();
-      assert.deepEqual(providers, ["codex", "claudeAgent"]);
+      assert.deepEqual(providers, ["codex", "claudeAgent", "githubCopilot"]);
     }),
   );
 
