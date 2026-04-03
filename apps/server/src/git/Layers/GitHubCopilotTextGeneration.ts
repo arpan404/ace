@@ -108,7 +108,11 @@ const makeGitHubCopilotTextGeneration = Effect.gen(function* () {
     const imageAttachments = materializeAttachments(attachments);
 
     return yield* Effect.tryPromise(async () => {
-      const client = await createGitHubCopilotClient(settings.binaryPath);
+      const trimmedCliUrl = settings.cliUrl.trim();
+      const client = await createGitHubCopilotClient(
+        settings.binaryPath,
+        trimmedCliUrl.length > 0 ? { cliUrl: trimmedCliUrl } : undefined,
+      );
       try {
         const availableModels = await client.listModels();
         const normalizedModelOptions = normalizeGitHubCopilotModelOptionsForModel(

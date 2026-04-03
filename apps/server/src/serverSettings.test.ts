@@ -93,6 +93,12 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         binaryPath: "/usr/local/bin/claude",
         customModels: ["claude-custom"],
       });
+      assert.deepEqual(next.providers.githubCopilot, {
+        enabled: true,
+        binaryPath: "copilot",
+        cliUrl: "",
+        customModels: [],
+      });
       assert.deepEqual(next.textGenerationModelSelection, {
         provider: "codex",
         model: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection.model,
@@ -166,6 +172,12 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepEqual(next.providers.claudeAgent, {
         enabled: true,
         binaryPath: "/opt/homebrew/bin/claude",
+        customModels: [],
+      });
+      assert.deepEqual(next.providers.githubCopilot, {
+        enabled: true,
+        binaryPath: "copilot",
+        cliUrl: "",
         customModels: [],
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),

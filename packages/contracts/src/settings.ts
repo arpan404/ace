@@ -82,6 +82,7 @@ export type ClaudeSettings = typeof ClaudeSettings.Type;
 export const GitHubCopilotSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   binaryPath: makeBinaryPathSetting("copilot"),
+  cliUrl: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
 });
 export type GitHubCopilotSettings = typeof GitHubCopilotSettings.Type;
@@ -182,6 +183,7 @@ const ClaudeSettingsPatch = Schema.Struct({
 const GitHubCopilotSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(Schema.String),
+  cliUrl: Schema.optionalKey(Schema.String),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 

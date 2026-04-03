@@ -90,6 +90,8 @@ type InstallProviderSettings = {
   title: string;
   binaryPlaceholder: string;
   binaryDescription: ReactNode;
+  cliUrlPlaceholder?: string;
+  cliUrlDescription?: ReactNode;
   homePathKey?: "codexHomePath";
   homePlaceholder?: string;
   homeDescription?: ReactNode;
@@ -116,6 +118,9 @@ const PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
     title: "Copilot",
     binaryPlaceholder: "Copilot binary path",
     binaryDescription: "Path to the Copilot CLI binary",
+    cliUrlPlaceholder: "localhost:4321",
+    cliUrlDescription:
+      "Optional: connect to an external headless Copilot CLI server instead of spawning per session.",
   },
 ] as const;
 
@@ -737,6 +742,12 @@ export function GeneralSettingsPanel() {
       homePlaceholder: providerSettings.homePlaceholder,
       homeDescription: providerSettings.homeDescription,
       binaryPathValue: providerConfig.binaryPath,
+      cliUrlValue:
+        providerSettings.provider === "githubCopilot"
+          ? settings.providers.githubCopilot.cliUrl
+          : undefined,
+      cliUrlPlaceholder: providerSettings.cliUrlPlaceholder,
+      cliUrlDescription: providerSettings.cliUrlDescription,
       isDirty: !Equal.equals(providerConfig, defaultProviderConfig),
       liveProvider,
       models,
@@ -1214,6 +1225,42 @@ export function GeneralSettingsPanel() {
                         </span>
                       </label>
                     </div>
+
+                    {providerCard.provider === "githubCopilot" ? (
+                      <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                        <label
+                          htmlFor={`provider-install-${providerCard.provider}-cli-url`}
+                          className="block"
+                        >
+                          <span className="text-xs font-medium text-foreground">
+                            Copilot CLI server URL
+                          </span>
+                          <Input
+                            id={`provider-install-${providerCard.provider}-cli-url`}
+                            className="mt-1.5"
+                            value={providerCard.cliUrlValue ?? ""}
+                            onChange={(event) =>
+                              updateSettings({
+                                providers: {
+                                  ...settings.providers,
+                                  githubCopilot: {
+                                    ...settings.providers.githubCopilot,
+                                    cliUrl: event.target.value,
+                                  },
+                                },
+                              })
+                            }
+                            placeholder={providerCard.cliUrlPlaceholder}
+                            spellCheck={false}
+                          />
+                          {providerCard.cliUrlDescription ? (
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {providerCard.cliUrlDescription}
+                            </span>
+                          ) : null}
+                        </label>
+                      </div>
+                    ) : null}
 
                     {providerCard.homePathKey ? (
                       <div className="border-t border-border/60 px-4 py-3 sm:px-5">
