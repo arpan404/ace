@@ -22,6 +22,10 @@ import { runProcess } from "../processRunner.ts";
 
 const GITHUB_COPILOT_CLI_LOOKUP_TIMEOUT_MS = 10_000;
 
+export interface GitHubCopilotClientConfig {
+  readonly cliUrl?: string;
+}
+
 export interface GitHubCopilotSessionClient {
   readonly sessionId: string;
   on(handler: SessionEventHandler): () => void;
@@ -107,9 +111,15 @@ export async function resolveGitHubCopilotCliPath(binaryPath: string): Promise<s
 
 export async function createGitHubCopilotClient(
   binaryPath: string,
+  config?: GitHubCopilotClientConfig,
 ): Promise<GitHubCopilotClientLike> {
-  const cliPath = await resolveGitHubCopilotCliPath(binaryPath);
-  const client = new CopilotClient({ cliPath });
+  const configuredCliUrl = config?.cliUrl?.trim();
+  const envCliUrl = process.env.T3CODE_GITHUB_COPILOT_CLI_URL?.trim();
+  const cliUrl = configuredCliUrl && configuredCliUrl.length > 0 ? configuredCliUrl : envCliUrl;
+  const client =
+    cliUrl && cliUrl.length > 0
+      ? new CopilotClient({ cliUrl, useStdio: false })
+      : new CopilotClient({ cliPath: await resolveGitHubCopilotCliPath(binaryPath) });
   await client.start();
   return client;
 }
@@ -158,8 +168,11 @@ export interface GitHubCopilotSdkProbe {
   readonly issues: ReadonlyArray<string>;
 }
 
-export async function probeGitHubCopilotSdk(binaryPath: string): Promise<GitHubCopilotSdkProbe> {
-  const client = await createGitHubCopilotClient(binaryPath);
+export async function probeGitHubCopilotSdk(
+  binaryPath: string,
+  config?: GitHubCopilotClientConfig,
+): Promise<GitHubCopilotSdkProbe> {
+  const client = await createGitHubCopilotClient(binaryPath, config);
   try {
     const [statusResult, authResult, modelsResult] = await Promise.allSettled([
       client.getStatus(),

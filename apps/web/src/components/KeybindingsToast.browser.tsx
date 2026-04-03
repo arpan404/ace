@@ -71,7 +71,7 @@ function createBaseServerConfig(): ServerConfig {
           customModels: [],
         },
         claudeAgent: { enabled: true, binaryPath: "", customModels: [] },
-        githubCopilot: { enabled: true, binaryPath: "", customModels: [] },
+        githubCopilot: { enabled: true, binaryPath: "", cliUrl: "", customModels: [] },
       },
     },
   };

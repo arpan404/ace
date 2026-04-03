@@ -35,8 +35,12 @@ export const checkGitHubCopilotProviderStatus = Effect.fn("checkGitHubCopilotPro
       });
     }
 
+    const trimmedCliUrl = settings.cliUrl.trim();
     const probeResult = yield* Effect.tryPromise(() =>
-      probeGitHubCopilotSdk(settings.binaryPath),
+      probeGitHubCopilotSdk(
+        settings.binaryPath,
+        trimmedCliUrl.length > 0 ? { cliUrl: trimmedCliUrl } : undefined,
+      ),
     ).pipe(Effect.result);
 
     if (Result.isFailure(probeResult)) {

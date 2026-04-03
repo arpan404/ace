@@ -99,7 +99,7 @@ interface TurnState {
 
 interface GitHubCopilotSessionContext {
   session: ProviderSession;
-  readonly client: GitHubCopilotClientLike;
+  readonly sharedClientKey: string;
   readonly sdkSession: GitHubCopilotSessionClient;
   readonly pendingApprovals: Map<string, PendingApproval>;
   readonly pendingUserInputs: Map<string, PendingUserInput>;
@@ -115,6 +115,16 @@ interface GitHubCopilotSessionContext {
 export interface GitHubCopilotAdapterLiveOptions {
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
+}
+
+interface SharedClientContext {
+  readonly key: string;
+  readonly client: GitHubCopilotClientLike;
+  refCount: number;
+}
+
+function sharedClientKey(input: { readonly binaryPath: string; readonly cliUrl: string }): string {
+  return `binary:${input.binaryPath}|cliUrl:${input.cliUrl}`;
 }
 
 function toMessage(cause: unknown, fallback: string): string {
@@ -607,6 +617,43 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         })
       : undefined);
   const sessions = new Map<ThreadId, GitHubCopilotSessionContext>();
+  const sharedClientsByKey = new Map<string, SharedClientContext>();
+
+  const acquireSharedClient = async (input: {
+    readonly binaryPath: string;
+    readonly cliUrl: string;
+  }): Promise<SharedClientContext> => {
+    const key = sharedClientKey(input);
+    const existing = sharedClientsByKey.get(key);
+    if (existing) {
+      existing.refCount += 1;
+      return existing;
+    }
+    const client = await createGitHubCopilotClient(
+      input.binaryPath,
+      input.cliUrl.length > 0 ? { cliUrl: input.cliUrl } : undefined,
+    );
+    const context: SharedClientContext = {
+      key,
+      client,
+      refCount: 1,
+    };
+    sharedClientsByKey.set(key, context);
+    return context;
+  };
+
+  const releaseSharedClientByKey = async (sharedClientKey: string): Promise<void> => {
+    const tracked = sharedClientsByKey.get(sharedClientKey);
+    if (!tracked) {
+      return;
+    }
+    tracked.refCount = Math.max(0, tracked.refCount - 1);
+    if (tracked.refCount > 0) {
+      return;
+    }
+    sharedClientsByKey.delete(sharedClientKey);
+    await tracked.client.stop();
+  };
 
   const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
@@ -1063,7 +1110,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       // Preserve shutdown best-effort semantics.
     }
     try {
-      await context.client.stop();
+      await releaseSharedClientByKey(context.sharedClientKey);
     } catch {
       // Preserve shutdown best-effort semantics.
     }
@@ -1108,14 +1155,16 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           Effect.map((value) => value.providers.githubCopilot),
         ),
       );
+      const sharedClient = await acquireSharedClient({
+        binaryPath: settings.binaryPath,
+        cliUrl: settings.cliUrl.trim(),
+      });
 
       const existing = sessions.get(input.threadId);
       if (existing) {
         await stopContext(existing);
         sessions.delete(input.threadId);
       }
-
-      const client = await createGitHubCopilotClient(settings.binaryPath);
 
       let context: GitHubCopilotSessionContext | undefined;
       const permissionHandler = async (
@@ -1243,14 +1292,16 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       };
 
       try {
-        const availableModels = input.modelSelection?.model ? await client.listModels() : [];
+        const availableModels = input.modelSelection?.model
+          ? await sharedClient.client.listModels()
+          : [];
         const normalizedModelOptions = normalizeGitHubCopilotModelOptionsForModel(
           availableModels.find((model) => model.id === input.modelSelection?.model),
           input.modelSelection?.options,
         );
         const sdkSession =
           typeof input.resumeCursor === "string"
-            ? await client.resumeSession(input.resumeCursor, {
+            ? await sharedClient.client.resumeSession(input.resumeCursor, {
                 onPermissionRequest: permissionHandler,
                 onUserInputRequest: userInputHandler,
                 ...(input.modelSelection?.model ? { model: input.modelSelection.model } : {}),
@@ -1260,7 +1311,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
                 ...(input.cwd ? { workingDirectory: input.cwd } : {}),
                 streaming: true,
               })
-            : await client.createSession({
+            : await sharedClient.client.createSession({
                 onPermissionRequest: permissionHandler,
                 onUserInputRequest: userInputHandler,
                 ...(input.modelSelection?.model ? { model: input.modelSelection.model } : {}),
@@ -1284,7 +1335,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             createdAt: now,
             updatedAt: now,
           },
-          client,
+          sharedClientKey: sharedClient.key,
           sdkSession,
           pendingApprovals: new Map(),
           pendingUserInputs: new Map(),
@@ -1335,7 +1386,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         return cloneSession(createdContext.session);
       } catch (cause) {
         try {
-          await client.stop();
+          await releaseSharedClientByKey(sharedClient.key);
         } catch {
           // Ignore secondary shutdown failures.
         }
