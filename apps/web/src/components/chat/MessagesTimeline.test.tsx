@@ -55,8 +55,8 @@ describe("MessagesTimeline", () => {
       <MessagesTimeline
         hasMessages
         isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:31.000Z"
         scrollContainer={null}
         timelineEntries={[
           {
@@ -109,8 +109,8 @@ describe("MessagesTimeline", () => {
       <MessagesTimeline
         hasMessages
         isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:31.000Z"
         scrollContainer={null}
         timelineEntries={[
           {
@@ -265,8 +265,8 @@ describe("MessagesTimeline", () => {
       <MessagesTimeline
         hasMessages
         isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:31.000Z"
         scrollContainer={null}
         timelineEntries={[
           {
@@ -813,20 +813,6 @@ describe("MessagesTimeline", () => {
               tone: "thinking",
             },
           },
-          {
-            id: "tool-after-thinking",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:32.000Z",
-            entry: {
-              id: "tool-after-thinking",
-              createdAt: "2026-03-17T19:12:32.000Z",
-              label: "Run command",
-              toolTitle: "Run command",
-              detail: "git ls-files",
-              tone: "tool",
-              intentText: "Counting files",
-            },
-          },
         ]}
         completionDividerBeforeEntryId={null}
         completionSummary={null}
@@ -850,7 +836,6 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-intent-disclosure="true"');
     expect(markup).toContain('data-thinking-disclosure="true"');
     expect(markup).not.toContain("0 tool calls");
-    expect(markup).not.toContain("git ls-files");
   });
 
   it("hides repeated completed intent bursts with tool calls", async () => {

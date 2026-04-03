@@ -792,6 +792,9 @@ const make = Effect.fn("make")(function* () {
       return;
     }
     pendingStreamingAssistantDeltasByStreamKey.delete(streamKey);
+    if (pending.delta.length === 0) {
+      return;
+    }
     yield* dispatchAssistantDeltaCommand({
       event: pending.event,
       threadId: pending.threadId,
@@ -839,6 +842,29 @@ const make = Effect.fn("make")(function* () {
     }
 
     const latest = pendingStreamingAssistantDeltasByStreamKey.get(input.streamKey);
+    if (!latest) {
+      // Emit the first chunk immediately to preserve live streaming UX,
+      // then coalesce any subsequent chunks for this stream key.
+      yield* dispatchAssistantDeltaCommand({
+        event: input.event,
+        threadId: input.threadId,
+        messageId: input.messageId,
+        delta: input.delta,
+        ...(input.turnId ? { turnId: input.turnId } : {}),
+        createdAt: input.createdAt,
+        commandTag: "assistant-delta",
+      });
+      pendingStreamingAssistantDeltasByStreamKey.set(input.streamKey, {
+        event: input.event,
+        threadId: input.threadId,
+        messageId: input.messageId,
+        ...(input.turnId ? { turnId: input.turnId } : {}),
+        createdAt: input.createdAt,
+        delta: "",
+      });
+      return;
+    }
+
     pendingStreamingAssistantDeltasByStreamKey.set(input.streamKey, {
       event: input.event,
       threadId: input.threadId,
