@@ -43,6 +43,7 @@ const COMING_SOON_PROVIDER_OPTIONS = [
   { id: "opencode", label: "OpenCode", icon: OpenCodeIcon },
   { id: "gemini", label: "Gemini", icon: Gemini },
 ] as const;
+const MODEL_MENU_MAX_HEIGHT = "24rem";
 
 function providerIconClassName(
   provider: ProviderKind | ProviderPickerKind,
@@ -133,7 +134,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
         </span>
       </MenuTrigger>
-      <MenuPopup align="start">
+      <MenuPopup align="start" listMaxHeight={MODEL_MENU_MAX_HEIGHT}>
         {props.lockedProvider !== null ? (
           <MenuGroup>
             <MenuRadioGroup
@@ -192,7 +193,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                     />
                     {option.label}
                   </MenuSubTrigger>
-                  <MenuSubPopup className="[--available-height:min(24rem,70vh)]" sideOffset={4}>
+                  <MenuSubPopup listMaxHeight={MODEL_MENU_MAX_HEIGHT} sideOffset={4}>
                     <MenuGroup>
                       <MenuRadioGroup
                         value={props.provider === option.value ? props.model : ""}

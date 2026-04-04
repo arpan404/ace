@@ -1726,6 +1726,104 @@ describe("ProviderRuntimeIngestion", () => {
     expect(finalMessage?.streaming).toBe(false);
   });
 
+  it("flushes small cursor assistant delta batches before turn completion", async () => {
+    const harness = await createHarness({ serverSettings: { enableAssistantStreaming: true } });
+    const now = new Date().toISOString();
+    const followUpDelta = "x".repeat(120);
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-cursor-streaming"),
+      provider: "cursor",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cursor-streaming"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-cursor-streaming",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-cursor-streaming-1"),
+      provider: "cursor",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cursor-streaming"),
+      itemId: asItemId("item-cursor-streaming"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "hello ",
+      },
+    });
+
+    await waitForThread(harness.engine, (thread) =>
+      thread.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-cursor-streaming" &&
+          message.streaming &&
+          message.text === "hello ",
+      ),
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-cursor-streaming-2"),
+      provider: "cursor",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cursor-streaming"),
+      itemId: asItemId("item-cursor-streaming"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: followUpDelta,
+      },
+    });
+
+    const liveThread = await waitForThread(harness.engine, (thread) =>
+      thread.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-cursor-streaming" &&
+          message.streaming &&
+          message.text === `hello ${followUpDelta}`,
+      ),
+    );
+    const liveMessage = liveThread.messages.find(
+      (message: ProviderRuntimeTestMessage) => message.id === "assistant:item-cursor-streaming",
+    );
+    expect(liveMessage?.streaming).toBe(true);
+    expect(liveMessage?.text).toBe(`hello ${followUpDelta}`);
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-cursor-streaming"),
+      provider: "cursor",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cursor-streaming"),
+      itemId: asItemId("item-cursor-streaming"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const finalThread = await waitForThread(harness.engine, (thread) =>
+      thread.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-cursor-streaming" && !message.streaming,
+      ),
+    );
+    const finalMessage = finalThread.messages.find(
+      (message: ProviderRuntimeTestMessage) => message.id === "assistant:item-cursor-streaming",
+    );
+    expect(finalMessage?.streaming).toBe(false);
+    expect(finalMessage?.text).toBe(`hello ${followUpDelta}`);
+  });
+
   it("spills oversized buffered deltas and still finalizes full assistant text", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

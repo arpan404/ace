@@ -3,7 +3,10 @@ import { randomUUID } from "node:crypto";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   ApprovalRequestId,
+  type CanonicalItemType,
+  type CanonicalRequestType,
   EventId,
+  RuntimeItemId,
   RuntimeRequestId,
   RuntimeTaskId,
   ThreadId,
@@ -13,6 +16,7 @@ import {
   type ProviderSession,
   type ProviderTurnStartResult,
   type RuntimeContentStreamKind,
+  type RuntimeItemStatus,
   type UserInputQuestion,
 } from "@t3tools/contracts";
 import { Effect, Layer, PubSub, Schema, Stream } from "effect";
@@ -59,10 +63,19 @@ type PendingUserInput =
       readonly questions: ReadonlyArray<UserInputQuestion>;
     };
 
+type CursorContentItemState = {
+  readonly itemId: RuntimeItemId;
+  text: string;
+};
+
 type TurnSnapshot = {
   readonly id: TurnId;
   readonly items: Array<unknown>;
   assistantText: string;
+  reasoningText: string;
+  assistantItem: CursorContentItemState | undefined;
+  reasoningItem: CursorContentItemState | undefined;
+  readonly toolCalls: Map<string, CursorToolState>;
 };
 
 type CursorSessionContext = {
@@ -73,6 +86,16 @@ type CursorSessionContext = {
   readonly turns: Array<TurnSnapshot>;
   activeTurn: TurnSnapshot | undefined;
   stopping: boolean;
+};
+
+type CursorToolState = {
+  readonly toolCallId: string;
+  readonly itemId: RuntimeItemId;
+  readonly itemType: CanonicalItemType;
+  readonly title: string;
+  readonly status: RuntimeItemStatus;
+  readonly detail?: string;
+  readonly data: Record<string, unknown>;
 };
 
 function isoNow(): string {
@@ -99,6 +122,60 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function asStreamText(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+export function extractCursorStreamText(
+  update: Record<string, unknown> | undefined,
+): string | undefined {
+  const content = asObject(update?.content);
+  return asStreamText(content?.text) ?? asStreamText(update?.text);
+}
+
+function contentItemType(kind: "assistant" | "reasoning"): CanonicalItemType {
+  return kind === "assistant" ? "assistant_message" : "reasoning";
+}
+
+function contentItemTitle(kind: "assistant" | "reasoning") {
+  return kind === "assistant" ? "Assistant response" : "Reasoning";
+}
+
+function getContentItemState(
+  turn: TurnSnapshot,
+  kind: "assistant" | "reasoning",
+): CursorContentItemState | undefined {
+  return kind === "assistant" ? turn.assistantItem : turn.reasoningItem;
+}
+
+function setContentItemState(
+  turn: TurnSnapshot,
+  kind: "assistant" | "reasoning",
+  state: CursorContentItemState | undefined,
+) {
+  if (kind === "assistant") {
+    turn.assistantItem = state;
+    return;
+  }
+  turn.reasoningItem = state;
+}
+
+function cursorToolLookupInput(input: {
+  readonly kind?: string | undefined;
+  readonly title?: string | undefined;
+  readonly subagentType?: string | undefined;
+}) {
+  return {
+    ...(input.kind ? { kind: input.kind } : {}),
+    ...(input.title ? { title: input.title } : {}),
+    ...(input.subagentType ? { subagentType: input.subagentType } : {}),
+  };
+}
+
+function asArray(value: unknown): ReadonlyArray<unknown> | undefined {
+  return Array.isArray(value) ? value : undefined;
+}
+
 function requestIdFromApprovalRequest(requestId: ApprovalRequestId) {
   return RuntimeRequestId.makeUnsafe(requestId);
 }
@@ -118,24 +195,302 @@ function toDecisionOptionId(
   }
 }
 
-function streamKindFromUpdateKind(updateKind: string): RuntimeContentStreamKind {
-  const normalized = updateKind.toLowerCase();
-  if (normalized.includes("summary")) {
-    return "reasoning_summary_text";
-  }
-  if (normalized.includes("reason")) {
-    return "reasoning_text";
-  }
-  if (normalized.includes("plan")) {
-    return "plan_text";
-  }
-  return "assistant_text";
+function stripWrappingBackticks(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.startsWith("`") && trimmed.endsWith("`") ? trimmed.slice(1, -1).trim() : trimmed;
 }
 
-function describePermissionRequest(params: unknown): string | undefined {
+function looksLikeShellCommand(value: string): boolean {
+  const normalized = stripWrappingBackticks(value);
+  return (
+    normalized.includes(" ") ||
+    normalized.includes("/") ||
+    normalized.includes("&&") ||
+    normalized.includes("||") ||
+    normalized.includes("|") ||
+    normalized.includes("$") ||
+    normalized.includes("=")
+  );
+}
+
+function defaultCursorToolTitle(itemType: CanonicalItemType): string {
+  switch (itemType) {
+    case "command_execution":
+      return "Terminal";
+    case "file_change":
+      return "File change";
+    case "mcp_tool_call":
+      return "MCP tool call";
+    case "web_search":
+      return "Web search";
+    case "image_view":
+      return "Image";
+    case "collab_agent_tool_call":
+      return "Subagent task";
+    default:
+      return "Tool call";
+  }
+}
+
+export function classifyCursorToolItemType(input: {
+  readonly kind?: string | undefined;
+  readonly title?: string | undefined;
+  readonly subagentType?: string | undefined;
+}): CanonicalItemType {
+  const normalized = [input.kind, input.title, input.subagentType]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ")
+    .toLowerCase();
+  if (
+    normalized.includes("subagent") ||
+    normalized.includes("sub-agent") ||
+    normalized.includes("agent") ||
+    normalized.includes("explore") ||
+    normalized.includes("browser_use") ||
+    normalized.includes("browser use") ||
+    normalized.includes("computer_use") ||
+    normalized.includes("computer use") ||
+    normalized.includes("video_review") ||
+    normalized.includes("video review") ||
+    normalized.includes("vm_setup_helper") ||
+    normalized.includes("vm setup helper")
+  ) {
+    return "collab_agent_tool_call";
+  }
+  if (
+    normalized.includes("execute") ||
+    normalized.includes("terminal") ||
+    normalized.includes("bash") ||
+    normalized.includes("shell") ||
+    normalized.includes("command")
+  ) {
+    return "command_execution";
+  }
+  if (
+    normalized.includes("edit") ||
+    normalized.includes("write") ||
+    normalized.includes("file") ||
+    normalized.includes("patch") ||
+    normalized.includes("replace") ||
+    normalized.includes("create") ||
+    normalized.includes("delete")
+  ) {
+    return "file_change";
+  }
+  if (normalized.includes("mcp")) {
+    return "mcp_tool_call";
+  }
+  if (
+    normalized.includes("web") ||
+    normalized.includes("search") ||
+    normalized.includes("url") ||
+    normalized.includes("browser")
+  ) {
+    return "web_search";
+  }
+  if (normalized.includes("image")) {
+    return "image_view";
+  }
+  return "dynamic_tool_call";
+}
+
+function isReadOnlyCursorTool(input: {
+  readonly kind?: string | undefined;
+  readonly title?: string | undefined;
+}): boolean {
+  const normalized = [input.kind, input.title]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ")
+    .toLowerCase();
+  return (
+    normalized.includes("read") ||
+    normalized.includes("view") ||
+    normalized.includes("grep") ||
+    normalized.includes("glob") ||
+    normalized.includes("search")
+  );
+}
+
+export function requestTypeForCursorTool(input: {
+  readonly kind?: string | undefined;
+  readonly title?: string | undefined;
+}): CanonicalRequestType {
+  if (isReadOnlyCursorTool(input)) {
+    return "file_read_approval";
+  }
+  const itemType = classifyCursorToolItemType(input);
+  return itemType === "command_execution"
+    ? "command_execution_approval"
+    : itemType === "file_change"
+      ? "file_change_approval"
+      : "dynamic_tool_call";
+}
+
+export function runtimeItemStatusFromCursorStatus(status: string | undefined): RuntimeItemStatus {
+  switch (status?.toLowerCase()) {
+    case "completed":
+    case "success":
+    case "succeeded":
+      return "completed";
+    case "failed":
+    case "error":
+      return "failed";
+    case "cancelled":
+    case "canceled":
+    case "rejected":
+    case "declined":
+      return "declined";
+    default:
+      return "inProgress";
+  }
+}
+
+function isFinalCursorToolStatus(status: RuntimeItemStatus): boolean {
+  return status !== "inProgress";
+}
+
+function cursorTaskSubagentType(value: unknown): string | undefined {
+  const direct = asString(value);
+  if (direct) {
+    return direct;
+  }
+  const record = asObject(value);
+  return asString(record?.custom);
+}
+
+function extractCursorToolContentText(
+  record: Record<string, unknown> | undefined,
+): string | undefined {
+  const content = asArray(record?.content);
+  if (!content) {
+    return undefined;
+  }
+  for (const entry of content) {
+    const contentRecord = asObject(entry);
+    const nested = asObject(contentRecord?.content);
+    const text = asString(nested?.text) ?? asString(contentRecord?.text);
+    if (text) {
+      return stripWrappingBackticks(text);
+    }
+  }
+  return undefined;
+}
+
+function extractCursorToolCommand(record: Record<string, unknown> | undefined): string | undefined {
+  if (!record) {
+    return undefined;
+  }
+  const rawInput = asObject(record.rawInput) ?? asObject(record.input);
+  const rawOutput = asObject(record.rawOutput) ?? asObject(record.output);
+  for (const candidate of [
+    asString(record.command),
+    asString(rawInput?.command),
+    asString(rawInput?.cmd),
+    asString(rawOutput?.command),
+  ]) {
+    if (candidate) {
+      return stripWrappingBackticks(candidate);
+    }
+  }
+  const title = asString(record.title);
+  const kind = asString(record.kind);
+  if (title && ((kind && kind.toLowerCase().includes("execute")) || looksLikeShellCommand(title))) {
+    return stripWrappingBackticks(title);
+  }
+  return undefined;
+}
+
+function extractCursorToolPath(record: Record<string, unknown> | undefined): string | undefined {
+  if (!record) {
+    return undefined;
+  }
+  const rawInput = asObject(record.rawInput) ?? asObject(record.input);
+  const rawOutput = asObject(record.rawOutput) ?? asObject(record.output);
+  for (const candidate of [
+    asString(record.filePath),
+    asString(record.path),
+    asString(record.relativePath),
+    asString(rawInput?.filePath),
+    asString(rawInput?.path),
+    asString(rawOutput?.filePath),
+    asString(rawOutput?.path),
+  ]) {
+    if (candidate) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function resolveCursorToolTitle(
+  itemType: CanonicalItemType,
+  rawTitle: string | undefined,
+  previousTitle?: string,
+): string {
+  const titleCandidate = rawTitle ? stripWrappingBackticks(rawTitle) : undefined;
+  if (titleCandidate && !looksLikeShellCommand(titleCandidate)) {
+    return titleCandidate;
+  }
+  return previousTitle ?? defaultCursorToolTitle(itemType);
+}
+
+function buildCursorToolData(
+  existingData: Record<string, unknown> | undefined,
+  record: Record<string, unknown>,
+): Record<string, unknown> {
+  const rawInput = asObject(record.rawInput) ?? asObject(record.input);
+  const rawOutput = asObject(record.rawOutput) ?? asObject(record.output);
+  const command = extractCursorToolCommand(record);
+  const path = extractCursorToolPath(record);
+  const previousItem = asObject(existingData?.item);
+  return {
+    ...existingData,
+    ...(command ? { command } : {}),
+    ...(path ? { path } : {}),
+    ...(rawInput ? { input: rawInput } : {}),
+    ...(rawOutput ? { result: rawOutput } : {}),
+    item: {
+      ...previousItem,
+      ...(asString(record.title)
+        ? { title: stripWrappingBackticks(asString(record.title) ?? "") }
+        : {}),
+      ...(asString(record.kind) ? { kind: asString(record.kind) } : {}),
+      ...(asString(record.status) ? { status: asString(record.status) } : {}),
+      ...(asString(record.toolCallId) ? { toolCallId: asString(record.toolCallId) } : {}),
+      ...(command ? { command } : {}),
+      ...(path ? { path } : {}),
+      ...(rawInput ? { input: rawInput } : {}),
+      ...(rawOutput ? { result: rawOutput } : {}),
+    },
+  };
+}
+
+export function describePermissionRequest(params: unknown): string | undefined {
   const record = asObject(params);
   if (!record) {
     return undefined;
+  }
+
+  const toolCall = asObject(record.toolCall);
+  if (toolCall) {
+    const itemType = classifyCursorToolItemType(
+      cursorToolLookupInput({
+        kind: asString(toolCall.kind),
+        title: asString(toolCall.title),
+      }),
+    );
+    const detail = extractCursorToolCommand(toolCall) ?? extractCursorToolPath(toolCall);
+    if (detail) {
+      return detail;
+    }
+    const toolDetail = extractCursorToolContentText(toolCall);
+    if (toolDetail) {
+      return toolDetail;
+    }
+    const title = resolveCursorToolTitle(itemType, asString(toolCall.title));
+    if (title.length > 0 && title !== defaultCursorToolTitle(itemType)) {
+      return title;
+    }
   }
 
   for (const key of [
@@ -176,6 +531,24 @@ function describePermissionRequest(params: unknown): string | undefined {
   }
 
   return undefined;
+}
+
+export function streamKindFromUpdateKind(updateKind: string): RuntimeContentStreamKind {
+  const normalized = updateKind.toLowerCase();
+  if (normalized.includes("summary")) {
+    return "reasoning_summary_text";
+  }
+  if (
+    normalized.includes("reason") ||
+    normalized.includes("thought") ||
+    normalized.includes("thinking")
+  ) {
+    return "reasoning_text";
+  }
+  if (normalized.includes("plan")) {
+    return "plan_text";
+  }
+  return "assistant_text";
 }
 
 export function permissionOptionIdForRuntimeMode(runtimeMode: ProviderSession["runtimeMode"]): {
@@ -239,9 +612,11 @@ export const CursorAdapterLive = Layer.effect(
       context: CursorSessionContext,
       input: {
         readonly turnId?: TurnId;
+        readonly itemId?: RuntimeItemId;
         readonly requestId?: ApprovalRequestId;
         readonly rawMethod?: string;
         readonly rawPayload?: unknown;
+        readonly rawSource?: "cursor.acp.request" | "cursor.acp.notification" | undefined;
       } = {},
     ) => ({
       eventId: EventId.makeUnsafe(randomUUID()),
@@ -249,13 +624,16 @@ export const CursorAdapterLive = Layer.effect(
       threadId: context.session.threadId,
       createdAt: isoNow(),
       ...(input.turnId ? { turnId: input.turnId } : {}),
+      ...(input.itemId ? { itemId: input.itemId } : {}),
       ...(input.requestId ? { requestId: requestIdFromApprovalRequest(input.requestId) } : {}),
       ...(input.rawMethod
         ? {
             raw: {
-              source: input.requestId
-                ? ("cursor.acp.request" as const)
-                : ("cursor.acp.notification" as const),
+              source:
+                input.rawSource ??
+                (input.requestId
+                  ? ("cursor.acp.request" as const)
+                  : ("cursor.acp.notification" as const)),
               method: input.rawMethod,
               payload: input.rawPayload ?? {},
             },
@@ -269,6 +647,199 @@ export const CursorAdapterLive = Layer.effect(
         ...patch,
         updatedAt: isoNow(),
       };
+    };
+
+    const ensureContentItem = (
+      context: CursorSessionContext,
+      turnId: TurnId,
+      kind: "assistant" | "reasoning",
+      input: {
+        readonly rawMethod: string;
+        readonly rawPayload?: unknown;
+        readonly rawSource?: "cursor.acp.request" | "cursor.acp.notification" | undefined;
+      },
+    ): CursorContentItemState | undefined => {
+      const activeTurn = context.activeTurn;
+      if (!activeTurn || activeTurn.id !== turnId) {
+        return undefined;
+      }
+      const existing = getContentItemState(activeTurn, kind);
+      if (existing) {
+        return existing;
+      }
+      const state: CursorContentItemState = {
+        itemId: RuntimeItemId.makeUnsafe(`cursor-${kind}:${randomUUID()}`),
+        text: "",
+      };
+      setContentItemState(activeTurn, kind, state);
+      emit({
+        ...baseEvent(context, {
+          turnId,
+          itemId: state.itemId,
+          rawMethod: input.rawMethod,
+          ...(input.rawPayload !== undefined ? { rawPayload: input.rawPayload } : {}),
+          ...(input.rawSource ? { rawSource: input.rawSource } : {}),
+        }),
+        type: "item.started",
+        payload: {
+          itemType: contentItemType(kind),
+          title: contentItemTitle(kind),
+          status: "inProgress",
+        },
+      });
+      return state;
+    };
+
+    const completeContentItem = (
+      context: CursorSessionContext,
+      turnId: TurnId,
+      kind: "assistant" | "reasoning",
+      input?: {
+        readonly rawMethod?: string;
+        readonly rawPayload?: unknown;
+        readonly rawSource?: "cursor.acp.request" | "cursor.acp.notification" | undefined;
+      },
+    ) => {
+      const activeTurn = context.activeTurn;
+      if (!activeTurn || activeTurn.id !== turnId) {
+        return;
+      }
+      const state = getContentItemState(activeTurn, kind);
+      if (!state) {
+        return;
+      }
+      setContentItemState(activeTurn, kind, undefined);
+      emit({
+        ...baseEvent(context, {
+          turnId,
+          itemId: state.itemId,
+          ...(input?.rawMethod ? { rawMethod: input.rawMethod } : {}),
+          ...(input?.rawPayload !== undefined ? { rawPayload: input.rawPayload } : {}),
+          ...(input?.rawSource ? { rawSource: input.rawSource } : {}),
+        }),
+        type: "item.completed",
+        payload: {
+          itemType: contentItemType(kind),
+          title: contentItemTitle(kind),
+          status: "completed",
+          ...(state.text.length > 0 ? { detail: state.text } : {}),
+        },
+      });
+    };
+
+    const completeActiveContentItems = (
+      context: CursorSessionContext,
+      turnId: TurnId,
+      input?: {
+        readonly rawMethod?: string;
+        readonly rawPayload?: unknown;
+        readonly rawSource?: "cursor.acp.request" | "cursor.acp.notification" | undefined;
+      },
+    ) => {
+      completeContentItem(context, turnId, "assistant", input);
+      completeContentItem(context, turnId, "reasoning", input);
+    };
+
+    const emitToolLifecycleEvent = (
+      context: CursorSessionContext,
+      input: {
+        readonly turnId: TurnId;
+        readonly tool: CursorToolState;
+        readonly type: "item.started" | "item.updated" | "item.completed";
+        readonly rawMethod: string;
+        readonly rawPayload?: unknown;
+        readonly rawSource?: "cursor.acp.request" | "cursor.acp.notification" | undefined;
+      },
+    ) => {
+      emit({
+        ...baseEvent(context, {
+          turnId: input.turnId,
+          itemId: input.tool.itemId,
+          rawMethod: input.rawMethod,
+          ...(input.rawPayload !== undefined ? { rawPayload: input.rawPayload } : {}),
+          ...(input.rawSource ? { rawSource: input.rawSource } : {}),
+        }),
+        type: input.type,
+        payload: {
+          itemType: input.tool.itemType,
+          status: input.tool.status,
+          title: input.tool.title,
+          ...(input.tool.detail ? { detail: input.tool.detail } : {}),
+          ...(Object.keys(input.tool.data).length > 0 ? { data: input.tool.data } : {}),
+        },
+      });
+    };
+
+    const syncCursorToolCall = (
+      context: CursorSessionContext,
+      turnId: TurnId,
+      record: Record<string, unknown>,
+      input: {
+        readonly rawMethod: string;
+        readonly rawPayload?: unknown;
+        readonly rawSource?: "cursor.acp.request" | "cursor.acp.notification" | undefined;
+      },
+    ) => {
+      const activeTurn = context.activeTurn;
+      if (!activeTurn) {
+        return undefined;
+      }
+      const toolCallId = asString(record.toolCallId);
+      if (!toolCallId) {
+        return undefined;
+      }
+      const existing = activeTurn.toolCalls.get(toolCallId);
+      const detectedItemType = classifyCursorToolItemType(
+        cursorToolLookupInput({
+          kind: asString(record.kind),
+          title: asString(record.title),
+        }),
+      );
+      const itemType =
+        existing && existing.itemType !== "dynamic_tool_call"
+          ? existing.itemType
+          : detectedItemType;
+      const status = asString(record.status)
+        ? runtimeItemStatusFromCursorStatus(asString(record.status))
+        : (existing?.status ?? "inProgress");
+      const title = resolveCursorToolTitle(itemType, asString(record.title), existing?.title);
+      const detail =
+        extractCursorToolCommand(record) ??
+        extractCursorToolPath(record) ??
+        extractCursorToolContentText(record) ??
+        existing?.detail;
+      const tool: CursorToolState = {
+        toolCallId,
+        itemId: existing?.itemId ?? RuntimeItemId.makeUnsafe(`cursor-tool:${randomUUID()}`),
+        itemType,
+        title,
+        status,
+        ...(detail ? { detail } : {}),
+        data: buildCursorToolData(existing?.data, record),
+      };
+      activeTurn.toolCalls.set(toolCallId, tool);
+      if (!existing) {
+        activeTurn.items.push({
+          kind: "tool_call",
+          toolCallId,
+          itemType,
+          data: tool.data,
+        });
+      }
+      emitToolLifecycleEvent(context, {
+        turnId,
+        tool,
+        type:
+          !existing && !isFinalCursorToolStatus(status)
+            ? "item.started"
+            : isFinalCursorToolStatus(status)
+              ? "item.completed"
+              : "item.updated",
+        rawMethod: input.rawMethod,
+        ...(input.rawPayload !== undefined ? { rawPayload: input.rawPayload } : {}),
+        ...(input.rawSource ? { rawSource: input.rawSource } : {}),
+      });
+      return tool;
     };
 
     const settleTurn = (
@@ -286,6 +857,7 @@ export const CursorAdapterLive = Layer.effect(
         return;
       }
 
+      completeActiveContentItems(context, turnId);
       context.turns.push(context.activeTurn);
       context.activeTurn = undefined;
       updateSession(context, {
@@ -322,15 +894,34 @@ export const CursorAdapterLive = Layer.effect(
       const record = asObject(params);
       const update = asObject(record?.update);
       const updateKind = asString(update?.sessionUpdate);
-      const content = asObject(update?.content);
-      const text = asString(content?.text) ?? asString(update?.text);
       const turnId = context.activeTurn?.id;
 
-      if (!updateKind || !turnId || !text) {
+      if (!updateKind || !turnId || !update) {
+        return;
+      }
+
+      if (updateKind === "tool_call" || updateKind === "tool_call_update") {
+        completeActiveContentItems(context, turnId, {
+          rawMethod: "session/update",
+          rawPayload: params,
+        });
+        syncCursorToolCall(context, turnId, update, {
+          rawMethod: "session/update",
+          rawPayload: params,
+        });
+        return;
+      }
+
+      const text = extractCursorStreamText(update);
+      if (!text) {
         return;
       }
 
       if (updateKind.toLowerCase().includes("plan")) {
+        completeActiveContentItems(context, turnId, {
+          rawMethod: "session/update",
+          rawPayload: params,
+        });
         emit({
           ...baseEvent(context, { turnId, rawMethod: "session/update", rawPayload: params }),
           type: "turn.proposed.delta",
@@ -344,13 +935,41 @@ export const CursorAdapterLive = Layer.effect(
         return;
       }
 
-      activeTurn.assistantText += text;
-      activeTurn.items.push({ kind: "assistant_text", text });
+      const streamKind = streamKindFromUpdateKind(updateKind);
+      const itemStateInput = { rawMethod: "session/update", rawPayload: params } as const;
+      let itemId: RuntimeItemId | undefined;
+      if (streamKind === "assistant_text") {
+        completeContentItem(context, turnId, "reasoning", itemStateInput);
+        const assistantItem = ensureContentItem(context, turnId, "assistant", itemStateInput);
+        if (!assistantItem) {
+          return;
+        }
+        assistantItem.text += text;
+        itemId = assistantItem.itemId;
+        activeTurn.assistantText += text;
+      } else if (streamKind === "reasoning_text" || streamKind === "reasoning_summary_text") {
+        completeContentItem(context, turnId, "assistant", itemStateInput);
+        const reasoningItem = ensureContentItem(context, turnId, "reasoning", itemStateInput);
+        if (!reasoningItem) {
+          return;
+        }
+        reasoningItem.text += text;
+        itemId = reasoningItem.itemId;
+        activeTurn.reasoningText += text;
+      } else {
+        completeActiveContentItems(context, turnId, itemStateInput);
+      }
+      activeTurn.items.push({ kind: streamKind, text, ...(itemId ? { itemId } : {}) });
       emit({
-        ...baseEvent(context, { turnId, rawMethod: "session/update", rawPayload: params }),
+        ...baseEvent(context, {
+          turnId,
+          ...(itemId ? { itemId } : {}),
+          rawMethod: "session/update",
+          rawPayload: params,
+        }),
         type: "content.delta",
         payload: {
-          streamKind: streamKindFromUpdateKind(updateKind),
+          streamKind,
           delta: text,
         },
       });
@@ -367,6 +986,28 @@ export const CursorAdapterLive = Layer.effect(
       const turnId = context.activeTurn?.id;
 
       if (request.method === "session/request_permission") {
+        const params = asObject(request.params);
+        const toolCall = asObject(params?.toolCall);
+        if (toolCall && turnId) {
+          completeActiveContentItems(context, turnId, {
+            rawMethod: request.method,
+            rawPayload: request.params,
+            rawSource: "cursor.acp.request",
+          });
+        }
+        if (toolCall && turnId) {
+          syncCursorToolCall(context, turnId, toolCall, {
+            rawMethod: request.method,
+            rawPayload: request.params,
+            rawSource: "cursor.acp.request",
+          });
+        }
+        const requestType = requestTypeForCursorTool(
+          cursorToolLookupInput({
+            kind: asString(toolCall?.kind),
+            title: asString(toolCall?.title),
+          }),
+        );
         if (context.session.runtimeMode === "full-access") {
           const resolution = permissionOptionIdForRuntimeMode(context.session.runtimeMode);
           context.client.respond(request.id, {
@@ -393,7 +1034,7 @@ export const CursorAdapterLive = Layer.effect(
           }),
           type: "request.opened",
           payload: {
-            requestType: "command_execution_approval",
+            requestType,
             ...(describePermissionRequest(request.params)
               ? { detail: describePermissionRequest(request.params) }
               : {}),
@@ -405,6 +1046,13 @@ export const CursorAdapterLive = Layer.effect(
 
       if (request.method === "cursor/ask_question") {
         const params = asObject(request.params);
+        if (turnId) {
+          completeActiveContentItems(context, turnId, {
+            rawMethod: request.method,
+            rawPayload: request.params,
+            rawSource: "cursor.acp.request",
+          });
+        }
         const questions = Array.isArray(params?.questions) ? params.questions : [];
         const optionIdsByQuestionAndLabel = new Map<string, ReadonlyMap<string, string>>();
         const normalizedQuestions = questions
@@ -470,6 +1118,13 @@ export const CursorAdapterLive = Layer.effect(
 
       if (request.method === "cursor/create_plan") {
         const params = asObject(request.params);
+        if (turnId) {
+          completeActiveContentItems(context, turnId, {
+            rawMethod: request.method,
+            rawPayload: request.params,
+            rawSource: "cursor.acp.request",
+          });
+        }
         const requestId = ApprovalRequestId.makeUnsafe(`cursor-plan:${randomUUID()}`);
         const questionId = "plan_decision";
         const questions: ReadonlyArray<UserInputQuestion> = [
@@ -549,6 +1204,12 @@ export const CursorAdapterLive = Layer.effect(
 
       if (notification.method === "cursor/update_todos") {
         const params = asObject(notification.params);
+        if (context.activeTurn?.id) {
+          completeActiveContentItems(context, context.activeTurn.id, {
+            rawMethod: notification.method,
+            rawPayload: notification.params,
+          });
+        }
         emit({
           ...baseEvent(context, {
             ...(context.activeTurn?.id ? { turnId: context.activeTurn.id } : {}),
@@ -565,9 +1226,49 @@ export const CursorAdapterLive = Layer.effect(
 
       if (notification.method === "cursor/task") {
         const params = asObject(notification.params);
+        const turnId = context.activeTurn?.id;
+        if (turnId) {
+          completeActiveContentItems(context, turnId, {
+            rawMethod: notification.method,
+            rawPayload: notification.params,
+          });
+        }
+        const subagentType = cursorTaskSubagentType(params?.subagentType);
+        const itemType = classifyCursorToolItemType(
+          cursorToolLookupInput({
+            title: asString(params?.description),
+            subagentType,
+          }),
+        );
+        const prompt = asString(params?.prompt);
+        const itemId = RuntimeItemId.makeUnsafe(
+          asString(params?.agentId) ?? `cursor-task:${randomUUID()}`,
+        );
         emit({
           ...baseEvent(context, {
-            ...(context.activeTurn?.id ? { turnId: context.activeTurn.id } : {}),
+            ...(turnId ? { turnId } : {}),
+            itemId,
+            rawMethod: notification.method,
+            rawPayload: notification.params,
+          }),
+          type: "item.completed",
+          payload: {
+            itemType,
+            status: "completed",
+            title: asString(params?.description) ?? defaultCursorToolTitle(itemType),
+            ...(prompt ? { detail: prompt } : {}),
+            data: {
+              ...(subagentType ? { subagentType } : {}),
+              ...(prompt ? { prompt } : {}),
+              ...(asString(params?.model) ? { model: asString(params?.model) } : {}),
+              ...(asString(params?.agentId) ? { agentId: asString(params?.agentId) } : {}),
+              ...(typeof params?.durationMs === "number" ? { durationMs: params.durationMs } : {}),
+            },
+          },
+        });
+        emit({
+          ...baseEvent(context, {
+            ...(turnId ? { turnId } : {}),
             rawMethod: notification.method,
             rawPayload: notification.params,
           }),
@@ -808,6 +1509,10 @@ export const CursorAdapterLive = Layer.effect(
           id: turnId,
           items: [],
           assistantText: "",
+          reasoningText: "",
+          assistantItem: undefined,
+          reasoningItem: undefined,
+          toolCalls: new Map(),
         };
         context.activeTurn = activeTurn;
         updateSession(context, {

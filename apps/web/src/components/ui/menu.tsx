@@ -28,6 +28,7 @@ function MenuPopup({
   alignOffset,
   side = "bottom",
   anchor,
+  listMaxHeight,
   ...props
 }: MenuPrimitive.Popup.Props & {
   align?: MenuPrimitive.Positioner.Props["align"];
@@ -35,7 +36,14 @@ function MenuPopup({
   alignOffset?: MenuPrimitive.Positioner.Props["alignOffset"];
   side?: MenuPrimitive.Positioner.Props["side"];
   anchor?: MenuPrimitive.Positioner.Props["anchor"];
+  listMaxHeight?: string;
 }) {
+  const listStyle: React.CSSProperties = {
+    maxHeight: listMaxHeight
+      ? `min(var(--available-height), ${listMaxHeight})`
+      : "var(--available-height)",
+  };
+
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Positioner
@@ -55,7 +63,9 @@ function MenuPopup({
           data-slot="menu-popup"
           {...props}
         >
-          <div className="max-h-(--available-height) w-full overflow-y-auto p-1">{children}</div>
+          <div className="w-full overflow-y-auto p-1" style={listStyle}>
+            {children}
+          </div>
         </MenuPrimitive.Popup>
       </MenuPrimitive.Positioner>
     </MenuPrimitive.Portal>
@@ -253,11 +263,13 @@ function MenuSubPopup({
   sideOffset = 0,
   alignOffset,
   align = "start",
+  listMaxHeight,
   ...props
 }: MenuPrimitive.Popup.Props & {
   align?: MenuPrimitive.Positioner.Props["align"];
   sideOffset?: MenuPrimitive.Positioner.Props["sideOffset"];
   alignOffset?: MenuPrimitive.Positioner.Props["alignOffset"];
+  listMaxHeight?: string;
 }) {
   const defaultAlignOffset = align !== "center" ? -5 : undefined;
 
@@ -269,6 +281,7 @@ function MenuSubPopup({
       data-slot="menu-sub-content"
       side="inline-end"
       sideOffset={sideOffset}
+      {...(listMaxHeight !== undefined ? { listMaxHeight } : {})}
       {...props}
     />
   );

@@ -49,6 +49,123 @@ beforeAll(() => {
 });
 
 describe("MessagesTimeline", () => {
+  it("falls back to a small unvirtualized tail once work is no longer actively running", async () => {
+    const { deriveFirstUnvirtualizedTimelineRowIndex } = await import("./MessagesTimeline");
+    const rows = [
+      {
+        kind: "message" as const,
+        id: "user-1",
+        createdAt: "2026-03-17T19:12:20.000Z",
+        message: {
+          id: MessageId.makeUnsafe("user-1"),
+          role: "user" as const,
+          text: "Start",
+          createdAt: "2026-03-17T19:12:20.000Z",
+          streaming: false,
+        },
+        durationStart: "2026-03-17T19:12:20.000Z",
+        showCompletionDivider: false,
+      },
+      ...Array.from({ length: 24 }, (_, index) => ({
+        kind: "work" as const,
+        id: `thinking-${index}`,
+        createdAt: `2026-03-17T19:12:${21 + index}.000Z`,
+        groupedEntries: [
+          {
+            id: `thinking-entry-${index}`,
+            createdAt: `2026-03-17T19:12:${21 + index}.000Z`,
+            label: "Reasoning",
+            detail: `step ${index}`,
+            tone: "thinking" as const,
+          },
+        ],
+      })),
+    ];
+
+    expect(
+      deriveFirstUnvirtualizedTimelineRowIndex(rows, {
+        activeTurnInProgress: true,
+        activeTurnStartedAt: "2026-03-17T19:12:21.000Z",
+        preserveCurrentTurnTail: false,
+      }),
+    ).toBe(rows.length - 8);
+  });
+
+  it("keeps the current turn tail expanded only while work is actively running", async () => {
+    const { deriveFirstUnvirtualizedTimelineRowIndex } = await import("./MessagesTimeline");
+    const rows = [
+      {
+        kind: "message" as const,
+        id: "user-1",
+        createdAt: "2026-03-17T19:12:20.000Z",
+        message: {
+          id: MessageId.makeUnsafe("user-1"),
+          role: "user" as const,
+          text: "Start",
+          createdAt: "2026-03-17T19:12:20.000Z",
+          streaming: false,
+        },
+        durationStart: "2026-03-17T19:12:20.000Z",
+        showCompletionDivider: false,
+      },
+      {
+        kind: "message" as const,
+        id: "assistant-1",
+        createdAt: "2026-03-17T19:12:20.500Z",
+        message: {
+          id: MessageId.makeUnsafe("assistant-1"),
+          role: "assistant" as const,
+          text: "Working on it",
+          createdAt: "2026-03-17T19:12:20.500Z",
+          streaming: false,
+        },
+        durationStart: "2026-03-17T19:12:20.500Z",
+        showCompletionDivider: false,
+      },
+      {
+        kind: "message" as const,
+        id: "user-2",
+        createdAt: "2026-03-17T19:12:21.000Z",
+        message: {
+          id: MessageId.makeUnsafe("user-2"),
+          role: "user" as const,
+          text: "Continue",
+          createdAt: "2026-03-17T19:12:21.000Z",
+          streaming: false,
+        },
+        durationStart: "2026-03-17T19:12:21.000Z",
+        showCompletionDivider: false,
+      },
+      ...Array.from({ length: 12 }, (_, index) => ({
+        kind: "work" as const,
+        id: `tool-${index}`,
+        createdAt: `2026-03-17T19:12:${22 + index}.000Z`,
+        groupedEntries: [
+          {
+            id: `tool-entry-${index}`,
+            createdAt: `2026-03-17T19:12:${22 + index}.000Z`,
+            label: "Run command",
+            detail: `cmd ${index}`,
+            tone: "tool" as const,
+          },
+        ],
+      })),
+      {
+        kind: "working" as const,
+        id: "working-indicator-row",
+        createdAt: "2026-03-17T19:12:40.000Z",
+      },
+    ];
+
+    expect(
+      deriveFirstUnvirtualizedTimelineRowIndex(rows, {
+        activeTurnInProgress: true,
+        activeTurnStartedAt: "2026-03-17T19:12:21.000Z",
+        preserveCurrentTurnTail: true,
+      }),
+    ).toBe(2);
+  });
+
   it("renders inline terminal labels with the composer chip UI", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
@@ -641,7 +758,7 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain('data-thinking-attached="true"');
     expect(markup).toContain('data-assistant-attached="true"');
-    expect(markup).toContain("bg-card/8");
+    expect(markup).toContain('data-thread-attached-surface="true"');
   });
 
   it("renders thinking rows with outline treatment instead of a filled background", async () => {
@@ -750,7 +867,92 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain('data-work-followup-attached="true"');
     expect(markup).toContain("Found the next grouping edge case.");
-    expect(markup).toContain("bg-card/8");
+    expect(markup).toContain('data-thread-attached-surface="true"');
+  });
+
+  it("renders changed-files summaries inside assistant rows without swallowing the next turn", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const assistantMessageId = MessageId.makeUnsafe("assistant-with-diff");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "assistant-with-diff",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: assistantMessageId,
+              role: "assistant",
+              text: "Updated the timeline rendering.",
+              turnId: TurnId.makeUnsafe("turn-diff"),
+              createdAt: "2026-03-17T19:12:32.000Z",
+              completedAt: "2026-03-17T19:12:33.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "user-after-diff",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:34.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-after-diff"),
+              role: "user",
+              text: "Thanks, now fix the spacing below it.",
+              createdAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={
+          new Map([
+            [
+              assistantMessageId,
+              {
+                turnId: TurnId.makeUnsafe("turn-diff"),
+                completedAt: "2026-03-17T19:12:33.500Z",
+                files: [
+                  {
+                    path: "apps/web/src/components/chat/MessagesTimeline.tsx",
+                    additions: 10,
+                    deletions: 2,
+                  },
+                  {
+                    path: "apps/web/src/components/chat/ChangedFilesTree.tsx",
+                    additions: 4,
+                    deletions: 1,
+                  },
+                ],
+              },
+            ],
+          ])
+        }
+        nowIso="2026-03-17T19:12:35.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-turn-diff-summary="true"');
+    expect(markup).toContain("Changed files (2)");
+    expect(markup.indexOf("Changed files (2)")).toBeLessThan(
+      markup.indexOf("Thanks, now fix the spacing below it."),
+    );
   });
 
   it("hides completed intent and tool activity after completion", async () => {

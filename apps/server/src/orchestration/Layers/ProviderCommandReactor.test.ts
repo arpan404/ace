@@ -985,6 +985,80 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("restarts cursor sessions when cursor effort changes", async () => {
+    const harness = await createHarness({
+      threadModelSelection: { provider: "cursor", model: "gpt-5.4-mini" },
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-cursor-effort-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-cursor-effort-1"),
+          role: "user",
+          text: "first cursor turn",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "cursor",
+          model: "gpt-5.4-mini",
+          options: {
+            reasoningEffort: "medium",
+            fastMode: false,
+          },
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-cursor-effort-2"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-cursor-effort-2"),
+          role: "user",
+          text: "second cursor turn",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "cursor",
+          model: "gpt-5.4-mini",
+          options: {
+            reasoningEffort: "xhigh",
+            fastMode: true,
+          },
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 2);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+      resumeCursor: { opaque: "resume-1" },
+      modelSelection: {
+        provider: "cursor",
+        model: "gpt-5.4-mini",
+        options: {
+          reasoningEffort: "xhigh",
+          fastMode: true,
+        },
+      },
+    });
+  });
+
   it("restarts the provider session when runtime mode is updated on the thread", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

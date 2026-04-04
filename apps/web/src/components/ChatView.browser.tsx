@@ -2,6 +2,7 @@
 import "../index.css";
 
 import {
+  type CheckpointRef,
   EventId,
   ORCHESTRATION_WS_METHODS,
   type MessageId,
@@ -320,6 +321,61 @@ function createSnapshotForTargetUser(options: {
       },
     ],
     updatedAt: NOW_ISO,
+  };
+}
+
+function createSnapshotWithAssistantDiffSummary(options: {
+  targetUserMessageId: MessageId;
+}): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: options.targetUserMessageId,
+    targetText: "follow-up turn after a diff summary",
+  });
+
+  return {
+    ...snapshot,
+    threads: snapshot.threads.map((thread) =>
+      thread.id === THREAD_ID
+        ? Object.assign({}, thread, {
+            checkpoints: [
+              {
+                turnId: "turn-diff-summary" as TurnId,
+                checkpointTurnCount: 1,
+                checkpointRef: "checkpoint-diff-summary" as CheckpointRef,
+                status: "ready" as const,
+                assistantMessageId: "msg-assistant-2" as MessageId,
+                completedAt: isoAt(24),
+                files: [
+                  {
+                    path: "apps/web/src/components/chat/MessagesTimeline.tsx",
+                    kind: "modified",
+                    additions: 26,
+                    deletions: 7,
+                  },
+                  {
+                    path: "apps/web/src/components/chat/ChangedFilesTree.tsx",
+                    kind: "modified",
+                    additions: 9,
+                    deletions: 3,
+                  },
+                  {
+                    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+                    kind: "modified",
+                    additions: 14,
+                    deletions: 2,
+                  },
+                  {
+                    path: "packages/shared/src/model.ts",
+                    kind: "modified",
+                    additions: 8,
+                    deletions: 4,
+                  },
+                ],
+              },
+            ],
+          })
+        : thread,
+    ),
   };
 }
 
@@ -1355,6 +1411,54 @@ describe("ChatView timeline estimator parity (full app)", () => {
       }
     },
   );
+
+  it("keeps assistant diff summaries from overlapping the next turn", async () => {
+    const targetUserMessageId = "msg-user-after-diff-summary" as MessageId;
+    const assistantMessageId = "msg-assistant-2" as MessageId;
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithAssistantDiffSummary({ targetUserMessageId }),
+    });
+
+    try {
+      const scrollContainer = await waitForElement(
+        () => document.querySelector<HTMLDivElement>("div.overflow-y-auto.overscroll-y-contain"),
+        "Unable to find ChatView message scroll container.",
+      );
+
+      await vi.waitFor(
+        async () => {
+          scrollContainer.scrollTop = 0;
+          scrollContainer.dispatchEvent(new Event("scroll"));
+          await waitForLayout();
+
+          const assistantRow = document.querySelector<HTMLElement>(
+            `[data-message-id="${assistantMessageId}"][data-message-role="assistant"]`,
+          );
+          const nextUserRow = document.querySelector<HTMLElement>(
+            `[data-message-id="${targetUserMessageId}"][data-message-role="user"]`,
+          );
+
+          expect(assistantRow, "Unable to locate assistant row with diff summary.").toBeTruthy();
+          expect(nextUserRow, "Unable to locate next user row after diff summary.").toBeTruthy();
+          expect(assistantRow!.closest("[data-index]")).toBeInstanceOf(HTMLElement);
+          expect(assistantRow!.querySelector('[data-turn-diff-card="true"]')).toBeTruthy();
+
+          const assistantRect = assistantRow!.getBoundingClientRect();
+          const nextUserRect = nextUserRow!.getBoundingClientRect();
+
+          expect(assistantRect.height).toBeGreaterThan(180);
+          expect(nextUserRect.top).toBeGreaterThanOrEqual(assistantRect.bottom - 1);
+        },
+        {
+          timeout: 4_000,
+          interval: 16,
+        },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
 
   it("shows an explicit empty state for projects without threads in the sidebar", async () => {
     const mounted = await mountChatView({
