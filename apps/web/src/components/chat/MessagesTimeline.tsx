@@ -158,38 +158,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         continue;
       }
 
-      if (!activeTurnInProgress) {
-        if (timelineEntry.kind === "work" && timelineEntry.entry.tone === "tool") {
-          continue;
-        }
-        if (
-          timelineEntry.kind === "intent" &&
-          shouldHideCompletedIntentWithToolCalls(timelineEntries, index, {
-            activeTurnInProgress,
-            activeTurnStartedAt,
-          })
-        ) {
-          continue;
-        }
-      } else {
-        if (
-          timelineEntry.kind === "work" &&
-          timelineEntry.entry.tone === "tool" &&
-          isBeforeActiveTurnBoundary(timelineEntry.createdAt, activeTurnStartedAt)
-        ) {
-          continue;
-        }
-        if (
-          timelineEntry.kind === "intent" &&
-          shouldHideCompletedIntentWithToolCalls(timelineEntries, index, {
-            activeTurnInProgress,
-            activeTurnStartedAt,
-          })
-        ) {
-          continue;
-        }
-      }
-
       if (activeTurnInProgress && timelineEntry.kind === "intent") {
         const groupedEntries: TimelineWorkEntry[] = [];
         let cursor = index + 1;
@@ -410,6 +378,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const renderRowContent = (row: TimelineRow, rowIndex: number) => {
     const previousRow = rowIndex > 0 ? rows[rowIndex - 1] : undefined;
     const nextRow = rowIndex + 1 < rows.length ? rows[rowIndex + 1] : undefined;
+    const isUserMessageRow = row.kind === "message" && row.message.role === "user";
+    const usesThreadShell = !isUserMessageRow;
     const attachThinkingToStreamingAssistant =
       isThinkingWorkRow(row) && isStreamingAssistantMessageRow(nextRow);
     const attachStreamingAssistantToThinking =
@@ -418,9 +388,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     const attachFollowUpToWork = isWorkFollowUpRow(row) && isWorkContainerRow(previousRow);
     const threadMarkerClass =
       row.kind === "message"
-        ? row.message.role === "user"
-          ? "border-primary/35 bg-primary/14"
-          : "border-border/70 bg-background"
+        ? "border-border/70 bg-background"
         : row.kind === "intent" || row.kind === "intent-work"
           ? "border-primary/25 bg-primary/10"
           : row.kind === "proposed-plan"
@@ -438,12 +406,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     return (
       <div
         className={cn(
-          "group/timeline relative pb-5 pl-10",
+          "group/timeline relative pb-5",
+          usesThreadShell && "pl-10",
           attachWorkToFollowUp && "pb-2",
           attachThinkingToStreamingAssistant && "pb-2",
           (attachStreamingAssistantToThinking || attachFollowUpToWork) && "-mt-1 pb-5",
         )}
-        data-thread-row="true"
+        data-thread-row={usesThreadShell ? "true" : undefined}
         data-timeline-row-kind={row.kind}
         data-message-id={row.kind === "message" ? row.message.id : undefined}
         data-message-role={row.kind === "message" ? row.message.role : undefined}
@@ -460,17 +429,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             : undefined
         }
       >
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute bottom-0 left-[0.95rem] top-0 w-px bg-border/42"
-        />
-        <span
-          aria-hidden="true"
-          className={cn(
-            "pointer-events-none absolute left-2.5 top-3.5 size-3 rounded-full border ring-4 ring-background",
-            threadMarkerClass,
-          )}
-        />
+        {usesThreadShell && (
+          <>
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute bottom-0 left-[0.95rem] top-0 w-px bg-border/42"
+            />
+            <span
+              aria-hidden="true"
+              className={cn(
+                "pointer-events-none absolute left-2.5 top-3.5 size-3 rounded-full border ring-4 ring-background",
+                threadMarkerClass,
+              )}
+            />
+          </>
+        )}
         {row.kind === "work" &&
           (() => {
             const groupedEntries = row.groupedEntries;
@@ -691,32 +664,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const terminalContexts = displayedUserMessage.contexts;
             const canRevertAgentWork = revertTurnCountByUserMessageId.has(row.message.id);
             return (
-              <div className="group relative min-w-0">
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
-                    You
-                  </p>
-                  <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
-                    {displayedUserMessage.copyText && (
-                      <MessageCopyButton text={displayedUserMessage.copyText} />
-                    )}
-                    {canRevertAgentWork && (
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="outline"
-                        disabled={isRevertingCheckpoint || isWorking}
-                        onClick={() => onRevertUserMessage(row.message.id)}
-                        title="Revert to this message"
-                      >
-                        <Undo2Icon className="size-3" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-2 border-primary/18 border-l pl-4">
+              <div className="flex justify-end">
+                <div
+                  className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-border bg-secondary px-4 py-3"
+                  data-user-message-bubble="true"
+                >
                   {userImages.length > 0 && (
-                    <div className="mb-3 grid max-w-105 grid-cols-2 gap-2">
+                    <div className="mb-2 grid max-w-105 grid-cols-2 gap-2">
                       {userImages.map(
                         (image: NonNullable<TimelineMessage["attachments"]>[number]) => (
                           <div
@@ -759,10 +713,29 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       terminalContexts={terminalContexts}
                     />
                   )}
+                  <div className="mt-1.5 flex items-center justify-end gap-2">
+                    <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
+                      {displayedUserMessage.copyText && (
+                        <MessageCopyButton text={displayedUserMessage.copyText} />
+                      )}
+                      {canRevertAgentWork && (
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          disabled={isRevertingCheckpoint || isWorking}
+                          onClick={() => onRevertUserMessage(row.message.id)}
+                          title="Revert to this message"
+                        >
+                          <Undo2Icon className="size-3" />
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-right text-[10px] text-muted-foreground/30">
+                      {formatTimestamp(row.message.createdAt, timestampFormat)}
+                    </p>
+                  </div>
                 </div>
-                <p className="mt-2 pl-4 text-[10px] text-muted-foreground/30">
-                  {formatTimestamp(row.message.createdAt, timestampFormat)}
-                </p>
               </div>
             );
           })()}
@@ -1169,63 +1142,6 @@ function isStreamingAssistantMessageRow(row: TimelineRow | undefined): boolean {
 
 function isWorkFollowUpRow(row: TimelineRow | undefined): boolean {
   return row?.kind === "intent" || (row?.kind === "message" && row.message.role === "assistant");
-}
-
-function shouldHideCompletedIntentWithToolCalls(
-  entries: ReadonlyArray<TimelineEntry>,
-  intentIndex: number,
-  input: {
-    activeTurnInProgress: boolean;
-    activeTurnStartedAt: string | null;
-  },
-): boolean {
-  for (let cursor = intentIndex + 1; cursor < entries.length; cursor += 1) {
-    const nextEntry = entries[cursor];
-    if (!nextEntry) {
-      continue;
-    }
-    if (nextEntry.kind === "work") {
-      if (
-        nextEntry.entry.tone === "tool" &&
-        shouldHideToolEntry(
-          nextEntry.createdAt,
-          input.activeTurnInProgress,
-          input.activeTurnStartedAt,
-        )
-      ) {
-        return true;
-      }
-      continue;
-    }
-    return false;
-  }
-  return false;
-}
-
-function shouldHideToolEntry(
-  createdAt: string,
-  activeTurnInProgress: boolean,
-  activeTurnStartedAt: string | null,
-): boolean {
-  if (!activeTurnInProgress) {
-    return true;
-  }
-  return isBeforeActiveTurnBoundary(createdAt, activeTurnStartedAt);
-}
-
-function isBeforeActiveTurnBoundary(
-  createdAt: string,
-  activeTurnStartedAt: string | null,
-): boolean {
-  if (!activeTurnStartedAt) {
-    return false;
-  }
-  const boundaryMs = Date.parse(activeTurnStartedAt);
-  const createdAtMs = Date.parse(createdAt);
-  if (!Number.isFinite(boundaryMs) || !Number.isFinite(createdAtMs)) {
-    return false;
-  }
-  return createdAtMs < boundaryMs;
 }
 
 const UserMessageTerminalContextInlineLabel = memo(
