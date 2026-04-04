@@ -86,6 +86,7 @@ type CursorSessionContext = {
   readonly turns: Array<TurnSnapshot>;
   activeTurn: TurnSnapshot | undefined;
   stopping: boolean;
+  startPromise: Promise<ProviderSession> | undefined;
 };
 
 type CursorToolState = {
@@ -124,6 +125,67 @@ function asString(value: unknown): string | undefined {
 
 function asStreamText(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
+const isProviderAdapterSessionNotFoundError = Schema.is(ProviderAdapterSessionNotFoundError);
+const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
+const isProviderAdapterProcessError = Schema.is(ProviderAdapterProcessError);
+
+function nextCause(value: unknown): unknown | undefined {
+  if (!value || typeof value !== "object" || !("cause" in value)) {
+    return undefined;
+  }
+  const cause = (value as { readonly cause?: unknown }).cause;
+  return cause === value ? undefined : cause;
+}
+
+function causeChain(cause: unknown): ReadonlyArray<unknown> {
+  const chain: Array<unknown> = [];
+  let current: unknown = cause;
+  let depth = 0;
+  while (current !== undefined && depth < 8) {
+    chain.push(current);
+    current = nextCause(current);
+    depth += 1;
+  }
+  return chain;
+}
+
+function findKnownCursorAdapterError(
+  cause: unknown,
+):
+  | ProviderAdapterValidationError
+  | ProviderAdapterSessionNotFoundError
+  | ProviderAdapterRequestError
+  | ProviderAdapterProcessError
+  | undefined {
+  for (const candidate of causeChain(cause)) {
+    if (
+      isProviderAdapterValidationError(candidate) ||
+      isProviderAdapterSessionNotFoundError(candidate) ||
+      isProviderAdapterRequestError(candidate) ||
+      isProviderAdapterProcessError(candidate)
+    ) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function describeCursorAdapterCause(cause: unknown): string {
+  for (const candidate of causeChain(cause)) {
+    if (!(candidate instanceof Error)) {
+      continue;
+    }
+    if (
+      candidate.message !== "An error occurred in Effect.try" &&
+      candidate.message !== "An error occurred in Effect.tryPromise"
+    ) {
+      return candidate.message;
+    }
+  }
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 export function extractCursorStreamText(
@@ -1288,380 +1350,426 @@ export const CursorAdapterLive = Layer.effect(
     };
 
     const startSession: CursorAdapterShape["startSession"] = (input) =>
-      Effect.tryPromise(async () => {
-        if (input.modelSelection && input.modelSelection.provider !== PROVIDER) {
-          throw new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "startSession",
-            issue: `Expected Cursor model selection, received '${input.modelSelection.provider}'.`,
-          });
-        }
-
-        const settings = await runPromise(settingsService.getSettings);
-        const existing = sessions.get(input.threadId);
-        if (existing) {
-          return existing.session;
-        }
-        const selectedModel = resolveSelectedModel(input.modelSelection);
-        const cursorCliModel = input.modelSelection
-          ? resolveCursorCliModelId({
-              model: selectedModel,
-              options: input.modelSelection.options,
-            })
-          : selectedModel;
-
-        const client = startCursorAcpClient({
-          binaryPath: settings.providers.cursor.binaryPath,
-          model: cursorCliModel,
-        });
-        const createdAt = isoNow();
-        const session: ProviderSession = {
-          provider: PROVIDER,
-          status: "connecting",
-          runtimeMode: input.runtimeMode,
-          ...(input.cwd ? { cwd: input.cwd } : {}),
-          model: selectedModel,
-          threadId: input.threadId,
-          createdAt,
-          updatedAt: createdAt,
-        };
-        const context: CursorSessionContext = {
-          session,
-          client,
-          pendingApprovals: new Map(),
-          pendingUserInputs: new Map(),
-          turns: [],
-          activeTurn: undefined,
-          stopping: false,
-        };
-        sessions.set(input.threadId, context);
-
-        client.setProtocolErrorHandler((error) => {
-          emit({
-            ...baseEvent(context),
-            type: "runtime.error",
-            payload: {
-              message: error.message,
-              class: "transport_error",
-            },
-          });
-        });
-        client.setNotificationHandler((notification) => handleNotification(context, notification));
-        client.setRequestHandler((request) => handleRequest(context, request));
-        client.setCloseHandler(({ code, signal }) => {
-          const activeContext = sessions.get(input.threadId);
-          if (!activeContext) {
-            return;
-          }
-          sessions.delete(input.threadId);
-          if (activeContext.activeTurn) {
-            settleTurn(activeContext, activeContext.activeTurn.id, {
-              type: "completed",
-              errorMessage: `Cursor ACP exited unexpectedly (code=${code ?? "null"}, signal=${signal ?? "null"}).`,
+      Effect.tryPromise({
+        try: async () => {
+          if (input.modelSelection && input.modelSelection.provider !== PROVIDER) {
+            throw new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "startSession",
+              issue: `Expected Cursor model selection, received '${input.modelSelection.provider}'.`,
             });
           }
-          updateSession(activeContext, { status: "closed", activeTurnId: undefined });
-          emit({
-            ...baseEvent(activeContext),
-            type: "session.exited",
-            payload: {
-              reason: activeContext.stopping
-                ? "Cursor session stopped"
-                : `Cursor ACP exited unexpectedly (code=${code ?? "null"}, signal=${signal ?? "null"}).`,
-              exitKind: activeContext.stopping ? "graceful" : "error",
-            },
+
+          const existing = sessions.get(input.threadId);
+          if (existing) {
+            return existing.startPromise ? await existing.startPromise : existing.session;
+          }
+          const settings = await runPromise(settingsService.getSettings);
+          const selectedModel = resolveSelectedModel(input.modelSelection);
+          const cursorCliModel = input.modelSelection
+            ? resolveCursorCliModelId({
+                model: selectedModel,
+                options: input.modelSelection.options,
+              })
+            : selectedModel;
+
+          const client = startCursorAcpClient({
+            binaryPath: settings.providers.cursor.binaryPath,
+            model: cursorCliModel,
           });
-        });
+          const createdAt = isoNow();
+          const session: ProviderSession = {
+            provider: PROVIDER,
+            status: "connecting",
+            runtimeMode: input.runtimeMode,
+            ...(input.cwd ? { cwd: input.cwd } : {}),
+            model: selectedModel,
+            threadId: input.threadId,
+            createdAt,
+            updatedAt: createdAt,
+          };
+          const context: CursorSessionContext = {
+            session,
+            client,
+            pendingApprovals: new Map(),
+            pendingUserInputs: new Map(),
+            turns: [],
+            activeTurn: undefined,
+            stopping: false,
+            startPromise: undefined,
+          };
+          const startPromise = (async () => {
+            try {
+              client.setProtocolErrorHandler((error) => {
+                emit({
+                  ...baseEvent(context),
+                  type: "runtime.error",
+                  payload: {
+                    message: error.message,
+                    class: "transport_error",
+                  },
+                });
+              });
+              client.setNotificationHandler((notification) =>
+                handleNotification(context, notification),
+              );
+              client.setRequestHandler((request) => handleRequest(context, request));
+              client.setCloseHandler(({ code, signal }) => {
+                const activeContext = sessions.get(input.threadId);
+                if (!activeContext) {
+                  return;
+                }
+                sessions.delete(input.threadId);
+                if (activeContext.activeTurn) {
+                  settleTurn(activeContext, activeContext.activeTurn.id, {
+                    type: "completed",
+                    errorMessage: `Cursor ACP exited unexpectedly (code=${code ?? "null"}, signal=${signal ?? "null"}).`,
+                  });
+                }
+                updateSession(activeContext, { status: "closed", activeTurnId: undefined });
+                emit({
+                  ...baseEvent(activeContext),
+                  type: "session.exited",
+                  payload: {
+                    reason: activeContext.stopping
+                      ? "Cursor session stopped"
+                      : `Cursor ACP exited unexpectedly (code=${code ?? "null"}, signal=${signal ?? "null"}).`,
+                    exitKind: activeContext.stopping ? "graceful" : "error",
+                  },
+                });
+              });
 
-        emit({
-          ...baseEvent(context),
-          type: "session.state.changed",
-          payload: {
-            state: "starting",
-            reason: "Starting Cursor ACP session",
-          },
-        });
+              emit({
+                ...baseEvent(context),
+                type: "session.state.changed",
+                payload: {
+                  state: "starting",
+                  reason: "Starting Cursor ACP session",
+                },
+              });
 
-        await client.request(
-          "initialize",
-          {
-            protocolVersion: 1,
-            clientCapabilities: {
-              fs: { readTextFile: false, writeTextFile: false },
-              terminal: false,
-            },
-            clientInfo: {
-              name: "t3code",
-              version: "1.0.17",
-            },
-          },
-          { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
-        );
-        await client.request(
-          "authenticate",
-          { methodId: "cursor_login" },
-          { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
-        );
+              await client.request(
+                "initialize",
+                {
+                  protocolVersion: 1,
+                  clientCapabilities: {
+                    fs: { readTextFile: false, writeTextFile: false },
+                    terminal: false,
+                  },
+                  clientInfo: {
+                    name: "t3code",
+                    version: "1.0.17",
+                  },
+                },
+                { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
+              );
+              await client.request(
+                "authenticate",
+                { methodId: "cursor_login" },
+                { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
+              );
 
-        const resumeSessionId = readResumeSessionId(input.resumeCursor);
-        const sessionResult = (await client.request(
-          resumeSessionId ? "session/load" : "session/new",
-          resumeSessionId
-            ? { sessionId: resumeSessionId }
-            : {
-                cwd: input.cwd ?? serverConfig.cwd,
-                mode: "agent",
-                mcpServers: [],
-              },
-          { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
-        )) as { readonly sessionId?: unknown };
-        const sessionId =
-          asString(sessionResult?.sessionId) ?? resumeSessionId ?? `cursor-session:${randomUUID()}`;
+              const resumeSessionId = readResumeSessionId(input.resumeCursor);
+              const sessionMethod = resumeSessionId ? "session/load" : "session/new";
+              const sessionResult = (await client.request(
+                sessionMethod,
+                {
+                  cwd: input.cwd ?? serverConfig.cwd,
+                  mcpServers: [],
+                  ...(resumeSessionId ? { sessionId: resumeSessionId } : {}),
+                },
+                { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
+              )) as { readonly sessionId?: unknown };
+              const sessionId = asString(sessionResult?.sessionId) ?? resumeSessionId;
+              if (!sessionId) {
+                throw new ProviderAdapterRequestError({
+                  provider: PROVIDER,
+                  method: sessionMethod,
+                  detail: "Cursor ACP did not return a session id.",
+                });
+              }
 
-        updateSession(context, {
-          status: "ready",
-          ...((input.cwd ?? serverConfig.cwd) ? { cwd: input.cwd ?? serverConfig.cwd } : {}),
-          model: selectedModel,
-          resumeCursor: {
-            sessionId,
-          } satisfies CursorResumeCursor,
-        });
+              updateSession(context, {
+                status: "ready",
+                ...((input.cwd ?? serverConfig.cwd) ? { cwd: input.cwd ?? serverConfig.cwd } : {}),
+                model: selectedModel,
+                resumeCursor: {
+                  sessionId,
+                } satisfies CursorResumeCursor,
+              });
 
-        emit({
-          ...baseEvent(context),
-          type: "session.started",
-          payload: {
-            resume: context.session.resumeCursor,
-          },
-        });
-        emit({
-          ...baseEvent(context),
-          type: "session.state.changed",
-          payload: {
-            state: "ready",
-          },
-        });
-        emit({
-          ...baseEvent(context),
-          type: "thread.started",
-          payload: {
-            providerThreadId: sessionId,
-          },
-        });
+              emit({
+                ...baseEvent(context),
+                type: "session.started",
+                payload: {
+                  resume: context.session.resumeCursor,
+                },
+              });
+              emit({
+                ...baseEvent(context),
+                type: "session.state.changed",
+                payload: {
+                  state: "ready",
+                },
+              });
+              emit({
+                ...baseEvent(context),
+                type: "thread.started",
+                payload: {
+                  providerThreadId: sessionId,
+                },
+              });
 
-        return context.session;
-      }).pipe(
-        Effect.mapError((cause) =>
-          Schema.is(ProviderAdapterValidationError)(cause) ||
-          Schema.is(ProviderAdapterProcessError)(cause) ||
-          Schema.is(ProviderAdapterRequestError)(cause)
-            ? cause
+              return context.session;
+            } catch (cause) {
+              context.stopping = true;
+              sessions.delete(input.threadId);
+              context.client.child.kill("SIGTERM");
+              throw cause;
+            } finally {
+              context.startPromise = undefined;
+            }
+          })();
+          context.startPromise = startPromise;
+          sessions.set(input.threadId, context);
+          return await startPromise;
+        },
+        catch: (cause) => {
+          const known = findKnownCursorAdapterError(cause);
+          return isProviderAdapterValidationError(known) ||
+            isProviderAdapterProcessError(known) ||
+            isProviderAdapterRequestError(known)
+            ? known
             : new ProviderAdapterRequestError({
                 provider: PROVIDER,
                 method: "startSession",
-                detail: cause instanceof Error ? cause.message : String(cause),
-              }),
-        ),
-      );
+                detail: describeCursorAdapterCause(cause),
+              });
+        },
+      });
 
     const sendTurn: CursorAdapterShape["sendTurn"] = (input) =>
-      Effect.tryPromise(async () => {
-        const context = sessions.get(input.threadId);
-        if (!context) {
-          throw new ProviderAdapterSessionNotFoundError({
-            provider: PROVIDER,
-            threadId: input.threadId,
-          });
-        }
-        if (input.modelSelection && input.modelSelection.provider !== PROVIDER) {
-          throw new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "sendTurn",
-            issue: `Expected Cursor model selection, received '${input.modelSelection.provider}'.`,
-          });
-        }
-        if (input.attachments && input.attachments.length > 0) {
-          throw new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "sendTurn",
-            issue: "Cursor ACP image attachments are not implemented yet.",
-          });
-        }
-        if (context.activeTurn) {
-          throw new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "session/prompt",
-            detail: "Cursor session already has an active turn.",
-          });
-        }
-        const sessionId = readResumeSessionId(context.session.resumeCursor);
-        if (!sessionId) {
-          throw new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "session/prompt",
-            detail: "Cursor session is missing a resumable session id.",
-          });
-        }
+      Effect.try({
+        try: () => {
+          const context = sessions.get(input.threadId);
+          if (!context) {
+            throw new ProviderAdapterSessionNotFoundError({
+              provider: PROVIDER,
+              threadId: input.threadId,
+            });
+          }
+          if (context.startPromise) {
+            throw new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "session/prompt",
+              detail: "Cursor session is still starting.",
+            });
+          }
+          if (input.modelSelection && input.modelSelection.provider !== PROVIDER) {
+            throw new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "sendTurn",
+              issue: `Expected Cursor model selection, received '${input.modelSelection.provider}'.`,
+            });
+          }
+          if (input.attachments && input.attachments.length > 0) {
+            throw new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "sendTurn",
+              issue: "Cursor ACP image attachments are not implemented yet.",
+            });
+          }
+          if (context.activeTurn) {
+            throw new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "session/prompt",
+              detail: "Cursor session already has an active turn.",
+            });
+          }
+          const sessionId = readResumeSessionId(context.session.resumeCursor);
+          if (!sessionId) {
+            throw new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "session/prompt",
+              detail: "Cursor session is missing a resumable session id.",
+            });
+          }
 
-        const turnId = TurnId.makeUnsafe(`cursor-turn:${randomUUID()}`);
-        const selectedModel = resolveSelectedModel(input.modelSelection);
-        const activeTurn: TurnSnapshot = {
-          id: turnId,
-          items: [],
-          assistantText: "",
-          reasoningText: "",
-          assistantItem: undefined,
-          reasoningItem: undefined,
-          toolCalls: new Map(),
-        };
-        context.activeTurn = activeTurn;
-        updateSession(context, {
-          status: "running",
-          activeTurnId: turnId,
-          model: selectedModel,
-        });
-        emit({
-          ...baseEvent(context, { turnId }),
-          type: "turn.started",
-          payload: {
+          const turnId = TurnId.makeUnsafe(`cursor-turn:${randomUUID()}`);
+          const selectedModel = resolveSelectedModel(input.modelSelection);
+          const activeTurn: TurnSnapshot = {
+            id: turnId,
+            items: [],
+            assistantText: "",
+            reasoningText: "",
+            assistantItem: undefined,
+            reasoningItem: undefined,
+            toolCalls: new Map(),
+          };
+          context.activeTurn = activeTurn;
+          updateSession(context, {
+            status: "running",
+            activeTurnId: turnId,
             model: selectedModel,
-            ...(input.interactionMode === "plan" ? { effort: "plan" } : {}),
-          },
-        });
-
-        void context.client
-          .request("session/prompt", {
-            sessionId,
-            prompt: [{ type: "text", text: input.input ?? "" }],
-          })
-          .then((result) => {
-            const record = asObject(result);
-            settleTurn(context, turnId, {
-              type: "completed",
-              stopReason: asString(record?.stopReason) ?? null,
-            });
-          })
-          .catch((error) => {
-            emit({
-              ...baseEvent(context, { turnId }),
-              type: "runtime.error",
-              payload: {
-                message: error instanceof Error ? error.message : String(error),
-                class: "provider_error",
-              },
-            });
-            settleTurn(context, turnId, {
-              type: "completed",
-              errorMessage: error instanceof Error ? error.message : String(error),
-            });
+          });
+          emit({
+            ...baseEvent(context, { turnId }),
+            type: "turn.started",
+            payload: {
+              model: selectedModel,
+              ...(input.interactionMode === "plan" ? { effort: "plan" } : {}),
+            },
           });
 
-        return {
-          threadId: input.threadId,
-          turnId,
-          resumeCursor: context.session.resumeCursor,
-        } satisfies ProviderTurnStartResult;
-      }).pipe(
-        Effect.mapError((cause) =>
-          Schema.is(ProviderAdapterSessionNotFoundError)(cause) ||
-          Schema.is(ProviderAdapterValidationError)(cause) ||
-          Schema.is(ProviderAdapterRequestError)(cause)
-            ? cause
+          void context.client
+            .request("session/prompt", {
+              sessionId,
+              prompt: [{ type: "text", text: input.input ?? "" }],
+            })
+            .then((result) => {
+              const record = asObject(result);
+              settleTurn(context, turnId, {
+                type: "completed",
+                stopReason: asString(record?.stopReason) ?? null,
+              });
+            })
+            .catch((error) => {
+              emit({
+                ...baseEvent(context, { turnId }),
+                type: "runtime.error",
+                payload: {
+                  message: error instanceof Error ? error.message : String(error),
+                  class: "provider_error",
+                },
+              });
+              settleTurn(context, turnId, {
+                type: "completed",
+                errorMessage: error instanceof Error ? error.message : String(error),
+              });
+            });
+
+          return {
+            threadId: input.threadId,
+            turnId,
+            resumeCursor: context.session.resumeCursor,
+          } satisfies ProviderTurnStartResult;
+        },
+        catch: (cause) => {
+          const known = findKnownCursorAdapterError(cause);
+          return isProviderAdapterSessionNotFoundError(known) ||
+            isProviderAdapterValidationError(known) ||
+            isProviderAdapterRequestError(known)
+            ? known
             : new ProviderAdapterRequestError({
                 provider: PROVIDER,
                 method: "session/prompt",
-                detail: cause instanceof Error ? cause.message : String(cause),
-              }),
-        ),
-      );
+                detail: describeCursorAdapterCause(cause),
+              });
+        },
+      });
 
     const interruptTurn: CursorAdapterShape["interruptTurn"] = (threadId, turnId) =>
-      Effect.tryPromise(async () => {
-        const context = sessions.get(threadId);
-        if (!context) {
-          throw new ProviderAdapterSessionNotFoundError({
-            provider: PROVIDER,
-            threadId,
+      Effect.tryPromise({
+        try: async () => {
+          const context = sessions.get(threadId);
+          if (!context) {
+            throw new ProviderAdapterSessionNotFoundError({
+              provider: PROVIDER,
+              threadId,
+            });
+          }
+          if (!context.activeTurn) {
+            return;
+          }
+          if (turnId && context.activeTurn.id !== turnId) {
+            return;
+          }
+          const sessionId = readResumeSessionId(context.session.resumeCursor);
+          if (!sessionId) {
+            throw new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "session/cancel",
+              detail: "Cursor session is missing a resumable session id.",
+            });
+          }
+          await context.client.request(
+            "session/cancel",
+            { sessionId },
+            { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
+          );
+          settleTurn(context, context.activeTurn.id, {
+            type: "aborted",
+            reason: "Turn cancelled",
           });
-        }
-        if (!context.activeTurn) {
-          return;
-        }
-        if (turnId && context.activeTurn.id !== turnId) {
-          return;
-        }
-        const sessionId = readResumeSessionId(context.session.resumeCursor);
-        if (!sessionId) {
-          throw new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "session/cancel",
-            detail: "Cursor session is missing a resumable session id.",
-          });
-        }
-        await context.client.request(
-          "session/cancel",
-          { sessionId },
-          { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
-        );
-        settleTurn(context, context.activeTurn.id, {
-          type: "aborted",
-          reason: "Turn cancelled",
-        });
-      }).pipe(
-        Effect.mapError((cause) =>
-          Schema.is(ProviderAdapterSessionNotFoundError)(cause) ||
-          Schema.is(ProviderAdapterRequestError)(cause)
-            ? cause
+        },
+        catch: (cause) => {
+          const known = findKnownCursorAdapterError(cause);
+          return isProviderAdapterSessionNotFoundError(known) ||
+            isProviderAdapterRequestError(known)
+            ? known
             : new ProviderAdapterRequestError({
                 provider: PROVIDER,
                 method: "session/cancel",
-                detail: cause instanceof Error ? cause.message : String(cause),
-              }),
-        ),
-      );
+                detail: describeCursorAdapterCause(cause),
+              });
+        },
+      });
 
     const respondToRequest: CursorAdapterShape["respondToRequest"] = (
       threadId,
       requestId,
       decision,
     ) =>
-      Effect.tryPromise(async () => {
-        const context = sessions.get(threadId);
-        if (!context) {
-          throw new ProviderAdapterSessionNotFoundError({
-            provider: PROVIDER,
-            threadId,
-          });
-        }
-        const pending = context.pendingApprovals.get(requestId);
-        if (!pending) {
-          throw new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "session/request_permission",
-            detail: `Unknown pending approval request '${requestId}'.`,
-          });
-        }
-        context.pendingApprovals.delete(requestId);
-        context.client.respond(pending.jsonRpcId, {
-          outcome: {
-            outcome: "selected",
-            optionId: toDecisionOptionId(decision),
-          },
-        });
-        emit({
-          ...baseEvent(context, {
-            ...(pending.turnId ? { turnId: pending.turnId } : {}),
-            requestId,
-          }),
-          type: "request.resolved",
-          payload: {
-            requestType: "command_execution_approval",
-            decision,
-            resolution: {
+      Effect.tryPromise({
+        try: async () => {
+          const context = sessions.get(threadId);
+          if (!context) {
+            throw new ProviderAdapterSessionNotFoundError({
+              provider: PROVIDER,
+              threadId,
+            });
+          }
+          const pending = context.pendingApprovals.get(requestId);
+          if (!pending) {
+            throw new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "session/request_permission",
+              detail: `Unknown pending approval request '${requestId}'.`,
+            });
+          }
+          context.pendingApprovals.delete(requestId);
+          context.client.respond(pending.jsonRpcId, {
+            outcome: {
+              outcome: "selected",
               optionId: toDecisionOptionId(decision),
             },
-          },
-        });
+          });
+          emit({
+            ...baseEvent(context, {
+              ...(pending.turnId ? { turnId: pending.turnId } : {}),
+              requestId,
+            }),
+            type: "request.resolved",
+            payload: {
+              requestType: "command_execution_approval",
+              decision,
+              resolution: {
+                optionId: toDecisionOptionId(decision),
+              },
+            },
+          });
+        },
+        catch: (cause) => {
+          const known = findKnownCursorAdapterError(cause);
+          return isProviderAdapterSessionNotFoundError(known) ||
+            isProviderAdapterRequestError(known)
+            ? known
+            : new ProviderAdapterRequestError({
+                provider: PROVIDER,
+                method: "session/request_permission",
+                detail: describeCursorAdapterCause(cause),
+              });
+        },
       });
 
     const respondToUserInput: CursorAdapterShape["respondToUserInput"] = (
@@ -1669,100 +1777,105 @@ export const CursorAdapterLive = Layer.effect(
       requestId,
       answers,
     ) =>
-      Effect.tryPromise(async () => {
-        const context = sessions.get(threadId);
-        if (!context) {
-          throw new ProviderAdapterSessionNotFoundError({
-            provider: PROVIDER,
-            threadId,
-          });
-        }
-        const pending = context.pendingUserInputs.get(requestId);
-        if (!pending) {
-          throw new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "cursor/ask_question",
-            detail: `Unknown pending user-input request '${requestId}'.`,
-          });
-        }
+      Effect.tryPromise({
+        try: async () => {
+          const context = sessions.get(threadId);
+          if (!context) {
+            throw new ProviderAdapterSessionNotFoundError({
+              provider: PROVIDER,
+              threadId,
+            });
+          }
+          const pending = context.pendingUserInputs.get(requestId);
+          if (!pending) {
+            throw new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "cursor/ask_question",
+              detail: `Unknown pending user-input request '${requestId}'.`,
+            });
+          }
 
-        context.pendingUserInputs.delete(requestId);
+          context.pendingUserInputs.delete(requestId);
 
-        if (pending.kind === "ask-question") {
-          const selectedAnswers = pending.questions.map((question) => {
-            const answer = answers[question.id];
-            const label = typeof answer === "string" ? answer : "";
-            const optionId = pending.optionIdsByQuestionAndLabel.get(question.id)?.get(label);
-            return {
-              questionId: question.id,
-              selectedOptionIds: optionId ? [optionId] : [],
-            };
-          });
-          context.client.respond(pending.jsonRpcId, {
-            outcome: {
-              outcome: "answered",
-              answers: selectedAnswers,
+          if (pending.kind === "ask-question") {
+            const selectedAnswers = pending.questions.map((question) => {
+              const answer = answers[question.id];
+              const label = typeof answer === "string" ? answer : "";
+              const optionId = pending.optionIdsByQuestionAndLabel.get(question.id)?.get(label);
+              return {
+                questionId: question.id,
+                selectedOptionIds: optionId ? [optionId] : [],
+              };
+            });
+            context.client.respond(pending.jsonRpcId, {
+              outcome: {
+                outcome: "answered",
+                answers: selectedAnswers,
+              },
+            });
+          } else {
+            const answer =
+              typeof answers.plan_decision === "string" ? answers.plan_decision : "Cancel";
+            context.client.respond(pending.jsonRpcId, {
+              outcome:
+                answer === "Accept"
+                  ? { outcome: "accepted" }
+                  : answer === "Reject"
+                    ? { outcome: "rejected", reason: "Rejected in T3 Code" }
+                    : { outcome: "cancelled" },
+            });
+          }
+
+          emit({
+            ...baseEvent(context, {
+              ...(pending.turnId ? { turnId: pending.turnId } : {}),
+              requestId,
+            }),
+            type: "user-input.resolved",
+            payload: {
+              answers,
             },
           });
-        } else {
-          const answer =
-            typeof answers.plan_decision === "string" ? answers.plan_decision : "Cancel";
-          context.client.respond(pending.jsonRpcId, {
-            outcome:
-              answer === "Accept"
-                ? { outcome: "accepted" }
-                : answer === "Reject"
-                  ? { outcome: "rejected", reason: "Rejected in T3 Code" }
-                  : { outcome: "cancelled" },
-          });
-        }
-
-        emit({
-          ...baseEvent(context, {
-            ...(pending.turnId ? { turnId: pending.turnId } : {}),
-            requestId,
-          }),
-          type: "user-input.resolved",
-          payload: {
-            answers,
-          },
-        });
-      }).pipe(
-        Effect.mapError((cause) =>
-          Schema.is(ProviderAdapterSessionNotFoundError)(cause) ||
-          Schema.is(ProviderAdapterRequestError)(cause)
-            ? cause
+        },
+        catch: (cause) => {
+          const known = findKnownCursorAdapterError(cause);
+          return isProviderAdapterSessionNotFoundError(known) ||
+            isProviderAdapterRequestError(known)
+            ? known
             : new ProviderAdapterRequestError({
                 provider: PROVIDER,
                 method: "respondToUserInput",
-                detail: cause instanceof Error ? cause.message : String(cause),
-              }),
-        ),
-      );
+                detail: describeCursorAdapterCause(cause),
+              });
+        },
+      });
 
     const stopSession: CursorAdapterShape["stopSession"] = (threadId) =>
-      Effect.tryPromise(async () => {
-        const context = sessions.get(threadId);
-        if (!context) {
-          throw new ProviderAdapterSessionNotFoundError({
-            provider: PROVIDER,
-            threadId,
-          });
-        }
-        context.stopping = true;
-        await context.client.close();
-        sessions.delete(threadId);
-      }).pipe(
-        Effect.mapError((cause) =>
-          Schema.is(ProviderAdapterSessionNotFoundError)(cause)
-            ? cause
+      Effect.tryPromise({
+        try: async () => {
+          const context = sessions.get(threadId);
+          if (!context) {
+            throw new ProviderAdapterSessionNotFoundError({
+              provider: PROVIDER,
+              threadId,
+            });
+          }
+          context.stopping = true;
+          await context.client.close();
+          sessions.delete(threadId);
+        },
+        catch: (cause) => {
+          const known = findKnownCursorAdapterError(cause);
+          return isProviderAdapterSessionNotFoundError(known) ||
+            isProviderAdapterProcessError(known)
+            ? known
             : new ProviderAdapterProcessError({
                 provider: PROVIDER,
                 threadId,
-                detail: cause instanceof Error ? cause.message : String(cause),
-              }),
-        ),
-      );
+                detail: describeCursorAdapterCause(cause),
+              });
+        },
+      });
 
     const listSessions: CursorAdapterShape["listSessions"] = () =>
       Effect.sync(() => Array.from(sessions.values(), (context) => context.session));
