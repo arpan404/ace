@@ -40,12 +40,20 @@ const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
 const MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS = 640;
+const MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS_CURSOR = 96;
 const PROVIDER_RUNTIME_INGESTION_QUEUE_CAPACITY = Math.max(
   256,
   Number.parseInt(process.env.T3CODE_PROVIDER_RUNTIME_INGESTION_QUEUE_CAPACITY ?? "20000", 10) ||
     20_000,
 );
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
+
+function streamingAssistantDeltaBatchLimit(provider: ProviderRuntimeEvent["provider"]): number {
+  // Cursor ACP emits many token-sized chunks, so a smaller flush threshold keeps the UI live.
+  return provider === "cursor"
+    ? MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS_CURSOR
+    : MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS;
+}
 
 type TurnStartRequestedDomainEvent = Extract<
   OrchestrationEvent,
@@ -875,7 +883,7 @@ const make = Effect.fn("make")(function* () {
     });
 
     const next = pendingStreamingAssistantDeltasByStreamKey.get(input.streamKey);
-    if (!next || next.delta.length < MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS) {
+    if (!next || next.delta.length < streamingAssistantDeltaBatchLimit(input.event.provider)) {
       return;
     }
     yield* flushPendingStreamingAssistantDeltaByStreamKey(input.streamKey);

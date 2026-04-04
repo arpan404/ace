@@ -80,7 +80,7 @@ function resetComposerDraftStore() {
 }
 
 function modelSelection(
-  provider: "codex" | "claudeAgent",
+  provider: "codex" | "claudeAgent" | "githubCopilot" | "cursor",
   model: string,
   options?: ModelSelection["options"],
 ): ModelSelection {
@@ -1030,6 +1030,61 @@ describe("composerDraftStore provider-scoped option updates", () => {
       reasoningEffort: "high",
     });
     expect(draft?.activeProvider).toBe("codex");
+  });
+
+  it("stores cursor traits without changing the active selection", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(
+      threadId,
+      modelSelection("codex", "gpt-5.3-codex", {
+        reasoningEffort: "medium",
+      }),
+    );
+    store.setProviderModelOptions(threadId, "cursor", {
+      reasoningEffort: "xhigh",
+      fastMode: true,
+    });
+
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.modelSelectionByProvider.codex).toEqual(
+      modelSelection("codex", "gpt-5.3-codex", { reasoningEffort: "medium" }),
+    );
+    expect(draft?.modelSelectionByProvider.cursor).toEqual(
+      modelSelection("cursor", "auto", {
+        reasoningEffort: "xhigh",
+        fastMode: true,
+      }),
+    );
+    expect(draft?.activeProvider).toBe("codex");
+  });
+});
+
+describe("composerDraftStore cursor selections", () => {
+  const threadId = ThreadId.makeUnsafe("thread-cursor");
+
+  beforeEach(() => {
+    resetComposerDraftStore();
+  });
+
+  it("preserves cursor options on explicit model selections", () => {
+    const store = useComposerDraftStore.getState();
+
+    store.setModelSelection(
+      threadId,
+      modelSelection("cursor", "gpt-5.4-mini", {
+        reasoningEffort: "high",
+        fastMode: false,
+      }),
+    );
+
+    expect(
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.cursor,
+    ).toEqual(
+      modelSelection("cursor", "gpt-5.4-mini", {
+        reasoningEffort: "high",
+        fastMode: false,
+      }),
+    );
   });
 });
 

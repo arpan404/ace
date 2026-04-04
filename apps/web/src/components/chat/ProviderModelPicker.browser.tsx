@@ -123,6 +123,21 @@ function buildCodexProvider(models: ServerProvider["models"]): ServerProvider {
   };
 }
 
+function buildCodexModel(index: number): ServerProvider["models"][number] {
+  return {
+    slug: `codex-model-${index}`,
+    name: `Codex Model ${index}`,
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [effort("low"), effort("medium", true), effort("high")],
+      supportsFastMode: true,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
+    },
+  };
+}
+
 async function mountPicker(props: {
   provider: ProviderKind;
   model: string;
@@ -392,6 +407,42 @@ describe("ProviderModelPicker", () => {
       });
     } finally {
       await mounted.cleanup();
+    }
+  });
+
+  it("caps locked-provider model menus and scrolls within the popup", async () => {
+    const initialViewport = { width: window.innerWidth, height: window.innerHeight };
+    await page.viewport(1280, 1200);
+    const manyCodexModels = Array.from({ length: 32 }, (_, index) => buildCodexModel(index + 1));
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: manyCodexModels[0]!.slug,
+      lockedProvider: "codex",
+      providers: [buildCodexProvider(manyCodexModels), TEST_PROVIDERS[1]!],
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await vi.waitFor(() => {
+        expect(document.body.textContent ?? "").toContain("Codex Model 32");
+      });
+
+      const popup = document.querySelector('[data-slot="menu-popup"]');
+      if (!(popup instanceof HTMLElement)) {
+        throw new Error("Expected the locked-provider popup to be mounted.");
+      }
+
+      const scrollContainer = popup.firstElementChild;
+      if (!(scrollContainer instanceof HTMLElement)) {
+        throw new Error("Expected the locked-provider popup to render a scroll container.");
+      }
+
+      expect(scrollContainer.getBoundingClientRect().height).toBeLessThanOrEqual(400);
+      expect(scrollContainer.scrollHeight).toBeGreaterThan(scrollContainer.clientHeight);
+    } finally {
+      await mounted.cleanup();
+      await page.viewport(initialViewport.width, initialViewport.height);
     }
   });
 

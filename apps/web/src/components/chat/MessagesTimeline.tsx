@@ -17,7 +17,11 @@ import {
 import { deriveTimelineEntries, formatElapsed } from "../../session-logic";
 import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX } from "../../chat-scroll";
 import { type TurnDiffSummary } from "../../types";
-import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
+import {
+  buildTurnDiffTree,
+  summarizeTurnDiffStats,
+  type TurnDiffTreeNode,
+} from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
@@ -64,6 +68,8 @@ import {
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 const LARGE_TOOL_GROUP_SUMMARY_THRESHOLD = 10;
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
+const TURN_DIFF_CARD_CHROME_HEIGHT_PX = 88;
+const TURN_DIFF_TREE_ROW_HEIGHT_PX = 26;
 
 interface MessagesTimelineProps {
   hasMessages: boolean;
@@ -294,43 +300,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     activeTurnInProgress,
   ]);
 
-  const firstUnvirtualizedRowIndex = useMemo(() => {
-    const firstTailRowIndex = Math.max(rows.length - ALWAYS_UNVIRTUALIZED_TAIL_ROWS, 0);
-    if (!activeTurnInProgress) return firstTailRowIndex;
-
-    const turnStartedAtMs =
-      typeof activeTurnStartedAt === "string" ? Date.parse(activeTurnStartedAt) : Number.NaN;
-    let firstCurrentTurnRowIndex = -1;
-    if (!Number.isNaN(turnStartedAtMs)) {
-      firstCurrentTurnRowIndex = rows.findIndex((row) => {
-        if (row.kind === "working") return true;
-        if (!row.createdAt) return false;
-        const rowCreatedAtMs = Date.parse(row.createdAt);
-        return !Number.isNaN(rowCreatedAtMs) && rowCreatedAtMs >= turnStartedAtMs;
-      });
-    }
-
-    if (firstCurrentTurnRowIndex < 0) {
-      firstCurrentTurnRowIndex = rows.findIndex(
-        (row) => row.kind === "message" && row.message.streaming,
-      );
-    }
-
-    if (firstCurrentTurnRowIndex < 0) return firstTailRowIndex;
-
-    for (let index = firstCurrentTurnRowIndex - 1; index >= 0; index -= 1) {
-      const previousRow = rows[index];
-      if (!previousRow || previousRow.kind !== "message") continue;
-      if (previousRow.message.role === "user") {
-        return Math.min(index, firstTailRowIndex);
-      }
-      if (previousRow.message.role === "assistant" && !previousRow.message.streaming) {
-        break;
-      }
-    }
-
-    return Math.min(firstCurrentTurnRowIndex, firstTailRowIndex);
-  }, [activeTurnInProgress, activeTurnStartedAt, rows]);
+  const firstUnvirtualizedRowIndex = useMemo(
+    () =>
+      deriveFirstUnvirtualizedTimelineRowIndex(rows, {
+        activeTurnInProgress,
+        activeTurnStartedAt,
+        preserveCurrentTurnTail: isWorking,
+      }),
+    [activeTurnInProgress, activeTurnStartedAt, isWorking, rows],
+  );
 
   const virtualizedRowCount = clamp(firstUnvirtualizedRowIndex, {
     minimum: 0,
@@ -350,7 +328,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       if (row.kind === "intent") return 76;
       if (row.kind === "proposed-plan") return estimateTimelineProposedPlanHeight(row.proposedPlan);
       if (row.kind === "working") return 40;
-      return estimateTimelineMessageHeight(row.message, { timelineWidthPx });
+      const messageEstimate = estimateTimelineMessageHeight(row.message, { timelineWidthPx });
+      if (row.message.role !== "assistant") {
+        return messageEstimate;
+      }
+      return (
+        messageEstimate +
+        estimateTurnDiffSummaryHeight(turnDiffSummaryByAssistantMessageId.get(row.message.id))
+      );
     },
     measureElement: measureVirtualElement,
     useAnimationFrameWithResizeObserver: true,
@@ -377,13 +362,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
   }, [rowVirtualizer]);
   const pendingMeasureFrameRef = useRef<number | null>(null);
-  const onTimelineImageLoad = useCallback(() => {
+  const scheduleTimelineMeasure = useCallback(() => {
     if (pendingMeasureFrameRef.current !== null) return;
     pendingMeasureFrameRef.current = window.requestAnimationFrame(() => {
       pendingMeasureFrameRef.current = null;
       rowVirtualizer.measure();
     });
   }, [rowVirtualizer]);
+  const onTimelineImageLoad = scheduleTimelineMeasure;
   useEffect(() => {
     return () => {
       const frame = pendingMeasureFrameRef.current;
@@ -407,12 +393,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
     Record<string, boolean>
   >({});
-  const onToggleAllDirectories = useCallback((turnId: TurnId) => {
-    setAllDirectoriesExpandedByTurnId((current) => ({
-      ...current,
-      [turnId]: !(current[turnId] ?? true),
-    }));
-  }, []);
+  const onToggleAllDirectories = useCallback(
+    (turnId: TurnId) => {
+      setAllDirectoriesExpandedByTurnId((current) => ({
+        ...current,
+        [turnId]: !(current[turnId] ?? true),
+      }));
+      scheduleTimelineMeasure();
+    },
+    [scheduleTimelineMeasure],
+  );
+  useEffect(() => {
+    scheduleTimelineMeasure();
+  }, [scheduleTimelineMeasure, turnDiffSummaryByAssistantMessageId]);
 
   const renderRowContent = (row: TimelineRow, rowIndex: number) => {
     const previousRow = rowIndex > 0 ? rows[rowIndex - 1] : undefined;
@@ -423,15 +416,34 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       isStreamingAssistantMessageRow(row) && isThinkingWorkRow(previousRow);
     const attachWorkToFollowUp = isWorkContainerRow(row) && isWorkFollowUpRow(nextRow);
     const attachFollowUpToWork = isWorkFollowUpRow(row) && isWorkContainerRow(previousRow);
+    const threadMarkerClass =
+      row.kind === "message"
+        ? row.message.role === "user"
+          ? "border-primary/35 bg-primary/14"
+          : "border-border/70 bg-background"
+        : row.kind === "intent" || row.kind === "intent-work"
+          ? "border-primary/25 bg-primary/10"
+          : row.kind === "proposed-plan"
+            ? "border-emerald-500/30 bg-emerald-500/10"
+            : row.kind === "working"
+              ? "border-foreground/18 bg-foreground/24"
+              : row.groupedEntries.every((entry) => entry.tone === "thinking")
+                ? "border-amber-500/35 bg-amber-500/12"
+                : row.groupedEntries.some((entry) => entry.tone === "error")
+                  ? "border-rose-500/35 bg-rose-500/12"
+                  : row.groupedEntries.every((entry) => entry.tone === "tool")
+                    ? "border-border/70 bg-background"
+                    : "border-emerald-500/28 bg-emerald-500/10";
 
     return (
       <div
         className={cn(
-          "pb-4",
-          attachWorkToFollowUp && "pb-1",
-          attachThinkingToStreamingAssistant && "pb-1",
-          (attachStreamingAssistantToThinking || attachFollowUpToWork) && "-mt-1 pb-4",
+          "group/timeline relative pb-5 pl-10",
+          attachWorkToFollowUp && "pb-2",
+          attachThinkingToStreamingAssistant && "pb-2",
+          (attachStreamingAssistantToThinking || attachFollowUpToWork) && "-mt-1 pb-5",
         )}
+        data-thread-row="true"
         data-timeline-row-kind={row.kind}
         data-message-id={row.kind === "message" ? row.message.id : undefined}
         data-message-role={row.kind === "message" ? row.message.role : undefined}
@@ -448,6 +460,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             : undefined
         }
       >
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-0 left-[0.95rem] top-0 w-px bg-border/42"
+        />
+        <span
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute left-2.5 top-3.5 size-3 rounded-full border ring-4 ring-background",
+            threadMarkerClass,
+          )}
+        />
         {row.kind === "work" &&
           (() => {
             const groupedEntries = row.groupedEntries;
@@ -490,23 +513,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             return (
               <div
                 className={cn(
-                  "rounded-xl border border-border/45 px-2.5 py-2",
-                  attachThinkingToStreamingAssistant &&
-                    "rounded-b-md border-b-border/30 shadow-[0_0_0_1px_rgba(245,158,11,0.06)]",
-                  compactGroup ? "bg-transparent" : "bg-card/20",
+                  "min-w-0 border-l pl-4",
+                  workGroupRailClass(groupedEntries),
+                  attachThinkingToStreamingAssistant && "border-amber-500/35",
                 )}
+                data-thread-group={
+                  onlyThinkingEntries ? "thinking" : onlyToolEntries ? "tool" : "work"
+                }
               >
                 {onlyThinkingEntries ? (
                   <button
                     type="button"
-                    className="mb-2 w-full rounded-lg border border-amber-500/20 bg-background/15 px-2.5 py-2 text-left transition-colors duration-150 hover:border-amber-500/30 hover:bg-background/20"
+                    className="mb-2 w-full border-border/40 border-b pb-2 text-left transition-colors duration-150 hover:border-amber-500/24"
                     onClick={() => onToggleWorkGroup(groupId)}
                     data-thinking-disclosure="true"
                     data-thinking-disclosure-open={String(isExpanded)}
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex min-w-0 items-center gap-2">
-                        <span className="flex size-5 shrink-0 items-center justify-center rounded-md border border-amber-500/20 bg-background/35 text-muted-foreground/60">
+                        <span className="flex size-4.5 shrink-0 items-center justify-center rounded-full border border-amber-500/20 text-muted-foreground/60">
                           <ThinkingDisclosureIcon className="size-3.5" />
                         </span>
                         <div className="min-w-0">
@@ -527,7 +552,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   </button>
                 ) : (
                   showHeader && (
-                    <div className="mb-2 flex items-center justify-between gap-2 px-0.5">
+                    <div className="mb-2 flex items-center justify-between gap-2 border-border/35 border-b pb-2">
                       <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground/55">
                         {groupLabel} ({groupedEntries.length})
                       </p>
@@ -595,17 +620,20 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const toolCallCount = countToolCalls(groupedEntries);
 
             return (
-              <div className="px-1 py-0.5" data-intent-disclosure="true">
+              <div
+                className="min-w-0 border-primary/18 border-l px-0.5 py-0.5 pl-4"
+                data-intent-disclosure="true"
+              >
                 <button
                   type="button"
-                  className="w-full px-0.5 py-1 text-left"
+                  className="w-full py-1 text-left"
                   onClick={() => onToggleWorkGroup(groupId)}
                 >
-                  <p className="wrap-break-word text-[13px] leading-6 text-foreground/86">
-                    <span className="mr-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55">
-                      Message
-                    </span>
-                    <span>&quot;{row.text}&quot;</span>
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
+                    Message
+                  </p>
+                  <p className="mt-1 wrap-break-word text-[13px] leading-6 text-foreground/86">
+                    &quot;{row.text}&quot;
                   </p>
                   <p className="mt-1 text-[10px] text-muted-foreground/58">
                     {toolCallCount === 1 ? "1 tool call" : `${toolCallCount} tool calls`}
@@ -615,9 +643,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   </p>
                 </button>
                 {isExpanded && (
-                  <div className="mt-2 border-l border-border/40 pl-3">
+                  <div className="mt-3 border-l border-border/35 pl-4">
                     {isLiveWorkGroup && hasOverflow && (
-                      <div className="mb-2 rounded-lg border border-border/50 bg-background/25 px-2.5 py-2 text-[10px] text-muted-foreground/60">
+                      <div className="mb-2 border-border/35 border-b pb-2 text-[10px] text-muted-foreground/60">
                         Showing latest {visibleEntries.length} of {groupedEntries.length} live tool
                         calls
                       </div>
@@ -641,15 +669,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           <div
             className={cn(
               "min-w-0 px-1 py-0.5",
-              attachFollowUpToWork &&
-                "ml-3 rounded-xl border border-border/35 bg-card/10 px-3 py-2.5 shadow-sm",
+              attachFollowUpToWork && "border-border/35 border-l pl-4",
             )}
             data-intent-message="true"
+            data-thread-attached-surface={attachFollowUpToWork ? "true" : undefined}
           >
-            <p className="wrap-break-word px-0.5 text-[13px] leading-6 text-foreground/84">
-              <span className="mr-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55">
-                Message
-              </span>
+            <p className="px-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
+              Message
+            </p>
+            <p className="wrap-break-word px-0.5 pt-1 text-[13px] leading-6 text-foreground/84">
               <span>&quot;{row.text}&quot;</span>
             </p>
           </div>
@@ -663,10 +691,32 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const terminalContexts = displayedUserMessage.contexts;
             const canRevertAgentWork = revertTurnCountByUserMessageId.has(row.message.id);
             return (
-              <div className="flex justify-end">
-                <div className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-border bg-secondary px-4 py-3">
+              <div className="group relative min-w-0">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
+                    You
+                  </p>
+                  <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
+                    {displayedUserMessage.copyText && (
+                      <MessageCopyButton text={displayedUserMessage.copyText} />
+                    )}
+                    {canRevertAgentWork && (
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="outline"
+                        disabled={isRevertingCheckpoint || isWorking}
+                        onClick={() => onRevertUserMessage(row.message.id)}
+                        title="Revert to this message"
+                      >
+                        <Undo2Icon className="size-3" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-2 border-primary/18 border-l pl-4">
                   {userImages.length > 0 && (
-                    <div className="mb-2 grid max-w-105 grid-cols-2 gap-2">
+                    <div className="mb-3 grid max-w-105 grid-cols-2 gap-2">
                       {userImages.map(
                         (image: NonNullable<TimelineMessage["attachments"]>[number]) => (
                           <div
@@ -709,29 +759,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       terminalContexts={terminalContexts}
                     />
                   )}
-                  <div className="mt-1.5 flex items-center justify-end gap-2">
-                    <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
-                      {displayedUserMessage.copyText && (
-                        <MessageCopyButton text={displayedUserMessage.copyText} />
-                      )}
-                      {canRevertAgentWork && (
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="outline"
-                          disabled={isRevertingCheckpoint || isWorking}
-                          onClick={() => onRevertUserMessage(row.message.id)}
-                          title="Revert to this message"
-                        >
-                          <Undo2Icon className="size-3" />
-                        </Button>
-                      )}
-                    </div>
-                    <p className="text-right text-[10px] text-muted-foreground/30">
-                      {formatTimestamp(row.message.createdAt, timestampFormat)}
-                    </p>
-                  </div>
                 </div>
+                <p className="mt-2 pl-4 text-[10px] text-muted-foreground/30">
+                  {formatTimestamp(row.message.createdAt, timestampFormat)}
+                </p>
               </div>
             );
           })()}
@@ -756,9 +787,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   className={cn(
                     "min-w-0 px-1 py-0.5",
                     (attachStreamingAssistantToThinking || attachFollowUpToWork) &&
-                      "rounded-xl border border-border/35 bg-card/8 px-3 py-2.5",
+                      "border-border/35 border-l pl-4",
                   )}
+                  data-thread-attached-surface={
+                    attachStreamingAssistantToThinking || attachFollowUpToWork ? "true" : undefined
+                  }
                 >
+                  <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
+                    Assistant
+                  </p>
                   <ChatMarkdown
                     text={messageText}
                     cwd={markdownCwd}
@@ -774,7 +811,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     const allDirectoriesExpanded =
                       allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? true;
                     return (
-                      <div className="mt-2 rounded-lg border border-border/80 bg-card/45 p-2.5">
+                      <div
+                        className="mt-3 border-border/35 border-l pl-4"
+                        data-turn-diff-summary="true"
+                      >
                         <div className="mb-1.5 flex items-center justify-between gap-2">
                           <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/65">
                             <span>Changed files ({changedFileCountLabel})</span>
@@ -817,6 +857,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           allDirectoriesExpanded={allDirectoriesExpanded}
                           resolvedTheme={resolvedTheme}
                           onOpenTurnDiff={onOpenTurnDiff}
+                          onLayoutChange={scheduleTimelineMeasure}
                         />
                       </div>
                     );
@@ -846,8 +887,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         )}
 
         {row.kind === "working" && (
-          <div className="py-0.5 pl-1.5">
-            <div className="flex items-center gap-2 pt-1 text-[11px] text-muted-foreground/70">
+          <div className="border-border/35 border-l py-0.5 pl-4">
+            <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
+              Live
+            </p>
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">
               <span className="inline-flex items-center gap-0.75">
                 <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse" />
                 <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:200ms]" />
@@ -984,9 +1028,76 @@ type TimelineRow =
     }
   | { kind: "working"; id: string; createdAt: string | null };
 
+export function deriveFirstUnvirtualizedTimelineRowIndex(
+  rows: ReadonlyArray<TimelineRow>,
+  input: {
+    activeTurnInProgress: boolean;
+    activeTurnStartedAt: string | null;
+    preserveCurrentTurnTail: boolean;
+  },
+): number {
+  const firstTailRowIndex = Math.max(rows.length - ALWAYS_UNVIRTUALIZED_TAIL_ROWS, 0);
+  if (!input.activeTurnInProgress || !input.preserveCurrentTurnTail) {
+    return firstTailRowIndex;
+  }
+
+  const turnStartedAtMs =
+    typeof input.activeTurnStartedAt === "string"
+      ? Date.parse(input.activeTurnStartedAt)
+      : Number.NaN;
+  let firstCurrentTurnRowIndex = -1;
+  if (!Number.isNaN(turnStartedAtMs)) {
+    firstCurrentTurnRowIndex = rows.findIndex((row) => {
+      if (row.kind === "working") return true;
+      if (!row.createdAt) return false;
+      const rowCreatedAtMs = Date.parse(row.createdAt);
+      return !Number.isNaN(rowCreatedAtMs) && rowCreatedAtMs >= turnStartedAtMs;
+    });
+  }
+
+  if (firstCurrentTurnRowIndex < 0) {
+    firstCurrentTurnRowIndex = rows.findIndex(
+      (row) => row.kind === "message" && row.message.role === "assistant" && row.message.streaming,
+    );
+  }
+
+  if (firstCurrentTurnRowIndex < 0) return firstTailRowIndex;
+
+  for (let index = firstCurrentTurnRowIndex - 1; index >= 0; index -= 1) {
+    const previousRow = rows[index];
+    if (!previousRow || previousRow.kind !== "message") continue;
+    if (previousRow.message.role === "user") {
+      return Math.min(index, firstTailRowIndex);
+    }
+    if (previousRow.message.role === "assistant" && !previousRow.message.streaming) {
+      break;
+    }
+  }
+
+  return Math.min(firstCurrentTurnRowIndex, firstTailRowIndex);
+}
+
 function estimateTimelineProposedPlanHeight(proposedPlan: TimelineProposedPlan): number {
   const estimatedLines = Math.max(1, Math.ceil(proposedPlan.planMarkdown.length / 72));
   return 120 + Math.min(estimatedLines * 22, 880);
+}
+
+function estimateTurnDiffSummaryHeight(turnSummary: TurnDiffSummary | undefined): number {
+  const checkpointFiles = turnSummary?.files ?? [];
+  if (checkpointFiles.length === 0) return 0;
+  return (
+    TURN_DIFF_CARD_CHROME_HEIGHT_PX +
+    countTurnDiffTreeNodes(buildTurnDiffTree(checkpointFiles)) * TURN_DIFF_TREE_ROW_HEIGHT_PX
+  );
+}
+
+function countTurnDiffTreeNodes(nodes: ReadonlyArray<TurnDiffTreeNode>): number {
+  return nodes.reduce((count, node) => {
+    if (node.kind === "file") {
+      return count + 1;
+    }
+    return count + 1 + countTurnDiffTreeNodes(node.children);
+  }, 0);
 }
 
 function formatWorkingTimer(startIso: string, endIso: string): string | null {
@@ -1258,15 +1369,15 @@ function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
 
 function workEntrySurfaceClass(tone: TimelineWorkEntry["tone"]): string {
   if (tone === "thinking") {
-    return "border border-dashed border-amber-500/26 bg-transparent";
+    return "border-amber-500/26 border-dashed";
   }
   if (tone === "tool") {
-    return "border border-border/50 bg-background/35";
+    return "border-border/40";
   }
   if (tone === "error") {
-    return "border border-rose-500/20 bg-rose-500/[0.04]";
+    return "border-rose-500/24";
   }
-  return "border border-emerald-500/18 bg-emerald-500/[0.035]";
+  return "border-emerald-500/18";
 }
 
 function workEntryBadgeLabel(tone: TimelineWorkEntry["tone"]): string {
@@ -1278,15 +1389,35 @@ function workEntryBadgeLabel(tone: TimelineWorkEntry["tone"]): string {
 
 function workEntryBadgeClass(tone: TimelineWorkEntry["tone"]): string {
   if (tone === "thinking") {
-    return "border-amber-500/28 bg-transparent text-amber-700 dark:text-amber-100";
+    return "text-amber-700 dark:text-amber-100";
   }
   if (tone === "tool") {
-    return "border-border/60 bg-background/80 text-muted-foreground/75";
+    return "text-muted-foreground/62";
   }
   if (tone === "error") {
-    return "border-rose-500/25 bg-rose-500/8 text-rose-700 dark:text-rose-100";
+    return "text-rose-700 dark:text-rose-100";
   }
-  return "border-emerald-500/25 bg-emerald-500/8 text-emerald-700 dark:text-emerald-100";
+  return "text-emerald-700 dark:text-emerald-100";
+}
+
+function workEntryMarkerClass(tone: TimelineWorkEntry["tone"]): string {
+  if (tone === "thinking") return "bg-amber-500/55";
+  if (tone === "tool") return "bg-border";
+  if (tone === "error") return "bg-rose-500/60";
+  return "bg-emerald-500/60";
+}
+
+function workGroupRailClass(entries: ReadonlyArray<TimelineWorkEntry>): string {
+  if (entries.every((entry) => entry.tone === "thinking")) {
+    return "border-amber-500/26";
+  }
+  if (entries.some((entry) => entry.tone === "error")) {
+    return "border-rose-500/22";
+  }
+  if (entries.every((entry) => entry.tone === "tool")) {
+    return "border-border/35";
+  }
+  return "border-emerald-500/18";
 }
 
 function workEntryPreview(
@@ -1432,30 +1563,27 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
 
   return (
     <div
-      className={cn(
-        "rounded-lg px-2.5 py-1.5",
-        workEntrySurfaceClass(workEntry.tone),
-        compact && "px-2 py-1.25",
-      )}
+      className={cn("border-l pl-3", workEntrySurfaceClass(workEntry.tone), compact && "pl-2.5")}
       data-work-entry-id={workEntry.id}
       data-work-entry-tone={workEntry.tone}
     >
-      <div className="flex items-start gap-2 transition-[opacity,translate] duration-200">
+      <div className="flex items-start gap-2.5 transition-[opacity,translate] duration-200">
         <span
           className={cn(
-            "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border border-border/55 bg-background/70",
-            compact && "size-4.5 rounded-sm",
-            iconConfig.className,
+            "mt-1.5 size-1.5 shrink-0 rounded-full",
+            compact && "mt-1.25 size-1",
+            workEntryMarkerClass(workEntry.tone),
           )}
-        >
-          <EntryIcon className={cn(compact ? "size-2.5" : "size-3")} />
-        </span>
+        />
         <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="mb-0.5 flex min-w-0 items-center gap-2">
+          <div className="mb-0.5 flex min-w-0 items-center gap-1.5">
+            <EntryIcon
+              className={cn(compact ? "size-2.75" : "size-3", "shrink-0", iconConfig.className)}
+            />
             <span
               className={cn(
-                "inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.16em]",
-                compact && "px-1.25 py-px text-[8px] tracking-[0.14em]",
+                "shrink-0 text-[9px] font-medium uppercase tracking-[0.16em]",
+                compact && "text-[8px] tracking-[0.14em]",
                 workEntryBadgeClass(workEntry.tone),
               )}
             >
@@ -1495,11 +1623,13 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
         </div>
       </div>
       {hasChangedFiles && !previewIsChangedFiles && (
-        <div className={cn("mt-1.5 flex flex-wrap gap-1 pl-7", compact && "mt-1 pl-6")}>
+        <div
+          className={cn("mt-1.5 flex flex-wrap gap-x-2 gap-y-1 pl-5.5", compact && "mt-1 pl-4.5")}
+        >
           {workEntry.changedFiles?.slice(0, 4).map((filePath) => (
             <span
               key={`${workEntry.id}:${filePath}`}
-              className="rounded-md border border-border/55 bg-background/75 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/75"
+              className="font-mono text-[10px] text-muted-foreground/75"
               title={filePath}
             >
               {filePath}
@@ -1527,7 +1657,7 @@ const CollapsedToolGroupSummaryRow = memo(function CollapsedToolGroupSummaryRow(
   const hiddenBreakdown = summarizeToolGroupBreakdown(props.hiddenEntries);
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/25 px-2.5 py-2">
+    <div className="flex items-center justify-between gap-3 border-border/35 border-b pb-2">
       <div className="min-w-0">
         <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground/58">
           {props.totalCount} tool calls
@@ -1542,13 +1672,13 @@ const CollapsedToolGroupSummaryRow = memo(function CollapsedToolGroupSummaryRow(
       {props.canExpand ? (
         <button
           type="button"
-          className="shrink-0 rounded-full border border-border/60 px-2 py-1 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70 transition-colors duration-150 hover:border-foreground/20 hover:text-foreground/78"
+          className="shrink-0 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70 transition-colors duration-150 hover:text-foreground/78"
           onClick={props.onExpand}
         >
           Expand
         </button>
       ) : (
-        <span className="shrink-0 rounded-full border border-border/50 px-2 py-1 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/52">
+        <span className="shrink-0 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/52">
           Live
         </span>
       )}

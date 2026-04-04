@@ -513,13 +513,41 @@ function normalizeProviderModelOptions(
       ? { reasoningEffort: githubCopilotReasoningEffort }
       : undefined;
 
-  if (!codex && !claude && !githubCopilot) {
+  const cursorCandidate =
+    candidate?.cursor && typeof candidate.cursor === "object"
+      ? (candidate.cursor as Record<string, unknown>)
+      : null;
+  const cursorReasoningEffort: CodexReasoningEffort | undefined =
+    cursorCandidate?.reasoningEffort === "low" ||
+    cursorCandidate?.reasoningEffort === "medium" ||
+    cursorCandidate?.reasoningEffort === "high" ||
+    cursorCandidate?.reasoningEffort === "xhigh"
+      ? cursorCandidate.reasoningEffort
+      : undefined;
+  const cursorFastMode =
+    cursorCandidate?.fastMode === true
+      ? true
+      : cursorCandidate?.fastMode === false
+        ? false
+        : undefined;
+  const cursor =
+    cursorReasoningEffort !== undefined || cursorFastMode !== undefined
+      ? {
+          ...(cursorReasoningEffort !== undefined
+            ? { reasoningEffort: cursorReasoningEffort }
+            : {}),
+          ...(cursorFastMode !== undefined ? { fastMode: cursorFastMode } : {}),
+        }
+      : undefined;
+
+  if (!codex && !claude && !githubCopilot && !cursor) {
     return null;
   }
   return {
     ...(codex ? { codex } : {}),
     ...(claude ? { claudeAgent: claude } : {}),
     ...(githubCopilot ? { githubCopilot } : {}),
+    ...(cursor ? { cursor } : {}),
   };
 }
 
@@ -541,6 +569,7 @@ function buildModelSelectionForProvider(
 function buildModelSelectionForProvider(
   provider: "cursor",
   model: string,
+  options?: ProviderModelOptions["cursor"],
 ): Extract<ModelSelection, { provider: "cursor" }>;
 function buildModelSelectionForProvider(
   provider: ProviderKind,
@@ -575,6 +604,7 @@ function buildModelSelectionForProvider(
       return {
         provider,
         model,
+        ...(options ? { options: options as ProviderModelOptions["cursor"] } : {}),
       } as Extract<ModelSelection, { provider: "cursor" }>;
   }
 }
@@ -613,7 +643,9 @@ function normalizeModelSelection(
         ? modelOptions?.claudeAgent
         : provider === "githubCopilot"
           ? modelOptions?.githubCopilot
-          : undefined;
+          : provider === "cursor"
+            ? modelOptions?.cursor
+            : undefined;
   return buildModelSelectionForProvider(provider, model, options);
 }
 
