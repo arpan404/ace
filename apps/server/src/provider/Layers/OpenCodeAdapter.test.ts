@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   appendOnlyDelta,
+  buildOpenCodeThreadUsageSnapshot,
   classifyOpenCodeDeltaStreamKind,
   classifyOpenCodeToolItemType,
   mapOpenCodeTodoStatus,
@@ -84,5 +85,54 @@ describe("resolveOpenCodePartTimestamp", () => {
     expect(resolveOpenCodePartTimestamp(part, "end")).toBe(
       new Date(1_742_533_200_456).toISOString(),
     );
+  });
+});
+
+describe("buildOpenCodeThreadUsageSnapshot", () => {
+  it("normalizes step-finish token accounting into thread usage details", () => {
+    expect(
+      buildOpenCodeThreadUsageSnapshot(
+        {
+          input: 900,
+          output: 120,
+          reasoning: 40,
+          cache: {
+            read: 60,
+            write: 15,
+          },
+        },
+        3,
+      ),
+    ).toEqual({
+      usedTokens: 1_135,
+      lastUsedTokens: 1_135,
+      lastInputTokens: 900,
+      lastCachedInputTokens: 75,
+      lastOutputTokens: 120,
+      lastReasoningOutputTokens: 40,
+      toolUses: 3,
+      compactsAutomatically: true,
+    });
+  });
+
+  it("prefers an explicit total when OpenCode provides one", () => {
+    expect(
+      buildOpenCodeThreadUsageSnapshot({
+        total: 2_048,
+        input: 1_100,
+        output: 300,
+      }),
+    ).toEqual({
+      usedTokens: 2_048,
+      lastUsedTokens: 2_048,
+      lastInputTokens: 1_100,
+      lastOutputTokens: 300,
+      compactsAutomatically: true,
+    });
+  });
+
+  it("returns undefined when the provider reports no positive usage", () => {
+    expect(buildOpenCodeThreadUsageSnapshot({ input: 0, output: 0 })).toBeUndefined();
+    expect(buildOpenCodeThreadUsageSnapshot(undefined)).toBeUndefined();
   });
 });

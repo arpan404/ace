@@ -152,8 +152,14 @@ type CursorContentItemState = {
   text: string;
 };
 
+type CursorUsageSnapshot = Extract<
+  ProviderRuntimeEvent,
+  { type: "thread.token-usage.updated" }
+>["payload"]["usage"];
+
 type TurnSnapshot = {
   readonly id: TurnId;
+  readonly startedAtMs: number;
   readonly items: Array<unknown>;
   assistantText: string;
   interruptRequested: boolean;
@@ -171,6 +177,8 @@ type CursorSessionContext = {
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
   readonly turns: Array<TurnSnapshot>;
   activeTurn: TurnSnapshot | undefined;
+  lastUsageSnapshot?: CursorUsageSnapshot;
+  lastUsageTurnId?: TurnId;
   stopping: boolean;
   startPromise: Promise<ProviderSession> | undefined;
 };
@@ -231,6 +239,45 @@ function asString(value: unknown): string | undefined {
 
 function asStreamText(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function asRoundedNonNegativeInt(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.max(0, Math.round(value));
+}
+
+function cursorToolUseCount(turn: TurnSnapshot | undefined): number | undefined {
+  const count = turn?.toolCalls.size ?? 0;
+  return count > 0 ? count : undefined;
+}
+
+export function buildCursorUsageSnapshot(
+  update: Record<string, unknown>,
+  turn: TurnSnapshot | undefined,
+):
+  | {
+      readonly usedTokens: number;
+      readonly maxTokens?: number;
+      readonly lastUsedTokens: number;
+      readonly toolUses?: number;
+    }
+  | undefined {
+  const usedTokens = asRoundedNonNegativeInt(update.used);
+  if (usedTokens === undefined || usedTokens <= 0) {
+    return undefined;
+  }
+
+  const maxTokens = asRoundedNonNegativeInt(update.size);
+  const toolUses = cursorToolUseCount(turn);
+
+  return {
+    usedTokens,
+    ...(maxTokens !== undefined && maxTokens > 0 ? { maxTokens } : {}),
+    lastUsedTokens: usedTokens,
+    ...(toolUses !== undefined ? { toolUses } : {}),
+  };
 }
 
 function parseCursorPromptCapabilities(value: unknown): CursorPromptCapabilities {
@@ -1906,6 +1953,19 @@ export const CursorAdapterLive = Layer.effect(
         return;
       }
 
+      const finalUsageSnapshot =
+        context.lastUsageTurnId === turnId && context.lastUsageSnapshot
+          ? {
+              ...context.lastUsageSnapshot,
+              ...(cursorToolUseCount(context.activeTurn) !== undefined
+                ? { toolUses: cursorToolUseCount(context.activeTurn) }
+                : {}),
+              ...(Date.now() - context.activeTurn.startedAtMs > 0
+                ? { durationMs: Math.round(Date.now() - context.activeTurn.startedAtMs) }
+                : {}),
+            }
+          : undefined;
+
       completeActiveContentItems(context, turnId);
       context.turns.push(context.activeTurn);
       context.activeTurn = undefined;
@@ -1916,6 +1976,17 @@ export const CursorAdapterLive = Layer.effect(
           ? { lastError: outcome.errorMessage }
           : {}),
       });
+
+      if (finalUsageSnapshot) {
+        context.lastUsageSnapshot = finalUsageSnapshot;
+        emit({
+          ...baseEvent(context, { turnId }),
+          type: "thread.token-usage.updated",
+          payload: {
+            usage: finalUsageSnapshot,
+          },
+        });
+      }
 
       if (outcome.type === "completed") {
         emit({
@@ -2054,6 +2125,31 @@ export const CursorAdapterLive = Layer.effect(
           rawMethod: "session/update",
           rawPayload: params,
           rawSource: "cursor.acp.notification",
+        });
+        return;
+      }
+
+      if (updateKind === "usage_update") {
+        const usage = buildCursorUsageSnapshot(update, context.activeTurn);
+        if (!usage) {
+          return;
+        }
+        context.lastUsageSnapshot = usage;
+        if (context.activeTurn) {
+          context.lastUsageTurnId = context.activeTurn.id;
+        } else {
+          delete context.lastUsageTurnId;
+        }
+        emit({
+          ...baseEvent(context, {
+            ...(context.activeTurn ? { turnId: context.activeTurn.id } : {}),
+            rawMethod: "session/update",
+            rawPayload: params,
+          }),
+          type: "thread.token-usage.updated",
+          payload: {
+            usage,
+          },
         });
         return;
       }
@@ -2753,6 +2849,7 @@ export const CursorAdapterLive = Layer.effect(
           const selectedModel = resolveSelectedModel(input.modelSelection);
           const activeTurn: TurnSnapshot = {
             id: turnId,
+            startedAtMs: Date.now(),
             items: [],
             assistantText: "",
             interruptRequested: false,

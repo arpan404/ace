@@ -56,10 +56,12 @@ type OpenCodeSessionContext = {
   readonly opencodeSessionId: string;
   defaultModels: Record<string, string>;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
+  totalProcessedTokens: number;
   readonly sequenceTieBreakersByTimestampMs: Map<number, number>;
   nextFallbackSessionSequence: number;
   activeTurn: {
     id: TurnId;
+    startedAtMs: number;
     assistantItemId: RuntimeItemId;
     assistantStarted: boolean;
     toolItems: Map<string, OpenCodeToolItemState>;
@@ -119,6 +121,63 @@ type OpenCodeDeltaStreamKind = Extract<
   ProviderRuntimeEventByType<"content.delta">["payload"]["streamKind"],
   "assistant_text" | "reasoning_text" | "reasoning_summary_text"
 >;
+
+function asRoundedPositiveInt(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  const normalized = Math.max(0, Math.round(value));
+  return normalized > 0 ? normalized : undefined;
+}
+
+function sumPositiveInts(values: ReadonlyArray<number | undefined>): number | undefined {
+  let total = 0;
+  for (const value of values) {
+    total += value ?? 0;
+  }
+  return total > 0 ? total : undefined;
+}
+
+export function buildOpenCodeThreadUsageSnapshot(
+  value: unknown,
+  toolUses?: number,
+  durationMs?: number,
+): ProviderRuntimeEventByType<"thread.token-usage.updated">["payload"]["usage"] | undefined {
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+
+  const inputTokens = asRoundedPositiveInt(record.input);
+  const outputTokens = asRoundedPositiveInt(record.output);
+  const reasoningOutputTokens = asRoundedPositiveInt(record.reasoning);
+  const cache = asRecord(record.cache);
+  const cachedInputTokens = sumPositiveInts([
+    asRoundedPositiveInt(cache?.read),
+    asRoundedPositiveInt(cache?.write),
+  ]);
+  const usedTokens =
+    asRoundedPositiveInt(record.total) ??
+    sumPositiveInts([inputTokens, outputTokens, reasoningOutputTokens, cachedInputTokens]);
+
+  if (usedTokens === undefined || usedTokens <= 0) {
+    return undefined;
+  }
+
+  return {
+    usedTokens,
+    lastUsedTokens: usedTokens,
+    ...(inputTokens !== undefined ? { lastInputTokens: inputTokens } : {}),
+    ...(cachedInputTokens !== undefined ? { lastCachedInputTokens: cachedInputTokens } : {}),
+    ...(outputTokens !== undefined ? { lastOutputTokens: outputTokens } : {}),
+    ...(reasoningOutputTokens !== undefined
+      ? { lastReasoningOutputTokens: reasoningOutputTokens }
+      : {}),
+    ...(toolUses !== undefined && toolUses > 0 ? { toolUses: Math.round(toolUses) } : {}),
+    ...(durationMs !== undefined && durationMs > 0 ? { durationMs: Math.round(durationMs) } : {}),
+    compactsAutomatically: true,
+  };
+}
 
 function isoNow(): string {
   return new Date().toISOString();
@@ -495,6 +554,35 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             payload: {
               itemType: "assistant_message",
               status: state === "failed" ? "failed" : "completed",
+            },
+          }),
+        );
+      }
+      const turnUsageSnapshot = buildOpenCodeThreadUsageSnapshot(
+        activeTurn?.usage,
+        activeTurn?.toolItems.size,
+        activeTurn ? Math.max(0, Date.now() - activeTurn.startedAtMs) : undefined,
+      );
+      const processedTokens = turnUsageSnapshot?.lastUsedTokens ?? turnUsageSnapshot?.usedTokens;
+      if (processedTokens !== undefined && processedTokens > 0) {
+        ctx.totalProcessedTokens += processedTokens;
+      }
+      const usageSnapshot =
+        turnUsageSnapshot !== undefined
+          ? {
+              ...turnUsageSnapshot,
+              ...(ctx.totalProcessedTokens > turnUsageSnapshot.usedTokens
+                ? { totalProcessedTokens: ctx.totalProcessedTokens }
+                : {}),
+            }
+          : undefined;
+      if (usageSnapshot) {
+        emit(
+          baseEvent(ctx, {
+            type: "thread.token-usage.updated",
+            turnId,
+            payload: {
+              usage: usageSnapshot,
             },
           }),
         );
@@ -1099,6 +1187,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           opencodeSessionId,
           defaultModels,
           turns: [],
+          totalProcessedTokens: 0,
           sequenceTieBreakersByTimestampMs: new Map(),
           nextFallbackSessionSequence: 0,
           activeTurn: null,
@@ -1174,6 +1263,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
 
         ctx.activeTurn = {
           id: turnId,
+          startedAtMs: Date.now(),
           assistantItemId,
           assistantStarted: false,
           toolItems: new Map(),

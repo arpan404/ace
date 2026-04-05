@@ -49,6 +49,7 @@ import {
 import { ensureNativeApi, readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";
 import { formatRelativeTime, formatRelativeTimeLabel } from "../../timestampFormat";
+import { BROWSER_SEARCH_ENGINE_OPTIONS } from "../../lib/browser/types";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsibleContent } from "../ui/collapsible";
@@ -589,7 +590,17 @@ export function useSettingsRestore(onRestored?: () => void) {
   };
 }
 
-export function GeneralSettingsPanel() {
+type SettingsPanelPage =
+  | "general"
+  | "chat"
+  | "editor"
+  | "browser"
+  | "models"
+  | "providers"
+  | "advanced"
+  | "about";
+
+function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const { theme, setTheme } = useTheme();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
@@ -894,1007 +905,1132 @@ export function GeneralSettingsPanel() {
           serverProviders[0]!.checkedAt,
         )
       : null;
+
+  const isGeneralPage = page === "general";
+  const isChatPage = page === "chat";
+  const isEditorPage = page === "editor";
+  const isBrowserPage = page === "browser";
+  const isModelsPage = page === "models";
+  const isProvidersPage = page === "providers";
+  const isAdvancedPage = page === "advanced";
+  const isAboutPage = page === "about";
+
   return (
     <SettingsPageContainer>
-      <SettingsSection title="General">
-        <SettingsRow
-          title="Theme"
-          description="Choose how T3 Code looks across the app."
-          resetAction={
-            theme !== "system" ? (
-              <SettingResetButton label="theme" onClick={() => setTheme("system")} />
-            ) : null
-          }
-          control={
-            <Select
-              value={theme}
-              onValueChange={(value) => {
-                if (value === "system" || value === "light" || value === "dark") {
-                  setTheme(value);
-                }
-              }}
-            >
-              <SelectTrigger className="w-full sm:w-40" aria-label="Theme preference">
-                <SelectValue>
-                  {THEME_OPTIONS.find((option) => option.value === theme)?.label ?? "System"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                {THEME_OPTIONS.map((option) => (
-                  <SelectItem hideIndicator key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          }
-        />
-
-        <SettingsRow
-          title="Time format"
-          description="System default follows your browser or OS clock preference."
-          resetAction={
-            settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat ? (
-              <SettingResetButton
-                label="time format"
-                onClick={() =>
-                  updateSettings({
-                    timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Select
-              value={settings.timestampFormat}
-              onValueChange={(value) => {
-                if (value === "locale" || value === "12-hour" || value === "24-hour") {
-                  updateSettings({ timestampFormat: value });
-                }
-              }}
-            >
-              <SelectTrigger className="w-full sm:w-40" aria-label="Timestamp format">
-                <SelectValue>{TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                <SelectItem hideIndicator value="locale">
-                  {TIMESTAMP_FORMAT_LABELS.locale}
-                </SelectItem>
-                <SelectItem hideIndicator value="12-hour">
-                  {TIMESTAMP_FORMAT_LABELS["12-hour"]}
-                </SelectItem>
-                <SelectItem hideIndicator value="24-hour">
-                  {TIMESTAMP_FORMAT_LABELS["24-hour"]}
-                </SelectItem>
-              </SelectPopup>
-            </Select>
-          }
-        />
-
-        <SettingsRow
-          title="Diff line wrapping"
-          description="Set the default wrap state when the diff panel opens."
-          resetAction={
-            settings.diffWordWrap !== DEFAULT_UNIFIED_SETTINGS.diffWordWrap ? (
-              <SettingResetButton
-                label="diff line wrapping"
-                onClick={() =>
-                  updateSettings({
-                    diffWordWrap: DEFAULT_UNIFIED_SETTINGS.diffWordWrap,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.diffWordWrap}
-              onCheckedChange={(checked) => updateSettings({ diffWordWrap: Boolean(checked) })}
-              aria-label="Wrap diff lines by default"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Editor suggestions"
-          description="Keep Monaco completion helpers off by default to reduce noisy or unwanted code insertions."
-          resetAction={
-            settings.editorSuggestions !== DEFAULT_UNIFIED_SETTINGS.editorSuggestions ? (
-              <SettingResetButton
-                label="editor suggestions"
-                onClick={() =>
-                  updateSettings({
-                    editorSuggestions: DEFAULT_UNIFIED_SETTINGS.editorSuggestions,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.editorSuggestions}
-              onCheckedChange={(checked) => updateSettings({ editorSuggestions: Boolean(checked) })}
-              aria-label="Enable workspace editor suggestions"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Editor line wrapping"
-          description="Wrap long lines in the workspace editor."
-          resetAction={
-            settings.editorWordWrap !== DEFAULT_UNIFIED_SETTINGS.editorWordWrap ? (
-              <SettingResetButton
-                label="editor line wrapping"
-                onClick={() =>
-                  updateSettings({
-                    editorWordWrap: DEFAULT_UNIFIED_SETTINGS.editorWordWrap,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.editorWordWrap}
-              onCheckedChange={(checked) => updateSettings({ editorWordWrap: Boolean(checked) })}
-              aria-label="Wrap workspace editor lines"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Editor sticky scroll"
-          description="Pin the current scope header while you scroll through a file."
-          resetAction={
-            settings.editorStickyScroll !== DEFAULT_UNIFIED_SETTINGS.editorStickyScroll ? (
-              <SettingResetButton
-                label="editor sticky scroll"
-                onClick={() =>
-                  updateSettings({
-                    editorStickyScroll: DEFAULT_UNIFIED_SETTINGS.editorStickyScroll,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.editorStickyScroll}
-              onCheckedChange={(checked) =>
-                updateSettings({ editorStickyScroll: Boolean(checked) })
+      {isGeneralPage ? (
+        <>
+          <SettingsSection title="Appearance">
+            <SettingsRow
+              title="Theme"
+              description="Choose how T3 Code looks across the app."
+              resetAction={
+                theme !== "system" ? (
+                  <SettingResetButton label="theme" onClick={() => setTheme("system")} />
+                ) : null
               }
-              aria-label="Enable editor sticky scroll"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Editor minimap"
-          description="Show a code minimap in the workspace editor."
-          resetAction={
-            settings.editorMinimap !== DEFAULT_UNIFIED_SETTINGS.editorMinimap ? (
-              <SettingResetButton
-                label="editor minimap"
-                onClick={() =>
-                  updateSettings({
-                    editorMinimap: DEFAULT_UNIFIED_SETTINGS.editorMinimap,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.editorMinimap}
-              onCheckedChange={(checked) => updateSettings({ editorMinimap: Boolean(checked) })}
-              aria-label="Show editor minimap"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Editor whitespace"
-          description="Render whitespace characters in the workspace editor."
-          resetAction={
-            settings.editorRenderWhitespace !== DEFAULT_UNIFIED_SETTINGS.editorRenderWhitespace ? (
-              <SettingResetButton
-                label="editor whitespace"
-                onClick={() =>
-                  updateSettings({
-                    editorRenderWhitespace: DEFAULT_UNIFIED_SETTINGS.editorRenderWhitespace,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.editorRenderWhitespace}
-              onCheckedChange={(checked) =>
-                updateSettings({ editorRenderWhitespace: Boolean(checked) })
+              control={
+                <Select
+                  value={theme}
+                  onValueChange={(value) => {
+                    if (value === "system" || value === "light" || value === "dark") {
+                      setTheme(value);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-40" aria-label="Theme preference">
+                    <SelectValue>
+                      {THEME_OPTIONS.find((option) => option.value === theme)?.label ?? "System"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    {THEME_OPTIONS.map((option) => (
+                      <SelectItem hideIndicator key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
               }
-              aria-label="Render editor whitespace"
             />
-          }
-        />
 
-        <SettingsRow
-          title="Editor line numbers"
-          description="Choose how line numbers appear in the workspace editor."
-          resetAction={
-            settings.editorLineNumbers !== DEFAULT_UNIFIED_SETTINGS.editorLineNumbers ? (
-              <SettingResetButton
-                label="editor line numbers"
-                onClick={() =>
-                  updateSettings({
-                    editorLineNumbers: DEFAULT_UNIFIED_SETTINGS.editorLineNumbers,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Select
-              value={settings.editorLineNumbers}
-              onValueChange={(value) => {
-                if (value === "off" || value === "on" || value === "relative") {
-                  updateSettings({ editorLineNumbers: value });
-                }
-              }}
-            >
-              <SelectTrigger className="w-full sm:w-40" aria-label="Editor line numbers">
-                <SelectValue>{settings.editorLineNumbers}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                <SelectItem hideIndicator value="on">
-                  On
-                </SelectItem>
-                <SelectItem hideIndicator value="relative">
-                  Relative
-                </SelectItem>
-                <SelectItem hideIndicator value="off">
-                  Off
-                </SelectItem>
-              </SelectPopup>
-            </Select>
-          }
-        />
-
-        <SettingsRow
-          title="Workspace editor shortcuts"
-          description="These commands resolve through the same keybindings.json file that drives the rest of the app."
-          status={
-            workspaceShortcutSummaries.length > 0 ? (
-              <div className="space-y-1 text-[11px] text-muted-foreground">
-                {workspaceShortcutSummaries.map(([label, shortcut]) => (
-                  <div key={label} className="flex items-center gap-2">
-                    <span>{label}</span>
-                    <span className="rounded border border-border/60 px-1.5 py-0.5 font-mono text-foreground">
-                      {shortcut}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <span className="text-muted-foreground">
-                No editor shortcuts are currently configured.
-              </span>
-            )
-          }
-        />
-
-        <SettingsRow
-          title="Assistant output"
-          description="Show token-by-token output while a response is in progress."
-          resetAction={
-            settings.enableAssistantStreaming !==
-            DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming ? (
-              <SettingResetButton
-                label="assistant output"
-                onClick={() =>
-                  updateSettings({
-                    enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.enableAssistantStreaming}
-              onCheckedChange={(checked) =>
-                updateSettings({ enableAssistantStreaming: Boolean(checked) })
+            <SettingsRow
+              title="Time format"
+              description="System default follows your browser or OS clock preference."
+              resetAction={
+                settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat ? (
+                  <SettingResetButton
+                    label="time format"
+                    onClick={() =>
+                      updateSettings({
+                        timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
+                      })
+                    }
+                  />
+                ) : null
               }
-              aria-label="Stream assistant messages"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Tool activity"
-          description="Show tool-call activity in the timeline while a response is running."
-          resetAction={
-            settings.enableToolStreaming !== DEFAULT_UNIFIED_SETTINGS.enableToolStreaming ? (
-              <SettingResetButton
-                label="tool activity"
-                onClick={() =>
-                  updateSettings({
-                    enableToolStreaming: DEFAULT_UNIFIED_SETTINGS.enableToolStreaming,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.enableToolStreaming}
-              onCheckedChange={(checked) =>
-                updateSettings({ enableToolStreaming: Boolean(checked) })
+              control={
+                <Select
+                  value={settings.timestampFormat}
+                  onValueChange={(value) => {
+                    if (value === "locale" || value === "12-hour" || value === "24-hour") {
+                      updateSettings({ timestampFormat: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-40" aria-label="Timestamp format">
+                    <SelectValue>{TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    <SelectItem hideIndicator value="locale">
+                      {TIMESTAMP_FORMAT_LABELS.locale}
+                    </SelectItem>
+                    <SelectItem hideIndicator value="12-hour">
+                      {TIMESTAMP_FORMAT_LABELS["12-hour"]}
+                    </SelectItem>
+                    <SelectItem hideIndicator value="24-hour">
+                      {TIMESTAMP_FORMAT_LABELS["24-hour"]}
+                    </SelectItem>
+                  </SelectPopup>
+                </Select>
               }
-              aria-label="Stream tool activity"
             />
-          }
-        />
+          </SettingsSection>
 
-        <SettingsRow
-          title="Thinking activity"
-          description="Show reasoning and planning updates in the timeline while a response is running."
-          resetAction={
-            settings.enableThinkingStreaming !==
-            DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming ? (
-              <SettingResetButton
-                label="thinking activity"
-                onClick={() =>
-                  updateSettings({
-                    enableThinkingStreaming: DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.enableThinkingStreaming}
-              onCheckedChange={(checked) =>
-                updateSettings({ enableThinkingStreaming: Boolean(checked) })
+          <SettingsSection title="Defaults">
+            <SettingsRow
+              title="New threads"
+              description="Pick the default workspace mode for newly created draft threads."
+              resetAction={
+                settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode ? (
+                  <SettingResetButton
+                    label="new threads"
+                    onClick={() =>
+                      updateSettings({
+                        defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
+                      })
+                    }
+                  />
+                ) : null
               }
-              aria-label="Stream thinking activity"
+              control={
+                <Select
+                  value={settings.defaultThreadEnvMode}
+                  onValueChange={(value) => {
+                    if (value === "local" || value === "worktree") {
+                      updateSettings({ defaultThreadEnvMode: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-44" aria-label="Default thread mode">
+                    <SelectValue>
+                      {settings.defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    <SelectItem hideIndicator value="local">
+                      Local
+                    </SelectItem>
+                    <SelectItem hideIndicator value="worktree">
+                      New worktree
+                    </SelectItem>
+                  </SelectPopup>
+                </Select>
+              }
             />
-          }
-        />
+          </SettingsSection>
+        </>
+      ) : null}
 
-        <SettingsRow
-          title="New threads"
-          description="Pick the default workspace mode for newly created draft threads."
-          resetAction={
-            settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode ? (
-              <SettingResetButton
-                label="new threads"
-                onClick={() =>
-                  updateSettings({
-                    defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Select
-              value={settings.defaultThreadEnvMode}
-              onValueChange={(value) => {
-                if (value === "local" || value === "worktree") {
-                  updateSettings({ defaultThreadEnvMode: value });
-                }
-              }}
-            >
-              <SelectTrigger className="w-full sm:w-44" aria-label="Default thread mode">
-                <SelectValue>
-                  {settings.defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                <SelectItem hideIndicator value="local">
-                  Local
-                </SelectItem>
-                <SelectItem hideIndicator value="worktree">
-                  New worktree
-                </SelectItem>
-              </SelectPopup>
-            </Select>
-          }
-        />
-
-        <SettingsRow
-          title="Thread cache budget"
-          description="Limit how much memory hydrated thread history can use before least-recently-used threads are evicted."
-          resetAction={
-            settings.threadHydrationCacheMemoryMb !==
-            DEFAULT_UNIFIED_SETTINGS.threadHydrationCacheMemoryMb ? (
-              <SettingResetButton
-                label="thread cache budget"
-                onClick={() =>
-                  updateSettings({
-                    threadHydrationCacheMemoryMb:
-                      DEFAULT_UNIFIED_SETTINGS.threadHydrationCacheMemoryMb,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                min={1}
-                step={1}
-                className="w-full sm:w-28"
-                aria-label="Thread cache memory budget in megabytes"
-                value={String(settings.threadHydrationCacheMemoryMb)}
-                onChange={(event) => {
-                  const nextValue = Number.parseInt(event.target.value, 10);
-                  if (!Number.isFinite(nextValue)) {
-                    return;
+      {isChatPage ? (
+        <>
+          <SettingsSection title="Live output">
+            <SettingsRow
+              title="Assistant output"
+              description="Show token-by-token output while a response is in progress."
+              resetAction={
+                settings.enableAssistantStreaming !==
+                DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming ? (
+                  <SettingResetButton
+                    label="assistant output"
+                    onClick={() =>
+                      updateSettings({
+                        enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.enableAssistantStreaming}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ enableAssistantStreaming: Boolean(checked) })
                   }
-                  updateSettings({
-                    threadHydrationCacheMemoryMb: Math.max(1, nextValue),
-                  });
-                }}
-              />
-              <span className="text-xs text-muted-foreground">MB</span>
-            </div>
-          }
-        />
-
-        <SettingsRow
-          title="Archive confirmation"
-          description="Require a second click on the inline archive action before a thread is archived."
-          resetAction={
-            settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive ? (
-              <SettingResetButton
-                label="archive confirmation"
-                onClick={() =>
-                  updateSettings({
-                    confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.confirmThreadArchive}
-              onCheckedChange={(checked) =>
-                updateSettings({ confirmThreadArchive: Boolean(checked) })
+                  aria-label="Stream assistant messages"
+                />
               }
-              aria-label="Confirm thread archiving"
             />
-          }
-        />
 
-        <SettingsRow
-          title="Delete confirmation"
-          description="Ask before deleting a thread and its chat history."
-          resetAction={
-            settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete ? (
-              <SettingResetButton
-                label="delete confirmation"
-                onClick={() =>
-                  updateSettings({
-                    confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.confirmThreadDelete}
-              onCheckedChange={(checked) =>
-                updateSettings({ confirmThreadDelete: Boolean(checked) })
+            <SettingsRow
+              title="Tool activity"
+              description="Show tool-call activity in the timeline while a response is running."
+              resetAction={
+                settings.enableToolStreaming !== DEFAULT_UNIFIED_SETTINGS.enableToolStreaming ? (
+                  <SettingResetButton
+                    label="tool activity"
+                    onClick={() =>
+                      updateSettings({
+                        enableToolStreaming: DEFAULT_UNIFIED_SETTINGS.enableToolStreaming,
+                      })
+                    }
+                  />
+                ) : null
               }
-              aria-label="Confirm thread deletion"
+              control={
+                <Switch
+                  checked={settings.enableToolStreaming}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ enableToolStreaming: Boolean(checked) })
+                  }
+                  aria-label="Stream tool activity"
+                />
+              }
             />
-          }
-        />
 
-        <SettingsRow
-          title="Text generation model"
-          description="Configure an override for generated commit messages, PR titles, and similar Git text. Leave it unchanged to fall back to the current chat model."
-          resetAction={
-            isGitWritingModelDirty ? (
-              <SettingResetButton
-                label="text generation model"
-                onClick={() =>
-                  updateSettings({
-                    textGenerationModelSelection:
-                      DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="flex flex-wrap items-center justify-end gap-1.5">
-              <ProviderModelPicker
-                provider={textGenProvider}
-                model={textGenModel}
-                lockedProvider={null}
-                providers={serverProviders}
-                modelOptionsByProvider={gitModelOptionsByProvider}
-                triggerVariant="outline"
-                triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
-                onProviderModelChange={(provider, model) => {
-                  updateSettings({
-                    textGenerationModelSelection: resolveAppModelSelectionState(
-                      {
-                        ...settings,
-                        textGenerationModelSelection: { provider, model },
-                      },
-                      serverProviders,
-                    ),
-                  });
-                }}
-              />
-              <TraitsPicker
-                provider={textGenProvider}
-                models={
-                  serverProviders.find((provider) => provider.provider === textGenProvider)
-                    ?.models ?? []
-                }
-                model={textGenModel}
-                prompt=""
-                onPromptChange={() => {}}
-                modelOptions={textGenModelOptions}
-                allowPromptInjectedEffort={false}
-                triggerVariant="outline"
-                triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
-                onModelOptionsChange={(nextOptions) => {
-                  updateSettings({
-                    textGenerationModelSelection: resolveAppModelSelectionState(
-                      {
-                        ...settings,
-                        textGenerationModelSelection: buildProviderModelSelection(
-                          textGenProvider,
-                          textGenModel,
-                          nextOptions,
-                        ),
-                      },
-                      serverProviders,
-                    ),
-                  });
-                }}
-              />
-            </div>
-          }
-        />
-      </SettingsSection>
+            <SettingsRow
+              title="Thinking activity"
+              description="Show reasoning and planning updates in the timeline while a response is running."
+              resetAction={
+                settings.enableThinkingStreaming !==
+                DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming ? (
+                  <SettingResetButton
+                    label="thinking activity"
+                    onClick={() =>
+                      updateSettings({
+                        enableThinkingStreaming: DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.enableThinkingStreaming}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ enableThinkingStreaming: Boolean(checked) })
+                  }
+                  aria-label="Stream thinking activity"
+                />
+              }
+            />
+          </SettingsSection>
 
-      <SettingsSection
-        title="Providers"
-        headerAction={
-          <div className="flex items-center gap-1.5">
-            <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
-                    disabled={isRefreshingProviders}
-                    onClick={() => void refreshProviders()}
-                    aria-label="Refresh provider status"
-                  >
-                    {isRefreshingProviders ? (
-                      <LoaderIcon className="size-3 animate-spin" />
-                    ) : (
-                      <RefreshCwIcon className="size-3" />
-                    )}
-                  </Button>
-                }
-              />
-              <TooltipPopup side="top">Refresh provider status</TooltipPopup>
-            </Tooltip>
-          </div>
-        }
-      >
-        {providerCards.map((providerCard) => {
-          const customModelInput = customModelInputByProvider[providerCard.provider];
-          const customModelError = customModelErrorByProvider[providerCard.provider] ?? null;
-          const providerDisplayName =
-            PROVIDER_DISPLAY_NAMES[providerCard.provider] ?? providerCard.title;
+          <SettingsSection title="Confirmations">
+            <SettingsRow
+              title="Archive confirmation"
+              description="Require a second click on the inline archive action before a thread is archived."
+              resetAction={
+                settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive ? (
+                  <SettingResetButton
+                    label="archive confirmation"
+                    onClick={() =>
+                      updateSettings({
+                        confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.confirmThreadArchive}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ confirmThreadArchive: Boolean(checked) })
+                  }
+                  aria-label="Confirm thread archiving"
+                />
+              }
+            />
 
-          return (
-            <div key={providerCard.provider} className="border-t border-border first:border-t-0">
-              <div className="px-4 py-4 sm:px-5">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex min-h-5 items-center gap-1.5">
-                      <span
-                        className={cn("size-2 shrink-0 rounded-full", providerCard.statusStyle.dot)}
-                      />
-                      <h3 className="text-sm font-medium text-foreground">{providerDisplayName}</h3>
-                      {providerCard.versionLabel ? (
-                        <code className="text-xs text-muted-foreground">
-                          {providerCard.versionLabel}
-                        </code>
-                      ) : null}
-                      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-                        {providerCard.isDirty ? (
-                          <SettingResetButton
-                            label={`${providerDisplayName} provider settings`}
-                            onClick={() => {
-                              updateSettings({
-                                providers: {
-                                  ...settings.providers,
-                                  [providerCard.provider]:
-                                    DEFAULT_UNIFIED_SETTINGS.providers[providerCard.provider],
-                                },
-                              });
-                              setCustomModelErrorByProvider((existing) => ({
-                                ...existing,
-                                [providerCard.provider]: null,
-                              }));
-                            }}
-                          />
-                        ) : null}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {providerCard.summary.headline}
-                      {providerCard.summary.detail ? ` - ${providerCard.summary.detail}` : null}
-                    </p>
+            <SettingsRow
+              title="Delete confirmation"
+              description="Ask before deleting a thread and its chat history."
+              resetAction={
+                settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete ? (
+                  <SettingResetButton
+                    label="delete confirmation"
+                    onClick={() =>
+                      updateSettings({
+                        confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.confirmThreadDelete}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ confirmThreadDelete: Boolean(checked) })
+                  }
+                  aria-label="Confirm thread deletion"
+                />
+              }
+            />
+          </SettingsSection>
+        </>
+      ) : null}
+
+      {isEditorPage ? (
+        <>
+          <SettingsSection title="Diffs">
+            <SettingsRow
+              title="Diff line wrapping"
+              description="Set the default wrap state when the diff panel opens."
+              resetAction={
+                settings.diffWordWrap !== DEFAULT_UNIFIED_SETTINGS.diffWordWrap ? (
+                  <SettingResetButton
+                    label="diff line wrapping"
+                    onClick={() =>
+                      updateSettings({
+                        diffWordWrap: DEFAULT_UNIFIED_SETTINGS.diffWordWrap,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.diffWordWrap}
+                  onCheckedChange={(checked) => updateSettings({ diffWordWrap: Boolean(checked) })}
+                  aria-label="Wrap diff lines by default"
+                />
+              }
+            />
+          </SettingsSection>
+
+          <SettingsSection title="Workspace editor">
+            <SettingsRow
+              title="Editor suggestions"
+              description="Keep Monaco completion helpers off by default to reduce noisy or unwanted code insertions."
+              resetAction={
+                settings.editorSuggestions !== DEFAULT_UNIFIED_SETTINGS.editorSuggestions ? (
+                  <SettingResetButton
+                    label="editor suggestions"
+                    onClick={() =>
+                      updateSettings({
+                        editorSuggestions: DEFAULT_UNIFIED_SETTINGS.editorSuggestions,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.editorSuggestions}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ editorSuggestions: Boolean(checked) })
+                  }
+                  aria-label="Enable workspace editor suggestions"
+                />
+              }
+            />
+
+            <SettingsRow
+              title="Editor line wrapping"
+              description="Wrap long lines in the workspace editor."
+              resetAction={
+                settings.editorWordWrap !== DEFAULT_UNIFIED_SETTINGS.editorWordWrap ? (
+                  <SettingResetButton
+                    label="editor line wrapping"
+                    onClick={() =>
+                      updateSettings({
+                        editorWordWrap: DEFAULT_UNIFIED_SETTINGS.editorWordWrap,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.editorWordWrap}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ editorWordWrap: Boolean(checked) })
+                  }
+                  aria-label="Wrap workspace editor lines"
+                />
+              }
+            />
+
+            <SettingsRow
+              title="Editor sticky scroll"
+              description="Pin the current scope header while you scroll through a file."
+              resetAction={
+                settings.editorStickyScroll !== DEFAULT_UNIFIED_SETTINGS.editorStickyScroll ? (
+                  <SettingResetButton
+                    label="editor sticky scroll"
+                    onClick={() =>
+                      updateSettings({
+                        editorStickyScroll: DEFAULT_UNIFIED_SETTINGS.editorStickyScroll,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.editorStickyScroll}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ editorStickyScroll: Boolean(checked) })
+                  }
+                  aria-label="Enable editor sticky scroll"
+                />
+              }
+            />
+
+            <SettingsRow
+              title="Editor minimap"
+              description="Show a code minimap in the workspace editor."
+              resetAction={
+                settings.editorMinimap !== DEFAULT_UNIFIED_SETTINGS.editorMinimap ? (
+                  <SettingResetButton
+                    label="editor minimap"
+                    onClick={() =>
+                      updateSettings({
+                        editorMinimap: DEFAULT_UNIFIED_SETTINGS.editorMinimap,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.editorMinimap}
+                  onCheckedChange={(checked) => updateSettings({ editorMinimap: Boolean(checked) })}
+                  aria-label="Show editor minimap"
+                />
+              }
+            />
+
+            <SettingsRow
+              title="Editor whitespace"
+              description="Render whitespace characters in the workspace editor."
+              resetAction={
+                settings.editorRenderWhitespace !==
+                DEFAULT_UNIFIED_SETTINGS.editorRenderWhitespace ? (
+                  <SettingResetButton
+                    label="editor whitespace"
+                    onClick={() =>
+                      updateSettings({
+                        editorRenderWhitespace: DEFAULT_UNIFIED_SETTINGS.editorRenderWhitespace,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.editorRenderWhitespace}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ editorRenderWhitespace: Boolean(checked) })
+                  }
+                  aria-label="Render editor whitespace"
+                />
+              }
+            />
+
+            <SettingsRow
+              title="Editor line numbers"
+              description="Choose how line numbers appear in the workspace editor."
+              resetAction={
+                settings.editorLineNumbers !== DEFAULT_UNIFIED_SETTINGS.editorLineNumbers ? (
+                  <SettingResetButton
+                    label="editor line numbers"
+                    onClick={() =>
+                      updateSettings({
+                        editorLineNumbers: DEFAULT_UNIFIED_SETTINGS.editorLineNumbers,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Select
+                  value={settings.editorLineNumbers}
+                  onValueChange={(value) => {
+                    if (value === "off" || value === "on" || value === "relative") {
+                      updateSettings({ editorLineNumbers: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-40" aria-label="Editor line numbers">
+                    <SelectValue>{settings.editorLineNumbers}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    <SelectItem hideIndicator value="on">
+                      On
+                    </SelectItem>
+                    <SelectItem hideIndicator value="relative">
+                      Relative
+                    </SelectItem>
+                    <SelectItem hideIndicator value="off">
+                      Off
+                    </SelectItem>
+                  </SelectPopup>
+                </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Workspace editor shortcuts"
+              description="These commands resolve through the same keybindings.json file that drives the rest of the app."
+              status={
+                workspaceShortcutSummaries.length > 0 ? (
+                  <div className="space-y-1 text-[11px] text-muted-foreground">
+                    {workspaceShortcutSummaries.map(([label, shortcut]) => (
+                      <div key={label} className="flex items-center gap-2">
+                        <span>{label}</span>
+                        <span className="rounded border border-border/60 px-1.5 py-0.5 font-mono text-foreground">
+                          {shortcut}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                  <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
+                ) : (
+                  <span className="text-muted-foreground">
+                    No editor shortcuts are currently configured.
+                  </span>
+                )
+              }
+            />
+          </SettingsSection>
+        </>
+      ) : null}
+
+      {isBrowserPage ? (
+        <SettingsSection title="In-app browser">
+          <SettingsRow
+            title="Search engine"
+            description="Choose the default engine for new-tab search, address-bar suggestions, and quick browser entry."
+            resetAction={
+              settings.browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine ? (
+                <SettingResetButton
+                  label="browser search engine"
+                  onClick={() =>
+                    updateSettings({
+                      browserSearchEngine: DEFAULT_UNIFIED_SETTINGS.browserSearchEngine,
+                    })
+                  }
+                />
+              ) : null
+            }
+            status="Pinned pages, history cleanup, and storage repair stay inside the browser tab settings."
+          >
+            <div className="mt-4 flex flex-wrap gap-2">
+              {BROWSER_SEARCH_ENGINE_OPTIONS.map((engine) => (
+                <Button
+                  key={engine.value}
+                  size="sm"
+                  variant={settings.browserSearchEngine === engine.value ? "default" : "outline"}
+                  onClick={() => updateSettings({ browserSearchEngine: engine.value })}
+                >
+                  {engine.label}
+                </Button>
+              ))}
+            </div>
+          </SettingsRow>
+        </SettingsSection>
+      ) : null}
+
+      {isModelsPage ? (
+        <SettingsSection title="Text generation">
+          <SettingsRow
+            title="Text generation model"
+            description="Configure an override for generated commit messages, PR titles, and similar Git text. Leave it unchanged to fall back to the current chat model."
+            resetAction={
+              isGitWritingModelDirty ? (
+                <SettingResetButton
+                  label="text generation model"
+                  onClick={() =>
+                    updateSettings({
+                      textGenerationModelSelection:
+                        DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                <ProviderModelPicker
+                  provider={textGenProvider}
+                  model={textGenModel}
+                  lockedProvider={null}
+                  providers={serverProviders}
+                  modelOptionsByProvider={gitModelOptionsByProvider}
+                  triggerVariant="outline"
+                  triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                  onProviderModelChange={(provider, model) => {
+                    updateSettings({
+                      textGenerationModelSelection: resolveAppModelSelectionState(
+                        {
+                          ...settings,
+                          textGenerationModelSelection: { provider, model },
+                        },
+                        serverProviders,
+                      ),
+                    });
+                  }}
+                />
+                <TraitsPicker
+                  provider={textGenProvider}
+                  models={
+                    serverProviders.find((provider) => provider.provider === textGenProvider)
+                      ?.models ?? []
+                  }
+                  model={textGenModel}
+                  prompt=""
+                  onPromptChange={() => {}}
+                  modelOptions={textGenModelOptions}
+                  allowPromptInjectedEffort={false}
+                  triggerVariant="outline"
+                  triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                  onModelOptionsChange={(nextOptions) => {
+                    updateSettings({
+                      textGenerationModelSelection: resolveAppModelSelectionState(
+                        {
+                          ...settings,
+                          textGenerationModelSelection: buildProviderModelSelection(
+                            textGenProvider,
+                            textGenModel,
+                            nextOptions,
+                          ),
+                        },
+                        serverProviders,
+                      ),
+                    });
+                  }}
+                />
+              </div>
+            }
+          />
+        </SettingsSection>
+      ) : null}
+
+      {isProvidersPage ? (
+        <SettingsSection
+          title="Providers"
+          headerAction={
+            <div className="flex items-center gap-1.5">
+              <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
+              <Tooltip>
+                <TooltipTrigger
+                  render={
                     <Button
-                      size="sm"
+                      size="icon-xs"
                       variant="ghost"
-                      className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                      onClick={() =>
-                        setOpenProviderDetails((existing) => ({
-                          ...existing,
-                          [providerCard.provider]: !existing[providerCard.provider],
-                        }))
-                      }
-                      aria-label={`Toggle ${providerDisplayName} details`}
+                      className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
+                      disabled={isRefreshingProviders}
+                      onClick={() => void refreshProviders()}
+                      aria-label="Refresh provider status"
                     >
-                      <ChevronDownIcon
-                        className={cn(
-                          "size-3.5 transition-transform",
-                          openProviderDetails[providerCard.provider] && "rotate-180",
-                        )}
-                      />
+                      {isRefreshingProviders ? (
+                        <LoaderIcon className="size-3 animate-spin" />
+                      ) : (
+                        <RefreshCwIcon className="size-3" />
+                      )}
                     </Button>
-                    <Switch
-                      checked={providerCard.providerConfig.enabled}
-                      onCheckedChange={(checked) => {
-                        const isDisabling = !checked;
-                        const shouldClearModelSelection =
-                          isDisabling && textGenProvider === providerCard.provider;
-                        updateSettings({
-                          providers: {
-                            ...settings.providers,
-                            [providerCard.provider]: {
-                              ...settings.providers[providerCard.provider],
-                              enabled: Boolean(checked),
+                  }
+                />
+                <TooltipPopup side="top">Refresh provider status</TooltipPopup>
+              </Tooltip>
+            </div>
+          }
+        >
+          {providerCards.map((providerCard) => {
+            const customModelInput = customModelInputByProvider[providerCard.provider];
+            const customModelError = customModelErrorByProvider[providerCard.provider] ?? null;
+            const providerDisplayName =
+              PROVIDER_DISPLAY_NAMES[providerCard.provider] ?? providerCard.title;
+
+            return (
+              <div key={providerCard.provider} className="border-t border-border first:border-t-0">
+                <div className="px-4 py-4 sm:px-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex min-h-5 items-center gap-1.5">
+                        <span
+                          className={cn(
+                            "size-2 shrink-0 rounded-full",
+                            providerCard.statusStyle.dot,
+                          )}
+                        />
+                        <h3 className="text-sm font-medium text-foreground">
+                          {providerDisplayName}
+                        </h3>
+                        {providerCard.versionLabel ? (
+                          <code className="text-xs text-muted-foreground">
+                            {providerCard.versionLabel}
+                          </code>
+                        ) : null}
+                        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                          {providerCard.isDirty ? (
+                            <SettingResetButton
+                              label={`${providerDisplayName} provider settings`}
+                              onClick={() => {
+                                updateSettings({
+                                  providers: {
+                                    ...settings.providers,
+                                    [providerCard.provider]:
+                                      DEFAULT_UNIFIED_SETTINGS.providers[providerCard.provider],
+                                  },
+                                });
+                                setCustomModelErrorByProvider((existing) => ({
+                                  ...existing,
+                                  [providerCard.provider]: null,
+                                }));
+                              }}
+                            />
+                          ) : null}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {providerCard.summary.headline}
+                        {providerCard.summary.detail ? ` - ${providerCard.summary.detail}` : null}
+                      </p>
+                    </div>
+                    <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                        onClick={() =>
+                          setOpenProviderDetails((existing) => ({
+                            ...existing,
+                            [providerCard.provider]: !existing[providerCard.provider],
+                          }))
+                        }
+                        aria-label={`Toggle ${providerDisplayName} details`}
+                      >
+                        <ChevronDownIcon
+                          className={cn(
+                            "size-3.5 transition-transform",
+                            openProviderDetails[providerCard.provider] && "rotate-180",
+                          )}
+                        />
+                      </Button>
+                      <Switch
+                        checked={providerCard.providerConfig.enabled}
+                        onCheckedChange={(checked) => {
+                          const isDisabling = !checked;
+                          const shouldClearModelSelection =
+                            isDisabling && textGenProvider === providerCard.provider;
+                          updateSettings({
+                            providers: {
+                              ...settings.providers,
+                              [providerCard.provider]: {
+                                ...settings.providers[providerCard.provider],
+                                enabled: Boolean(checked),
+                              },
                             },
-                          },
-                          ...(shouldClearModelSelection
-                            ? {
-                                textGenerationModelSelection:
-                                  DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-                              }
-                            : {}),
-                        });
-                      }}
-                      aria-label={`Enable ${providerDisplayName}`}
-                    />
+                            ...(shouldClearModelSelection
+                              ? {
+                                  textGenerationModelSelection:
+                                    DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+                                }
+                              : {}),
+                          });
+                        }}
+                        aria-label={`Enable ${providerDisplayName}`}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <Collapsible
-                open={openProviderDetails[providerCard.provider]}
-                onOpenChange={(open) =>
-                  setOpenProviderDetails((existing) => ({
-                    ...existing,
-                    [providerCard.provider]: open,
-                  }))
-                }
-              >
-                <CollapsibleContent>
-                  <div className="space-y-0">
-                    <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-                      <label
-                        htmlFor={`provider-install-${providerCard.provider}-binary-path`}
-                        className="block"
-                      >
-                        <span className="text-xs font-medium text-foreground">
-                          {providerDisplayName} binary path
-                        </span>
-                        <Input
-                          id={`provider-install-${providerCard.provider}-binary-path`}
-                          className="mt-1.5"
-                          value={providerCard.binaryPathValue}
-                          onChange={(event) =>
-                            updateSettings({
-                              providers: {
-                                ...settings.providers,
-                                [providerCard.provider]: {
-                                  ...settings.providers[providerCard.provider],
-                                  binaryPath: event.target.value,
-                                },
-                              },
-                            })
-                          }
-                          placeholder={providerCard.binaryPlaceholder}
-                          spellCheck={false}
-                        />
-                        <span className="mt-1 block text-xs text-muted-foreground">
-                          {providerCard.binaryDescription}
-                        </span>
-                      </label>
-                    </div>
-
-                    {providerCard.provider === "githubCopilot" ? (
+                <Collapsible
+                  open={openProviderDetails[providerCard.provider]}
+                  onOpenChange={(open) =>
+                    setOpenProviderDetails((existing) => ({
+                      ...existing,
+                      [providerCard.provider]: open,
+                    }))
+                  }
+                >
+                  <CollapsibleContent>
+                    <div className="space-y-0">
                       <div className="border-t border-border/60 px-4 py-3 sm:px-5">
                         <label
-                          htmlFor={`provider-install-${providerCard.provider}-cli-url`}
+                          htmlFor={`provider-install-${providerCard.provider}-binary-path`}
                           className="block"
                         >
                           <span className="text-xs font-medium text-foreground">
-                            Copilot CLI server URL
+                            {providerDisplayName} binary path
                           </span>
                           <Input
-                            id={`provider-install-${providerCard.provider}-cli-url`}
+                            id={`provider-install-${providerCard.provider}-binary-path`}
                             className="mt-1.5"
-                            value={providerCard.cliUrlValue ?? ""}
+                            value={providerCard.binaryPathValue}
                             onChange={(event) =>
                               updateSettings({
                                 providers: {
                                   ...settings.providers,
-                                  githubCopilot: {
-                                    ...settings.providers.githubCopilot,
-                                    cliUrl: event.target.value,
+                                  [providerCard.provider]: {
+                                    ...settings.providers[providerCard.provider],
+                                    binaryPath: event.target.value,
                                   },
                                 },
                               })
                             }
-                            placeholder={providerCard.cliUrlPlaceholder}
+                            placeholder={providerCard.binaryPlaceholder}
                             spellCheck={false}
                           />
-                          {providerCard.cliUrlDescription ? (
-                            <span className="mt-1 block text-xs text-muted-foreground">
-                              {providerCard.cliUrlDescription}
-                            </span>
-                          ) : null}
-                        </label>
-                      </div>
-                    ) : null}
-
-                    {providerCard.homePathKey ? (
-                      <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-                        <label
-                          htmlFor={`provider-install-${providerCard.homePathKey}`}
-                          className="block"
-                        >
-                          <span className="text-xs font-medium text-foreground">
-                            CODEX_HOME path
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            {providerCard.binaryDescription}
                           </span>
-                          <Input
-                            id={`provider-install-${providerCard.homePathKey}`}
-                            className="mt-1.5"
-                            value={codexHomePath}
-                            onChange={(event) =>
-                              updateSettings({
-                                providers: {
-                                  ...settings.providers,
-                                  codex: {
-                                    ...settings.providers.codex,
-                                    homePath: event.target.value,
-                                  },
-                                },
-                              })
-                            }
-                            placeholder={providerCard.homePlaceholder}
-                            spellCheck={false}
-                          />
-                          {providerCard.homeDescription ? (
-                            <span className="mt-1 block text-xs text-muted-foreground">
-                              {providerCard.homeDescription}
-                            </span>
-                          ) : null}
                         </label>
                       </div>
-                    ) : null}
 
-                    <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-                      <div className="text-xs font-medium text-foreground">Models</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {providerCard.models.length} model
-                        {providerCard.models.length === 1 ? "" : "s"} available.
-                      </div>
-                      <div
-                        ref={(el) => {
-                          modelListRefs.current[providerCard.provider] = el;
-                        }}
-                        className="mt-2 max-h-40 overflow-y-auto pb-1"
-                      >
-                        {providerCard.models.map((model) => {
-                          const caps = model.capabilities;
-                          const capLabels: string[] = [];
-                          if (caps?.supportsFastMode) capLabels.push("Fast mode");
-                          if (caps?.supportsThinkingToggle) capLabels.push("Thinking");
-                          if (
-                            caps?.reasoningEffortLevels &&
-                            caps.reasoningEffortLevels.length > 0
-                          ) {
-                            capLabels.push("Reasoning");
-                          }
-                          const hasDetails = capLabels.length > 0 || model.name !== model.slug;
-
-                          return (
-                            <div
-                              key={`${providerCard.provider}:${model.slug}`}
-                              className="flex items-center gap-2 py-1"
-                            >
-                              <span className="min-w-0 truncate text-xs text-foreground/90">
-                                {model.name}
+                      {providerCard.provider === "githubCopilot" ? (
+                        <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                          <label
+                            htmlFor={`provider-install-${providerCard.provider}-cli-url`}
+                            className="block"
+                          >
+                            <span className="text-xs font-medium text-foreground">
+                              Copilot CLI server URL
+                            </span>
+                            <Input
+                              id={`provider-install-${providerCard.provider}-cli-url`}
+                              className="mt-1.5"
+                              value={providerCard.cliUrlValue ?? ""}
+                              onChange={(event) =>
+                                updateSettings({
+                                  providers: {
+                                    ...settings.providers,
+                                    githubCopilot: {
+                                      ...settings.providers.githubCopilot,
+                                      cliUrl: event.target.value,
+                                    },
+                                  },
+                                })
+                              }
+                              placeholder={providerCard.cliUrlPlaceholder}
+                              spellCheck={false}
+                            />
+                            {providerCard.cliUrlDescription ? (
+                              <span className="mt-1 block text-xs text-muted-foreground">
+                                {providerCard.cliUrlDescription}
                               </span>
-                              {hasDetails ? (
-                                <Tooltip>
-                                  <TooltipTrigger
-                                    render={
-                                      <button
-                                        type="button"
-                                        className="shrink-0 text-muted-foreground/40 transition-colors hover:text-muted-foreground"
-                                        aria-label={`Details for ${model.name}`}
-                                      />
-                                    }
-                                  >
-                                    <InfoIcon className="size-3" />
-                                  </TooltipTrigger>
-                                  <TooltipPopup side="top" className="max-w-56">
-                                    <div className="space-y-1">
-                                      <code className="block text-[11px] text-foreground">
-                                        {model.slug}
-                                      </code>
-                                      {capLabels.length > 0 ? (
-                                        <div className="flex flex-wrap gap-x-2 gap-y-0.5">
-                                          {capLabels.map((label) => (
-                                            <span
-                                              key={label}
-                                              className="text-[10px] text-muted-foreground"
-                                            >
-                                              {label}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                  </TooltipPopup>
-                                </Tooltip>
-                              ) : null}
-                              {model.isCustom ? (
-                                <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                                  <span className="text-[10px] text-muted-foreground">custom</span>
-                                  <button
-                                    type="button"
-                                    className="text-muted-foreground transition-colors hover:text-foreground"
-                                    aria-label={`Remove ${model.slug}`}
-                                    onClick={() =>
-                                      removeCustomModel(providerCard.provider, model.slug)
-                                    }
-                                  >
-                                    <XIcon className="size-3" />
-                                  </button>
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                        <Input
-                          id={`custom-model-${providerCard.provider}`}
-                          value={customModelInput}
-                          onChange={(event) => {
-                            const value = event.target.value;
-                            setCustomModelInputByProvider((existing) => ({
-                              ...existing,
-                              [providerCard.provider]: value,
-                            }));
-                            if (customModelError) {
-                              setCustomModelErrorByProvider((existing) => ({
-                                ...existing,
-                                [providerCard.provider]: null,
-                              }));
-                            }
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key !== "Enter") return;
-                            event.preventDefault();
-                            addCustomModel(providerCard.provider);
-                          }}
-                          placeholder={
-                            providerCard.provider === "codex"
-                              ? "gpt-6.7-codex-ultra-preview"
-                              : providerCard.provider === "claudeAgent"
-                                ? "claude-sonnet-5-0"
-                                : providerCard.provider === "gemini"
-                                  ? "gemini-2.5-flash"
-                                  : providerCard.provider === "opencode"
-                                    ? "anthropic/claude-3-5-sonnet-20241022"
-                                    : "gpt-5-mini"
-                          }
-                          spellCheck={false}
-                        />
-                        <Button
-                          className="shrink-0"
-                          variant="outline"
-                          onClick={() => addCustomModel(providerCard.provider)}
-                        >
-                          <PlusIcon className="size-3.5" />
-                          Add
-                        </Button>
-                      </div>
-
-                      {customModelError ? (
-                        <p className="mt-2 text-xs text-destructive">{customModelError}</p>
+                            ) : null}
+                          </label>
+                        </div>
                       ) : null}
+
+                      {providerCard.homePathKey ? (
+                        <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                          <label
+                            htmlFor={`provider-install-${providerCard.homePathKey}`}
+                            className="block"
+                          >
+                            <span className="text-xs font-medium text-foreground">
+                              CODEX_HOME path
+                            </span>
+                            <Input
+                              id={`provider-install-${providerCard.homePathKey}`}
+                              className="mt-1.5"
+                              value={codexHomePath}
+                              onChange={(event) =>
+                                updateSettings({
+                                  providers: {
+                                    ...settings.providers,
+                                    codex: {
+                                      ...settings.providers.codex,
+                                      homePath: event.target.value,
+                                    },
+                                  },
+                                })
+                              }
+                              placeholder={providerCard.homePlaceholder}
+                              spellCheck={false}
+                            />
+                            {providerCard.homeDescription ? (
+                              <span className="mt-1 block text-xs text-muted-foreground">
+                                {providerCard.homeDescription}
+                              </span>
+                            ) : null}
+                          </label>
+                        </div>
+                      ) : null}
+
+                      <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                        <div className="text-xs font-medium text-foreground">Models</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {providerCard.models.length} model
+                          {providerCard.models.length === 1 ? "" : "s"} available.
+                        </div>
+                        <div
+                          ref={(el) => {
+                            modelListRefs.current[providerCard.provider] = el;
+                          }}
+                          className="mt-2 max-h-40 overflow-y-auto pb-1"
+                        >
+                          {providerCard.models.map((model) => {
+                            const caps = model.capabilities;
+                            const capLabels: string[] = [];
+                            if (caps?.supportsFastMode) capLabels.push("Fast mode");
+                            if (caps?.supportsThinkingToggle) capLabels.push("Thinking");
+                            if (
+                              caps?.reasoningEffortLevels &&
+                              caps.reasoningEffortLevels.length > 0
+                            ) {
+                              capLabels.push("Reasoning");
+                            }
+                            const hasDetails = capLabels.length > 0 || model.name !== model.slug;
+
+                            return (
+                              <div
+                                key={`${providerCard.provider}:${model.slug}`}
+                                className="flex items-center gap-2 py-1"
+                              >
+                                <span className="min-w-0 truncate text-xs text-foreground/90">
+                                  {model.name}
+                                </span>
+                                {hasDetails ? (
+                                  <Tooltip>
+                                    <TooltipTrigger
+                                      render={
+                                        <button
+                                          type="button"
+                                          className="shrink-0 text-muted-foreground/40 transition-colors hover:text-muted-foreground"
+                                          aria-label={`Details for ${model.name}`}
+                                        />
+                                      }
+                                    >
+                                      <InfoIcon className="size-3" />
+                                    </TooltipTrigger>
+                                    <TooltipPopup side="top" className="max-w-56">
+                                      <div className="space-y-1">
+                                        <code className="block text-[11px] text-foreground">
+                                          {model.slug}
+                                        </code>
+                                        {capLabels.length > 0 ? (
+                                          <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                                            {capLabels.map((label) => (
+                                              <span
+                                                key={label}
+                                                className="text-[10px] text-muted-foreground"
+                                              >
+                                                {label}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    </TooltipPopup>
+                                  </Tooltip>
+                                ) : null}
+                                {model.isCustom ? (
+                                  <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                                    <span className="text-[10px] text-muted-foreground">
+                                      custom
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="text-muted-foreground transition-colors hover:text-foreground"
+                                      aria-label={`Remove ${model.slug}`}
+                                      onClick={() =>
+                                        removeCustomModel(providerCard.provider, model.slug)
+                                      }
+                                    >
+                                      <XIcon className="size-3" />
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                          <Input
+                            id={`custom-model-${providerCard.provider}`}
+                            value={customModelInput}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setCustomModelInputByProvider((existing) => ({
+                                ...existing,
+                                [providerCard.provider]: value,
+                              }));
+                              if (customModelError) {
+                                setCustomModelErrorByProvider((existing) => ({
+                                  ...existing,
+                                  [providerCard.provider]: null,
+                                }));
+                              }
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter") return;
+                              event.preventDefault();
+                              addCustomModel(providerCard.provider);
+                            }}
+                            placeholder={
+                              providerCard.provider === "codex"
+                                ? "gpt-6.7-codex-ultra-preview"
+                                : providerCard.provider === "claudeAgent"
+                                  ? "claude-sonnet-5-0"
+                                  : providerCard.provider === "gemini"
+                                    ? "gemini-2.5-flash"
+                                    : providerCard.provider === "opencode"
+                                      ? "anthropic/claude-3-5-sonnet-20241022"
+                                      : "gpt-5-mini"
+                            }
+                            spellCheck={false}
+                          />
+                          <Button
+                            className="shrink-0"
+                            variant="outline"
+                            onClick={() => addCustomModel(providerCard.provider)}
+                          >
+                            <PlusIcon className="size-3.5" />
+                            Add
+                          </Button>
+                        </div>
+
+                        {customModelError ? (
+                          <p className="mt-2 text-xs text-destructive">{customModelError}</p>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            </div>
-          );
-        })}
-      </SettingsSection>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            );
+          })}
+        </SettingsSection>
+      ) : null}
 
-      <SettingsSection title="Advanced">
-        <SettingsRow
-          title="Keybindings"
-          description="Open the persisted `keybindings.json` file to edit advanced bindings directly, including workspace editor tabs and window commands."
-          status={
-            <>
-              <span className="block break-all font-mono text-[11px] text-foreground">
-                {keybindingsConfigPath ?? "Resolving keybindings path..."}
-              </span>
-              {openKeybindingsError ? (
-                <span className="mt-1 block text-destructive">{openKeybindingsError}</span>
-              ) : (
-                <span className="mt-1 block">Opens in your preferred editor.</span>
-              )}
-            </>
-          }
-          control={
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={!keybindingsConfigPath || isOpeningKeybindings}
-              onClick={openKeybindingsFile}
-            >
-              {isOpeningKeybindings ? "Opening..." : "Open file"}
-            </Button>
-          }
-        />
-      </SettingsSection>
+      {isAdvancedPage ? (
+        <>
+          <SettingsSection title="Performance">
+            <SettingsRow
+              title="Thread cache budget"
+              description="Limit how much memory hydrated thread history can use before least-recently-used threads are evicted."
+              resetAction={
+                settings.threadHydrationCacheMemoryMb !==
+                DEFAULT_UNIFIED_SETTINGS.threadHydrationCacheMemoryMb ? (
+                  <SettingResetButton
+                    label="thread cache budget"
+                    onClick={() =>
+                      updateSettings({
+                        threadHydrationCacheMemoryMb:
+                          DEFAULT_UNIFIED_SETTINGS.threadHydrationCacheMemoryMb,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    className="w-full sm:w-28"
+                    aria-label="Thread cache memory budget in megabytes"
+                    value={String(settings.threadHydrationCacheMemoryMb)}
+                    onChange={(event) => {
+                      const nextValue = Number.parseInt(event.target.value, 10);
+                      if (!Number.isFinite(nextValue)) {
+                        return;
+                      }
+                      updateSettings({
+                        threadHydrationCacheMemoryMb: Math.max(1, nextValue),
+                      });
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground">MB</span>
+                </div>
+              }
+            />
+          </SettingsSection>
 
-      <SettingsSection title="About">
-        {isElectron ? (
-          <AboutVersionSection />
-        ) : (
-          <SettingsRow
-            title={<AboutVersionTitle />}
-            description="Current version of the application."
-          />
-        )}
-      </SettingsSection>
+          <SettingsSection title="Keybindings">
+            <SettingsRow
+              title="Keybindings"
+              description="Open the persisted `keybindings.json` file to edit advanced bindings directly, including workspace editor tabs and window commands."
+              status={
+                <>
+                  <span className="block break-all font-mono text-[11px] text-foreground">
+                    {keybindingsConfigPath ?? "Resolving keybindings path..."}
+                  </span>
+                  {openKeybindingsError ? (
+                    <span className="mt-1 block text-destructive">{openKeybindingsError}</span>
+                  ) : (
+                    <span className="mt-1 block">Opens in your preferred editor.</span>
+                  )}
+                </>
+              }
+              control={
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={!keybindingsConfigPath || isOpeningKeybindings}
+                  onClick={openKeybindingsFile}
+                >
+                  {isOpeningKeybindings ? "Opening..." : "Open file"}
+                </Button>
+              }
+            />
+          </SettingsSection>
+        </>
+      ) : null}
+
+      {isAboutPage ? (
+        <SettingsSection title="Application">
+          {isElectron ? (
+            <AboutVersionSection />
+          ) : (
+            <SettingsRow
+              title={<AboutVersionTitle />}
+              description="Current version of the application."
+            />
+          )}
+        </SettingsSection>
+      ) : null}
     </SettingsPageContainer>
   );
+}
+
+export function GeneralSettingsPanel() {
+  return <SettingsPanel page="general" />;
+}
+
+export function ChatSettingsPanel() {
+  return <SettingsPanel page="chat" />;
+}
+
+export function EditorSettingsPanel() {
+  return <SettingsPanel page="editor" />;
+}
+
+export function BrowserSettingsPanel() {
+  return <SettingsPanel page="browser" />;
+}
+
+export function ModelsSettingsPanel() {
+  return <SettingsPanel page="models" />;
+}
+
+export function ProvidersSettingsPanel() {
+  return <SettingsPanel page="providers" />;
+}
+
+export function AdvancedSettingsPanel() {
+  return <SettingsPanel page="advanced" />;
+}
+
+export function AboutSettingsPanel() {
+  return <SettingsPanel page="about" />;
 }
 
 export function ArchivedThreadsPanel() {
