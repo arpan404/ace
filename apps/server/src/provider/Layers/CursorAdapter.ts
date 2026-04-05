@@ -35,10 +35,15 @@ import { type CursorAdapterShape, CursorAdapter } from "../Services/CursorAdapte
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import {
+  buildBootstrapPromptFromReplayTurns,
+  type TranscriptReplayTurn,
+} from "../providerTranscriptBootstrap.ts";
 import { resolveCursorCliModelId } from "./CursorProvider.ts";
 
 const PROVIDER = "cursor" as const;
 const ACP_CONTROL_TIMEOUT_MS = 15_000;
+const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
 
 type CursorResumeCursor = {
   readonly sessionId: string;
@@ -161,6 +166,8 @@ type CursorUsageSnapshot = Extract<
 type TurnSnapshot = {
   readonly id: TurnId;
   readonly startedAtMs: number;
+  readonly inputText: string;
+  readonly attachmentNames: ReadonlyArray<string>;
   readonly items: Array<unknown>;
   assistantText: string;
   interruptRequested: boolean;
@@ -177,9 +184,11 @@ type CursorSessionContext = {
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
   readonly turns: Array<TurnSnapshot>;
+  readonly replayTurns: Array<TranscriptReplayTurn>;
   activeTurn: TurnSnapshot | undefined;
   lastUsageSnapshot?: CursorUsageSnapshot;
   lastUsageTurnId?: TurnId;
+  pendingBootstrapReset: boolean;
   stopping: boolean;
   startPromise: Promise<ProviderSession> | undefined;
 };
@@ -2181,6 +2190,13 @@ export const CursorAdapterLive = Layer.effect(
 
       completeActiveContentItems(context, turnId);
       context.turns.push(context.activeTurn);
+      context.replayTurns.push({
+        prompt: context.activeTurn.inputText,
+        attachmentNames: [...context.activeTurn.attachmentNames],
+        ...(context.activeTurn.assistantText.trim().length > 0
+          ? { assistantResponse: context.activeTurn.assistantText }
+          : {}),
+      });
       context.activeTurn = undefined;
       updateSession(context, {
         activeTurnId: undefined,
@@ -2842,7 +2858,9 @@ export const CursorAdapterLive = Layer.effect(
             pendingApprovals: new Map(),
             pendingUserInputs: new Map(),
             turns: [],
+            replayTurns: [],
             activeTurn: undefined,
+            pendingBootstrapReset: false,
             stopping: false,
             startPromise: undefined,
           };
@@ -3057,7 +3075,17 @@ export const CursorAdapterLive = Layer.effect(
           }
 
           const sessionId = requireCursorSessionId(context, "session/prompt");
-          const prompt = await runPromise(buildCursorPromptContent(context, input));
+          const promptInput = context.pendingBootstrapReset
+            ? {
+                ...input,
+                input: buildBootstrapPromptFromReplayTurns(
+                  context.replayTurns,
+                  input.input ?? "Please analyze the attached files.",
+                  ROLLBACK_BOOTSTRAP_MAX_CHARS,
+                ).text,
+              }
+            : input;
+          const prompt = await runPromise(buildCursorPromptContent(context, promptInput));
           if (input.modelSelection?.provider === PROVIDER) {
             await syncCursorModelSelection(context, input.modelSelection);
           }
@@ -3068,6 +3096,8 @@ export const CursorAdapterLive = Layer.effect(
           const activeTurn: TurnSnapshot = {
             id: turnId,
             startedAtMs: Date.now(),
+            inputText: input.input ?? "",
+            attachmentNames: (input.attachments ?? []).map((attachment) => attachment.name),
             items: [],
             assistantText: "",
             interruptRequested: false,
@@ -3097,6 +3127,7 @@ export const CursorAdapterLive = Layer.effect(
               prompt,
             })
             .then((result) => {
+              context.pendingBootstrapReset = false;
               const record = asObject(result);
               const stopReason = asString(record?.stopReason) ?? null;
               if (
@@ -3414,15 +3445,100 @@ export const CursorAdapterLive = Layer.effect(
         };
       });
 
-    const rollbackThread: CursorAdapterShape["rollbackThread"] = (_threadId) =>
-      Effect.fail(
-        new ProviderAdapterRequestError({
+    const rollbackThread: CursorAdapterShape["rollbackThread"] = Effect.fn("rollbackThread")(
+      function* (threadId, numTurns) {
+        if (!Number.isInteger(numTurns) || numTurns < 1) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "rollbackThread",
+            issue: "numTurns must be an integer >= 1.",
+          });
+        }
+
+        const context = sessions.get(threadId);
+        if (!context) {
+          return yield* new ProviderAdapterSessionNotFoundError({
+            provider: PROVIDER,
+            threadId,
+          });
+        }
+        if (context.activeTurn) {
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "rollbackThread",
+            detail: "Cursor cannot roll back while a turn is still running.",
+          });
+        }
+
+        const nextLength = Math.max(0, context.turns.length - numTurns);
+        const trimmedTurns = context.turns.slice(0, nextLength).map((turn) => ({
+          id: turn.id,
+          startedAtMs: turn.startedAtMs,
+          inputText: turn.inputText,
+          attachmentNames: [...turn.attachmentNames],
+          items: [...turn.items],
+          assistantText: turn.assistantText,
+          interruptRequested: turn.interruptRequested,
+          reasoningText: turn.reasoningText,
+          assistantItem: turn.assistantItem,
+          reasoningItem: turn.reasoningItem,
+          toolCalls: new Map(turn.toolCalls),
+        }));
+        const trimmedReplayTurns = context.replayTurns.slice(0, nextLength).map((turn) => {
+          if (turn.assistantResponse !== undefined) {
+            return {
+              prompt: turn.prompt,
+              attachmentNames: [...turn.attachmentNames],
+              assistantResponse: turn.assistantResponse,
+            };
+          }
+
+          return {
+            prompt: turn.prompt,
+            attachmentNames: [...turn.attachmentNames],
+          };
+        });
+
+        const restartInput = {
           provider: PROVIDER,
-          method: "rollbackThread",
-          detail:
-            "Cursor ACP session rollback is not supported by the current adapter implementation.",
-        }),
-      );
+          threadId,
+          runtimeMode: context.session.runtimeMode,
+          ...(context.session.cwd ? { cwd: context.session.cwd } : {}),
+          ...(context.session.model
+            ? {
+                modelSelection: {
+                  provider: PROVIDER,
+                  model: context.session.model,
+                } as const,
+              }
+            : {}),
+        };
+
+        yield* stopSession(threadId);
+        yield* startSession(restartInput);
+
+        const restarted = sessions.get(threadId);
+        if (!restarted) {
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "rollbackThread",
+            detail: "Cursor rollback failed to recreate the session.",
+          });
+        }
+
+        restarted.turns.push(...trimmedTurns);
+        restarted.replayTurns.push(...trimmedReplayTurns);
+        restarted.pendingBootstrapReset = trimmedReplayTurns.length > 0;
+
+        return {
+          threadId,
+          turns: restarted.turns.map((turn) => ({
+            id: turn.id,
+            items: [...turn.items],
+          })),
+        };
+      },
+    );
 
     const stopAll: CursorAdapterShape["stopAll"] = () =>
       Effect.promise(() =>

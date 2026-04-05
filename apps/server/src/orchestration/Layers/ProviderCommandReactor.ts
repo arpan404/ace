@@ -16,6 +16,7 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
+import { meaningfulErrorMessage } from "../../provider/errorCause.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -113,14 +114,7 @@ function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServic
 }
 
 function providerFailureDetailFromCause(cause: Cause.Cause<unknown>): string {
-  const error = Cause.squash(cause);
-  if (error instanceof Error) {
-    const message = error.message.trim();
-    if (message.length > 0) {
-      return message;
-    }
-  }
-  return Cause.pretty(cause);
+  return meaningfulErrorMessage(Cause.squash(cause), Cause.pretty(cause));
 }
 
 function stalePendingRequestDetail(

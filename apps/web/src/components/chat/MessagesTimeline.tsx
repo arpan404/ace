@@ -1,6 +1,6 @@
 import { type MessageId, type TurnId } from "@t3tools/contracts";
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
-import { deriveTimelineEntries, formatElapsed } from "../../session-logic";
+import { deriveTimelineEntries } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
@@ -336,9 +336,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   : "(empty response)";
             return (
               <div className="min-w-0 border-border/35 border-l py-0.5 pr-1 pl-4">
-                <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
-                  Assistant
-                </p>
                 <ChatMarkdown
                   text={messageText}
                   cwd={markdownCwd}
@@ -414,15 +411,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       <span>{row.completionSummary}</span>
                     </span>
                   )}
-                  <span className="text-[10px] text-muted-foreground/30">
-                    {formatMessageMeta(
-                      row.message.createdAt,
-                      row.message.streaming
-                        ? formatElapsed(row.durationStart, nowIso)
-                        : formatElapsed(row.durationStart, row.message.completedAt),
-                      timestampFormat,
-                    )}
-                  </span>
                 </div>
               </div>
             );
@@ -629,15 +617,6 @@ function formatWorkingTimer(startIso: string, endIso: string): string | null {
   }
 
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
-}
-
-function formatMessageMeta(
-  createdAt: string,
-  duration: string | null,
-  timestampFormat: TimestampFormat,
-): string {
-  if (!duration) return formatTimestamp(createdAt, timestampFormat);
-  return `${formatTimestamp(createdAt, timestampFormat)} • ${duration}`;
 }
 
 function buildTimelineRows(input: {

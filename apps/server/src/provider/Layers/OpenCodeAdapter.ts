@@ -29,6 +29,11 @@ import { Effect, Layer, Queue, Schema, Stream } from "effect";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { meaningfulErrorMessage } from "../errorCause.ts";
+import {
+  buildBootstrapPromptFromReplayTurns,
+  type TranscriptReplayTurn,
+} from "../providerTranscriptBootstrap.ts";
 import {
   ProviderAdapterRequestError,
   ProviderAdapterSessionNotFoundError,
@@ -43,6 +48,7 @@ import {
 import { type OpenCodeAdapterShape, OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
 
 const PROVIDER = "opencode" as const;
+const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
 
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
@@ -56,12 +62,16 @@ type OpenCodeSessionContext = {
   readonly opencodeSessionId: string;
   defaultModels: Record<string, string>;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
+  readonly replayTurns: Array<TranscriptReplayTurn>;
   totalProcessedTokens: number;
   readonly sequenceTieBreakersByTimestampMs: Map<number, number>;
   nextFallbackSessionSequence: number;
   activeTurn: {
     id: TurnId;
     startedAtMs: number;
+    inputText: string;
+    attachmentNames: ReadonlyArray<string>;
+    assistantText: string;
     assistantItemId: RuntimeItemId;
     assistantStarted: boolean;
     toolItems: Map<string, OpenCodeToolItemState>;
@@ -85,6 +95,7 @@ type OpenCodeSessionContext = {
     }
   >;
   sseAbort: AbortController | null;
+  pendingBootstrapReset: boolean;
   stopped: boolean;
 };
 
@@ -189,7 +200,7 @@ function parseIsoTimestampMs(value: string): number | undefined {
 }
 
 function toMessage(cause: unknown, fallback: string): string {
-  return cause instanceof Error && cause.message.length > 0 ? cause.message : fallback;
+  return meaningfulErrorMessage(cause, fallback);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -520,6 +531,13 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       ...(errorMessage ? { lastError: errorMessage } : { lastError: undefined }),
     };
     if (turnId) {
+      ctx.replayTurns.push({
+        prompt: activeTurn?.inputText ?? "",
+        attachmentNames: [...(activeTurn?.attachmentNames ?? [])],
+        ...(activeTurn && activeTurn.assistantText.trim().length > 0
+          ? { assistantResponse: activeTurn.assistantText }
+          : {}),
+      });
       for (const reasoningItem of activeTurn?.reasoningItems.values() ?? []) {
         if (reasoningItem.completed) {
           continue;
@@ -880,6 +898,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           });
           if (streamKind === "assistant_text") {
             ensureAssistantStarted(ctx);
+            ctx.activeTurn.assistantText += delta;
             emit(
               baseEvent(ctx, {
                 type: "content.delta",
@@ -1202,6 +1221,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           opencodeSessionId,
           defaultModels,
           turns: [],
+          replayTurns: [],
           totalProcessedTokens: 0,
           sequenceTieBreakersByTimestampMs: new Map(),
           nextFallbackSessionSequence: 0,
@@ -1209,6 +1229,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           pendingApprovals: new Map(),
           pendingUserInputs: new Map(),
           sseAbort: null,
+          pendingBootstrapReset: false,
           stopped: false,
         };
         sessions.set(input.threadId, ctx);
@@ -1279,6 +1300,9 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         ctx.activeTurn = {
           id: turnId,
           startedAtMs: Date.now(),
+          inputText: input.input ?? "",
+          attachmentNames: (input.attachments ?? []).map((attachment) => attachment.name),
+          assistantText: "",
           assistantItemId,
           assistantStarted: false,
           toolItems: new Map(),
@@ -1305,8 +1329,16 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           | { type: "file"; mime: string; url: string; filename?: string }
         > = [];
 
-        if (input.input && input.input.trim().length > 0) {
-          parts.push({ type: "text", text: input.input });
+        const promptText = ctx.pendingBootstrapReset
+          ? buildBootstrapPromptFromReplayTurns(
+              ctx.replayTurns,
+              input.input ?? "Please analyze the attached files.",
+              ROLLBACK_BOOTSTRAP_MAX_CHARS,
+            ).text
+          : input.input;
+
+        if (promptText && promptText.trim().length > 0) {
+          parts.push({ type: "text", text: promptText });
         }
 
         const attachments = (input.attachments ?? [])
@@ -1349,6 +1381,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           });
         }
 
+        ctx.pendingBootstrapReset = false;
         ctx.turns.push({ id: turnId, items: [] });
         return {
           threadId: input.threadId,
@@ -1513,14 +1546,88 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       };
     });
 
-  const rollbackThread: OpenCodeAdapterShape["rollbackThread"] = () =>
-    Effect.fail(
-      new ProviderAdapterRequestError({
+  const rollbackThread: OpenCodeAdapterShape["rollbackThread"] = Effect.fn("rollbackThread")(
+    function* (threadId, numTurns) {
+      if (!Number.isInteger(numTurns) || numTurns < 1) {
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "rollbackThread",
+          issue: "numTurns must be an integer >= 1.",
+        });
+      }
+
+      const ctx = sessions.get(threadId);
+      if (!ctx) {
+        return yield* new ProviderAdapterSessionNotFoundError({
+          provider: PROVIDER,
+          threadId,
+        });
+      }
+      if (ctx.activeTurn) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "rollbackThread",
+          detail: "OpenCode cannot roll back while a turn is still running.",
+        });
+      }
+
+      const nextLength = Math.max(0, ctx.turns.length - numTurns);
+      const trimmedTurns = ctx.turns.slice(0, nextLength).map((turn) => ({
+        id: turn.id,
+        items: [...turn.items],
+      }));
+      const trimmedReplayTurns = ctx.replayTurns.slice(0, nextLength).map((turn) => {
+        if (turn.assistantResponse !== undefined) {
+          return {
+            prompt: turn.prompt,
+            attachmentNames: [...turn.attachmentNames],
+            assistantResponse: turn.assistantResponse,
+          };
+        }
+
+        return {
+          prompt: turn.prompt,
+          attachmentNames: [...turn.attachmentNames],
+        };
+      });
+
+      const restartInput = {
         provider: PROVIDER,
-        method: "rollbackThread",
-        detail: "OpenCode thread rollback is not implemented yet.",
-      }),
-    );
+        threadId,
+        runtimeMode: ctx.session.runtimeMode,
+        ...(ctx.session.cwd ? { cwd: ctx.session.cwd } : {}),
+        ...(ctx.session.model
+          ? {
+              modelSelection: {
+                provider: PROVIDER,
+                model: ctx.session.model,
+              } as const,
+            }
+          : {}),
+      };
+
+      yield* stopSession(threadId);
+      yield* startSession(restartInput);
+
+      const restarted = sessions.get(threadId);
+      if (!restarted) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "rollbackThread",
+          detail: "OpenCode rollback failed to recreate the session.",
+        });
+      }
+
+      restarted.turns.push(...trimmedTurns);
+      restarted.replayTurns.push(...trimmedReplayTurns);
+      restarted.pendingBootstrapReset = trimmedReplayTurns.length > 0;
+
+      return {
+        threadId,
+        turns: restarted.turns.map((turn) => ({ id: turn.id, items: [...turn.items] })),
+      };
+    },
+  );
 
   const stopAll: OpenCodeAdapterShape["stopAll"] = () =>
     Effect.tryPromise(async () => {

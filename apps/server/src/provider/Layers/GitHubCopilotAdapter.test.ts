@@ -40,6 +40,11 @@ function makeFakeClient(options: {
   readonly createSession: ReturnType<
     typeof vi.fn<(config: FakeStartConfig) => Promise<GitHubCopilotSessionClient>>
   >;
+  readonly resumeSession: ReturnType<
+    typeof vi.fn<
+      (sessionId: string, config: ResumeSessionConfig) => Promise<GitHubCopilotSessionClient>
+    >
+  >;
   readonly emitSessionEvent: (event: SessionEvent) => void;
 } {
   const assistantMessageEvent: AssistantMessageEvent = {
@@ -205,6 +210,37 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         assert.equal(createConfig?.streaming, true);
 
         yield* adapter.stopSession(asThreadId("thread-unsupported"));
+      }),
+  );
+
+  it.effect(
+    "falls back to a fresh Copilot session when the persisted resume cursor no longer exists remotely",
+    () =>
+      Effect.gen(function* () {
+        const fakeClient = makeFakeClient({
+          models: [],
+        });
+        fakeClient.resumeSession.mockRejectedValueOnce(
+          new Error(
+            "Request session.resume failed with message: Session not found: ca96227e-940f-4997-912e-e959c8c844e9",
+          ),
+        );
+        mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+        const adapter = yield* GitHubCopilotAdapter;
+        const session = yield* adapter.startSession({
+          provider: "githubCopilot",
+          threadId: asThreadId("thread-stale-resume"),
+          cwd: "/repo",
+          resumeCursor: "ca96227e-940f-4997-912e-e959c8c844e9",
+          runtimeMode: "full-access",
+        });
+
+        assert.equal(fakeClient.resumeSession.mock.calls.length, 1);
+        assert.equal(fakeClient.createSession.mock.calls.length, 1);
+        assert.equal(session.resumeCursor, "copilot-session-1");
+
+        yield* adapter.stopSession(asThreadId("thread-stale-resume"));
       }),
   );
 
@@ -1110,6 +1146,108 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         assert.equal((secondSequence ?? 0) < (firstSequence ?? 0), true);
 
         yield* adapter.stopSession(asThreadId("thread-copilot-assistant-segments"));
+      }),
+  );
+
+  it.effect(
+    "restarts Copilot sessions on rollback and bootstraps the next prompt from preserved transcript",
+    () =>
+      Effect.gen(function* () {
+        const fakeClient = makeFakeClient({
+          models: [],
+        });
+        mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+        const adapter = yield* GitHubCopilotAdapter;
+        const threadId = asThreadId("thread-copilot-rollback");
+
+        yield* adapter.startSession({
+          provider: "githubCopilot",
+          threadId,
+          cwd: "/repo",
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId,
+          input: "Original prompt",
+        });
+
+        fakeClient.emitSessionEvent({
+          id: "event-assistant-message-rollback-history",
+          type: "assistant.message",
+          timestamp: "2024-01-01T00:00:02.000Z",
+          parentId: null,
+          data: {
+            messageId: "assistant-message-rollback-history",
+            content: "Original answer",
+          },
+        });
+        fakeClient.emitSessionEvent({
+          id: "event-session-idle-original",
+          type: "session.idle",
+          timestamp: "2024-01-01T00:00:03.000Z",
+          parentId: "event-assistant-message-rollback-history",
+          ephemeral: true,
+          data: {},
+        });
+
+        yield* adapter.sendTurn({
+          threadId,
+          input: "Reverted prompt",
+        });
+        fakeClient.emitSessionEvent({
+          id: "event-assistant-message-reverted-history",
+          type: "assistant.message",
+          timestamp: "2024-01-01T00:00:04.000Z",
+          parentId: null,
+          data: {
+            messageId: "assistant-message-reverted-history",
+            content: "Reverted answer",
+          },
+        });
+        fakeClient.emitSessionEvent({
+          id: "event-session-idle-reverted",
+          type: "session.idle",
+          timestamp: "2024-01-01T00:00:05.000Z",
+          parentId: "event-assistant-message-reverted-history",
+          ephemeral: true,
+          data: {},
+        });
+
+        const rolledBack = yield* adapter.rollbackThread(threadId, 1);
+        assert.equal(rolledBack.turns.length, 1);
+        assert.equal(fakeClient.createSession.mock.calls.length, 2);
+
+        const secondSessionPromise = fakeClient.createSession.mock.results[1]?.value;
+        assert.equal(secondSessionPromise !== undefined, true);
+        const secondSession = (yield* Effect.promise(
+          () => secondSessionPromise as Promise<GitHubCopilotSessionClient>,
+        )) as GitHubCopilotSessionClient & {
+          send: ReturnType<typeof vi.fn>;
+        };
+
+        yield* adapter.sendTurn({
+          threadId,
+          input: "New prompt",
+        });
+
+        const bootstrapPrompt = secondSession.send.mock.calls[0]?.[0]?.prompt;
+        assert.equal(typeof bootstrapPrompt, "string");
+        assert.equal(
+          bootstrapPrompt?.includes(
+            "Continue this conversation using the transcript context below.",
+          ),
+          true,
+        );
+        assert.equal(bootstrapPrompt?.includes("Original prompt"), true);
+        assert.equal(bootstrapPrompt?.includes("Reverted prompt"), false);
+        assert.equal(
+          bootstrapPrompt?.includes("Latest user request (answer this now):\nNew prompt"),
+          true,
+        );
+
+        yield* adapter.stopSession(threadId);
       }),
   );
 });

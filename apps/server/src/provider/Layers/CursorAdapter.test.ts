@@ -863,6 +863,134 @@ describe("CursorAdapterLive", () => {
     });
   });
 
+  it("restarts Cursor sessions on rollback and bootstraps the next prompt from preserved transcript", async () => {
+    const firstPromptResult = deferred<{ readonly stopReason: string }>();
+    const secondPromptResult = deferred<{ readonly stopReason: string }>();
+    const clients: Array<ReturnType<typeof makeFakeCursorClient>> = [];
+
+    mockedStartCursorAcpClient.mockImplementation(() => {
+      const sessionIndex = clients.length + 1;
+      let promptCount = 0;
+      const client = makeFakeCursorClient({
+        requestImpl: async (method) => {
+          switch (method) {
+            case "initialize":
+              return cursorInitializeResult();
+            case "authenticate":
+              return {};
+            case "session/new":
+              return cursorSessionResult(`cursor-session-rollback-${sessionIndex}`);
+            case "session/prompt":
+              if (sessionIndex !== 1) {
+                return { stopReason: "end_turn" };
+              }
+              promptCount += 1;
+              return promptCount === 1 ? firstPromptResult.promise : secondPromptResult.promise;
+            default:
+              throw new Error(`Unexpected Cursor ACP request: ${method}`);
+          }
+        },
+      });
+      clients.push(client);
+      return client;
+    });
+
+    await withAdapter(async (adapter) => {
+      try {
+        const threadId = asThreadId("thread-cursor-rollback");
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId,
+            cwd: "/repo/cursor-rollback",
+            modelSelection: {
+              provider: "cursor",
+              model: "gpt-5-mini",
+            },
+            runtimeMode: "full-access",
+          }),
+        );
+
+        const firstTurnPromise = Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Original prompt",
+          }),
+        );
+
+        const notificationHandler = clients[0]?.getNotificationHandler();
+        expect(notificationHandler).toBeTypeOf("function");
+        if (!notificationHandler) {
+          return;
+        }
+
+        notificationHandler({
+          method: "session/update",
+          params: {
+            sessionId: "cursor-session-rollback-1",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: {
+                text: "Original answer",
+              },
+            },
+          },
+        });
+        firstPromptResult.resolve({ stopReason: "end_turn" });
+        await firstTurnPromise;
+
+        const secondTurnPromise = Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Reverted prompt",
+            modelSelection: {
+              provider: "cursor",
+              model: "gpt-5-mini",
+            },
+          }),
+        );
+        secondPromptResult.resolve({ stopReason: "end_turn" });
+        await secondTurnPromise;
+
+        const rolledBack = await Effect.runPromise(adapter.rollbackThread(threadId, 1));
+        expect(rolledBack.turns).toHaveLength(1);
+        expect(clients).toHaveLength(2);
+
+        await Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "New prompt",
+            modelSelection: {
+              provider: "cursor",
+              model: "gpt-5-mini",
+            },
+          }),
+        );
+
+        const secondPromptCall = clients[1]?.request.mock.calls.find(
+          ([method]) => method === "session/prompt",
+        );
+        const promptPayload = secondPromptCall?.[1] as
+          | {
+              readonly prompt?: ReadonlyArray<{ readonly type?: string; readonly text?: string }>;
+            }
+          | undefined;
+        const bootstrapText = promptPayload?.prompt?.find((part) => part.type === "text")?.text;
+
+        expect(bootstrapText).toContain(
+          "Continue this conversation using the transcript context below.",
+        );
+        expect(bootstrapText).toContain("Original prompt");
+        expect(bootstrapText).not.toContain("Reverted prompt");
+        expect(bootstrapText).toContain("Latest user request (answer this now):\nNew prompt");
+      } finally {
+        firstPromptResult.resolve({ stopReason: "end_turn" });
+        secondPromptResult.resolve({ stopReason: "end_turn" });
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
   it("round-trips multi-select ask_question answers back to Cursor ACP option ids", async () => {
     const client = makeFakeCursorClient({
       requestImpl: async (method) => {
@@ -990,6 +1118,8 @@ describe("CursorAdapterLive", () => {
       {
         id: TurnId.makeUnsafe("cursor-turn-usage"),
         startedAtMs: Date.now(),
+        inputText: "Explain usage",
+        attachmentNames: [],
         items: [],
         assistantText: "",
         interruptRequested: false,

@@ -22,6 +22,11 @@ import { Effect, Layer, Queue, Schema, Stream } from "effect";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { meaningfulErrorMessage } from "../errorCause.ts";
+import {
+  buildBootstrapPromptFromReplayTurns,
+  type TranscriptReplayTurn,
+} from "../providerTranscriptBootstrap.ts";
 import {
   AcpRequestError,
   startAcpClient,
@@ -40,6 +45,7 @@ import { type GeminiAdapterShape, GeminiAdapter } from "../Services/GeminiAdapte
 const PROVIDER = "gemini" as const;
 const ACP_CONTROL_TIMEOUT_MS = 20_000;
 const ACP_PROTOCOL_VERSION = 1;
+const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
 export const GEMINI_ACP_CLIENT_INFO = {
   name: "t3code",
   version: "1.0.17",
@@ -183,6 +189,9 @@ type GeminiToolItemState = {
 type GeminiTurnState = {
   readonly id: TurnId;
   started: boolean;
+  readonly inputText: string;
+  readonly attachmentNames: ReadonlyArray<string>;
+  assistantText: string;
   readonly items: Array<unknown>;
   readonly assistantItemId: RuntimeItemId;
   assistantStarted: boolean;
@@ -218,12 +227,14 @@ type GeminiSessionContext = {
   session: ProviderSession;
   metadata: GeminiSessionMetadata;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
+  readonly replayTurns: Array<TranscriptReplayTurn>;
   readonly sequenceTieBreakersByTimestampMs: Map<number, number>;
   nextFallbackSessionSequence: number;
   activeTurn: GeminiTurnState | null;
   readonly pendingPermissions: Map<string, GeminiPendingPermission>;
   lastUsageSnapshot?: GeminiContextUsageSnapshot;
   totalProcessedTokens: number;
+  pendingBootstrapReset: boolean;
   closed: boolean;
   stopRequested: boolean;
 };
@@ -251,7 +262,7 @@ function parseIsoTimestampMs(value: string): number | undefined {
 }
 
 function toMessage(cause: unknown, fallback: string): string {
-  return cause instanceof Error && cause.message.length > 0 ? cause.message : fallback;
+  return meaningfulErrorMessage(cause, fallback);
 }
 
 function asObject(value: unknown): Record<string, unknown> | undefined {
@@ -1261,6 +1272,11 @@ const makeGeminiAdapter = Effect.gen(function* () {
     cancelPendingPermissionsForTurn(context, turn.id);
     if (turn.started) {
       context.turns.push({ id: turn.id, items: [...turn.items] });
+      context.replayTurns.push({
+        prompt: turn.inputText,
+        attachmentNames: [...turn.attachmentNames],
+        ...(turn.assistantText.trim().length > 0 ? { assistantResponse: turn.assistantText } : {}),
+      });
     }
     context.activeTurn = null;
     context.session = {
@@ -1512,6 +1528,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
           return;
         }
         ensureAssistantStarted(context, notificationCreatedAt);
+        context.activeTurn.assistantText += delta;
         emit(
           baseEvent(context, {
             type: "content.delta",
@@ -2020,11 +2037,13 @@ const makeGeminiAdapter = Effect.gen(function* () {
             session,
             metadata: started.metadata,
             turns: [],
+            replayTurns: [],
             sequenceTieBreakersByTimestampMs: new Map(),
             nextFallbackSessionSequence: 0,
             activeTurn: null,
             pendingPermissions: new Map(),
             totalProcessedTokens: 0,
+            pendingBootstrapReset: false,
             closed: false,
             stopRequested: false,
           };
@@ -2108,6 +2127,9 @@ const makeGeminiAdapter = Effect.gen(function* () {
         context.activeTurn = {
           id: turnId,
           started: false,
+          inputText: input.input ?? "",
+          attachmentNames: (input.attachments ?? []).map((attachment) => attachment.name),
+          assistantText: "",
           items: [],
           assistantItemId,
           assistantStarted: false,
@@ -2130,7 +2152,17 @@ const makeGeminiAdapter = Effect.gen(function* () {
             modelSelection: input.modelSelection,
           });
 
-          const promptContent = buildPromptContent(input, serverConfig.attachmentsDir);
+          const promptInput = context.pendingBootstrapReset
+            ? {
+                ...input,
+                input: buildBootstrapPromptFromReplayTurns(
+                  context.replayTurns,
+                  input.input ?? "Please analyze the attached files.",
+                  ROLLBACK_BOOTSTRAP_MAX_CHARS,
+                ).text,
+              }
+            : input;
+          const promptContent = buildPromptContent(promptInput, serverConfig.attachmentsDir);
           if (context.closed || !context.activeTurn || context.activeTurn.id !== turnId) {
             throw new ProviderAdapterRequestError({
               provider: PROVIDER,
@@ -2165,6 +2197,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
               prompt: promptContent,
             })
             .then((result) => {
+              context.pendingBootstrapReset = false;
               if (context.closed || !context.activeTurn || context.activeTurn.id !== turnId) {
                 return;
               }
@@ -2401,15 +2434,92 @@ const makeGeminiAdapter = Effect.gen(function* () {
       };
     });
 
-  const rollbackThread: GeminiAdapterShape["rollbackThread"] = () =>
-    Effect.fail(
-      new ProviderAdapterRequestError({
+  const rollbackThread: GeminiAdapterShape["rollbackThread"] = Effect.fn("rollbackThread")(
+    function* (threadId, numTurns) {
+      if (!Number.isInteger(numTurns) || numTurns < 1) {
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "rollbackThread",
+          issue: "numTurns must be an integer >= 1.",
+        });
+      }
+
+      const context = sessions.get(threadId);
+      if (!context) {
+        return yield* new ProviderAdapterSessionNotFoundError({
+          provider: PROVIDER,
+          threadId,
+        });
+      }
+      if (context.activeTurn) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "rollbackThread",
+          detail: "Gemini cannot roll back while a turn is still running.",
+        });
+      }
+
+      const nextLength = Math.max(0, context.turns.length - numTurns);
+      const trimmedTurns = context.turns.slice(0, nextLength).map((turn) => ({
+        id: turn.id,
+        items: [...turn.items],
+      }));
+      const trimmedReplayTurns = context.replayTurns.slice(0, nextLength).map((turn) => {
+        if (turn.assistantResponse !== undefined) {
+          return {
+            prompt: turn.prompt,
+            attachmentNames: [...turn.attachmentNames],
+            assistantResponse: turn.assistantResponse,
+          };
+        }
+
+        return {
+          prompt: turn.prompt,
+          attachmentNames: [...turn.attachmentNames],
+        };
+      });
+
+      const restartInput = {
         provider: PROVIDER,
-        method: "rollbackThread",
-        detail:
-          "Gemini ACP session rollback is not supported by the current adapter implementation.",
-      }),
-    );
+        threadId,
+        runtimeMode: context.session.runtimeMode,
+        ...(context.session.cwd ? { cwd: context.session.cwd } : {}),
+        ...(context.session.model
+          ? {
+              modelSelection: {
+                provider: PROVIDER,
+                model: context.session.model,
+              } as const,
+            }
+          : {}),
+      };
+
+      yield* stopSession(threadId);
+      sessions.delete(threadId);
+      yield* startSession(restartInput);
+
+      const restarted = sessions.get(threadId);
+      if (!restarted) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "rollbackThread",
+          detail: "Gemini rollback failed to recreate the session.",
+        });
+      }
+
+      restarted.turns.push(...trimmedTurns);
+      restarted.replayTurns.push(...trimmedReplayTurns);
+      restarted.pendingBootstrapReset = trimmedReplayTurns.length > 0;
+
+      return {
+        threadId,
+        turns: restarted.turns.map((turn) => ({
+          id: turn.id,
+          items: [...turn.items],
+        })),
+      };
+    },
+  );
 
   const stopAll: GeminiAdapterShape["stopAll"] = () =>
     Effect.tryPromise(async () => {

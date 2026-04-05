@@ -27,6 +27,11 @@ import { Effect, Layer, Queue, Stream } from "effect";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { meaningfulErrorMessage } from "../errorCause.ts";
+import {
+  buildBootstrapPromptFromReplayTurns,
+  type TranscriptReplayTurn,
+} from "../providerTranscriptBootstrap.ts";
 import {
   createGitHubCopilotClient,
   type GitHubCopilotClientLike,
@@ -46,6 +51,7 @@ import {
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "githubCopilot" as const;
+const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
 
 type UserInputRequest = {
   readonly question: string;
@@ -94,6 +100,9 @@ interface ToolRequestMetadata {
 interface TurnState {
   readonly turnId: TurnId;
   readonly startedAt: string;
+  readonly inputText: string;
+  readonly attachmentNames: ReadonlyArray<string>;
+  assistantText: string;
   readonly items: Array<unknown>;
   readonly assistantItemIdsByMessageId: Map<string, string>;
   readonly reasoningItemIdsByReasoningId: Map<string, string>;
@@ -112,11 +121,13 @@ interface GitHubCopilotSessionContext {
   readonly approvalFingerprints: Set<string>;
   readonly toolRequestMetadata: Map<string, ToolRequestMetadata>;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
+  readonly replayTurns: Array<TranscriptReplayTurn>;
   readonly unsubscribers: Array<() => void>;
   readonly sequenceTieBreakersByTimestampMs: Map<number, number>;
   nextFallbackSessionSequence: number;
   turnState: TurnState | undefined;
   lastKnownTokenUsage?: ThreadTokenUsageSnapshot;
+  pendingBootstrapReset: boolean;
   stopped: boolean;
 }
 
@@ -136,7 +147,12 @@ function sharedClientKey(input: { readonly binaryPath: string; readonly cliUrl: 
 }
 
 function toMessage(cause: unknown, fallback: string): string {
-  return cause instanceof Error && cause.message.length > 0 ? cause.message : fallback;
+  return meaningfulErrorMessage(cause, fallback);
+}
+
+function isMissingResumableGitHubCopilotSession(cause: unknown): boolean {
+  const message = meaningfulErrorMessage(cause, "").toLowerCase();
+  return message.includes("session not found") || message.includes("request session.resume failed");
 }
 
 function makeDeferredDecision<T>() {
@@ -854,6 +870,13 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       );
     }
     context.turns.push({ id: turnState.turnId, items: [...turnState.items] });
+    context.replayTurns.push({
+      prompt: turnState.inputText,
+      attachmentNames: [...turnState.attachmentNames],
+      ...(turnState.assistantText.trim().length > 0
+        ? { assistantResponse: turnState.assistantText }
+        : {}),
+    });
     context.turnState = undefined;
     context.session = {
       ...withoutActiveTurn(context.session),
@@ -1152,6 +1175,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           rawSource: "github-copilot.sdk.event",
           rawPayload: event,
         });
+        turnState.assistantText += delta;
         turnState.items.push(runtimeEvent);
         emitRuntimeEvent(runtimeEvent);
         return;
@@ -1782,28 +1806,27 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           availableModels.find((model) => model.id === input.modelSelection?.model),
           input.modelSelection?.options,
         );
-        const sdkSession =
-          typeof input.resumeCursor === "string"
-            ? await sharedClient.client.resumeSession(input.resumeCursor, {
-                onPermissionRequest: permissionHandler,
-                onUserInputRequest: userInputHandler,
-                ...(input.modelSelection?.model ? { model: input.modelSelection.model } : {}),
-                ...(normalizedModelOptions?.reasoningEffort
-                  ? { reasoningEffort: normalizedModelOptions.reasoningEffort }
-                  : {}),
-                ...(input.cwd ? { workingDirectory: input.cwd } : {}),
-                streaming: true,
+        const sessionConfig = {
+          onPermissionRequest: permissionHandler,
+          onUserInputRequest: userInputHandler,
+          ...(input.modelSelection?.model ? { model: input.modelSelection.model } : {}),
+          ...(normalizedModelOptions?.reasoningEffort
+            ? { reasoningEffort: normalizedModelOptions.reasoningEffort }
+            : {}),
+          ...(input.cwd ? { workingDirectory: input.cwd } : {}),
+          streaming: true,
+        };
+        const resumedFromCursor = typeof input.resumeCursor === "string";
+        const sdkSession = resumedFromCursor
+          ? await sharedClient.client
+              .resumeSession(input.resumeCursor, sessionConfig)
+              .catch(async (cause) => {
+                if (!isMissingResumableGitHubCopilotSession(cause)) {
+                  throw cause;
+                }
+                return sharedClient.client.createSession(sessionConfig);
               })
-            : await sharedClient.client.createSession({
-                onPermissionRequest: permissionHandler,
-                onUserInputRequest: userInputHandler,
-                ...(input.modelSelection?.model ? { model: input.modelSelection.model } : {}),
-                ...(normalizedModelOptions?.reasoningEffort
-                  ? { reasoningEffort: normalizedModelOptions.reasoningEffort }
-                  : {}),
-                ...(input.cwd ? { workingDirectory: input.cwd } : {}),
-                streaming: true,
-              });
+          : await sharedClient.client.createSession(sessionConfig);
 
         const now = new Date().toISOString();
         const createdContext: GitHubCopilotSessionContext = {
@@ -1825,10 +1848,12 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           approvalFingerprints: new Set(),
           toolRequestMetadata: new Map(),
           turns: [],
+          replayTurns: [],
           unsubscribers: [],
           sequenceTieBreakersByTimestampMs: new Map(),
           nextFallbackSessionSequence: 0,
           turnState: undefined,
+          pendingBootstrapReset: false,
           stopped: false,
         };
         context = createdContext;
@@ -1844,10 +1869,13 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             type: "session.started",
             payload: {
               message:
-                typeof input.resumeCursor === "string"
+                resumedFromCursor && sdkSession.sessionId === input.resumeCursor
                   ? "Resumed GitHub Copilot session."
                   : "Started GitHub Copilot session.",
-              resume: typeof input.resumeCursor === "string" ? input.resumeCursor : undefined,
+              resume:
+                resumedFromCursor && sdkSession.sessionId === input.resumeCursor
+                  ? input.resumeCursor
+                  : undefined,
             },
             rawMethod: "session.started",
             rawSource: "github-copilot.sdk.event",
@@ -1913,11 +1941,24 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         });
       }
 
+      const latestPrompt = input.input ?? "Please analyze the attached files.";
+      const promptText = context.pendingBootstrapReset
+        ? buildBootstrapPromptFromReplayTurns(
+            context.replayTurns,
+            latestPrompt,
+            ROLLBACK_BOOTSTRAP_MAX_CHARS,
+          ).text
+        : latestPrompt;
+      const attachmentNames = (input.attachments ?? []).map((attachment) => attachment.name);
+
       const turnId = TurnId.makeUnsafe(randomUUID());
       const createdAt = new Date().toISOString();
       context.turnState = {
         turnId,
         startedAt: createdAt,
+        inputText: input.input ?? "",
+        attachmentNames,
+        assistantText: "",
         items: [],
         assistantItemIdsByMessageId: new Map(),
         reasoningItemIdsByReasoningId: new Map(),
@@ -1978,9 +2019,10 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
 
       try {
         await context.sdkSession.send({
-          prompt: input.input ?? "Please analyze the attached files.",
+          prompt: promptText,
           ...(attachments.length > 0 ? { attachments } : {}),
         });
+        context.pendingBootstrapReset = false;
       } catch (cause) {
         completeTurn(context, "failed", toMessage(cause, "GitHub Copilot turn failed."));
         throw new ProviderAdapterRequestError({
@@ -2095,15 +2137,90 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       };
     });
 
-  const rollbackThread: GitHubCopilotAdapterShape["rollbackThread"] = (_threadId) =>
-    Effect.fail(
-      new ProviderAdapterRequestError({
+  const rollbackThread: GitHubCopilotAdapterShape["rollbackThread"] = Effect.fn("rollbackThread")(
+    function* (threadId, numTurns) {
+      if (!Number.isInteger(numTurns) || numTurns < 1) {
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "rollbackThread",
+          issue: "numTurns must be an integer >= 1.",
+        });
+      }
+
+      const context = sessions.get(threadId);
+      if (!context) {
+        return yield* new ProviderAdapterSessionNotFoundError({
+          provider: PROVIDER,
+          threadId,
+        });
+      }
+      if (context.turnState) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "rollbackThread",
+          detail: "GitHub Copilot cannot roll back while a turn is still running.",
+        });
+      }
+
+      const nextLength = Math.max(0, context.turns.length - numTurns);
+      const trimmedTurns = context.turns
+        .slice(0, nextLength)
+        .map((turn) => ({ id: turn.id, items: [...turn.items] }));
+      const trimmedReplayTurns = context.replayTurns.slice(0, nextLength).map((turn) => {
+        if (turn.assistantResponse !== undefined) {
+          return {
+            prompt: turn.prompt,
+            attachmentNames: [...turn.attachmentNames],
+            assistantResponse: turn.assistantResponse,
+          };
+        }
+
+        return {
+          prompt: turn.prompt,
+          attachmentNames: [...turn.attachmentNames],
+        };
+      });
+
+      const restartInput = {
         provider: PROVIDER,
-        method: "rollbackThread",
-        detail:
-          "GitHub Copilot session rollback is not supported by the current adapter implementation.",
-      }),
-    );
+        threadId,
+        runtimeMode: context.session.runtimeMode,
+        ...(context.session.cwd ? { cwd: context.session.cwd } : {}),
+        ...(context.session.model
+          ? {
+              modelSelection: {
+                provider: PROVIDER,
+                model: context.session.model,
+              } as const,
+            }
+          : {}),
+      };
+
+      yield* stopSession(threadId);
+      yield* startSession(restartInput);
+
+      const restarted = sessions.get(threadId);
+      if (!restarted) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "rollbackThread",
+          detail: "GitHub Copilot rollback failed to recreate the session.",
+        });
+      }
+
+      restarted.turns.push(...trimmedTurns);
+      restarted.replayTurns.push(...trimmedReplayTurns);
+      restarted.pendingBootstrapReset = trimmedReplayTurns.length > 0;
+
+      return {
+        threadId,
+        turns: restarted.turns.map((turn) => ({
+          id: turn.id,
+          items: [...turn.items],
+        })),
+      };
+    },
+  );
 
   const stopAll: GitHubCopilotAdapterShape["stopAll"] = () =>
     Effect.tryPromise(async () => {
