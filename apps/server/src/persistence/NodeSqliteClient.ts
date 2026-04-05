@@ -4,7 +4,13 @@
  *
  * @module SqliteClient
  */
-import { DatabaseSync, type StatementSync } from "node:sqlite";
+import {
+  DatabaseSync,
+  type SQLInputValue,
+  type SQLOutputValue,
+  type StatementResultingChanges,
+  type StatementSync,
+} from "node:sqlite";
 
 import * as Cache from "effect/Cache";
 import * as Config from "effect/Config";
@@ -15,6 +21,7 @@ import { identity } from "effect/Function";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
+import * as Schema from "effect/Schema";
 import * as ServiceMap from "effect/ServiceMap";
 import * as Stream from "effect/Stream";
 import * as Reactivity from "effect/unstable/reactivity/Reactivity";
@@ -24,6 +31,53 @@ import { SqlError, classifySqliteError } from "effect/unstable/sql/SqlError";
 import * as Statement from "effect/unstable/sql/Statement";
 
 const ATTR_DB_SYSTEM_NAME = "db.system.name";
+type SqliteRow = Record<string, SQLOutputValue>;
+type SqliteExecutionResult = SqliteRow | StatementResultingChanges;
+
+function isSqlInputValue(value: unknown): value is SQLInputValue {
+  return (
+    value === null ||
+    typeof value === "number" ||
+    typeof value === "bigint" ||
+    typeof value === "string" ||
+    ArrayBuffer.isView(value)
+  );
+}
+
+function describeSqlParameter(value: unknown): string {
+  if (value === null) {
+    return "null";
+  }
+  if (ArrayBuffer.isView(value)) {
+    return value.constructor.name;
+  }
+  return typeof value;
+}
+
+function unsupportedSqlParameterError(index: number, value: unknown): SqlError {
+  return new SqlError({
+    reason: classifySqliteError(
+      new TypeError(
+        `Unsupported SQLite parameter at index ${index}: ${describeSqlParameter(value)}.`,
+      ),
+      {
+        message: "Failed to execute statement",
+        operation: "execute",
+      },
+    ),
+  });
+}
+
+function normalizeSqlParameters(params: ReadonlyArray<unknown>): Array<SQLInputValue> {
+  const normalized: Array<SQLInputValue> = [];
+  for (const [index, param] of params.entries()) {
+    if (!isSqlInputValue(param)) {
+      throw unsupportedSqlParameterError(index, param);
+    }
+    normalized.push(param);
+  }
+  return normalized;
+}
 
 export const TypeId: TypeId = "~local/sqlite-node/SqliteClient";
 
@@ -119,22 +173,25 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
     });
 
     const runStatement = (statement: StatementSync, params: ReadonlyArray<unknown>, raw: boolean) =>
-      Effect.withFiber<ReadonlyArray<any>, SqlError>((fiber) => {
+      Effect.withFiber<ReadonlyArray<SqliteExecutionResult>, SqlError>((fiber) => {
         statement.setReadBigInts(Boolean(ServiceMap.get(fiber.services, Client.SafeIntegers)));
         try {
+          const normalizedParams = normalizeSqlParameters(params);
           if (hasRows(statement)) {
-            return Effect.succeed(statement.all(...(params as any)));
+            return Effect.succeed(statement.all(...normalizedParams));
           }
-          const result = statement.run(...(params as any));
-          return Effect.succeed(raw ? (result as unknown as ReadonlyArray<any>) : []);
+          const result = statement.run(...normalizedParams);
+          return Effect.succeed(raw ? [result] : []);
         } catch (cause) {
           return Effect.fail(
-            new SqlError({
-              reason: classifySqliteError(cause, {
-                message: "Failed to execute statement",
-                operation: "execute",
-              }),
-            }),
+            Schema.is(SqlError)(cause)
+              ? cause
+              : new SqlError({
+                  reason: classifySqliteError(cause, {
+                    message: "Failed to execute statement",
+                    operation: "execute",
+                  }),
+                }),
           );
         }
       });
@@ -148,23 +205,23 @@ const makeWithDatabase = Effect.fn("makeWithDatabase")(function* (
         (statement) =>
           Effect.try({
             try: () => {
+              const normalizedParams = normalizeSqlParameters(params);
               if (hasRows(statement)) {
                 statement.setReturnArrays(true);
-                // Safe to cast to array after we've setReturnArrays(true)
-                return statement.all(...(params as any)) as unknown as ReadonlyArray<
-                  ReadonlyArray<unknown>
-                >;
+                return statement.all(...normalizedParams).map((row) => Object.values(row));
               }
-              statement.run(...(params as any));
+              statement.run(...normalizedParams);
               return [];
             },
             catch: (cause) =>
-              new SqlError({
-                reason: classifySqliteError(cause, {
-                  message: "Failed to execute statement",
-                  operation: "execute",
-                }),
-              }),
+              Schema.is(SqlError)(cause)
+                ? cause
+                : new SqlError({
+                    reason: classifySqliteError(cause, {
+                      message: "Failed to execute statement",
+                      operation: "execute",
+                    }),
+                  }),
           }),
         (statement) =>
           Effect.sync(() => {

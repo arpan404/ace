@@ -377,12 +377,22 @@ function toUserInputQuestions(payload: Record<string, unknown> | undefined) {
       if (!id || !header || !prompt || !options || options.length === 0) {
         return undefined;
       }
-      return {
+      const parsedQuestion: {
+        id: string;
+        header: string;
+        question: string;
+        options: Array<{ label: string; description: string }>;
+        multiSelect?: true;
+      } = {
         id,
         header,
         question: prompt,
         options,
       };
+      if (question.multiSelect === true) {
+        parsedQuestion.multiSelect = true;
+      }
+      return parsedQuestion;
     })
     .filter(
       (
@@ -392,6 +402,7 @@ function toUserInputQuestions(payload: Record<string, unknown> | undefined) {
         header: string;
         question: string;
         options: Array<{ label: string; description: string }>;
+        multiSelect?: true;
       } => question !== undefined,
     );
 

@@ -73,6 +73,24 @@ describe("browser session", () => {
     });
   });
 
+  it("derives a fallback title from the next url when only the url changes", () => {
+    const state = createBrowserSessionState("https://openai.com/");
+    const tabId = state.tabs[0]!.id;
+    const titled = updateBrowserTab(state, tabId, {
+      title: "OpenAI",
+    });
+
+    const updated = updateBrowserTab(titled, tabId, {
+      url: "https://github.com/t3tools/t3code",
+    });
+
+    expect(updated.tabs[0]).toEqual({
+      id: tabId,
+      title: "github.com",
+      url: "https://github.com/t3tools/t3code",
+    });
+  });
+
   it("duplicates a tab next to the source", () => {
     const initial = addBrowserTab(createBrowserSessionState("https://example.com/"), {
       url: "https://openai.com/",

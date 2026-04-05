@@ -160,6 +160,22 @@ export function deriveActiveWorkStartedAt(
   return sendStartedAt;
 }
 
+export function deriveVisibleWorkTurnId(
+  latestTurn: LatestTurnTiming | null,
+  session: SessionActivityState | null,
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): TurnId | undefined {
+  const latestRenderableActivityTurnId = findLatestRenderableWorkTurnId(activities);
+
+  if (session?.orchestrationStatus === "running") {
+    return (
+      latestRenderableActivityTurnId ?? session.activeTurnId ?? latestTurn?.turnId ?? undefined
+    );
+  }
+
+  return latestTurn?.turnId ?? latestRenderableActivityTurnId ?? session?.activeTurnId ?? undefined;
+}
+
 function requestKindFromRequestType(requestType: unknown): PendingApproval["requestKind"] | null {
   switch (requestType) {
     case "command_execution_approval":
@@ -282,6 +298,15 @@ function parseUserInputQuestions(
         .filter((option): option is UserInputQuestion["options"][number] => option !== null);
       if (options.length === 0) {
         return null;
+      }
+      if (question.multiSelect === true) {
+        return {
+          id: question.id,
+          header: question.header,
+          question: question.question,
+          options,
+          multiSelect: true,
+        };
       }
       return {
         id: question.id,
@@ -471,14 +496,40 @@ export function deriveWorkLogEntries(
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
   const entries = ordered
     .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
-    .filter((activity) => activity.kind !== "task.started" && activity.kind !== "task.completed")
-    .filter((activity) => activity.kind !== "context-window.updated")
-    .filter((activity) => activity.summary !== "Checkpoint captured")
-    .filter((activity) => !isPlanBoundaryToolActivity(activity))
+    .filter(isRenderableWorkLogActivity)
     .map(toDerivedWorkLogEntry);
   return collapseDerivedWorkLogEntries(entries).map(
     ({ activityKind: _activityKind, collapseKey: _collapseKey, ...entry }) => entry,
   );
+}
+
+function findLatestRenderableWorkTurnId(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): TurnId | undefined {
+  const ordered = [...activities].toSorted(compareActivitiesByOrder);
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const activity = ordered[index];
+    if (!activity) {
+      continue;
+    }
+    if (activity.turnId && isRenderableWorkLogActivity(activity)) {
+      return activity.turnId;
+    }
+  }
+  return undefined;
+}
+
+function isRenderableWorkLogActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind === "task.started" || activity.kind === "task.completed") {
+    return false;
+  }
+  if (activity.kind === "context-window.updated") {
+    return false;
+  }
+  if (activity.summary === "Checkpoint captured") {
+    return false;
+  }
+  return !isPlanBoundaryToolActivity(activity);
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {

@@ -25,6 +25,7 @@ import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import {
   memo,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -43,6 +44,7 @@ import { SidebarTrigger } from "../ui/sidebar";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
+import { TopBarCluster, interleaveTopBarItems } from "../thread/TopBarCluster";
 import { useEditorStateStore } from "~/editorStateStore";
 import { isElectron } from "~/env";
 import { useTheme } from "~/hooks/useTheme";
@@ -526,95 +528,111 @@ export default function ThreadWorkspaceEditor(props: {
       ),
     [draftsByFilePath],
   );
+  const workspaceActionItems: ReactNode[] = [
+    props.workspaceName ? (
+      <OpenInPicker
+        key="open-in"
+        keybindings={props.keybindings}
+        availableEditors={props.availableEditors}
+        openInCwd={props.gitCwd}
+      />
+    ) : null,
+    props.workspaceName ? (
+      <GitActionsControl key="git" gitCwd={props.gitCwd} activeThreadId={props.threadId} />
+    ) : null,
+  ];
+  const workspaceActionNodes = interleaveTopBarItems(workspaceActionItems);
+  const utilityItems = interleaveTopBarItems([
+    <Tooltip key="terminal">
+      <TooltipTrigger
+        render={
+          <Toggle
+            className="shrink-0 rounded-xl"
+            pressed={props.terminalOpen}
+            onPressedChange={props.onToggleTerminal}
+            aria-label="Toggle terminal drawer"
+            variant="default"
+            size="xs"
+            disabled={!props.terminalAvailable}
+          >
+            <TerminalSquareIcon className="size-3" />
+          </Toggle>
+        }
+      />
+      <TooltipPopup side="bottom">
+        {!props.terminalAvailable
+          ? "Terminal is unavailable until this thread has an active project."
+          : props.terminalToggleShortcutLabel
+            ? `Toggle terminal drawer (${props.terminalToggleShortcutLabel})`
+            : "Toggle terminal drawer"}
+      </TooltipPopup>
+    </Tooltip>,
+    <Tooltip key="diff">
+      <TooltipTrigger
+        render={
+          <Toggle
+            className="shrink-0 rounded-xl"
+            pressed={props.diffOpen}
+            onPressedChange={props.onToggleDiff}
+            aria-label="Toggle diff panel"
+            variant="default"
+            size="xs"
+            disabled={!props.isGitRepo}
+          >
+            <DiffIcon className="size-3" />
+          </Toggle>
+        }
+      />
+      <TooltipPopup side="bottom">
+        {!props.isGitRepo
+          ? "Diff panel is unavailable because this project is not a git repository."
+          : props.diffToggleShortcutLabel
+            ? `Toggle diff panel (${props.diffToggleShortcutLabel})`
+            : "Toggle diff panel"}
+      </TooltipPopup>
+    </Tooltip>,
+  ]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       <header
         className={cn(
-          "border-b border-border/70 px-3 sm:px-5",
+          "border-b border-border/70 bg-background/95 px-3 sm:px-5 supports-[backdrop-filter]:bg-background/84 supports-[backdrop-filter]:backdrop-blur-md",
           isElectron ? "drag-region flex h-13 items-center" : "py-2.5",
         )}
       >
-        <div className="@container/editor-header flex min-w-0 items-center gap-3">
+        <div className="@container/header-actions flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
             <SidebarTrigger className="size-7 shrink-0 md:hidden" />
             <div className="flex min-w-0 flex-col">
               <span
-                className="truncate text-sm font-medium text-foreground"
+                className="truncate text-sm leading-none font-medium text-foreground"
                 title={props.activeThreadTitle}
               >
                 {props.activeThreadTitle}
               </span>
-              <span className="truncate text-[11px] tracking-[0.18em] text-muted-foreground uppercase">
-                Workspace instrument
+              <span className="truncate text-[11px] tracking-[0.18em] text-muted-foreground/80 uppercase">
+                Thread workspace
               </span>
             </div>
             {props.workspaceName ? (
-              <Badge variant="outline" className="min-w-0 max-w-40 overflow-hidden">
+              <Badge
+                variant="outline"
+                size="sm"
+                className="min-w-0 max-w-44 overflow-hidden text-muted-foreground/85"
+              >
                 <span className="truncate">{props.workspaceName}</span>
               </Badge>
             ) : null}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 @3xl/header-actions:w-auto @3xl/header-actions:min-w-fit @3xl/header-actions:justify-end">
             <WorkspaceModeToggle mode={props.mode} onModeChange={props.onModeChange} />
-            {props.workspaceName ? (
-              <OpenInPicker
-                keybindings={props.keybindings}
-                availableEditors={props.availableEditors}
-                openInCwd={props.gitCwd}
-              />
-            ) : null}
-            {props.workspaceName ? (
-              <GitActionsControl gitCwd={props.gitCwd} activeThreadId={props.threadId} />
-            ) : null}
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Toggle
-                    className="shrink-0"
-                    pressed={props.terminalOpen}
-                    onPressedChange={props.onToggleTerminal}
-                    aria-label="Toggle terminal drawer"
-                    variant="outline"
-                    size="xs"
-                    disabled={!props.terminalAvailable}
-                  >
-                    <TerminalSquareIcon className="size-3" />
-                  </Toggle>
-                }
-              />
-              <TooltipPopup side="bottom">
-                {!props.terminalAvailable
-                  ? "Terminal is unavailable until this thread has an active project."
-                  : props.terminalToggleShortcutLabel
-                    ? `Toggle terminal drawer (${props.terminalToggleShortcutLabel})`
-                    : "Toggle terminal drawer"}
-              </TooltipPopup>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Toggle
-                    className="shrink-0"
-                    pressed={props.diffOpen}
-                    onPressedChange={props.onToggleDiff}
-                    aria-label="Toggle diff panel"
-                    variant="outline"
-                    size="xs"
-                    disabled={!props.isGitRepo}
-                  >
-                    <DiffIcon className="size-3" />
-                  </Toggle>
-                }
-              />
-              <TooltipPopup side="bottom">
-                {!props.isGitRepo
-                  ? "Diff panel is unavailable because this project is not a git repository."
-                  : props.diffToggleShortcutLabel
-                    ? `Toggle diff panel (${props.diffToggleShortcutLabel})`
-                    : "Toggle diff panel"}
-              </TooltipPopup>
-            </Tooltip>
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+              {workspaceActionNodes.length > 0 ? (
+                <TopBarCluster className="max-w-full">{workspaceActionNodes}</TopBarCluster>
+              ) : null}
+              <TopBarCluster>{utilityItems}</TopBarCluster>
+            </div>
           </div>
         </div>
       </header>

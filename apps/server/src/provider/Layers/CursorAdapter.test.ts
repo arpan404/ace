@@ -1,6 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId } from "@t3tools/contracts";
-import { Effect, Layer } from "effect";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { ApprovalRequestId, ThreadId } from "@t3tools/contracts";
+import { Effect, Layer, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../cursorAcp", async (importOriginal) => {
@@ -16,18 +18,82 @@ import {
   classifyCursorToolItemType,
   describePermissionRequest,
   extractCursorStreamText,
-  permissionOptionIdForRuntimeMode,
+  permissionOptionKindForRuntimeMode,
   requestTypeForCursorTool,
   runtimeItemStatusFromCursorStatus,
   streamKindFromUpdateKind,
 } from "./CursorAdapter";
-import { ServerConfig } from "../../config.ts";
+import { type ServerConfigShape, ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { startCursorAcpClient, type CursorAcpClient } from "../cursorAcp";
 import { type CursorAdapterShape, CursorAdapter } from "../Services/CursorAdapter.ts";
 
 const mockedStartCursorAcpClient = vi.mocked(startCursorAcpClient);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
+const tinyPngBase64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0ioAAAAASUVORK5CYII=";
+
+const cursorInitializeResult = (input?: {
+  readonly loadSession?: boolean;
+  readonly image?: boolean;
+}) => ({
+  protocolVersion: 1,
+  authMethods: [{ id: "cursor_login", name: "Cursor Login" }],
+  agentCapabilities: {
+    loadSession: input?.loadSession ?? true,
+    promptCapabilities: {
+      image: input?.image ?? true,
+    },
+  },
+});
+
+const cursorSessionConfigOptions = (input?: {
+  readonly mode?: string;
+  readonly model?: string;
+}) => [
+  {
+    id: "mode",
+    name: "Mode",
+    category: "mode",
+    currentValue: input?.mode ?? "agent",
+    options: [
+      { value: "agent", name: "Agent" },
+      { value: "plan", name: "Plan" },
+    ],
+  },
+  {
+    id: "model",
+    name: "Model",
+    category: "model",
+    currentValue: input?.model ?? "gpt-5-mini[]",
+    options: [
+      { value: "gpt-5-mini[]", name: "GPT-5 mini" },
+      { value: "claude-3.7-sonnet[]", name: "Claude Sonnet" },
+    ],
+  },
+];
+
+const cursorSessionResult = (
+  sessionId: string,
+  input?: {
+    readonly mode?: string;
+    readonly model?: string;
+  },
+) => ({
+  sessionId,
+  configOptions: cursorSessionConfigOptions(input),
+  modes: {
+    currentModeId: input?.mode ?? "agent",
+    availableModes: [
+      { id: "agent", name: "Agent" },
+      { id: "plan", name: "Plan" },
+    ],
+  },
+  models: {
+    currentModelId: input?.model ?? "gpt-5-mini[]",
+    availableModels: [{ modelId: input?.model ?? "gpt-5-mini[]", name: "GPT-5 mini" }],
+  },
+});
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -57,9 +123,23 @@ function makeFakeCursorClient(options: {
   ) => Promise<unknown>;
 }): CursorAcpClient & {
   readonly request: ReturnType<typeof vi.fn>;
+  readonly getRequestHandler: () =>
+    | ((request: {
+        readonly id: string | number;
+        readonly method: string;
+        readonly params?: unknown;
+      }) => void)
+    | undefined;
 } {
   let closeHandler:
     | ((input: { readonly code: number | null; readonly signal: NodeJS.Signals | null }) => void)
+    | undefined;
+  let requestHandler:
+    | ((request: {
+        readonly id: string | number;
+        readonly method: string;
+        readonly params?: unknown;
+      }) => void)
     | undefined;
 
   const request = vi.fn(options.requestImpl);
@@ -69,14 +149,18 @@ function makeFakeCursorClient(options: {
       kill: vi.fn(() => true),
     } as unknown as CursorAcpClient["child"],
     request,
+    notify: vi.fn(),
     respond: vi.fn(),
     respondError: vi.fn(),
     setNotificationHandler: vi.fn(),
-    setRequestHandler: vi.fn(),
+    setRequestHandler: vi.fn((handler) => {
+      requestHandler = handler;
+    }),
     setCloseHandler: vi.fn((handler) => {
       closeHandler = handler;
     }),
     setProtocolErrorHandler: vi.fn(),
+    getRequestHandler: () => requestHandler,
     close: vi.fn(async () => {
       closeHandler?.({ code: 0, signal: null });
     }),
@@ -89,12 +173,15 @@ const adapterLayer = CursorAdapterLive.pipe(
   Layer.provideMerge(NodeServices.layer),
 );
 
-async function withAdapter<T>(run: (adapter: CursorAdapterShape) => Promise<T>): Promise<T> {
+async function withAdapter<T>(
+  run: (adapter: CursorAdapterShape, config: ServerConfigShape) => Promise<T>,
+): Promise<T> {
   return Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const adapter = yield* CursorAdapter;
-        return yield* Effect.promise(() => run(adapter));
+        const config = yield* ServerConfig;
+        return yield* Effect.promise(() => run(adapter, config));
       }),
     ).pipe(Effect.provide(adapterLayer)),
   );
@@ -104,17 +191,19 @@ afterEach(() => {
   mockedStartCursorAcpClient.mockReset();
 });
 
-describe("permissionOptionIdForRuntimeMode", () => {
+describe("permissionOptionKindForRuntimeMode", () => {
   it("auto-approves Cursor ACP tool permissions for full-access sessions", () => {
-    expect(permissionOptionIdForRuntimeMode("full-access")).toEqual({
-      primary: "allow-always",
+    expect(permissionOptionKindForRuntimeMode("full-access")).toEqual({
+      primary: "allow_always",
+      fallback: "allow_once",
       decision: "acceptForSession",
     });
   });
 
   it("keeps manual approval flow for approval-required sessions", () => {
-    expect(permissionOptionIdForRuntimeMode("approval-required")).toEqual({
-      primary: "allow-once",
+    expect(permissionOptionKindForRuntimeMode("approval-required")).toEqual({
+      primary: "allow_once",
+      fallback: "allow_always",
       decision: "accept",
     });
   });
@@ -202,10 +291,11 @@ describe("CursorAdapterLive", () => {
       requestImpl: async (method) => {
         switch (method) {
           case "initialize":
+            return cursorInitializeResult();
           case "authenticate":
             return {};
           case "session/new":
-            return { sessionId: "cursor-session-new" };
+            return cursorSessionResult("cursor-session-new");
           default:
             throw new Error(`Unexpected Cursor ACP request: ${method}`);
         }
@@ -215,10 +305,11 @@ describe("CursorAdapterLive", () => {
       requestImpl: async (method) => {
         switch (method) {
           case "initialize":
+            return cursorInitializeResult();
           case "authenticate":
             return {};
           case "session/load":
-            return { sessionId: "cursor-session-existing" };
+            return cursorSessionResult("cursor-session-existing");
           default:
             throw new Error(`Unexpected Cursor ACP request: ${method}`);
         }
@@ -274,11 +365,12 @@ describe("CursorAdapterLive", () => {
   });
 
   it("waits for an in-flight startup instead of returning a connecting session", async () => {
-    const sessionNew = deferred<{ readonly sessionId: string }>();
+    const sessionNew = deferred<ReturnType<typeof cursorSessionResult>>();
     const client = makeFakeCursorClient({
       requestImpl: async (method) => {
         switch (method) {
           case "initialize":
+            return cursorInitializeResult();
           case "authenticate":
             return {};
           case "session/new":
@@ -318,7 +410,7 @@ describe("CursorAdapterLive", () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
         expect(secondResolved).toBe(false);
 
-        sessionNew.resolve({ sessionId: "cursor-session-race" });
+        sessionNew.resolve(cursorSessionResult("cursor-session-race"));
 
         const [firstSession, secondSession] = await Promise.all([firstStart, secondStart]);
         expect(firstSession.status).toBe("ready");
@@ -343,10 +435,11 @@ describe("CursorAdapterLive", () => {
       requestImpl: async (method) => {
         switch (method) {
           case "initialize":
+            return cursorInitializeResult();
           case "authenticate":
             return {};
           case "session/new":
-            return { sessionId: "cursor-session-send-turn" };
+            return cursorSessionResult("cursor-session-send-turn");
           case "session/prompt":
             return promptResult.promise;
           default:
@@ -390,6 +483,477 @@ describe("CursorAdapterLive", () => {
 
         promptResult.resolve({ stopReason: "end_turn" });
         await new Promise((resolve) => setTimeout(resolve, 0));
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("rehydrates image attachments and syncs plan mode before prompting", async () => {
+    const firstPromptResult = deferred<{ readonly stopReason: string }>();
+    const secondPromptResult = deferred<{ readonly stopReason: string }>();
+    const promptResults = [firstPromptResult.promise, secondPromptResult.promise] as const;
+    let promptIndex = 0;
+    const client = makeFakeCursorClient({
+      requestImpl: async (method, params) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-attachments");
+          case "session/set_config_option": {
+            const record = params as { readonly value?: string };
+            return {
+              configOptions: cursorSessionConfigOptions({
+                mode: record.value === "plan" ? "plan" : "agent",
+              }),
+            };
+          }
+          case "session/prompt":
+            return (
+              promptResults[promptIndex++] ?? Promise.reject(new Error("Unexpected prompt call"))
+            );
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter, config) => {
+      try {
+        const threadId = asThreadId("thread-attachments");
+        const attachment = {
+          type: "image" as const,
+          id: "thread-attachments-123e4567-e89b-12d3-a456-426614174000",
+          name: "screenshot.png",
+          mimeType: "image/png",
+          sizeBytes: Buffer.from(tinyPngBase64, "base64").length,
+        };
+
+        await writeFile(
+          join(config.attachmentsDir, `${attachment.id}.png`),
+          Buffer.from(tinyPngBase64, "base64"),
+        );
+
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId,
+            cwd: "/repo/attachments",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        await Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Describe this screenshot",
+            interactionMode: "plan",
+            attachments: [attachment],
+          }),
+        );
+
+        expect(client.request).toHaveBeenCalledWith(
+          "session/set_config_option",
+          {
+            sessionId: "cursor-session-attachments",
+            configId: "mode",
+            value: "plan",
+          },
+          { timeoutMs: 15_000 },
+        );
+        expect(client.request).toHaveBeenCalledWith("session/prompt", {
+          sessionId: "cursor-session-attachments",
+          prompt: [
+            { type: "text", text: "Describe this screenshot" },
+            {
+              type: "image",
+              mimeType: "image/png",
+              data: tinyPngBase64,
+            },
+          ],
+        });
+
+        const firstCompletedEventPromise = Effect.runPromise(Stream.runHead(adapter.streamEvents));
+        firstPromptResult.resolve({ stopReason: "end_turn" });
+        const firstCompletedEvent = await firstCompletedEventPromise;
+        expect(firstCompletedEvent._tag).toBe("Some");
+        if (firstCompletedEvent._tag !== "Some") {
+          return;
+        }
+        expect(firstCompletedEvent.value.type).toBe("turn.completed");
+
+        await Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Continue normally",
+            interactionMode: "default",
+          }),
+        );
+
+        const modeRequests = client.request.mock.calls.filter(
+          ([method, requestParams]) =>
+            method === "session/set_config_option" &&
+            (requestParams as { readonly configId?: string } | undefined)?.configId === "mode",
+        );
+        expect(modeRequests).toEqual([
+          [
+            "session/set_config_option",
+            {
+              sessionId: "cursor-session-attachments",
+              configId: "mode",
+              value: "plan",
+            },
+            { timeoutMs: 15_000 },
+          ],
+          [
+            "session/set_config_option",
+            {
+              sessionId: "cursor-session-attachments",
+              configId: "mode",
+              value: "agent",
+            },
+            { timeoutMs: 15_000 },
+          ],
+        ]);
+
+        secondPromptResult.resolve({ stopReason: "end_turn" });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("maps approval decisions to ACP-provided option ids", async () => {
+    const client = makeFakeCursorClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-approval");
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const session = await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId: asThreadId("thread-approval"),
+            cwd: "/repo/approval",
+            runtimeMode: "approval-required",
+          }),
+        );
+
+        const requestHandler = client.getRequestHandler();
+        expect(requestHandler).toBeTypeOf("function");
+        if (!requestHandler) {
+          return;
+        }
+
+        const openedEventPromise = Effect.runPromise(Stream.runHead(adapter.streamEvents));
+        requestHandler({
+          id: 51,
+          method: "session/request_permission",
+          params: {
+            toolCall: {
+              toolCallId: "tool-approval",
+              title: "`npm run build`",
+              kind: "execute",
+              status: "pending",
+            },
+            options: [
+              { optionId: "approve-per-run", kind: "allow_once", name: "Allow once" },
+              {
+                optionId: "approve-this-session",
+                kind: "allow_always",
+                name: "Allow for session",
+              },
+              { optionId: "deny-per-run", kind: "reject_once", name: "Reject" },
+            ],
+          },
+        });
+
+        const openedEvent = await openedEventPromise;
+        expect(openedEvent._tag).toBe("Some");
+        if (openedEvent._tag !== "Some") {
+          return;
+        }
+        expect(openedEvent.value.type).toBe("request.opened");
+        if (openedEvent.value.type !== "request.opened") {
+          return;
+        }
+        const requestId = openedEvent.value.requestId;
+        expect(typeof requestId).toBe("string");
+        if (!requestId) {
+          return;
+        }
+
+        const resolvedEventPromise = Effect.runPromise(Stream.runHead(adapter.streamEvents));
+        await Effect.runPromise(
+          adapter.respondToRequest(
+            session.threadId,
+            ApprovalRequestId.makeUnsafe(requestId),
+            "acceptForSession",
+          ),
+        );
+
+        const resolvedEvent = await resolvedEventPromise;
+        expect(resolvedEvent._tag).toBe("Some");
+        if (resolvedEvent._tag !== "Some") {
+          return;
+        }
+        expect(resolvedEvent.value.type).toBe("request.resolved");
+        if (resolvedEvent.value.type !== "request.resolved") {
+          return;
+        }
+        expect(resolvedEvent.value.payload).toEqual({
+          requestType: "command_execution_approval",
+          decision: "acceptForSession",
+          resolution: {
+            optionId: "approve-this-session",
+            kind: "allow_always",
+          },
+        });
+        expect(client.respond).toHaveBeenCalledWith(51, {
+          outcome: {
+            outcome: "selected",
+            optionId: "approve-this-session",
+          },
+        });
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("cancels active turns with ACP notifications and cancels pending approvals", async () => {
+    const promptResult = deferred<{ readonly stopReason: string }>();
+    const client = makeFakeCursorClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-cancel");
+          case "session/prompt":
+            return promptResult.promise;
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const threadId = asThreadId("thread-cancel");
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId,
+            cwd: "/repo/cancel",
+            runtimeMode: "approval-required",
+          }),
+        );
+        const startedTurn = await Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Run something risky",
+          }),
+        );
+
+        const requestHandler = client.getRequestHandler();
+        expect(requestHandler).toBeTypeOf("function");
+        if (!requestHandler) {
+          return;
+        }
+
+        requestHandler({
+          id: 77,
+          method: "session/request_permission",
+          params: {
+            toolCall: {
+              toolCallId: "tool-cancel",
+              title: "`npm run lint`",
+              kind: "execute",
+              status: "pending",
+            },
+            options: [
+              { optionId: "approve-per-run", kind: "allow_once", name: "Allow once" },
+              { optionId: "deny-per-run", kind: "reject_once", name: "Reject" },
+            ],
+          },
+        });
+
+        const resolvedEventPromise = Effect.runPromise(Stream.runHead(adapter.streamEvents));
+        await Effect.runPromise(adapter.interruptTurn(threadId, startedTurn.turnId));
+
+        expect(client.notify).toHaveBeenCalledWith("session/cancel", {
+          sessionId: "cursor-session-cancel",
+        });
+        expect(client.respond).toHaveBeenCalledWith(77, {
+          outcome: {
+            outcome: "cancelled",
+          },
+        });
+
+        const resolvedEvent = await resolvedEventPromise;
+        expect(resolvedEvent._tag).toBe("Some");
+        if (resolvedEvent._tag !== "Some") {
+          return;
+        }
+        expect(resolvedEvent.value.type).toBe("request.resolved");
+        if (resolvedEvent.value.type !== "request.resolved") {
+          return;
+        }
+        expect(resolvedEvent.value.payload).toEqual({
+          requestType: "command_execution_approval",
+          decision: "cancel",
+          resolution: {
+            outcome: "cancelled",
+          },
+        });
+
+        const abortedEventPromise = Effect.runPromise(Stream.runHead(adapter.streamEvents));
+        promptResult.resolve({ stopReason: "cancelled" });
+        const abortedEvent = await abortedEventPromise;
+        expect(abortedEvent._tag).toBe("Some");
+        if (abortedEvent._tag !== "Some") {
+          return;
+        }
+        expect(abortedEvent.value.type).toBe("turn.aborted");
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("round-trips multi-select ask_question answers back to Cursor ACP option ids", async () => {
+    const client = makeFakeCursorClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-user-input");
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const session = await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId: asThreadId("thread-user-input"),
+            cwd: "/repo/user-input",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        const requestHandler = client.getRequestHandler();
+        expect(requestHandler).toBeTypeOf("function");
+        if (!requestHandler) {
+          return;
+        }
+
+        const requestedEventPromise = Effect.runPromise(Stream.runHead(adapter.streamEvents));
+        requestHandler({
+          id: 44,
+          method: "cursor/ask_question",
+          params: {
+            title: "Tool selection",
+            questions: [
+              {
+                id: "tools",
+                prompt: "Which tools should run?",
+                allowMultiple: true,
+                options: [
+                  { id: "search", label: "Search" },
+                  { id: "edit", label: "Edit" },
+                ],
+              },
+            ],
+          },
+        });
+
+        const requestedEvent = await requestedEventPromise;
+        expect(requestedEvent._tag).toBe("Some");
+        if (requestedEvent._tag !== "Some") {
+          return;
+        }
+        expect(requestedEvent.value.type).toBe("user-input.requested");
+        if (requestedEvent.value.type !== "user-input.requested") {
+          return;
+        }
+        const requestId = requestedEvent.value.requestId;
+        expect(typeof requestId).toBe("string");
+        if (!requestId) {
+          return;
+        }
+        expect(requestedEvent.value.payload.questions).toEqual([
+          {
+            id: "tools",
+            header: "Tool selection",
+            question: "Which tools should run?",
+            multiSelect: true,
+            options: [
+              { label: "Search", description: "Search" },
+              { label: "Edit", description: "Edit" },
+            ],
+          },
+        ]);
+
+        const resolvedEventPromise = Effect.runPromise(Stream.runHead(adapter.streamEvents));
+        await Effect.runPromise(
+          adapter.respondToUserInput(session.threadId, ApprovalRequestId.makeUnsafe(requestId), {
+            tools: ["Search", "Edit"],
+          }),
+        );
+
+        const resolvedEvent = await resolvedEventPromise;
+        expect(resolvedEvent._tag).toBe("Some");
+        if (resolvedEvent._tag !== "Some") {
+          return;
+        }
+        expect(resolvedEvent.value.type).toBe("user-input.resolved");
+        if (resolvedEvent.value.type !== "user-input.resolved") {
+          return;
+        }
+        expect(resolvedEvent.value.payload.answers).toEqual({
+          tools: ["Search", "Edit"],
+        });
+
+        expect(client.respond).toHaveBeenCalledWith(44, {
+          outcome: {
+            outcome: "answered",
+            answers: [
+              {
+                questionId: "tools",
+                selectedOptionIds: ["search", "edit"],
+              },
+            ],
+          },
+        });
       } finally {
         await Effect.runPromise(adapter.stopAll());
       }

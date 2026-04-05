@@ -139,6 +139,7 @@ export interface Thread {
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   branch: string | null;
   worktreePath: string | null;
+  historyLoaded?: boolean;
   queuedComposerMessages: QueuedComposerMessage[];
   queuedSteerRequest: QueuedSteerRequest | null;
   turnDiffSummaries: TurnDiffSummary[];

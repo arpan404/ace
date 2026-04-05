@@ -293,6 +293,26 @@ export const hasCustomModelProvider = readCodexConfigModelProvider().pipe(
 
 const CAPABILITIES_PROBE_TIMEOUT_MS = 8_000;
 
+function parseAccountProbeCacheKey(key: string): {
+  readonly binaryPath: string;
+  readonly homePath?: string;
+} {
+  const parsed = JSON.parse(key);
+  if (!Array.isArray(parsed) || typeof parsed[0] !== "string") {
+    throw new Error("Invalid Codex account probe cache key.");
+  }
+
+  const homePath = parsed[1];
+  if (homePath !== undefined && typeof homePath !== "string") {
+    throw new Error("Invalid Codex account probe cache key.");
+  }
+
+  return {
+    binaryPath: parsed[0],
+    ...(homePath !== undefined ? { homePath } : {}),
+  };
+}
+
 const probeCodexCapabilities = (input: {
   readonly binaryPath: string;
   readonly homePath?: string;
@@ -532,13 +552,11 @@ export const CodexProviderLive = Layer.effect(
     const accountProbeCache = yield* Cache.make({
       capacity: 4,
       timeToLive: Duration.minutes(5),
-      lookup: (key: string) => {
-        const [binaryPath, homePath] = JSON.parse(key) as [string, string | undefined];
-        return probeCodexCapabilities({
-          binaryPath,
-          ...(homePath ? { homePath } : {}),
-        });
-      },
+      lookup: (key: string) =>
+        Effect.sync(() => parseAccountProbeCacheKey(key)).pipe(
+          Effect.flatMap((parsedKey) => probeCodexCapabilities(parsedKey)),
+          Effect.orDie,
+        ),
     });
 
     const checkProvider = checkCodexProviderStatus((input) =>

@@ -153,6 +153,19 @@ function errorDetails(error: unknown): string {
   }
 }
 
+function routeThreadIdFromPathname(pathname: string): ThreadId | null {
+  if (pathname === "/" || pathname.startsWith("/settings")) {
+    return null;
+  }
+
+  const [segment, ...rest] = pathname.replace(/^\/+/, "").split("/");
+  if (!segment || rest.length > 0) {
+    return null;
+  }
+
+  return ThreadId.makeUnsafe(decodeURIComponent(segment));
+}
+
 function coalesceOrchestrationUiEvents(
   events: ReadonlyArray<OrchestrationEvent>,
 ): OrchestrationEvent[] {
@@ -442,9 +455,13 @@ function EventRouter() {
       }
 
       try {
-        const snapshot = await api.orchestration.getSnapshot();
+        const snapshot = await api.orchestration.getSnapshot({
+          hydrateThreadId: routeThreadIdFromPathname(pathnameRef.current),
+        });
         if (!disposed) {
-          syncServerReadModel(snapshot);
+          syncServerReadModel(snapshot, {
+            hydrateThreadId: routeThreadIdFromPathname(pathnameRef.current),
+          });
           reconcileSnapshotDerivedState();
           if (recovery.completeSnapshotRecovery(snapshot.snapshotSequence)) {
             void recoverFromSequenceGap();

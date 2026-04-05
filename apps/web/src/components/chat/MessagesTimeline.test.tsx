@@ -378,6 +378,82 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-work-entry-tone="thinking"');
     expect(markup).toContain('data-work-entry-id="work-tool-1"');
     expect(markup).toContain('data-work-entry-id="work-tool-2"');
+    expect(markup).not.toContain('data-thread-row="true"');
+  });
+
+  it("skips blank assistant placeholder rows", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "assistant-empty",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-empty"),
+              role: "assistant",
+              text: "  \n",
+              turnId: TurnId.makeUnsafe("turn-empty"),
+              createdAt: "2026-03-17T19:12:28.000Z",
+              completedAt: "2026-03-17T19:12:28.500Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "tool-after-empty",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:29.000Z",
+            entry: {
+              id: "tool-after-empty",
+              createdAt: "2026-03-17T19:12:29.000Z",
+              label: "Read file",
+              toolTitle: "Read file",
+              detail: "README.md",
+              tone: "tool",
+            },
+          },
+          {
+            id: "assistant-visible",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-visible"),
+              role: "assistant",
+              text: "Here is the actual response.",
+              turnId: TurnId.makeUnsafe("turn-empty"),
+              createdAt: "2026-03-17T19:12:30.000Z",
+              completedAt: "2026-03-17T19:12:31.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:31.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).not.toContain('data-message-id="assistant-empty"');
+    expect(markup).toContain("README.md");
+    expect(markup).toContain("Here is the actual response.");
   });
 
   it("prefers human-readable detail over noisy wrapper commands in tool rows", async () => {

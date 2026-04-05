@@ -37,6 +37,18 @@ import { applySettingsUpdated, getServerConfig, useServerSettings } from "~/rpc/
 
 const CLIENT_SETTINGS_STORAGE_KEY = "t3code:client-settings:v1";
 const OLD_SETTINGS_KEY = "t3code:app-settings:v1";
+const JsonObjectSchema = Schema.Record(Schema.String, Schema.Unknown);
+const decodeJsonObject = Schema.decodeSync(Schema.fromJsonString(JsonObjectSchema));
+const ClientSettingsPatchSchema = Schema.Struct({
+  browserSearchEngine: Schema.optionalKey(ClientSettingsSchema.fields.browserSearchEngine),
+  confirmThreadArchive: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadArchive),
+  confirmThreadDelete: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadDelete),
+  diffWordWrap: Schema.optionalKey(ClientSettingsSchema.fields.diffWordWrap),
+  sidebarProjectSortOrder: Schema.optionalKey(ClientSettingsSchema.fields.sidebarProjectSortOrder),
+  sidebarThreadSortOrder: Schema.optionalKey(ClientSettingsSchema.fields.sidebarThreadSortOrder),
+  timestampFormat: Schema.optionalKey(ClientSettingsSchema.fields.timestampFormat),
+});
+type ClientSettingsPatch = typeof ClientSettingsPatchSchema.Type;
 
 // ── Key sets for routing patches ─────────────────────────────────────
 
@@ -44,7 +56,7 @@ const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields))
 
 function splitPatch(patch: Partial<UnifiedSettings>): {
   serverPatch: ServerSettingsPatch;
-  clientPatch: Partial<ClientSettings>;
+  clientPatch: ClientSettingsPatch;
 } {
   const serverPatch: Record<string, unknown> = {};
   const clientPatch: Record<string, unknown> = {};
@@ -56,8 +68,8 @@ function splitPatch(patch: Partial<UnifiedSettings>): {
     }
   }
   return {
-    serverPatch: serverPatch as ServerSettingsPatch,
-    clientPatch: clientPatch as Partial<ClientSettings>,
+    serverPatch: Schema.decodeSync(ServerSettingsPatch)(serverPatch),
+    clientPatch: Schema.decodeSync(ClientSettingsPatchSchema)(clientPatch),
   };
 }
 
@@ -238,8 +250,7 @@ export function migrateLocalSettingsToServer(): void {
   if (!raw) return;
 
   try {
-    const old = JSON.parse(raw);
-    if (!Predicate.isObject(old)) return;
+    const old = decodeJsonObject(raw);
 
     // Migrate server-relevant keys via RPC
     const serverPatch = buildLegacyServerSettingsMigrationPatch(old);
@@ -252,7 +263,7 @@ export function migrateLocalSettingsToServer(): void {
     const clientPatch = buildLegacyClientSettingsMigrationPatch(old);
     if (Object.keys(clientPatch).length > 0) {
       const existing = localStorage.getItem(CLIENT_SETTINGS_STORAGE_KEY);
-      const current = existing ? (JSON.parse(existing) as Record<string, unknown>) : {};
+      const current = existing ? decodeJsonObject(existing) : {};
       localStorage.setItem(
         CLIENT_SETTINGS_STORAGE_KEY,
         JSON.stringify({ ...current, ...clientPatch }),

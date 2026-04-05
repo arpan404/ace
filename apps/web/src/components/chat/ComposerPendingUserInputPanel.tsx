@@ -73,6 +73,13 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   const selectOptionAndAutoAdvance = useCallback(
     (questionId: string, optionLabel: string) => {
       onSelectOption(questionId, optionLabel);
+      if (activeQuestion?.multiSelect === true) {
+        if (autoAdvanceTimerRef.current !== null) {
+          window.clearTimeout(autoAdvanceTimerRef.current);
+          autoAdvanceTimerRef.current = null;
+        }
+        return;
+      }
       if (autoAdvanceTimerRef.current !== null) {
         window.clearTimeout(autoAdvanceTimerRef.current);
       }
@@ -81,13 +88,11 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
         onAdvance();
       }, 200);
     },
-    [onSelectOption, onAdvance],
+    [activeQuestion?.multiSelect, onSelectOption, onAdvance],
   );
 
-  // Keyboard shortcut: number keys 1-9 select corresponding option and auto-advance.
-  // Works even when the Lexical composer (contenteditable) has focus — the composer
-  // doubles as a custom-answer field during user input, and when it's empty the digit
-  // keys should pick options instead of typing into the editor.
+  // Keyboard shortcut: number keys 1-9 pick the corresponding option. Single-select
+  // prompts auto-advance; multi-select prompts toggle the option in place.
   useEffect(() => {
     if (!activeQuestion || isResponding) return;
     const handler = (event: globalThis.KeyboardEvent) => {
@@ -134,15 +139,21 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
         </div>
       </div>
       <p className="mt-1.5 text-sm text-foreground/90">{activeQuestion.question}</p>
+      {activeQuestion.multiSelect ? (
+        <p className="mt-1 text-xs text-muted-foreground/60">
+          Select one or more options, then continue.
+        </p>
+      ) : null}
       <div className="mt-3 space-y-1">
         {activeQuestion.options.map((option, index) => {
-          const isSelected = progress.selectedOptionLabel === option.label;
+          const isSelected = progress.selectedOptionLabels.includes(option.label);
           const shortcutKey = index < 9 ? index + 1 : null;
           return (
             <button
               key={`${activeQuestion.id}:${option.label}`}
               type="button"
               disabled={isResponding}
+              aria-pressed={isSelected}
               onClick={() => selectOptionAndAutoAdvance(activeQuestion.id, option.label)}
               className={cn(
                 "group flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all duration-150",

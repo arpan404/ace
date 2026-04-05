@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyOrchestrationEvent,
   applyOrchestrationEvents,
+  hydrateThreadFromReadModel,
   syncServerReadModel,
   type AppState,
 } from "./store";
@@ -148,6 +149,31 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
       },
     ],
     threads: [thread],
+  };
+}
+
+function makeReadModelFromThreads(
+  threads: ReadonlyArray<OrchestrationReadModel["threads"][number]>,
+): OrchestrationReadModel {
+  return {
+    snapshotSequence: 1,
+    updatedAt: "2026-02-27T00:00:00.000Z",
+    projects: [
+      {
+        id: ProjectId.makeUnsafe("project-1"),
+        title: "Project",
+        workspaceRoot: "/tmp/project",
+        defaultModelSelection: {
+          provider: "codex",
+          model: "gpt-5.3-codex",
+        },
+        createdAt: "2026-02-27T00:00:00.000Z",
+        updatedAt: "2026-02-27T00:00:00.000Z",
+        deletedAt: null,
+        scripts: [],
+      },
+    ],
+    threads: [...threads],
   };
 }
 
@@ -319,6 +345,106 @@ describe("store read model sync", () => {
       baselineWorkLogEntryCount: 4,
       interruptRequested: false,
     });
+  });
+
+  it("marks only the requested thread as history-loaded during lean snapshot sync", () => {
+    const initialState = makeState(makeThread());
+    const firstThreadId = ThreadId.makeUnsafe("thread-1");
+    const secondThreadId = ThreadId.makeUnsafe("thread-2");
+    const readModel = makeReadModelFromThreads([
+      makeReadModelThread({
+        id: firstThreadId,
+        messages: [
+          {
+            id: MessageId.makeUnsafe("message-1"),
+            role: "user",
+            text: "First",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-02-27T00:00:00.000Z",
+            updatedAt: "2026-02-27T00:00:00.000Z",
+          },
+        ],
+      }),
+      makeReadModelThread({
+        id: secondThreadId,
+        messages: [
+          {
+            id: MessageId.makeUnsafe("message-2"),
+            role: "user",
+            text: "Second",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-02-27T00:01:00.000Z",
+            updatedAt: "2026-02-27T00:01:00.000Z",
+          },
+        ],
+      }),
+    ]);
+
+    const next = syncServerReadModel(initialState, readModel, {
+      hydrateThreadId: firstThreadId,
+    });
+
+    expect(next.threads.find((thread) => thread.id === firstThreadId)?.historyLoaded).toBe(true);
+    expect(next.threads.find((thread) => thread.id === secondThreadId)?.historyLoaded).toBe(false);
+  });
+
+  it("hydrates an individual thread from a later snapshot without replacing the rest of the store", () => {
+    const targetThreadId = ThreadId.makeUnsafe("thread-1");
+    const initialState = syncServerReadModel(
+      makeState(makeThread({ id: targetThreadId })),
+      makeReadModel(
+        makeReadModelThread({
+          id: targetThreadId,
+          messages: [
+            {
+              id: MessageId.makeUnsafe("message-1"),
+              role: "user",
+              text: "Short summary",
+              turnId: null,
+              streaming: false,
+              createdAt: "2026-02-27T00:00:00.000Z",
+              updatedAt: "2026-02-27T00:00:00.000Z",
+            },
+          ],
+        }),
+      ),
+      { hydrateThreadId: null },
+    );
+
+    const next = hydrateThreadFromReadModel(
+      initialState,
+      makeReadModelThread({
+        id: targetThreadId,
+        messages: [
+          {
+            id: MessageId.makeUnsafe("message-1"),
+            role: "user",
+            text: "Short summary",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-02-27T00:00:00.000Z",
+            updatedAt: "2026-02-27T00:00:00.000Z",
+          },
+          {
+            id: MessageId.makeUnsafe("message-2"),
+            role: "assistant",
+            text: "Full thread body",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-02-27T00:00:01.000Z",
+            updatedAt: "2026-02-27T00:00:01.000Z",
+          },
+        ],
+      }),
+    );
+
+    expect(next.threads[0]?.historyLoaded).toBe(true);
+    expect(next.threads[0]?.messages.map((message) => message.id)).toEqual([
+      MessageId.makeUnsafe("message-1"),
+      MessageId.makeUnsafe("message-2"),
+    ]);
   });
 
   it("replaces projects using snapshot order during recovery", () => {

@@ -321,7 +321,12 @@ export function updateBrowserTab(
     }
     const nextUrl =
       typeof patch.url === "string" ? normalizeStoredBrowserTabUrl(patch.url, tab.url) : tab.url;
-    const nextTitle = resolveBrowserTabTitle(nextUrl, patch.title ?? tab.title);
+    const nextTitle =
+      typeof patch.title === "string"
+        ? resolveBrowserTabTitle(nextUrl, patch.title)
+        : patch.url === undefined
+          ? resolveBrowserTabTitle(nextUrl, tab.title)
+          : resolveBrowserTabTitle(nextUrl);
     if (tab.url === nextUrl && tab.title === nextTitle) {
       return tab;
     }
