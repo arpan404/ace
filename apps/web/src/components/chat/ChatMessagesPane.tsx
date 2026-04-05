@@ -60,7 +60,7 @@ export function ChatMessagesPane({
           <button
             type="button"
             onClick={() => scrollMessagesToBottom("smooth")}
-            className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
+            className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/50 bg-card/90 px-3 py-1 text-muted-foreground text-xs shadow-md backdrop-blur-sm transition-colors hover:border-border/70 hover:text-foreground hover:cursor-pointer"
           >
             <ChevronDownIcon className="size-3.5" />
             Scroll to bottom

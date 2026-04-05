@@ -190,8 +190,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   data-tool-disclosure={hasToolEntries ? "true" : undefined}
                   data-tool-disclosure-open={hasToolEntries ? String(isExpanded) : undefined}
                 >
-                  <div className="flex items-start gap-3 py-1.5 transition-colors duration-150 hover:text-foreground/92">
-                    <span className="mt-1 flex size-4 shrink-0 items-center justify-center text-muted-foreground/45 transition-transform duration-150 group-hover/timeline:text-foreground/62">
+                  <div className="flex items-start gap-3 py-1.5 transition-colors duration-100 hover:text-foreground/92">
+                    <span className="mt-1 flex size-4 shrink-0 items-center justify-center text-muted-foreground/40 transition-transform duration-100 group-hover/timeline:text-foreground/55">
                       <ChevronIcon className="size-3.5" />
                     </span>
                     <div className="min-w-0 flex-1">
@@ -255,7 +255,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             return (
               <div className="flex justify-end">
                 <div
-                  className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-border bg-secondary px-4 py-3"
+                  className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-border/60 bg-secondary/60 px-4 py-3"
                   data-user-message-bubble="true"
                 >
                   {userImages.length > 0 && (
@@ -300,8 +300,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       terminalContexts={terminalContexts}
                     />
                   )}
-                  <div className="mt-1.5 flex items-center justify-end gap-2">
-                    <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
+                  <div className="mt-2 flex items-center justify-end gap-2">
+                    <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100">
                       {displayedUserMessage.copyText && (
                         <MessageCopyButton text={displayedUserMessage.copyText} />
                       )}
@@ -439,11 +439,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
               {row.mode === "silent-thinking" ? "Thought" : "Live"}
             </p>
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">
-              <span className="inline-flex items-center gap-0.75">
-                <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse" />
-                <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:200ms]" />
-                <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:400ms]" />
+            <div className="flex items-center gap-2.5 text-[11px] text-muted-foreground/65">
+              <span className="inline-flex items-center gap-1">
+                <span className="h-1 w-1 rounded-full bg-muted-foreground/25 animate-pulse" />
+                <span className="h-1 w-1 rounded-full bg-muted-foreground/25 animate-pulse [animation-delay:200ms]" />
+                <span className="h-1 w-1 rounded-full bg-muted-foreground/25 animate-pulse [animation-delay:400ms]" />
               </span>
               <span>
                 {row.createdAt
@@ -475,7 +475,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   if (!hasMessages && !isWorking) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground/30">
+        <p className="text-sm text-muted-foreground/25">
           Send a message to start the conversation.
         </p>
       </div>

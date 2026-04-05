@@ -1659,7 +1659,7 @@ export default function Sidebar() {
           <SidebarMenuButton
             ref={isManualProjectSorting ? dragHandleProps?.setActivatorNodeRef : undefined}
             size="sm"
-            className={`gap-2 px-2 py-1.5 text-left hover:bg-accent group-hover/project-header:bg-accent group-hover/project-header:text-sidebar-accent-foreground ${
+            className={`gap-2 px-2 py-2 text-left transition-colors duration-100 hover:bg-accent/70 group-hover/project-header:bg-accent/70 group-hover/project-header:text-sidebar-accent-foreground ${
               isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
             }`}
             {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.attributes : {})}
@@ -1759,7 +1759,7 @@ export default function Sidebar() {
 
         <SidebarMenuSub
           ref={attachThreadListAutoAnimateRef}
-          className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0"
+          className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0.5"
         >
           {shouldShowThreadPanel && showEmptyThreadState ? (
             <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
@@ -2031,7 +2031,7 @@ export default function Sidebar() {
         <TooltipTrigger
           render={
             <div className="flex min-w-0 flex-1 items-center gap-1 ml-1 cursor-pointer">
-              <span className="truncate text-sm font-semibold tracking-tight text-foreground">
+              <span className="truncate text-sm font-semibold tracking-tight text-foreground/90">
                 {APP_BASE_NAME}
               </span>
             </div>
@@ -2051,7 +2051,7 @@ export default function Sidebar() {
           {wordmark}
         </SidebarHeader>
       ) : (
-        <SidebarHeader className="gap-3 px-3 py-2 sm:gap-2.5 sm:px-4 sm:py-3">
+        <SidebarHeader className="gap-3 px-3.5 py-3 sm:gap-2.5 sm:px-4 sm:py-3.5">
           {wordmark}
         </SidebarHeader>
       )}
@@ -2084,9 +2084,9 @@ export default function Sidebar() {
                 </Alert>
               </SidebarGroup>
             ) : null}
-            <SidebarGroup className="px-2 py-2">
-              <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+            <SidebarGroup className="px-2.5 py-2.5">
+              <div className="mb-1.5 flex items-center justify-between pl-2 pr-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
                   Projects
                 </span>
                 <div className="flex items-center gap-1">
@@ -2223,13 +2223,13 @@ export default function Sidebar() {
           </SidebarContent>
 
           <SidebarSeparator />
-          <SidebarFooter className="p-2">
+          <SidebarFooter className="p-2.5">
             <SidebarUpdatePill />
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   size="sm"
-                  className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                  className="gap-2.5 px-2.5 py-2 text-muted-foreground/60 transition-colors duration-100 hover:bg-accent/70 hover:text-foreground"
                   onClick={() => void navigate({ to: "/settings" })}
                 >
                   <SettingsIcon className="size-3.5" />
