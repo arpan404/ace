@@ -73,14 +73,11 @@ const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "ace";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const APP_DISPLAY_NAME = isDevelopment ? "ace (Dev)" : "ace (Alpha)";
+const APP_DISPLAY_NAME = "ace";
 const APP_USER_MODEL_ID = "com.ace.ace";
 const LINUX_DESKTOP_ENTRY_NAME = isDevelopment ? "ace-dev.desktop" : "ace.desktop";
 const LINUX_WM_CLASS = isDevelopment ? "ace-dev" : "ace";
 const USER_DATA_DIR_NAME = isDevelopment ? "ace-dev" : "ace";
-const LEGACY_USER_DATA_DIR_NAMES = isDevelopment
-  ? ["ace (Dev)", "T3 Code (Dev)", "t3code-dev"]
-  : ["ace (Alpha)", "T3 Code (Alpha)", "t3code"];
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
@@ -745,23 +742,40 @@ function resolveIconPath(ext: "ico" | "icns" | "png"): string | null {
   return resolveResourcePath(`icon.${ext}`);
 }
 
+function configureMacDockIcon(): void {
+  if (process.platform !== "darwin" || !app.dock || !app.isReady()) {
+    return;
+  }
+
+  const iconPath = resolveIconPath("icns") ?? resolveIconPath("png");
+  if (!iconPath) {
+    return;
+  }
+
+  const icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) {
+    writeDesktopLogHeader(`dock icon load failed path=${sanitizeLogValue(iconPath)}`);
+    return;
+  }
+
+  app.dock.setIcon(icon);
+}
+
 /**
  * Resolve the Electron userData directory path.
  *
  * Electron derives the default userData path from `productName` in
  * package.json, which currently produces directories with spaces and
- * parentheses (e.g. `~/.config/ace (Alpha)` on Linux). This is
+ * parentheses. This is
  * unfriendly for shell usage and violates Linux naming conventions.
  *
- * We override it to a clean lowercase name (`ace`) and migrate any
- * missing profile data from older branded directories so Chromium
- * profile state (localStorage, cookies, sessions) is preserved.
+ * We override it to a clean lowercase name (`ace`) so shell-facing
+ * profile directories stay predictable across platforms.
  */
 function resolveUserDataPath(): string {
   return resolveDesktopUserDataPath({
     platform: process.platform,
     userDataDirName: USER_DATA_DIR_NAME,
-    legacyUserDataDirNames: LEGACY_USER_DATA_DIR_NAMES,
   });
 }
 
@@ -782,12 +796,7 @@ function configureAppIdentity(): void {
     (app as LinuxDesktopNamedApp).setDesktopName?.(LINUX_DESKTOP_ENTRY_NAME);
   }
 
-  if (process.platform === "darwin" && app.dock) {
-    const iconPath = resolveIconPath("png");
-    if (iconPath) {
-      app.dock.setIcon(iconPath);
-    }
-  }
+  configureMacDockIcon();
 }
 
 function getInAppBrowserSession(): Electron.Session {
