@@ -68,12 +68,21 @@ export interface ThreadEditorState extends PersistedThreadEditorState {
   draftsByFilePath: Record<string, EditorDraftState>;
 }
 
+interface ThreadEditorStateCacheEntry {
+  editorState: ThreadEditorState;
+  persistedThreadStateInput: PersistedThreadEditorState | undefined;
+  runtimeThreadStateInput: RuntimeThreadEditorState | undefined;
+}
+
 const STORAGE_KEY = "t3code:editor-state:v1";
 export const DEFAULT_THREAD_EDITOR_TREE_WIDTH = 280;
 const MIN_TREE_WIDTH = 220;
 const MAX_TREE_WIDTH = 420;
 const DEFAULT_THREAD_EDITOR_PANE_ID = "pane-1";
 export const MAX_THREAD_EDITOR_PANES = 3;
+const DEFAULT_THREAD_EDITOR_STATE = createDefaultThreadEditorState();
+const DEFAULT_RUNTIME_THREAD_EDITOR_STATE = createDefaultRuntimeThreadEditorState();
+const threadEditorStateCache = new Map<ThreadId, ThreadEditorStateCacheEntry>();
 
 function normalizePathList(paths: readonly string[]): string[] {
   const unique: string[] = [];
@@ -343,10 +352,31 @@ export function selectThreadEditorState(
   runtimeStateByThreadId: Record<string, RuntimeThreadEditorState>,
   threadId: ThreadId,
 ): ThreadEditorState {
-  return {
-    ...getPersistedThreadState(threadStateByThreadId, threadId),
-    draftsByFilePath: getRuntimeThreadState(runtimeStateByThreadId, threadId).draftsByFilePath,
+  const persistedThreadStateInput = threadStateByThreadId[threadId];
+  const runtimeThreadStateInput = runtimeStateByThreadId[threadId];
+  const cachedEditorState = threadEditorStateCache.get(threadId);
+  if (
+    cachedEditorState &&
+    cachedEditorState.persistedThreadStateInput === persistedThreadStateInput &&
+    cachedEditorState.runtimeThreadStateInput === runtimeThreadStateInput
+  ) {
+    return cachedEditorState.editorState;
+  }
+
+  const persistedThreadState = persistedThreadStateInput
+    ? normalizePersistedThreadState(persistedThreadStateInput)
+    : DEFAULT_THREAD_EDITOR_STATE;
+  const runtimeThreadState = runtimeThreadStateInput ?? DEFAULT_RUNTIME_THREAD_EDITOR_STATE;
+  const editorState = {
+    ...persistedThreadState,
+    draftsByFilePath: runtimeThreadState.draftsByFilePath,
   };
+  threadEditorStateCache.set(threadId, {
+    editorState,
+    persistedThreadStateInput,
+    runtimeThreadStateInput,
+  });
+  return editorState;
 }
 
 export const useEditorStateStore = create<EditorStoreState>()(

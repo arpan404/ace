@@ -7,6 +7,7 @@ import {
   CodexModelOptions,
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   GitHubCopilotModelOptions,
+  OpenCodeModelOptions,
 } from "./model";
 import { ModelSelection } from "./orchestration";
 
@@ -94,6 +95,13 @@ export const CursorSettings = Schema.Struct({
 });
 export type CursorSettings = typeof CursorSettings.Type;
 
+export const OpenCodeSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  binaryPath: makeBinaryPathSetting("opencode"),
+  customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+});
+export type OpenCodeSettings = typeof OpenCodeSettings.Type;
+
 export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   enableToolStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
@@ -114,6 +122,7 @@ export const ServerSettings = Schema.Struct({
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(() => ({}))),
     githubCopilot: GitHubCopilotSettings.pipe(Schema.withDecodingDefault(() => ({}))),
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(() => ({}))),
+    opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   }).pipe(Schema.withDecodingDefault(() => ({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
@@ -159,6 +168,10 @@ const GitHubCopilotModelOptionsPatch = Schema.Struct({
   reasoningEffort: Schema.optionalKey(GitHubCopilotModelOptions.fields.reasoningEffort),
 });
 
+const OpenCodeModelOptionsPatch = Schema.Struct({
+  ...(OpenCodeModelOptions.fields satisfies Record<string, never>),
+});
+
 const ModelSelectionPatch = Schema.Union([
   Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("codex")),
@@ -178,6 +191,11 @@ const ModelSelectionPatch = Schema.Union([
   Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("cursor")),
     model: Schema.optionalKey(TrimmedNonEmptyString),
+  }),
+  Schema.Struct({
+    provider: Schema.optionalKey(Schema.Literal("opencode")),
+    model: Schema.optionalKey(TrimmedNonEmptyString),
+    options: Schema.optionalKey(OpenCodeModelOptionsPatch),
   }),
 ]);
 
@@ -207,6 +225,12 @@ const CursorSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+const OpenCodeSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(Schema.String),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 export const ServerSettingsPatch = Schema.Struct({
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   enableToolStreaming: Schema.optionalKey(Schema.Boolean),
@@ -219,6 +243,7 @@ export const ServerSettingsPatch = Schema.Struct({
       claudeAgent: Schema.optionalKey(ClaudeSettingsPatch),
       githubCopilot: Schema.optionalKey(GitHubCopilotSettingsPatch),
       cursor: Schema.optionalKey(CursorSettingsPatch),
+      opencode: Schema.optionalKey(OpenCodeSettingsPatch),
     }),
   ),
 });

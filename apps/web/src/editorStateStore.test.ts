@@ -8,6 +8,7 @@ import {
 } from "./editorStateStore";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
+const OTHER_THREAD_ID = ThreadId.makeUnsafe("thread-2");
 
 describe("editorStateStore actions", () => {
   beforeEach(() => {
@@ -32,6 +33,48 @@ describe("editorStateStore actions", () => {
       panes: [{ activeFilePath: null, id: "pane-1", openFilePaths: [] }],
       treeWidth: DEFAULT_THREAD_EDITOR_TREE_WIDTH,
     });
+  });
+
+  it("reuses the selected editor state reference when the thread slice is unchanged", () => {
+    const store = useEditorStateStore.getState();
+    store.openFile(THREAD_ID, "src/main.ts");
+
+    const state = useEditorStateStore.getState();
+    const firstEditorState = selectThreadEditorState(
+      state.threadStateByThreadId,
+      state.runtimeStateByThreadId,
+      THREAD_ID,
+    );
+    const secondEditorState = selectThreadEditorState(
+      state.threadStateByThreadId,
+      state.runtimeStateByThreadId,
+      THREAD_ID,
+    );
+
+    expect(secondEditorState).toBe(firstEditorState);
+  });
+
+  it("keeps the selected editor state stable across unrelated thread updates", () => {
+    const store = useEditorStateStore.getState();
+    store.openFile(THREAD_ID, "src/main.ts");
+
+    const stateBeforeUnrelatedUpdate = useEditorStateStore.getState();
+    const editorStateBeforeUnrelatedUpdate = selectThreadEditorState(
+      stateBeforeUnrelatedUpdate.threadStateByThreadId,
+      stateBeforeUnrelatedUpdate.runtimeStateByThreadId,
+      THREAD_ID,
+    );
+
+    store.openFile(OTHER_THREAD_ID, "src/other.ts");
+
+    const stateAfterUnrelatedUpdate = useEditorStateStore.getState();
+    const editorStateAfterUnrelatedUpdate = selectThreadEditorState(
+      stateAfterUnrelatedUpdate.threadStateByThreadId,
+      stateAfterUnrelatedUpdate.runtimeStateByThreadId,
+      THREAD_ID,
+    );
+
+    expect(editorStateAfterUnrelatedUpdate).toBe(editorStateBeforeUnrelatedUpdate);
   });
 
   it("splits the active pane into a new window carrying the active file", () => {
