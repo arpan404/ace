@@ -12,6 +12,32 @@ function formatPercentage(value: number | null): string | null {
   return `${Math.round(value)}%`;
 }
 
+function formatDuration(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  if (value < 1000) {
+    return `${Math.round(value)} ms`;
+  }
+  const seconds = value / 1000;
+  return `${seconds.toFixed(seconds < 10 ? 1 : 0).replace(/\.0$/, "")} s`;
+}
+
+function formatTokenDetail(label: string, value: number | null | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  return `${formatContextWindowTokens(value)} ${label}`;
+}
+
+function formatToolUses(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  const count = Math.round(value);
+  return `${count} tool${count === 1 ? "" : "s"}`;
+}
+
 export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
   const { usage } = props;
   const usedPercentage = formatPercentage(usage.usedPercentage);
@@ -19,6 +45,16 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
   const radius = 9.75;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference - (normalizedPercentage / 100) * circumference;
+  const latestTurnDetails = [
+    formatTokenDetail("in", usage.lastInputTokens),
+    formatTokenDetail("cached", usage.lastCachedInputTokens),
+    formatTokenDetail("out", usage.lastOutputTokens),
+    formatTokenDetail("reasoning", usage.lastReasoningOutputTokens),
+  ].filter((detail): detail is string => detail !== null);
+  const latestMetaDetails = [
+    formatToolUses(usage.toolUses),
+    formatDuration(usage.durationMs),
+  ].filter((detail): detail is string => detail !== null);
 
   return (
     <Popover>
@@ -33,7 +69,7 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
             aria-label={
               usage.maxTokens !== null && usedPercentage
                 ? `Context window ${usedPercentage} used`
-                : `Context window ${formatContextWindowTokens(usage.usedTokens)} tokens used`
+                : `Context usage ${formatContextWindowTokens(usage.usedTokens)} tokens`
             }
           >
             <span className="relative flex h-6 w-6 items-center justify-center">
@@ -65,7 +101,7 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
               </svg>
               <span
                 className={cn(
-                  "relative flex h-[15px] w-[15px] items-center justify-center rounded-full bg-background text-[8px] font-medium",
+                  "relative flex h-3.75 w-3.75 items-center justify-center rounded-full bg-background text-[8px] font-medium",
                   "text-muted-foreground",
                 )}
               >
@@ -92,9 +128,17 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
             </div>
           ) : (
             <div className="text-sm text-foreground">
-              {formatContextWindowTokens(usage.usedTokens)} tokens used so far
+              Latest observed usage: {formatContextWindowTokens(usage.usedTokens)} tokens
             </div>
           )}
+          {latestTurnDetails.length > 0 ? (
+            <div className="text-xs text-muted-foreground">
+              Latest turn: {latestTurnDetails.join(" · ")}
+            </div>
+          ) : null}
+          {latestMetaDetails.length > 0 ? (
+            <div className="text-xs text-muted-foreground">{latestMetaDetails.join(" · ")}</div>
+          ) : null}
           {(usage.totalProcessedTokens ?? null) !== null &&
           (usage.totalProcessedTokens ?? 0) > usage.usedTokens ? (
             <div className="text-xs text-muted-foreground">

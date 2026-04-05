@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ApprovalRequestId, ThreadId } from "@t3tools/contracts";
+import { ApprovalRequestId, RuntimeItemId, ThreadId, TurnId } from "@t3tools/contracts";
 import { Effect, Layer, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +15,7 @@ vi.mock("../cursorAcp", async (importOriginal) => {
 
 import {
   CursorAdapterLive,
+  buildCursorUsageSnapshot,
   classifyCursorToolItemType,
   describePermissionRequest,
   extractCursorStreamText,
@@ -123,6 +124,9 @@ function makeFakeCursorClient(options: {
   ) => Promise<unknown>;
 }): CursorAcpClient & {
   readonly request: ReturnType<typeof vi.fn>;
+  readonly getNotificationHandler: () =>
+    | ((notification: { readonly method: string; readonly params?: unknown }) => void)
+    | undefined;
   readonly getRequestHandler: () =>
     | ((request: {
         readonly id: string | number;
@@ -133,6 +137,9 @@ function makeFakeCursorClient(options: {
 } {
   let closeHandler:
     | ((input: { readonly code: number | null; readonly signal: NodeJS.Signals | null }) => void)
+    | undefined;
+  let notificationHandler:
+    | ((notification: { readonly method: string; readonly params?: unknown }) => void)
     | undefined;
   let requestHandler:
     | ((request: {
@@ -152,7 +159,9 @@ function makeFakeCursorClient(options: {
     notify: vi.fn(),
     respond: vi.fn(),
     respondError: vi.fn(),
-    setNotificationHandler: vi.fn(),
+    setNotificationHandler: vi.fn((handler) => {
+      notificationHandler = handler;
+    }),
     setRequestHandler: vi.fn((handler) => {
       requestHandler = handler;
     }),
@@ -160,6 +169,7 @@ function makeFakeCursorClient(options: {
       closeHandler = handler;
     }),
     setProtocolErrorHandler: vi.fn(),
+    getNotificationHandler: () => notificationHandler,
     getRequestHandler: () => requestHandler,
     close: vi.fn(async () => {
       closeHandler?.({ code: 0, signal: null });
@@ -967,6 +977,45 @@ describe("CursorAdapterLive", () => {
       } finally {
         await Effect.runPromise(adapter.stopAll());
       }
+    });
+  });
+
+  it("normalizes Cursor usage updates into thread usage details", () => {
+    const snapshot = buildCursorUsageSnapshot(
+      {
+        used: 32_000,
+        size: 128_000,
+      },
+      {
+        id: TurnId.makeUnsafe("cursor-turn-usage"),
+        startedAtMs: Date.now(),
+        items: [],
+        assistantText: "",
+        interruptRequested: false,
+        reasoningText: "",
+        assistantItem: undefined,
+        reasoningItem: undefined,
+        toolCalls: new Map([
+          [
+            "tool-1",
+            {
+              toolCallId: "tool-1",
+              itemId: RuntimeItemId.makeUnsafe("cursor-tool-1"),
+              itemType: "command_execution",
+              title: "Run command",
+              status: "completed",
+              data: {},
+            },
+          ],
+        ]),
+      },
+    );
+
+    expect(snapshot).toEqual({
+      usedTokens: 32_000,
+      maxTokens: 128_000,
+      lastUsedTokens: 32_000,
+      toolUses: 1,
     });
   });
 });

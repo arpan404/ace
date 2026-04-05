@@ -112,11 +112,28 @@ function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServic
   return Cause.pretty(cause).toLowerCase().includes("unknown pending user-input request");
 }
 
+function providerFailureDetailFromCause(cause: Cause.Cause<unknown>): string {
+  const error = Cause.squash(cause);
+  if (error instanceof Error) {
+    const message = error.message.trim();
+    if (message.length > 0) {
+      return message;
+    }
+  }
+  return Cause.pretty(cause);
+}
+
 function stalePendingRequestDetail(
   requestKind: "approval" | "user-input",
   requestId: string,
 ): string {
   return `Stale pending ${requestKind} request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
+}
+
+function activeTurnAlreadyRunningDetail(activeTurnId: TurnId | undefined): string {
+  return activeTurnId
+    ? `Provider session is already running turn '${activeTurnId}'. Wait for it to finish or interrupt it before starting another turn.`
+    : "Provider session is already running a turn. Wait for it to finish or interrupt it before starting another turn.";
 }
 
 function isTemporaryWorktreeBranch(branch: string): boolean {
@@ -391,6 +408,13 @@ const make = Effect.gen(function* () {
       .pipe(
         Effect.map((sessions) => sessions.find((session) => session.threadId === input.threadId)),
       );
+    if (activeSession?.status === "running") {
+      return yield* new ProviderAdapterRequestError({
+        provider: activeSession.provider,
+        method: "thread.turn.start",
+        detail: activeTurnAlreadyRunningDetail(activeSession.activeTurnId),
+      });
+    }
     const sessionModelSwitch =
       activeSession === undefined
         ? "in-session"
@@ -590,7 +614,7 @@ const make = Effect.gen(function* () {
           threadId: event.payload.threadId,
           kind: "provider.turn.start.failed",
           summary: "Provider turn start failed",
-          detail: Cause.pretty(cause),
+          detail: providerFailureDetailFromCause(cause),
           turnId: null,
           createdAt: event.payload.createdAt,
         }),

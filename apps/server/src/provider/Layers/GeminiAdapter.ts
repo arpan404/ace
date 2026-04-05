@@ -181,6 +181,7 @@ type GeminiToolItemState = {
 
 type GeminiTurnState = {
   readonly id: TurnId;
+  started: boolean;
   readonly items: Array<unknown>;
   readonly assistantItemId: RuntimeItemId;
   assistantStarted: boolean;
@@ -203,6 +204,12 @@ type GeminiPendingPermission = {
   readonly toolCallId: string;
 };
 
+type GeminiContextUsageSnapshot = {
+  readonly usedTokens: number;
+  readonly maxTokens?: number;
+  readonly totalProcessedTokens?: number;
+};
+
 type GeminiSessionContext = {
   readonly threadId: ThreadId;
   readonly client: AcpClient;
@@ -214,6 +221,8 @@ type GeminiSessionContext = {
   nextFallbackSessionSequence: number;
   activeTurn: GeminiTurnState | null;
   readonly pendingPermissions: Map<string, GeminiPendingPermission>;
+  lastUsageSnapshot?: GeminiContextUsageSnapshot;
+  totalProcessedTokens: number;
   closed: boolean;
   stopRequested: boolean;
 };
@@ -256,6 +265,180 @@ function asArray(value: unknown): ReadonlyArray<unknown> {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function asRoundedNonNegativeInt(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.max(0, Math.round(value));
+}
+
+function firstRoundedNonNegativeInt(
+  record: Record<string, unknown> | undefined,
+  keys: ReadonlyArray<string>,
+): number | undefined {
+  if (!record) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const value = asRoundedNonNegativeInt(record[key]);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function geminiToolUseCount(turn: GeminiTurnState | null): number | undefined {
+  const count = turn?.toolItems.size ?? 0;
+  return count > 0 ? count : undefined;
+}
+
+function buildGeminiContextUsageSnapshot(
+  value: unknown,
+  turn: GeminiTurnState | null,
+):
+  | (ProviderRuntimeEventByType<"thread.token-usage.updated">["payload"]["usage"] &
+      GeminiContextUsageSnapshot)
+  | undefined {
+  const record = asObject(value);
+  const usedTokens = firstRoundedNonNegativeInt(record, ["used", "usedTokens", "used_tokens"]);
+  if (usedTokens === undefined || usedTokens <= 0) {
+    return undefined;
+  }
+
+  const maxTokens = firstRoundedNonNegativeInt(record, [
+    "size",
+    "maxTokens",
+    "max_tokens",
+    "contextWindow",
+    "context_window",
+    "maxContextWindowTokens",
+    "max_context_window_tokens",
+  ]);
+  const toolUses = geminiToolUseCount(turn);
+
+  return {
+    usedTokens,
+    ...(maxTokens !== undefined && maxTokens > 0 ? { maxTokens } : {}),
+    lastUsedTokens: usedTokens,
+    ...(toolUses !== undefined ? { toolUses } : {}),
+  };
+}
+
+function buildGeminiTurnUsageSnapshot(
+  value: unknown,
+  turn: GeminiTurnState,
+  lastUsageSnapshot: GeminiContextUsageSnapshot | undefined,
+): ProviderRuntimeEventByType<"thread.token-usage.updated">["payload"]["usage"] | undefined {
+  const record = asObject(value);
+  const finalContextUsage = buildGeminiContextUsageSnapshot(value, turn);
+  const totalTokens = firstRoundedNonNegativeInt(record, ["totalTokens", "total_tokens"]);
+  const inputTokens = firstRoundedNonNegativeInt(record, ["inputTokens", "input_tokens"]);
+  const cachedReadTokens = firstRoundedNonNegativeInt(record, [
+    "cachedReadTokens",
+    "cached_read_tokens",
+  ]);
+  const cachedWriteTokens = firstRoundedNonNegativeInt(record, [
+    "cachedWriteTokens",
+    "cached_write_tokens",
+  ]);
+  const outputTokens = firstRoundedNonNegativeInt(record, ["outputTokens", "output_tokens"]);
+  const reasoningOutputTokens = firstRoundedNonNegativeInt(record, [
+    "thoughtTokens",
+    "thought_tokens",
+    "reasoningTokens",
+    "reasoning_tokens",
+    "reasoningOutputTokens",
+    "reasoning_output_tokens",
+  ]);
+  const durationMs = firstRoundedNonNegativeInt(record, ["durationMs", "duration", "duration_ms"]);
+  const cachedInputTokens =
+    (cachedReadTokens ?? 0) + (cachedWriteTokens ?? 0) > 0
+      ? (cachedReadTokens ?? 0) + (cachedWriteTokens ?? 0)
+      : undefined;
+  const toolUses = geminiToolUseCount(turn);
+  const hasDetails =
+    finalContextUsage !== undefined ||
+    totalTokens !== undefined ||
+    inputTokens !== undefined ||
+    cachedInputTokens !== undefined ||
+    outputTokens !== undefined ||
+    reasoningOutputTokens !== undefined ||
+    durationMs !== undefined ||
+    toolUses !== undefined;
+
+  if (!hasDetails) {
+    return undefined;
+  }
+
+  const usedTokens = lastUsageSnapshot?.usedTokens ?? finalContextUsage?.usedTokens ?? totalTokens;
+  const maxTokens = lastUsageSnapshot?.maxTokens ?? finalContextUsage?.maxTokens;
+  if (usedTokens === undefined || usedTokens <= 0) {
+    return undefined;
+  }
+
+  return {
+    usedTokens,
+    ...(maxTokens !== undefined && maxTokens > 0 ? { maxTokens } : {}),
+    ...(totalTokens !== undefined && totalTokens > 0
+      ? { lastUsedTokens: totalTokens }
+      : finalContextUsage?.lastUsedTokens !== undefined
+        ? { lastUsedTokens: finalContextUsage.lastUsedTokens }
+        : {}),
+    ...(inputTokens !== undefined && inputTokens > 0 ? { lastInputTokens: inputTokens } : {}),
+    ...(cachedInputTokens !== undefined && cachedInputTokens > 0
+      ? { lastCachedInputTokens: cachedInputTokens }
+      : {}),
+    ...(outputTokens !== undefined && outputTokens > 0 ? { lastOutputTokens: outputTokens } : {}),
+    ...(reasoningOutputTokens !== undefined && reasoningOutputTokens > 0
+      ? { lastReasoningOutputTokens: reasoningOutputTokens }
+      : {}),
+    ...(durationMs !== undefined && durationMs > 0 ? { durationMs } : {}),
+    ...(toolUses !== undefined
+      ? { toolUses }
+      : finalContextUsage?.toolUses !== undefined
+        ? { toolUses: finalContextUsage.toolUses }
+        : {}),
+  };
+}
+
+function readGeminiProcessedTokens(value: unknown): number | undefined {
+  const record = asObject(value);
+  const totalTokens = firstRoundedNonNegativeInt(record, ["totalTokens", "total_tokens"]);
+  if (totalTokens !== undefined && totalTokens > 0) {
+    return totalTokens;
+  }
+
+  const inputTokens = firstRoundedNonNegativeInt(record, ["inputTokens", "input_tokens"]);
+  const cachedReadTokens = firstRoundedNonNegativeInt(record, [
+    "cachedReadTokens",
+    "cached_read_tokens",
+  ]);
+  const cachedWriteTokens = firstRoundedNonNegativeInt(record, [
+    "cachedWriteTokens",
+    "cached_write_tokens",
+  ]);
+  const outputTokens = firstRoundedNonNegativeInt(record, ["outputTokens", "output_tokens"]);
+  const reasoningOutputTokens = firstRoundedNonNegativeInt(record, [
+    "thoughtTokens",
+    "thought_tokens",
+    "reasoningTokens",
+    "reasoning_tokens",
+    "reasoningOutputTokens",
+    "reasoning_output_tokens",
+  ]);
+  const derivedTotal =
+    (inputTokens ?? 0) +
+    (cachedReadTokens ?? 0) +
+    (cachedWriteTokens ?? 0) +
+    (outputTokens ?? 0) +
+    (reasoningOutputTokens ?? 0);
+
+  return derivedTotal > 0 ? derivedTotal : undefined;
 }
 
 function resolveGeminiNotificationCreatedAt(
@@ -836,35 +1019,79 @@ const makeGeminiAdapter = Effect.gen(function* () {
       return;
     }
 
-    completePendingToolItems(context, turn, outcome.state);
-    if (turn.reasoningStarted) {
-      emit(
-        baseEvent(context, {
-          type: "item.completed",
-          turnId: turn.id,
-          itemId: turn.reasoningItemId,
-          payload: {
-            itemType: "reasoning",
-            status: outcome.state === "failed" ? "failed" : "completed",
-          },
-        }),
+    if (turn.started) {
+      completePendingToolItems(context, turn, outcome.state);
+      if (turn.reasoningStarted) {
+        emit(
+          baseEvent(context, {
+            type: "item.completed",
+            turnId: turn.id,
+            itemId: turn.reasoningItemId,
+            payload: {
+              itemType: "reasoning",
+              status: outcome.state === "failed" ? "failed" : "completed",
+            },
+          }),
+        );
+      }
+      if (turn.assistantStarted) {
+        emit(
+          baseEvent(context, {
+            type: "item.completed",
+            turnId: turn.id,
+            itemId: turn.assistantItemId,
+            payload: {
+              itemType: "assistant_message",
+              status: outcome.state === "failed" ? "failed" : "completed",
+            },
+          }),
+        );
+      }
+
+      const usageSnapshot = buildGeminiTurnUsageSnapshot(
+        outcome.usage,
+        turn,
+        context.lastUsageSnapshot,
       );
-    }
-    if (turn.assistantStarted) {
-      emit(
-        baseEvent(context, {
-          type: "item.completed",
-          turnId: turn.id,
-          itemId: turn.assistantItemId,
-          payload: {
-            itemType: "assistant_message",
-            status: outcome.state === "failed" ? "failed" : "completed",
-          },
-        }),
-      );
+      const processedTokens = readGeminiProcessedTokens(outcome.usage);
+      if (processedTokens !== undefined && processedTokens > 0) {
+        context.totalProcessedTokens += processedTokens;
+      }
+      const completedUsageSnapshot =
+        usageSnapshot !== undefined
+          ? {
+              ...usageSnapshot,
+              ...(context.totalProcessedTokens > usageSnapshot.usedTokens
+                ? { totalProcessedTokens: context.totalProcessedTokens }
+                : {}),
+            }
+          : undefined;
+      if (completedUsageSnapshot) {
+        context.lastUsageSnapshot = {
+          usedTokens: completedUsageSnapshot.usedTokens,
+          ...(completedUsageSnapshot.maxTokens !== undefined
+            ? { maxTokens: completedUsageSnapshot.maxTokens }
+            : {}),
+          ...(context.totalProcessedTokens > 0
+            ? { totalProcessedTokens: context.totalProcessedTokens }
+            : {}),
+        };
+        emit(
+          baseEvent(context, {
+            type: "thread.token-usage.updated",
+            turnId: turn.id,
+            payload: {
+              usage: completedUsageSnapshot,
+            },
+          }),
+        );
+      }
     }
 
-    context.turns.push({ id: turn.id, items: [...turn.items] });
+    cancelPendingPermissionsForTurn(context, turn.id);
+    if (turn.started) {
+      context.turns.push({ id: turn.id, items: [...turn.items] });
+    }
     context.activeTurn = null;
     context.session = {
       ...context.session,
@@ -875,6 +1102,10 @@ const makeGeminiAdapter = Effect.gen(function* () {
         ? { lastError: outcome.errorMessage }
         : { lastError: undefined }),
     };
+
+    if (!turn.started) {
+      return;
+    }
 
     emit(
       baseEvent(context, {
@@ -1214,23 +1445,30 @@ const makeGeminiAdapter = Effect.gen(function* () {
         return;
       }
       case "usage_update": {
-        const used =
-          typeof update.used === "number" ? Math.max(0, Math.round(update.used)) : undefined;
-        const size =
-          typeof update.size === "number" ? Math.max(0, Math.round(update.size)) : undefined;
-        if (used === undefined || size === undefined) {
+        const usage = buildGeminiContextUsageSnapshot(update, context.activeTurn);
+        if (!usage) {
           return;
         }
+        const liveUsageSnapshot = {
+          ...usage,
+          ...(context.totalProcessedTokens > usage.usedTokens
+            ? { totalProcessedTokens: context.totalProcessedTokens }
+            : {}),
+        };
+        context.lastUsageSnapshot = {
+          usedTokens: usage.usedTokens,
+          ...(usage.maxTokens !== undefined ? { maxTokens: usage.maxTokens } : {}),
+          ...(context.totalProcessedTokens > 0
+            ? { totalProcessedTokens: context.totalProcessedTokens }
+            : {}),
+        };
         emit(
           baseEvent(context, {
             type: "thread.token-usage.updated",
             ...(notificationCreatedAt ? { createdAt: notificationCreatedAt } : {}),
             ...(context.activeTurn ? { turnId: context.activeTurn.id } : {}),
             payload: {
-              usage: {
-                usedTokens: used,
-                maxTokens: size > 0 ? size : undefined,
-              },
+              usage: liveUsageSnapshot,
             },
           }),
         );
@@ -1612,6 +1850,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
             nextFallbackSessionSequence: 0,
             activeTurn: null,
             pendingPermissions: new Map(),
+            totalProcessedTokens: 0,
             closed: false,
             stopRequested: false,
           };
@@ -1681,22 +1920,20 @@ const makeGeminiAdapter = Effect.gen(function* () {
           throw new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "session/prompt",
-            detail: "Gemini session already has an active turn.",
+            detail: `Gemini session is already running turn '${context.activeTurn.id}'. Wait for it to finish or interrupt it before starting another turn.`,
           });
         }
-
-        await syncGeminiSessionState(context, {
-          runtimeMode: context.session.runtimeMode,
-          interactionMode: input.interactionMode,
-          modelSelection: input.modelSelection,
-        });
 
         const turnId = TurnId.makeUnsafe(`gemini-turn:${randomUUID()}`);
         const assistantItemId = RuntimeItemId.makeUnsafe(`gemini-assistant:${randomUUID()}`);
         const reasoningItemId = RuntimeItemId.makeUnsafe(`gemini-reasoning:${randomUUID()}`);
+        const previousSessionStatus = context.session.status;
+        const previousSessionActiveTurnId = context.session.activeTurnId;
+        const previousSessionLastError = context.session.lastError;
 
         context.activeTurn = {
           id: turnId,
+          started: false,
           items: [],
           assistantItemId,
           assistantStarted: false,
@@ -1710,73 +1947,119 @@ const makeGeminiAdapter = Effect.gen(function* () {
           status: "running",
           activeTurnId: turnId,
           updatedAt: isoNow(),
-          model:
-            input.modelSelection?.provider === PROVIDER
-              ? input.modelSelection.model
-              : (context.session.model ?? DEFAULT_MODEL_BY_PROVIDER.gemini),
         };
 
-        emit(
-          baseEvent(context, {
-            type: "turn.started",
-            turnId,
-            payload: context.session.model ? { model: context.session.model } : {},
-          }),
-        );
+        try {
+          await syncGeminiSessionState(context, {
+            runtimeMode: context.session.runtimeMode,
+            interactionMode: input.interactionMode,
+            modelSelection: input.modelSelection,
+          });
 
-        const promptContent = buildPromptContent(input, serverConfig.attachmentsDir);
-        void context.client
-          .request("session/prompt", {
-            sessionId: context.sessionId,
-            prompt: promptContent,
-          })
-          .then((result) => {
-            if (context.closed || !context.activeTurn || context.activeTurn.id !== turnId) {
-              return;
-            }
-            const resultRecord = asObject(result);
-            const stopReason = asString(resultRecord?.stopReason) ?? null;
-            const rawUsage = resultRecord?.usage ?? asObject(resultRecord?._meta)?.quota;
-            if (stopReason === "cancelled" || context.activeTurn.interruptedRequested) {
+          const promptContent = buildPromptContent(input, serverConfig.attachmentsDir);
+          if (context.closed || !context.activeTurn || context.activeTurn.id !== turnId) {
+            throw new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "session/prompt",
+              detail: "Gemini session closed before the reserved turn could start.",
+            });
+          }
+
+          context.session = {
+            ...context.session,
+            status: "running",
+            activeTurnId: turnId,
+            updatedAt: isoNow(),
+            model:
+              input.modelSelection?.provider === PROVIDER
+                ? input.modelSelection.model
+                : (context.session.model ?? DEFAULT_MODEL_BY_PROVIDER.gemini),
+          };
+          context.activeTurn.started = true;
+
+          emit(
+            baseEvent(context, {
+              type: "turn.started",
+              turnId,
+              payload: context.session.model ? { model: context.session.model } : {},
+            }),
+          );
+
+          void context.client
+            .request("session/prompt", {
+              sessionId: context.sessionId,
+              prompt: promptContent,
+            })
+            .then((result) => {
+              if (context.closed || !context.activeTurn || context.activeTurn.id !== turnId) {
+                return;
+              }
+              const resultRecord = asObject(result);
+              const stopReason = asString(resultRecord?.stopReason) ?? null;
+              const resultUsage = asObject(resultRecord?.usage);
+              const resultQuota = asObject(asObject(resultRecord?._meta)?.quota);
+              const rawUsage =
+                resultUsage && resultQuota
+                  ? {
+                      ...resultQuota,
+                      ...resultUsage,
+                    }
+                  : (resultUsage ?? resultQuota);
+              if (stopReason === "cancelled" || context.activeTurn.interruptedRequested) {
+                completeTurn(context, {
+                  state: "interrupted",
+                  stopReason,
+                  ...(rawUsage !== undefined ? { usage: rawUsage } : {}),
+                });
+                return;
+              }
               completeTurn(context, {
-                state: "interrupted",
+                state: "completed",
                 stopReason,
                 ...(rawUsage !== undefined ? { usage: rawUsage } : {}),
               });
-              return;
-            }
-            completeTurn(context, {
-              state: "completed",
-              stopReason,
-              ...(rawUsage !== undefined ? { usage: rawUsage } : {}),
-            });
-          })
-          .catch((cause) => {
-            if (context.closed || !context.activeTurn || context.activeTurn.id !== turnId) {
-              return;
-            }
-            if (context.activeTurn.interruptedRequested && cause instanceof AcpRequestError) {
+            })
+            .catch((cause) => {
+              if (context.closed || !context.activeTurn || context.activeTurn.id !== turnId) {
+                return;
+              }
+              if (context.activeTurn.interruptedRequested && cause instanceof AcpRequestError) {
+                completeTurn(context, {
+                  state: "interrupted",
+                  stopReason: "cancelled",
+                });
+                return;
+              }
               completeTurn(context, {
-                state: "interrupted",
-                stopReason: "cancelled",
+                state: "failed",
+                errorMessage: toMessage(cause, "Gemini prompt failed"),
               });
-              return;
-            }
-            completeTurn(context, {
-              state: "failed",
-              errorMessage: toMessage(cause, "Gemini prompt failed"),
+              emit(
+                baseEvent(context, {
+                  type: "runtime.error",
+                  turnId,
+                  payload: {
+                    message: toMessage(cause, "Gemini prompt failed"),
+                    class: "provider_error",
+                  },
+                }),
+              );
             });
-            emit(
-              baseEvent(context, {
-                type: "runtime.error",
-                turnId,
-                payload: {
-                  message: toMessage(cause, "Gemini prompt failed"),
-                  class: "provider_error",
-                },
-              }),
-            );
-          });
+        } catch (cause) {
+          if (context.activeTurn?.id === turnId) {
+            context.activeTurn = null;
+            context.session = {
+              ...context.session,
+              status: previousSessionStatus,
+              activeTurnId: previousSessionActiveTurnId,
+              updatedAt: isoNow(),
+              ...(previousSessionLastError !== undefined
+                ? { lastError: previousSessionLastError }
+                : { lastError: undefined }),
+            };
+          }
+          throw cause;
+        }
 
         return {
           threadId: input.threadId,

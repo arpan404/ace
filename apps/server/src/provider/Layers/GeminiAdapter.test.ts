@@ -427,6 +427,399 @@ describe("GeminiAdapterLive approvals", () => {
     });
   });
 
+  it("emits context usage updates and merges Gemini prompt token breakdowns", async () => {
+    let resolvePrompt!: (value: unknown) => void;
+    const promptResult = new Promise<unknown>((resolve) => {
+      resolvePrompt = resolve;
+    });
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult();
+          case "session/new":
+            return geminiSessionResult("gemini-session-usage", {
+              currentModeId: "yolo",
+            });
+          case "session/prompt":
+            return promptResult;
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const threadId = asThreadId("thread-gemini-usage");
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId,
+            cwd: "/repo/gemini-usage",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        await Effect.runPromise(Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain));
+
+        const usageEventsPromise = Effect.runPromise(
+          Stream.runCollect(
+            Stream.take(
+              Stream.filter(
+                adapter.streamEvents,
+                (event) => event.type === "thread.token-usage.updated",
+              ),
+              2,
+            ),
+          ),
+        );
+
+        const turn = await Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Explain the latest token usage.",
+          }),
+        );
+
+        const notificationHandler = client.getNotificationHandler();
+        expect(notificationHandler).toBeTypeOf("function");
+        if (!notificationHandler) {
+          return;
+        }
+
+        notificationHandler({
+          method: "session/update",
+          params: {
+            sessionId: "gemini-session-usage",
+            update: {
+              sessionUpdate: "usage_update",
+              used: 4_096,
+              size: 32_768,
+            },
+          },
+        });
+
+        resolvePrompt({
+          stopReason: "end_turn",
+          usage: {
+            totalTokens: 1_472,
+            inputTokens: 1_024,
+            cachedReadTokens: 256,
+            outputTokens: 128,
+            thoughtTokens: 64,
+          },
+        });
+
+        const usageEvents = Array.from(await usageEventsPromise);
+        expect(usageEvents).toHaveLength(2);
+
+        const [liveUsageEvent, completedUsageEvent] = usageEvents;
+        expect(liveUsageEvent?.type).toBe("thread.token-usage.updated");
+        expect(completedUsageEvent?.type).toBe("thread.token-usage.updated");
+        if (
+          liveUsageEvent?.type !== "thread.token-usage.updated" ||
+          completedUsageEvent?.type !== "thread.token-usage.updated"
+        ) {
+          return;
+        }
+
+        expect(liveUsageEvent.turnId).toBe(turn.turnId);
+        expect(liveUsageEvent.payload.usage).toEqual({
+          usedTokens: 4_096,
+          maxTokens: 32_768,
+          lastUsedTokens: 4_096,
+        });
+        expect(completedUsageEvent.turnId).toBe(turn.turnId);
+        expect(completedUsageEvent.payload.usage).toEqual({
+          usedTokens: 4_096,
+          maxTokens: 32_768,
+          lastUsedTokens: 1_472,
+          lastInputTokens: 1_024,
+          lastCachedInputTokens: 256,
+          lastOutputTokens: 128,
+          lastReasoningOutputTokens: 64,
+        });
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("emits context usage from Gemini prompt completion quota metadata without a live update", async () => {
+    let resolvePrompt!: (value: unknown) => void;
+    const promptResult = new Promise<unknown>((resolve) => {
+      resolvePrompt = resolve;
+    });
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult();
+          case "session/new":
+            return geminiSessionResult("gemini-session-quota-only", {
+              currentModeId: "yolo",
+            });
+          case "session/prompt":
+            return promptResult;
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const threadId = asThreadId("thread-gemini-quota-only");
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId,
+            cwd: "/repo/gemini-quota-only",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        await Effect.runPromise(Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain));
+
+        const usageEventPromise = Effect.runPromise(
+          Stream.runHead(
+            Stream.filter(
+              adapter.streamEvents,
+              (event) => event.type === "thread.token-usage.updated",
+            ),
+          ),
+        );
+
+        const turn = await Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Summarize the final context quota.",
+          }),
+        );
+
+        resolvePrompt({
+          stopReason: "end_turn",
+          usage: {
+            totalTokens: 1_280,
+            inputTokens: 900,
+            outputTokens: 220,
+          },
+          _meta: {
+            quota: {
+              used: 6_144,
+              size: 24_576,
+            },
+          },
+        });
+
+        const usageEvent = await usageEventPromise;
+        expect(usageEvent._tag).toBe("Some");
+        if (usageEvent._tag !== "Some") {
+          return;
+        }
+
+        expect(usageEvent.value.type).toBe("thread.token-usage.updated");
+        if (usageEvent.value.type !== "thread.token-usage.updated") {
+          return;
+        }
+
+        expect(usageEvent.value.turnId).toBe(turn.turnId);
+        expect(usageEvent.value.payload.usage).toEqual({
+          usedTokens: 6_144,
+          maxTokens: 24_576,
+          lastUsedTokens: 1_280,
+          lastInputTokens: 900,
+          lastOutputTokens: 220,
+        });
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("blocks overlapping Gemini turn starts while session sync is still in flight", async () => {
+    let resolveSetModel: ((value: unknown) => void) | undefined;
+    const setModelPromise = new Promise<unknown>((resolve) => {
+      resolveSetModel = resolve;
+    });
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult();
+          case "session/new":
+            return {
+              sessionId: "gemini-session-overlap",
+              modes: {
+                currentModeId: "yolo",
+                availableModes: [
+                  { id: "default", name: "Default", description: "Prompts for approval" },
+                  { id: "yolo", name: "YOLO", description: "Auto-approves all actions" },
+                ],
+              },
+              models: {
+                currentModelId: "gemini-2.5-pro",
+                availableModels: [
+                  { modelId: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+                  { modelId: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+                ],
+              },
+            };
+          case "session/set_model":
+            return setModelPromise;
+          case "session/prompt":
+            return { stopReason: "end_turn" };
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const threadId = asThreadId("thread-gemini-overlap");
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId,
+            cwd: "/repo/gemini-overlap",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        await Effect.runPromise(Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain));
+
+        const firstTurnPromise = Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Start the first Gemini turn",
+            modelSelection: {
+              provider: "gemini",
+              model: "gemini-2.5-flash",
+            },
+          }),
+        );
+
+        await Promise.resolve();
+
+        await expect(
+          Effect.runPromise(
+            adapter.sendTurn({
+              threadId,
+              input: "Try to overlap the Gemini turn",
+            }),
+          ),
+        ).rejects.toMatchObject({
+          detail: expect.stringContaining("already running turn"),
+        });
+
+        resolveSetModel?.({});
+        const firstTurn = await firstTurnPromise;
+        expect(firstTurn.threadId).toBe(threadId);
+
+        expect(
+          client.request.mock.calls.filter(([method]) => method === "session/prompt").length,
+        ).toBe(1);
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("releases the Gemini turn reservation when turn start setup fails", async () => {
+    let failSetModel = true;
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult();
+          case "session/new":
+            return {
+              sessionId: "gemini-session-start-failure",
+              modes: {
+                currentModeId: "yolo",
+                availableModes: [
+                  { id: "default", name: "Default", description: "Prompts for approval" },
+                  { id: "yolo", name: "YOLO", description: "Auto-approves all actions" },
+                ],
+              },
+              models: {
+                currentModelId: "gemini-2.5-pro",
+                availableModels: [
+                  { modelId: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+                  { modelId: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+                ],
+              },
+            };
+          case "session/set_model":
+            if (failSetModel) {
+              failSetModel = false;
+              throw new Error("Gemini model sync failed");
+            }
+            return {};
+          case "session/prompt":
+            return { stopReason: "end_turn" };
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const threadId = asThreadId("thread-gemini-start-failure");
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId,
+            cwd: "/repo/gemini-start-failure",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        await Effect.runPromise(Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain));
+
+        await expect(
+          Effect.runPromise(
+            adapter.sendTurn({
+              threadId,
+              input: "This turn should fail during setup",
+              modelSelection: {
+                provider: "gemini",
+                model: "gemini-2.5-flash",
+              },
+            }),
+          ),
+        ).rejects.toMatchObject({
+          detail: expect.stringContaining("Gemini model sync failed"),
+        });
+
+        const recoveredTurn = await Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Retry after setup failure",
+            modelSelection: {
+              provider: "gemini",
+              model: "gemini-2.5-flash",
+            },
+          }),
+        );
+
+        expect(recoveredTurn.threadId).toBe(threadId);
+        expect(
+          client.request.mock.calls.filter(([method]) => method === "session/prompt").length,
+        ).toBe(1);
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
   it("interrupts Gemini turns without waiting for the prompt request to settle", async () => {
     const firstPromptResult = new Promise<unknown>(() => undefined);
     const secondPromptResult = Promise.resolve({ stopReason: "end_turn" });
