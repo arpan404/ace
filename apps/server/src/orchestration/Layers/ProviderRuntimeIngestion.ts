@@ -90,6 +90,10 @@ function truncateDetail(value: string, limit = 180): string {
   return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
 }
 
+function hasRenderableReasoningText(value: string | undefined): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {
   const trimmed = planMarkdown?.trim();
   if (!trimmed) {
@@ -147,14 +151,14 @@ type ActivityStreamingSettings = {
 };
 
 function extractReasoningDetail(event: Extract<ProviderRuntimeEvent, { type: "item.completed" }>) {
-  if (typeof event.payload.detail === "string" && event.payload.detail.length > 0) {
-    return truncateDetail(event.payload.detail);
+  if (hasRenderableReasoningText(event.payload.detail)) {
+    return event.payload.detail;
   }
 
   if (event.payload.data && typeof event.payload.data === "object") {
     const payloadData = event.payload.data as Record<string, unknown>;
-    if (typeof payloadData.content === "string" && payloadData.content.length > 0) {
-      return truncateDetail(payloadData.content);
+    if (hasRenderableReasoningText(payloadData.content as string | undefined)) {
+      return payloadData.content as string;
     }
   }
 
@@ -222,12 +226,7 @@ function runtimeEventToActivities(
   event: ProviderRuntimeEvent,
   streamingSettings: ActivityStreamingSettings,
 ): ReadonlyArray<OrchestrationThreadActivity> {
-  const maybeSequence = (() => {
-    const eventWithSequence = event as ProviderRuntimeEvent & { sessionSequence?: number };
-    return eventWithSequence.sessionSequence !== undefined
-      ? { sequence: eventWithSequence.sessionSequence }
-      : {};
-  })();
+  const maybeSequence = providerMessageSequence(event);
   switch (event.type) {
     case "request.opened": {
       if (event.payload.requestType === "tool_user_input") {
@@ -411,6 +410,14 @@ function runtimeEventToActivities(
       if (!streamingSettings.enableThinkingStreaming) {
         return [];
       }
+      const detail = hasRenderableReasoningText(event.payload.summary)
+        ? event.payload.summary
+        : hasRenderableReasoningText(event.payload.description)
+          ? event.payload.description
+          : undefined;
+      if (!detail) {
+        return [];
+      }
       return [
         {
           id: event.eventId,
@@ -420,8 +427,10 @@ function runtimeEventToActivities(
           summary: "Reasoning update",
           payload: {
             taskId: event.payload.taskId,
-            detail: truncateDetail(event.payload.summary ?? event.payload.description),
-            ...(event.payload.summary ? { summary: truncateDetail(event.payload.summary) } : {}),
+            detail,
+            ...(hasRenderableReasoningText(event.payload.summary)
+              ? { summary: event.payload.summary }
+              : {}),
             ...(event.payload.lastToolName ? { lastToolName: event.payload.lastToolName } : {}),
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
           },
@@ -512,7 +521,9 @@ function runtimeEventToActivities(
         return [];
       }
 
-      const detail = truncateDetail(event.payload.delta);
+      const detail = hasRenderableReasoningText(event.payload.delta)
+        ? event.payload.delta
+        : undefined;
       if (!detail) {
         return [];
       }
@@ -644,6 +655,13 @@ function runtimeEventToActivities(
   }
 
   return [];
+}
+
+function providerMessageSequence(event: ProviderRuntimeEvent): { sequence?: number | undefined } {
+  const eventWithSequence = event as ProviderRuntimeEvent & { sessionSequence?: number };
+  return eventWithSequence.sessionSequence !== undefined
+    ? { sequence: eventWithSequence.sessionSequence }
+    : {};
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
@@ -847,6 +865,7 @@ const make = Effect.fn("make")(function* () {
         messageId: input.messageId,
         delta: input.delta,
         ...(input.turnId ? { turnId: input.turnId } : {}),
+        ...providerMessageSequence(input.event),
         createdAt: input.createdAt,
       });
     },
@@ -999,6 +1018,7 @@ const make = Effect.fn("make")(function* () {
       threadId: input.threadId,
       messageId: input.messageId,
       ...(input.turnId ? { turnId: input.turnId } : {}),
+      ...providerMessageSequence(input.event),
       createdAt: input.createdAt,
     });
     yield* clearAssistantMessageState(input.messageId);

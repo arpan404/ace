@@ -765,6 +765,32 @@ describe("incremental orchestration updates", () => {
     expect(next.threads[1]).toBe(thread2);
   });
 
+  it("prefers payload sequence for assistant messages when provided", () => {
+    const thread = makeThread();
+    const state = makeState(thread);
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId: thread.id,
+          messageId: MessageId.makeUnsafe("assistant-sequenced"),
+          role: "assistant",
+          text: "sequenced",
+          turnId: TurnId.makeUnsafe("turn-1"),
+          streaming: false,
+          sequence: 1_706_255_202_000_001,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+        { sequence: 3 },
+      ),
+    );
+
+    expect(next.threads[0]?.messages[0]?.sequence).toBe(1_706_255_202_000_001);
+  });
+
   it("keeps lean thread plan bodies unloaded while refreshing the latest plan summary", () => {
     const thread = makeThread({
       latestTurn: {

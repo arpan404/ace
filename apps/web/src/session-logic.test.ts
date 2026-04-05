@@ -1320,6 +1320,33 @@ describe("deriveTimelineEntries", () => {
     ]);
   });
 
+  it("orders mixed message and work rows by createdAt when their sequence domains differ", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("assistant-later"),
+          role: "assistant",
+          text: "Final reply",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 42,
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "work-earlier",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          sequence: 1_706_255_202_000_001,
+          label: "Read file",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual(["work-earlier", "assistant-later"]);
+  });
+
   it("lifts report_intent out of the work log and attaches it to the next tool entry", () => {
     const entries = deriveTimelineEntries(
       [],

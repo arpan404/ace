@@ -186,14 +186,30 @@ function compareThreadMessages(
   left: Pick<OrchestrationMessage, "createdAt" | "id" | "sequence">,
   right: Pick<OrchestrationMessage, "createdAt" | "id" | "sequence">,
 ): number {
+  return (
+    left.createdAt.localeCompare(right.createdAt) ||
+    compareCompatibleMessageSequence(left.sequence, right.sequence) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function compareCompatibleMessageSequence(
+  left: number | undefined,
+  right: number | undefined,
+): number {
   if (
-    left.sequence !== undefined &&
-    right.sequence !== undefined &&
-    left.sequence !== right.sequence
+    left === undefined ||
+    right === undefined ||
+    left === right ||
+    isTimestampDerivedSequence(left) !== isTimestampDerivedSequence(right)
   ) {
-    return left.sequence - right.sequence;
+    return 0;
   }
-  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+  return left - right;
+}
+
+function isTimestampDerivedSequence(sequence: number): boolean {
+  return sequence >= 1_000_000_000_000;
 }
 
 export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
@@ -430,7 +446,7 @@ export function projectEvent(
             ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
-            sequence: event.sequence,
+            sequence: payload.sequence ?? event.sequence,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
           },

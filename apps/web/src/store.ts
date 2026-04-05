@@ -976,7 +976,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
             : {}),
           turnId: event.payload.turnId,
           streaming: event.payload.streaming,
-          sequence: event.sequence,
+          sequence: event.payload.sequence ?? event.sequence,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
         });

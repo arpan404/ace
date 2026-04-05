@@ -1280,10 +1280,10 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           {preview && (
             <p
               className={cn(
-                "pl-0.5 font-mono text-[10px] leading-4 text-muted-foreground/65",
+                "pl-0.5",
                 workEntry.tone === "thinking"
-                  ? "whitespace-pre-wrap wrap-break-word font-normal italic text-muted-foreground/72"
-                  : "truncate",
+                  ? "wrap-break-word whitespace-pre-wrap text-[11px] leading-5 text-foreground/72"
+                  : "truncate font-mono text-[10px] leading-4 text-muted-foreground/65",
               )}
               title={preview}
             >
