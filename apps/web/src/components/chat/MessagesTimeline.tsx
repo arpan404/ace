@@ -26,10 +26,7 @@ import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
-import {
-  computeMessageDurationStart,
-  normalizeCompactToolLabel,
-} from "~/lib/chat/messagesTimeline";
+import { normalizeCompactToolLabel } from "~/lib/chat/messagesTimeline";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import {
   deriveDisplayedUserMessageState,
@@ -93,175 +90,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
 }: MessagesTimelineProps) {
-  const rows = useMemo<TimelineRow[]>(() => {
-    const nextRows: TimelineRow[] = [];
-    const durationStartByMessageId = computeMessageDurationStart(
-      timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
-    );
-    const activeTurnStartedAtMs =
-      typeof activeTurnStartedAt === "string" ? Date.parse(activeTurnStartedAt) : Number.NaN;
-    let hasRenderableCurrentTurnOutput = false;
-    const liveWorkEntryId = findTrailingLiveWorkEntryId(timelineEntries, {
+  const rows = useMemo<TimelineRow[]>(
+    () =>
+      buildTimelineRows({
+        timelineEntries,
+        activeTurnInProgress,
+        activeTurnStartedAt,
+        completionDividerBeforeEntryId,
+        isWorking,
+        turnDiffSummaryByAssistantMessageId,
+      }),
+    [
       activeTurnInProgress,
-      activeTurnStartedAtMs,
-    });
-    const bufferedWorkEntries: Array<Extract<TimelineEntry, { kind: "work" }>> = [];
-
-    const flushBufferedWorkEntries = () => {
-      if (bufferedWorkEntries.length === 0) {
-        return;
-      }
-
-      let segmentStartIndex = 0;
-      while (segmentStartIndex < bufferedWorkEntries.length) {
-        const firstEntry = bufferedWorkEntries[segmentStartIndex];
-        if (!firstEntry) {
-          segmentStartIndex += 1;
-          continue;
-        }
-
-        const segmentTone = firstEntry.entry.tone;
-        let segmentEndIndex = segmentStartIndex + 1;
-        while (segmentEndIndex < bufferedWorkEntries.length) {
-          const nextEntry = bufferedWorkEntries[segmentEndIndex];
-          if (!nextEntry || nextEntry.entry.tone !== segmentTone) {
-            break;
-          }
-          segmentEndIndex += 1;
-        }
-
-        const segment = bufferedWorkEntries.slice(segmentStartIndex, segmentEndIndex);
-        if (segment.length > 0 && isToggleableWorkTone(segmentTone)) {
-          nextRows.push({
-            kind: "work-group",
-            id: segment[0]!.id,
-            createdAt: segment[0]!.createdAt,
-            entries: segment.map((entry) => entry.entry),
-            tone: segmentTone,
-          });
-        } else {
-          for (const entry of segment) {
-            nextRows.push({
-              kind: "work",
-              id: entry.id,
-              createdAt: entry.createdAt,
-              workEntry: entry.entry,
-            });
-          }
-        }
-
-        segmentStartIndex = segmentEndIndex;
-      }
-
-      bufferedWorkEntries.length = 0;
-    };
-
-    for (const timelineEntry of timelineEntries) {
-      if (!timelineEntry) {
-        continue;
-      }
-
-      if (timelineEntry.kind === "work") {
-        if (
-          !Number.isNaN(activeTurnStartedAtMs) &&
-          Date.parse(timelineEntry.createdAt) >= activeTurnStartedAtMs
-        ) {
-          hasRenderableCurrentTurnOutput = true;
-        }
-
-        if (timelineEntry.id === liveWorkEntryId) {
-          flushBufferedWorkEntries();
-          nextRows.push({
-            kind: "work",
-            id: timelineEntry.id,
-            createdAt: timelineEntry.createdAt,
-            workEntry: timelineEntry.entry,
-          });
-          continue;
-        }
-
-        bufferedWorkEntries.push(timelineEntry);
-        continue;
-      }
-
-      flushBufferedWorkEntries();
-
-      if (timelineEntry.kind === "intent") {
-        nextRows.push({
-          kind: "intent",
-          id: timelineEntry.id,
-          createdAt: timelineEntry.createdAt,
-          text: timelineEntry.text,
-        });
-        continue;
-      }
-
-      if (timelineEntry.kind === "proposed-plan") {
-        if (
-          !Number.isNaN(activeTurnStartedAtMs) &&
-          Date.parse(timelineEntry.createdAt) >= activeTurnStartedAtMs
-        ) {
-          hasRenderableCurrentTurnOutput = true;
-        }
-        nextRows.push({
-          kind: "proposed-plan",
-          id: timelineEntry.id,
-          createdAt: timelineEntry.createdAt,
-          proposedPlan: timelineEntry.proposedPlan,
-        });
-        continue;
-      }
-
-      if (
-        timelineEntry.message.role === "assistant" &&
-        shouldSkipAssistantMessageRow(
-          timelineEntry.message,
-          turnDiffSummaryByAssistantMessageId.get(timelineEntry.message.id),
-        )
-      ) {
-        continue;
-      }
-
-      if (
-        !Number.isNaN(activeTurnStartedAtMs) &&
-        Date.parse(timelineEntry.createdAt) >= activeTurnStartedAtMs
-      ) {
-        hasRenderableCurrentTurnOutput = true;
-      }
-
-      nextRows.push({
-        kind: "message",
-        id: timelineEntry.id,
-        createdAt: timelineEntry.createdAt,
-        message: timelineEntry.message,
-        durationStart:
-          durationStartByMessageId.get(timelineEntry.message.id) ?? timelineEntry.message.createdAt,
-        showCompletionDivider:
-          timelineEntry.message.role === "assistant" &&
-          completionDividerBeforeEntryId === timelineEntry.id,
-      });
-    }
-
-    flushBufferedWorkEntries();
-
-    if (isWorking) {
-      nextRows.push({
-        kind: "working",
-        id: "working-indicator-row",
-        createdAt: activeTurnStartedAt,
-        mode: hasRenderableCurrentTurnOutput ? "live" : "silent-thinking",
-      });
-    }
-
-    return nextRows;
-  }, [
-    activeTurnInProgress,
-    timelineEntries,
-    completionDividerBeforeEntryId,
-    isWorking,
-    activeTurnStartedAt,
-    turnDiffSummaryByAssistantMessageId,
-  ]);
+      timelineEntries,
+      completionDividerBeforeEntryId,
+      isWorking,
+      activeTurnStartedAt,
+      turnDiffSummaryByAssistantMessageId,
+    ],
+  );
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
     Record<string, boolean>
   >({});
@@ -296,7 +143,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon;
             const disclosureLabel =
               row.tone === "thinking"
-                ? summarizeThinkingDisclosure(row.entries, nowIso)
+                ? summarizeThinkingDisclosure(row.entries, row.summaryEndAt)
                 : summarizeToolGroupSummary(row.entries);
             const secondaryLabel =
               row.tone === "thinking"
@@ -631,6 +478,7 @@ type TimelineRow =
       createdAt: string;
       entries: TimelineWorkEntry[];
       tone: "thinking" | "tool";
+      summaryEndAt: string | null;
     }
   | {
       kind: "intent";
@@ -740,6 +588,189 @@ function formatMessageMeta(
   return `${formatTimestamp(createdAt, timestampFormat)} • ${duration}`;
 }
 
+function buildTimelineRows(input: {
+  timelineEntries: ReadonlyArray<TimelineEntry>;
+  activeTurnInProgress: boolean;
+  activeTurnStartedAt: string | null;
+  completionDividerBeforeEntryId: string | null;
+  isWorking: boolean;
+  turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
+}): TimelineRow[] {
+  const nextRows: TimelineRow[] = [];
+  const activeTurnStartedAtMs =
+    typeof input.activeTurnStartedAt === "string"
+      ? Date.parse(input.activeTurnStartedAt)
+      : Number.NaN;
+  const liveWorkEntryId = findTrailingLiveWorkEntryId(input.timelineEntries, {
+    activeTurnInProgress: input.activeTurnInProgress,
+    activeTurnStartedAtMs,
+  });
+  let hasRenderableCurrentTurnOutput = false;
+  let lastMessageBoundaryAt: string | null = null;
+  let pendingWorkRowId: string | null = null;
+  let pendingWorkCreatedAt: string | null = null;
+  let pendingWorkTone: TimelineWorkEntry["tone"] | null = null;
+  let pendingWorkEntries: TimelineWorkEntry[] = [];
+
+  const flushPendingWorkEntries = (nextEventCreatedAt: string | null) => {
+    if (
+      pendingWorkEntries.length === 0 ||
+      !pendingWorkRowId ||
+      !pendingWorkCreatedAt ||
+      !pendingWorkTone
+    ) {
+      pendingWorkEntries = [];
+      pendingWorkRowId = null;
+      pendingWorkCreatedAt = null;
+      pendingWorkTone = null;
+      return;
+    }
+
+    if (isToggleableWorkTone(pendingWorkTone)) {
+      nextRows.push({
+        kind: "work-group",
+        id: pendingWorkRowId,
+        createdAt: pendingWorkCreatedAt,
+        entries: pendingWorkEntries,
+        tone: pendingWorkTone,
+        summaryEndAt: resolveWorkGroupSummaryEndAt(pendingWorkEntries, nextEventCreatedAt),
+      });
+    } else {
+      for (const workEntry of pendingWorkEntries) {
+        nextRows.push({
+          kind: "work",
+          id: workEntry.id,
+          createdAt: workEntry.createdAt,
+          workEntry,
+        });
+      }
+    }
+
+    pendingWorkEntries = [];
+    pendingWorkRowId = null;
+    pendingWorkCreatedAt = null;
+    pendingWorkTone = null;
+  };
+
+  const pushPendingWorkEntry = (timelineEntry: Extract<TimelineEntry, { kind: "work" }>) => {
+    if (timelineEntry.id === liveWorkEntryId) {
+      flushPendingWorkEntries(timelineEntry.createdAt);
+      nextRows.push({
+        kind: "work",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        workEntry: timelineEntry.entry,
+      });
+      return;
+    }
+
+    if (pendingWorkEntries.length === 0) {
+      pendingWorkRowId = timelineEntry.id;
+      pendingWorkCreatedAt = timelineEntry.createdAt;
+      pendingWorkTone = timelineEntry.entry.tone;
+      pendingWorkEntries = [timelineEntry.entry];
+      return;
+    }
+
+    if (pendingWorkTone === timelineEntry.entry.tone) {
+      pendingWorkEntries.push(timelineEntry.entry);
+      return;
+    }
+
+    flushPendingWorkEntries(timelineEntry.createdAt);
+    pendingWorkRowId = timelineEntry.id;
+    pendingWorkCreatedAt = timelineEntry.createdAt;
+    pendingWorkTone = timelineEntry.entry.tone;
+    pendingWorkEntries = [timelineEntry.entry];
+  };
+
+  for (const timelineEntry of input.timelineEntries) {
+    if (!timelineEntry) {
+      continue;
+    }
+
+    if (timelineEntry.kind === "work") {
+      if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
+        hasRenderableCurrentTurnOutput = true;
+      }
+      pushPendingWorkEntry(timelineEntry);
+      continue;
+    }
+
+    flushPendingWorkEntries(timelineEntry.createdAt);
+
+    if (timelineEntry.kind === "intent") {
+      nextRows.push({
+        kind: "intent",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        text: timelineEntry.text,
+      });
+      continue;
+    }
+
+    if (timelineEntry.kind === "proposed-plan") {
+      if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
+        hasRenderableCurrentTurnOutput = true;
+      }
+      nextRows.push({
+        kind: "proposed-plan",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        proposedPlan: timelineEntry.proposedPlan,
+      });
+      continue;
+    }
+
+    if (
+      timelineEntry.message.role === "assistant" &&
+      shouldSkipAssistantMessageRow(
+        timelineEntry.message,
+        input.turnDiffSummaryByAssistantMessageId.get(timelineEntry.message.id),
+      )
+    ) {
+      continue;
+    }
+
+    if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
+      hasRenderableCurrentTurnOutput = true;
+    }
+
+    const durationStart = lastMessageBoundaryAt ?? timelineEntry.message.createdAt;
+    if (timelineEntry.message.role === "user") {
+      lastMessageBoundaryAt = timelineEntry.message.createdAt;
+    }
+
+    nextRows.push({
+      kind: "message",
+      id: timelineEntry.id,
+      createdAt: timelineEntry.createdAt,
+      message: timelineEntry.message,
+      durationStart,
+      showCompletionDivider:
+        timelineEntry.message.role === "assistant" &&
+        input.completionDividerBeforeEntryId === timelineEntry.id,
+    });
+
+    if (timelineEntry.message.role === "assistant" && timelineEntry.message.completedAt) {
+      lastMessageBoundaryAt = timelineEntry.message.completedAt;
+    }
+  }
+
+  flushPendingWorkEntries(null);
+
+  if (input.isWorking) {
+    nextRows.push({
+      kind: "working",
+      id: "working-indicator-row",
+      createdAt: input.activeTurnStartedAt,
+      mode: hasRenderableCurrentTurnOutput ? "live" : "silent-thinking",
+    });
+  }
+
+  return nextRows;
+}
+
 function workGroupId(rowId: string): string {
   return `work-group:${rowId}`;
 }
@@ -750,12 +781,22 @@ function isToggleableWorkTone(
   return tone === "thinking" || tone === "tool";
 }
 
-function isWorkEntryInActiveTurn(createdAt: string, activeTurnStartedAtMs: number): boolean {
+function isEventInActiveTurn(createdAt: string, activeTurnStartedAtMs: number): boolean {
   if (Number.isNaN(activeTurnStartedAtMs)) {
     return false;
   }
   const createdAtMs = Date.parse(createdAt);
   return !Number.isNaN(createdAtMs) && createdAtMs >= activeTurnStartedAtMs;
+}
+
+function resolveWorkGroupSummaryEndAt(
+  entries: ReadonlyArray<TimelineWorkEntry>,
+  nextEventCreatedAt: string | null,
+): string | null {
+  if (typeof nextEventCreatedAt === "string") {
+    return nextEventCreatedAt;
+  }
+  return entries.at(-1)?.createdAt ?? null;
 }
 
 function findTrailingLiveWorkEntryId(
@@ -775,9 +816,7 @@ function findTrailingLiveWorkEntryId(
       continue;
     }
     if (entry.kind === "work") {
-      return isWorkEntryInActiveTurn(entry.createdAt, input.activeTurnStartedAtMs)
-        ? entry.id
-        : null;
+      return isEventInActiveTurn(entry.createdAt, input.activeTurnStartedAtMs) ? entry.id : null;
     }
     return null;
   }
@@ -800,14 +839,11 @@ function workGroupRailClass(entries: ReadonlyArray<TimelineWorkEntry>): string {
 
 function summarizeThinkingDisclosure(
   entries: ReadonlyArray<TimelineWorkEntry>,
-  nowIso: string,
+  summaryEndAt: string | null,
 ): string {
   const firstEntry = entries[0];
-  const lastEntry = entries.at(-1);
   const duration =
-    firstEntry && lastEntry
-      ? formatThoughtTimer(firstEntry.createdAt, lastEntry.createdAt || nowIso)
-      : null;
+    firstEntry && summaryEndAt ? formatThoughtTimer(firstEntry.createdAt, summaryEndAt) : null;
 
   return duration ? `Thought for ${duration}` : "Thought";
 }

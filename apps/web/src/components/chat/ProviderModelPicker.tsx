@@ -188,7 +188,7 @@ function providerIconClassName(
   fallbackClassName: string,
 ): string {
   if (provider === "claudeAgent") {
-    return "text-[#d97757]";
+    return "text-warning-foreground";
   }
   if (provider === "githubCopilot") {
     return "text-foreground";

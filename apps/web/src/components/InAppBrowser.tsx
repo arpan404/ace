@@ -31,6 +31,7 @@ import {
   type MutableRefObject,
   type ReactNode,
   type RefObject,
+  memo,
   useCallback,
   useEffect,
   useRef,
@@ -66,7 +67,7 @@ export type {
   InAppBrowserMode,
 } from "~/hooks/useInAppBrowserState";
 
-function SortableBrowserTab(props: {
+const SortableBrowserTab = memo(function SortableBrowserTab(props: {
   active: boolean;
   icon: ReactNode;
   onActivate: (tabId: string) => void;
@@ -178,7 +179,7 @@ function SortableBrowserTab(props: {
       </button>
     </div>
   );
-}
+});
 
 interface InAppBrowserProps {
   open: boolean;

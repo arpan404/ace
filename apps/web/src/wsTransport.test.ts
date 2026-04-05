@@ -1,4 +1,5 @@
 import { WS_METHODS } from "@t3tools/contracts";
+import { buildWebSocketAuthProtocol } from "@t3tools/shared/wsAuth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WsTransport } from "./wsTransport";
@@ -16,11 +17,13 @@ class MockWebSocket {
   static readonly CLOSED = 3;
 
   readyState = MockWebSocket.CONNECTING;
+  readonly protocols: string | string[] | undefined;
   readonly sent: string[] = [];
   readonly url: string;
   private readonly listeners = new Map<WsEventType, Set<WsListener>>();
 
-  constructor(url: string) {
+  constructor(url: string, protocols?: string | string[]) {
+    this.protocols = protocols;
     this.url = url;
     sockets.push(this);
   }
@@ -112,14 +115,15 @@ afterEach(() => {
 });
 
 describe("WsTransport", () => {
-  it("normalizes root websocket urls to /ws and preserves query params", async () => {
+  it("normalizes root websocket urls to /ws and moves auth tokens into subprotocols", async () => {
     const transport = new WsTransport("ws://localhost:3020/?token=secret-token");
 
     await waitFor(() => {
       expect(sockets).toHaveLength(1);
     });
 
-    expect(getSocket().url).toBe("ws://localhost:3020/ws?token=secret-token");
+    expect(getSocket().url).toBe("ws://localhost:3020/ws");
+    expect(getSocket().protocols).toEqual([buildWebSocketAuthProtocol("secret-token")]);
     await transport.dispose();
   });
 
