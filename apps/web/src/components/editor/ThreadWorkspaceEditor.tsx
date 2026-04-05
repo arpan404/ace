@@ -1,10 +1,10 @@
-import Editor, { loader, type OnMount } from "@monaco-editor/react";
+import { loader } from "@monaco-editor/react";
 import type {
   EditorId,
   ProjectEntry,
+  ProjectScript,
   ResolvedKeybindingsConfig,
   ThreadId,
-  ProjectScript,
 } from "@t3tools/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -12,19 +12,21 @@ import {
   BugIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  Columns2Icon,
   DiffIcon,
   FolderIcon,
   GlobeIcon,
+  Plus,
   SearchIcon,
   TerminalSquareIcon,
   XIcon,
 } from "lucide-react";
 import * as monaco from "monaco-editor";
 import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
+import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
-import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import {
   memo,
   type PointerEvent as ReactPointerEvent,
@@ -37,6 +39,20 @@ import {
   useState,
 } from "react";
 
+import {
+  MAX_THREAD_EDITOR_PANES,
+  selectThreadEditorState,
+  useEditorStateStore,
+} from "~/editorStateStore";
+import { isElectron } from "~/env";
+import { useTheme } from "~/hooks/useTheme";
+import { normalizePaneRatios, resizePaneRatios } from "~/lib/paneRatios";
+import { projectListTreeQueryOptions, projectQueryKeys } from "~/lib/projectReactQuery";
+import { cn } from "~/lib/utils";
+import { readNativeApi } from "~/nativeApi";
+import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
+import { basenameOfPath } from "~/vscode-icons";
+
 import GitActionsControl from "../GitActionsControl";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { OpenInPicker } from "../chat/OpenInPicker";
@@ -46,28 +62,14 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { SidebarTrigger } from "../ui/sidebar";
 import { Toggle } from "../ui/toggle";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { TopBarCluster, interleaveTopBarItems } from "../thread/TopBarCluster";
-import { useEditorStateStore } from "~/editorStateStore";
-import { isElectron } from "~/env";
-import { useTheme } from "~/hooks/useTheme";
-import {
-  projectListTreeQueryOptions,
-  projectQueryKeys,
-  projectReadFileQueryOptions,
-} from "~/lib/projectReactQuery";
-import { cn } from "~/lib/utils";
-import { readNativeApi } from "~/nativeApi";
+import WorkspaceEditorPane from "./WorkspaceEditorPane";
 import { WorkspaceModeToggle } from "./WorkspaceModeToggle";
-import { basenameOfPath } from "~/vscode-icons";
-import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 let monacoConfigured = false;
-const DEFAULT_TREE_WIDTH = 280;
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
-const EMPTY_EDITOR_DRAFTS: Record<string, { draftContents: string; savedContents: string }> = {};
-const EMPTY_PATHS: readonly string[] = [];
 
 function ensureMonacoConfigured() {
   if (monacoConfigured) {
@@ -111,13 +113,15 @@ function ensureMonacoConfigured() {
     colors: {
       "editor.background": "#0b0d10",
       "editor.lineHighlightBackground": "#151a20",
-      "editorLineNumber.foreground": "#42505f",
-      "editorLineNumber.activeForeground": "#f3f4ef",
       "editorCursor.foreground": "#f7a267",
-      "editor.selectionBackground": "#2b3542",
-      "editor.inactiveSelectionBackground": "#202833",
-      "editorIndentGuide.background1": "#18202a",
       "editorIndentGuide.activeBackground1": "#344456",
+      "editorIndentGuide.background1": "#18202a",
+      "editor.inactiveSelectionBackground": "#202833",
+      "editor.lineHighlightBorder": "#00000000",
+      "editor.selectionBackground": "#2b3542",
+      "editor.whitespace": "#1b232d",
+      "editorLineNumber.activeForeground": "#f3f4ef",
+      "editorLineNumber.foreground": "#42505f",
       "editorWhitespace.foreground": "#1b232d",
     },
   });
@@ -132,13 +136,14 @@ function ensureMonacoConfigured() {
     colors: {
       "editor.background": "#fcfaf5",
       "editor.lineHighlightBackground": "#f1ece1",
-      "editorLineNumber.foreground": "#b6a894",
-      "editorLineNumber.activeForeground": "#221c17",
       "editorCursor.foreground": "#9f4f1d",
-      "editor.selectionBackground": "#e4d8c7",
-      "editor.inactiveSelectionBackground": "#f0e7da",
-      "editorIndentGuide.background1": "#efe6d8",
       "editorIndentGuide.activeBackground1": "#cdb89c",
+      "editorIndentGuide.background1": "#efe6d8",
+      "editor.lineHighlightBorder": "#00000000",
+      "editor.inactiveSelectionBackground": "#f0e7da",
+      "editor.selectionBackground": "#e4d8c7",
+      "editorLineNumber.activeForeground": "#221c17",
+      "editorLineNumber.foreground": "#b6a894",
       "editorWhitespace.foreground": "#eadfce",
     },
   });
@@ -219,15 +224,19 @@ function buildTreeRows(
 }
 
 const FileTreeRow = memo(function FileTreeRow(props: {
-  activeFilePath: string | null;
+  activeFilePaths: ReadonlySet<string>;
   expandedDirectoryPaths: ReadonlySet<string>;
-  onOpenFile: (filePath: string) => void;
+  focusedFilePath: string | null;
+  onOpenFile: (filePath: string, openInNewPane: boolean) => void;
   onToggleDirectory: (directoryPath: string) => void;
+  openFilePaths: ReadonlySet<string>;
   resolvedTheme: "light" | "dark";
   row: TreeRow;
   searchMode: boolean;
 }) {
-  const isActive = props.activeFilePath === props.row.entry.path;
+  const isFocused = props.focusedFilePath === props.row.entry.path;
+  const isOpen = props.openFilePaths.has(props.row.entry.path);
+  const isActiveElsewhere = props.activeFilePaths.has(props.row.entry.path);
   const isExpanded =
     props.row.kind === "directory" && props.expandedDirectoryPaths.has(props.row.entry.path);
 
@@ -236,21 +245,27 @@ const FileTreeRow = memo(function FileTreeRow(props: {
       type="button"
       className={cn(
         "group flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
-        isActive
+        isFocused
           ? "bg-primary/12 text-foreground shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-primary)_25%,transparent)]"
-          : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+          : isOpen
+            ? "bg-foreground/[0.04] text-foreground"
+            : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
       )}
       style={{
         paddingLeft: `${props.searchMode ? 8 : 8 + props.row.depth * 14}px`,
       }}
-      onClick={() => {
+      onClick={(event) => {
         if (props.row.kind === "directory") {
           props.onToggleDirectory(props.row.entry.path);
           return;
         }
-        props.onOpenFile(props.row.entry.path);
+        props.onOpenFile(props.row.entry.path, event.altKey || event.metaKey);
       }}
-      title={props.row.entry.path}
+      title={
+        props.row.kind === "file"
+          ? `${props.row.entry.path} • Option-click to open in a new window`
+          : props.row.entry.path
+      }
     >
       {props.row.kind === "directory" ? (
         props.row.hasChildren ? (
@@ -273,43 +288,93 @@ const FileTreeRow = memo(function FileTreeRow(props: {
       />
       <span className="min-w-0 flex-1 truncate font-medium">{props.row.name}</span>
       {props.searchMode && props.row.entry.parentPath ? (
-        <span className="min-w-0 max-w-[38%] truncate text-[11px] text-muted-foreground/70">
+        <span className="min-w-0 max-w-[34%] truncate text-[11px] text-muted-foreground/70">
           {props.row.entry.parentPath}
         </span>
+      ) : null}
+      {props.row.kind === "file" && isOpen ? (
+        <span
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            isFocused ? "bg-primary" : isActiveElsewhere ? "bg-sky-500" : "bg-muted-foreground/60",
+          )}
+        />
       ) : null}
     </button>
   );
 });
 
+function WorkspaceSignalCard(props: {
+  active?: boolean;
+  detail: string;
+  icon: ReactNode;
+  label: string;
+  resolvedTheme: "light" | "dark";
+  value: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 items-start gap-3 rounded-2xl border px-3 py-3 transition-colors",
+        props.resolvedTheme === "dark"
+          ? props.active
+            ? "border-primary/28 bg-primary/8"
+            : "border-border/55 bg-[#0f141b]/80"
+          : props.active
+            ? "border-primary/24 bg-primary/[0.06]"
+            : "border-border/70 bg-white/78",
+      )}
+    >
+      <div
+        className={cn(
+          "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border",
+          props.resolvedTheme === "dark"
+            ? "border-border/55 bg-white/[0.03] text-foreground"
+            : "border-border/70 bg-[#f8f3ea] text-foreground",
+        )}
+      >
+        {props.icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold tracking-[0.22em] text-muted-foreground uppercase">
+          {props.label}
+        </p>
+        <p className="truncate text-sm font-semibold text-foreground">{props.value}</p>
+        <p className="truncate text-[11px] text-muted-foreground/80">{props.detail}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function ThreadWorkspaceEditor(props: {
+  activeProjectScripts: ProjectScript[] | undefined;
   activeThreadTitle: string;
   availableEditors: ReadonlyArray<EditorId>;
+  browserAvailable: boolean;
+  browserDevToolsOpen: boolean;
+  browserOpen: boolean;
+  browserToggleShortcutLabel: string | null;
   diffOpen: boolean;
   diffToggleShortcutLabel: string | null;
   gitCwd: string | null;
   isGitRepo: boolean;
   keybindings: ResolvedKeybindingsConfig;
   mode: ThreadWorkspaceMode;
+  onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
+  onCloseBrowser: () => void;
+  onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onModeChange: (mode: ThreadWorkspaceMode) => void;
+  onOpenBrowser: () => void;
+  onRunProjectScript: (script: ProjectScript) => void;
   onToggleDiff: () => void;
   onToggleTerminal: () => void;
+  onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
+  preferredScriptId: string | null;
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
   threadId: ThreadId;
   workspaceName: string | undefined;
-  activeProjectScripts: ProjectScript[] | undefined;
-  preferredScriptId: string | null;
-  browserAvailable: boolean;
-  browserOpen: boolean;
-  browserDevToolsOpen: boolean;
-  browserToggleShortcutLabel: string | null;
-  onRunProjectScript: (script: ProjectScript) => void;
-  onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
-  onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
-  onDeleteProjectScript: (scriptId: string) => Promise<void>;
-  onOpenBrowser: () => void;
-  onCloseBrowser: () => void;
 }) {
   ensureMonacoConfigured();
 
@@ -319,48 +384,35 @@ export default function ThreadWorkspaceEditor(props: {
   const [treeSearch, setTreeSearch] = useState("");
   const deferredTreeSearch = useDeferredValue(treeSearch.trim().toLowerCase());
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
-  const saveActionRef = useRef<() => void>(() => {});
+  const paneGroupRef = useRef<HTMLDivElement | null>(null);
   const closeFile = useEditorStateStore((state) => state.closeFile);
+  const closePane = useEditorStateStore((state) => state.closePane);
   const discardDraft = useEditorStateStore((state) => state.discardDraft);
   const hydrateFile = useEditorStateStore((state) => state.hydrateFile);
   const markFileSaved = useEditorStateStore((state) => state.markFileSaved);
   const openFile = useEditorStateStore((state) => state.openFile);
   const setActiveFile = useEditorStateStore((state) => state.setActiveFile);
+  const setActivePane = useEditorStateStore((state) => state.setActivePane);
+  const setPaneRatios = useEditorStateStore((state) => state.setPaneRatios);
   const setTreeWidth = useEditorStateStore((state) => state.setTreeWidth);
+  const splitPane = useEditorStateStore((state) => state.splitPane);
   const syncTree = useEditorStateStore((state) => state.syncTree);
   const toggleDirectory = useEditorStateStore((state) => state.toggleDirectory);
   const updateDraft = useEditorStateStore((state) => state.updateDraft);
-  const activeFilePath = useEditorStateStore(
-    useCallback(
-      (state) => state.threadStateByThreadId[props.threadId]?.activeFilePath ?? null,
-      [props.threadId],
-    ),
-  );
-  const draftsByFilePath = useEditorStateStore(
+  const editorState = useEditorStateStore(
     useCallback(
       (state) =>
-        state.runtimeStateByThreadId[props.threadId]?.draftsByFilePath ?? EMPTY_EDITOR_DRAFTS,
+        selectThreadEditorState(
+          state.threadStateByThreadId,
+          state.runtimeStateByThreadId,
+          props.threadId,
+        ),
       [props.threadId],
     ),
   );
-  const expandedDirectoryPaths = useEditorStateStore(
-    useCallback(
-      (state) => state.threadStateByThreadId[props.threadId]?.expandedDirectoryPaths ?? EMPTY_PATHS,
-      [props.threadId],
-    ),
-  );
-  const openFilePaths = useEditorStateStore(
-    useCallback(
-      (state) => state.threadStateByThreadId[props.threadId]?.openFilePaths ?? EMPTY_PATHS,
-      [props.threadId],
-    ),
-  );
-  const treeWidth = useEditorStateStore(
-    useCallback(
-      (state) => state.threadStateByThreadId[props.threadId]?.treeWidth ?? DEFAULT_TREE_WIDTH,
-      [props.threadId],
-    ),
-  );
+  const { activePaneId, draftsByFilePath, expandedDirectoryPaths, paneRatios, panes, treeWidth } =
+    editorState;
+  const activePane = panes.find((pane) => pane.id === activePaneId) ?? panes[0] ?? null;
 
   const workspaceTreeQuery = useQuery(
     projectListTreeQueryOptions({
@@ -373,95 +425,99 @@ export default function ThreadWorkspaceEditor(props: {
     if (treeEntries.length === 0) {
       return;
     }
-    const validPaths = treeEntries.map((entry) => entry.path);
-    syncTree(props.threadId, validPaths);
+    syncTree(
+      props.threadId,
+      treeEntries.map((entry) => entry.path),
+    );
   }, [props.threadId, syncTree, treeEntries]);
 
+  const hasAnyOpenFile = panes.some((pane) => pane.openFilePaths.length > 0);
   useEffect(() => {
-    if (activeFilePath || treeEntries.length === 0) {
+    if (hasAnyOpenFile || treeEntries.length === 0 || !activePane) {
       return;
     }
     const firstFile = treeEntries.find((entry) => entry.kind === "file");
     if (firstFile) {
-      openFile(props.threadId, firstFile.path);
+      openFile(props.threadId, firstFile.path, activePane.id);
     }
-  }, [activeFilePath, openFile, props.threadId, treeEntries]);
-  const activeFileQuery = useQuery(
-    projectReadFileQueryOptions({
-      cwd: props.gitCwd,
-      relativePath: activeFilePath,
-      enabled: activeFilePath !== null,
-    }),
-  );
-  const activeFileSavedContents = activeFileQuery.data?.contents;
-
-  useEffect(() => {
-    if (!activeFilePath || activeFileSavedContents === undefined) {
-      return;
-    }
-    hydrateFile(props.threadId, activeFilePath, activeFileSavedContents);
-  }, [activeFilePath, activeFileSavedContents, hydrateFile, props.threadId]);
-
-  const activeDraft = activeFilePath ? draftsByFilePath[activeFilePath] : null;
-  const activeFileDirty = activeDraft
-    ? activeDraft.draftContents !== activeDraft.savedContents
-    : false;
-  const activeFileContents = activeDraft?.draftContents ?? activeFileQuery.data?.contents ?? "";
-  const activeFileSizeBytes =
-    activeFileQuery.data?.sizeBytes ?? new Blob([activeFileContents]).size;
+  }, [activePane, hasAnyOpenFile, openFile, props.threadId, treeEntries]);
 
   const saveMutation = useMutation({
-    mutationFn: async (input: { relativePath: string; contents: string }) => {
+    mutationFn: async (input: { contents: string; relativePath: string }) => {
       if (!api || !props.gitCwd) {
         throw new Error("Workspace editor is unavailable.");
       }
       return api.projects.writeFile({
+        contents: input.contents,
         cwd: props.gitCwd,
         relativePath: input.relativePath,
-        contents: input.contents,
+      });
+    },
+    onError: (error, variables) => {
+      toastManager.add({
+        description:
+          error instanceof Error ? error.message : `Failed to save ${variables.relativePath}.`,
+        title: "Could not save file",
+        type: "error",
       });
     },
     onSuccess: (_result, variables) => {
       markFileSaved(props.threadId, variables.relativePath, variables.contents);
       queryClient.setQueryData(projectQueryKeys.readFile(props.gitCwd, variables.relativePath), {
-        relativePath: variables.relativePath,
         contents: variables.contents,
+        relativePath: variables.relativePath,
         sizeBytes: new Blob([variables.contents]).size,
       });
       void queryClient.invalidateQueries({ queryKey: projectQueryKeys.listTree(props.gitCwd) });
       toastManager.add({
-        type: "success",
-        title: "File saved",
         description: variables.relativePath,
-      });
-    },
-    onError: (error, variables) => {
-      toastManager.add({
-        type: "error",
-        title: "Could not save file",
-        description:
-          error instanceof Error ? error.message : `Failed to save ${variables.relativePath}.`,
+        title: "File saved",
+        type: "success",
       });
     },
   });
 
-  const handleSave = useCallback(() => {
-    if (!activeFilePath || !activeDraft || !props.gitCwd || saveMutation.isPending) {
-      return;
-    }
-    void saveMutation.mutate({
-      relativePath: activeFilePath,
-      contents: activeDraft.draftContents,
-    });
-  }, [activeDraft, activeFilePath, props.gitCwd, saveMutation]);
+  const handleSaveFile = useCallback(
+    (relativePath: string, contents: string) => {
+      if (saveMutation.isPending) {
+        return;
+      }
+      void saveMutation.mutate({ contents, relativePath });
+    },
+    [saveMutation],
+  );
 
-  saveActionRef.current = handleSave;
+  const normalizedPaneRatios = useMemo(
+    () => normalizePaneRatios(paneRatios, panes.length),
+    [paneRatios, panes.length],
+  );
 
-  const handleEditorMount = useCallback<OnMount>((editor, monacoInstance) => {
-    editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, () =>
-      saveActionRef.current(),
-    );
-  }, []);
+  const activeDirtyPaths = useMemo(
+    () =>
+      new Set(
+        Object.entries(draftsByFilePath)
+          .filter(([, draft]) => draft.draftContents !== draft.savedContents)
+          .map(([path]) => path),
+      ),
+    [draftsByFilePath],
+  );
+
+  const openFilePaths = useMemo(
+    () => new Set(panes.flatMap((pane) => pane.openFilePaths)),
+    [panes],
+  );
+  const activeFilePaths = useMemo(
+    () =>
+      panes
+        .map((pane) => pane.activeFilePath)
+        .filter((path): path is string => typeof path === "string" && path.length > 0),
+    [panes],
+  );
+  const activeFilePathSet = useMemo(() => new Set(activeFilePaths), [activeFilePaths]);
+  const activeAncestorDirectories = useMemo(
+    () => Array.from(new Set(activeFilePaths.flatMap((path) => collectAncestorDirectories(path)))),
+    [activeFilePaths],
+  );
 
   const visibleRows = useMemo(() => {
     if (deferredTreeSearch.length > 0) {
@@ -477,16 +533,15 @@ export default function ThreadWorkspaceEditor(props: {
         }));
     }
 
-    const visibleExpandedDirectoryPaths = new Set([
-      ...expandedDirectoryPaths,
-      ...collectAncestorDirectories(activeFilePath),
-    ]);
-    return buildTreeRows(treeEntries, visibleExpandedDirectoryPaths);
-  }, [activeFilePath, deferredTreeSearch, expandedDirectoryPaths, treeEntries]);
+    return buildTreeRows(
+      treeEntries,
+      new Set([...expandedDirectoryPaths, ...activeAncestorDirectories]),
+    );
+  }, [activeAncestorDirectories, deferredTreeSearch, expandedDirectoryPaths, treeEntries]);
 
   const expandedDirectoryPathSet = useMemo(
-    () => new Set([...expandedDirectoryPaths, ...collectAncestorDirectories(activeFilePath)]),
-    [activeFilePath, expandedDirectoryPaths],
+    () => new Set([...expandedDirectoryPaths, ...activeAncestorDirectories]),
+    [activeAncestorDirectories, expandedDirectoryPaths],
   );
 
   const rowVirtualizer = useVirtualizer({
@@ -496,12 +551,14 @@ export default function ThreadWorkspaceEditor(props: {
     overscan: 12,
   });
 
-  const resizeStateRef = useRef<{ pointerId: number; startWidth: number; startX: number } | null>(
-    null,
-  );
+  const treeResizeStateRef = useRef<{
+    pointerId: number;
+    startWidth: number;
+    startX: number;
+  } | null>(null);
   const handleTreeResizeStart = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
-      resizeStateRef.current = {
+      treeResizeStateRef.current = {
         pointerId: event.pointerId,
         startWidth: treeWidth,
         startX: event.clientX,
@@ -514,7 +571,7 @@ export default function ThreadWorkspaceEditor(props: {
   );
   const handleTreeResizeMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
-      const state = resizeStateRef.current;
+      const state = treeResizeStateRef.current;
       if (!state || state.pointerId !== event.pointerId) {
         return;
       }
@@ -523,11 +580,11 @@ export default function ThreadWorkspaceEditor(props: {
     [props.threadId, setTreeWidth],
   );
   const handleTreeResizeEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const state = resizeStateRef.current;
+    const state = treeResizeStateRef.current;
     if (!state || state.pointerId !== event.pointerId) {
       return;
     }
-    resizeStateRef.current = null;
+    treeResizeStateRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -535,31 +592,188 @@ export default function ThreadWorkspaceEditor(props: {
     document.body.style.removeProperty("user-select");
   }, []);
 
-  const activeTabDirty = useMemo(
-    () =>
-      new Set(
-        Object.entries(draftsByFilePath)
-          .filter(([, draft]) => draft.draftContents !== draft.savedContents)
-          .map(([path]) => path),
-      ),
-    [draftsByFilePath],
+  const paneResizeStateRef = useRef<{
+    dividerIndex: number;
+    pointerId: number;
+    startRatios: number[];
+    startX: number;
+  } | null>(null);
+  const handlePaneResizeStart = useCallback(
+    (dividerIndex: number) => (event: ReactPointerEvent<HTMLDivElement>) => {
+      paneResizeStateRef.current = {
+        dividerIndex,
+        pointerId: event.pointerId,
+        startRatios: normalizedPaneRatios,
+        startX: event.clientX,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    },
+    [normalizedPaneRatios],
   );
+  const handlePaneResizeMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const resizeState = paneResizeStateRef.current;
+      const container = paneGroupRef.current;
+      if (!resizeState || resizeState.pointerId !== event.pointerId || !container) {
+        return;
+      }
+      event.preventDefault();
+      setPaneRatios(
+        props.threadId,
+        resizePaneRatios({
+          containerWidthPx: container.clientWidth,
+          deltaPx: event.clientX - resizeState.startX,
+          dividerIndex: resizeState.dividerIndex,
+          minPaneWidthPx: 320,
+          ratios: resizeState.startRatios,
+        }),
+      );
+    },
+    [props.threadId, setPaneRatios],
+  );
+  const handlePaneResizeEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const resizeState = paneResizeStateRef.current;
+    if (!resizeState || resizeState.pointerId !== event.pointerId) {
+      return;
+    }
+    paneResizeStateRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    document.body.style.removeProperty("cursor");
+    document.body.style.removeProperty("user-select");
+  }, []);
+
+  const paneDirtyCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        panes.map((pane) => [
+          pane.id,
+          pane.openFilePaths.filter((path) => activeDirtyPaths.has(path)).length,
+        ]),
+      ),
+    [activeDirtyPaths, panes],
+  );
+
+  const workspaceFileCount = useMemo(
+    () => treeEntries.filter((entry) => entry.kind === "file").length,
+    [treeEntries],
+  );
+
+  const handleSplitPane = useCallback(
+    (paneId?: string, filePath?: string) => {
+      const createdPaneId = splitPane(props.threadId, {
+        ...(filePath ? { filePath } : {}),
+        ...(paneId ? { sourcePaneId: paneId } : {}),
+      });
+      if (createdPaneId) {
+        return;
+      }
+      toastManager.add({
+        description: `This milestone currently supports up to ${MAX_THREAD_EDITOR_PANES} editor windows.`,
+        title: "Window limit reached",
+        type: "info",
+      });
+    },
+    [props.threadId, splitPane],
+  );
+
+  const handleOpenFile = useCallback(
+    (filePath: string, openInNewPane: boolean) => {
+      if (openInNewPane) {
+        handleSplitPane(activePane?.id, filePath);
+        if (panes.length >= MAX_THREAD_EDITOR_PANES) {
+          openFile(props.threadId, filePath, activePane?.id);
+        }
+        return;
+      }
+      openFile(props.threadId, filePath, activePane?.id);
+    },
+    [activePane?.id, handleSplitPane, openFile, panes.length, props.threadId],
+  );
+
+  const workspaceSignals = useMemo(
+    () => [
+      {
+        active: deferredTreeSearch.length > 0,
+        detail:
+          deferredTreeSearch.length > 0
+            ? `${visibleRows.length} matches in the tree`
+            : workspaceTreeQuery.data?.truncated
+              ? "Project tree is truncated for performance"
+              : "Full project tree is available",
+        icon: <FolderIcon className="size-4" />,
+        label: "Explorer",
+        value: `${workspaceFileCount} files`,
+      },
+      {
+        active: panes.length > 1,
+        detail:
+          activePane?.activeFilePath !== null && activePane?.activeFilePath !== undefined
+            ? `Focused on ${basenameOfPath(activePane.activeFilePath)}`
+            : "New files route into the focused window",
+        icon: <Columns2Icon className="size-4" />,
+        label: "Windows",
+        value: `${panes.length}/${MAX_THREAD_EDITOR_PANES}`,
+      },
+      {
+        active: props.terminalOpen,
+        detail: props.terminalAvailable
+          ? "Shell sessions stay attached below the workspace"
+          : "Requires an active project",
+        icon: <TerminalSquareIcon className="size-4" />,
+        label: "Terminal",
+        value: props.terminalAvailable ? (props.terminalOpen ? "Open" : "Closed") : "Unavailable",
+      },
+      {
+        active: props.browserOpen,
+        detail: props.browserAvailable
+          ? "Single-click to dock docs or app UIs beside code"
+          : "Available in Electron workspaces",
+        icon: <GlobeIcon className="size-4" />,
+        label: "Browser",
+        value: props.browserAvailable ? (props.browserOpen ? "Open" : "Closed") : "Unavailable",
+      },
+      {
+        active: props.diffOpen,
+        detail: props.isGitRepo
+          ? "Thread diffs stay docked beside the workspace"
+          : "Requires a git workspace",
+        icon: <DiffIcon className="size-4" />,
+        label: "Diff",
+        value: props.isGitRepo ? (props.diffOpen ? "Open" : "Closed") : "Unavailable",
+      },
+    ],
+    [
+      activePane?.activeFilePath,
+      deferredTreeSearch.length,
+      panes.length,
+      props.browserAvailable,
+      props.browserOpen,
+      props.diffOpen,
+      props.isGitRepo,
+      props.terminalAvailable,
+      props.terminalOpen,
+      visibleRows.length,
+      workspaceFileCount,
+      workspaceTreeQuery.data?.truncated,
+    ],
+  );
+
   const workspaceActionItems: ReactNode[] = [
     props.activeProjectScripts ? (
-      <div
+      <ProjectScriptsControl
         key="scripts"
-        className={props.mode === "editor" ? "pointer-events-none opacity-50" : undefined}
-      >
-        <ProjectScriptsControl
-          scripts={props.activeProjectScripts}
-          keybindings={props.keybindings}
-          preferredScriptId={props.preferredScriptId}
-          onRunScript={props.onRunProjectScript}
-          onAddScript={props.onAddProjectScript}
-          onUpdateScript={props.onUpdateProjectScript}
-          onDeleteScript={props.onDeleteProjectScript}
-        />
-      </div>
+        scripts={props.activeProjectScripts}
+        keybindings={props.keybindings}
+        preferredScriptId={props.preferredScriptId}
+        onRunScript={props.onRunProjectScript}
+        onAddScript={props.onAddProjectScript}
+        onUpdateScript={props.onUpdateProjectScript}
+        onDeleteScript={props.onDeleteProjectScript}
+      />
     ) : null,
     props.workspaceName ? (
       <OpenInPicker
@@ -570,60 +784,94 @@ export default function ThreadWorkspaceEditor(props: {
       />
     ) : null,
     props.workspaceName ? (
-      <div
-        key="git"
-        className={props.mode === "editor" ? "pointer-events-none opacity-50" : undefined}
-      >
-        <GitActionsControl gitCwd={props.gitCwd} activeThreadId={props.threadId} />
-      </div>
+      <GitActionsControl key="git" gitCwd={props.gitCwd} activeThreadId={props.threadId} />
     ) : null,
   ];
+
   const workspaceActionNodes = interleaveTopBarItems(workspaceActionItems);
   const utilityItems = interleaveTopBarItems([
-    props.browserAvailable ? (
-      <Tooltip key="browser">
+    <Tooltip key="split-window">
+      <TooltipTrigger
+        render={
+          <Button
+            variant="outline"
+            size="xs"
+            className="rounded-xl"
+            onClick={() => handleSplitPane(activePane?.id)}
+            disabled={panes.length >= MAX_THREAD_EDITOR_PANES}
+          >
+            <Plus className="size-3.5" />
+            Window
+          </Button>
+        }
+      />
+      <TooltipPopup side="bottom">
+        {panes.length >= MAX_THREAD_EDITOR_PANES
+          ? `Up to ${MAX_THREAD_EDITOR_PANES} editor windows are supported in this milestone.`
+          : "Split the focused editor into a new window"}
+      </TooltipPopup>
+    </Tooltip>,
+    panes.length > 1 && activePane ? (
+      <Tooltip key="close-window">
         <TooltipTrigger
           render={
-            <Toggle
-              className="shrink-0 rounded-xl"
-              pressed={props.browserOpen}
-              onPressedChange={(pressed) => {
-                if (!pressed) {
-                  props.onCloseBrowser();
-                }
-              }}
-              onDoubleClick={props.onOpenBrowser}
-              aria-label={props.browserOpen ? "Close in-app browser" : "Open in-app browser"}
-              variant="default"
+            <Button
+              variant="ghost"
               size="xs"
-              disabled={props.mode === "editor"}
+              className="rounded-xl"
+              onClick={() => closePane(props.threadId, activePane.id)}
             >
-              <span className="relative flex items-center justify-center">
-                <GlobeIcon className="size-3" />
-                {props.browserOpen && props.browserDevToolsOpen ? (
-                  <span className="absolute -top-1 -right-1 flex size-3 items-center justify-center rounded-full border border-background bg-amber-500 text-amber-950 shadow-sm">
-                    <BugIcon className="size-2" />
-                  </span>
-                ) : null}
-              </span>
-            </Toggle>
+              <XIcon className="size-3.5" />
+              Close window
+            </Button>
           }
         />
-        <TooltipPopup side="bottom">
-          {props.mode === "editor"
-            ? "Browser is unavailable in Editor mode"
-            : props.browserOpen
-              ? props.browserToggleShortcutLabel
-                ? `${props.browserDevToolsOpen ? "Close in-app browser · DevTools open" : "Close in-app browser"} (${props.browserToggleShortcutLabel})`
-                : props.browserDevToolsOpen
-                  ? "Close in-app browser · DevTools open"
-                  : "Close in-app browser"
-              : props.browserToggleShortcutLabel
-                ? `Double-click to open in-app browser (${props.browserToggleShortcutLabel})`
-                : "Double-click to open in-app browser"}
-        </TooltipPopup>
+        <TooltipPopup side="bottom">Close the focused editor window</TooltipPopup>
       </Tooltip>
     ) : null,
+    <Tooltip key="browser">
+      <TooltipTrigger
+        render={
+          <Toggle
+            className="shrink-0 rounded-xl"
+            pressed={props.browserOpen}
+            onPressedChange={(pressed) => {
+              if (pressed) {
+                props.onOpenBrowser();
+                return;
+              }
+              props.onCloseBrowser();
+            }}
+            aria-label={props.browserOpen ? "Close in-app browser" : "Open in-app browser"}
+            variant="default"
+            size="xs"
+            disabled={!props.browserAvailable}
+          >
+            <span className="relative flex items-center justify-center">
+              <GlobeIcon className="size-3" />
+              {props.browserOpen && props.browserDevToolsOpen ? (
+                <span className="absolute -top-1 -right-1 flex size-3 items-center justify-center rounded-full border border-background bg-amber-500 text-amber-950 shadow-sm">
+                  <BugIcon className="size-2" />
+                </span>
+              ) : null}
+            </span>
+          </Toggle>
+        }
+      />
+      <TooltipPopup side="bottom">
+        {!props.browserAvailable
+          ? "Browser is available in Electron workspaces."
+          : props.browserOpen
+            ? props.browserToggleShortcutLabel
+              ? `${props.browserDevToolsOpen ? "Close in-app browser · DevTools open" : "Close in-app browser"} (${props.browserToggleShortcutLabel})`
+              : props.browserDevToolsOpen
+                ? "Close in-app browser · DevTools open"
+                : "Close in-app browser"
+            : props.browserToggleShortcutLabel
+              ? `Open in-app browser (${props.browserToggleShortcutLabel})`
+              : "Open in-app browser"}
+      </TooltipPopup>
+    </Tooltip>,
     <Tooltip key="terminal">
       <TooltipTrigger
         render={
@@ -693,7 +941,7 @@ export default function ThreadWorkspaceEditor(props: {
                 {props.activeThreadTitle}
               </span>
               <span className="shrink-0 truncate text-[11px] tracking-[0.18em] text-muted-foreground/80 uppercase">
-                Thread workspace
+                Workspace studio
               </span>
             </div>
             {props.workspaceName ? (
@@ -723,278 +971,255 @@ export default function ThreadWorkspaceEditor(props: {
           className={cn(
             "pointer-events-none absolute inset-0 opacity-100",
             resolvedTheme === "dark"
-              ? "bg-[radial-gradient(circle_at_top_left,rgba(247,162,103,0.12),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_20%)]"
-              : "bg-[radial-gradient(circle_at_top_left,rgba(159,79,29,0.08),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.76),transparent_18%)]",
+              ? "bg-[radial-gradient(circle_at_top_left,rgba(247,162,103,0.12),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(90,157,255,0.08),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_20%)]"
+              : "bg-[radial-gradient(circle_at_top_left,rgba(159,79,29,0.08),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(75,126,184,0.08),transparent_26%),linear-gradient(180deg,rgba(255,255,255,0.76),transparent_18%)]",
           )}
         />
-        <div
-          className="relative grid h-full min-h-0 min-w-0"
-          style={{
-            gridTemplateColumns: `minmax(220px, ${treeWidth}px) 6px minmax(0, 1fr)`,
-          }}
-        >
-          <aside
-            className={cn(
-              "flex min-h-0 min-w-0 flex-col border-r border-border/60",
-              resolvedTheme === "dark" ? "bg-[#0e1318]/96" : "bg-[#f7f1e6]/90",
-            )}
-          >
-            <div className="border-b border-border/60 px-3 py-3">
-              <div className="mb-2 flex items-center gap-2">
-                <FolderIcon className="size-4 text-muted-foreground/80" />
-                <span className="text-[11px] font-semibold tracking-[0.24em] text-muted-foreground uppercase">
-                  Workspace
-                </span>
-                {workspaceTreeQuery.data?.truncated ? (
-                  <Badge variant="outline" className="ml-auto text-[10px] uppercase">
-                    Partial
-                  </Badge>
-                ) : null}
-              </div>
-              <div className="relative">
-                <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
-                <Input
-                  value={treeSearch}
-                  onChange={(event) => setTreeSearch(event.target.value)}
-                  placeholder="Filter files"
-                  className="pl-8"
-                  size="sm"
-                  type="search"
+
+        <div className="relative flex h-full min-h-0 flex-col">
+          <div className="border-b border-border/60 px-3 py-3 sm:px-5">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+              {workspaceSignals.map((signal) => (
+                <WorkspaceSignalCard
+                  key={signal.label}
+                  active={signal.active}
+                  detail={signal.detail}
+                  icon={signal.icon}
+                  label={signal.label}
+                  resolvedTheme={resolvedTheme}
+                  value={signal.value}
                 />
-              </div>
+              ))}
             </div>
+          </div>
 
-            <div ref={treeScrollRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-              {workspaceTreeQuery.isPending ? (
-                <div className="space-y-2 px-1 py-2">
-                  {Array.from({ length: 10 }, (_, index) => (
-                    <div
-                      key={index}
-                      className="h-8 rounded-lg bg-foreground/6"
-                      style={{ opacity: 1 - index * 0.06 }}
-                    />
-                  ))}
-                </div>
-              ) : visibleRows.length === 0 ? (
-                <div className="px-2 py-6 text-sm text-muted-foreground">
-                  {deferredTreeSearch.length > 0
-                    ? "No files match this filter."
-                    : "No files found."}
-                </div>
-              ) : (
-                <div className="relative" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const row = visibleRows[virtualRow.index];
-                    if (!row) {
-                      return null;
-                    }
-                    return (
-                      <div
-                        key={row.entry.path}
-                        className="absolute top-0 left-0 w-full"
-                        style={{ transform: `translateY(${virtualRow.start}px)` }}
-                      >
-                        <FileTreeRow
-                          activeFilePath={activeFilePath}
-                          expandedDirectoryPaths={expandedDirectoryPathSet}
-                          onOpenFile={(filePath) => openFile(props.threadId, filePath)}
-                          onToggleDirectory={(directoryPath) =>
-                            toggleDirectory(props.threadId, directoryPath)
-                          }
-                          resolvedTheme={resolvedTheme}
-                          row={row}
-                          searchMode={deferredTreeSearch.length > 0}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </aside>
-
-          <div
-            aria-label="Resize workspace sidebar"
-            role="separator"
-            aria-orientation="vertical"
-            className="relative cursor-col-resize bg-border/80 hover:bg-primary/35"
-            onPointerDown={handleTreeResizeStart}
-            onPointerMove={handleTreeResizeMove}
-            onPointerUp={handleTreeResizeEnd}
-            onPointerCancel={handleTreeResizeEnd}
-          />
-
-          <section className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+          <div className="relative min-h-0 flex-1 overflow-hidden">
             <div
-              className={cn(
-                "border-b border-border/60 px-3 pt-2",
-                resolvedTheme === "dark" ? "bg-[#0b0d10]" : "bg-[#fcfaf5]",
-              )}
+              className="grid h-full min-h-0 min-w-0"
+              style={{
+                gridTemplateColumns: `minmax(220px, ${treeWidth}px) 6px minmax(0, 1fr)`,
+              }}
             >
-              <div className="scrollbar-thin flex min-h-11 items-end gap-2 overflow-x-auto pb-2">
-                {openFilePaths.map((filePath) => {
-                  const isActive = filePath === activeFilePath;
-                  const isDirty = activeTabDirty.has(filePath);
-                  return (
-                    <button
-                      key={filePath}
-                      type="button"
-                      className={cn(
-                        "group flex h-9 items-center gap-2 rounded-t-xl border border-b-0 px-3 text-sm transition-colors",
-                        isActive
-                          ? resolvedTheme === "dark"
-                            ? "border-border/70 bg-[#14181d] text-foreground"
-                            : "border-border/70 bg-[#ffffff] text-foreground"
-                          : "border-transparent bg-transparent text-muted-foreground hover:border-border/50 hover:bg-foreground/4 hover:text-foreground",
-                      )}
-                      onClick={() => setActiveFile(props.threadId, filePath)}
+              <aside
+                className={cn(
+                  "flex min-h-0 min-w-0 flex-col border-r border-border/60",
+                  resolvedTheme === "dark" ? "bg-[#0f151c]/95" : "bg-[#f6f0e5]/92",
+                )}
+              >
+                <div className="border-b border-border/60 px-3 py-3">
+                  <div className="mb-2 flex items-center gap-2">
+                    <FolderIcon className="size-4 text-muted-foreground/80" />
+                    <span className="text-[11px] font-semibold tracking-[0.24em] text-muted-foreground uppercase">
+                      Explorer
+                    </span>
+                    <Badge variant="outline" size="sm" className="ml-auto">
+                      {workspaceFileCount}
+                    </Badge>
+                    {workspaceTreeQuery.data?.truncated ? (
+                      <Badge variant="warning" size="sm">
+                        Partial
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <div className="relative">
+                    <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+                    <Input
+                      value={treeSearch}
+                      onChange={(event) => setTreeSearch(event.target.value)}
+                      placeholder="Filter files"
+                      className="pl-8"
+                      size="sm"
+                      type="search"
+                    />
+                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/80">
+                    Option-click a file to open it in a new editor window without disrupting the
+                    focused one.
+                  </p>
+                </div>
+
+                <div ref={treeScrollRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+                  {workspaceTreeQuery.isPending ? (
+                    <div className="space-y-2 px-1 py-2">
+                      {Array.from({ length: 10 }, (_, index) => (
+                        <div
+                          key={index}
+                          className="h-8 rounded-lg bg-foreground/6"
+                          style={{ opacity: 1 - index * 0.06 }}
+                        />
+                      ))}
+                    </div>
+                  ) : visibleRows.length === 0 ? (
+                    <div className="px-2 py-6 text-sm text-muted-foreground">
+                      {deferredTreeSearch.length > 0
+                        ? "No files match this filter."
+                        : "No files found."}
+                    </div>
+                  ) : (
+                    <div
+                      className="relative"
+                      style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
                     >
-                      <VscodeEntryIcon
-                        pathValue={filePath}
-                        kind="file"
-                        theme={resolvedTheme}
-                        className="size-4"
-                      />
-                      <span className="max-w-44 truncate">{basenameOfPath(filePath)}</span>
-                      {isDirty ? <span className="size-1.5 rounded-full bg-amber-500" /> : null}
-                      <span
-                        className="rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          closeFile(props.threadId, filePath);
+                      {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                        const row = visibleRows[virtualRow.index];
+                        if (!row) {
+                          return null;
+                        }
+                        return (
+                          <div
+                            key={row.entry.path}
+                            className="absolute top-0 left-0 w-full"
+                            style={{ transform: `translateY(${virtualRow.start}px)` }}
+                          >
+                            <FileTreeRow
+                              activeFilePaths={activeFilePathSet}
+                              expandedDirectoryPaths={expandedDirectoryPathSet}
+                              focusedFilePath={activePane?.activeFilePath ?? null}
+                              onOpenFile={handleOpenFile}
+                              onToggleDirectory={(directoryPath) =>
+                                toggleDirectory(props.threadId, directoryPath)
+                              }
+                              openFilePaths={openFilePaths}
+                              resolvedTheme={resolvedTheme}
+                              row={row}
+                              searchMode={deferredTreeSearch.length > 0}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </aside>
+
+              <div
+                aria-label="Resize workspace sidebar"
+                role="separator"
+                aria-orientation="vertical"
+                className="relative cursor-col-resize bg-border/80 hover:bg-primary/35"
+                onPointerDown={handleTreeResizeStart}
+                onPointerMove={handleTreeResizeMove}
+                onPointerUp={handleTreeResizeEnd}
+                onPointerCancel={handleTreeResizeEnd}
+              />
+
+              <section className="min-h-0 min-w-0 overflow-hidden">
+                <div className="flex h-full min-h-0 flex-col px-3 py-3 sm:px-4 sm:py-4">
+                  <div className="mb-3 flex shrink-0 gap-2 overflow-x-auto pb-1">
+                    {panes.map((pane, index) => {
+                      const dirtyCount = paneDirtyCounts[pane.id] ?? 0;
+                      const paneTitle = pane.activeFilePath
+                        ? basenameOfPath(pane.activeFilePath)
+                        : `Window ${index + 1}`;
+                      return (
+                        <button
+                          key={pane.id}
+                          type="button"
+                          className={cn(
+                            "flex min-w-[220px] shrink-0 items-center gap-3 rounded-2xl border px-3 py-2 text-left transition-colors",
+                            pane.id === activePaneId
+                              ? resolvedTheme === "dark"
+                                ? "border-primary/28 bg-primary/8 text-foreground"
+                                : "border-primary/24 bg-primary/[0.06] text-foreground"
+                              : resolvedTheme === "dark"
+                                ? "border-border/55 bg-[#0f151c]/82 text-muted-foreground hover:border-border/80 hover:text-foreground"
+                                : "border-border/70 bg-white/76 text-muted-foreground hover:border-border hover:text-foreground",
+                          )}
+                          onClick={() => setActivePane(props.threadId, pane.id)}
+                        >
+                          <div
+                            className={cn(
+                              "flex size-8 shrink-0 items-center justify-center rounded-xl border text-xs font-semibold",
+                              pane.id === activePaneId
+                                ? "border-primary/28 bg-primary/10 text-primary"
+                                : "border-border/60 bg-foreground/[0.03] text-muted-foreground",
+                            )}
+                          >
+                            {index + 1}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-semibold text-foreground">
+                              {paneTitle}
+                            </div>
+                            <div className="truncate text-[11px] text-muted-foreground/80">
+                              {pane.activeFilePath ?? "No file selected"}
+                            </div>
+                          </div>
+                          {dirtyCount > 0 ? (
+                            <Badge variant="warning" size="sm" className="rounded-full px-2">
+                              {dirtyCount}
+                            </Badge>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div ref={paneGroupRef} className="flex min-h-0 flex-1 gap-3 overflow-hidden">
+                    {panes.map((pane, index) => (
+                      <div
+                        key={pane.id}
+                        className="flex min-h-0 min-w-0"
+                        style={{
+                          flexBasis: 0,
+                          flexGrow: normalizedPaneRatios[index] ?? 1,
+                          minWidth: 0,
                         }}
                       >
-                        <XIcon className="size-3.5" />
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div
-              className={cn(
-                "min-h-0 min-w-0 flex-1",
-                resolvedTheme === "dark" ? "bg-[#0b0d10]" : "bg-[#fcfaf5]",
-              )}
-            >
-              {!activeFilePath ? (
-                <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-                  <FolderIcon className="size-8 text-muted-foreground/50" />
-                  <div>
-                    <p className="text-sm font-medium text-foreground">
-                      Choose a file to start editing.
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      The editor stays out of the chat bundle until you switch into this mode.
-                    </p>
+                        <WorkspaceEditorPane
+                          active={pane.id === activePaneId}
+                          canClosePane={panes.length > 1}
+                          canSplitPane={panes.length < MAX_THREAD_EDITOR_PANES}
+                          dirtyFilePaths={activeDirtyPaths}
+                          draftsByFilePath={draftsByFilePath}
+                          gitCwd={props.gitCwd}
+                          onCloseFile={(paneId, filePath) =>
+                            closeFile(props.threadId, filePath, paneId)
+                          }
+                          onClosePane={(paneId) => closePane(props.threadId, paneId)}
+                          onDiscardDraft={(filePath) => discardDraft(props.threadId, filePath)}
+                          onFocusPane={(paneId) => setActivePane(props.threadId, paneId)}
+                          onHydrateFile={(filePath, contents) =>
+                            hydrateFile(props.threadId, filePath, contents)
+                          }
+                          onSaveFile={handleSaveFile}
+                          onSetActiveFile={(paneId, filePath) =>
+                            setActiveFile(props.threadId, filePath, paneId)
+                          }
+                          onSplitPane={(paneId) => handleSplitPane(paneId)}
+                          onUpdateDraft={(filePath, contents) =>
+                            updateDraft(props.threadId, filePath, contents)
+                          }
+                          pane={pane}
+                          paneIndex={index}
+                          resolvedTheme={resolvedTheme}
+                          savingFilePath={
+                            saveMutation.isPending
+                              ? (saveMutation.variables?.relativePath ?? null)
+                              : null
+                          }
+                        />
+                        {index < panes.length - 1 ? (
+                          <div
+                            aria-label={`Resize between editor windows ${index + 1} and ${index + 2}`}
+                            role="separator"
+                            aria-orientation="vertical"
+                            className="group mx-1 flex w-3 shrink-0 cursor-col-resize items-center justify-center touch-none select-none"
+                            onPointerDown={handlePaneResizeStart(index)}
+                            onPointerMove={handlePaneResizeMove}
+                            onPointerUp={handlePaneResizeEnd}
+                            onPointerCancel={handlePaneResizeEnd}
+                          >
+                            <div className="h-full w-px bg-border/80 transition-colors group-hover:bg-primary/55" />
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ) : activeFileQuery.isPending && !activeDraft ? (
-                <div className="space-y-4 px-6 py-6">
-                  <div className="h-5 w-52 rounded bg-foreground/6" />
-                  <div className="h-4 w-full rounded bg-foreground/4" />
-                  <div className="h-4 w-[88%] rounded bg-foreground/4" />
-                  <div className="h-4 w-[76%] rounded bg-foreground/4" />
-                </div>
-              ) : activeFileQuery.isError && !activeDraft ? (
-                <div className="flex h-full items-center justify-center px-6 text-center">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">
-                      This file could not be opened.
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {activeFileQuery.error instanceof Error
-                        ? activeFileQuery.error.message
-                        : "An unexpected error occurred."}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="h-full min-h-0 min-w-0">
-                  <Editor
-                    key={`${activeFilePath}:${resolvedTheme}`}
-                    height="100%"
-                    path={activeFilePath}
-                    value={activeFileContents}
-                    theme={resolvedTheme === "dark" ? "t3code-carbon" : "t3code-paper"}
-                    onMount={handleEditorMount}
-                    onChange={(value) => {
-                      if (!activeFilePath || value === undefined) {
-                        return;
-                      }
-                      updateDraft(props.threadId, activeFilePath, value);
-                    }}
-                    options={{
-                      automaticLayout: true,
-                      cursorBlinking: "smooth",
-                      fontLigatures: true,
-                      fontSize: 13.5,
-                      minimap: { enabled: false },
-                      padding: { top: 20, bottom: 24 },
-                      renderLineHighlightOnlyWhenFocus: true,
-                      roundedSelection: true,
-                      scrollBeyondLastLine: false,
-                      smoothScrolling: true,
-                      stickyScroll: { enabled: true },
-                      tabSize: 2,
-                      wordWrap: "off",
-                    }}
-                  />
-                </div>
-              )}
+              </section>
             </div>
-
-            <footer
-              className={cn(
-                "flex min-h-11 items-center justify-between gap-3 border-t border-border/60 px-3 text-[11px]",
-                resolvedTheme === "dark"
-                  ? "bg-[#0c1015] text-muted-foreground"
-                  : "bg-[#f4efe4] text-muted-foreground",
-              )}
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                {activeFilePath ? (
-                  <>
-                    <Badge
-                      variant="outline"
-                      className="border-border/70 bg-transparent font-mono text-[10px]"
-                    >
-                      {activeFilePath}
-                    </Badge>
-                    <span>{Math.round(activeFileSizeBytes / 1024)} KB</span>
-                    {activeFileDirty ? (
-                      <span className="font-semibold tracking-[0.18em] text-amber-600 uppercase">
-                        Unsaved
-                      </span>
-                    ) : (
-                      <span className="tracking-[0.18em] uppercase">Synced</span>
-                    )}
-                  </>
-                ) : (
-                  <span>Select a file from the workspace tree.</span>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {activeFilePath && activeFileDirty ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => discardDraft(props.threadId, activeFilePath)}
-                  >
-                    Revert
-                  </Button>
-                ) : null}
-                <Button
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={!activeFilePath || !activeFileDirty || saveMutation.isPending}
-                >
-                  {saveMutation.isPending ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </footer>
-          </section>
+          </div>
         </div>
       </div>
     </div>

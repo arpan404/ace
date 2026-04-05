@@ -138,7 +138,7 @@ function retainProjectionMessagesAfterRevert(
       )
       .toSorted(
         (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) ||
+          compareProjectionMessageOrder(left, right) ||
           left.messageId.localeCompare(right.messageId),
       )
       .slice(0, missingUserCount);
@@ -161,7 +161,7 @@ function retainProjectionMessagesAfterRevert(
       )
       .toSorted(
         (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) ||
+          compareProjectionMessageOrder(left, right) ||
           left.messageId.localeCompare(right.messageId),
       )
       .slice(0, missingAssistantCount);
@@ -171,6 +171,20 @@ function retainProjectionMessagesAfterRevert(
   }
 
   return messages.filter((message) => retainedMessageIds.has(message.messageId));
+}
+
+function compareProjectionMessageOrder(
+  left: Pick<ProjectionThreadMessage, "createdAt" | "sequence">,
+  right: Pick<ProjectionThreadMessage, "createdAt" | "sequence">,
+): number {
+  if (
+    left.sequence !== undefined &&
+    right.sequence !== undefined &&
+    left.sequence !== right.sequence
+  ) {
+    return left.sequence - right.sequence;
+  }
+  return left.createdAt.localeCompare(right.createdAt);
 }
 
 function retainProjectionActivitiesAfterRevert(
@@ -661,6 +675,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             text: nextText,
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
             isStreaming: event.payload.streaming,
+            sequence: previousMessage?.sequence ?? event.sequence,
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
           });

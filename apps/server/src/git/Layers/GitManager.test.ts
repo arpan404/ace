@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
@@ -1242,52 +1241,96 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
-  it.effect("uses the provider's cost-efficient model for commit generation", () =>
-    Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
-      yield* initRepo(repoDir);
-      fs.writeFileSync(path.join(repoDir, "README.md"), "hello\ncheap-model\n");
+  it.effect(
+    "uses the configured text generation model for commit generation without downgrading",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        yield* initRepo(repoDir);
+        fs.writeFileSync(path.join(repoDir, "README.md"), "hello\ncheap-model\n");
 
-      const seenSelections: ModelSelection[] = [];
-      const configuredSelection: ModelSelection = {
-        provider: "claudeAgent",
-        model: "claude-opus-4-6",
-      };
-
-      const { manager } = yield* makeManager({
-        textGenerationModelSelection: configuredSelection,
-        textGeneration: {
-          generateCommitMessage: (input) =>
-            Effect.sync(() => {
-              seenSelections.push(input.modelSelection);
-              return {
-                subject: "Use cheap model for commit generation",
-                body: "",
-              };
-            }),
-        },
-      });
-
-      const result = yield* runStackedAction(manager, {
-        cwd: repoDir,
-        action: "commit",
-      });
-
-      expect(result.commit.status).toBe("created");
-      expect(seenSelections).toEqual([
-        {
+        const seenSelections: ModelSelection[] = [];
+        const configuredSelection: ModelSelection = {
           provider: "claudeAgent",
-          model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.claudeAgent,
-        },
-      ]);
-    }),
+          model: "claude-opus-4-6",
+        };
+
+        const { manager } = yield* makeManager({
+          textGenerationModelSelection: configuredSelection,
+          textGeneration: {
+            generateCommitMessage: (input) =>
+              Effect.sync(() => {
+                seenSelections.push(input.modelSelection);
+                return {
+                  subject: "Use cheap model for commit generation",
+                  body: "",
+                };
+              }),
+          },
+        });
+
+        const result = yield* runStackedAction(manager, {
+          cwd: repoDir,
+          action: "commit",
+        });
+
+        expect(result.commit.status).toBe("created");
+        expect(seenSelections).toEqual([
+          {
+            provider: "claudeAgent",
+            model: "claude-opus-4-6",
+          },
+        ]);
+      }),
   );
 
-  it.effect("prefers the request model selection over server git settings", () =>
+  it.effect(
+    "falls back to the request model selection when text generation settings are unchanged",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        yield* initRepo(repoDir);
+        fs.writeFileSync(path.join(repoDir, "README.md"), "hello\nrequest-provider\n");
+
+        const seenSelections: ModelSelection[] = [];
+
+        const { manager } = yield* makeManager({
+          textGeneration: {
+            generateCommitMessage: (input) =>
+              Effect.sync(() => {
+                seenSelections.push(input.modelSelection);
+                return {
+                  subject: "Use request provider for commit generation",
+                  body: "",
+                };
+              }),
+          },
+        });
+
+        const result = yield* runStackedAction(manager, {
+          cwd: repoDir,
+          action: "commit",
+          modelSelection: {
+            provider: "githubCopilot",
+            model: "gpt-4.1",
+          },
+        });
+
+        expect(result.commit.status).toBe("created");
+        expect(seenSelections).toEqual([
+          {
+            provider: "githubCopilot",
+            model: "gpt-4.1",
+          },
+        ]);
+      }),
+  );
+
+  it.effect("prefers explicit text generation settings over the current chat model", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
-      fs.writeFileSync(path.join(repoDir, "README.md"), "hello\nrequest-provider\n");
+      fs.writeFileSync(path.join(repoDir, "README.md"), "hello\nsettings-provider\n");
 
       const seenSelections: ModelSelection[] = [];
 
@@ -1301,7 +1344,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
             Effect.sync(() => {
               seenSelections.push(input.modelSelection);
               return {
-                subject: "Use request provider for commit generation",
+                subject: "Use configured text generation model",
                 body: "",
               };
             }),
@@ -1320,8 +1363,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.commit.status).toBe("created");
       expect(seenSelections).toEqual([
         {
-          provider: "githubCopilot",
-          model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.githubCopilot,
+          provider: "codex",
+          model: "gpt-5.4",
         },
       ]);
     }),

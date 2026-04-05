@@ -2,11 +2,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { ModelSelection, ProviderRuntimeEvent, ProviderSession } from "@t3tools/contracts";
+import type {
+  ModelSelection,
+  ProviderRuntimeEvent,
+  ProviderSession,
+  ServerSettings,
+} from "@t3tools/contracts";
 import {
   ApprovalRequestId,
   CommandId,
-  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
@@ -96,6 +100,7 @@ describe("ProviderCommandReactor", () => {
 
   async function createHarness(input?: {
     readonly baseDir?: string;
+    readonly serverSettings?: Partial<ServerSettings>;
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session" | "restart-session";
   }) {
@@ -229,7 +234,7 @@ describe("ProviderCommandReactor", () => {
           generateThreadTitle,
         }),
       ),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(ServerSettingsService.layerTest(input?.serverSettings ?? {})),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
       Layer.provideMerge(NodeServices.layer),
     );
@@ -361,7 +366,7 @@ describe("ProviderCommandReactor", () => {
       message: "Please investigate reconnect failures after restarting the session.",
       modelSelection: {
         provider: "codex",
-        model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
+        model: "gpt-5-codex",
       },
     });
 
@@ -468,7 +473,7 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.title).toBe("Reconnect spinner resume bug");
   });
 
-  it("uses the thread provider for first-turn title generation with a lightweight Copilot model", async () => {
+  it("uses the thread model for first-turn title generation without downgrading the provider", async () => {
     const harness = await createHarness({
       threadModelSelection: { provider: "githubCopilot", model: "gpt-5" },
     });
@@ -508,7 +513,7 @@ describe("ProviderCommandReactor", () => {
       message: "hi",
       modelSelection: {
         provider: "githubCopilot",
-        model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.githubCopilot,
+        model: "gpt-5",
       },
     });
   });
@@ -562,6 +567,62 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.generateBranchName.mock.calls.length === 1);
     expect(harness.generateBranchName.mock.calls[0]?.[0]).toMatchObject({
       message: "Add a safer reconnect backoff.",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+    });
+  });
+
+  it("prefers explicit text generation settings over the thread model for branch generation", async () => {
+    const harness = await createHarness({
+      serverSettings: {
+        textGenerationModelSelection: {
+          provider: "claudeAgent",
+          model: "claude-sonnet-4-6",
+        },
+      },
+      threadModelSelection: {
+        provider: "githubCopilot",
+        model: "gpt-5",
+      },
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-branch-settings"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        branch: "t3code/87654321",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-branch-settings"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-branch-settings"),
+          role: "user",
+          text: "Rename the branch from settings.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateBranchName.mock.calls.length === 1);
+    expect(harness.generateBranchName.mock.calls[0]?.[0]).toMatchObject({
+      message: "Rename the branch from settings.",
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-sonnet-4-6",
+      },
     });
   });
 

@@ -92,10 +92,7 @@ function retainThreadMessagesAfterRevert(
           !retainedMessageIds.has(message.id) &&
           (message.turnId === null || retainedTurnIds.has(message.turnId)),
       )
-      .toSorted(
-        (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-      )
+      .toSorted(compareThreadMessages)
       .slice(0, missingUserCount);
     for (const message of fallbackUserMessages) {
       retainedMessageIds.add(message.id);
@@ -114,10 +111,7 @@ function retainThreadMessagesAfterRevert(
           !retainedMessageIds.has(message.id) &&
           (message.turnId === null || retainedTurnIds.has(message.turnId)),
       )
-      .toSorted(
-        (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-      )
+      .toSorted(compareThreadMessages)
       .slice(0, missingAssistantCount);
     for (const message of fallbackAssistantMessages) {
       retainedMessageIds.add(message.id);
@@ -159,6 +153,20 @@ function compareThreadActivities(
     return -1;
   }
 
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
+
+function compareThreadMessages(
+  left: Pick<OrchestrationMessage, "createdAt" | "id" | "sequence">,
+  right: Pick<OrchestrationMessage, "createdAt" | "id" | "sequence">,
+): number {
+  if (
+    left.sequence !== undefined &&
+    right.sequence !== undefined &&
+    left.sequence !== right.sequence
+  ) {
+    return left.sequence - right.sequence;
+  }
   return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 }
 
@@ -394,6 +402,7 @@ export function projectEvent(
             ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
+            sequence: event.sequence,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
           },
@@ -413,6 +422,9 @@ export function projectEvent(
                         ? message.text
                         : entry.text,
                     streaming: message.streaming,
+                    ...(entry.sequence !== undefined || message.sequence !== undefined
+                      ? { sequence: entry.sequence ?? message.sequence }
+                      : {}),
                     updatedAt: message.updatedAt,
                     turnId: message.turnId,
                     ...(message.attachments !== undefined

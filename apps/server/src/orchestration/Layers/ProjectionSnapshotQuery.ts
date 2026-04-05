@@ -59,6 +59,7 @@ const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
 const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   Struct.assign({
     isStreaming: Schema.Number,
+    sequence: Schema.NullOr(NonNegativeInt),
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
   }),
 );
@@ -133,6 +134,26 @@ function maxIso(left: string | null, right: string): string {
     return right;
   }
   return left > right ? left : right;
+}
+
+function compareThreadMessages(
+  left: Pick<OrchestrationMessage, "createdAt" | "id" | "sequence">,
+  right: Pick<OrchestrationMessage, "createdAt" | "id" | "sequence">,
+): number {
+  if (
+    left.sequence !== undefined &&
+    right.sequence !== undefined &&
+    left.sequence !== right.sequence
+  ) {
+    return left.sequence - right.sequence;
+  }
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
+
+function sortThreadMessages(
+  messages: ReadonlyArray<OrchestrationMessage>,
+): ReadonlyArray<OrchestrationMessage> {
+  return [...messages].toSorted(compareThreadMessages);
 }
 
 function computeSnapshotSequence(
@@ -244,6 +265,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           text,
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
+          sequence,
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
@@ -264,6 +286,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           text,
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
+          sequence,
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
@@ -285,6 +308,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           text,
           attachments_json AS "attachments",
           is_streaming AS "isStreaming",
+          sequence,
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
@@ -727,6 +751,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ...(row.attachments !== null ? { attachments: row.attachments } : {}),
               turnId: row.turnId,
               streaming: row.isStreaming === 1,
+              ...(row.sequence !== null ? { sequence: row.sequence } : {}),
               createdAt: row.createdAt,
               updatedAt: row.updatedAt,
             });
@@ -743,6 +768,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ...(row.attachments !== null ? { attachments: row.attachments } : {}),
               turnId: row.turnId,
               streaming: row.isStreaming === 1,
+              ...(row.sequence !== null ? { sequence: row.sequence } : {}),
               createdAt: row.createdAt,
               updatedAt: row.updatedAt,
             });
@@ -892,8 +918,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               archivedAt: row.archivedAt,
               deletedAt: row.deletedAt,
               messages: historyLoaded
-                ? (fullMessagesByThread.get(row.threadId) ?? [])
-                : (summaryMessagesByThread.get(row.threadId) ?? []),
+                ? sortThreadMessages(fullMessagesByThread.get(row.threadId) ?? [])
+                : sortThreadMessages(summaryMessagesByThread.get(row.threadId) ?? []),
               proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
               activities: historyLoaded
                 ? (fullActivitiesByThread.get(row.threadId) ?? [])

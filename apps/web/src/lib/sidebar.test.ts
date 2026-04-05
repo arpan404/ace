@@ -13,6 +13,7 @@ import {
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
+  resolveSidebarNewThreadOptions,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   shouldClearThreadSelectionOnMouseDown,
@@ -222,6 +223,43 @@ describe("resolveSidebarNewThreadSeedContext", () => {
           worktreePath: null,
         },
         activeDraftThread: null,
+      }),
+    ).toEqual({
+      envMode: "worktree",
+    });
+  });
+});
+
+describe("resolveSidebarNewThreadOptions", () => {
+  it("keeps the matching draft-thread context when switching within the same project", () => {
+    expect(
+      resolveSidebarNewThreadOptions({
+        projectId: "project-1",
+        defaultEnvMode: "local",
+        activeDraftThread: {
+          projectId: "project-1",
+          branch: "feature/new-draft",
+          worktreePath: "/repo/worktree",
+          envMode: "worktree",
+        },
+      }),
+    ).toEqual({
+      branch: "feature/new-draft",
+      worktreePath: "/repo/worktree",
+      envMode: "worktree",
+    });
+  });
+
+  it("falls back to a default-only launch payload when no matching thread context exists", () => {
+    expect(
+      resolveSidebarNewThreadOptions({
+        projectId: "project-2",
+        defaultEnvMode: "worktree",
+        activeThread: {
+          projectId: "project-1",
+          branch: "effect-atom",
+          worktreePath: null,
+        },
       }),
     ).toEqual({
       envMode: "worktree",

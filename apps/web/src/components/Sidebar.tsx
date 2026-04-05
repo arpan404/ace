@@ -115,8 +115,8 @@ import {
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
   resolveProjectStatusIndicator,
-  resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
+  resolveSidebarNewThreadOptions,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   orderItemsByPreferredIds,
@@ -126,6 +126,7 @@ import {
   useThreadJumpHintVisibility,
 } from "../lib/sidebar";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
+import { prefetchHydratedThread, readCachedHydratedThread } from "../lib/threadHydrationCache";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
@@ -311,6 +312,14 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
     : !isThreadRunning
       ? "pointer-events-none transition-opacity duration-150 group-hover/menu-sub-item:opacity-0 group-focus-within/menu-sub-item:opacity-0"
       : "pointer-events-none";
+  const prefetchThreadHistory = () => {
+    if (thread.id === props.routeThreadId) {
+      return;
+    }
+    prefetchHydratedThread(thread.id, {
+      expectedUpdatedAt: thread.updatedAt ?? null,
+    });
+  };
 
   return (
     <SidebarMenuSubItem
@@ -338,6 +347,8 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
           isActive,
           isSelected,
         })} relative isolate`}
+        onMouseEnter={prefetchThreadHistory}
+        onFocus={prefetchThreadHistory}
         onClick={(event) => {
           props.handleThreadClick(event, thread.id, props.orderedProjectThreadIds);
         }}
@@ -1182,6 +1193,16 @@ export default function Sidebar() {
 
   const handleThreadClick = useCallback(
     (event: MouseEvent, threadId: ThreadId, orderedProjectThreadIds: readonly ThreadId[]) => {
+      const hydrateThreadFromCacheIfReady = () => {
+        const thread = sidebarThreadsById[threadId];
+        if (!thread?.updatedAt) {
+          return;
+        }
+        const cached = readCachedHydratedThread(threadId, thread.updatedAt ?? null);
+        if (cached) {
+          useStore.getState().hydrateThreadFromReadModel(cached);
+        }
+      };
       const isMac = isMacPlatform(navigator.platform);
       const isModClick = isMac ? event.metaKey : event.ctrlKey;
       const isShiftClick = event.shiftKey;
@@ -1203,6 +1224,7 @@ export default function Sidebar() {
         clearSelection();
       }
       setSelectionAnchor(threadId);
+      hydrateThreadFromCacheIfReady();
       void navigate({
         to: "/$threadId",
         params: { threadId },
@@ -1214,12 +1236,20 @@ export default function Sidebar() {
       rangeSelectTo,
       selectedThreadIds.size,
       setSelectionAnchor,
+      sidebarThreadsById,
       toggleThreadSelection,
     ],
   );
 
   const navigateToThread = useCallback(
     (threadId: ThreadId) => {
+      const thread = sidebarThreadsById[threadId];
+      if (thread?.updatedAt) {
+        const cached = readCachedHydratedThread(threadId, thread.updatedAt ?? null);
+        if (cached) {
+          useStore.getState().hydrateThreadFromReadModel(cached);
+        }
+      }
       if (selectedThreadIds.size > 0) {
         clearSelection();
       }
@@ -1229,7 +1259,7 @@ export default function Sidebar() {
         params: { threadId },
       });
     },
-    [clearSelection, navigate, selectedThreadIds.size, setSelectionAnchor],
+    [clearSelection, navigate, selectedThreadIds.size, setSelectionAnchor, sidebarThreadsById],
   );
 
   const handleProjectContextMenu = useCallback(
@@ -1657,36 +1687,32 @@ export default function Sidebar() {
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    const seedContext = resolveSidebarNewThreadSeedContext({
-                      projectId: project.id,
-                      defaultEnvMode: resolveSidebarNewThreadEnvMode({
-                        defaultEnvMode: appSettings.defaultThreadEnvMode,
+                    void handleNewThread(
+                      project.id,
+                      resolveSidebarNewThreadOptions({
+                        projectId: project.id,
+                        defaultEnvMode: resolveSidebarNewThreadEnvMode({
+                          defaultEnvMode: appSettings.defaultThreadEnvMode,
+                        }),
+                        activeThread:
+                          activeThread && activeThread.projectId === project.id
+                            ? {
+                                projectId: activeThread.projectId,
+                                branch: activeThread.branch,
+                                worktreePath: activeThread.worktreePath,
+                              }
+                            : null,
+                        activeDraftThread:
+                          activeDraftThread && activeDraftThread.projectId === project.id
+                            ? {
+                                projectId: activeDraftThread.projectId,
+                                branch: activeDraftThread.branch,
+                                worktreePath: activeDraftThread.worktreePath,
+                                envMode: activeDraftThread.envMode,
+                              }
+                            : null,
                       }),
-                      activeThread:
-                        activeThread && activeThread.projectId === project.id
-                          ? {
-                              projectId: activeThread.projectId,
-                              branch: activeThread.branch,
-                              worktreePath: activeThread.worktreePath,
-                            }
-                          : null,
-                      activeDraftThread:
-                        activeDraftThread && activeDraftThread.projectId === project.id
-                          ? {
-                              projectId: activeDraftThread.projectId,
-                              branch: activeDraftThread.branch,
-                              worktreePath: activeDraftThread.worktreePath,
-                              envMode: activeDraftThread.envMode,
-                            }
-                          : null,
-                    });
-                    void handleNewThread(project.id, {
-                      ...(seedContext.branch !== undefined ? { branch: seedContext.branch } : {}),
-                      ...(seedContext.worktreePath !== undefined
-                        ? { worktreePath: seedContext.worktreePath }
-                        : {}),
-                      envMode: seedContext.envMode,
-                    });
+                    );
                   }}
                 >
                   <SquarePenIcon className="size-3.5" />

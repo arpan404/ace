@@ -17,8 +17,8 @@ import {
   stripDiffSearchParams,
 } from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { useStore } from "../store";
-import { ensureNativeApi } from "../nativeApi";
+import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
+import { getThreadById, useStore } from "../store";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 
@@ -177,7 +177,7 @@ function ChatThreadRouteView() {
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
   const search = Route.useSearch();
-  const serverThread = useStore((store) => store.threads.find((thread) => thread.id === threadId));
+  const serverThread = useStore((store) => getThreadById(store.threads, threadId));
   const threadExists = serverThread !== undefined;
   const draftThreadExists = useComposerDraftStore((store) =>
     Object.hasOwn(store.draftThreadsByThreadId, threadId),
@@ -190,6 +190,10 @@ function ChatThreadRouteView() {
   const [hasOpenedDiff, setHasOpenedDiff] = useState(diffOpen);
   const [hydratingThreadId, setHydratingThreadId] = useState<ThreadId | null>(null);
   const [threadHydrationFailed, setThreadHydrationFailed] = useState(false);
+  const cachedHydratedThread =
+    serverThread?.historyLoaded === false && serverThread.updatedAt
+      ? readCachedHydratedThread(threadId, serverThread.updatedAt)
+      : null;
   const closeDiff = useCallback(() => {
     void navigate({
       to: "/$threadId",
@@ -241,19 +245,19 @@ function ChatThreadRouteView() {
       return;
     }
 
+    if (cachedHydratedThread) {
+      hydrateThreadFromReadModel(cachedHydratedThread);
+      return;
+    }
+
     let canceled = false;
     setHydratingThreadId(threadId);
     void (async () => {
       try {
-        const snapshot = await ensureNativeApi().orchestration.getSnapshot({
-          hydrateThreadId: threadId,
+        const readModelThread = await hydrateThreadFromCache(threadId, {
+          expectedUpdatedAt: serverThread.updatedAt ?? null,
         });
-        const readModelThread = snapshot.threads.find((thread) => thread.id === threadId);
         if (canceled) {
-          return;
-        }
-        if (!readModelThread || readModelThread.deletedAt !== null) {
-          void navigate({ to: "/", replace: true });
           return;
         }
         hydrateThreadFromReadModel(readModelThread);
@@ -273,9 +277,9 @@ function ChatThreadRouteView() {
     };
   }, [
     bootstrapComplete,
+    cachedHydratedThread,
     hydrateThreadFromReadModel,
     hydratingThreadId,
-    navigate,
     serverThread,
     threadHydrationFailed,
     threadId,

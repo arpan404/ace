@@ -1,5 +1,6 @@
 import {
   type EditorId,
+  type ProjectId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
@@ -13,6 +14,7 @@ import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScr
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { OpenInPicker } from "./OpenInPicker";
+import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
 import { WorkspaceModeToggle } from "../editor/WorkspaceModeToggle";
 import { TopBarCluster, interleaveTopBarItems } from "../thread/TopBarCluster";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
@@ -20,6 +22,7 @@ import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
   activeThreadTitle: string;
+  activeProjectId: ProjectId | null;
   activeProjectName: string | undefined;
   isGitRepo: boolean;
   openInCwd: string | null;
@@ -44,6 +47,7 @@ interface ChatHeaderProps {
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onOpenBrowser: () => void;
   onCloseBrowser: () => void;
+  onActiveProjectChange?: ((projectId: ProjectId) => void) | null;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
   onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
@@ -52,6 +56,7 @@ interface ChatHeaderProps {
 export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   activeThreadTitle,
+  activeProjectId,
   activeProjectName,
   isGitRepo,
   openInCwd,
@@ -76,6 +81,7 @@ export const ChatHeader = memo(function ChatHeader({
   onDeleteProjectScript,
   onOpenBrowser,
   onCloseBrowser,
+  onActiveProjectChange,
   onToggleTerminal,
   onToggleDiff,
   onWorkspaceModeChange,
@@ -211,13 +217,21 @@ export const ChatHeader = memo(function ChatHeader({
           </h2>
           {activeProjectName && (
             <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-              <Badge
-                variant="outline"
-                size="sm"
-                className="min-w-0 max-w-48 shrink overflow-hidden text-muted-foreground/85"
-              >
-                <span className="min-w-0 truncate">{activeProjectName}</span>
-              </Badge>
+              {activeProjectId !== null && onActiveProjectChange ? (
+                <ProjectContextSwitcher
+                  activeProjectId={activeProjectId}
+                  className="min-w-0 max-w-52 shrink"
+                  onSelectProject={onActiveProjectChange}
+                />
+              ) : (
+                <Badge
+                  variant="outline"
+                  size="sm"
+                  className="min-w-0 max-w-48 shrink overflow-hidden text-muted-foreground/85"
+                >
+                  <span className="min-w-0 truncate">{activeProjectName}</span>
+                </Badge>
+              )}
               {!isGitRepo && (
                 <Badge variant="warning" size="sm" className="shrink-0">
                   No Git

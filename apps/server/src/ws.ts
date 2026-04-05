@@ -28,8 +28,8 @@ import { GitManager } from "./git/Services/GitManager";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
+import { createReadModelSnapshotViewCache } from "./orchestration/readModelSnapshotView";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
-import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -41,7 +41,6 @@ import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePat
 
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const checkpointDiffQuery = yield* CheckpointDiffQuery;
     const keybindings = yield* Keybindings;
@@ -56,6 +55,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const startup = yield* ServerRuntimeStartup;
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
+    const snapshotViewCache = createReadModelSnapshotViewCache();
 
     const loadServerConfig = Effect.gen(function* () {
       const keybindingsConfig = yield* keybindings.loadConfigState;
@@ -75,13 +75,16 @@ const WsRpcLayer = WsRpcGroup.toLayer(
 
     return WsRpcGroup.of({
       [ORCHESTRATION_WS_METHODS.getSnapshot]: (input) =>
-        projectionSnapshotQuery.getSnapshot(input).pipe(
-          Effect.mapError(
-            (cause) =>
-              new OrchestrationGetSnapshotError({
-                message: "Failed to load orchestration snapshot",
-                cause,
-              }),
+        orchestrationEngine.getReadModel().pipe(
+          Effect.flatMap((readModel) =>
+            Effect.try({
+              try: () => snapshotViewCache.getSnapshot(readModel, input),
+              catch: (cause) =>
+                new OrchestrationGetSnapshotError({
+                  message: "Failed to load orchestration snapshot",
+                  cause,
+                }),
+            }),
           ),
         ),
       [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>

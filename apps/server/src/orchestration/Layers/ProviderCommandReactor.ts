@@ -1,7 +1,6 @@
 import {
   type ChatAttachment,
   CommandId,
-  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
@@ -21,6 +20,7 @@ import { ProviderAdapterRequestError, ProviderServiceError } from "../../provide
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { resolveTextGenerationModelSelection } from "../../git/textGenerationModelSelection.ts";
 import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
@@ -75,13 +75,6 @@ const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const WORKTREE_BRANCH_PREFIX = "t3code";
 const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
 const DEFAULT_THREAD_TITLE = "New thread";
-
-function toFirstTurnTitleModelSelection(selection: ModelSelection): ModelSelection {
-  return {
-    provider: selection.provider,
-    model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[selection.provider],
-  };
-}
 
 function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolean {
   const trimmedCurrentTitle = currentTitle.trim();
@@ -428,6 +421,7 @@ const make = Effect.gen(function* () {
     readonly branch: string | null;
     readonly worktreePath: string | null;
     readonly messageText: string;
+    readonly modelSelection: ModelSelection;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
   }) {
     if (!input.branch || !input.worktreePath) {
@@ -441,8 +435,11 @@ const make = Effect.gen(function* () {
     const cwd = input.worktreePath;
     const attachments = input.attachments ?? [];
     yield* Effect.gen(function* () {
-      const { textGenerationModelSelection: modelSelection } =
-        yield* serverSettingsService.getSettings;
+      const serverSettings = yield* serverSettingsService.getSettings;
+      const modelSelection = resolveTextGenerationModelSelection({
+        serverSettings,
+        fallbackModelSelection: input.modelSelection,
+      });
 
       const generated = yield* textGeneration.generateBranchName({
         cwd,
@@ -485,11 +482,15 @@ const make = Effect.gen(function* () {
   }) {
     const attachments = input.attachments ?? [];
     yield* Effect.gen(function* () {
+      const serverSettings = yield* serverSettingsService.getSettings;
       const generated = yield* textGeneration.generateThreadTitle({
         cwd: input.cwd,
         message: input.messageText,
         ...(attachments.length > 0 ? { attachments } : {}),
-        modelSelection: toFirstTurnTitleModelSelection(input.modelSelection),
+        modelSelection: resolveTextGenerationModelSelection({
+          serverSettings,
+          fallbackModelSelection: input.modelSelection,
+        }),
       });
       if (!generated) return;
 
@@ -560,6 +561,7 @@ const make = Effect.gen(function* () {
         threadId: event.payload.threadId,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
+        modelSelection: event.payload.modelSelection ?? thread.modelSelection,
         ...generationInput,
       }).pipe(Effect.forkScoped);
 

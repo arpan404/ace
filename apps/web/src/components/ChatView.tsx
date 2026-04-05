@@ -79,7 +79,7 @@ import {
   setPendingUserInputCustomAnswer,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
-import { useStore } from "../store";
+import { getThreadById, getThreadsByIds, useStore } from "../store";
 import { useProjectById, useThreadById } from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";
 import {
@@ -102,6 +102,7 @@ import {
 import { LRUCache } from "../lib/lruCache";
 
 import { basenameOfPath } from "../vscode-icons";
+import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import BranchToolbar from "./BranchToolbar";
@@ -122,6 +123,7 @@ import {
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { cn, randomUUID } from "~/lib/utils";
+import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
@@ -134,7 +136,6 @@ import {
   projectScriptIdFromCommand,
   setupProjectScript,
 } from "~/projectScripts";
-import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { deriveTerminalTitleFromCommand } from "~/lib/terminalPresentation";
@@ -176,6 +177,7 @@ import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./chat/ExpandedImagePreview";
+import { NewThreadLanding } from "./chat/NewThreadLanding";
 import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
 import { InAppBrowser, type InAppBrowserController, type InAppBrowserMode } from "./InAppBrowser";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
@@ -287,9 +289,7 @@ function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlanCatalog
     let previousEntries: ThreadPlanCatalogEntry[] = [];
 
     return (state: { threads: Thread[] }): ThreadPlanCatalogEntry[] => {
-      const nextThreads = threadIds.map((threadId) =>
-        state.threads.find((thread) => thread.id === threadId),
-      );
+      const nextThreads = getThreadsByIds(state.threads, threadIds);
       const cachedThreads = previousThreads;
       if (
         cachedThreads &&
@@ -453,6 +453,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     (store) => store.threadLastVisitedAtById[threadId],
   );
   const settings = useSettings();
+  const {
+    activeDraftThread: currentRouteDraftThread,
+    activeThread: currentRouteThread,
+    handleNewThread,
+  } = useHandleNewThread();
   const setStickyComposerModelSelection = useComposerDraftStore(
     (store) => store.setStickyModelSelection,
   );
@@ -729,6 +734,35 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = useProjectById(activeThread?.projectId);
+  const handleActiveProjectChange = useCallback(
+    (projectId: ProjectId) => {
+      void handleNewThread(
+        projectId,
+        resolveSidebarNewThreadOptions({
+          projectId,
+          defaultEnvMode: settings.defaultThreadEnvMode,
+          activeThread:
+            currentRouteThread && currentRouteThread.projectId === projectId
+              ? {
+                  projectId: currentRouteThread.projectId,
+                  branch: currentRouteThread.branch,
+                  worktreePath: currentRouteThread.worktreePath,
+                }
+              : null,
+          activeDraftThread:
+            currentRouteDraftThread && currentRouteDraftThread.projectId === projectId
+              ? {
+                  projectId: currentRouteDraftThread.projectId,
+                  branch: currentRouteDraftThread.branch,
+                  worktreePath: currentRouteDraftThread.worktreePath,
+                  envMode: currentRouteDraftThread.envMode,
+                }
+              : null,
+        }),
+      );
+    },
+    [currentRouteDraftThread, currentRouteThread, handleNewThread, settings.defaultThreadEnvMode],
+  );
   const queuedComposerMessages =
     serverThread?.queuedComposerMessages ?? EMPTY_QUEUED_COMPOSER_MESSAGES;
   const queuedSteerRequest = serverThread?.queuedSteerRequest ?? null;
@@ -1542,7 +1576,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setThreadError = useCallback(
     (targetThreadId: ThreadId | null, error: string | null) => {
       if (!targetThreadId) return;
-      if (useStore.getState().threads.some((thread) => thread.id === targetThreadId)) {
+      if (getThreadById(useStore.getState().threads, targetThreadId)) {
         setStoreThreadError(targetThreadId, error);
         return;
       }
@@ -1607,9 +1641,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         });
         return true;
       } catch (error) {
-        const currentThread = useStore
-          .getState()
-          .threads.find((thread) => thread.id === serverThread.id);
+        const currentThread = getThreadById(useStore.getState().threads, serverThread.id);
         if (
           currentThread &&
           currentThread.queuedComposerMessages === nextMessages &&
@@ -4813,28 +4845,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   // Empty state: no active thread
   if (!activeThread) {
-    return (
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-muted-foreground/40">
-        {!isElectron && (
-          <header className="border-b border-border px-3 py-2 md:hidden">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="size-7 shrink-0" />
-              <span className="text-sm font-medium text-foreground">Threads</span>
-            </div>
-          </header>
-        )}
-        {isElectron && (
-          <div className="drag-region flex h-13 shrink-0 items-center border-b border-border px-5">
-            <span className="text-xs text-muted-foreground/50">No active thread</span>
-          </div>
-        )}
-        <div className="flex flex-1 items-center justify-center">
-          <div className="text-center">
-            <p className="text-sm">Select a thread or create a new one to get started.</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <NewThreadLanding />;
   }
 
   return (
@@ -4851,6 +4862,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             <ChatHeader
               activeThreadId={activeThread.id}
               activeThreadTitle={activeThread.title}
+              activeProjectId={activeProject?.id ?? null}
               activeProjectName={activeProject?.name}
               isGitRepo={isGitRepo}
               openInCwd={gitCwd}
@@ -4879,6 +4891,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               onDeleteProjectScript={deleteProjectScript}
               onOpenBrowser={openBrowser}
               onCloseBrowser={closeBrowser}
+              onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
               onToggleTerminal={toggleTerminalVisibility}
               onToggleDiff={onToggleDiff}
               onWorkspaceModeChange={onWorkspaceModeChange}
@@ -5455,7 +5468,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             }}
           />
         ) : null}
-        {workspaceMode === "chat" && browserOpen && isElectron ? (
+        {browserOpen && isElectron ? (
           <>
             {browserMode === "split" ? (
               <div

@@ -175,7 +175,11 @@ it.layer(TestLayer)("WorkspaceFileSystemLive", (it) => {
           })
           .pipe(Effect.flip);
 
-        expect(error.message).toContain("Binary files are not supported");
+        expect(error._tag).toBe("WorkspaceFileSystemError");
+        if (error._tag !== "WorkspaceFileSystemError") {
+          throw new Error(`Unexpected error: ${error.message}`);
+        }
+        expect(error.detail).toContain("Binary files are not supported");
       }),
     );
 
@@ -192,7 +196,11 @@ it.layer(TestLayer)("WorkspaceFileSystemLive", (it) => {
           })
           .pipe(Effect.flip);
 
-        expect(error.message).toContain("Files larger than");
+        expect(error._tag).toBe("WorkspaceFileSystemError");
+        if (error._tag !== "WorkspaceFileSystemError") {
+          throw new Error(`Unexpected error: ${error.message}`);
+        }
+        expect(error.detail).toContain("Files larger than");
       }),
     );
   });

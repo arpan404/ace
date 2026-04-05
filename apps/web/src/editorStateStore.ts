@@ -1,6 +1,7 @@
 import type { ThreadId } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { normalizePaneRatios } from "./lib/paneRatios";
 import { resolveStorage } from "./lib/storage";
 
 interface EditorDraftState {
@@ -8,7 +9,21 @@ interface EditorDraftState {
   savedContents: string;
 }
 
+export interface ThreadEditorPaneState {
+  activeFilePath: string | null;
+  id: string;
+  openFilePaths: string[];
+}
+
 interface PersistedThreadEditorState {
+  activePaneId: string;
+  expandedDirectoryPaths: string[];
+  paneRatios: number[];
+  panes: ThreadEditorPaneState[];
+  treeWidth: number;
+}
+
+interface LegacyPersistedThreadEditorState {
   activeFilePath: string | null;
   expandedDirectoryPaths: string[];
   openFilePaths: string[];
@@ -19,18 +34,32 @@ interface RuntimeThreadEditorState {
   draftsByFilePath: Record<string, EditorDraftState>;
 }
 
+interface PersistedEditorStoreSnapshot {
+  threadStateByThreadId?: Record<
+    string,
+    PersistedThreadEditorState | LegacyPersistedThreadEditorState
+  >;
+}
+
 interface EditorStoreState {
-  runtimeStateByThreadId: Record<string, RuntimeThreadEditorState>;
-  threadStateByThreadId: Record<string, PersistedThreadEditorState>;
-  closeFile: (threadId: ThreadId, filePath: string) => void;
+  closeFile: (threadId: ThreadId, filePath: string, paneId?: string) => void;
+  closePane: (threadId: ThreadId, paneId: string) => void;
   discardDraft: (threadId: ThreadId, filePath: string) => void;
   hydrateFile: (threadId: ThreadId, filePath: string, contents: string) => void;
   isDirty: (threadId: ThreadId, filePath: string) => boolean;
   markFileSaved: (threadId: ThreadId, filePath: string, contents: string) => void;
-  openFile: (threadId: ThreadId, filePath: string) => void;
-  setActiveFile: (threadId: ThreadId, filePath: string | null) => void;
+  openFile: (threadId: ThreadId, filePath: string, paneId?: string) => void;
+  runtimeStateByThreadId: Record<string, RuntimeThreadEditorState>;
+  setActiveFile: (threadId: ThreadId, filePath: string | null, paneId?: string) => void;
+  setActivePane: (threadId: ThreadId, paneId: string) => void;
+  setPaneRatios: (threadId: ThreadId, ratios: readonly number[]) => void;
   setTreeWidth: (threadId: ThreadId, width: number) => void;
+  splitPane: (
+    threadId: ThreadId,
+    options?: { filePath?: string | null; sourcePaneId?: string },
+  ) => string | null;
   syncTree: (threadId: ThreadId, validPaths: readonly string[]) => void;
+  threadStateByThreadId: Record<string, PersistedThreadEditorState>;
   toggleDirectory: (threadId: ThreadId, directoryPath: string) => void;
   updateDraft: (threadId: ThreadId, filePath: string, draftContents: string) => void;
 }
@@ -40,9 +69,11 @@ export interface ThreadEditorState extends PersistedThreadEditorState {
 }
 
 const STORAGE_KEY = "t3code:editor-state:v1";
-const DEFAULT_TREE_WIDTH = 280;
+export const DEFAULT_THREAD_EDITOR_TREE_WIDTH = 280;
 const MIN_TREE_WIDTH = 220;
 const MAX_TREE_WIDTH = 420;
+const DEFAULT_THREAD_EDITOR_PANE_ID = "pane-1";
+export const MAX_THREAD_EDITOR_PANES = 3;
 
 function normalizePathList(paths: readonly string[]): string[] {
   const unique: string[] = [];
@@ -59,13 +90,32 @@ function normalizePathList(paths: readonly string[]): string[] {
 function normalizeTreeWidth(width: number | null | undefined): number {
   const safeWidth = typeof width === "number" && Number.isFinite(width) ? Math.round(width) : 0;
   if (safeWidth === 0) {
-    return DEFAULT_TREE_WIDTH;
+    return DEFAULT_THREAD_EDITOR_TREE_WIDTH;
   }
   return Math.min(MAX_TREE_WIDTH, Math.max(MIN_TREE_WIDTH, safeWidth));
 }
 
 function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function numberArraysEqual(left: readonly number[], right: readonly number[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function paneArraysEqual(
+  left: readonly ThreadEditorPaneState[],
+  right: readonly ThreadEditorPaneState[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (pane, index) =>
+        pane.id === right[index]?.id &&
+        pane.activeFilePath === right[index]?.activeFilePath &&
+        stringArraysEqual(pane.openFilePaths, right[index]?.openFilePaths ?? []),
+    )
+  );
 }
 
 function draftMapsEqual(
@@ -92,12 +142,45 @@ function draftMapsEqual(
   return true;
 }
 
-function createDefaultThreadEditorState(): PersistedThreadEditorState {
+function threadStatesEqual(
+  left: PersistedThreadEditorState,
+  right: PersistedThreadEditorState,
+): boolean {
+  return (
+    left.activePaneId === right.activePaneId &&
+    left.treeWidth === right.treeWidth &&
+    stringArraysEqual(left.expandedDirectoryPaths, right.expandedDirectoryPaths) &&
+    numberArraysEqual(left.paneRatios, right.paneRatios) &&
+    paneArraysEqual(left.panes, right.panes)
+  );
+}
+
+function assignUniquePaneId(baseId: string, usedPaneIds: Set<string>): string {
+  let candidate = baseId;
+  let index = 2;
+  while (usedPaneIds.has(candidate)) {
+    candidate = `${baseId}-${index}`;
+    index += 1;
+  }
+  usedPaneIds.add(candidate);
+  return candidate;
+}
+
+function createDefaultPane(id = DEFAULT_THREAD_EDITOR_PANE_ID): ThreadEditorPaneState {
   return {
     activeFilePath: null,
-    expandedDirectoryPaths: [],
+    id,
     openFilePaths: [],
-    treeWidth: DEFAULT_TREE_WIDTH,
+  };
+}
+
+function createDefaultThreadEditorState(): PersistedThreadEditorState {
+  return {
+    activePaneId: DEFAULT_THREAD_EDITOR_PANE_ID,
+    expandedDirectoryPaths: [],
+    paneRatios: [1],
+    panes: [createDefaultPane()],
+    treeWidth: DEFAULT_THREAD_EDITOR_TREE_WIDTH,
   };
 }
 
@@ -107,11 +190,91 @@ function createDefaultRuntimeThreadEditorState(): RuntimeThreadEditorState {
   };
 }
 
+function createEditorStateStorage() {
+  return resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined);
+}
+
+function normalizeThreadEditorPanes(
+  panes: readonly Partial<ThreadEditorPaneState>[] | null | undefined,
+): ThreadEditorPaneState[] {
+  const source = Array.isArray(panes) ? panes : [];
+  const usedPaneIds = new Set<string>();
+  const normalized = source.slice(0, MAX_THREAD_EDITOR_PANES).map((pane, index) => {
+    const activeFilePath =
+      typeof pane.activeFilePath === "string" ? pane.activeFilePath.trim() : null;
+    const nextOpenFilePaths = normalizePathList(pane.openFilePaths ?? []);
+    const openFilePaths =
+      activeFilePath && !nextOpenFilePaths.includes(activeFilePath)
+        ? [...nextOpenFilePaths, activeFilePath]
+        : nextOpenFilePaths;
+    return {
+      activeFilePath: activeFilePath || (openFilePaths.at(-1) ?? null),
+      id: assignUniquePaneId(
+        typeof pane.id === "string" && pane.id.trim().length > 0
+          ? pane.id.trim()
+          : `pane-${index + 1}`,
+        usedPaneIds,
+      ),
+      openFilePaths,
+    };
+  });
+  return normalized.length > 0 ? normalized : [createDefaultPane()];
+}
+
+function normalizePersistedThreadState(
+  threadState: Partial<PersistedThreadEditorState> | null | undefined,
+): PersistedThreadEditorState {
+  const panes = normalizeThreadEditorPanes(threadState?.panes);
+  const activePaneId = panes.some((pane) => pane.id === threadState?.activePaneId)
+    ? threadState?.activePaneId
+    : panes[0]?.id;
+  return {
+    activePaneId: activePaneId ?? panes[0]?.id ?? DEFAULT_THREAD_EDITOR_PANE_ID,
+    expandedDirectoryPaths: normalizePathList(threadState?.expandedDirectoryPaths ?? []),
+    paneRatios: normalizePaneRatios(threadState?.paneRatios ?? [], panes.length),
+    panes,
+    treeWidth: normalizeTreeWidth(threadState?.treeWidth),
+  };
+}
+
+function createPersistedThreadStateFromLegacy(
+  threadState: LegacyPersistedThreadEditorState | null | undefined,
+): PersistedThreadEditorState {
+  if (!threadState) {
+    return createDefaultThreadEditorState();
+  }
+  const activeFilePath =
+    typeof threadState.activeFilePath === "string" ? threadState.activeFilePath.trim() : null;
+  const openFilePaths = normalizePathList(threadState.openFilePaths ?? []);
+  return normalizePersistedThreadState({
+    activePaneId: DEFAULT_THREAD_EDITOR_PANE_ID,
+    expandedDirectoryPaths: threadState.expandedDirectoryPaths,
+    paneRatios: [1],
+    panes: [
+      {
+        activeFilePath,
+        id: DEFAULT_THREAD_EDITOR_PANE_ID,
+        openFilePaths,
+      },
+    ],
+    treeWidth: threadState.treeWidth,
+  });
+}
+
+function isLegacyThreadState(
+  value: PersistedThreadEditorState | LegacyPersistedThreadEditorState | undefined,
+): value is LegacyPersistedThreadEditorState {
+  return Boolean(value) && typeof value === "object" && !("panes" in value);
+}
+
 function getPersistedThreadState(
   stateByThreadId: Record<string, PersistedThreadEditorState>,
   threadId: ThreadId,
 ): PersistedThreadEditorState {
-  return stateByThreadId[threadId] ?? createDefaultThreadEditorState();
+  const threadState = stateByThreadId[threadId];
+  return threadState
+    ? normalizePersistedThreadState(threadState)
+    : createDefaultThreadEditorState();
 }
 
 function getRuntimeThreadState(
@@ -119,6 +282,60 @@ function getRuntimeThreadState(
   threadId: ThreadId,
 ): RuntimeThreadEditorState {
   return stateByThreadId[threadId] ?? createDefaultRuntimeThreadEditorState();
+}
+
+function replacePaneAtIndex(
+  panes: readonly ThreadEditorPaneState[],
+  paneIndex: number,
+  pane: ThreadEditorPaneState,
+): ThreadEditorPaneState[] {
+  const next = [...panes];
+  next[paneIndex] = pane;
+  return next;
+}
+
+function resolvePaneIndex(
+  threadState: PersistedThreadEditorState,
+  paneId: string | null | undefined,
+): number {
+  const preferredPaneId = threadState.panes.some((pane) => pane.id === paneId)
+    ? paneId
+    : threadState.activePaneId;
+  const paneIndex = threadState.panes.findIndex((pane) => pane.id === preferredPaneId);
+  return paneIndex >= 0 ? paneIndex : 0;
+}
+
+function createNextPaneId(panes: readonly ThreadEditorPaneState[]): string {
+  const usedPaneIds = new Set(panes.map((pane) => pane.id));
+  return assignUniquePaneId(`pane-${panes.length + 1}`, usedPaneIds);
+}
+
+function splitPaneRatios(
+  paneRatios: readonly number[],
+  paneIndex: number,
+  nextPaneCount: number,
+): number[] {
+  const current = normalizePaneRatios(paneRatios, nextPaneCount - 1);
+  const targetRatio = current[paneIndex] ?? 1 / nextPaneCount;
+  const next = [...current];
+  const splitRatio = targetRatio / 2;
+  next[paneIndex] = splitRatio;
+  next.splice(paneIndex + 1, 0, splitRatio);
+  return normalizePaneRatios(next, nextPaneCount);
+}
+
+function writeThreadState(
+  state: EditorStoreState,
+  threadId: ThreadId,
+  nextThreadState: PersistedThreadEditorState,
+): EditorStoreState {
+  return {
+    ...state,
+    threadStateByThreadId: {
+      ...state.threadStateByThreadId,
+      [threadId]: nextThreadState,
+    },
+  };
 }
 
 export function selectThreadEditorState(
@@ -132,36 +349,61 @@ export function selectThreadEditorState(
   };
 }
 
-function createEditorStateStorage() {
-  return resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined);
-}
-
 export const useEditorStateStore = create<EditorStoreState>()(
   persist(
     (set, get) => ({
-      runtimeStateByThreadId: {},
-      threadStateByThreadId: {},
-      closeFile: (threadId, filePath) =>
+      closeFile: (threadId, filePath, paneId) =>
         set((state) => {
-          const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
-          if (!current.openFilePaths.includes(filePath)) {
+          const normalizedPath = filePath.trim();
+          if (normalizedPath.length === 0) {
             return state;
           }
-          const nextOpenFilePaths = current.openFilePaths.filter((path) => path !== filePath);
-          return {
-            ...state,
-            threadStateByThreadId: {
-              ...state.threadStateByThreadId,
-              [threadId]: {
-                ...current,
-                activeFilePath:
-                  current.activeFilePath === filePath
-                    ? (nextOpenFilePaths.at(-1) ?? null)
-                    : current.activeFilePath,
-                openFilePaths: nextOpenFilePaths,
-              },
-            },
+          const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
+          const paneIndex = resolvePaneIndex(current, paneId);
+          const pane = current.panes[paneIndex];
+          if (!pane || !pane.openFilePaths.includes(normalizedPath)) {
+            return state;
+          }
+          const nextOpenFilePaths = pane.openFilePaths.filter((path) => path !== normalizedPath);
+          const nextThreadState = {
+            ...current,
+            panes: replacePaneAtIndex(current.panes, paneIndex, {
+              ...pane,
+              activeFilePath:
+                pane.activeFilePath === normalizedPath
+                  ? (nextOpenFilePaths.at(-1) ?? null)
+                  : pane.activeFilePath,
+              openFilePaths: nextOpenFilePaths,
+            }),
           };
+          return threadStatesEqual(current, nextThreadState)
+            ? state
+            : writeThreadState(state, threadId, nextThreadState);
+        }),
+      closePane: (threadId, paneId) =>
+        set((state) => {
+          const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
+          if (current.panes.length <= 1) {
+            return state;
+          }
+          const paneIndex = current.panes.findIndex((pane) => pane.id === paneId);
+          if (paneIndex < 0) {
+            return state;
+          }
+          const nextPanes = current.panes.filter((pane) => pane.id !== paneId);
+          const fallbackPane = nextPanes[paneIndex] ?? nextPanes[paneIndex - 1] ?? nextPanes[0];
+          if (!fallbackPane) {
+            return state;
+          }
+          const nextThreadState = normalizePersistedThreadState({
+            ...current,
+            activePaneId: current.activePaneId === paneId ? fallbackPane.id : current.activePaneId,
+            paneRatios: current.paneRatios.filter((_, index) => index !== paneIndex),
+            panes: nextPanes,
+          });
+          return threadStatesEqual(current, nextThreadState)
+            ? state
+            : writeThreadState(state, threadId, nextThreadState);
         }),
       discardDraft: (threadId, filePath) =>
         set((state) => {
@@ -253,54 +495,87 @@ export const useEditorStateStore = create<EditorStoreState>()(
             },
           };
         }),
-      openFile: (threadId, filePath) =>
+      openFile: (threadId, filePath, paneId) =>
         set((state) => {
-          const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
-          const nextOpenFilePaths = current.openFilePaths.includes(filePath)
-            ? current.openFilePaths
-            : [...current.openFilePaths, filePath];
-          if (
-            current.activeFilePath === filePath &&
-            stringArraysEqual(current.openFilePaths, nextOpenFilePaths)
-          ) {
+          const normalizedPath = filePath.trim();
+          if (normalizedPath.length === 0) {
             return state;
           }
-          return {
-            ...state,
-            threadStateByThreadId: {
-              ...state.threadStateByThreadId,
-              [threadId]: {
-                ...current,
-                activeFilePath: filePath,
-                openFilePaths: nextOpenFilePaths,
-              },
-            },
+          const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
+          const paneIndex = resolvePaneIndex(current, paneId);
+          const pane = current.panes[paneIndex];
+          if (!pane) {
+            return state;
+          }
+          const nextOpenFilePaths = pane.openFilePaths.includes(normalizedPath)
+            ? pane.openFilePaths
+            : [...pane.openFilePaths, normalizedPath];
+          const nextThreadState = {
+            ...current,
+            activePaneId: pane.id,
+            panes: replacePaneAtIndex(current.panes, paneIndex, {
+              ...pane,
+              activeFilePath: normalizedPath,
+              openFilePaths: nextOpenFilePaths,
+            }),
           };
+          return threadStatesEqual(current, nextThreadState)
+            ? state
+            : writeThreadState(state, threadId, nextThreadState);
         }),
-      setActiveFile: (threadId, filePath) =>
+      runtimeStateByThreadId: {},
+      setActiveFile: (threadId, filePath, paneId) =>
         set((state) => {
           const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
+          const paneIndex = resolvePaneIndex(current, paneId);
+          const pane = current.panes[paneIndex];
+          if (!pane) {
+            return state;
+          }
+          const normalizedPath =
+            typeof filePath === "string" && filePath.trim().length > 0 ? filePath.trim() : null;
           const nextOpenFilePaths =
-            filePath && !current.openFilePaths.includes(filePath)
-              ? [...current.openFilePaths, filePath]
-              : current.openFilePaths;
+            normalizedPath && !pane.openFilePaths.includes(normalizedPath)
+              ? [...pane.openFilePaths, normalizedPath]
+              : pane.openFilePaths;
+          const nextThreadState = {
+            ...current,
+            activePaneId: pane.id,
+            panes: replacePaneAtIndex(current.panes, paneIndex, {
+              ...pane,
+              activeFilePath: normalizedPath,
+              openFilePaths: nextOpenFilePaths,
+            }),
+          };
+          return threadStatesEqual(current, nextThreadState)
+            ? state
+            : writeThreadState(state, threadId, nextThreadState);
+        }),
+      setActivePane: (threadId, paneId) =>
+        set((state) => {
+          const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
           if (
-            current.activeFilePath === filePath &&
-            stringArraysEqual(current.openFilePaths, nextOpenFilePaths)
+            current.activePaneId === paneId ||
+            !current.panes.some((pane) => pane.id === paneId)
           ) {
             return state;
           }
-          return {
-            ...state,
-            threadStateByThreadId: {
-              ...state.threadStateByThreadId,
-              [threadId]: {
-                ...current,
-                activeFilePath: filePath,
-                openFilePaths: nextOpenFilePaths,
-              },
-            },
-          };
+          return writeThreadState(state, threadId, {
+            ...current,
+            activePaneId: paneId,
+          });
+        }),
+      setPaneRatios: (threadId, ratios) =>
+        set((state) => {
+          const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
+          const nextPaneRatios = normalizePaneRatios(ratios, current.panes.length);
+          if (numberArraysEqual(current.paneRatios, nextPaneRatios)) {
+            return state;
+          }
+          return writeThreadState(state, threadId, {
+            ...current,
+            paneRatios: nextPaneRatios,
+          });
         }),
       setTreeWidth: (threadId, width) =>
         set((state) => {
@@ -309,44 +584,79 @@ export const useEditorStateStore = create<EditorStoreState>()(
           if (current.treeWidth === nextTreeWidth) {
             return state;
           }
-          return {
-            ...state,
-            threadStateByThreadId: {
-              ...state.threadStateByThreadId,
-              [threadId]: {
-                ...current,
-                treeWidth: nextTreeWidth,
-              },
-            },
-          };
+          return writeThreadState(state, threadId, {
+            ...current,
+            treeWidth: nextTreeWidth,
+          });
         }),
+      splitPane: (threadId, options) => {
+        let createdPaneId: string | null = null;
+        set((state) => {
+          const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
+          if (current.panes.length >= MAX_THREAD_EDITOR_PANES) {
+            return state;
+          }
+          const paneIndex = resolvePaneIndex(current, options?.sourcePaneId);
+          const sourcePane = current.panes[paneIndex];
+          if (!sourcePane) {
+            return state;
+          }
+          const requestedFilePath =
+            typeof options?.filePath === "string" && options.filePath.trim().length > 0
+              ? options.filePath.trim()
+              : null;
+          const initialFilePath = requestedFilePath ?? sourcePane.activeFilePath;
+          const newPane = {
+            activeFilePath: initialFilePath,
+            id: createNextPaneId(current.panes),
+            openFilePaths: initialFilePath ? [initialFilePath] : [],
+          };
+          createdPaneId = newPane.id;
+          const nextPanes = [...current.panes];
+          nextPanes.splice(paneIndex + 1, 0, newPane);
+          return writeThreadState(state, threadId, {
+            ...current,
+            activePaneId: newPane.id,
+            paneRatios: splitPaneRatios(current.paneRatios, paneIndex, nextPanes.length),
+            panes: nextPanes,
+          });
+        });
+        return createdPaneId;
+      },
       syncTree: (threadId, validPaths) =>
         set((state) => {
           const validPathSet = new Set(normalizePathList(validPaths));
           const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
           const runtime = getRuntimeThreadState(state.runtimeStateByThreadId, threadId);
-          const nextOpenFilePaths = current.openFilePaths.filter((path) => validPathSet.has(path));
-          const nextExpandedDirectoryPaths = current.expandedDirectoryPaths.filter((path) =>
-            validPathSet.has(path),
-          );
-          const nextActiveFilePath =
-            current.activeFilePath && validPathSet.has(current.activeFilePath)
-              ? current.activeFilePath
-              : (nextOpenFilePaths.at(-1) ?? null);
+          const nextThreadState = normalizePersistedThreadState({
+            ...current,
+            expandedDirectoryPaths: current.expandedDirectoryPaths.filter((path) =>
+              validPathSet.has(path),
+            ),
+            panes: current.panes.map((pane) => {
+              const nextOpenFilePaths = pane.openFilePaths.filter((path) => validPathSet.has(path));
+              return {
+                ...pane,
+                activeFilePath:
+                  pane.activeFilePath && validPathSet.has(pane.activeFilePath)
+                    ? pane.activeFilePath
+                    : (nextOpenFilePaths.at(-1) ?? null),
+                openFilePaths: nextOpenFilePaths,
+              };
+            }),
+          });
           const nextDraftsByFilePath = Object.fromEntries(
             Object.entries(runtime.draftsByFilePath).filter(([path]) => validPathSet.has(path)),
           );
           if (
-            current.activeFilePath === nextActiveFilePath &&
-            stringArraysEqual(current.openFilePaths, nextOpenFilePaths) &&
-            stringArraysEqual(current.expandedDirectoryPaths, nextExpandedDirectoryPaths) &&
+            threadStatesEqual(current, nextThreadState) &&
             draftMapsEqual(runtime.draftsByFilePath, nextDraftsByFilePath)
           ) {
             return state;
           }
 
           return {
-            ...state,
+            ...writeThreadState(state, threadId, nextThreadState),
             runtimeStateByThreadId: {
               ...state.runtimeStateByThreadId,
               [threadId]: {
@@ -354,42 +664,25 @@ export const useEditorStateStore = create<EditorStoreState>()(
                 draftsByFilePath: nextDraftsByFilePath,
               },
             },
-            threadStateByThreadId: {
-              ...state.threadStateByThreadId,
-              [threadId]: {
-                ...current,
-                activeFilePath: nextActiveFilePath,
-                expandedDirectoryPaths: nextExpandedDirectoryPaths,
-                openFilePaths: nextOpenFilePaths,
-              },
-            },
           };
         }),
+      threadStateByThreadId: {},
       toggleDirectory: (threadId, directoryPath) =>
         set((state) => {
           const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
           const expanded = current.expandedDirectoryPaths.includes(directoryPath);
-          return {
-            ...state,
-            threadStateByThreadId: {
-              ...state.threadStateByThreadId,
-              [threadId]: {
-                ...current,
-                expandedDirectoryPaths: expanded
-                  ? current.expandedDirectoryPaths.filter((path) => path !== directoryPath)
-                  : [...current.expandedDirectoryPaths, directoryPath],
-              },
-            },
-          };
+          return writeThreadState(state, threadId, {
+            ...current,
+            expandedDirectoryPaths: expanded
+              ? current.expandedDirectoryPaths.filter((path) => path !== directoryPath)
+              : [...current.expandedDirectoryPaths, directoryPath],
+          });
         }),
       updateDraft: (threadId, filePath, draftContents) =>
         set((state) => {
           const runtime = getRuntimeThreadState(state.runtimeStateByThreadId, threadId);
           const existingDraft = runtime.draftsByFilePath[filePath];
-          if (!existingDraft) {
-            return state;
-          }
-          if (existingDraft.draftContents === draftContents) {
+          if (!existingDraft || existingDraft.draftContents === draftContents) {
             return state;
           }
           return {
@@ -411,12 +704,30 @@ export const useEditorStateStore = create<EditorStoreState>()(
         }),
     }),
     {
+      migrate: (persistedState, version) => {
+        const snapshot = (persistedState as PersistedEditorStoreSnapshot | undefined) ?? {};
+        const nextThreadStateByThreadId = Object.fromEntries(
+          Object.entries(snapshot.threadStateByThreadId ?? {}).map(([threadId, threadState]) => [
+            threadId,
+            version < 2
+              ? createPersistedThreadStateFromLegacy(
+                  threadState as LegacyPersistedThreadEditorState | undefined,
+                )
+              : isLegacyThreadState(threadState)
+                ? createPersistedThreadStateFromLegacy(threadState)
+                : normalizePersistedThreadState(threadState),
+          ]),
+        );
+        return {
+          threadStateByThreadId: nextThreadStateByThreadId,
+        };
+      },
       name: STORAGE_KEY,
       partialize: (state) => ({
         threadStateByThreadId: state.threadStateByThreadId,
       }),
       storage: createJSONStorage(createEditorStateStorage),
-      version: 1,
+      version: 2,
     },
   ),
 );
