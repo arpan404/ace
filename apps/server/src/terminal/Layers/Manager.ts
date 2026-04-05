@@ -48,6 +48,7 @@ import {
 const DEFAULT_HISTORY_LINE_LIMIT = 5_000;
 const DEFAULT_PERSIST_DEBOUNCE_MS = 40;
 const DEFAULT_SUBPROCESS_POLL_INTERVAL_MS = 1_000;
+const SUBPROCESS_POLL_CONCURRENCY = 8;
 const DEFAULT_PROCESS_KILL_GRACE_MS = 1_000;
 const DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS = 128;
 const DEFAULT_OPEN_COLS = 120;
@@ -1528,7 +1529,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
       });
 
       yield* Effect.forEach(runningSessions, checkSubprocessActivity, {
-        concurrency: "unbounded",
+        concurrency: SUBPROCESS_POLL_CONCURRENCY,
         discard: true,
       });
     });
@@ -1574,7 +1575,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
         });
 
         yield* Effect.forEach(sessions, cleanupSession, {
-          concurrency: "unbounded",
+          concurrency: SUBPROCESS_POLL_CONCURRENCY,
           discard: true,
         });
       }).pipe(Effect.ignoreCause({ log: true })),

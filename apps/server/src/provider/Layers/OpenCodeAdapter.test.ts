@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   appendOnlyDelta,
+  classifyOpenCodeDeltaStreamKind,
   classifyOpenCodeToolItemType,
   mapOpenCodeTodoStatus,
 } from "./OpenCodeAdapter.ts";
@@ -27,6 +28,21 @@ describe("appendOnlyDelta", () => {
 
   it("falls back to the full next value when the stream resets", () => {
     expect(appendOnlyDelta("hello world", "world")).toBe("world");
+  });
+});
+
+describe("classifyOpenCodeDeltaStreamKind", () => {
+  it("routes reasoning content deltas into streamed thinking", () => {
+    expect(classifyOpenCodeDeltaStreamKind("reasoning_content")).toBe("reasoning_text");
+  });
+
+  it("routes reasoning summary deltas into streamed thinking summaries", () => {
+    expect(classifyOpenCodeDeltaStreamKind("reasoning_details")).toBe("reasoning_summary_text");
+  });
+
+  it("keeps non-reasoning deltas as assistant text", () => {
+    expect(classifyOpenCodeDeltaStreamKind("text")).toBe("assistant_text");
+    expect(classifyOpenCodeDeltaStreamKind(undefined)).toBe("assistant_text");
   });
 });
 

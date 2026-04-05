@@ -1809,8 +1809,8 @@ describe("ProviderRuntimeIngestion", () => {
     expect(proposedPlan?.planMarkdown).toBe("## Buffered plan\n\n- first\n- second");
   });
 
-  it("buffers assistant deltas by default until completion", async () => {
-    const harness = await createHarness();
+  it("buffers assistant deltas until completion when assistant streaming is disabled", async () => {
+    const harness = await createHarness({ serverSettings: { enableAssistantStreaming: false } });
     const now = new Date().toISOString();
 
     harness.emit({

@@ -47,6 +47,10 @@
     "./terminalTitles": {
       "types": "./src/terminalTitles.ts",
       "import": "./src/terminalTitles.ts"
+    },
+    "./wsAuth": {
+      "types": "./src/wsAuth.ts",
+      "import": "./src/wsAuth.ts"
     }
   },
   "scripts": {

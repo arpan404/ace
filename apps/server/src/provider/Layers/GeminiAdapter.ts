@@ -58,6 +58,18 @@ export function buildGeminiInitializeParams() {
   };
 }
 
+export function canGeminiSetSessionMode(metadata: Pick<GeminiSessionMetadata, "availableModes">) {
+  return metadata.availableModes.length > 0;
+}
+
+export function canGeminiSetSessionModel(metadata: Pick<GeminiSessionMetadata, "availableModels">) {
+  return metadata.availableModels.length > 0;
+}
+
+function shouldAutoResolveGeminiPermission(runtimeMode: ProviderSession["runtimeMode"]): boolean {
+  return runtimeMode === "full-access";
+}
+
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderAdapterSessionNotFoundError = Schema.is(ProviderAdapterSessionNotFoundError);
@@ -973,6 +985,33 @@ const makeGeminiAdapter = Effect.gen(function* () {
     createToolItemState(context, normalizedToolCall);
 
     const requestId = RuntimeRequestId.makeUnsafe(String(request.id));
+    if (shouldAutoResolveGeminiPermission(context.session.runtimeMode)) {
+      const selectedOption = selectPermissionOption(pendingOptions, "acceptForSession");
+      if (selectedOption) {
+        context.client.respond(request.id, {
+          outcome: {
+            outcome: "selected",
+            optionId: selectedOption.optionId,
+          },
+        });
+        emit(
+          baseEvent(context, {
+            type: "request.resolved",
+            ...(context.activeTurn ? { turnId: context.activeTurn.id } : {}),
+            payload: {
+              requestType: requestTypeFromToolKind(normalizedToolCall.kind),
+              decision: "acceptForSession",
+              resolution: {
+                optionId: selectedOption.optionId,
+                kind: selectedOption.kind,
+              },
+            },
+          }),
+        );
+        return;
+      }
+    }
+
     const pending: GeminiPendingPermission = {
       jsonRpcId: request.id,
       requestId,
@@ -1202,6 +1241,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
       input.runtimeMode,
       input.interactionMode,
     );
+    const canSetMode = canGeminiSetSessionMode(context.metadata);
     if (input.interactionMode === "plan" && !desiredModeId) {
       throw new ProviderAdapterRequestError({
         provider: PROVIDER,
@@ -1209,7 +1249,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
         detail: "Gemini ACP session does not expose a plan mode.",
       });
     }
-    if (desiredModeId && context.metadata.currentModeId !== desiredModeId) {
+    if (canSetMode && desiredModeId && context.metadata.currentModeId !== desiredModeId) {
       await context.client.request(
         "session/set_mode",
         {
@@ -1238,7 +1278,8 @@ const makeGeminiAdapter = Effect.gen(function* () {
       input.modelSelection?.provider === PROVIDER
         ? input.modelSelection.model
         : (context.session.model ?? DEFAULT_MODEL_BY_PROVIDER.gemini);
-    if (context.metadata.currentModelId !== desiredModel) {
+    const canSetModel = canGeminiSetSessionModel(context.metadata);
+    if (canSetModel && context.metadata.currentModelId !== desiredModel) {
       await context.client.request(
         "session/set_model",
         {

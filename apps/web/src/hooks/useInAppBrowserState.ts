@@ -4,6 +4,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
+  useDeferredValue,
   useCallback,
   useEffect,
   useMemo,
@@ -101,6 +102,8 @@ interface UseInAppBrowserStateOptions {
   onControllerChange?: (controller: InAppBrowserController | null) => void;
   viewportRef?: RefObject<HTMLDivElement | null>;
 }
+
+const EMPTY_BROWSER_SUGGESTIONS: BrowserSuggestion[] = [];
 
 function readTextFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -206,9 +209,19 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const activeRuntime = activeTab
     ? (tabRuntimeById[activeTab.id] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE)
     : DEFAULT_BROWSER_TAB_RUNTIME_STATE;
+  const showAddressBarSuggestions = mode !== "pip" && isAddressBarFocused;
+  const suggestionInput = activeTabIsInternal ? draftUrl : draftUrl || activeTabUrl;
+  const deferredSuggestionInput = useDeferredValue(suggestionInput);
+  const openTabs = useMemo(
+    () => browserSession.tabs.filter((tab) => !isBrowserInternalTabUrl(tab.url)),
+    [browserSession.tabs],
+  );
   const addressBarSuggestions = useMemo(() => {
-    const openTabs = browserSession.tabs.filter((tab) => !isBrowserInternalTabUrl(tab.url));
-    return buildBrowserSuggestions(activeTabIsInternal ? draftUrl : draftUrl || activeTabUrl, {
+    if (!showAddressBarSuggestions) {
+      return EMPTY_BROWSER_SUGGESTIONS;
+    }
+
+    return buildBrowserSuggestions(deferredSuggestionInput, {
       ...(activeTabId ? { activeTabId } : {}),
       ...(activeTabUrl ? { activePageUrl: activeTabUrl } : {}),
       history: browserHistory,
@@ -218,15 +231,14 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     });
   }, [
     activeTabId,
-    activeTabIsInternal,
     activeTabUrl,
     browserHistory,
     browserSearchEngine,
-    browserSession.tabs,
-    draftUrl,
+    deferredSuggestionInput,
+    openTabs,
     pinnedPages,
+    showAddressBarSuggestions,
   ]);
-  const showAddressBarSuggestions = mode !== "pip" && isAddressBarFocused;
 
   const focusAddressBar = useCallback(() => {
     window.requestAnimationFrame(() => {

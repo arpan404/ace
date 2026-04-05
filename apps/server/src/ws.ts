@@ -1,4 +1,4 @@
-import { Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
+import { Effect, Layer, Queue, Ref, Schema, Stream } from "effect";
 import {
   type GitActionProgressEvent,
   type GitManagerServiceError,
@@ -17,6 +17,7 @@ import {
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
+import { extractWebSocketAuthTokenFromProtocolHeader } from "@t3tools/shared/wsAuth";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
@@ -40,6 +41,23 @@ import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
+
+const WS_UPGRADE_RATE_LIMIT_WINDOW_MS = 60_000;
+const WS_UPGRADE_RATE_LIMIT_MAX_ATTEMPTS = 30;
+
+function resolveWsRateLimitKey(headers: Record<string, string | undefined>): string {
+  const forwardedFor = headers["x-forwarded-for"]?.split(",")[0]?.trim();
+  if (forwardedFor) {
+    return forwardedFor;
+  }
+
+  const realIp = headers["x-real-ip"]?.trim();
+  if (realIp) {
+    return realIp;
+  }
+
+  return headers["user-agent"]?.trim() || "ws-upgrade:unknown";
+}
 
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
@@ -373,18 +391,61 @@ export const websocketRpcRouteLayer = Layer.unwrap(
     const rpcWebSocketHttpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup).pipe(
       Effect.provide(Layer.mergeAll(WsRpcLayer, RpcSerialization.layerJson)),
     );
+    const wsUpgradeAttempts = new Map<string, { count: number; resetAt: number }>();
+
+    const takeWsUpgradeBudget = (clientKey: string, now = Date.now()) => {
+      for (const [key, value] of wsUpgradeAttempts.entries()) {
+        if (value.resetAt <= now) {
+          wsUpgradeAttempts.delete(key);
+        }
+      }
+
+      const current = wsUpgradeAttempts.get(clientKey);
+      if (!current || current.resetAt <= now) {
+        wsUpgradeAttempts.set(clientKey, {
+          count: 1,
+          resetAt: now + WS_UPGRADE_RATE_LIMIT_WINDOW_MS,
+        });
+        return {
+          allowed: true,
+          retryAfterSeconds: Math.ceil(WS_UPGRADE_RATE_LIMIT_WINDOW_MS / 1_000),
+        } as const;
+      }
+
+      if (current.count >= WS_UPGRADE_RATE_LIMIT_MAX_ATTEMPTS) {
+        return {
+          allowed: false,
+          retryAfterSeconds: Math.max(1, Math.ceil((current.resetAt - now) / 1_000)),
+        } as const;
+      }
+
+      current.count += 1;
+      return {
+        allowed: true,
+        retryAfterSeconds: Math.max(1, Math.ceil((current.resetAt - now) / 1_000)),
+      } as const;
+    };
+
     return HttpRouter.add(
       "GET",
       "/ws",
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const config = yield* ServerConfig;
+        const rateLimit = takeWsUpgradeBudget(resolveWsRateLimitKey(request.headers));
+        if (!rateLimit.allowed) {
+          return HttpServerResponse.text("Too many WebSocket upgrade attempts", {
+            status: 429,
+            headers: {
+              "Retry-After": String(rateLimit.retryAfterSeconds),
+            },
+          });
+        }
+
         if (config.authToken) {
-          const url = HttpServerRequest.toURL(request);
-          if (Option.isNone(url)) {
-            return HttpServerResponse.text("Invalid WebSocket URL", { status: 400 });
-          }
-          const token = url.value.searchParams.get("token");
+          const token = extractWebSocketAuthTokenFromProtocolHeader(
+            request.headers["sec-websocket-protocol"],
+          );
           if (token !== config.authToken) {
             return HttpServerResponse.text("Unauthorized WebSocket connection", { status: 401 });
           }

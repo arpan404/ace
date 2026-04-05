@@ -113,6 +113,11 @@ type OpenCodeReasoningItemState = {
   completed: boolean;
 };
 
+type OpenCodeDeltaStreamKind = Extract<
+  ProviderRuntimeEventByType<"content.delta">["payload"]["streamKind"],
+  "assistant_text" | "reasoning_text" | "reasoning_summary_text"
+>;
+
 function isoNow(): string {
   return new Date().toISOString();
 }
@@ -271,6 +276,17 @@ export function appendOnlyDelta(previous: string, next: string): string | undefi
   return next;
 }
 
+export function classifyOpenCodeDeltaStreamKind(field: unknown): OpenCodeDeltaStreamKind {
+  switch (field) {
+    case "reasoning_content":
+      return "reasoning_text";
+    case "reasoning_details":
+      return "reasoning_summary_text";
+    default:
+      return "assistant_text";
+  }
+}
+
 function mapApprovalDecision(decision: ProviderApprovalDecision): "once" | "always" | "reject" {
   switch (decision) {
     case "accept":
@@ -375,19 +391,6 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       ...(errorMessage ? { lastError: errorMessage } : { lastError: undefined }),
     };
     if (turnId) {
-      if (activeTurn?.assistantStarted) {
-        emit(
-          baseEvent(ctx, {
-            type: "item.completed",
-            turnId,
-            itemId: activeTurn.assistantItemId,
-            payload: {
-              itemType: "assistant_message",
-              status: state === "failed" ? "failed" : "completed",
-            },
-          }),
-        );
-      }
       for (const reasoningItem of activeTurn?.reasoningItems.values() ?? []) {
         if (reasoningItem.completed) {
           continue;
@@ -420,6 +423,19 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
               status:
                 state === "failed" ? "failed" : state === "interrupted" ? "declined" : "completed",
               ...(toolItem.detail ? { detail: toolItem.detail } : {}),
+            },
+          }),
+        );
+      }
+      if (activeTurn?.assistantStarted) {
+        emit(
+          baseEvent(ctx, {
+            type: "item.completed",
+            turnId,
+            itemId: activeTurn.assistantItemId,
+            payload: {
+              itemType: "assistant_message",
+              status: state === "failed" ? "failed" : "completed",
             },
           }),
         );
@@ -466,16 +482,18 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     );
   };
 
-  const handleOpenCodeReasoningPart = (
+  const ensureReasoningItem = (
     ctx: OpenCodeSessionContext,
-    part: Record<string, unknown>,
     partId: string,
-  ) => {
+  ): {
+    turn: NonNullable<OpenCodeSessionContext["activeTurn"]>;
+    reasoning: OpenCodeReasoningItemState;
+  } | null => {
     const turn = ctx.activeTurn;
     if (!turn) {
-      return;
+      return null;
     }
-    const text = asString(part.text) ?? "";
+
     let reasoning = turn.reasoningItems.get(partId);
     if (!reasoning) {
       reasoning = {
@@ -497,30 +515,72 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       );
     }
 
-    const delta = appendOnlyDelta(reasoning.lastText, text);
-    reasoning.lastText = text;
-    if (delta && delta.length > 0) {
-      emit(
-        baseEvent(ctx, {
-          type: "content.delta",
-          turnId: turn.id,
-          itemId: reasoning.itemId,
-          payload: {
-            streamKind: "reasoning_text",
-            delta,
-          },
-        }),
-      );
+    return { turn, reasoning };
+  };
+
+  const emitReasoningDelta = (
+    ctx: OpenCodeSessionContext,
+    partId: string,
+    input: {
+      text: string;
+      streamKind: Extract<OpenCodeDeltaStreamKind, "reasoning_text" | "reasoning_summary_text">;
+      isSnapshot?: boolean;
+    },
+  ) => {
+    const state = ensureReasoningItem(ctx, partId);
+    if (!state) {
+      return;
     }
 
+    const nextText =
+      input.isSnapshot === true ? input.text : `${state.reasoning.lastText}${input.text}`;
+    const delta = input.isSnapshot
+      ? appendOnlyDelta(state.reasoning.lastText, nextText)
+      : input.text.length > 0
+        ? input.text
+        : undefined;
+    state.reasoning.lastText = nextText;
+    if (!delta || delta.length === 0) {
+      return;
+    }
+
+    emit(
+      baseEvent(ctx, {
+        type: "content.delta",
+        turnId: state.turn.id,
+        itemId: state.reasoning.itemId,
+        payload: {
+          streamKind: input.streamKind,
+          delta,
+        },
+      }),
+    );
+  };
+
+  const handleOpenCodeReasoningPart = (
+    ctx: OpenCodeSessionContext,
+    part: Record<string, unknown>,
+    partId: string,
+  ) => {
+    const text = asString(part.text) ?? "";
+    const state = ensureReasoningItem(ctx, partId);
+    if (!state) {
+      return;
+    }
+    emitReasoningDelta(ctx, partId, {
+      text,
+      streamKind: "reasoning_text",
+      isSnapshot: true,
+    });
+
     const time = asRecord(part.time);
-    if (time && "end" in time && !reasoning.completed) {
-      reasoning.completed = true;
+    if (time && "end" in time && !state.reasoning.completed) {
+      state.reasoning.completed = true;
       emit(
         baseEvent(ctx, {
           type: "item.completed",
-          turnId: turn.id,
-          itemId: reasoning.itemId,
+          turnId: state.turn.id,
+          itemId: state.reasoning.itemId,
           payload: {
             itemType: "reasoning",
             status: "completed",
@@ -641,19 +701,28 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         const delta = typeof props.delta === "string" ? props.delta : "";
         const turnId = ctx.activeTurn?.id;
         if (!turnId || !ctx.activeTurn) return;
-        ensureAssistantStarted(ctx);
         if (delta.length > 0) {
-          emit(
-            baseEvent(ctx, {
-              type: "content.delta",
-              turnId,
-              itemId: ctx.activeTurn.assistantItemId,
-              payload: {
-                streamKind: "assistant_text",
-                delta,
-              },
-            }),
-          );
+          const streamKind = classifyOpenCodeDeltaStreamKind(props.field);
+          if (streamKind === "assistant_text") {
+            ensureAssistantStarted(ctx);
+            emit(
+              baseEvent(ctx, {
+                type: "content.delta",
+                turnId,
+                itemId: ctx.activeTurn.assistantItemId,
+                payload: {
+                  streamKind,
+                  delta,
+                },
+              }),
+            );
+            return;
+          }
+
+          emitReasoningDelta(ctx, asString(props.partID) ?? `delta:${randomUUID()}`, {
+            text: delta,
+            streamKind,
+          });
         }
         return;
       }

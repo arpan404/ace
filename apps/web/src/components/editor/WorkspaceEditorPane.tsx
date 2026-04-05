@@ -205,7 +205,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       data-pane-active={props.active ? "true" : "false"}
       className={cn(
         "group flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-colors relative",
-        props.resolvedTheme === "dark" ? "bg-[#0b0d10]" : "bg-[#fcfaf5]",
+        "bg-background",
         props.active ? "ring-1 ring-inset ring-primary/20" : "",
       )}
       onPointerDown={() => {
@@ -213,10 +213,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       }}
     >
       <div
-        className={cn(
-          "flex h-[38px] shrink-0 overflow-x-auto scrollbar-none",
-          props.resolvedTheme === "dark" ? "bg-[#18181b]" : "bg-[#f3f4f6]",
-        )}
+        className={cn("flex h-[38px] shrink-0 overflow-x-auto scrollbar-none", "bg-secondary")}
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
             return;
@@ -239,9 +236,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 className={cn(
                   "group/tab flex h-full shrink-0 items-center gap-2 border-r border-border/40 px-3 text-[13px] transition-colors relative",
                   isActive
-                    ? props.resolvedTheme === "dark"
-                      ? "bg-[#0b0d10] text-foreground"
-                      : "bg-[#fcfaf5] text-foreground"
+                    ? "bg-background text-foreground"
                     : "bg-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
                 )}
                 draggable
@@ -297,12 +292,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         ) : null}
       </div>
 
-      <div
-        className={cn(
-          "flex h-7 shrink-0 items-center justify-between px-3",
-          props.resolvedTheme === "dark" ? "bg-[#0b0d10]" : "bg-[#fcfaf5]",
-        )}
-      >
+      <div className={cn("flex h-7 shrink-0 items-center justify-between px-3", "bg-background")}>
         <div className="flex min-w-0 items-center gap-2">
           <span className="rounded-sm border border-border/50 px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
             Window {props.paneIndex + 1}
@@ -337,10 +327,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       </div>
 
       <div
-        className={cn(
-          "min-h-0 min-w-0 flex-1 relative border-t border-border/40",
-          props.resolvedTheme === "dark" ? "bg-[#0b0d10]" : "bg-[#fcfaf5]",
-        )}
+        className={cn("min-h-0 min-w-0 flex-1 relative border-t border-border/40", "bg-background")}
       >
         {!props.pane.activeFilePath ? (
           <div className="flex h-full items-center justify-center">

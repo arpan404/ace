@@ -126,6 +126,7 @@ describe("WsRpcAtomClient", () => {
         model: "gpt-5.4",
       },
       providers: {
+        ...DEFAULT_SERVER_SETTINGS.providers,
         codex: {
           ...DEFAULT_SERVER_SETTINGS.providers.codex,
           homePath: "/tmp/codex-home",
@@ -133,15 +134,6 @@ describe("WsRpcAtomClient", () => {
         claudeAgent: {
           ...DEFAULT_SERVER_SETTINGS.providers.claudeAgent,
           enabled: false,
-        },
-        githubCopilot: {
-          ...DEFAULT_SERVER_SETTINGS.providers.githubCopilot,
-        },
-        cursor: {
-          ...DEFAULT_SERVER_SETTINGS.providers.cursor,
-        },
-        opencode: {
-          ...DEFAULT_SERVER_SETTINGS.providers.opencode,
         },
       },
     };
@@ -185,6 +177,7 @@ describe("WsRpcAtomClient", () => {
         model: "gpt-5.4",
       },
       providers: {
+        ...DEFAULT_SERVER_SETTINGS.providers,
         codex: {
           ...DEFAULT_SERVER_SETTINGS.providers.codex,
           homePath: "/tmp/codex-home",
@@ -192,15 +185,6 @@ describe("WsRpcAtomClient", () => {
         claudeAgent: {
           ...DEFAULT_SERVER_SETTINGS.providers.claudeAgent,
           enabled: false,
-        },
-        githubCopilot: {
-          ...DEFAULT_SERVER_SETTINGS.providers.githubCopilot,
-        },
-        cursor: {
-          ...DEFAULT_SERVER_SETTINGS.providers.cursor,
-        },
-        opencode: {
-          ...DEFAULT_SERVER_SETTINGS.providers.opencode,
         },
       },
     };

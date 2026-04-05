@@ -187,7 +187,7 @@ describe("editorStateStore actions", () => {
       {
         activeFilePath: "src/utils.ts",
         id: "pane-2",
-        openFilePaths: ["src/main.ts", "src/utils.ts", "src/sidebar.ts"],
+        openFilePaths: ["src/sidebar.ts", "src/utils.ts"],
       },
     ]);
   });

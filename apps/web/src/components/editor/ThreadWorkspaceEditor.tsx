@@ -113,20 +113,7 @@ function ensureMonacoConfigured() {
       { token: "keyword", foreground: "f7a267" },
       { token: "string", foreground: "8dc891" },
     ],
-    colors: {
-      "editor.background": "#0b0d10",
-      "editor.lineHighlightBackground": "#151a20",
-      "editorCursor.foreground": "#f7a267",
-      "editorIndentGuide.activeBackground1": "#344456",
-      "editorIndentGuide.background1": "#18202a",
-      "editor.inactiveSelectionBackground": "#202833",
-      "editor.lineHighlightBorder": "#00000000",
-      "editor.selectionBackground": "#2b3542",
-      "editor.whitespace": "#1b232d",
-      "editorLineNumber.activeForeground": "#f3f4ef",
-      "editorLineNumber.foreground": "#42505f",
-      "editorWhitespace.foreground": "#1b232d",
-    },
+    colors: {},
   });
   monaco.editor.defineTheme("t3code-paper", {
     base: "vs",
@@ -136,19 +123,7 @@ function ensureMonacoConfigured() {
       { token: "keyword", foreground: "9f4f1d" },
       { token: "string", foreground: "2a6b4b" },
     ],
-    colors: {
-      "editor.background": "#fcfaf5",
-      "editor.lineHighlightBackground": "#f1ece1",
-      "editorCursor.foreground": "#9f4f1d",
-      "editorIndentGuide.activeBackground1": "#cdb89c",
-      "editorIndentGuide.background1": "#efe6d8",
-      "editor.lineHighlightBorder": "#00000000",
-      "editor.inactiveSelectionBackground": "#f0e7da",
-      "editor.selectionBackground": "#e4d8c7",
-      "editorLineNumber.activeForeground": "#221c17",
-      "editorLineNumber.foreground": "#b6a894",
-      "editorWhitespace.foreground": "#eadfce",
-    },
+    colors: {},
   });
   monacoConfigured = true;
 }
@@ -1209,7 +1184,7 @@ export default function ThreadWorkspaceEditor(props: {
               <aside
                 className={cn(
                   "flex min-h-0 min-w-0 flex-col border-r border-border/60",
-                  resolvedTheme === "dark" ? "bg-[#0f151c]/95" : "bg-[#f6f0e5]/92",
+                  "bg-secondary",
                 )}
               >
                 <div className="border-b border-border/60 px-3 py-3">

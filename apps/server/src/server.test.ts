@@ -1,6 +1,7 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { resolveWebSocketAuthConnection } from "@t3tools/shared/wsAuth";
 import {
   CommandId,
   CheckpointRef,
@@ -270,11 +271,14 @@ const buildAppUnderTest = (options?: {
     return config;
   });
 
-const wsRpcProtocolLayer = (wsUrl: string) =>
-  RpcClient.layerProtocolSocket().pipe(
-    Layer.provide(NodeSocket.layerWebSocket(wsUrl)),
+const wsRpcProtocolLayer = (wsUrl: string) => {
+  const connection = resolveWebSocketAuthConnection(wsUrl);
+  const socketOptions = connection.protocols ? { protocols: [...connection.protocols] } : undefined;
+  return RpcClient.layerProtocolSocket().pipe(
+    Layer.provide(NodeSocket.layerWebSocket(connection.url, socketOptions)),
     Layer.provide(RpcSerialization.layerJson),
   );
+};
 
 const makeWsRpcClient = RpcClient.make(WsRpcGroup);
 type WsRpcClient =

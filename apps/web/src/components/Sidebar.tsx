@@ -122,7 +122,6 @@ import {
   resolveThreadStatusPill,
   orderItemsByPreferredIds,
   shouldClearThreadSelectionOnMouseDown,
-  sortProjectsForSidebar,
   sortThreadsForSidebar,
   useThreadJumpHintVisibility,
 } from "../lib/sidebar";
@@ -1382,13 +1381,6 @@ export default function Sidebar() {
     }
     return next;
   }, [projects, sidebarThreadsById, threadIdsByProjectId]);
-  const visibleThreads = useMemo(() => {
-    const next: SidebarThreadSummary[] = [];
-    for (const projectThreads of visibleProjectThreadsByProjectId.values()) {
-      next.push(...projectThreads);
-    }
-    return next;
-  }, [visibleProjectThreadsByProjectId]);
   const sortedProjects = useMemo(() => {
     if (appSettings.sidebarProjectSortOrder === "manual") {
       return sidebarProjects;
