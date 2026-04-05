@@ -958,6 +958,71 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("unwraps nested Effect.tryPromise failures into the provider error detail shown to the user", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const nestedEffectFailure = Effect.fail(
+      new Error("An error occurred in Effect.tryPromise", {
+        cause: new ProviderAdapterRequestError({
+          provider: "gemini",
+          method: "session/prompt",
+          detail: "Gemini session closed before the reserved turn could start.",
+        }),
+      }),
+    ) as unknown as ReturnType<ProviderServiceShape["sendTurn"]>;
+    harness.sendTurn.mockImplementation(((_input: unknown) => nestedEffectFailure) as never);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-unwrap-effect-failure"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-unwrap-effect-failure"),
+          role: "user",
+          text: "continue after revert",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return (
+        thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ??
+        false
+      );
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const failureActivity = thread?.activities.find(
+      (activity) => activity.kind === "provider.turn.start.failed",
+    );
+
+    expect(failureActivity).toBeDefined();
+    expect(failureActivity?.payload).toMatchObject({
+      detail: expect.stringContaining(
+        "Provider adapter request failed (gemini) for session/prompt: Gemini session closed before the reserved turn could start.",
+      ),
+    });
+    expect(
+      typeof failureActivity?.payload === "object" &&
+        failureActivity.payload !== null &&
+        "detail" in failureActivity.payload
+        ? String((failureActivity.payload as { detail: string }).detail).includes(
+            "An error occurred in Effect.tryPromise",
+          )
+        : false,
+    ).toBe(false);
+  });
+
   it("preserves the active session model when in-session model switching is unsupported", async () => {
     const harness = await createHarness({ sessionModelSwitch: "unsupported" });
     const now = new Date().toISOString();

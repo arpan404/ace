@@ -1098,4 +1098,130 @@ describe("GeminiAdapterLive approvals", () => {
       }
     });
   });
+
+  it("restarts Gemini sessions on rollback and bootstraps the next prompt from preserved transcript", async () => {
+    let firstPromptResolve!: (value: unknown) => void;
+    let secondPromptResolve!: (value: unknown) => void;
+    const firstPromptResult = new Promise<unknown>((resolve) => {
+      firstPromptResolve = resolve;
+    });
+    const secondPromptResult = new Promise<unknown>((resolve) => {
+      secondPromptResolve = resolve;
+    });
+    const clients: Array<ReturnType<typeof makeFakeGeminiClient>> = [];
+
+    mockedStartAcpClient.mockImplementation(() => {
+      const sessionIndex = clients.length + 1;
+      let promptCount = 0;
+      const client = makeFakeGeminiClient({
+        requestImpl: async (method) => {
+          switch (method) {
+            case "initialize":
+              return geminiInitializeResult();
+            case "session/new":
+              return geminiSessionResult(`gemini-session-rollback-${sessionIndex}`, {
+                currentModeId: "yolo",
+              });
+            case "session/prompt":
+              if (sessionIndex !== 1) {
+                return { stopReason: "end_turn" };
+              }
+              promptCount += 1;
+              return promptCount === 1 ? firstPromptResult : secondPromptResult;
+            default:
+              throw new Error(`Unexpected Gemini ACP request: ${method}`);
+          }
+        },
+      });
+      clients.push(client);
+      return client;
+    });
+
+    await withAdapter(async (adapter) => {
+      try {
+        const threadId = asThreadId("thread-gemini-rollback");
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId,
+            cwd: "/repo/gemini-rollback",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        await Effect.runPromise(Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain));
+
+        const firstTurnPromise = Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Original prompt",
+          }),
+        );
+
+        const notificationHandler = clients[0]?.getNotificationHandler();
+        expect(notificationHandler).toBeTypeOf("function");
+        if (!notificationHandler) {
+          return;
+        }
+
+        notificationHandler({
+          method: "session/update",
+          params: {
+            sessionId: "gemini-session-rollback-1",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: {
+                type: "text",
+                text: "Original answer",
+              },
+            },
+          },
+        });
+        firstPromptResolve({ stopReason: "end_turn" });
+        await firstTurnPromise;
+
+        const secondTurnPromise = Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Reverted prompt",
+          }),
+        );
+        secondPromptResolve({ stopReason: "end_turn" });
+        await secondTurnPromise;
+
+        const rolledBack = await Effect.runPromise(adapter.rollbackThread(threadId, 1));
+        expect(rolledBack.turns).toHaveLength(1);
+        expect(clients).toHaveLength(2);
+
+        await Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "New prompt",
+          }),
+        );
+
+        const secondPromptCall = clients[1]?.request.mock.calls.find(
+          ([method]) => method === "session/prompt",
+        );
+        const promptPayload = secondPromptCall?.[1] as
+          | {
+              readonly prompt?: ReadonlyArray<{ readonly type?: string; readonly text?: string }>;
+            }
+          | undefined;
+        const bootstrapText = promptPayload?.prompt?.find((part) => part.type === "text")?.text;
+
+        expect(bootstrapText).toContain(
+          "Continue this conversation using the transcript context below.",
+        );
+        expect(bootstrapText).toContain("Original prompt");
+        expect(bootstrapText).toContain("Original answer");
+        expect(bootstrapText).not.toContain("Reverted prompt");
+        expect(bootstrapText).toContain("Latest user request (answer this now):\nNew prompt");
+      } finally {
+        firstPromptResolve({ stopReason: "end_turn" });
+        secondPromptResolve({ stopReason: "end_turn" });
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
 });
