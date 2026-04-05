@@ -20,8 +20,8 @@ import {
   type RuntimeContentStreamKind,
   type RuntimeItemStatus,
   type UserInputQuestion,
-} from "@t3tools/contracts";
-import { inferModelContextWindowTokens } from "@t3tools/shared/model";
+} from "@ace/contracts";
+import { inferModelContextWindowTokens } from "@ace/shared/model";
 import { Effect, FileSystem, Layer, PubSub, Schema, Stream } from "effect";
 
 import {
@@ -2934,7 +2934,7 @@ export const CursorAdapterLive = Layer.effect(
                       terminal: false,
                     },
                     clientInfo: {
-                      name: "t3code",
+                      name: "ace",
                       version: "1.0.17",
                     },
                   },
@@ -3406,7 +3406,7 @@ export const CursorAdapterLive = Layer.effect(
                 answer === "Accept"
                   ? { outcome: "accepted" }
                   : answer === "Reject"
-                    ? { outcome: "rejected", reason: "Rejected in T3 Code" }
+                    ? { outcome: "rejected", reason: "Rejected in ace" }
                     : { outcome: "cancelled" },
             });
           }

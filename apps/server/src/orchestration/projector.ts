@@ -1,15 +1,15 @@
-import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@ace/contracts";
 import {
   appendCompactedThreadActivity,
   DEFAULT_MAX_THREAD_ACTIVITIES,
-} from "@t3tools/shared/orchestrationThreadActivities";
+} from "@ace/shared/orchestrationThreadActivities";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
   OrchestrationProposedPlanSummary,
   OrchestrationSession,
   OrchestrationThread,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect, Schema } from "effect";
 
 import { OrchestrationProjectorDecodeError, toProjectorDecodeError } from "./Errors.ts";

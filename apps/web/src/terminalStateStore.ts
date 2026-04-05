@@ -5,7 +5,7 @@
  * API constrained to store actions/selectors.
  */
 
-import type { ThreadId } from "@t3tools/contracts";
+import type { ThreadId } from "@ace/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
@@ -39,7 +39,7 @@ interface ThreadTerminalState {
   splitRatiosByGroupId: Record<string, number[]>;
 }
 
-const TERMINAL_STATE_STORAGE_KEY = "t3code:terminal-state:v1";
+const TERMINAL_STATE_STORAGE_KEY = "ace:terminal-state:v1";
 const DEFAULT_TERMINAL_SIDEBAR_WIDTH = 236;
 const MIN_TERMINAL_SIDEBAR_WIDTH = 180;
 const MAX_TERMINAL_SIDEBAR_WIDTH = 360;

@@ -1,4 +1,4 @@
-import { NetService } from "@t3tools/shared/Net";
+import { NetService } from "@ace/shared/Net";
 import { Config, Effect, LogLevel, Option, Schema } from "effect";
 import { Command, Flag, GlobalFlag } from "effect/unstable/cli";
 
@@ -21,7 +21,7 @@ const BootstrapEnvelopeSchema = Schema.Struct({
   mode: Schema.optional(RuntimeMode),
   port: Schema.optional(PortSchema),
   host: Schema.optional(Schema.String),
-  t3Home: Schema.optional(Schema.String),
+  aceHome: Schema.optional(Schema.String),
   devUrl: Schema.optional(Schema.URLFromString),
   noBrowser: Schema.optional(Schema.Boolean),
   authToken: Schema.optional(Schema.String),
@@ -43,7 +43,7 @@ const hostFlag = Flag.string("host").pipe(
   Flag.optional,
 );
 const baseDirFlag = Flag.string("base-dir").pipe(
-  Flag.withDescription("Base directory path (equivalent to T3CODE_HOME)."),
+  Flag.withDescription("Base directory path (equivalent to ACE_HOME)."),
   Flag.optional,
 );
 const devUrlFlag = Flag.string("dev-url").pipe(
@@ -73,39 +73,36 @@ const autoBootstrapProjectFromCwdFlag = Flag.boolean("auto-bootstrap-project-fro
 );
 const logWebSocketEventsFlag = Flag.boolean("log-websocket-events").pipe(
   Flag.withDescription(
-    "Emit server-side logs for outbound WebSocket push traffic (equivalent to T3CODE_LOG_WS_EVENTS).",
+    "Emit server-side logs for outbound WebSocket push traffic (equivalent to ACE_LOG_WS_EVENTS).",
   ),
   Flag.withAlias("log-ws-events"),
   Flag.optional,
 );
 
 const EnvServerConfig = Config.all({
-  logLevel: Config.logLevel("T3CODE_LOG_LEVEL").pipe(Config.withDefault("Info")),
-  mode: Config.schema(RuntimeMode, "T3CODE_MODE").pipe(
+  logLevel: Config.logLevel("ACE_LOG_LEVEL").pipe(Config.withDefault("Info")),
+  mode: Config.schema(RuntimeMode, "ACE_MODE").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
-  port: Config.port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  host: Config.string("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  t3Home: Config.string("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  port: Config.port("ACE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  host: Config.string("ACE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  aceHome: Config.string("ACE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  noBrowser: Config.boolean("T3CODE_NO_BROWSER").pipe(
+  noBrowser: Config.boolean("ACE_NO_BROWSER").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
-  authToken: Config.string("T3CODE_AUTH_TOKEN").pipe(
+  authToken: Config.string("ACE_AUTH_TOKEN").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  bootstrapFd: Config.int("ACE_BOOTSTRAP_FD").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
-  bootstrapFd: Config.int("T3CODE_BOOTSTRAP_FD").pipe(
+  autoBootstrapProjectFromCwd: Config.boolean("ACE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
-  autoBootstrapProjectFromCwd: Config.boolean("T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD").pipe(
-    Config.option,
-    Config.map(Option.getOrUndefined),
-  ),
-  logWebSocketEvents: Config.boolean("T3CODE_LOG_WS_EVENTS").pipe(
+  logWebSocketEvents: Config.boolean("ACE_LOG_WS_EVENTS").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
@@ -181,9 +178,9 @@ export const resolveServerConfig = (
       Option.getOrUndefined(
         resolveOptionPrecedence(
           flags.baseDir,
-          Option.fromUndefinedOr(env.t3Home),
+          Option.fromUndefinedOr(env.aceHome),
           Option.flatMap(bootstrapEnvelope, (bootstrap) =>
-            Option.fromUndefinedOr(bootstrap.t3Home),
+            Option.fromUndefinedOr(bootstrap.aceHome),
           ),
         ),
       ),
@@ -278,8 +275,8 @@ const commandFlags = {
   logWebSocketEvents: logWebSocketEventsFlag,
 } as const;
 
-const rootCommand = Command.make("t3", commandFlags).pipe(
-  Command.withDescription("Run the T3 Code server."),
+const rootCommand = Command.make("ace", commandFlags).pipe(
+  Command.withDescription("Run the ace server."),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const logLevel = yield* GlobalFlag.LogLevel;

@@ -6,7 +6,7 @@ import type {
   SessionEvent,
   SessionConfig,
 } from "@github/copilot-sdk";
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId } from "@ace/contracts";
 import { assert, it } from "@effect/vitest";
 import { afterEach, vi } from "vitest";
 import { Effect, Fiber, Layer, Stream } from "effect";
@@ -45,6 +45,7 @@ function makeFakeClient(options: {
       (sessionId: string, config: ResumeSessionConfig) => Promise<GitHubCopilotSessionClient>
     >
   >;
+  readonly stop: ReturnType<typeof vi.fn<() => Promise<ReadonlyArray<Error>>>>;
   readonly emitSessionEvent: (event: SessionEvent) => void;
 } {
   const assistantMessageEvent: AssistantMessageEvent = {
@@ -87,7 +88,7 @@ function makeFakeClient(options: {
     }),
     getStatus: vi.fn(async () => ({ version: "test", protocolVersion: 1 })),
     getAuthStatus: vi.fn(async () => ({ isAuthenticated: true, statusMessage: "ok" })),
-    stop: vi.fn(async () => []),
+    stop: vi.fn(async (): Promise<ReadonlyArray<Error>> => []),
     emitSessionEvent: (event: SessionEvent) => {
       for (const listener of sessionListeners) {
         listener(event);
@@ -242,6 +243,45 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
 
         yield* adapter.stopSession(asThreadId("thread-stale-resume"));
       }),
+  );
+
+  it.effect("creates and stops a dedicated Copilot client per T3 session", () =>
+    Effect.gen(function* () {
+      const firstClient = makeFakeClient({
+        models: [],
+      });
+      const secondClient = makeFakeClient({
+        models: [],
+      });
+      mockedCreateGitHubCopilotClient
+        .mockResolvedValueOnce(firstClient)
+        .mockResolvedValueOnce(secondClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId: asThreadId("thread-isolated-1"),
+        cwd: "/repo-a",
+        runtimeMode: "full-access",
+      });
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId: asThreadId("thread-isolated-2"),
+        cwd: "/repo-b",
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(mockedCreateGitHubCopilotClient.mock.calls.length, 2);
+      assert.equal(firstClient.createSession.mock.calls.length, 1);
+      assert.equal(secondClient.createSession.mock.calls.length, 1);
+
+      yield* adapter.stopSession(asThreadId("thread-isolated-1"));
+      assert.equal(firstClient.stop.mock.calls.length, 1);
+      assert.equal(secondClient.stop.mock.calls.length, 0);
+
+      yield* adapter.stopSession(asThreadId("thread-isolated-2"));
+      assert.equal(secondClient.stop.mock.calls.length, 1);
+    }),
   );
 
   it.effect("emits context window updates from GitHub Copilot usage events", () =>

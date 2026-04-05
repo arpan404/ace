@@ -5,12 +5,7 @@
  *
  * @module ProviderSessionRuntimeRepository
  */
-import {
-  IsoDateTime,
-  ProviderSessionRuntimeStatus,
-  RuntimeMode,
-  ThreadId,
-} from "@t3tools/contracts";
+import { IsoDateTime, ProviderSessionRuntimeStatus, RuntimeMode, ThreadId } from "@ace/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -78,4 +73,4 @@ export interface ProviderSessionRuntimeRepositoryShape {
 export class ProviderSessionRuntimeRepository extends ServiceMap.Service<
   ProviderSessionRuntimeRepository,
   ProviderSessionRuntimeRepositoryShape
->()("t3/persistence/Services/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}
+>()("ace/persistence/Services/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}

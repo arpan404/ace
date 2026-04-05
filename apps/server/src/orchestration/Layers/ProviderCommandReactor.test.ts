@@ -7,7 +7,7 @@ import type {
   ProviderRuntimeEvent,
   ProviderSession,
   ServerSettings,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -17,12 +17,12 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
-import { TextGenerationError } from "@t3tools/contracts";
+import { TextGenerationError } from "@ace/contracts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
@@ -105,7 +105,7 @@ describe("ProviderCommandReactor", () => {
     readonly sessionModelSwitch?: "unsupported" | "in-session" | "restart-session";
   }) {
     const now = new Date().toISOString();
-    const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "t3code-reactor-"));
+    const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "ace-reactor-"));
     createdBaseDirs.add(baseDir);
     const { stateDir } = deriveServerPathsSync(baseDir, undefined);
     createdStateDirs.add(stateDir);
@@ -607,7 +607,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.meta.update",
         commandId: CommandId.makeUnsafe("cmd-thread-branch"),
         threadId: ThreadId.makeUnsafe("thread-1"),
-        branch: "t3code/1234abcd",
+        branch: "ace/1234abcd",
         worktreePath: "/tmp/provider-project-worktree",
       }),
     );
@@ -674,7 +674,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.meta.update",
         commandId: CommandId.makeUnsafe("cmd-thread-branch-settings"),
         threadId: ThreadId.makeUnsafe("thread-1"),
-        branch: "t3code/87654321",
+        branch: "ace/87654321",
         worktreePath: "/tmp/provider-project-worktree",
       }),
     );

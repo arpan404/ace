@@ -1,4 +1,4 @@
-import { DEFAULT_SERVER_SETTINGS, WS_METHODS } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, WS_METHODS } from "@ace/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AsyncResult, AtomRegistry } from "effect/unstable/reactivity";
 

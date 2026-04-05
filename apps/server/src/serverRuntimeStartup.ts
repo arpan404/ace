@@ -4,7 +4,7 @@ import {
   type ModelSelection,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import {
   Data,
   Deferred,
@@ -51,7 +51,7 @@ export interface ServerRuntimeStartupShape {
 export class ServerRuntimeStartup extends ServiceMap.Service<
   ServerRuntimeStartup,
   ServerRuntimeStartupShape
->()("t3/serverRuntimeStartup") {}
+>()("ace/serverRuntimeStartup") {}
 
 interface QueuedCommand {
   readonly run: Effect.Effect<void, never>;

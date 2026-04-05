@@ -10,12 +10,7 @@
  * store.
  */
 import { useCallback, useMemo } from "react";
-import {
-  ServerSettings,
-  ServerSettingsPatch,
-  ModelSelection,
-  ThreadEnvMode,
-} from "@t3tools/contracts";
+import { ServerSettings, ServerSettingsPatch, ModelSelection, ThreadEnvMode } from "@ace/contracts";
 import {
   BrowserSearchEngine,
   type ClientSettings,
@@ -27,17 +22,17 @@ import {
   SidebarThreadSortOrder,
   TimestampFormat,
   UnifiedSettings,
-} from "@t3tools/contracts/settings";
+} from "@ace/contracts/settings";
 import { ensureNativeApi } from "~/nativeApi";
 import { useLocalStorage } from "./useLocalStorage";
 import { normalizeCustomModelSlugs } from "~/modelSelection";
 import { Predicate, Schema, Struct } from "effect";
 import { DeepMutable } from "effect/Types";
-import { deepMerge } from "@t3tools/shared/Struct";
+import { deepMerge } from "@ace/shared/Struct";
 import { applySettingsUpdated, getServerConfig, useServerSettings } from "~/rpc/serverState";
 
-const CLIENT_SETTINGS_STORAGE_KEY = "t3code:client-settings:v1";
-const OLD_SETTINGS_KEY = "t3code:app-settings:v1";
+const CLIENT_SETTINGS_STORAGE_KEY = "ace:client-settings:v1";
+const OLD_SETTINGS_KEY = "ace:app-settings:v1";
 const JsonObjectSchema = Schema.Record(Schema.String, Schema.Unknown);
 const decodeJsonObject = Schema.decodeSync(Schema.fromJsonString(JsonObjectSchema));
 const ClientSettingsPatchSchema = Schema.Struct({

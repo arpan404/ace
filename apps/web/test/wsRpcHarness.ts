@@ -1,5 +1,5 @@
 import { Effect, Exit, PubSub, Scope, Stream } from "effect";
-import { WS_METHODS, WsRpcGroup } from "@t3tools/contracts";
+import { WS_METHODS, WsRpcGroup } from "@ace/contracts";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 type RpcServerInstance = RpcServer.RpcServer<any>;

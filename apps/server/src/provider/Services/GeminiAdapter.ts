@@ -8,5 +8,5 @@ export interface GeminiAdapterShape extends ProviderAdapterShape<ProviderAdapter
 }
 
 export class GeminiAdapter extends ServiceMap.Service<GeminiAdapter, GeminiAdapterShape>()(
-  "t3/provider/Services/GeminiAdapter",
+  "ace/provider/Services/GeminiAdapter",
 ) {}

@@ -2,7 +2,7 @@ import type {
   ProjectListTreeResult,
   ProjectReadFileResult,
   ProjectSearchEntriesResult,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { queryOptions } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
 

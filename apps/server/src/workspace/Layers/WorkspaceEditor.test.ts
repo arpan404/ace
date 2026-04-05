@@ -21,7 +21,7 @@ const hasNvim =
   (typeof Bun !== "undefined" && Bun.which("nvim") !== null);
 
 const TEST_NVIM_INIT_LUA = String.raw`
-local ns = vim.api.nvim_create_namespace("t3code-workspace-editor-test")
+local ns = vim.api.nvim_create_namespace("ace-workspace-editor-test")
 
 vim.api.nvim_create_autocmd({ "BufReadPost", "TextChanged", "InsertLeave" }, {
   callback = function(args)
@@ -37,7 +37,7 @@ vim.api.nvim_create_autocmd({ "BufReadPost", "TextChanged", "InsertLeave" }, {
           end_lnum = line_index - 1,
           end_col = start_col - 1 + 5,
           severity = vim.diagnostic.severity.ERROR,
-          source = "t3code-test",
+          source = "ace-test",
           message = "Found ERROR marker",
           code = "TEST001",
         }
@@ -93,10 +93,10 @@ describe.skipIf(!hasNvim)("WorkspaceEditorLive", () => {
       const path = yield* Path.Path;
       const workspaceEditor = yield* WorkspaceEditor;
       const workspaceDir = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3code-workspace-editor-",
+        prefix: "ace-workspace-editor-",
       });
       const configHome = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3code-workspace-editor-config-",
+        prefix: "ace-workspace-editor-config-",
       });
       const nvimConfigDir = path.join(configHome, "nvim");
 
@@ -141,7 +141,7 @@ describe.skipIf(!hasNvim)("WorkspaceEditorLive", () => {
             endLine: 1,
             message: "Found ERROR marker",
             severity: "error",
-            source: "t3code-test",
+            source: "ace-test",
             startColumn: 0,
             startLine: 1,
           },

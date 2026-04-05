@@ -6,7 +6,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   type ServerSettingsPatch,
   WS_METHODS,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect, Stream } from "effect";
 
 import { type WsRpcProtocolClient } from "./rpc/protocol";

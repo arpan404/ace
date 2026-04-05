@@ -1,4 +1,4 @@
-import type { NativeApi } from "@t3tools/contracts";
+import type { NativeApi } from "@ace/contracts";
 
 import { __resetWsNativeApiForTests, createWsNativeApi } from "./wsNativeApi";
 

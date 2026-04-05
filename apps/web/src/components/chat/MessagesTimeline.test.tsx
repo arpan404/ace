@@ -1,8 +1,8 @@
-import { MessageId } from "@t3tools/contracts";
+import { MessageId } from "@ace/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { TurnId } from "@t3tools/contracts";
+import { TurnId } from "@ace/contracts";
 
 vi.mock("../ChatMarkdown", () => ({
   default: ({ text }: { text?: string }) => <div>{text}</div>,

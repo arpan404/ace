@@ -2,7 +2,7 @@ import type {
   OrchestrationGetSnapshotInput,
   OrchestrationReadModel,
   OrchestrationThread,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 
 const MAX_CACHED_SNAPSHOT_VIEWS = 32;
 

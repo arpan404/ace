@@ -3,14 +3,14 @@ import {
   type ModelSelection,
   type ProviderKind,
   type ServerProvider,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import {
   buildProviderModelSelection,
   normalizeModelSlug,
   resolveSelectableModel,
-} from "@t3tools/shared/model";
+} from "@ace/shared/model";
 import { getComposerProviderState } from "./components/chat/composerProviderRegistry";
-import { UnifiedSettings } from "@t3tools/contracts/settings";
+import { UnifiedSettings } from "@ace/contracts/settings";
 import {
   getDefaultServerModel,
   getProviderModels,

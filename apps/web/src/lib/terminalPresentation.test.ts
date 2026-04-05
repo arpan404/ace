@@ -70,11 +70,9 @@ describe("terminal pane ratios", () => {
 
 describe("buildTerminalFallbackTitle", () => {
   it("uses the cwd for the default terminal and a shell label for extra terminals", () => {
-    expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/t3code", "default")).toBe(
-      "t3code",
-    );
-    expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/t3code", "terminal-2")).toBe(
-      "t3code shell",
+    expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "default")).toBe("ace");
+    expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "terminal-2")).toBe(
+      "ace shell",
     );
   });
 });

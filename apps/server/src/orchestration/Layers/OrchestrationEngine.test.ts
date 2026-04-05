@@ -7,7 +7,7 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationEvent,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect, Layer, ManagedRuntime, Option, Queue, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -38,7 +38,7 @@ const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsa
 
 async function createOrchestrationSystem() {
   const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
-    prefix: "t3-orchestration-engine-test-",
+    prefix: "ace-orchestration-engine-test-",
   });
   const orchestrationLayer = OrchestrationEngineLive.pipe(
     Layer.provide(OrchestrationProjectionSnapshotQueryLive),
@@ -455,7 +455,7 @@ describe("OrchestrationEngine", () => {
         threadId: ThreadId.makeUnsafe("thread-turn-diff"),
         turnId: asTurnId("turn-1"),
         completedAt: createdAt,
-        checkpointRef: asCheckpointRef("refs/t3/checkpoints/thread-turn-diff/turn/1"),
+        checkpointRef: asCheckpointRef("refs/ace/checkpoints/thread-turn-diff/turn/1"),
         status: "ready",
         files: [],
         checkpointTurnCount: 1,
@@ -470,7 +470,7 @@ describe("OrchestrationEngine", () => {
       {
         turnId: asTurnId("turn-1"),
         checkpointTurnCount: 1,
-        checkpointRef: asCheckpointRef("refs/t3/checkpoints/thread-turn-diff/turn/1"),
+        checkpointRef: asCheckpointRef("refs/ace/checkpoints/thread-turn-diff/turn/1"),
         status: "ready",
         files: [],
         assistantMessageId: null,
@@ -517,7 +517,7 @@ describe("OrchestrationEngine", () => {
     };
 
     const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
-      prefix: "t3-orchestration-engine-test-",
+      prefix: "ace-orchestration-engine-test-",
     });
 
     const runtime = ManagedRuntime.make(

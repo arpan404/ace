@@ -15,8 +15,8 @@ import type {
   GitHubCopilotModelOptions,
   ModelCapabilities,
   ServerProviderModel,
-} from "@t3tools/contracts";
-import { normalizeGitHubCopilotModelOptionsWithCapabilities } from "@t3tools/shared/model";
+} from "@ace/contracts";
+import { normalizeGitHubCopilotModelOptionsWithCapabilities } from "@ace/shared/model";
 
 import { runProcess } from "../processRunner.ts";
 
@@ -114,7 +114,7 @@ export async function createGitHubCopilotClient(
   config?: GitHubCopilotClientConfig,
 ): Promise<GitHubCopilotClientLike> {
   const configuredCliUrl = config?.cliUrl?.trim();
-  const envCliUrl = process.env.T3CODE_GITHUB_COPILOT_CLI_URL?.trim();
+  const envCliUrl = process.env.ACE_GITHUB_COPILOT_CLI_URL?.trim();
   const cliUrl = configuredCliUrl && configuredCliUrl.length > 0 ? configuredCliUrl : envCliUrl;
   const client =
     cliUrl && cliUrl.length > 0

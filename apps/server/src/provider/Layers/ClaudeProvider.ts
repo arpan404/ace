@@ -5,10 +5,10 @@ import type {
   ServerProviderModel,
   ServerProviderAuth,
   ServerProviderState,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Cache, Duration, Effect, Equal, Layer, Option, Result, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
-import { decodeJsonResult } from "@t3tools/shared/schemaJson";
+import { decodeJsonResult } from "@ace/shared/schemaJson";
 import { query as claudeQuery } from "@anthropic-ai/claude-agent-sdk";
 
 import {
@@ -25,7 +25,7 @@ import {
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import { ClaudeProvider } from "../Services/ClaudeProvider";
 import { ServerSettingsService } from "../../serverSettings";
-import { ServerSettingsError } from "@t3tools/contracts";
+import { ServerSettingsError } from "@ace/contracts";
 
 const PROVIDER = "claudeAgent" as const;
 const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
@@ -463,7 +463,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Claude is disabled in T3 Code settings.",
+        message: "Claude is disabled in ace settings.",
       },
     });
   }

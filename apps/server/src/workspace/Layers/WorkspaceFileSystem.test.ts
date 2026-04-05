@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { PROJECT_READ_FILE_MAX_BYTES } from "@t3tools/contracts";
+import { PROJECT_READ_FILE_MAX_BYTES } from "@ace/contracts";
 import { it, describe, expect } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path } from "effect";
 
@@ -23,7 +23,7 @@ const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(GitCoreLive),
   Layer.provide(
     ServerConfig.layerTest(process.cwd(), {
-      prefix: "t3-workspace-files-test-",
+      prefix: "ace-workspace-files-test-",
     }),
   ),
   Layer.provideMerge(NodeServices.layer),
@@ -32,7 +32,7 @@ const TestLayer = Layer.empty.pipe(
 const makeTempDir = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   return yield* fileSystem.makeTempDirectoryScoped({
-    prefix: "t3code-workspace-files-",
+    prefix: "ace-workspace-files-",
   });
 });
 

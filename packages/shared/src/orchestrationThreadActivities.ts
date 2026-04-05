@@ -1,4 +1,4 @@
-import type { OrchestrationThreadActivity } from "@t3tools/contracts";
+import type { OrchestrationThreadActivity } from "@ace/contracts";
 
 export const DEFAULT_MAX_THREAD_ACTIVITIES = 2_000;
 

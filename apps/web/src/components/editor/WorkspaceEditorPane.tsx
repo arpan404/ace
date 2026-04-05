@@ -1,5 +1,5 @@
 import Editor, { type OnMount } from "@monaco-editor/react";
-import type { WorkspaceEditorDiagnostic } from "@t3tools/contracts";
+import type { WorkspaceEditorDiagnostic } from "@ace/contracts";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircleIcon,
@@ -76,8 +76,8 @@ function formatFileSize(sizeBytes: number): string {
   return `${Math.round(sizeBytes / 1024)} KB`;
 }
 
-const EDITOR_TAB_TRANSFER_TYPE = "application/x-t3code-editor-tab";
-const WORKSPACE_EDITOR_MARKER_OWNER = "t3code-workspace-editor";
+const EDITOR_TAB_TRANSFER_TYPE = "application/x-ace-editor-tab";
+const WORKSPACE_EDITOR_MARKER_OWNER = "ace-workspace-editor";
 const MONACO_DIAGNOSTIC_OWNERS = [
   WORKSPACE_EDITOR_MARKER_OWNER,
   "css",
@@ -91,7 +91,7 @@ const MONACO_DIAGNOSTIC_OWNERS = [
   "typescript",
 ] as const;
 const DIAGNOSTIC_SYNC_DEBOUNCE_MS = 250;
-const VIM_CLOSE_ACTION_KEY = "__t3codeClose";
+const VIM_CLOSE_ACTION_KEY = "__aceClose";
 
 type MonacoApi = typeof import("monaco-editor");
 
@@ -815,7 +815,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
               height="100%"
               path={props.pane.activeFilePath}
               value={activeFileContents}
-              theme={props.resolvedTheme === "dark" ? "t3code-carbon" : "t3code-paper"}
+              theme={props.resolvedTheme === "dark" ? "ace-carbon" : "ace-paper"}
               onMount={handleEditorMount}
               onChange={(value) => {
                 if (!props.pane.activeFilePath || value === undefined) {

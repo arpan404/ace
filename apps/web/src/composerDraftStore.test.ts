@@ -5,7 +5,7 @@ import {
   type ModelSelection,
   type ProviderKind,
   type ProviderModelOptions,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {

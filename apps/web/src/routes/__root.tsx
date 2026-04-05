@@ -1,8 +1,4 @@
-import {
-  OrchestrationEvent,
-  ThreadId,
-  type ServerLifecycleWelcomePayload,
-} from "@t3tools/contracts";
+import { OrchestrationEvent, ThreadId, type ServerLifecycleWelcomePayload } from "@ace/contracts";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -259,7 +255,7 @@ function EventRouter() {
       payload,
       source,
     }: {
-      readonly payload: import("@t3tools/contracts").ServerConfigUpdatedPayload;
+      readonly payload: import("@ace/contracts").ServerConfigUpdatedPayload;
       readonly source: ServerConfigUpdateSource;
     }) => {
       const isReplay = !handledConfigReplayRef.current;

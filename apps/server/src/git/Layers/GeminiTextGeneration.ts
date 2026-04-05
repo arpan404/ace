@@ -1,8 +1,8 @@
 import { Effect, Layer, Option, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { GeminiModelSelection, TextGenerationError } from "@t3tools/contracts";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import { GeminiModelSelection, TextGenerationError } from "@ace/contracts";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";

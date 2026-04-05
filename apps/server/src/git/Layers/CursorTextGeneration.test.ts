@@ -3,7 +3,7 @@ import { it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Result } from "effect";
 import { expect } from "vitest";
 
-import { TextGenerationError } from "@t3tools/contracts";
+import { TextGenerationError } from "@ace/contracts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
@@ -18,7 +18,7 @@ const CursorTextGenerationTestLayer = CursorTextGenerationLive.pipe(
   Layer.provideMerge(ServerSettingsService.layerTest()),
   Layer.provideMerge(
     ServerConfig.layerTest(process.cwd(), {
-      prefix: "t3code-cursor-text-generation-test-",
+      prefix: "ace-cursor-text-generation-test-",
     }),
   ),
   Layer.provideMerge(NodeServices.layer),
@@ -62,9 +62,9 @@ function makeFakeCursorBinary(
         ...(input.stderr !== undefined
           ? [`printf "%s\\n" ${JSON.stringify(input.stderr)} >&2`]
           : []),
-        "cat <<'__T3CODE_FAKE_CURSOR_OUTPUT__'",
+        "cat <<'__ACE_FAKE_CURSOR_OUTPUT__'",
         input.output,
-        "__T3CODE_FAKE_CURSOR_OUTPUT__",
+        "__ACE_FAKE_CURSOR_OUTPUT__",
         `exit ${input.exitCode ?? 0}`,
         "",
       ].join("\n"),
@@ -87,7 +87,7 @@ function withFakeCursorBinary<A, E, R>(
   return Effect.acquireUseRelease(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-cursor-text-" });
+      const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-cursor-text-" });
       const cursorPath = yield* makeFakeCursorBinary(tempDir, input);
       const serverSettings = yield* ServerSettingsService;
       const previousSettings = yield* serverSettings.getSettings;

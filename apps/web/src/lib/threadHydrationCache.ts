@@ -1,5 +1,5 @@
-import { type OrchestrationReadModel, type ThreadId } from "@t3tools/contracts";
-import { DEFAULT_THREAD_HYDRATION_CACHE_MEMORY_MB } from "@t3tools/contracts/settings";
+import { type OrchestrationReadModel, type ThreadId } from "@ace/contracts";
+import { DEFAULT_THREAD_HYDRATION_CACHE_MEMORY_MB } from "@ace/contracts/settings";
 
 import { ensureNativeApi } from "../nativeApi";
 import { LRUCache } from "./lruCache";

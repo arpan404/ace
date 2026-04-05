@@ -1,5 +1,5 @@
 import { Effect, FileSystem, Layer, Path } from "effect";
-import { PROJECT_READ_FILE_MAX_BYTES } from "@t3tools/contracts";
+import { PROJECT_READ_FILE_MAX_BYTES } from "@ace/contracts";
 
 import {
   WorkspaceFileSystem,

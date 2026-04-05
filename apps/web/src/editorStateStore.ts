@@ -1,4 +1,4 @@
-import type { ThreadId } from "@t3tools/contracts";
+import type { ThreadId } from "@ace/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { normalizePaneRatios } from "./lib/paneRatios";
@@ -112,7 +112,7 @@ interface ThreadEditorStateCacheEntry {
   runtimeThreadStateInput: RuntimeThreadEditorState | undefined;
 }
 
-const STORAGE_KEY = "t3code:editor-state:v1";
+const STORAGE_KEY = "ace:editor-state:v1";
 export const DEFAULT_THREAD_EDITOR_TREE_WIDTH = 280;
 const MIN_TREE_WIDTH = 220;
 const MAX_TREE_WIDTH = 420;

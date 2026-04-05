@@ -1,5 +1,5 @@
 import { BotIcon, ImageIcon, PencilLineIcon, TerminalSquareIcon, Trash2Icon } from "lucide-react";
-import { PROVIDER_DISPLAY_NAMES, type MessageId, type ModelSelection } from "@t3tools/contracts";
+import { PROVIDER_DISPLAY_NAMES, type MessageId, type ModelSelection } from "@ace/contracts";
 
 import { formatQueuedComposerMessagePreview } from "../../lib/chat/chatView";
 import { cn } from "~/lib/utils";

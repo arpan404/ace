@@ -1,21 +1,20 @@
 /**
- * Spawns and caches a local OpenCode HTTP server (`opencode serve`) for SDK access.
+ * Spawns a dedicated local OpenCode HTTP server (`opencode serve`) for SDK access.
  *
  * @module opencodeRuntime
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 
 const DEFAULT_HOST = "127.0.0.1";
 const START_TIMEOUT_MS = 12_000;
+const STOP_TIMEOUT_MS = 2_000;
 
 export type OpenCodeServerHandle = {
   readonly url: string;
-  readonly close: () => void;
+  readonly close: () => Promise<void>;
   readonly binaryPath: string;
 };
-
-let cached: OpenCodeServerHandle | null = null;
 
 export async function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -30,21 +29,69 @@ export async function getFreePort(): Promise<number> {
   });
 }
 
-function stopProcess(child: ReturnType<typeof spawn>): void {
-  try {
-    child.kill("SIGTERM");
-  } catch {
-    // ignore
+function killChild(child: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): void {
+  if (process.platform === "win32" && child.pid !== undefined) {
+    try {
+      spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+      return;
+    } catch {
+      // Fall back to direct kill when taskkill is unavailable.
+    }
   }
+  child.kill(signal);
+}
+
+async function stopProcess(child: ReturnType<typeof spawn>): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const finalize = (callback: () => void) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (forceKillTimer) {
+        clearTimeout(forceKillTimer);
+      }
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+      }
+      child.off("error", onError);
+      child.off("exit", onExit);
+      callback();
+    };
+
+    const onError = (cause: Error) => {
+      finalize(() => reject(cause));
+    };
+
+    const onExit = () => {
+      finalize(() => resolve());
+    };
+
+    child.once("error", onError);
+    child.once("exit", onExit);
+
+    killChild(child, "SIGTERM");
+    forceKillTimer = setTimeout(() => {
+      killChild(child, "SIGKILL");
+    }, 1_000);
+    timeoutTimer = setTimeout(() => {
+      finalize(() => reject(new Error("Timed out stopping OpenCode server process.")));
+    }, STOP_TIMEOUT_MS);
+  });
 }
 
 /**
  * Start `opencode serve` and wait until the server prints its listening URL (same contract as `@opencode-ai/sdk` server bootstrap).
  */
-export async function startOpenCodeServer(binaryPath: string): Promise<{
-  readonly url: string;
-  readonly close: () => void;
-}> {
+export async function startOpenCodeServer(binaryPath: string): Promise<OpenCodeServerHandle> {
   const port = await getFreePort();
   const args = ["serve", `--hostname=${DEFAULT_HOST}`, `--port=${String(port)}`];
   const child = spawn(binaryPath, args, {
@@ -54,7 +101,7 @@ export async function startOpenCodeServer(binaryPath: string): Promise<{
 
   const url = await new Promise<string>((resolve, reject) => {
     const id = setTimeout(() => {
-      stopProcess(child);
+      void stopProcess(child);
       reject(
         new Error(
           `Timeout waiting for OpenCode server to start after ${String(START_TIMEOUT_MS)}ms`,
@@ -109,31 +156,7 @@ export async function startOpenCodeServer(binaryPath: string): Promise<{
 
   return {
     url,
-    close: () => {
-      stopProcess(child);
-    },
+    binaryPath,
+    close: () => stopProcess(child),
   };
-}
-
-/**
- * Returns a shared server handle for the given binary path, restarting when the path changes.
- */
-export async function ensureOpenCodeServer(binaryPath: string): Promise<OpenCodeServerHandle> {
-  if (cached && cached.binaryPath === binaryPath) {
-    return cached;
-  }
-  if (cached) {
-    cached.close();
-    cached = null;
-  }
-  const started = await startOpenCodeServer(binaryPath);
-  cached = { ...started, binaryPath };
-  return cached;
-}
-
-export function resetOpenCodeServerForTests(): void {
-  if (cached) {
-    cached.close();
-    cached = null;
-  }
 }

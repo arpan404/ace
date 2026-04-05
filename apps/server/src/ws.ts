@@ -21,8 +21,8 @@ import {
   WorkspaceEditorSyncBufferError,
   WS_METHODS,
   WsRpcGroup,
-} from "@t3tools/contracts";
-import { extractWebSocketAuthTokenFromProtocolHeader } from "@t3tools/shared/wsAuth";
+} from "@ace/contracts";
+import { extractWebSocketAuthTokenFromProtocolHeader } from "@ace/shared/wsAuth";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
@@ -37,7 +37,7 @@ import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
-import { ensureOpenCodeServer } from "./provider/opencodeRuntime";
+import { startOpenCodeServer } from "./provider/opencodeRuntime";
 import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./provider/opencodeSdk";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -236,20 +236,21 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             };
           }
 
-          const server = yield* Effect.promise(() =>
-            ensureOpenCodeServer(settings.providers.opencode.binaryPath),
-          ).pipe(Effect.orDie);
-
-          return yield* Effect.promise(() =>
-            searchOpenCodeModels(server.url, {
-              query: input.query,
-              limit: clamp(input.limit, {
-                minimum: 1,
-                maximum: OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT,
-              }),
-              offset: clamp(input.offset, { minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
-            }),
-          ).pipe(Effect.orDie);
+          return yield* Effect.promise(async () => {
+            const server = await startOpenCodeServer(settings.providers.opencode.binaryPath);
+            try {
+              return await searchOpenCodeModels(server.url, {
+                query: input.query,
+                limit: clamp(input.limit, {
+                  minimum: 1,
+                  maximum: OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT,
+                }),
+                offset: clamp(input.offset, { minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
+              });
+            } finally {
+              await server.close();
+            }
+          }).pipe(Effect.orDie);
         }),
       [WS_METHODS.serverUpsertKeybinding]: (rule) =>
         Effect.gen(function* () {

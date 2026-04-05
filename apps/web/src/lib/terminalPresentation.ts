@@ -2,7 +2,7 @@ import {
   applyTerminalInputToBuffer,
   deriveTerminalTitleFromCommand,
   extractTerminalOscTitle,
-} from "@t3tools/shared/terminalTitles";
+} from "@ace/shared/terminalTitles";
 import { DEFAULT_THREAD_TERMINAL_ID } from "../types";
 import { normalizePaneRatios, resizePaneRatios } from "./paneRatios";
 

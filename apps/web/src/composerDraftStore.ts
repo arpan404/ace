@@ -11,11 +11,11 @@ import {
   RuntimeMode,
   type ServerProvider,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import * as Schema from "effect/Schema";
 import * as Equal from "effect/Equal";
 import { DeepMutable } from "effect/Types";
-import { normalizeModelSlug } from "@t3tools/shared/model";
+import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/model";
 import { useMemo } from "react";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
 import { resolveAppModelSelection } from "./modelSelection";
@@ -29,9 +29,9 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
 import { getDefaultServerModel } from "./providerModels";
-import { UnifiedSettings } from "@t3tools/contracts/settings";
+import { UnifiedSettings } from "@ace/contracts/settings";
 
-export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
+export const COMPOSER_DRAFT_STORAGE_KEY = "ace:composer-drafts:v1";
 const COMPOSER_DRAFT_STORAGE_VERSION = 3;
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
@@ -554,86 +554,6 @@ function normalizeProviderModelOptions(
   };
 }
 
-function buildModelSelectionForProvider(
-  provider: "codex",
-  model: string,
-  options?: ProviderModelOptions["codex"],
-): Extract<ModelSelection, { provider: "codex" }>;
-function buildModelSelectionForProvider(
-  provider: "claudeAgent",
-  model: string,
-  options?: ProviderModelOptions["claudeAgent"],
-): Extract<ModelSelection, { provider: "claudeAgent" }>;
-function buildModelSelectionForProvider(
-  provider: "githubCopilot",
-  model: string,
-  options?: ProviderModelOptions["githubCopilot"],
-): Extract<ModelSelection, { provider: "githubCopilot" }>;
-function buildModelSelectionForProvider(
-  provider: "cursor",
-  model: string,
-  options?: ProviderModelOptions["cursor"],
-): Extract<ModelSelection, { provider: "cursor" }>;
-function buildModelSelectionForProvider(
-  provider: "gemini",
-  model: string,
-  options?: ProviderModelOptions["gemini"],
-): Extract<ModelSelection, { provider: "gemini" }>;
-function buildModelSelectionForProvider(
-  provider: "opencode",
-  model: string,
-  options?: ProviderModelOptions["opencode"],
-): Extract<ModelSelection, { provider: "opencode" }>;
-function buildModelSelectionForProvider(
-  provider: ProviderKind,
-  model: string,
-  options?: ProviderModelOptions[ProviderKind],
-): ModelSelection;
-function buildModelSelectionForProvider(
-  provider: ProviderKind,
-  model: string,
-  options?: unknown,
-): ModelSelection {
-  switch (provider) {
-    case "codex":
-      return {
-        provider,
-        model,
-        ...(options ? { options: options as ProviderModelOptions["codex"] } : {}),
-      } as Extract<ModelSelection, { provider: "codex" }>;
-    case "claudeAgent":
-      return {
-        provider,
-        model,
-        ...(options ? { options: options as ProviderModelOptions["claudeAgent"] } : {}),
-      } as Extract<ModelSelection, { provider: "claudeAgent" }>;
-    case "githubCopilot":
-      return {
-        provider,
-        model,
-        ...(options ? { options: options as ProviderModelOptions["githubCopilot"] } : {}),
-      } as Extract<ModelSelection, { provider: "githubCopilot" }>;
-    case "cursor":
-      return {
-        provider,
-        model,
-        ...(options ? { options: options as ProviderModelOptions["cursor"] } : {}),
-      } as Extract<ModelSelection, { provider: "cursor" }>;
-    case "gemini":
-      return {
-        provider,
-        model,
-        ...(options ? { options: options as ProviderModelOptions["gemini"] } : {}),
-      } as Extract<ModelSelection, { provider: "gemini" }>;
-    case "opencode":
-      return {
-        provider,
-        model,
-        ...(options ? { options: options as ProviderModelOptions["opencode"] } : {}),
-      } as Extract<ModelSelection, { provider: "opencode" }>;
-  }
-}
-
 function normalizeModelSelection(
   value: unknown,
   legacy?: {
@@ -661,7 +581,7 @@ function normalizeModelSelection(
     provider,
     provider === "codex" ? legacy?.legacyCodex : undefined,
   );
-  return buildModelSelectionForProvider(provider, model, modelOptions?.[provider]);
+  return buildProviderModelSelection(provider, model, modelOptions?.[provider]);
 }
 
 // ── Legacy sync helpers (used only during migration from v2 storage) ──
@@ -674,7 +594,7 @@ function legacySyncModelSelectionOptions(
     return null;
   }
   const options = modelOptions?.[modelSelection.provider];
-  return buildModelSelectionForProvider(modelSelection.provider, modelSelection.model, options);
+  return buildProviderModelSelection(modelSelection.provider, modelSelection.model, options);
 }
 
 function legacyMergeModelSelectionIntoProviderModelOptions(
@@ -721,7 +641,7 @@ function legacyToModelSelectionByProvider(
     for (const provider of ALL_PROVIDER_KINDS) {
       const options = modelOptions[provider];
       if (options && Object.keys(options).length > 0) {
-        result[provider] = buildModelSelectionForProvider(
+        result[provider] = buildProviderModelSelection(
           provider,
           modelSelection?.provider === provider
             ? modelSelection.model
@@ -1759,7 +1679,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               nextMap[normalized.provider] = normalized;
             } else {
               // No options in selection → preserve existing options, update provider+model
-              nextMap[normalized.provider] = buildModelSelectionForProvider(
+              nextMap[normalized.provider] = buildProviderModelSelection(
                 normalized.provider,
                 normalized.model,
                 current?.options,
@@ -1805,7 +1725,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             const opts = normalizedOpts[provider];
             const current = nextMap[provider];
             if (opts) {
-              nextMap[provider] = buildModelSelectionForProvider(
+              nextMap[provider] = buildProviderModelSelection(
                 provider,
                 current?.model ?? DEFAULT_MODEL_BY_PROVIDER[provider],
                 opts,
@@ -1855,7 +1775,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           const nextMap = { ...base.modelSelectionByProvider };
           const currentForProvider = nextMap[normalizedProvider];
           if (providerOpts) {
-            nextMap[normalizedProvider] = buildModelSelectionForProvider(
+            nextMap[normalizedProvider] = buildProviderModelSelection(
               normalizedProvider,
               currentForProvider?.model ?? DEFAULT_MODEL_BY_PROVIDER[normalizedProvider],
               providerOpts,
@@ -1873,12 +1793,12 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             const stickyBase =
               nextStickyMap[normalizedProvider] ??
               base.modelSelectionByProvider[normalizedProvider] ??
-              buildModelSelectionForProvider(
+              buildProviderModelSelection(
                 normalizedProvider,
                 DEFAULT_MODEL_BY_PROVIDER[normalizedProvider],
               );
             if (providerOpts) {
-              nextStickyMap[normalizedProvider] = buildModelSelectionForProvider(
+              nextStickyMap[normalizedProvider] = buildProviderModelSelection(
                 normalizedProvider,
                 stickyBase.model,
                 providerOpts,

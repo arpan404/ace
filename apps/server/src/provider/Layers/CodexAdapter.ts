@@ -21,7 +21,7 @@ import {
   ThreadId,
   TurnId,
   ProviderSendTurnInput,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect, FileSystem, Layer, Queue, Schema, ServiceMap, Stream } from "effect";
 
 import {

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@t3tools/monorepo",
+      "name": "@ace/monorepo",
       "devDependencies": {
         "@types/node": "^24.12.0",
         "oxfmt": "^0.40.0",
@@ -13,7 +13,7 @@
       },
     },
     "apps/desktop": {
-      "name": "@t3tools/desktop",
+      "name": "@ace/desktop",
       "version": "0.0.15",
       "dependencies": {
         "effect": "catalog:",
@@ -21,8 +21,8 @@
         "electron-updater": "^6.6.2",
       },
       "devDependencies": {
-        "@t3tools/contracts": "workspace:*",
-        "@t3tools/shared": "workspace:*",
+        "@ace/contracts": "workspace:*",
+        "@ace/shared": "workspace:*",
         "@types/node": "catalog:",
         "tsdown": "catalog:",
         "typescript": "catalog:",
@@ -30,7 +30,7 @@
       },
     },
     "apps/marketing": {
-      "name": "@t3tools/marketing",
+      "name": "@ace/marketing",
       "version": "0.0.0",
       "dependencies": {
         "astro": "^6.0.4",
@@ -41,10 +41,10 @@
       },
     },
     "apps/server": {
-      "name": "t3",
+      "name": "ace",
       "version": "0.0.15",
       "bin": {
-        "t3": "./dist/bin.mjs",
+        "ace": "./dist/bin.mjs",
       },
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.2.77",
@@ -60,11 +60,11 @@
         "open": "^10.1.0",
       },
       "devDependencies": {
+        "@ace/contracts": "workspace:*",
+        "@ace/shared": "workspace:*",
+        "@ace/web": "workspace:*",
         "@effect/language-service": "catalog:",
         "@effect/vitest": "catalog:",
-        "@t3tools/contracts": "workspace:*",
-        "@t3tools/shared": "workspace:*",
-        "@t3tools/web": "workspace:*",
         "@types/bun": "catalog:",
         "@types/node": "catalog:",
         "tsdown": "catalog:",
@@ -73,9 +73,11 @@
       },
     },
     "apps/web": {
-      "name": "@t3tools/web",
+      "name": "@ace/web",
       "version": "0.0.15",
       "dependencies": {
+        "@ace/contracts": "workspace:*",
+        "@ace/shared": "workspace:*",
         "@base-ui/react": "^1.2.0",
         "@dnd-kit/core": "^6.3.1",
         "@dnd-kit/modifiers": "^9.0.0",
@@ -86,8 +88,6 @@
         "@lexical/react": "^0.41.0",
         "@monaco-editor/react": "^4.7.0",
         "@pierre/diffs": "^1.1.0-beta.16",
-        "@t3tools/contracts": "workspace:*",
-        "@t3tools/shared": "workspace:*",
         "@tanstack/react-pacer": "^0.19.4",
         "@tanstack/react-query": "^5.90.0",
         "@tanstack/react-router": "^1.160.2",
@@ -129,7 +129,7 @@
       },
     },
     "packages/contracts": {
-      "name": "@t3tools/contracts",
+      "name": "@ace/contracts",
       "version": "0.0.15",
       "dependencies": {
         "effect": "catalog:",
@@ -143,10 +143,10 @@
       },
     },
     "packages/shared": {
-      "name": "@t3tools/shared",
+      "name": "@ace/shared",
       "version": "0.0.0-alpha.1",
       "dependencies": {
-        "@t3tools/contracts": "workspace:*",
+        "@ace/contracts": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -158,12 +158,12 @@
       },
     },
     "scripts": {
-      "name": "@t3tools/scripts",
+      "name": "@ace/scripts",
       "dependencies": {
+        "@ace/contracts": "workspace:*",
+        "@ace/shared": "workspace:*",
         "@anthropic-ai/claude-agent-sdk": "^0.2.77",
         "@effect/platform-node": "catalog:",
-        "@t3tools/contracts": "workspace:*",
-        "@t3tools/shared": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -196,6 +196,18 @@
     "vitest": "^4.0.0",
   },
   "packages": {
+    "@ace/contracts": ["@ace/contracts@workspace:packages/contracts"],
+
+    "@ace/desktop": ["@ace/desktop@workspace:apps/desktop"],
+
+    "@ace/marketing": ["@ace/marketing@workspace:apps/marketing"],
+
+    "@ace/scripts": ["@ace/scripts@workspace:scripts"],
+
+    "@ace/shared": ["@ace/shared@workspace:packages/shared"],
+
+    "@ace/web": ["@ace/web@workspace:apps/web"],
+
     "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.2.77", "", { "optionalDependencies": { "@img/sharp-darwin-arm64": "^0.34.2", "@img/sharp-darwin-x64": "^0.34.2", "@img/sharp-linux-arm": "^0.34.2", "@img/sharp-linux-arm64": "^0.34.2", "@img/sharp-linux-x64": "^0.34.2", "@img/sharp-linuxmusl-arm64": "^0.34.2", "@img/sharp-linuxmusl-x64": "^0.34.2", "@img/sharp-win32-arm64": "^0.34.2", "@img/sharp-win32-x64": "^0.34.2" }, "peerDependencies": { "zod": "^4.0.0" } }, "sha512-t+R1BW3ahCFMNM7/8WJq7+Gw9KPA9Cl7UUK8fWPokJZ75cf/xwEd9MqB+MVNoQT45dJiom/wxybT7tqYPkCqyg=="],
 
     "@astrojs/check": ["@astrojs/check@0.9.8", "", { "dependencies": { "@astrojs/language-server": "^2.16.5", "chokidar": "^4.0.3", "kleur": "^4.1.5", "yargs": "^17.7.2" }, "peerDependencies": { "typescript": "^5.0.0" }, "bin": { "astro-check": "bin/astro-check.js" } }, "sha512-LDng8446QLS5ToKjRHd3bgUdirvemVVExV7nRyJfW2wV36xuv7vDxwy5NWN9zqeSEDgg0Tv84sP+T3yEq+Zlkw=="],
@@ -696,18 +708,6 @@
 
     "@szmarczak/http-timer": ["@szmarczak/http-timer@4.0.6", "", { "dependencies": { "defer-to-connect": "^2.0.0" } }, "sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w=="],
 
-    "@t3tools/contracts": ["@t3tools/contracts@workspace:packages/contracts"],
-
-    "@t3tools/desktop": ["@t3tools/desktop@workspace:apps/desktop"],
-
-    "@t3tools/marketing": ["@t3tools/marketing@workspace:apps/marketing"],
-
-    "@t3tools/scripts": ["@t3tools/scripts@workspace:scripts"],
-
-    "@t3tools/shared": ["@t3tools/shared@workspace:packages/shared"],
-
-    "@t3tools/web": ["@t3tools/web@workspace:apps/web"],
-
     "@tailwindcss/node": ["@tailwindcss/node@4.2.1", "", { "dependencies": { "@jridgewell/remapping": "^2.3.5", "enhanced-resolve": "^5.19.0", "jiti": "^2.6.1", "lightningcss": "1.31.1", "magic-string": "^0.30.21", "source-map-js": "^1.2.1", "tailwindcss": "4.2.1" } }, "sha512-jlx6sLk4EOwO6hHe1oCGm1Q4AN/s0rSrTTPBGPM0/RQ6Uylwq17FuU8IeJJKEjtc6K6O07zsvP+gDO6MMWo7pg=="],
 
     "@tailwindcss/oxide": ["@tailwindcss/oxide@4.2.1", "", { "optionalDependencies": { "@tailwindcss/oxide-android-arm64": "4.2.1", "@tailwindcss/oxide-darwin-arm64": "4.2.1", "@tailwindcss/oxide-darwin-x64": "4.2.1", "@tailwindcss/oxide-freebsd-x64": "4.2.1", "@tailwindcss/oxide-linux-arm-gnueabihf": "4.2.1", "@tailwindcss/oxide-linux-arm64-gnu": "4.2.1", "@tailwindcss/oxide-linux-arm64-musl": "4.2.1", "@tailwindcss/oxide-linux-x64-gnu": "4.2.1", "@tailwindcss/oxide-linux-x64-musl": "4.2.1", "@tailwindcss/oxide-wasm32-wasi": "4.2.1", "@tailwindcss/oxide-win32-arm64-msvc": "4.2.1", "@tailwindcss/oxide-win32-x64-msvc": "4.2.1" } }, "sha512-yv9jeEFWnjKCI6/T3Oq50yQEOqmpmpfzG1hcZsAOaXFQPfzWprWrlHSdGPEF3WQTi8zu8ohC9Mh9J470nT5pUw=="],
@@ -881,6 +881,8 @@
     "@xterm/addon-fit": ["@xterm/addon-fit@0.11.0", "", {}, "sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g=="],
 
     "@xterm/xterm": ["@xterm/xterm@6.0.0", "", {}, "sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg=="],
+
+    "ace": ["ace@workspace:apps/server"],
 
     "acorn": ["acorn@8.16.0", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw=="],
 
@@ -1717,8 +1719,6 @@
     "sumchecker": ["sumchecker@3.0.1", "", { "dependencies": { "debug": "^4.1.0" } }, "sha512-MvjXzkz/BOfyVDkG0oFOtBxHX2u3gKbMHIF/dXblZsgD3BWOFLmHovIpZY7BykJdAjcqRCBi1WYBNdEC9yI7vg=="],
 
     "svgo": ["svgo@4.0.1", "", { "dependencies": { "commander": "^11.1.0", "css-select": "^5.1.0", "css-tree": "^3.0.1", "css-what": "^6.1.0", "csso": "^5.0.5", "picocolors": "^1.1.1", "sax": "^1.5.0" }, "bin": "./bin/svgo.js" }, "sha512-XDpWUOPC6FEibaLzjfe0ucaV0YrOjYotGJO1WpF0Zd+n6ZGEQUsSugaoLq9QkEZtAfQIxT42UChcssDVPP3+/w=="],
-
-    "t3": ["t3@workspace:apps/server"],
 
     "tabbable": ["tabbable@6.4.0", "", {}, "sha512-05PUHKSNE8ou2dwIxTngl4EzcnsCDZGJ/iCLtDflR/SHB/ny14rXc+qU5P4mG9JkusiV7EivzY9Mhm55AzAvCg=="],
 

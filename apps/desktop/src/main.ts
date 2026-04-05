@@ -25,12 +25,12 @@ import type {
   DesktopUpdateActionResult,
   DesktopUpdateCheckResult,
   DesktopUpdateState,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { autoUpdater } from "electron-updater";
 
-import type { ContextMenuItem } from "@t3tools/contracts";
-import { NetService } from "@t3tools/shared/Net";
-import { RotatingFileSink } from "@t3tools/shared/logging";
+import type { ContextMenuItem } from "@ace/contracts";
+import { NetService } from "@ace/shared/Net";
+import { RotatingFileSink } from "@ace/shared/logging";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import { syncShellEnvironment } from "./syncShellEnvironment";
 import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState";
@@ -67,17 +67,17 @@ const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
 const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
-const BASE_DIR = process.env.T3CODE_HOME?.trim() || Path.join(OS.homedir(), ".t3");
+const BASE_DIR = process.env.ACE_HOME?.trim() || Path.join(OS.homedir(), ".ace");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
-const DESKTOP_SCHEME = "t3";
+const DESKTOP_SCHEME = "ace";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const APP_DISPLAY_NAME = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
-const APP_USER_MODEL_ID = "com.t3tools.t3code";
-const LINUX_DESKTOP_ENTRY_NAME = isDevelopment ? "t3code-dev.desktop" : "t3code.desktop";
-const LINUX_WM_CLASS = isDevelopment ? "t3code-dev" : "t3code";
-const USER_DATA_DIR_NAME = isDevelopment ? "t3code-dev" : "t3code";
-const LEGACY_USER_DATA_DIR_NAME = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
+const APP_DISPLAY_NAME = isDevelopment ? "ace (Dev)" : "ace (Alpha)";
+const APP_USER_MODEL_ID = "com.ace.ace";
+const LINUX_DESKTOP_ENTRY_NAME = isDevelopment ? "ace-dev.desktop" : "ace.desktop";
+const LINUX_WM_CLASS = isDevelopment ? "ace-dev" : "ace";
+const USER_DATA_DIR_NAME = isDevelopment ? "ace-dev" : "ace";
+const LEGACY_USER_DATA_DIR_NAME = isDevelopment ? "ace (Dev)" : "ace (Alpha)";
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
@@ -88,7 +88,7 @@ const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const DESKTOP_UPDATE_CHANNEL = "latest";
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
-const IN_APP_BROWSER_PARTITION = "persist:t3-browser";
+const IN_APP_BROWSER_PARTITION = "persist:ace-browser";
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 type LinuxDesktopNamedApp = Electron.App & {
@@ -132,12 +132,12 @@ function sanitizeLogValue(value: string): string {
 
 function backendChildEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
-  delete env.T3CODE_PORT;
-  delete env.T3CODE_AUTH_TOKEN;
-  delete env.T3CODE_MODE;
-  delete env.T3CODE_NO_BROWSER;
-  delete env.T3CODE_HOST;
-  delete env.T3CODE_DESKTOP_WS_URL;
+  delete env.ACE_PORT;
+  delete env.ACE_AUTH_TOKEN;
+  delete env.ACE_MODE;
+  delete env.ACE_NO_BROWSER;
+  delete env.ACE_HOST;
+  delete env.ACE_DESKTOP_WS_URL;
   return env;
 }
 
@@ -429,7 +429,7 @@ function resolveEmbeddedCommitHash(): string | null {
 
   try {
     const raw = FS.readFileSync(packageJsonPath, "utf8");
-    return normalizeCommitHash(parseJsonObject(raw)?.t3codeCommitHash);
+    return normalizeCommitHash(parseJsonObject(raw)?.aceCommitHash);
   } catch {
     return null;
   }
@@ -440,7 +440,7 @@ function resolveAboutCommitHash(): string | null {
     return aboutCommitHashCache;
   }
 
-  const envCommitHash = normalizeCommitHash(process.env.T3CODE_COMMIT_HASH);
+  const envCommitHash = normalizeCommitHash(process.env.ACE_COMMIT_HASH);
   if (envCommitHash) {
     aboutCommitHashCache = envCommitHash;
     return aboutCommitHashCache;
@@ -524,7 +524,7 @@ function handleFatalStartupError(stage: string, error: unknown): void {
   console.error(`[desktop] fatal startup error (${stage})`, error);
   if (!isQuitting) {
     isQuitting = true;
-    dialog.showErrorBox("T3 Code failed to start", `Stage: ${stage}\n${message}${detail}`);
+    dialog.showErrorBox("ace failed to start", `Stage: ${stage}\n${message}${detail}`);
   }
   stopBackend();
   restoreStdIoCapture?.();
@@ -602,7 +602,7 @@ function handleCheckForUpdatesMenuClick(): void {
     isPackaged: app.isPackaged,
     platform: process.platform,
     appImage: process.env.APPIMAGE,
-    disabledByEnv: process.env.T3CODE_DISABLE_AUTO_UPDATE === "1",
+    disabledByEnv: process.env.ACE_DISABLE_AUTO_UPDATE === "1",
   });
   if (disabledReason) {
     console.info("[desktop-updater] Manual update check requested, but updates are disabled.");
@@ -629,7 +629,7 @@ async function checkForUpdatesFromMenu(): Promise<void> {
     void dialog.showMessageBox({
       type: "info",
       title: "You're up to date!",
-      message: `T3 Code ${updateState.currentVersion} is currently the newest version available.`,
+      message: `ace ${updateState.currentVersion} is currently the newest version available.`,
       buttons: ["OK"],
     });
   } else if (updateState.status === "error") {
@@ -747,10 +747,10 @@ function resolveIconPath(ext: "ico" | "icns" | "png"): string | null {
  *
  * Electron derives the default userData path from `productName` in
  * package.json, which currently produces directories with spaces and
- * parentheses (e.g. `~/.config/T3 Code (Alpha)` on Linux). This is
+ * parentheses (e.g. `~/.config/ace (Alpha)` on Linux). This is
  * unfriendly for shell usage and violates Linux naming conventions.
  *
- * We override it to a clean lowercase name (`t3code`). If the legacy
+ * We override it to a clean lowercase name (`ace`). If the legacy
  * directory already exists we keep using it so existing users don't
  * lose their Chromium profile data (localStorage, cookies, sessions).
  */
@@ -856,7 +856,7 @@ function shouldEnableAutoUpdates(): boolean {
       isPackaged: app.isPackaged,
       platform: process.platform,
       appImage: process.env.APPIMAGE,
-      disabledByEnv: process.env.T3CODE_DISABLE_AUTO_UPDATE === "1",
+      disabledByEnv: process.env.ACE_DISABLE_AUTO_UPDATE === "1",
     }) === null
   );
 }
@@ -952,7 +952,7 @@ function configureAutoUpdater(): void {
   updaterConfigured = true;
 
   const githubToken =
-    process.env.T3CODE_DESKTOP_UPDATE_GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim() || "";
+    process.env.ACE_DESKTOP_UPDATE_GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim() || "";
   if (githubToken) {
     // When a token is provided, re-configure the feed with `private: true` so
     // electron-updater uses the GitHub API (api.github.com) instead of the
@@ -968,10 +968,10 @@ function configureAutoUpdater(): void {
     }
   }
 
-  if (process.env.T3CODE_DESKTOP_MOCK_UPDATES) {
+  if (process.env.ACE_DESKTOP_MOCK_UPDATES) {
     autoUpdater.setFeedURL({
       provider: "generic",
-      url: `http://localhost:${process.env.T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT ?? 3000}`,
+      url: `http://localhost:${process.env.ACE_DESKTOP_MOCK_UPDATE_SERVER_PORT ?? 3000}`,
     });
   }
 
@@ -1104,7 +1104,7 @@ function startBackend(): void {
         mode: "desktop",
         noBrowser: true,
         port: backendPort,
-        t3Home: BASE_DIR,
+        aceHome: BASE_DIR,
         authToken: backendAuthToken,
       })}\n`,
     );

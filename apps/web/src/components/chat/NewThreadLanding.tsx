@@ -1,4 +1,4 @@
-import { type ProjectId } from "@t3tools/contracts";
+import { type ProjectId } from "@ace/contracts";
 import { ArrowRightIcon, PlusIcon, SquarePenIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 

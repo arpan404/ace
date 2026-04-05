@@ -80,7 +80,7 @@ describe("browser history", () => {
 
   it("includes pinned pages and boosts pages from the current site", () => {
     const suggestions = buildBrowserSuggestions("", {
-      activePageUrl: "https://github.com/t3tools/t3code",
+      activePageUrl: "https://github.com/ace/ace",
       history: [
         {
           title: "Example Docs",
@@ -94,7 +94,7 @@ describe("browser history", () => {
         {
           pinnedAt: 900,
           title: "GitHub Issues",
-          url: "https://github.com/t3tools/t3code/issues",
+          url: "https://github.com/ace/ace/issues",
         },
       ],
       searchEngine: "duckduckgo",
@@ -103,7 +103,7 @@ describe("browser history", () => {
     expect(suggestions[0]).toMatchObject({
       kind: "pinned",
       title: "GitHub Issues",
-      url: "https://github.com/t3tools/t3code/issues",
+      url: "https://github.com/ace/ace/issues",
     });
   });
 });

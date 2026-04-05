@@ -12,7 +12,7 @@ import {
   Wrench,
   XIcon,
 } from "lucide-react";
-import { type ThreadId } from "@t3tools/contracts";
+import { type ThreadId } from "@ace/contracts";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
   Fragment,

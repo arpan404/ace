@@ -1,5 +1,5 @@
-import { WS_METHODS } from "@t3tools/contracts";
-import { buildWebSocketAuthProtocol } from "@t3tools/shared/wsAuth";
+import { WS_METHODS } from "@ace/contracts";
+import { buildWebSocketAuthProtocol } from "@ace/shared/wsAuth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WsTransport } from "./wsTransport";

@@ -13,7 +13,7 @@ import type {
   ProjectListTreeResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 
 export class WorkspaceEntriesError extends Schema.TaggedErrorClass<WorkspaceEntriesError>()(
   "WorkspaceEntriesError",
@@ -53,5 +53,5 @@ export interface WorkspaceEntriesShape {
  * WorkspaceEntries - Service tag for cached workspace entry search.
  */
 export class WorkspaceEntries extends ServiceMap.Service<WorkspaceEntries, WorkspaceEntriesShape>()(
-  "t3/workspace/Services/WorkspaceEntries",
+  "ace/workspace/Services/WorkspaceEntries",
 ) {}

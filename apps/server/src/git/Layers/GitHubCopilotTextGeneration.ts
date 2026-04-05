@@ -5,8 +5,8 @@ import {
   type ChatAttachment,
   type GitHubCopilotModelOptions,
   TextGenerationError,
-} from "@t3tools/contracts";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+} from "@ace/contracts";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";

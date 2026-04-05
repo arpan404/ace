@@ -19,14 +19,14 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
   TerminalOpenInput,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import * as Schema from "effect/Schema";
 import {
   applyClaudePromptEffortPrefix,
   buildProviderModelSelection,
   normalizeModelSlug,
-} from "@t3tools/shared/model";
-import { truncate } from "@t3tools/shared/String";
+} from "@ace/shared/model";
+import { truncate } from "@ace/shared/String";
 import {
   type PointerEvent as ReactPointerEvent,
   Suspense,
@@ -369,7 +369,7 @@ function formatOutgoingPrompt(params: {
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
-const BROWSER_SPLIT_WIDTH_STORAGE_KEY = "t3code:browser:split-width:v1";
+const BROWSER_SPLIT_WIDTH_STORAGE_KEY = "ace:browser:split-width:v1";
 const DEFAULT_BROWSER_SPLIT_WIDTH = 720;
 const MIN_BROWSER_SPLIT_WIDTH = 420;
 const MIN_CHAT_SPLIT_WIDTH = 420;
@@ -2173,9 +2173,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const handleSidebarInteraction = () => {
       setBrowserMode((current) => (current === "full" ? "pip" : current));
     };
-    window.addEventListener("t3code:sidebar-interaction", handleSidebarInteraction);
+    window.addEventListener("ace:sidebar-interaction", handleSidebarInteraction);
     return () => {
-      window.removeEventListener("t3code:sidebar-interaction", handleSidebarInteraction);
+      window.removeEventListener("ace:sidebar-interaction", handleSidebarInteraction);
     };
   }, []);
 

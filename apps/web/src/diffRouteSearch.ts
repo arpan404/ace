@@ -1,4 +1,4 @@
-import { TurnId } from "@t3tools/contracts";
+import { TurnId } from "@ace/contracts";
 import { normalizeThreadWorkspaceMode, type ThreadWorkspaceMode } from "./threadWorkspaceMode";
 
 export interface DiffRouteSearch {

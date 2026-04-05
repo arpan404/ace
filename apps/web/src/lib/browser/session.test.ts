@@ -81,13 +81,13 @@ describe("browser session", () => {
     });
 
     const updated = updateBrowserTab(titled, tabId, {
-      url: "https://github.com/t3tools/t3code",
+      url: "https://github.com/ace/ace",
     });
 
     expect(updated.tabs[0]).toEqual({
       id: tabId,
       title: "github.com",
-      url: "https://github.com/t3tools/t3code",
+      url: "https://github.com/ace/ace",
     });
   });
 

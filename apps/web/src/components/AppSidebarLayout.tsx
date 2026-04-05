@@ -38,7 +38,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           if (!target?.closest("button,a,[role='button'],[data-slot='sidebar-menu-button']")) {
             return;
           }
-          window.dispatchEvent(new CustomEvent("t3code:sidebar-interaction"));
+          window.dispatchEvent(new CustomEvent("ace:sidebar-interaction"));
         }}
         resizable={{
           minWidth: THREAD_SIDEBAR_MIN_WIDTH,

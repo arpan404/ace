@@ -1,4 +1,4 @@
-import { type ProviderReplayTurn } from "@t3tools/contracts";
+import { type ProviderReplayTurn } from "@ace/contracts";
 
 import type { ProjectionThreadMessage } from "../persistence/Services/ProjectionThreadMessages.ts";
 

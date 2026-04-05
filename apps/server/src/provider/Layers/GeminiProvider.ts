@@ -1,4 +1,4 @@
-import type { GeminiSettings, ServerProvider, ServerProviderModel } from "@t3tools/contracts";
+import type { GeminiSettings, ServerProvider, ServerProviderModel } from "@ace/contracts";
 import { Cache, Duration, Effect, Equal, Layer, Result, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
@@ -13,7 +13,7 @@ import {
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import { GeminiProvider } from "../Services/GeminiProvider";
 import { ServerSettingsService } from "../../serverSettings";
-import { ServerSettingsError } from "@t3tools/contracts";
+import { ServerSettingsError } from "@ace/contracts";
 
 const PROVIDER = "gemini" as const;
 
@@ -122,7 +122,7 @@ export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(
           version: null,
           status: "warning",
           auth: { status: "unknown" },
-          message: "Gemini CLI is disabled in T3 Code settings.",
+          message: "Gemini CLI is disabled in ace settings.",
         },
       });
     }

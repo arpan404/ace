@@ -4,7 +4,7 @@ export interface TranscriptBootstrapMessage {
   readonly attachmentNames?: ReadonlyArray<string>;
 }
 
-import { type ProviderReplayTurn } from "@t3tools/contracts";
+import { type ProviderReplayTurn } from "@ace/contracts";
 
 export type TranscriptReplayTurn = ProviderReplayTurn;
 

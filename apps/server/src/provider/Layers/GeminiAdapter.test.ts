@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId } from "@ace/contracts";
 import { Effect, Layer, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

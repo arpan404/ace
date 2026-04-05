@@ -15,8 +15,8 @@ import {
   RuntimeRequestId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
-import { inferModelContextWindowTokens } from "@t3tools/shared/model";
+} from "@ace/contracts";
+import { inferModelContextWindowTokens } from "@ace/shared/model";
 import { Effect, Layer, Queue, Schema, Stream } from "effect";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -48,7 +48,7 @@ const ACP_CONTROL_TIMEOUT_MS = 20_000;
 const ACP_PROTOCOL_VERSION = 1;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
 export const GEMINI_ACP_CLIENT_INFO = {
-  name: "t3code",
+  name: "ace",
   version: "1.0.17",
 } as const;
 

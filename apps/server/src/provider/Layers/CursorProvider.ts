@@ -5,7 +5,7 @@ import type {
   ModelCapabilities,
   ServerProvider,
   ServerProviderModel,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Cache, Duration, Effect, Equal, Layer, Result, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
@@ -19,7 +19,7 @@ import {
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import { CursorProvider } from "../Services/CursorProvider";
 import { ServerSettingsService } from "../../serverSettings";
-import { ServerSettingsError } from "@t3tools/contracts";
+import { ServerSettingsError } from "@ace/contracts";
 
 const PROVIDER = "cursor" as const;
 const ANSI_ESCAPE_PATTERN = new RegExp(String.raw`\u001b\[[0-9;]*m`, "g");
@@ -407,7 +407,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
           version: null,
           status: "warning",
           auth: { status: "unknown" },
-          message: "Cursor Agent is disabled in T3 Code settings.",
+          message: "Cursor Agent is disabled in ace settings.",
         },
       });
     }
