@@ -65,6 +65,14 @@ import {
   ProjectWriteFileResult,
 } from "./project";
 import {
+  WorkspaceEditorCloseBufferError,
+  WorkspaceEditorCloseBufferInput,
+  WorkspaceEditorCloseBufferResult,
+  WorkspaceEditorSyncBufferError,
+  WorkspaceEditorSyncBufferInput,
+  WorkspaceEditorSyncBufferResult,
+} from "./workspaceEditor";
+import {
   TerminalClearInput,
   TerminalCloseInput,
   TerminalError,
@@ -99,6 +107,8 @@ export const WS_METHODS = {
   projectsReadFile: "projects.readFile",
   projectsRenameEntry: "projects.renameEntry",
   projectsWriteFile: "projects.writeFile",
+  workspaceEditorSyncBuffer: "workspaceEditor.syncBuffer",
+  workspaceEditorCloseBuffer: "workspaceEditor.closeBuffer",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -213,6 +223,18 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   payload: ProjectWriteFileInput,
   success: ProjectWriteFileResult,
   error: ProjectWriteFileError,
+});
+
+export const WsWorkspaceEditorSyncBufferRpc = Rpc.make(WS_METHODS.workspaceEditorSyncBuffer, {
+  payload: WorkspaceEditorSyncBufferInput,
+  success: WorkspaceEditorSyncBufferResult,
+  error: WorkspaceEditorSyncBufferError,
+});
+
+export const WsWorkspaceEditorCloseBufferRpc = Rpc.make(WS_METHODS.workspaceEditorCloseBuffer, {
+  payload: WorkspaceEditorCloseBufferInput,
+  success: WorkspaceEditorCloseBufferResult,
+  error: WorkspaceEditorCloseBufferError,
 });
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
@@ -393,6 +415,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsReadFileRpc,
   WsProjectsRenameEntryRpc,
   WsProjectsWriteFileRpc,
+  WsWorkspaceEditorSyncBufferRpc,
+  WsWorkspaceEditorCloseBufferRpc,
   WsShellOpenInEditorRpc,
   WsGitStatusRpc,
   WsGitPullRpc,

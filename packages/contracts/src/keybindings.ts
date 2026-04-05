@@ -49,6 +49,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "editor.newFolder",
   "editor.rename",
   "editor.split",
+  "editor.splitDown",
   "editor.toggleWordWrap",
   "editor.closeTab",
   "editor.closeOtherTabs",

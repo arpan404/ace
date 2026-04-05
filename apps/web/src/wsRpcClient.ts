@@ -55,6 +55,10 @@ export interface WsRpcClient {
     readonly renameEntry: RpcUnaryMethod<typeof WS_METHODS.projectsRenameEntry>;
     readonly writeFile: RpcUnaryMethod<typeof WS_METHODS.projectsWriteFile>;
   };
+  readonly workspaceEditor: {
+    readonly syncBuffer: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorSyncBuffer>;
+    readonly closeBuffer: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorCloseBuffer>;
+  };
   readonly shell: {
     readonly openInEditor: (input: {
       readonly cwd: Parameters<NativeApi["shell"]["openInEditor"]>[0];
@@ -146,6 +150,12 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) => client[WS_METHODS.projectsRenameEntry](input)),
       writeFile: (input) =>
         transport.request((client) => client[WS_METHODS.projectsWriteFile](input)),
+    },
+    workspaceEditor: {
+      syncBuffer: (input) =>
+        transport.request((client) => client[WS_METHODS.workspaceEditorSyncBuffer](input)),
+      closeBuffer: (input) =>
+        transport.request((client) => client[WS_METHODS.workspaceEditorCloseBuffer](input)),
     },
     shell: {
       openInEditor: (input) =>

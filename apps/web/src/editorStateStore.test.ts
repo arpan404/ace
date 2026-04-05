@@ -31,6 +31,7 @@ describe("editorStateStore actions", () => {
       expandedDirectoryPaths: [],
       paneRatios: [1],
       panes: [{ activeFilePath: null, id: "pane-1", openFilePaths: [] }],
+      rows: [{ id: "row-1", paneIds: ["pane-1"], paneRatios: [1] }],
       treeWidth: DEFAULT_THREAD_EDITOR_TREE_WIDTH,
     });
   });
@@ -90,10 +91,33 @@ describe("editorStateStore actions", () => {
 
     expect(paneId).toBe("pane-2");
     expect(editorState.activePaneId).toBe("pane-2");
-    expect(editorState.paneRatios).toEqual([0.5, 0.5]);
+    expect(editorState.paneRatios).toEqual([1]);
     expect(editorState.panes).toEqual([
       { activeFilePath: "src/main.ts", id: "pane-1", openFilePaths: ["src/main.ts"] },
       { activeFilePath: "src/main.ts", id: "pane-2", openFilePaths: ["src/main.ts"] },
+    ]);
+    expect(editorState.rows).toEqual([
+      { id: "row-1", paneIds: ["pane-1", "pane-2"], paneRatios: [0.5, 0.5] },
+    ]);
+  });
+
+  it("splits the active pane downward into a second editor row", () => {
+    const store = useEditorStateStore.getState();
+    store.openFile(THREAD_ID, "src/main.ts");
+
+    const paneId = store.splitPane(THREAD_ID, { direction: "down" });
+    const editorState = selectThreadEditorState(
+      useEditorStateStore.getState().threadStateByThreadId,
+      useEditorStateStore.getState().runtimeStateByThreadId,
+      THREAD_ID,
+    );
+
+    expect(paneId).toBe("pane-2");
+    expect(editorState.activePaneId).toBe("pane-2");
+    expect(editorState.paneRatios).toEqual([0.5, 0.5]);
+    expect(editorState.rows).toEqual([
+      { id: "row-1", paneIds: ["pane-1"], paneRatios: [1] },
+      { id: "row-2", paneIds: ["pane-2"], paneRatios: [1] },
     ]);
   });
 
@@ -282,6 +306,7 @@ describe("editorStateStore actions", () => {
     expect(editorState.panes).toEqual([
       { activeFilePath: "src/main.ts", id: "pane-2", openFilePaths: ["src/main.ts"] },
     ]);
+    expect(editorState.rows).toEqual([{ id: "row-1", paneIds: ["pane-2"], paneRatios: [1] }]);
   });
 
   it("prunes invalid file references across panes without dropping the split layout", () => {
@@ -298,10 +323,13 @@ describe("editorStateStore actions", () => {
       THREAD_ID,
     );
 
-    expect(editorState.paneRatios).toEqual([0.5, 0.5]);
+    expect(editorState.paneRatios).toEqual([1]);
     expect(editorState.panes).toEqual([
       { activeFilePath: null, id: "pane-1", openFilePaths: [] },
       { activeFilePath: "src/sidebar.ts", id: "pane-2", openFilePaths: ["src/sidebar.ts"] },
+    ]);
+    expect(editorState.rows).toEqual([
+      { id: "row-1", paneIds: ["pane-1", "pane-2"], paneRatios: [0.5, 0.5] },
     ]);
   });
 

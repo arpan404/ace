@@ -15,6 +15,12 @@ interface RecentlyClosedEditorEntry {
   targetIndex: number;
 }
 
+export interface ThreadEditorRowState {
+  id: string;
+  paneIds: string[];
+  paneRatios: number[];
+}
+
 export interface ThreadEditorPaneState {
   activeFilePath: string | null;
   id: string;
@@ -26,6 +32,7 @@ interface PersistedThreadEditorState {
   expandedDirectoryPaths: string[];
   paneRatios: number[];
   panes: ThreadEditorPaneState[];
+  rows: ThreadEditorRowState[];
   treeWidth: number;
 }
 
@@ -33,6 +40,14 @@ interface LegacyPersistedThreadEditorState {
   activeFilePath: string | null;
   expandedDirectoryPaths: string[];
   openFilePaths: string[];
+  treeWidth: number;
+}
+
+interface RowlessPersistedThreadEditorState {
+  activePaneId: string;
+  expandedDirectoryPaths: string[];
+  paneRatios: number[];
+  panes: ThreadEditorPaneState[];
   treeWidth: number;
 }
 
@@ -74,11 +89,12 @@ interface EditorStoreState {
   runtimeStateByThreadId: Record<string, RuntimeThreadEditorState>;
   setActiveFile: (threadId: ThreadId, filePath: string | null, paneId?: string) => void;
   setActivePane: (threadId: ThreadId, paneId: string) => void;
-  setPaneRatios: (threadId: ThreadId, ratios: readonly number[]) => void;
+  setPaneRatios: (threadId: ThreadId, rowId: string, ratios: readonly number[]) => void;
+  setRowRatios: (threadId: ThreadId, ratios: readonly number[]) => void;
   setTreeWidth: (threadId: ThreadId, width: number) => void;
   splitPane: (
     threadId: ThreadId,
-    options?: { filePath?: string | null; sourcePaneId?: string },
+    options?: { direction?: "down" | "right"; filePath?: string | null; sourcePaneId?: string },
   ) => string | null;
   syncTree: (threadId: ThreadId, validPaths: readonly string[]) => void;
   threadStateByThreadId: Record<string, PersistedThreadEditorState>;
@@ -101,6 +117,7 @@ export const DEFAULT_THREAD_EDITOR_TREE_WIDTH = 280;
 const MIN_TREE_WIDTH = 220;
 const MAX_TREE_WIDTH = 420;
 const DEFAULT_THREAD_EDITOR_PANE_ID = "pane-1";
+const DEFAULT_THREAD_EDITOR_ROW_ID = "row-1";
 export const MAX_THREAD_EDITOR_PANES = 4;
 const MAX_RECENTLY_CLOSED_EDITOR_ENTRIES = 32;
 const DEFAULT_THREAD_EDITOR_STATE = createDefaultThreadEditorState();
@@ -146,6 +163,21 @@ function paneArraysEqual(
         pane.id === right[index]?.id &&
         pane.activeFilePath === right[index]?.activeFilePath &&
         stringArraysEqual(pane.openFilePaths, right[index]?.openFilePaths ?? []),
+    )
+  );
+}
+
+function rowArraysEqual(
+  left: readonly ThreadEditorRowState[],
+  right: readonly ThreadEditorRowState[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (row, index) =>
+        row.id === right[index]?.id &&
+        stringArraysEqual(row.paneIds, right[index]?.paneIds ?? []) &&
+        numberArraysEqual(row.paneRatios, right[index]?.paneRatios ?? []),
     )
   );
 }
@@ -198,6 +230,7 @@ function threadStatesEqual(
     left.treeWidth === right.treeWidth &&
     stringArraysEqual(left.expandedDirectoryPaths, right.expandedDirectoryPaths) &&
     numberArraysEqual(left.paneRatios, right.paneRatios) &&
+    rowArraysEqual(left.rows, right.rows) &&
     paneArraysEqual(left.panes, right.panes)
   );
 }
@@ -221,12 +254,24 @@ function createDefaultPane(id = DEFAULT_THREAD_EDITOR_PANE_ID): ThreadEditorPane
   };
 }
 
+function createDefaultRow(
+  paneIds: readonly string[] = [DEFAULT_THREAD_EDITOR_PANE_ID],
+  id = DEFAULT_THREAD_EDITOR_ROW_ID,
+): ThreadEditorRowState {
+  return {
+    id,
+    paneIds: [...paneIds],
+    paneRatios: normalizePaneRatios([], paneIds.length),
+  };
+}
+
 function createDefaultThreadEditorState(): PersistedThreadEditorState {
   return {
     activePaneId: DEFAULT_THREAD_EDITOR_PANE_ID,
     expandedDirectoryPaths: [],
     paneRatios: [1],
     panes: [createDefaultPane()],
+    rows: [createDefaultRow()],
     treeWidth: DEFAULT_THREAD_EDITOR_TREE_WIDTH,
   };
 }
@@ -283,6 +328,20 @@ function createEditorStateStorage() {
   return resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined);
 }
 
+function createDefaultRowsFromPanes(
+  panes: readonly ThreadEditorPaneState[],
+  paneRatios?: readonly number[],
+): ThreadEditorRowState[] {
+  const paneIds = panes.map((pane) => pane.id);
+  return [
+    {
+      id: DEFAULT_THREAD_EDITOR_ROW_ID,
+      paneIds,
+      paneRatios: normalizePaneRatios(paneRatios ?? [], paneIds.length),
+    },
+  ];
+}
+
 function normalizeThreadEditorPanes(
   panes: readonly Partial<ThreadEditorPaneState>[] | null | undefined,
 ): ThreadEditorPaneState[] {
@@ -310,18 +369,84 @@ function normalizeThreadEditorPanes(
   return normalized.length > 0 ? normalized : [createDefaultPane()];
 }
 
+function normalizeThreadEditorRows(
+  rows: readonly Partial<ThreadEditorRowState>[] | null | undefined,
+  panes: readonly ThreadEditorPaneState[],
+  legacyPaneRatios?: readonly number[],
+): ThreadEditorRowState[] {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return createDefaultRowsFromPanes(panes, legacyPaneRatios);
+  }
+
+  const paneIdSet = new Set(panes.map((pane) => pane.id));
+  const assignedPaneIds = new Set<string>();
+  const usedRowIds = new Set<string>();
+  const normalizedRows = rows.flatMap((row, index) => {
+    const nextPaneIds = (Array.isArray(row.paneIds) ? row.paneIds : []).filter(
+      (paneId: unknown): paneId is string => {
+        if (typeof paneId !== "string" || !paneIdSet.has(paneId) || assignedPaneIds.has(paneId)) {
+          return false;
+        }
+        assignedPaneIds.add(paneId);
+        return true;
+      },
+    );
+    if (nextPaneIds.length === 0) {
+      return [];
+    }
+    const baseId =
+      typeof row.id === "string" && row.id.trim().length > 0 ? row.id.trim() : `row-${index + 1}`;
+    const id = assignUniquePaneId(baseId, usedRowIds);
+    return [
+      {
+        id,
+        paneIds: nextPaneIds,
+        paneRatios: normalizePaneRatios(row.paneRatios ?? [], nextPaneIds.length),
+      },
+    ];
+  });
+
+  const unassignedPaneIds = panes
+    .map((pane) => pane.id)
+    .filter((paneId) => !assignedPaneIds.has(paneId));
+
+  if (normalizedRows.length === 0) {
+    return createDefaultRowsFromPanes(panes, legacyPaneRatios);
+  }
+
+  if (unassignedPaneIds.length > 0) {
+    normalizedRows.push({
+      id: assignUniquePaneId(`row-${normalizedRows.length + 1}`, usedRowIds),
+      paneIds: unassignedPaneIds,
+      paneRatios: normalizePaneRatios([], unassignedPaneIds.length),
+    });
+  }
+
+  return normalizedRows;
+}
+
 function normalizePersistedThreadState(
-  threadState: Partial<PersistedThreadEditorState> | null | undefined,
+  threadState:
+    | Partial<PersistedThreadEditorState>
+    | Partial<RowlessPersistedThreadEditorState>
+    | null
+    | undefined,
 ): PersistedThreadEditorState {
   const panes = normalizeThreadEditorPanes(threadState?.panes);
+  const rows = normalizeThreadEditorRows(
+    (threadState as Partial<PersistedThreadEditorState> | undefined)?.rows,
+    panes,
+    threadState?.paneRatios,
+  );
   const activePaneId = panes.some((pane) => pane.id === threadState?.activePaneId)
     ? threadState?.activePaneId
     : panes[0]?.id;
   return {
     activePaneId: activePaneId ?? panes[0]?.id ?? DEFAULT_THREAD_EDITOR_PANE_ID,
     expandedDirectoryPaths: normalizePathList(threadState?.expandedDirectoryPaths ?? []),
-    paneRatios: normalizePaneRatios(threadState?.paneRatios ?? [], panes.length),
+    paneRatios: normalizePaneRatios(threadState?.paneRatios ?? [], rows.length),
     panes,
+    rows,
     treeWidth: normalizeTreeWidth(threadState?.treeWidth),
   };
 }
@@ -354,6 +479,25 @@ function isLegacyThreadState(
   value: PersistedThreadEditorState | LegacyPersistedThreadEditorState | undefined,
 ): value is LegacyPersistedThreadEditorState {
   return Boolean(value) && typeof value === "object" && !("panes" in value);
+}
+
+function findRowIndexByPaneId(rows: readonly ThreadEditorRowState[], paneId: string): number {
+  return rows.findIndex((row) => row.paneIds.includes(paneId));
+}
+
+function replaceRowAtIndex(
+  rows: readonly ThreadEditorRowState[],
+  rowIndex: number,
+  row: ThreadEditorRowState,
+): ThreadEditorRowState[] {
+  const next = [...rows];
+  next[rowIndex] = row;
+  return next;
+}
+
+function createNextRowId(rows: readonly ThreadEditorRowState[]): string {
+  const usedRowIds = new Set(rows.map((row) => row.id));
+  return assignUniquePaneId(`row-${rows.length + 1}`, usedRowIds);
 }
 
 function getPersistedThreadState(
@@ -640,7 +784,11 @@ export const useEditorStateStore = create<EditorStoreState>()(
             return state;
           }
           const paneIndex = current.panes.findIndex((pane) => pane.id === paneId);
+          const rowIndex = findRowIndexByPaneId(current.rows, paneId);
           if (paneIndex < 0) {
+            return state;
+          }
+          if (rowIndex < 0) {
             return state;
           }
           const nextPanes = current.panes.filter((pane) => pane.id !== paneId);
@@ -648,11 +796,28 @@ export const useEditorStateStore = create<EditorStoreState>()(
           if (!fallbackPane) {
             return state;
           }
+          const targetRow = current.rows[rowIndex];
+          if (!targetRow) {
+            return state;
+          }
+          const nextPaneIds = targetRow.paneIds.filter((entryPaneId) => entryPaneId !== paneId);
+          const nextRows =
+            nextPaneIds.length > 0
+              ? replaceRowAtIndex(current.rows, rowIndex, {
+                  ...targetRow,
+                  paneIds: nextPaneIds,
+                  paneRatios: normalizePaneRatios(targetRow.paneRatios, nextPaneIds.length),
+                })
+              : current.rows.filter((row) => row.id !== targetRow.id);
           const nextThreadState = normalizePersistedThreadState({
             ...current,
             activePaneId: current.activePaneId === paneId ? fallbackPane.id : current.activePaneId,
-            paneRatios: current.paneRatios.filter((_, index) => index !== paneIndex),
+            paneRatios:
+              nextPaneIds.length > 0
+                ? current.paneRatios
+                : current.paneRatios.filter((_, index) => index !== rowIndex),
             panes: nextPanes,
+            rows: nextRows,
           });
           return threadStatesEqual(current, nextThreadState)
             ? state
@@ -1097,16 +1262,36 @@ export const useEditorStateStore = create<EditorStoreState>()(
             activePaneId: paneId,
           });
         }),
-      setPaneRatios: (threadId, ratios) =>
+      setPaneRatios: (threadId, rowId, ratios) =>
         set((state) => {
           const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
-          const nextPaneRatios = normalizePaneRatios(ratios, current.panes.length);
-          if (numberArraysEqual(current.paneRatios, nextPaneRatios)) {
+          const rowIndex = current.rows.findIndex((row) => row.id === rowId);
+          const targetRow = current.rows[rowIndex];
+          if (!targetRow) {
+            return state;
+          }
+          const nextPaneRatios = normalizePaneRatios(ratios, targetRow.paneIds.length);
+          if (numberArraysEqual(targetRow.paneRatios, nextPaneRatios)) {
             return state;
           }
           return writeThreadState(state, threadId, {
             ...current,
-            paneRatios: nextPaneRatios,
+            rows: replaceRowAtIndex(current.rows, rowIndex, {
+              ...targetRow,
+              paneRatios: nextPaneRatios,
+            }),
+          });
+        }),
+      setRowRatios: (threadId, ratios) =>
+        set((state) => {
+          const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
+          const nextRowRatios = normalizePaneRatios(ratios, current.rows.length);
+          if (numberArraysEqual(current.paneRatios, nextRowRatios)) {
+            return state;
+          }
+          return writeThreadState(state, threadId, {
+            ...current,
+            paneRatios: nextRowRatios,
           });
         }),
       setTreeWidth: (threadId, width) =>
@@ -1133,6 +1318,11 @@ export const useEditorStateStore = create<EditorStoreState>()(
           if (!sourcePane) {
             return state;
           }
+          const rowIndex = findRowIndexByPaneId(current.rows, sourcePane.id);
+          const sourceRow = current.rows[rowIndex];
+          if (rowIndex < 0 || !sourceRow) {
+            return state;
+          }
           const requestedFilePath =
             typeof options?.filePath === "string" && options.filePath.trim().length > 0
               ? options.filePath.trim()
@@ -1146,11 +1336,32 @@ export const useEditorStateStore = create<EditorStoreState>()(
           createdPaneId = newPane.id;
           const nextPanes = [...current.panes];
           nextPanes.splice(paneIndex + 1, 0, newPane);
+          const direction = options?.direction ?? "right";
+          const nextRows = [...current.rows];
+          let nextRowRatios = current.paneRatios;
+          if (direction === "down") {
+            nextRows.splice(rowIndex + 1, 0, {
+              id: createNextRowId(current.rows),
+              paneIds: [newPane.id],
+              paneRatios: [1],
+            });
+            nextRowRatios = splitPaneRatios(current.paneRatios, rowIndex, nextRows.length);
+          } else {
+            const panePosition = sourceRow.paneIds.indexOf(sourcePane.id);
+            const nextPaneIds = [...sourceRow.paneIds];
+            nextPaneIds.splice(panePosition + 1, 0, newPane.id);
+            nextRows[rowIndex] = {
+              ...sourceRow,
+              paneIds: nextPaneIds,
+              paneRatios: splitPaneRatios(sourceRow.paneRatios, panePosition, nextPaneIds.length),
+            };
+          }
           return writeThreadState(state, threadId, {
             ...current,
             activePaneId: newPane.id,
-            paneRatios: splitPaneRatios(current.paneRatios, paneIndex, nextPanes.length),
+            paneRatios: nextRowRatios,
             panes: nextPanes,
+            rows: nextRows,
           });
         });
         return createdPaneId;

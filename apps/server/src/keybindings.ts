@@ -78,6 +78,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+alt+shift+n", command: "editor.newFolder", when: "editorFocus" },
   { key: "f2", command: "editor.rename", when: "editorFocus" },
   { key: "mod+\\", command: "editor.split", when: "editorFocus" },
+  { key: "mod+shift+\\", command: "editor.splitDown", when: "editorFocus" },
   { key: "alt+z", command: "editor.toggleWordWrap", when: "editorFocus" },
   { key: "mod+w", command: "editor.closeTab", when: "editorFocus" },
   { key: "mod+shift+t", command: "editor.reopenClosedTab", when: "editorFocus" },

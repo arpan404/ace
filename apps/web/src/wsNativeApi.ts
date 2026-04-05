@@ -58,6 +58,10 @@ export function createWsNativeApi(): NativeApi {
       renameEntry: rpcClient.projects.renameEntry,
       writeFile: rpcClient.projects.writeFile,
     },
+    workspaceEditor: {
+      syncBuffer: rpcClient.workspaceEditor.syncBuffer,
+      closeBuffer: rpcClient.workspaceEditor.closeBuffer,
+    },
     shell: {
       openInEditor: (cwd, editor) => rpcClient.shell.openInEditor({ cwd, editor }),
       openExternal: async (url) => {

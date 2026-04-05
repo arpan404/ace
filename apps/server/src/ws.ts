@@ -17,6 +17,8 @@ import {
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   type TerminalEvent,
+  WorkspaceEditorCloseBufferError,
+  WorkspaceEditorSyncBufferError,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -42,8 +44,13 @@ import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
+import { WorkspaceEditor } from "./workspace/Services/WorkspaceEditor";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
-import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
+import {
+  WorkspacePathOutsideRootError,
+  WorkspaceRootNotDirectoryError,
+  WorkspaceRootNotExistsError,
+} from "./workspace/Services/WorkspacePaths";
 
 const WS_UPGRADE_RATE_LIMIT_WINDOW_MS = 60_000;
 const WS_UPGRADE_RATE_LIMIT_MAX_ATTEMPTS = 30;
@@ -78,6 +85,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const serverSettings = yield* ServerSettingsService;
     const startup = yield* ServerRuntimeStartup;
     const workspaceEntries = yield* WorkspaceEntries;
+    const workspaceEditor = yield* WorkspaceEditor;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
 
     const loadServerConfig = Effect.gen(function* () {
@@ -325,6 +333,36 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               ? "Workspace file path must stay within the project root."
               : "Failed to write workspace file";
             return new ProjectWriteFileError({
+              message,
+              cause,
+            });
+          }),
+        ),
+      [WS_METHODS.workspaceEditorSyncBuffer]: (input) =>
+        workspaceEditor.syncBuffer(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : Schema.is(WorkspaceRootNotExistsError)(cause) ||
+                  Schema.is(WorkspaceRootNotDirectoryError)(cause)
+                ? cause.message
+                : "Failed to sync workspace diagnostics through Neovim.";
+            return new WorkspaceEditorSyncBufferError({
+              message,
+              cause,
+            });
+          }),
+        ),
+      [WS_METHODS.workspaceEditorCloseBuffer]: (input) =>
+        workspaceEditor.closeBuffer(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : Schema.is(WorkspaceRootNotExistsError)(cause) ||
+                  Schema.is(WorkspaceRootNotDirectoryError)(cause)
+                ? cause.message
+                : "Failed to close the Neovim workspace buffer.";
+            return new WorkspaceEditorCloseBufferError({
               message,
               cause,
             });

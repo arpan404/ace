@@ -160,6 +160,11 @@ const DEFAULT_BINDINGS = compile([
   },
   { shortcut: modShortcut("\\"), command: "editor.split", whenAst: whenIdentifier("editorFocus") },
   {
+    shortcut: modShortcut("\\", { shiftKey: true }),
+    command: "editor.splitDown",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
     shortcut: {
       key: "z",
       metaKey: false,
@@ -456,6 +461,13 @@ describe("shortcutLabelForCommand", () => {
       "Ctrl+\\",
     );
     assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.splitDown", {
+        platform: "Linux",
+        context: { editorFocus: true },
+      }),
+      "Ctrl+Shift+\\",
+    );
+    assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.focusNextWindow", {
         platform: "MacIntel",
         context: { editorFocus: true },
@@ -679,6 +691,17 @@ describe("chat/editor shortcuts", () => {
         context: { editorFocus: true },
       }),
       "editor.split",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "\\", ctrlKey: true, shiftKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "Linux",
+          context: { editorFocus: true },
+        },
+      ),
+      "editor.splitDown",
     );
     assert.strictEqual(
       resolveShortcutCommand(
