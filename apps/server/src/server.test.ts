@@ -3,9 +3,12 @@ import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
+  CheckpointRef,
   DEFAULT_SERVER_SETTINGS,
+  EventId,
   GitCommandError,
   KeybindingRule,
+  MessageId,
   OpenError,
   TerminalNotRunningError,
   type OrchestrationEvent,
@@ -14,6 +17,7 @@ import {
   ProjectId,
   ResolvedKeybindingRule,
   ThreadId,
+  TurnId,
   WS_METHODS,
   WsRpcGroup,
   EditorId,
@@ -44,7 +48,6 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
-import { PersistenceSqlError } from "./persistence/Errors.ts";
 import {
   ProviderRegistry,
   type ProviderRegistryShape,
@@ -1117,10 +1120,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* buildAppUnderTest({
         layers: {
-          projectionSnapshotQuery: {
-            getSnapshot: () => Effect.succeed(snapshot),
-          },
           orchestrationEngine: {
+            getReadModel: () => Effect.succeed(snapshot),
             dispatch: () => Effect.succeed({ sequence: 7 }),
             readEvents: () => Stream.empty,
           },
@@ -1253,32 +1254,143 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("routes websocket rpc orchestration.getSnapshot errors", () =>
+  it.effect("routes websocket rpc orchestration.getSnapshot with lean and hydrated views", () =>
     Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const threadId = ThreadId.makeUnsafe("thread-1");
+      const snapshot: OrchestrationReadModel = {
+        snapshotSequence: 3,
+        updatedAt: now,
+        projects: [
+          {
+            id: defaultProjectId,
+            title: "Default Project",
+            workspaceRoot: "/tmp/default-project",
+            defaultModelSelection,
+            scripts: [],
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+          },
+        ],
+        threads: [
+          {
+            id: threadId,
+            projectId: defaultProjectId,
+            title: "Hydrated Thread",
+            modelSelection: defaultModelSelection,
+            interactionMode: "default" as const,
+            runtimeMode: "full-access" as const,
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+            archivedAt: null,
+            latestTurn: null,
+            messages: [
+              {
+                id: MessageId.makeUnsafe("message-user"),
+                role: "user",
+                text: "Hello",
+                turnId: TurnId.makeUnsafe("turn-1"),
+                streaming: false,
+                createdAt: now,
+                updatedAt: now,
+              },
+              {
+                id: MessageId.makeUnsafe("message-assistant"),
+                role: "assistant",
+                text: "Hi",
+                turnId: TurnId.makeUnsafe("turn-1"),
+                streaming: false,
+                createdAt: now,
+                updatedAt: now,
+              },
+            ],
+            session: null,
+            activities: [
+              {
+                id: EventId.makeUnsafe("activity-approval"),
+                tone: "approval",
+                kind: "approval.requested",
+                summary: "Approve",
+                payload: {},
+                turnId: TurnId.makeUnsafe("turn-1"),
+                createdAt: now,
+              },
+              {
+                id: EventId.makeUnsafe("activity-tool"),
+                tone: "info",
+                kind: "tool.progress",
+                summary: "Progress",
+                payload: {},
+                turnId: TurnId.makeUnsafe("turn-1"),
+                createdAt: now,
+              },
+            ],
+            proposedPlans: [],
+            queuedComposerMessages: [],
+            queuedSteerRequest: null,
+            checkpoints: [
+              {
+                turnId: TurnId.makeUnsafe("turn-1"),
+                checkpointTurnCount: 1,
+                checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
+                status: "ready",
+                files: [],
+                assistantMessageId: MessageId.makeUnsafe("message-assistant"),
+                completedAt: now,
+              },
+            ],
+            deletedAt: null,
+          },
+        ],
+      };
+
       yield* buildAppUnderTest({
         layers: {
-          projectionSnapshotQuery: {
-            getSnapshot: () =>
-              Effect.fail(
-                new PersistenceSqlError({
-                  operation: "ProjectionSnapshotQuery.getSnapshot",
-                  detail: "projection unavailable",
-                }),
-              ),
+          orchestrationEngine: {
+            getReadModel: () => Effect.succeed(snapshot),
+            readEvents: () => Stream.empty,
           },
         },
       });
 
       const wsUrl = yield* getWsServerUrl("/ws");
-      const result = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[ORCHESTRATION_WS_METHODS.getSnapshot]({})).pipe(
-          Effect.result,
+      const leanSnapshot = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.getSnapshot]({
+            hydrateThreadId: null,
+          }),
+        ),
+      );
+      const hydratedSnapshot = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.getSnapshot]({
+            hydrateThreadId: threadId,
+          }),
         ),
       );
 
-      assertTrue(result._tag === "Failure");
-      assertTrue(result.failure._tag === "OrchestrationGetSnapshotError");
-      assertInclude(result.failure.message, "Failed to load orchestration snapshot");
+      assert.deepEqual(
+        leanSnapshot.threads[0]?.messages.map((message) => message.role),
+        ["user"],
+      );
+      assert.deepEqual(
+        leanSnapshot.threads[0]?.activities.map((activity) => activity.kind),
+        ["approval.requested"],
+      );
+      assert.equal(leanSnapshot.threads[0]?.checkpoints.length, 0);
+
+      assert.deepEqual(
+        hydratedSnapshot.threads[0]?.messages.map((message) => message.role),
+        ["user", "assistant"],
+      );
+      assert.deepEqual(
+        hydratedSnapshot.threads[0]?.activities.map((activity) => activity.kind),
+        ["approval.requested", "tool.progress"],
+      );
+      assert.equal(hydratedSnapshot.threads[0]?.checkpoints.length, 1);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

@@ -1207,6 +1207,45 @@ describe("deriveTimelineEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["work-1", "work-2"]);
   });
 
+  it("orders assistant messages and work entries by sequence when timestamps match", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("assistant-before"),
+          role: "assistant",
+          text: "Before tool",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 1,
+          streaming: false,
+        },
+        {
+          id: MessageId.makeUnsafe("assistant-after"),
+          role: "assistant",
+          text: "After tool",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 3,
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "work-2",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 2,
+          label: "Read file",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "assistant-before",
+      "work-2",
+      "assistant-after",
+    ]);
+  });
+
   it("lifts report_intent out of the work log and attaches it to the next tool entry", () => {
     const entries = deriveTimelineEntries(
       [],

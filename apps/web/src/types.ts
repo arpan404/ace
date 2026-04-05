@@ -79,6 +79,7 @@ export interface ChatMessage {
   attachments?: ChatAttachment[];
   turnId?: TurnId | null;
   createdAt: string;
+  sequence?: number | undefined;
   completedAt?: string | undefined;
   streaming: boolean;
 }

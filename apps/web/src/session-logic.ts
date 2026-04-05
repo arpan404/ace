@@ -960,6 +960,7 @@ export function deriveTimelineEntries(
         createdAt: message.createdAt,
         message,
       },
+      sequence: message.sequence,
     })),
     ...proposedPlans.map((proposedPlan) => ({
       timelineEntry: {
@@ -1043,27 +1044,18 @@ function compareTimelineEntriesByOrder(
     sequence?: number | undefined;
   },
 ): number {
-  if (left.timelineEntry.kind === "work" && right.timelineEntry.kind === "work") {
-    const workComparison = compareSequenceThenCreatedAt(
-      {
-        createdAt: left.timelineEntry.createdAt,
-        sequence: left.sequence,
-      },
-      {
-        createdAt: right.timelineEntry.createdAt,
-        sequence: right.sequence,
-      },
-    );
-    if (workComparison !== 0) {
-      return workComparison;
-    }
-  }
-
-  const createdAtComparison = left.timelineEntry.createdAt.localeCompare(
-    right.timelineEntry.createdAt,
+  const orderComparison = compareSequenceThenCreatedAt(
+    {
+      createdAt: left.timelineEntry.createdAt,
+      sequence: left.sequence,
+    },
+    {
+      createdAt: right.timelineEntry.createdAt,
+      sequence: right.sequence,
+    },
   );
-  if (createdAtComparison !== 0) {
-    return createdAtComparison;
+  if (orderComparison !== 0) {
+    return orderComparison;
   }
 
   return (

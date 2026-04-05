@@ -140,6 +140,11 @@ function activityFingerprint(activity: OrchestrationThreadActivity): string {
   return `${activity.kind}|${activity.turnId ?? "none"}|${activity.summary}|${payload}`;
 }
 
+type ActivityStreamingSettings = {
+  readonly enableToolStreaming: boolean;
+  readonly enableThinkingStreaming: boolean;
+};
+
 function extractReasoningDetail(event: Extract<ProviderRuntimeEvent, { type: "item.completed" }>) {
   if (typeof event.payload.detail === "string" && event.payload.detail.length > 0) {
     return truncateDetail(event.payload.detail);
@@ -214,6 +219,7 @@ function requestKindFromCanonicalRequestType(
 
 function runtimeEventToActivities(
   event: ProviderRuntimeEvent,
+  streamingSettings: ActivityStreamingSettings,
 ): ReadonlyArray<OrchestrationThreadActivity> {
   const maybeSequence = (() => {
     const eventWithSequence = event as ProviderRuntimeEvent & { sessionSequence?: number };
@@ -313,6 +319,9 @@ function runtimeEventToActivities(
     }
 
     case "turn.plan.updated": {
+      if (!streamingSettings.enableThinkingStreaming) {
+        return [];
+      }
       return [
         {
           id: event.eventId,
@@ -369,6 +378,9 @@ function runtimeEventToActivities(
     }
 
     case "task.started": {
+      if (!streamingSettings.enableThinkingStreaming) {
+        return [];
+      }
       return [
         {
           id: event.eventId,
@@ -395,6 +407,9 @@ function runtimeEventToActivities(
     }
 
     case "task.progress": {
+      if (!streamingSettings.enableThinkingStreaming) {
+        return [];
+      }
       return [
         {
           id: event.eventId,
@@ -416,6 +431,9 @@ function runtimeEventToActivities(
     }
 
     case "task.completed": {
+      if (!streamingSettings.enableThinkingStreaming) {
+        return [];
+      }
       return [
         {
           id: event.eventId,
@@ -483,6 +501,9 @@ function runtimeEventToActivities(
     }
 
     case "content.delta": {
+      if (!streamingSettings.enableThinkingStreaming) {
+        return [];
+      }
       if (
         event.payload.streamKind !== "reasoning_text" &&
         event.payload.streamKind !== "reasoning_summary_text"
@@ -515,6 +536,9 @@ function runtimeEventToActivities(
     }
 
     case "item.updated": {
+      if (!streamingSettings.enableToolStreaming) {
+        return [];
+      }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
@@ -540,6 +564,9 @@ function runtimeEventToActivities(
 
     case "item.completed": {
       if (event.payload.itemType === "reasoning") {
+        if (!streamingSettings.enableThinkingStreaming) {
+          return [];
+        }
         const detail = extractReasoningDetail(event);
         return [
           {
@@ -558,6 +585,9 @@ function runtimeEventToActivities(
             ...maybeSequence,
           },
         ];
+      }
+      if (!streamingSettings.enableToolStreaming) {
+        return [];
       }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
@@ -582,6 +612,9 @@ function runtimeEventToActivities(
     }
 
     case "item.started": {
+      if (!streamingSettings.enableToolStreaming) {
+        return [];
+      }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
@@ -610,6 +643,31 @@ function runtimeEventToActivities(
   }
 
   return [];
+}
+
+function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") {
+    return false;
+  }
+
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
+  return typeof payload?.detail === "string" && payload.detail.startsWith("ExitPlanMode:");
+}
+
+function isRenderableAssistantBoundaryActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind === "task.started" || activity.kind === "task.completed") {
+    return false;
+  }
+  if (activity.kind === "context-window.updated") {
+    return false;
+  }
+  if (activity.summary === "Checkpoint captured") {
+    return false;
+  }
+  return !isPlanBoundaryToolActivity(activity);
 }
 
 const make = Effect.fn("make")(function* () {
@@ -1236,24 +1294,23 @@ const make = Effect.fn("make")(function* () {
       event.type === "turn.started" && shouldApplyThreadLifecycle
         ? yield* getSourceProposedPlanReferenceForAcceptedTurnStart(thread.id, eventTurnId)
         : null;
+    const serverSettings = yield* serverSettingsService.getSettings;
+    const activities = runtimeEventToActivities(event, {
+      enableToolStreaming: serverSettings.enableToolStreaming,
+      enableThinkingStreaming: serverSettings.enableThinkingStreaming,
+    });
 
     const shouldBreakAssistantMessageSegments = (() => {
-      if (!eventTurnId) {
+      if (
+        !eventTurnId ||
+        !activities.some(isRenderableAssistantBoundaryActivity) ||
+        (STRICT_PROVIDER_LIFECYCLE_GUARD &&
+          activeTurnId !== null &&
+          !sameId(activeTurnId, eventTurnId))
+      ) {
         return false;
       }
-      if (event.type === "content.delta") {
-        return (
-          event.payload.streamKind === "reasoning_text" ||
-          event.payload.streamKind === "reasoning_summary_text"
-        );
-      }
-      if (event.type === "item.started" || event.type === "item.updated") {
-        return event.payload.itemType !== "assistant_message";
-      }
-      if (event.type === "item.completed") {
-        return event.payload.itemType !== "assistant_message";
-      }
-      return false;
+      return true;
     })();
 
     if (eventTurnId && shouldBreakAssistantMessageSegments) {
@@ -1371,10 +1428,9 @@ const make = Effect.fn("make")(function* () {
         yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
       }
 
-      const assistantDeliveryMode: AssistantDeliveryMode = yield* Effect.map(
-        serverSettingsService.getSettings,
-        (settings) => (settings.enableAssistantStreaming ? "streaming" : "buffered"),
-      );
+      const assistantDeliveryMode: AssistantDeliveryMode = serverSettings.enableAssistantStreaming
+        ? "streaming"
+        : "buffered";
       if (assistantDeliveryMode === "buffered") {
         yield* flushPendingStreamingAssistantDeltaByStreamKey(streamKey);
         const spillChunk = yield* appendBufferedAssistantText(assistantMessageId, assistantDelta);
@@ -1593,7 +1649,6 @@ const make = Effect.fn("make")(function* () {
       }
     }
 
-    const activities = runtimeEventToActivities(event);
     yield* Effect.forEach(
       activities,
       (activity) =>

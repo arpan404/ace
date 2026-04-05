@@ -44,8 +44,44 @@ const MAX_THREAD_CHECKPOINTS = 500;
 const MAX_THREAD_PROPOSED_PLANS = 200;
 const MAX_THREAD_ACTIVITIES = 500;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
+const threadLookupCache = new WeakMap<ReadonlyArray<Thread>, Map<ThreadId, Thread>>();
 
 // ── Pure helpers ──────────────────────────────────────────────────────
+
+function getThreadLookup(threads: ReadonlyArray<Thread>): Map<ThreadId, Thread> {
+  const cached = threadLookupCache.get(threads);
+  if (cached) {
+    return cached;
+  }
+
+  const lookup = new Map<ThreadId, Thread>();
+  for (const thread of threads) {
+    lookup.set(thread.id, thread);
+  }
+  threadLookupCache.set(threads, lookup);
+  return lookup;
+}
+
+export function getThreadById(
+  threads: ReadonlyArray<Thread>,
+  threadId: ThreadId | null | undefined,
+): Thread | undefined {
+  if (!threadId) {
+    return undefined;
+  }
+  return getThreadLookup(threads).get(threadId);
+}
+
+export function getThreadsByIds(
+  threads: ReadonlyArray<Thread>,
+  threadIds: readonly ThreadId[],
+): Array<Thread | undefined> {
+  if (threadIds.length === 0) {
+    return [];
+  }
+  const lookup = getThreadLookup(threads);
+  return threadIds.map((threadId) => lookup.get(threadId));
+}
 
 function updateThread(
   threads: Thread[],
@@ -122,6 +158,7 @@ function mapMessage(message: OrchestrationMessage): ChatMessage {
     text: message.text,
     turnId: message.turnId,
     createdAt: message.createdAt,
+    ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
     streaming: message.streaming,
     ...(message.streaming ? {} : { completedAt: message.updatedAt }),
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
@@ -451,7 +488,7 @@ function retainThreadMessagesAfterRevert(
       )
       .toSorted(
         (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+          compareSequenceThenCreatedAt(left, right) || left.id.localeCompare(right.id),
       )
       .slice(0, missingUserCount);
     for (const message of fallbackUserMessages) {
@@ -475,7 +512,7 @@ function retainThreadMessagesAfterRevert(
       )
       .toSorted(
         (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+          compareSequenceThenCreatedAt(left, right) || left.id.localeCompare(right.id),
       )
       .slice(0, missingAssistantCount);
     for (const message of fallbackAssistantMessages) {
@@ -906,6 +943,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
             : {}),
           turnId: event.payload.turnId,
           streaming: event.payload.streaming,
+          sequence: event.sequence,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
         });
@@ -923,6 +961,9 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
                         : entry.text,
                     streaming: message.streaming,
                     ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+                    ...(entry.sequence !== undefined || message.sequence !== undefined
+                      ? { sequence: entry.sequence ?? message.sequence }
+                      : {}),
                     ...(message.streaming
                       ? entry.completedAt !== undefined
                         ? { completedAt: entry.completedAt }
@@ -1198,7 +1239,7 @@ export const selectProjectById =
 export const selectThreadById =
   (threadId: ThreadId | null | undefined) =>
   (state: AppState): Thread | undefined =>
-    threadId ? state.threads.find((thread) => thread.id === threadId) : undefined;
+    getThreadById(state.threads, threadId);
 
 export const selectSidebarThreadSummaryById =
   (threadId: ThreadId | null | undefined) =>

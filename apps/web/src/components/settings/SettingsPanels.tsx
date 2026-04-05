@@ -485,6 +485,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
+      ...(settings.enableToolStreaming !== DEFAULT_UNIFIED_SETTINGS.enableToolStreaming
+        ? ["Tool activity"]
+        : []),
+      ...(settings.enableThinkingStreaming !== DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming
+        ? ["Thinking activity"]
+        : []),
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
@@ -506,6 +512,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.defaultThreadEnvMode,
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
+      settings.enableThinkingStreaming,
+      settings.enableToolStreaming,
       settings.timestampFormat,
       theme,
     ],
@@ -901,6 +909,59 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          title="Tool activity"
+          description="Show tool-call activity in the timeline while a response is running."
+          resetAction={
+            settings.enableToolStreaming !== DEFAULT_UNIFIED_SETTINGS.enableToolStreaming ? (
+              <SettingResetButton
+                label="tool activity"
+                onClick={() =>
+                  updateSettings({
+                    enableToolStreaming: DEFAULT_UNIFIED_SETTINGS.enableToolStreaming,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.enableToolStreaming}
+              onCheckedChange={(checked) =>
+                updateSettings({ enableToolStreaming: Boolean(checked) })
+              }
+              aria-label="Stream tool activity"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Thinking activity"
+          description="Show reasoning and planning updates in the timeline while a response is running."
+          resetAction={
+            settings.enableThinkingStreaming !==
+            DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming ? (
+              <SettingResetButton
+                label="thinking activity"
+                onClick={() =>
+                  updateSettings({
+                    enableThinkingStreaming: DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.enableThinkingStreaming}
+              onCheckedChange={(checked) =>
+                updateSettings({ enableThinkingStreaming: Boolean(checked) })
+              }
+              aria-label="Stream thinking activity"
+            />
+          }
+        />
+
+        <SettingsRow
           title="New threads"
           description="Pick the default workspace mode for newly created draft threads."
           resetAction={
@@ -995,7 +1056,7 @@ export function GeneralSettingsPanel() {
 
         <SettingsRow
           title="Text generation model"
-          description="Configure the model used for generated commit messages, PR titles, and similar Git text."
+          description="Configure an override for generated commit messages, PR titles, and similar Git text. Leave it unchanged to fall back to the current chat model."
           resetAction={
             isGitWritingModelDirty ? (
               <SettingResetButton

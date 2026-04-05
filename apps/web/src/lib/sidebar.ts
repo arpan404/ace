@@ -202,6 +202,21 @@ export function resolveSidebarNewThreadSeedContext(input: {
   };
 }
 
+export function resolveSidebarNewThreadOptions(
+  input: Parameters<typeof resolveSidebarNewThreadSeedContext>[0],
+): {
+  branch?: string | null;
+  worktreePath?: string | null;
+  envMode: SidebarNewThreadEnvMode;
+} {
+  const seedContext = resolveSidebarNewThreadSeedContext(input);
+  return {
+    ...(seedContext.branch !== undefined ? { branch: seedContext.branch } : {}),
+    ...(seedContext.worktreePath !== undefined ? { worktreePath: seedContext.worktreePath } : {}),
+    envMode: seedContext.envMode,
+  };
+}
+
 export function orderItemsByPreferredIds<TItem, TId>(input: {
   items: readonly TItem[];
   preferredIds: readonly TId[];

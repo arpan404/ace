@@ -3,7 +3,6 @@ import { realpathSync } from "node:fs";
 
 import { Cache, Duration, Effect, Exit, FileSystem, Layer, Option, Path, Ref } from "effect";
 import {
-  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   GitActionProgressEvent,
   GitActionProgressPhase,
   GitRunStackedActionResult,
@@ -27,6 +26,7 @@ import { GitCore } from "../Services/GitCore.ts";
 import { GitHubCli, type GitHubPullRequestSummary } from "../Services/GitHubCli.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
 import { extractBranchNameFromRemoteRef } from "../remoteRefs.ts";
+import { resolveTextGenerationModelSelection } from "../textGenerationModelSelection.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";
 
@@ -38,13 +38,6 @@ const STATUS_RESULT_CACHE_TTL = Duration.seconds(1);
 const STATUS_RESULT_CACHE_CAPACITY = 2_048;
 type StripProgressContext<T> = T extends any ? Omit<T, "actionId" | "cwd" | "action"> : never;
 type GitActionProgressPayload = StripProgressContext<GitActionProgressEvent>;
-
-function toCostEfficientGitTextGenerationModelSelection(selection: ModelSelection): ModelSelection {
-  return {
-    provider: selection.provider,
-    model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[selection.provider],
-  };
-}
 
 interface OpenPrInfo {
   number: number;
@@ -1078,7 +1071,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
           stagedSummary: limitContext(context.stagedSummary, 8_000),
           stagedPatch: limitContext(context.stagedPatch, 50_000),
           ...(input.includeBranch ? { includeBranch: true } : {}),
-          modelSelection: toCostEfficientGitTextGenerationModelSelection(input.modelSelection),
+          modelSelection: input.modelSelection,
         })
         .pipe(Effect.map((result) => sanitizeCommitMessage(result)));
 
@@ -1554,7 +1547,12 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         let preResolvedCommitSuggestion: CommitAndBranchSuggestion | undefined = undefined;
 
         const modelSelection = yield* serverSettingsService.getSettings.pipe(
-          Effect.map((settings) => input.modelSelection ?? settings.textGenerationModelSelection),
+          Effect.map((settings) =>
+            resolveTextGenerationModelSelection({
+              serverSettings: settings,
+              fallbackModelSelection: input.modelSelection,
+            }),
+          ),
           Effect.mapError((cause) =>
             gitManagerError("runStackedAction", "Failed to get server settings.", cause),
           ),

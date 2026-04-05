@@ -58,6 +58,8 @@ function createBaseServerConfig(): ServerConfig {
     availableEditors: [],
     settings: {
       enableAssistantStreaming: false,
+      enableToolStreaming: true,
+      enableThinkingStreaming: true,
       defaultThreadEnvMode: "local" as const,
       textGenerationModelSelection: {
         provider: "codex" as const,
