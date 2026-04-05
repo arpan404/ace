@@ -22,6 +22,7 @@ import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 import { buildProviderModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
+import { shortcutLabelForCommand } from "../../keybindings";
 import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
@@ -60,6 +61,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectFavicon } from "../ProjectFavicon";
 import {
   useServerAvailableEditors,
+  useServerKeybindings,
   useServerKeybindingsConfigPath,
   useServerProviders,
 } from "../../rpc/serverState";
@@ -121,6 +123,18 @@ const PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
     cliUrlPlaceholder: "localhost:4321",
     cliUrlDescription:
       "Optional: connect to an external headless Copilot CLI server instead of spawning per session.",
+  },
+  {
+    provider: "cursor",
+    title: "Cursor",
+    binaryPlaceholder: "Cursor binary path",
+    binaryDescription: "Path to the Cursor Agent binary",
+  },
+  {
+    provider: "gemini",
+    title: "Gemini",
+    binaryPlaceholder: "Gemini binary path",
+    binaryDescription: "Path to the Gemini CLI binary",
   },
   {
     provider: "opencode",
@@ -488,6 +502,24 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.diffWordWrap !== DEFAULT_UNIFIED_SETTINGS.diffWordWrap
         ? ["Diff line wrapping"]
         : []),
+      ...(settings.editorLineNumbers !== DEFAULT_UNIFIED_SETTINGS.editorLineNumbers
+        ? ["Editor line numbers"]
+        : []),
+      ...(settings.editorMinimap !== DEFAULT_UNIFIED_SETTINGS.editorMinimap
+        ? ["Editor minimap"]
+        : []),
+      ...(settings.editorRenderWhitespace !== DEFAULT_UNIFIED_SETTINGS.editorRenderWhitespace
+        ? ["Editor whitespace"]
+        : []),
+      ...(settings.editorStickyScroll !== DEFAULT_UNIFIED_SETTINGS.editorStickyScroll
+        ? ["Editor sticky scroll"]
+        : []),
+      ...(settings.editorSuggestions !== DEFAULT_UNIFIED_SETTINGS.editorSuggestions
+        ? ["Editor suggestions"]
+        : []),
+      ...(settings.editorWordWrap !== DEFAULT_UNIFIED_SETTINGS.editorWordWrap
+        ? ["Editor line wrapping"]
+        : []),
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
@@ -506,6 +538,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
         ? ["Delete confirmation"]
         : []),
+      ...(settings.threadHydrationCacheMemoryMb !==
+      DEFAULT_UNIFIED_SETTINGS.threadHydrationCacheMemoryMb
+        ? ["Thread cache budget"]
+        : []),
       ...(isGitWritingModelDirty ? ["Git writing model"] : []),
       ...(areProviderSettingsDirty ? ["Providers"] : []),
     ],
@@ -517,9 +553,16 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadDelete,
       settings.defaultThreadEnvMode,
       settings.diffWordWrap,
+      settings.editorLineNumbers,
+      settings.editorMinimap,
+      settings.editorRenderWhitespace,
+      settings.editorStickyScroll,
+      settings.editorSuggestions,
+      settings.editorWordWrap,
       settings.enableAssistantStreaming,
       settings.enableThinkingStreaming,
       settings.enableToolStreaming,
+      settings.threadHydrationCacheMemoryMb,
       settings.timestampFormat,
       theme,
     ],
@@ -573,6 +616,11 @@ export function GeneralSettingsPanel() {
         DEFAULT_UNIFIED_SETTINGS.providers.cursor.binaryPath ||
       settings.providers.cursor.customModels.length > 0,
     ),
+    gemini: Boolean(
+      settings.providers.gemini.binaryPath !==
+        DEFAULT_UNIFIED_SETTINGS.providers.gemini.binaryPath ||
+      settings.providers.gemini.customModels.length > 0,
+    ),
     opencode: Boolean(
       settings.providers.opencode.binaryPath !==
         DEFAULT_UNIFIED_SETTINGS.providers.opencode.binaryPath ||
@@ -586,6 +634,7 @@ export function GeneralSettingsPanel() {
     claudeAgent: "",
     githubCopilot: "",
     cursor: "",
+    gemini: "",
     opencode: "",
   });
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<
@@ -610,9 +659,63 @@ export function GeneralSettingsPanel() {
   }, []);
 
   const keybindingsConfigPath = useServerKeybindingsConfigPath();
+  const keybindings = useServerKeybindings();
   const availableEditors = useServerAvailableEditors();
   const serverProviders = useServerProviders();
   const codexHomePath = settings.providers.codex.homePath;
+  const editorShortcutLabelOptions = useMemo(
+    () => ({
+      context: {
+        browserOpen: false,
+        editorFocus: true,
+        terminalFocus: false,
+        terminalOpen: false,
+      },
+    }),
+    [],
+  );
+  const workspaceShortcutSummaries = useMemo(
+    () =>
+      [
+        [
+          "Split window",
+          shortcutLabelForCommand(keybindings, "editor.split", editorShortcutLabelOptions),
+        ],
+        [
+          "Focus previous window",
+          shortcutLabelForCommand(
+            keybindings,
+            "editor.focusPreviousWindow",
+            editorShortcutLabelOptions,
+          ),
+        ],
+        [
+          "Focus next window",
+          shortcutLabelForCommand(
+            keybindings,
+            "editor.focusNextWindow",
+            editorShortcutLabelOptions,
+          ),
+        ],
+        [
+          "Previous tab",
+          shortcutLabelForCommand(keybindings, "editor.previousTab", editorShortcutLabelOptions),
+        ],
+        [
+          "Next tab",
+          shortcutLabelForCommand(keybindings, "editor.nextTab", editorShortcutLabelOptions),
+        ],
+        [
+          "Move tab left",
+          shortcutLabelForCommand(keybindings, "editor.moveTabLeft", editorShortcutLabelOptions),
+        ],
+        [
+          "Move tab right",
+          shortcutLabelForCommand(keybindings, "editor.moveTabRight", editorShortcutLabelOptions),
+        ],
+      ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    [editorShortcutLabelOptions, keybindings],
+  );
 
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenProvider = textGenerationModelSelection.provider;
@@ -894,6 +997,195 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          title="Editor suggestions"
+          description="Keep Monaco completion helpers off by default to reduce noisy or unwanted code insertions."
+          resetAction={
+            settings.editorSuggestions !== DEFAULT_UNIFIED_SETTINGS.editorSuggestions ? (
+              <SettingResetButton
+                label="editor suggestions"
+                onClick={() =>
+                  updateSettings({
+                    editorSuggestions: DEFAULT_UNIFIED_SETTINGS.editorSuggestions,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.editorSuggestions}
+              onCheckedChange={(checked) => updateSettings({ editorSuggestions: Boolean(checked) })}
+              aria-label="Enable workspace editor suggestions"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Editor line wrapping"
+          description="Wrap long lines in the workspace editor."
+          resetAction={
+            settings.editorWordWrap !== DEFAULT_UNIFIED_SETTINGS.editorWordWrap ? (
+              <SettingResetButton
+                label="editor line wrapping"
+                onClick={() =>
+                  updateSettings({
+                    editorWordWrap: DEFAULT_UNIFIED_SETTINGS.editorWordWrap,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.editorWordWrap}
+              onCheckedChange={(checked) => updateSettings({ editorWordWrap: Boolean(checked) })}
+              aria-label="Wrap workspace editor lines"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Editor sticky scroll"
+          description="Pin the current scope header while you scroll through a file."
+          resetAction={
+            settings.editorStickyScroll !== DEFAULT_UNIFIED_SETTINGS.editorStickyScroll ? (
+              <SettingResetButton
+                label="editor sticky scroll"
+                onClick={() =>
+                  updateSettings({
+                    editorStickyScroll: DEFAULT_UNIFIED_SETTINGS.editorStickyScroll,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.editorStickyScroll}
+              onCheckedChange={(checked) =>
+                updateSettings({ editorStickyScroll: Boolean(checked) })
+              }
+              aria-label="Enable editor sticky scroll"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Editor minimap"
+          description="Show a code minimap in the workspace editor."
+          resetAction={
+            settings.editorMinimap !== DEFAULT_UNIFIED_SETTINGS.editorMinimap ? (
+              <SettingResetButton
+                label="editor minimap"
+                onClick={() =>
+                  updateSettings({
+                    editorMinimap: DEFAULT_UNIFIED_SETTINGS.editorMinimap,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.editorMinimap}
+              onCheckedChange={(checked) => updateSettings({ editorMinimap: Boolean(checked) })}
+              aria-label="Show editor minimap"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Editor whitespace"
+          description="Render whitespace characters in the workspace editor."
+          resetAction={
+            settings.editorRenderWhitespace !== DEFAULT_UNIFIED_SETTINGS.editorRenderWhitespace ? (
+              <SettingResetButton
+                label="editor whitespace"
+                onClick={() =>
+                  updateSettings({
+                    editorRenderWhitespace: DEFAULT_UNIFIED_SETTINGS.editorRenderWhitespace,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.editorRenderWhitespace}
+              onCheckedChange={(checked) =>
+                updateSettings({ editorRenderWhitespace: Boolean(checked) })
+              }
+              aria-label="Render editor whitespace"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Editor line numbers"
+          description="Choose how line numbers appear in the workspace editor."
+          resetAction={
+            settings.editorLineNumbers !== DEFAULT_UNIFIED_SETTINGS.editorLineNumbers ? (
+              <SettingResetButton
+                label="editor line numbers"
+                onClick={() =>
+                  updateSettings({
+                    editorLineNumbers: DEFAULT_UNIFIED_SETTINGS.editorLineNumbers,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.editorLineNumbers}
+              onValueChange={(value) => {
+                if (value === "off" || value === "on" || value === "relative") {
+                  updateSettings({ editorLineNumbers: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Editor line numbers">
+                <SelectValue>{settings.editorLineNumbers}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="on">
+                  On
+                </SelectItem>
+                <SelectItem hideIndicator value="relative">
+                  Relative
+                </SelectItem>
+                <SelectItem hideIndicator value="off">
+                  Off
+                </SelectItem>
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Workspace editor shortcuts"
+          description="These commands resolve through the same keybindings.json file that drives the rest of the app."
+          status={
+            workspaceShortcutSummaries.length > 0 ? (
+              <div className="space-y-1 text-[11px] text-muted-foreground">
+                {workspaceShortcutSummaries.map(([label, shortcut]) => (
+                  <div key={label} className="flex items-center gap-2">
+                    <span>{label}</span>
+                    <span className="rounded border border-border/60 px-1.5 py-0.5 font-mono text-foreground">
+                      {shortcut}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <span className="text-muted-foreground">
+                No editor shortcuts are currently configured.
+              </span>
+            )
+          }
+        />
+
+        <SettingsRow
           title="Assistant output"
           description="Show token-by-token output while a response is in progress."
           resetAction={
@@ -1011,6 +1303,47 @@ export function GeneralSettingsPanel() {
                 </SelectItem>
               </SelectPopup>
             </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Thread cache budget"
+          description="Limit how much memory hydrated thread history can use before least-recently-used threads are evicted."
+          resetAction={
+            settings.threadHydrationCacheMemoryMb !==
+            DEFAULT_UNIFIED_SETTINGS.threadHydrationCacheMemoryMb ? (
+              <SettingResetButton
+                label="thread cache budget"
+                onClick={() =>
+                  updateSettings({
+                    threadHydrationCacheMemoryMb:
+                      DEFAULT_UNIFIED_SETTINGS.threadHydrationCacheMemoryMb,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                className="w-full sm:w-28"
+                aria-label="Thread cache memory budget in megabytes"
+                value={String(settings.threadHydrationCacheMemoryMb)}
+                onChange={(event) => {
+                  const nextValue = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(nextValue)) {
+                    return;
+                  }
+                  updateSettings({
+                    threadHydrationCacheMemoryMb: Math.max(1, nextValue),
+                  });
+                }}
+              />
+              <span className="text-xs text-muted-foreground">MB</span>
+            </div>
           }
         />
 
@@ -1491,9 +1824,11 @@ export function GeneralSettingsPanel() {
                               ? "gpt-6.7-codex-ultra-preview"
                               : providerCard.provider === "claudeAgent"
                                 ? "claude-sonnet-5-0"
-                                : providerCard.provider === "opencode"
-                                  ? "anthropic/claude-3-5-sonnet-20241022"
-                                  : "gpt-5-mini"
+                                : providerCard.provider === "gemini"
+                                  ? "gemini-2.5-flash"
+                                  : providerCard.provider === "opencode"
+                                    ? "anthropic/claude-3-5-sonnet-20241022"
+                                    : "gpt-5-mini"
                           }
                           spellCheck={false}
                         />
@@ -1522,7 +1857,7 @@ export function GeneralSettingsPanel() {
       <SettingsSection title="Advanced">
         <SettingsRow
           title="Keybindings"
-          description="Open the persisted `keybindings.json` file to edit advanced bindings directly."
+          description="Open the persisted `keybindings.json` file to edit advanced bindings directly, including workspace editor tabs and window commands."
           status={
             <>
               <span className="block break-all font-mono text-[11px] text-foreground">

@@ -93,6 +93,7 @@ export function projectReadFileQueryOptions(input: {
       });
     },
     enabled: (input.enabled ?? true) && input.cwd !== null && input.relativePath !== null,
+    retry: false,
     staleTime: input.staleTime ?? Number.POSITIVE_INFINITY,
   });
 }

@@ -80,9 +80,11 @@ function getProviderStateFromCapabilities(
           ? normalizeGitHubCopilotModelOptionsWithCapabilities(caps, modelOptions?.githubCopilot)
           : provider === "cursor"
             ? normalizeCursorModelOptionsWithCapabilities(caps, modelOptions?.cursor)
-            : provider === "opencode"
+            : provider === "gemini"
               ? undefined
-              : undefined;
+              : provider === "opencode"
+                ? undefined
+                : undefined;
 
   // Ultrathink styling (driven by capabilities data, not provider identity)
   const ultrathinkActive =
@@ -222,6 +224,38 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     renderTraitsPicker: ({ threadId, model, models, modelOptions, prompt, onPromptChange }) => (
       <TraitsPicker
         provider="cursor"
+        models={models}
+        threadId={threadId}
+        model={model}
+        modelOptions={modelOptions}
+        prompt={prompt}
+        onPromptChange={onPromptChange}
+      />
+    ),
+  },
+  gemini: {
+    getState: (input) => getProviderStateFromCapabilities(input),
+    renderTraitsMenuContent: ({
+      threadId,
+      model,
+      models,
+      modelOptions,
+      prompt,
+      onPromptChange,
+    }) => (
+      <TraitsMenuContent
+        provider="gemini"
+        models={models}
+        threadId={threadId}
+        model={model}
+        modelOptions={modelOptions}
+        prompt={prompt}
+        onPromptChange={onPromptChange}
+      />
+    ),
+    renderTraitsPicker: ({ threadId, model, models, modelOptions, prompt, onPromptChange }) => (
+      <TraitsPicker
+        provider="gemini"
         models={models}
         threadId={threadId}
         model={model}

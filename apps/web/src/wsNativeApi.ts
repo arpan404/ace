@@ -95,6 +95,7 @@ export function createWsNativeApi(): NativeApi {
     server: {
       getConfig: rpcClient.server.getConfig,
       refreshProviders: rpcClient.server.refreshProviders,
+      searchOpenCodeModels: rpcClient.server.searchOpenCodeModels,
       upsertKeybinding: rpcClient.server.upsertKeybinding,
       getSettings: rpcClient.server.getSettings,
       updateSettings: rpcClient.server.updateSettings,

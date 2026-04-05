@@ -35,7 +35,12 @@ import {
   parseCursorModelsOutput,
   resolveCursorCliModelId,
 } from "./CursorProvider";
-import { haveProvidersChanged, ProviderRegistryLive } from "./ProviderRegistry";
+import {
+  fallbackProviderSnapshot,
+  haveProvidersChanged,
+  loadProviderSnapshotSafely,
+  ProviderRegistryLive,
+} from "./ProviderRegistry";
 import { ServerSettingsService, type ServerSettingsShape } from "../../serverSettings";
 import { ProviderRegistry } from "../Services/ProviderRegistry";
 
@@ -547,6 +552,40 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
         ] as const satisfies ReadonlyArray<ServerProvider>;
 
         assert.strictEqual(haveProvidersChanged(providers, [...providers]), false);
+      });
+
+      it.effect("keeps the previous provider snapshot when a refresh defects", () =>
+        Effect.gen(function* () {
+          const previous = {
+            provider: "codex",
+            status: "ready",
+            enabled: true,
+            installed: true,
+            auth: { status: "authenticated" as const },
+            checkedAt: "2026-03-25T00:00:00.000Z",
+            version: "1.0.0",
+            models: [
+              {
+                slug: "gpt-5.4",
+                name: "GPT-5.4",
+                isCustom: false,
+                capabilities: null,
+              },
+            ],
+          } satisfies ServerProvider;
+
+          const snapshot = yield* loadProviderSnapshotSafely("codex", Effect.die("boom"), previous);
+
+          assert.deepStrictEqual(snapshot, previous);
+        }),
+      );
+
+      it("builds an empty fallback snapshot when no previous provider exists", () => {
+        const snapshot = fallbackProviderSnapshot("opencode", undefined);
+
+        assert.strictEqual(snapshot.provider, "opencode");
+        assert.strictEqual(snapshot.status, "error");
+        assert.deepStrictEqual(snapshot.models, []);
       });
 
       it.effect("reruns codex health when codex provider settings change", () =>

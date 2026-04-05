@@ -70,6 +70,18 @@ it.effect("parses keybinding rules", () =>
       command: "thread.previous",
     });
     assert.strictEqual(parsedThreadPrevious.command, "thread.previous");
+
+    const parsedEditorSplit = yield* decode(KeybindingRule, {
+      key: "mod+\\",
+      command: "editor.split",
+    });
+    assert.strictEqual(parsedEditorSplit.command, "editor.split");
+
+    const parsedEditorMoveTab = yield* decode(KeybindingRule, {
+      key: "mod+alt+shift+arrowright",
+      command: "editor.moveTabRight",
+    });
+    assert.strictEqual(parsedEditorMoveTab.command, "editor.moveTabRight");
   }),
 );
 

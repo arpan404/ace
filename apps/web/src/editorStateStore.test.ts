@@ -128,6 +128,70 @@ describe("editorStateStore actions", () => {
     ]);
   });
 
+  it("reorders tabs within a pane while keeping the moved tab active", () => {
+    const store = useEditorStateStore.getState();
+    store.openFile(THREAD_ID, "src/main.ts");
+    store.openFile(THREAD_ID, "src/utils.ts");
+    store.openFile(THREAD_ID, "src/sidebar.ts");
+
+    store.moveFile(THREAD_ID, {
+      filePath: "src/sidebar.ts",
+      sourcePaneId: "pane-1",
+      targetPaneId: "pane-1",
+      targetIndex: 0,
+    });
+
+    const editorState = selectThreadEditorState(
+      useEditorStateStore.getState().threadStateByThreadId,
+      useEditorStateStore.getState().runtimeStateByThreadId,
+      THREAD_ID,
+    );
+
+    expect(editorState.activePaneId).toBe("pane-1");
+    expect(editorState.panes).toEqual([
+      {
+        activeFilePath: "src/sidebar.ts",
+        id: "pane-1",
+        openFilePaths: ["src/sidebar.ts", "src/main.ts", "src/utils.ts"],
+      },
+    ]);
+  });
+
+  it("moves tabs across panes and repairs source-pane selection", () => {
+    const store = useEditorStateStore.getState();
+    store.openFile(THREAD_ID, "src/main.ts");
+    store.openFile(THREAD_ID, "src/utils.ts");
+    store.splitPane(THREAD_ID);
+    store.openFile(THREAD_ID, "src/sidebar.ts", "pane-2");
+
+    store.moveFile(THREAD_ID, {
+      filePath: "src/utils.ts",
+      sourcePaneId: "pane-1",
+      targetPaneId: "pane-2",
+      targetIndex: 1,
+    });
+
+    const editorState = selectThreadEditorState(
+      useEditorStateStore.getState().threadStateByThreadId,
+      useEditorStateStore.getState().runtimeStateByThreadId,
+      THREAD_ID,
+    );
+
+    expect(editorState.activePaneId).toBe("pane-2");
+    expect(editorState.panes).toEqual([
+      {
+        activeFilePath: "src/main.ts",
+        id: "pane-1",
+        openFilePaths: ["src/main.ts"],
+      },
+      {
+        activeFilePath: "src/utils.ts",
+        id: "pane-2",
+        openFilePaths: ["src/main.ts", "src/utils.ts", "src/sidebar.ts"],
+      },
+    ]);
+  });
+
   it("closes panes while keeping a valid active pane and normalized ratios", () => {
     const store = useEditorStateStore.getState();
     store.openFile(THREAD_ID, "src/main.ts");

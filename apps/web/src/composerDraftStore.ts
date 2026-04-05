@@ -37,6 +37,14 @@ const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
 
 const COMPOSER_PERSIST_DEBOUNCE_MS = 300;
+const ALL_PROVIDER_KINDS = [
+  "codex",
+  "claudeAgent",
+  "githubCopilot",
+  "cursor",
+  "gemini",
+  "opencode",
+] as const satisfies ReadonlyArray<ProviderKind>;
 
 const composerDebouncedStorage = createDebouncedStorage(
   typeof localStorage !== "undefined" ? localStorage : createMemoryStorage(),
@@ -407,13 +415,7 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
 }
 
 function normalizeProviderKind(value: unknown): ProviderKind | null {
-  return value === "codex" ||
-    value === "claudeAgent" ||
-    value === "githubCopilot" ||
-    value === "cursor" ||
-    value === "opencode"
-    ? value
-    : null;
+  return Schema.is(ProviderKind)(value) ? value : null;
 }
 
 function normalizeProviderModelOptions(
@@ -573,6 +575,11 @@ function buildModelSelectionForProvider(
   options?: ProviderModelOptions["cursor"],
 ): Extract<ModelSelection, { provider: "cursor" }>;
 function buildModelSelectionForProvider(
+  provider: "gemini",
+  model: string,
+  options?: ProviderModelOptions["gemini"],
+): Extract<ModelSelection, { provider: "gemini" }>;
+function buildModelSelectionForProvider(
   provider: "opencode",
   model: string,
   options?: ProviderModelOptions["opencode"],
@@ -612,6 +619,12 @@ function buildModelSelectionForProvider(
         model,
         ...(options ? { options: options as ProviderModelOptions["cursor"] } : {}),
       } as Extract<ModelSelection, { provider: "cursor" }>;
+    case "gemini":
+      return {
+        provider,
+        model,
+        ...(options ? { options: options as ProviderModelOptions["gemini"] } : {}),
+      } as Extract<ModelSelection, { provider: "gemini" }>;
     case "opencode":
       return {
         provider,
@@ -648,19 +661,7 @@ function normalizeModelSelection(
     provider,
     provider === "codex" ? legacy?.legacyCodex : undefined,
   );
-  const options =
-    provider === "codex"
-      ? modelOptions?.codex
-      : provider === "claudeAgent"
-        ? modelOptions?.claudeAgent
-        : provider === "githubCopilot"
-          ? modelOptions?.githubCopilot
-          : provider === "cursor"
-            ? modelOptions?.cursor
-            : provider === "opencode"
-              ? modelOptions?.opencode
-              : undefined;
-  return buildModelSelectionForProvider(provider, model, options);
+  return buildModelSelectionForProvider(provider, model, modelOptions?.[provider]);
 }
 
 // ── Legacy sync helpers (used only during migration from v2 storage) ──
@@ -717,13 +718,7 @@ function legacyToModelSelectionByProvider(
   const result: Partial<Record<ProviderKind, ModelSelection>> = {};
   // Add entries from the options bag (for non-active providers)
   if (modelOptions) {
-    for (const provider of [
-      "codex",
-      "claudeAgent",
-      "githubCopilot",
-      "cursor",
-      "opencode",
-    ] as const) {
+    for (const provider of ALL_PROVIDER_KINDS) {
       const options = modelOptions[provider];
       if (options && Object.keys(options).length > 0) {
         result[provider] = buildModelSelectionForProvider(
@@ -1804,13 +1799,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           }
           const base = existing ?? createEmptyThreadDraft();
           const nextMap = { ...base.modelSelectionByProvider };
-          for (const provider of [
-            "codex",
-            "claudeAgent",
-            "githubCopilot",
-            "cursor",
-            "opencode",
-          ] as const) {
+          for (const provider of ALL_PROVIDER_KINDS) {
             // Only touch providers explicitly present in the input
             if (!normalizedOpts || !(provider in normalizedOpts)) continue;
             const opts = normalizedOpts[provider];

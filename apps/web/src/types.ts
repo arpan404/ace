@@ -2,6 +2,7 @@ import type {
   ModelSelection,
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
+  OrchestrationProposedPlanSummary,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
   ProjectScript as ContractProjectScript,
@@ -94,6 +95,8 @@ export interface ProposedPlan {
   updatedAt: string;
 }
 
+export type ProposedPlanSummary = OrchestrationProposedPlanSummary;
+
 export interface TurnDiffFileChange {
   path: string;
   kind?: string | undefined;
@@ -141,6 +144,7 @@ export interface Thread {
   branch: string | null;
   worktreePath: string | null;
   historyLoaded?: boolean;
+  latestProposedPlanSummary: ProposedPlanSummary | null;
   queuedComposerMessages: QueuedComposerMessage[];
   queuedSteerRequest: QueuedSteerRequest | null;
   turnDiffSummaries: TurnDiffSummary[];

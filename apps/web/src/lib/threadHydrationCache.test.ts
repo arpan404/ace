@@ -45,6 +45,7 @@ function makeThread(
       },
     ],
     proposedPlans: [],
+    latestProposedPlanSummary: null,
     queuedComposerMessages: [],
     queuedSteerRequest: null,
     activities: [],
@@ -105,5 +106,36 @@ describe("createThreadHydrationCache", () => {
     expect(refreshed).not.toBe(initial);
     expect(refreshed.updatedAt).toBe("2026-04-05T00:00:10.000Z");
     expect(fetchThread).toHaveBeenCalledTimes(2);
+  });
+
+  it("evicts least-recently-used hydrated threads when the memory budget is exceeded", async () => {
+    const threadOneId = ThreadId.makeUnsafe("thread-1");
+    const threadTwoId = ThreadId.makeUnsafe("thread-2");
+    const fetchThread = vi.fn(async (threadId: ThreadId) =>
+      makeThread({
+        id: threadId,
+        messages: [
+          {
+            id: MessageId.makeUnsafe(`message-${threadId}`),
+            role: "user",
+            text: "x".repeat(700_000),
+            turnId: TurnId.makeUnsafe(`turn-${threadId}`),
+            streaming: false,
+            createdAt: NOW,
+            updatedAt: NOW,
+          },
+        ],
+      }),
+    );
+    const cache = createThreadHydrationCache(fetchThread, {
+      maxEntries: 16,
+      maxMemoryBytes: 1024 * 1024,
+    });
+
+    await cache.hydrate(threadOneId, { expectedUpdatedAt: NOW });
+    await cache.hydrate(threadTwoId, { expectedUpdatedAt: NOW });
+    await cache.hydrate(threadOneId, { expectedUpdatedAt: NOW });
+
+    expect(fetchThread).toHaveBeenCalledTimes(3);
   });
 });

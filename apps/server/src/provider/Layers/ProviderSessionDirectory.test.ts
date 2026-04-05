@@ -268,4 +268,43 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
         assert.deepEqual(binding.value.runtimePayload, { model: "auto" });
       }
     }));
+
+  it("decodes persisted gemini and opencode bindings", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+
+      for (const [threadName, provider, model] of [
+        ["thread-gemini", "gemini", "gemini-2.5-pro"],
+        ["thread-opencode", "opencode", "auto"],
+      ] as const) {
+        const threadId = ThreadId.makeUnsafe(threadName);
+        const resumeCursor = { sessionId: `${provider}-session-1` };
+
+        yield* runtimeRepository.upsert({
+          threadId,
+          providerName: provider,
+          adapterKey: provider,
+          runtimeMode: "full-access",
+          status: "running",
+          lastSeenAt: new Date().toISOString(),
+          resumeCursor,
+          runtimePayload: { model },
+        });
+
+        const resolvedProvider = yield* directory.getProvider(threadId);
+        assert.equal(resolvedProvider, provider);
+
+        const binding = yield* directory.getBinding(threadId);
+        assertSome(binding, {
+          threadId,
+          provider,
+          adapterKey: provider,
+        });
+        if (Option.isSome(binding)) {
+          assert.deepEqual(binding.value.resumeCursor, resumeCursor);
+          assert.deepEqual(binding.value.runtimePayload, { model });
+        }
+      }
+    }));
 });

@@ -27,15 +27,15 @@ describe("normalizeTextGenerationModelSelection", () => {
     });
   });
 
-  it("falls back OpenCode selections to the default Codex text-generation model", () => {
+  it("preserves OpenCode selections for the OpenCode text-generation backend", () => {
     expect(
       normalizeTextGenerationModelSelection({
         provider: "opencode",
         model: "auto",
       }),
     ).toEqual({
-      provider: "codex",
-      model: "gpt-5.4-mini",
+      provider: "opencode",
+      model: "auto",
     });
   });
 });

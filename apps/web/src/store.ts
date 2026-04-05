@@ -3,7 +3,7 @@ import {
   type OrchestrationMessage,
   type OrchestrationProposedPlan,
   type ProjectId,
-  type ProviderKind,
+  ProviderKind,
   ThreadId,
   type OrchestrationReadModel,
   type OrchestrationSession,
@@ -11,6 +11,7 @@ import {
   type OrchestrationThread,
   type OrchestrationSessionStatus,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { resolveModelSlugForProvider } from "@t3tools/shared/model";
 import { create } from "zustand";
 import {
@@ -199,6 +200,40 @@ function mapProposedPlan(proposedPlan: OrchestrationProposedPlan): Thread["propo
   };
 }
 
+function mapLatestProposedPlanSummary(
+  summary: OrchestrationThread["latestProposedPlanSummary"],
+): Thread["latestProposedPlanSummary"] {
+  return summary ? { ...summary } : null;
+}
+
+function toLatestProposedPlanSummary(
+  proposedPlan: Pick<
+    Thread["proposedPlans"][number],
+    "id" | "turnId" | "implementedAt" | "implementationThreadId" | "createdAt" | "updatedAt"
+  >,
+): Thread["latestProposedPlanSummary"] {
+  return {
+    id: proposedPlan.id,
+    turnId: proposedPlan.turnId,
+    implementedAt: proposedPlan.implementedAt,
+    implementationThreadId: proposedPlan.implementationThreadId,
+    createdAt: proposedPlan.createdAt,
+    updatedAt: proposedPlan.updatedAt,
+  };
+}
+
+function findLatestProposedPlanSummary(
+  proposedPlans: ReadonlyArray<Thread["proposedPlans"][number]>,
+): Thread["latestProposedPlanSummary"] {
+  const latestPlan = [...proposedPlans]
+    .toSorted(
+      (left, right) =>
+        left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
+    )
+    .at(-1);
+  return latestPlan ? toLatestProposedPlanSummary(latestPlan) : null;
+}
+
 function mapTurnDiffSummary(
   checkpoint: OrchestrationCheckpointSummary,
 ): Thread["turnDiffSummaries"][number] {
@@ -236,6 +271,7 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
     session: thread.session ? mapSession(thread.session) : null,
     messages: thread.messages.map(mapMessage),
     proposedPlans: thread.proposedPlans.map(mapProposedPlan),
+    latestProposedPlanSummary: mapLatestProposedPlanSummary(thread.latestProposedPlanSummary),
     error: thread.session?.lastError ?? null,
     createdAt: thread.createdAt,
     archivedAt: thread.archivedAt,
@@ -300,7 +336,8 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
     hasActionableProposedPlan: hasActionableProposedPlan(
-      findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
+      thread.latestProposedPlanSummary ??
+        findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
     ),
   };
 }
@@ -561,12 +598,7 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (
-    providerName === "codex" ||
-    providerName === "claudeAgent" ||
-    providerName === "githubCopilot" ||
-    providerName === "cursor"
-  ) {
+  if (Schema.is(ProviderKind)(providerName)) {
     return providerName;
   }
   return "codex";
@@ -783,6 +815,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         deletedAt: null,
         messages: [],
         proposedPlans: [],
+        latestProposedPlanSummary: null,
         activities: [],
         checkpoints: [],
         session: null,
@@ -1079,18 +1112,23 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
     case "thread.proposed-plan-upserted": {
       return updateThreadState(state, event.payload.threadId, (thread) => {
         const proposedPlan = mapProposedPlan(event.payload.proposedPlan);
-        const proposedPlans = [
-          ...thread.proposedPlans.filter((entry) => entry.id !== proposedPlan.id),
-          proposedPlan,
-        ]
-          .toSorted(
-            (left, right) =>
-              left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-          )
-          .slice(-MAX_THREAD_PROPOSED_PLANS);
+        const proposedPlans =
+          thread.historyLoaded === false
+            ? thread.proposedPlans
+            : [
+                ...thread.proposedPlans.filter((entry) => entry.id !== proposedPlan.id),
+                proposedPlan,
+              ]
+                .toSorted(
+                  (left, right) =>
+                    left.createdAt.localeCompare(right.createdAt) ||
+                    left.id.localeCompare(right.id),
+                )
+                .slice(-MAX_THREAD_PROPOSED_PLANS);
         return {
           ...thread,
           proposedPlans,
+          latestProposedPlanSummary: toLatestProposedPlanSummary(proposedPlan),
           updatedAt: event.occurredAt,
         };
       });
@@ -1177,6 +1215,8 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
           turnDiffSummaries,
           messages,
           proposedPlans,
+          latestProposedPlanSummary:
+            thread.historyLoaded === false ? null : findLatestProposedPlanSummary(proposedPlans),
           activities,
           pendingSourceProposedPlan: undefined,
           latestTurn:

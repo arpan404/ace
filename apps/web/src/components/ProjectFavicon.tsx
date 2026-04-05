@@ -22,6 +22,8 @@ export function ProjectFavicon({ cwd, className }: { cwd: string; className?: st
       <img
         src={src}
         alt=""
+        loading="lazy"
+        decoding="async"
         className={`size-3.5 shrink-0 rounded-sm object-contain ${status === "loaded" ? "" : "hidden"} ${className ?? ""}`}
         onLoad={() => {
           loadedProjectFaviconSrcs.add(src);

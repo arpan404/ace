@@ -28,14 +28,16 @@ function createSummaryThread(thread: OrchestrationThread): OrchestrationThread {
   const messagesChanged = summaryMessages.length !== thread.messages.length;
   const activitiesChanged = summaryActivities.length !== thread.activities.length;
   const checkpointsChanged = thread.checkpoints.length > 0;
+  const proposedPlansChanged = thread.proposedPlans.length > 0;
 
-  if (!messagesChanged && !activitiesChanged && !checkpointsChanged) {
+  if (!messagesChanged && !activitiesChanged && !checkpointsChanged && !proposedPlansChanged) {
     return thread;
   }
 
   return {
     ...thread,
     messages: messagesChanged ? summaryMessages : thread.messages,
+    proposedPlans: proposedPlansChanged ? [] : thread.proposedPlans,
     activities: activitiesChanged ? summaryActivities : thread.activities,
     checkpoints: checkpointsChanged ? [] : thread.checkpoints,
   };

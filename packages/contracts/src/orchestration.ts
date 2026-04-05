@@ -3,6 +3,7 @@ import {
   ClaudeModelOptions,
   CodexModelOptions,
   CursorModelOptions,
+  GeminiModelOptions,
   GitHubCopilotModelOptions,
   OpenCodeModelOptions,
 } from "./model";
@@ -34,6 +35,7 @@ export const ProviderKind = Schema.Literals([
   "claudeAgent",
   "githubCopilot",
   "cursor",
+  "gemini",
   "opencode",
 ]);
 export type ProviderKind = typeof ProviderKind.Type;
@@ -81,6 +83,13 @@ export const CursorModelSelection = Schema.Struct({
 });
 export type CursorModelSelection = typeof CursorModelSelection.Type;
 
+export const GeminiModelSelection = Schema.Struct({
+  provider: Schema.Literal("gemini"),
+  model: TrimmedNonEmptyString,
+  options: Schema.optionalKey(GeminiModelOptions),
+});
+export type GeminiModelSelection = typeof GeminiModelSelection.Type;
+
 export const OpenCodeModelSelection = Schema.Struct({
   provider: Schema.Literal("opencode"),
   model: TrimmedNonEmptyString,
@@ -93,6 +102,7 @@ export const ModelSelection = Schema.Union([
   ClaudeModelSelection,
   GitHubCopilotModelSelection,
   CursorModelSelection,
+  GeminiModelSelection,
   OpenCodeModelSelection,
 ]);
 export type ModelSelection = typeof ModelSelection.Type;
@@ -278,6 +288,16 @@ export const OrchestrationProposedPlan = Schema.Struct({
 });
 export type OrchestrationProposedPlan = typeof OrchestrationProposedPlan.Type;
 
+export const OrchestrationProposedPlanSummary = Schema.Struct({
+  id: OrchestrationProposedPlanId,
+  turnId: Schema.NullOr(TurnId),
+  implementedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  implementationThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationProposedPlanSummary = typeof OrchestrationProposedPlanSummary.Type;
+
 const SourceProposedPlanReference = Schema.Struct({
   threadId: ThreadId,
   planId: OrchestrationProposedPlanId,
@@ -384,6 +404,9 @@ export const OrchestrationThread = Schema.Struct({
   deletedAt: Schema.NullOr(IsoDateTime),
   messages: Schema.Array(OrchestrationMessage),
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(Schema.withDecodingDefault(() => [])),
+  latestProposedPlanSummary: Schema.NullOr(OrchestrationProposedPlanSummary).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   queuedComposerMessages: Schema.Array(QueuedComposerMessage).pipe(
     Schema.withDecodingDefault(() => []),
   ),

@@ -120,6 +120,7 @@ describe("OrchestrationEngine", () => {
           deletedAt: null,
           messages: [],
           proposedPlans: [],
+          latestProposedPlanSummary: null,
           queuedComposerMessages: [],
           queuedSteerRequest: null,
           activities: [],

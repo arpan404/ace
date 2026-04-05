@@ -45,6 +45,14 @@ const STATIC_KEYBINDING_COMMANDS = [
   "chat.newLocal",
   "chat.togglePlanMode",
   "editor.openFavorite",
+  "editor.split",
+  "editor.closeWindow",
+  "editor.focusNextWindow",
+  "editor.focusPreviousWindow",
+  "editor.nextTab",
+  "editor.previousTab",
+  "editor.moveTabLeft",
+  "editor.moveTabRight",
   ...THREAD_KEYBINDING_COMMANDS,
 ] as const;
 
