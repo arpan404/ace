@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { ServerProviderModel } from "@t3tools/contracts";
+import type { ServerProviderModel } from "@ace/contracts";
 
 import { TraitsPicker } from "./TraitsPicker";
 

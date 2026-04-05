@@ -1,14 +1,14 @@
 {
-  "name": "t3",
-  "version": "0.0.15",
+  "name": "ace",
+  "version": "0.0.16",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pingdotgg/t3code",
+    "url": "https://github.com/arpan404/ace",
     "directory": "apps/server"
   },
   "bin": {
-    "t3": "./dist/bin.mjs"
+    "ace": "./dist/bin.mjs"
   },
   "files": [
     "dist"
@@ -36,11 +36,11 @@
     "open": "^10.1.0"
   },
   "devDependencies": {
+    "@ace/contracts": "workspace:*",
+    "@ace/shared": "workspace:*",
+    "@ace/web": "workspace:*",
     "@effect/language-service": "catalog:",
     "@effect/vitest": "catalog:",
-    "@t3tools/contracts": "workspace:*",
-    "@t3tools/shared": "workspace:*",
-    "@t3tools/web": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "tsdown": "catalog:",

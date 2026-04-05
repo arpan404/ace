@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ApprovalRequestId, RuntimeItemId, ThreadId, TurnId } from "@t3tools/contracts";
+import { ApprovalRequestId, RuntimeItemId, ThreadId, TurnId } from "@ace/contracts";
 import { Effect, Layer, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

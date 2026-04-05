@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ThreadId, type ServerProviderModel } from "@t3tools/contracts";
+import { ThreadId, type ServerProviderModel } from "@ace/contracts";
 import { getComposerProviderState, renderProviderTraitsPicker } from "./composerProviderRegistry";
 
 const CODEX_MODELS: ReadonlyArray<ServerProviderModel> = [

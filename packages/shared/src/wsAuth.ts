@@ -1,4 +1,4 @@
-const WS_AUTH_PROTOCOL_PREFIX = "t3code-auth.";
+const WS_AUTH_PROTOCOL_PREFIX = "ace-auth.";
 
 function encodeBase64Url(input: string): string {
   const bytes = new TextEncoder().encode(input);

@@ -12,9 +12,9 @@ import {
   TurnId,
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { makeDrainableWorker } from "@ace/shared/DrainableWorker";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
@@ -44,10 +44,10 @@ const MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS = 640;
 const MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS_CURSOR = 96;
 const PROVIDER_RUNTIME_INGESTION_QUEUE_CAPACITY = Math.max(
   256,
-  Number.parseInt(process.env.T3CODE_PROVIDER_RUNTIME_INGESTION_QUEUE_CAPACITY ?? "20000", 10) ||
+  Number.parseInt(process.env.ACE_PROVIDER_RUNTIME_INGESTION_QUEUE_CAPACITY ?? "20000", 10) ||
     20_000,
 );
-const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
+const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.ACE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
 function streamingAssistantDeltaBatchLimit(provider: ProviderRuntimeEvent["provider"]): number {
   // Cursor ACP emits many token-sized chunks, so a smaller flush threshold keeps the UI live.

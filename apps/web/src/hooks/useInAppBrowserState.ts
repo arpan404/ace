@@ -1,4 +1,4 @@
-import type { ContextMenuItem } from "@t3tools/contracts";
+import type { ContextMenuItem } from "@ace/contracts";
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -704,7 +704,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       const downloadUrl = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = downloadUrl;
-      anchor.download = "t3-browser-pinned-pages.json";
+      anchor.download = "ace-browser-pinned-pages.json";
       anchor.click();
       URL.revokeObjectURL(downloadUrl);
       toastManager.add({

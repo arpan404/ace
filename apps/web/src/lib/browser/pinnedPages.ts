@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-export const BROWSER_PINNED_PAGES_STORAGE_KEY = "t3code:browser:pinned-pages:v1";
+export const BROWSER_PINNED_PAGES_STORAGE_KEY = "ace:browser:pinned-pages:v1";
 export const MAX_BROWSER_PINNED_PAGES = 24;
 
 export const BrowserPinnedPageSchema = Schema.Struct({

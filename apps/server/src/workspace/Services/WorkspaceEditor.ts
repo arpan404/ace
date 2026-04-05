@@ -6,7 +6,7 @@ import type {
   WorkspaceEditorCloseBufferResult,
   WorkspaceEditorSyncBufferInput,
   WorkspaceEditorSyncBufferResult,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 
 import type { WorkspacePathsError } from "./WorkspacePaths.ts";
 
@@ -31,5 +31,5 @@ export interface WorkspaceEditorShape {
 }
 
 export class WorkspaceEditor extends ServiceMap.Service<WorkspaceEditor, WorkspaceEditorShape>()(
-  "t3/workspace/Services/WorkspaceEditor",
+  "ace/workspace/Services/WorkspaceEditor",
 ) {}

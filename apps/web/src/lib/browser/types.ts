@@ -1,8 +1,8 @@
-import type { BrowserSearchEngine } from "@t3tools/contracts/settings";
+import type { BrowserSearchEngine } from "@ace/contracts/settings";
 
 import type { BrowserSuggestion } from "~/lib/browser/history";
 
-export const IN_APP_BROWSER_PARTITION = "persist:t3-browser";
+export const IN_APP_BROWSER_PARTITION = "persist:ace-browser";
 export const PIP_MARGIN_PX = 16;
 export const MIN_PIP_WIDTH_PX = 320;
 export const MIN_PIP_HEIGHT_PX = 216;

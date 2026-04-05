@@ -11,7 +11,7 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection, QueuedComposerMessage, QueuedSteerRequest } from "@t3tools/contracts";
+import { ModelSelection, QueuedComposerMessage, QueuedSteerRequest } from "@ace/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({

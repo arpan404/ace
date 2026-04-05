@@ -10,4 +10,4 @@ export interface GitHubCopilotAdapterShape extends ProviderAdapterShape<Provider
 export class GitHubCopilotAdapter extends ServiceMap.Service<
   GitHubCopilotAdapter,
   GitHubCopilotAdapterShape
->()("t3/provider/Services/GitHubCopilotAdapter") {}
+>()("ace/provider/Services/GitHubCopilotAdapter") {}

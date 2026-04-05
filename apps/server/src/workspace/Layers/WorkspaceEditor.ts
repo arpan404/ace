@@ -6,7 +6,7 @@ import {
   WorkspaceEditorDiagnostic,
   type WorkspaceEditorCloseBufferResult,
   type WorkspaceEditorSyncBufferResult,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 
 import {
   WorkspaceEditor,
@@ -21,7 +21,7 @@ const NVIM_STARTUP_ARGS = ["--headless", "--embed", "-n", "-i", "NONE"] as const
 const COMMON_NVIM_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] as const;
 
 const NVIM_BOOTSTRAP_LUA = String.raw`
-local function t3code_split_lines(contents)
+local function ace_split_lines(contents)
   if contents == "" then
     return { "" }
   end
@@ -35,7 +35,7 @@ local function t3code_split_lines(contents)
   return lines
 end
 
-local function t3code_severity_name(severity)
+local function ace_severity_name(severity)
   if severity == vim.diagnostic.severity.ERROR then
     return "error"
   end
@@ -48,10 +48,10 @@ local function t3code_severity_name(severity)
   return "hint"
 end
 
-if _G.__t3code_editor == nil then
-  _G.__t3code_editor = {}
+if _G.__ace_editor == nil then
+  _G.__ace_editor = {}
 
-  function _G.__t3code_editor.ensure_buffer(abs_path, cwd)
+  function _G.__ace_editor.ensure_buffer(abs_path, cwd)
     vim.api.nvim_set_current_dir(cwd)
 
     local bufnr = vim.fn.bufnr(abs_path)
@@ -74,8 +74,8 @@ if _G.__t3code_editor == nil then
       vim.bo[bufnr].filetype = filetype
     end
 
-    if vim.b[bufnr].t3code_initialized ~= true then
-      vim.b[bufnr].t3code_initialized = true
+    if vim.b[bufnr].ace_initialized ~= true then
+      vim.b[bufnr].ace_initialized = true
       vim.api.nvim_exec_autocmds("BufReadPost", { buffer = bufnr, modeline = false })
       vim.api.nvim_exec_autocmds("BufEnter", { buffer = bufnr, modeline = false })
       vim.api.nvim_exec_autocmds("FileType", { buffer = bufnr, modeline = false })
@@ -87,9 +87,9 @@ if _G.__t3code_editor == nil then
     return bufnr
   end
 
-  function _G.__t3code_editor.sync_buffer(abs_path, cwd, contents)
-    local bufnr = _G.__t3code_editor.ensure_buffer(abs_path, cwd)
-    local lines = t3code_split_lines(contents)
+  function _G.__ace_editor.sync_buffer(abs_path, cwd, contents)
+    local bufnr = _G.__ace_editor.ensure_buffer(abs_path, cwd)
+    local lines = ace_split_lines(contents)
 
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     vim.api.nvim_exec_autocmds("TextChanged", { buffer = bufnr, modeline = false })
@@ -110,7 +110,7 @@ if _G.__t3code_editor == nil then
         endColumn = end_column,
         endLine = end_line,
         message = tostring(item.message or ""),
-        severity = t3code_severity_name(item.severity),
+        severity = ace_severity_name(item.severity),
         source = item.source and tostring(item.source) or nil,
         startColumn = start_column,
         startLine = start_line,
@@ -120,7 +120,7 @@ if _G.__t3code_editor == nil then
     return diagnostics
   end
 
-  function _G.__t3code_editor.close_buffer(abs_path)
+  function _G.__ace_editor.close_buffer(abs_path)
     local bufnr = vim.fn.bufnr(abs_path)
     if bufnr ~= -1 and vim.api.nvim_buf_is_valid(bufnr) then
       pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
@@ -353,7 +353,7 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
 
       const rawDiagnostics = yield* session.mutex.withPermits(1)(
         Effect.promise(() =>
-          session.nvim.executeLua("return _G.__t3code_editor.sync_buffer(...)", [
+          session.nvim.executeLua("return _G.__ace_editor.sync_buffer(...)", [
             target.absolutePath,
             normalizedWorkspaceRoot,
             input.contents,
@@ -408,7 +408,7 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
 
       yield* existing.mutex.withPermits(1)(
         Effect.promise(() =>
-          existing.nvim.executeLua("return _G.__t3code_editor.close_buffer(...)", [
+          existing.nvim.executeLua("return _G.__ace_editor.close_buffer(...)", [
             target.absolutePath,
           ]),
         ).pipe(

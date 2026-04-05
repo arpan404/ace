@@ -1,4 +1,4 @@
-import type { GitHubCopilotSettings, ServerProvider } from "@t3tools/contracts";
+import type { GitHubCopilotSettings, ServerProvider } from "@ace/contracts";
 import { Cache, Duration, Effect, Equal, Layer, Result, Stream } from "effect";
 
 import { buildServerProvider, providerModelsFromSettings } from "../providerSnapshot";
@@ -6,7 +6,7 @@ import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import { GitHubCopilotProvider } from "../Services/GitHubCopilotProvider";
 import { isGitHubCopilotCliMissingError, probeGitHubCopilotSdk } from "../githubCopilotSdk";
 import { ServerSettingsService } from "../../serverSettings";
-import { ServerSettingsError } from "@t3tools/contracts";
+import { ServerSettingsError } from "@ace/contracts";
 
 const PROVIDER = "githubCopilot" as const;
 
@@ -30,7 +30,7 @@ export const checkGitHubCopilotProviderStatus = Effect.fn("checkGitHubCopilotPro
           version: null,
           status: "warning",
           auth: { status: "unknown" },
-          message: "GitHub Copilot is disabled in T3 Code settings.",
+          message: "GitHub Copilot is disabled in ace settings.",
         },
       });
     }

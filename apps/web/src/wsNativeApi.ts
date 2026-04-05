@@ -1,4 +1,4 @@
-import { type ContextMenuItem, type NativeApi } from "@t3tools/contracts";
+import { type ContextMenuItem, type NativeApi } from "@ace/contracts";
 
 import { showContextMenuFallback } from "./contextMenuFallback";
 import { resetServerStateForTests } from "./rpc/serverState";

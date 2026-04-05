@@ -1,8 +1,8 @@
 import { Effect, Layer, Option, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { CursorModelSelection, TextGenerationError } from "@t3tools/contracts";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import { CursorModelSelection, TextGenerationError } from "@ace/contracts";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
 
 import { resolveCursorCliModelId } from "../../provider/Layers/CursorProvider.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";

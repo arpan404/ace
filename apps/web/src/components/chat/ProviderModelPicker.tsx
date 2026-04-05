@@ -1,7 +1,7 @@
-import { type ProviderKind, type ServerProvider } from "@t3tools/contracts";
+import { type ProviderKind, type ServerProvider } from "@ace/contracts";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
-import { resolveSelectableModel } from "@t3tools/shared/model";
+import { resolveSelectableModel } from "@ace/shared/model";
 import { memo, useMemo, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";

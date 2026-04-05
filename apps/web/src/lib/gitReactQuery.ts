@@ -2,7 +2,7 @@ import {
   type GitActionProgressEvent,
   type GitRunStackedActionInput,
   type GitStackedAction,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
 import { getWsRpcClient } from "../wsRpcClient";

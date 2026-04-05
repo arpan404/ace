@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import type { BrowserSearchEngine } from "@t3tools/contracts/settings";
+import type { BrowserSearchEngine } from "@ace/contracts/settings";
 
 import {
   normalizeBrowserInput,
@@ -9,7 +9,7 @@ import {
 import type { BrowserPinnedPage } from "~/lib/browser/pinnedPages";
 import type { BrowserTabState } from "~/lib/browser/session";
 
-export const BROWSER_HISTORY_STORAGE_KEY = "t3code:browser:history:v1";
+export const BROWSER_HISTORY_STORAGE_KEY = "ace:browser:history:v1";
 export const MAX_BROWSER_HISTORY_ENTRIES = 200;
 export const MAX_BROWSER_SUGGESTIONS = 8;
 

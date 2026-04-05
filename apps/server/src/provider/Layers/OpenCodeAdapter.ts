@@ -23,7 +23,7 @@ import {
   ThreadId,
   TurnId,
   type UserInputQuestion,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect, Layer, Queue, Schema, Stream } from "effect";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -40,7 +40,7 @@ import {
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
 } from "../Errors.ts";
-import { ensureOpenCodeServer } from "../opencodeRuntime.ts";
+import { startOpenCodeServer, type OpenCodeServerHandle } from "../opencodeRuntime.ts";
 import {
   createOpenCodeSdkClient,
   parseOpenCodeModelSlug,
@@ -59,6 +59,7 @@ type OpenCodeSessionContext = {
   readonly threadId: ThreadId;
   session: ProviderSession;
   readonly cwd: string;
+  readonly server: OpenCodeServerHandle;
   readonly client: OpencodeClient;
   readonly opencodeSessionId: string;
   defaultModels: Record<string, string>;
@@ -1149,6 +1150,40 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     })();
   };
 
+  const stopContext = async (ctx: OpenCodeSessionContext): Promise<void> => {
+    if (ctx.stopped) {
+      return;
+    }
+    ctx.stopped = true;
+    ctx.sseAbort?.abort();
+
+    const cleanupErrors: Array<Error> = [];
+    try {
+      await ctx.client.session.delete({
+        sessionID: ctx.opencodeSessionId,
+        directory: ctx.cwd,
+      });
+    } catch (cause) {
+      cleanupErrors.push(
+        cause instanceof Error
+          ? cause
+          : new Error(`Failed to delete OpenCode session: ${String(cause)}`),
+      );
+    }
+    try {
+      await ctx.server.close();
+    } catch (cause) {
+      cleanupErrors.push(
+        cause instanceof Error
+          ? cause
+          : new Error(`Failed to stop OpenCode server: ${String(cause)}`),
+      );
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(cleanupErrors, "Failed to fully stop OpenCode session.");
+    }
+  };
+
   const startSession: OpenCodeAdapterShape["startSession"] = (input: ProviderSessionStartInput) =>
     Effect.tryPromise({
       try: async () => {
@@ -1166,89 +1201,106 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
 
         const settings = await runPromise(serverSettingsService.getSettings);
         const binaryPath = settings.providers.opencode.binaryPath;
-        const server = await ensureOpenCodeServer(binaryPath);
+        const server = await startOpenCodeServer(binaryPath);
         const cwd = input.cwd ?? serverConfig.cwd;
         const client = createOpenCodeSdkClient({
           baseUrl: server.url,
           directory: cwd,
         });
+        try {
+          const listed = await client.provider.list();
+          if (listed.error) {
+            throw new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "provider.list",
+              detail: toMessage(listed.error, "Failed to list OpenCode providers"),
+            });
+          }
+          const body = listed.data as { default?: Record<string, string> } | undefined;
+          const defaultModels = body?.default ?? {};
 
-        const listed = await client.provider.list();
-        if (listed.error) {
-          throw new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "provider.list",
-            detail: toMessage(listed.error, "Failed to list OpenCode providers"),
+          const created = await client.session.create({
+            directory: cwd,
+            title: "ace",
           });
-        }
-        const body = listed.data as { default?: Record<string, string> } | undefined;
-        const defaultModels = body?.default ?? {};
+          if (created.error || !created.data) {
+            throw new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "session.create",
+              detail: toMessage(created.error, "Failed to create OpenCode session"),
+            });
+          }
+          const opencodeSessionId = created.data.id;
 
-        const created = await client.session.create({
-          directory: cwd,
-          title: "T3 Code",
-        });
-        if (created.error || !created.data) {
-          throw new ProviderAdapterRequestError({
+          const createdAt = isoNow();
+          const model =
+            input.modelSelection && input.modelSelection.provider === PROVIDER
+              ? input.modelSelection.model
+              : DEFAULT_MODEL_BY_PROVIDER.opencode;
+
+          const session: ProviderSession = {
             provider: PROVIDER,
-            method: "session.create",
-            detail: toMessage(created.error, "Failed to create OpenCode session"),
-          });
+            status: "ready",
+            runtimeMode: input.runtimeMode,
+            cwd,
+            model,
+            threadId: input.threadId,
+            createdAt,
+            updatedAt: createdAt,
+          };
+
+          const ctx: OpenCodeSessionContext = {
+            threadId: input.threadId,
+            session,
+            cwd,
+            server,
+            client,
+            opencodeSessionId,
+            defaultModels,
+            turns: [],
+            replayTurns: cloneReplayTurns(input.replayTurns),
+            totalProcessedTokens: 0,
+            sequenceTieBreakersByTimestampMs: new Map(),
+            nextFallbackSessionSequence: 0,
+            activeTurn: null,
+            pendingApprovals: new Map(),
+            pendingUserInputs: new Map(),
+            sseAbort: null,
+            pendingBootstrapReset: (input.replayTurns?.length ?? 0) > 0,
+            stopped: false,
+          };
+          sessions.set(input.threadId, ctx);
+          startSse(ctx);
+
+          emit(
+            baseEvent(ctx, {
+              type: "session.started",
+              payload: {},
+            }),
+          );
+          emit(
+            baseEvent(ctx, {
+              type: "thread.started",
+              payload: { providerThreadId: opencodeSessionId },
+            }),
+          );
+          return ctx.session;
+        } catch (cause) {
+          try {
+            await server.close();
+          } catch (cleanupCause) {
+            throw new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "startSession",
+              detail: `${toMessage(cause, "OpenCode session start failed")} Cleanup also failed: ${toMessage(
+                cleanupCause,
+                "Failed to stop OpenCode server",
+              )}`,
+              cause: new AggregateError([cause, cleanupCause]),
+            });
+          }
+          throw cause;
         }
-        const opencodeSessionId = created.data.id;
-
-        const createdAt = isoNow();
-        const model =
-          input.modelSelection && input.modelSelection.provider === PROVIDER
-            ? input.modelSelection.model
-            : DEFAULT_MODEL_BY_PROVIDER.opencode;
-
-        const session: ProviderSession = {
-          provider: PROVIDER,
-          status: "ready",
-          runtimeMode: input.runtimeMode,
-          cwd,
-          model,
-          threadId: input.threadId,
-          createdAt,
-          updatedAt: createdAt,
-        };
-
-        const ctx: OpenCodeSessionContext = {
-          threadId: input.threadId,
-          session,
-          cwd,
-          client,
-          opencodeSessionId,
-          defaultModels,
-          turns: [],
-          replayTurns: cloneReplayTurns(input.replayTurns),
-          totalProcessedTokens: 0,
-          sequenceTieBreakersByTimestampMs: new Map(),
-          nextFallbackSessionSequence: 0,
-          activeTurn: null,
-          pendingApprovals: new Map(),
-          pendingUserInputs: new Map(),
-          sseAbort: null,
-          pendingBootstrapReset: (input.replayTurns?.length ?? 0) > 0,
-          stopped: false,
-        };
-        sessions.set(input.threadId, ctx);
-        startSse(ctx);
-
-        emit(
-          baseEvent(ctx, {
-            type: "session.started",
-            payload: {},
-          }),
-        );
-        emit(
-          baseEvent(ctx, {
-            type: "thread.started",
-            payload: { providerThreadId: opencodeSessionId },
-          }),
-        );
-        return ctx.session;
       },
       catch: (cause) =>
         isProviderAdapterValidationError(cause) || isProviderAdapterRequestError(cause)
@@ -1517,13 +1569,8 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     Effect.tryPromise(async () => {
       const ctx = sessions.get(threadId);
       if (!ctx) return;
-      ctx.stopped = true;
-      ctx.sseAbort?.abort();
       sessions.delete(threadId);
-      await ctx.client.session.delete({
-        sessionID: ctx.opencodeSessionId,
-        directory: ctx.cwd,
-      });
+      await stopContext(ctx);
     });
 
   const listSessions: OpenCodeAdapterShape["listSessions"] = () =>
@@ -1633,13 +1680,8 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
   const stopAll: OpenCodeAdapterShape["stopAll"] = () =>
     Effect.tryPromise(async () => {
       for (const [threadId, ctx] of sessions) {
-        ctx.stopped = true;
-        ctx.sseAbort?.abort();
         sessions.delete(threadId);
-        await ctx.client.session.delete({
-          sessionID: ctx.opencodeSessionId,
-          directory: ctx.cwd,
-        });
+        await stopContext(ctx);
       }
     });
 

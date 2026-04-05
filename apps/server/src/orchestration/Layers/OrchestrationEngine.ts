@@ -3,8 +3,8 @@ import type {
   OrchestrationReadModel,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
-import { OrchestrationCommand } from "@t3tools/contracts";
+} from "@ace/contracts";
+import { OrchestrationCommand } from "@ace/contracts";
 import { Deferred, Effect, Layer, Option, PubSub, Queue, Schema, Stream } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -33,11 +33,11 @@ interface CommandEnvelope {
 
 const ORCHESTRATION_ENGINE_WORKER_COUNT = Math.max(
   1,
-  Number.parseInt(process.env.T3CODE_ORCHESTRATION_WORKERS ?? "8", 10) || 8,
+  Number.parseInt(process.env.ACE_ORCHESTRATION_WORKERS ?? "8", 10) || 8,
 );
 const ORCHESTRATION_ENGINE_QUEUE_CAPACITY = Math.max(
   64,
-  Number.parseInt(process.env.T3CODE_ORCHESTRATION_QUEUE_CAPACITY ?? "10000", 10) || 10_000,
+  Number.parseInt(process.env.ACE_ORCHESTRATION_QUEUE_CAPACITY ?? "10000", 10) || 10_000,
 );
 const ORCHESTRATION_ENGINE_PARTITION_QUEUE_CAPACITY = Math.max(
   64,

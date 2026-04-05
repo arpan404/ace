@@ -1,5 +1,5 @@
-import { WsRpcGroup } from "@t3tools/contracts";
-import { resolveWebSocketAuthConnection } from "@t3tools/shared/wsAuth";
+import { WsRpcGroup } from "@ace/contracts";
+import { resolveWebSocketAuthConnection } from "@ace/shared/wsAuth";
 import { Effect, Layer } from "effect";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";

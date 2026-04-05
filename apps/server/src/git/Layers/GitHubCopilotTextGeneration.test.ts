@@ -85,7 +85,7 @@ const layer = it.layer(
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(
       ServerConfig.layerTest(process.cwd(), {
-        prefix: "t3code-copilot-text-generation-test-",
+        prefix: "ace-copilot-text-generation-test-",
       }),
     ),
     Layer.provideMerge(NodeServices.layer),

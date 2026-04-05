@@ -6,7 +6,7 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationReadModel,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

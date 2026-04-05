@@ -5,5 +5,5 @@ import type { ServerProviderShape } from "./ServerProvider";
 export interface GeminiProviderShape extends ServerProviderShape {}
 
 export class GeminiProvider extends ServiceMap.Service<GeminiProvider, GeminiProviderShape>()(
-  "t3/provider/Services/GeminiProvider",
+  "ace/provider/Services/GeminiProvider",
 ) {}

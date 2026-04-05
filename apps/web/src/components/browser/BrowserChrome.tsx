@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
-import type { BrowserSearchEngine } from "@t3tools/contracts/settings";
+import type { BrowserSearchEngine } from "@ace/contracts/settings";
 import { cn } from "~/lib/utils";
 import type { BrowserSuggestion } from "~/lib/browser/history";
 import { type BrowserPinnedPage } from "~/lib/browser/pinnedPages";

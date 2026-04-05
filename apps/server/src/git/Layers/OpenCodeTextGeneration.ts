@@ -3,12 +3,12 @@
  *
  * @module OpenCodeTextGeneration
  */
-import type { ModelSelection } from "@t3tools/contracts";
-import { TextGenerationError } from "@t3tools/contracts";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import type { ModelSelection } from "@ace/contracts";
+import { TextGenerationError } from "@ace/contracts";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@ace/shared/git";
 import { Effect, Layer, Option, Schema } from "effect";
 
-import { ensureOpenCodeServer } from "../../provider/opencodeRuntime.ts";
+import { startOpenCodeServer } from "../../provider/opencodeRuntime.ts";
 import {
   createOpenCodeSdkClient,
   extractTextPartsFromPromptResponse,
@@ -73,58 +73,62 @@ const makeOpenCodeTextGeneration = Effect.gen(function* () {
 
     const rawPayload = yield* Effect.tryPromise({
       try: async () => {
-        const server = await ensureOpenCodeServer(binaryPath);
-        const client = createOpenCodeSdkClient({
-          baseUrl: server.url,
-          directory: cwd,
-        });
-
-        const listed = await client.provider.list();
-        if (listed.error) {
-          throw new Error("Failed to list OpenCode providers for defaults.");
-        }
-        const body = listed.data as { default?: Record<string, string> } | undefined;
-        const defaults = body?.default ?? {};
-
-        const model = resolveOpenCodeModelForPrompt({
-          modelSlug: modelSelection.model,
-          defaults,
-        });
-
-        const created = await client.session.create({
-          directory: cwd,
-          title: `t3code-${operation}`,
-        });
-        if (created.error || !created.data) {
-          throw new Error("Failed to create OpenCode session for text generation.");
-        }
-        const sessionId = created.data.id;
-
+        const server = await startOpenCodeServer(binaryPath);
         try {
-          const jsonSchema = toJsonSchemaObject(outputSchema);
-          const result = await client.session.prompt({
-            sessionID: sessionId,
+          const client = createOpenCodeSdkClient({
+            baseUrl: server.url,
             directory: cwd,
-            model,
-            format: {
-              type: "json_schema",
-              schema: jsonSchema as Record<string, unknown>,
-            },
-            parts: [{ type: "text", text: prompt }],
           });
 
-          if (result.error || !result.data) {
-            throw new Error("OpenCode prompt failed for text generation.");
+          const listed = await client.provider.list();
+          if (listed.error) {
+            throw new Error("Failed to list OpenCode providers for defaults.");
           }
+          const body = listed.data as { default?: Record<string, string> } | undefined;
+          const defaults = body?.default ?? {};
 
-          const text = extractTextPartsFromPromptResponse(result.data.parts);
-          const jsonText = extractJsonText(text);
-          return JSON.parse(jsonText) as unknown;
-        } finally {
-          await client.session.delete({
-            sessionID: sessionId,
-            directory: cwd,
+          const model = resolveOpenCodeModelForPrompt({
+            modelSlug: modelSelection.model,
+            defaults,
           });
+
+          const created = await client.session.create({
+            directory: cwd,
+            title: `ace-${operation}`,
+          });
+          if (created.error || !created.data) {
+            throw new Error("Failed to create OpenCode session for text generation.");
+          }
+          const sessionId = created.data.id;
+
+          try {
+            const jsonSchema = toJsonSchemaObject(outputSchema);
+            const result = await client.session.prompt({
+              sessionID: sessionId,
+              directory: cwd,
+              model,
+              format: {
+                type: "json_schema",
+                schema: jsonSchema as Record<string, unknown>,
+              },
+              parts: [{ type: "text", text: prompt }],
+            });
+
+            if (result.error || !result.data) {
+              throw new Error("OpenCode prompt failed for text generation.");
+            }
+
+            const text = extractTextPartsFromPromptResponse(result.data.parts);
+            const jsonText = extractJsonText(text);
+            return JSON.parse(jsonText) as unknown;
+          } finally {
+            await client.session.delete({
+              sessionID: sessionId,
+              directory: cwd,
+            });
+          }
+        } finally {
+          await server.close();
         }
       },
       catch: (cause) =>

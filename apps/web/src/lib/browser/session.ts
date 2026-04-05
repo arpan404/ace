@@ -4,11 +4,11 @@ import { getLocalStorageItem } from "~/hooks/useLocalStorage";
 import { randomUUID } from "~/lib/utils";
 import { DEFAULT_BROWSER_HOME_URL, normalizeBrowserHttpUrl } from "~/lib/browser/url";
 
-export const BROWSER_SESSION_STORAGE_KEY = "t3code:browser:session:v1";
-export const LEGACY_BROWSER_LAST_URL_STORAGE_KEY = "t3code:browser:last-url";
-export const BROWSER_NEW_TAB_URL = "t3://browser/new-tab";
+export const BROWSER_SESSION_STORAGE_KEY = "ace:browser:session:v1";
+export const LEGACY_BROWSER_LAST_URL_STORAGE_KEY = "ace:browser:last-url";
+export const BROWSER_NEW_TAB_URL = "ace://browser/new-tab";
 export const BROWSER_NEW_TAB_TITLE = "New tab";
-export const BROWSER_SETTINGS_TAB_URL = "t3://browser/settings";
+export const BROWSER_SETTINGS_TAB_URL = "ace://browser/settings";
 export const BROWSER_SETTINGS_TAB_TITLE = "Browser settings";
 export const DEFAULT_BROWSER_PANEL_HEIGHT = 360;
 export const MIN_BROWSER_PANEL_HEIGHT = 288;

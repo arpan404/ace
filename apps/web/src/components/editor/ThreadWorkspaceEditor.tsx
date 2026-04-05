@@ -1,5 +1,5 @@
 import { loader } from "@monaco-editor/react";
-import type { ProjectEntry, ResolvedKeybindingsConfig, ThreadId } from "@t3tools/contracts";
+import type { ProjectEntry, ResolvedKeybindingsConfig, ThreadId } from "@ace/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -212,7 +212,7 @@ function ensureMonacoConfigured() {
     ...current,
     diagnostics: false,
   }));
-  monaco.editor.defineTheme("t3code-carbon", {
+  monaco.editor.defineTheme("ace-carbon", {
     base: "vs-dark",
     inherit: true,
     rules: [
@@ -222,7 +222,7 @@ function ensureMonacoConfigured() {
     ],
     colors: {},
   });
-  monaco.editor.defineTheme("t3code-paper", {
+  monaco.editor.defineTheme("ace-paper", {
     base: "vs",
     inherit: true,
     rules: [
@@ -485,7 +485,7 @@ const FileTreeRow = memo(function FileTreeRow(props: {
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData(
-          "application/x-t3code-explorer-entry",
+          "application/x-ace-explorer-entry",
           JSON.stringify({
             kind: props.row.entry.kind,
             path: props.row.entry.path,
@@ -494,7 +494,7 @@ const FileTreeRow = memo(function FileTreeRow(props: {
         event.dataTransfer.setData("text/plain", props.row.entry.path);
       }}
       onDragOver={(event) => {
-        const payload = event.dataTransfer.getData("application/x-t3code-explorer-entry");
+        const payload = event.dataTransfer.getData("application/x-ace-explorer-entry");
         if (payload.length === 0) {
           return;
         }
@@ -506,7 +506,7 @@ const FileTreeRow = memo(function FileTreeRow(props: {
         props.onHoverDropTarget(null);
       }}
       onDrop={(event) => {
-        const payload = event.dataTransfer.getData("application/x-t3code-explorer-entry");
+        const payload = event.dataTransfer.getData("application/x-ace-explorer-entry");
         if (payload.length === 0) {
           return;
         }
@@ -1965,7 +1965,7 @@ export default function ThreadWorkspaceEditor(props: {
             tabIndex={0}
             onKeyDown={handleExplorerKeyDown}
             onDragOver={(event) => {
-              const payload = event.dataTransfer.getData("application/x-t3code-explorer-entry");
+              const payload = event.dataTransfer.getData("application/x-ace-explorer-entry");
               if (payload.length === 0) {
                 return;
               }
@@ -1974,7 +1974,7 @@ export default function ThreadWorkspaceEditor(props: {
               setDragTargetParentPath(null);
             }}
             onDrop={(event) => {
-              const payload = event.dataTransfer.getData("application/x-t3code-explorer-entry");
+              const payload = event.dataTransfer.getData("application/x-ace-explorer-entry");
               if (payload.length === 0) {
                 return;
               }

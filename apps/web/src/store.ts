@@ -10,9 +10,9 @@ import {
   type OrchestrationCheckpointSummary,
   type OrchestrationThread,
   type OrchestrationSessionStatus,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import * as Schema from "effect/Schema";
-import { resolveModelSlugForProvider } from "@t3tools/shared/model";
+import { resolveModelSlugForProvider } from "@ace/shared/model";
 import { create } from "zustand";
 import {
   findLatestProposedPlan,
@@ -23,7 +23,7 @@ import {
 import {
   appendCompactedThreadActivity,
   DEFAULT_MAX_THREAD_ACTIVITIES,
-} from "@t3tools/shared/orchestrationThreadActivities";
+} from "@ace/shared/orchestrationThreadActivities";
 import { compareSequenceThenCreatedAt } from "./lib/activityOrder";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
 

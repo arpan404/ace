@@ -1,4 +1,4 @@
-import { WsRpcGroup } from "@t3tools/contracts";
+import { WsRpcGroup } from "@ace/contracts";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { AtomRpc } from "effect/unstable/reactivity";
 

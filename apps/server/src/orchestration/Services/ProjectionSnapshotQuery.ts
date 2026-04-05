@@ -13,7 +13,7 @@ import type {
   OrchestrationReadModel,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { ServiceMap } from "effect";
 import type { Option } from "effect";
 import type { Effect } from "effect";
@@ -80,4 +80,4 @@ export interface ProjectionSnapshotQueryShape {
 export class ProjectionSnapshotQuery extends ServiceMap.Service<
   ProjectionSnapshotQuery,
   ProjectionSnapshotQueryShape
->()("t3/orchestration/Services/ProjectionSnapshotQuery") {}
+>()("ace/orchestration/Services/ProjectionSnapshotQuery") {}

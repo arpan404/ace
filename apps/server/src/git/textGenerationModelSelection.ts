@@ -1,8 +1,4 @@
-import {
-  DEFAULT_SERVER_SETTINGS,
-  type ModelSelection,
-  type ServerSettings,
-} from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, type ModelSelection, type ServerSettings } from "@ace/contracts";
 import { Equal } from "effect";
 
 /**

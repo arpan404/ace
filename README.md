@@ -1,13 +1,13 @@
-# T3 Code
+# ace
 
-T3 Code is a minimal web GUI for coding agents: Codex, Claude, GitHub Copilot, and Cursor.
+ace is a minimal web GUI for coding agents: Codex, Claude, GitHub Copilot, and Cursor.
 
-> **Note:** This project is a derivative of the original T3 Code to add the features I believe will make my coding workflow better and efficient.
+> **Note:** ace is a fork of the original **T3 Code** by **T3 Tools Inc.** This fork keeps that attribution and is released under the MIT License as copyright (c) 2026 **arpan404**.
 
 ## Installation
 
 > [!WARNING]
-> T3 Code currently supports Codex, Claude, GitHub Copilot, and Cursor.
+> ace currently supports Codex, Claude, GitHub Copilot, and Cursor.
 > Install and authenticate at least one provider before use:
 >
 > - Codex: install [Codex CLI](https://github.com/openai/codex) and run `codex login`
@@ -18,30 +18,12 @@ T3 Code is a minimal web GUI for coding agents: Codex, Claude, GitHub Copilot, a
 ### Run without installing
 
 ```bash
-npx t3
+npx ace
 ```
 
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
-
-```bash
-winget install T3Tools.T3Code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Arch Linux (AUR)
-
-```bash
-yay -S t3code-bin
-```
+Install the latest version of the desktop app from [GitHub Releases](https://github.com/arpan404/ace/releases).
 
 ## Some notes
 

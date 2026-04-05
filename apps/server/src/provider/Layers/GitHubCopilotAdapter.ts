@@ -21,7 +21,7 @@ import {
   ThreadId,
   TurnId,
   type UserInputQuestion,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect, Layer, Queue, Stream } from "effect";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -115,7 +115,7 @@ interface TurnState {
 
 interface GitHubCopilotSessionContext {
   session: ProviderSession;
-  readonly sharedClientKey: string;
+  readonly sdkClient: GitHubCopilotClientLike;
   readonly sdkSession: GitHubCopilotSessionClient;
   readonly pendingApprovals: Map<string, PendingApproval>;
   readonly pendingUserInputs: Map<string, PendingUserInput>;
@@ -135,16 +135,6 @@ interface GitHubCopilotSessionContext {
 export interface GitHubCopilotAdapterLiveOptions {
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
-}
-
-interface SharedClientContext {
-  readonly key: string;
-  readonly client: GitHubCopilotClientLike;
-  refCount: number;
-}
-
-function sharedClientKey(input: { readonly binaryPath: string; readonly cliUrl: string }): string {
-  return `binary:${input.binaryPath}|cliUrl:${input.cliUrl}`;
 }
 
 function toMessage(cause: unknown, fallback: string): string {
@@ -733,43 +723,6 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         })
       : undefined);
   const sessions = new Map<ThreadId, GitHubCopilotSessionContext>();
-  const sharedClientsByKey = new Map<string, SharedClientContext>();
-
-  const acquireSharedClient = async (input: {
-    readonly binaryPath: string;
-    readonly cliUrl: string;
-  }): Promise<SharedClientContext> => {
-    const key = sharedClientKey(input);
-    const existing = sharedClientsByKey.get(key);
-    if (existing) {
-      existing.refCount += 1;
-      return existing;
-    }
-    const client = await createGitHubCopilotClient(
-      input.binaryPath,
-      input.cliUrl.length > 0 ? { cliUrl: input.cliUrl } : undefined,
-    );
-    const context: SharedClientContext = {
-      key,
-      client,
-      refCount: 1,
-    };
-    sharedClientsByKey.set(key, context);
-    return context;
-  };
-
-  const releaseSharedClientByKey = async (sharedClientKey: string): Promise<void> => {
-    const tracked = sharedClientsByKey.get(sharedClientKey);
-    if (!tracked) {
-      return;
-    }
-    tracked.refCount = Math.max(0, tracked.refCount - 1);
-    if (tracked.refCount > 0) {
-      return;
-    }
-    sharedClientsByKey.delete(sharedClientKey);
-    await tracked.client.stop();
-  };
 
   const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
@@ -1612,15 +1565,25 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       unsubscribe();
     }
     context.unsubscribers.length = 0;
+    const shutdownErrors: Array<Error> = [];
     try {
       await context.sdkSession.disconnect();
-    } catch {
-      // Preserve shutdown best-effort semantics.
+    } catch (cause) {
+      shutdownErrors.push(
+        cause instanceof Error
+          ? cause
+          : new Error(`Failed to disconnect GitHub Copilot session: ${String(cause)}`),
+      );
     }
     try {
-      await releaseSharedClientByKey(context.sharedClientKey);
-    } catch {
-      // Preserve shutdown best-effort semantics.
+      const stopErrors = await context.sdkClient.stop();
+      shutdownErrors.push(...stopErrors);
+    } catch (cause) {
+      shutdownErrors.push(
+        cause instanceof Error
+          ? cause
+          : new Error(`Failed to stop GitHub Copilot client: ${String(cause)}`),
+      );
     }
     context.session = {
       ...withoutActiveTurn(context.session),
@@ -1639,6 +1602,9 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         rawPayload: { reason: "Session stopped." },
       }),
     );
+    if (shutdownErrors.length > 0) {
+      throw new AggregateError(shutdownErrors, "Failed to fully stop GitHub Copilot session.");
+    }
   };
 
   const startSession: GitHubCopilotAdapterShape["startSession"] = (input) =>
@@ -1663,18 +1629,19 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           Effect.map((value) => value.providers.githubCopilot),
         ),
       );
-      const sharedClient = await acquireSharedClient({
-        binaryPath: settings.binaryPath,
-        cliUrl: settings.cliUrl.trim(),
-      });
-
       const existing = sessions.get(input.threadId);
       if (existing) {
         await stopContext(existing);
         sessions.delete(input.threadId);
       }
 
+      const sdkClient = await createGitHubCopilotClient(
+        settings.binaryPath,
+        settings.cliUrl.trim().length > 0 ? { cliUrl: settings.cliUrl.trim() } : undefined,
+      );
+
       let context: GitHubCopilotSessionContext | undefined;
+      let sdkSession: GitHubCopilotSessionClient | undefined;
       const permissionHandler = async (
         request: PermissionRequest,
       ): Promise<PermissionRequestResult> => {
@@ -1800,9 +1767,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       };
 
       try {
-        const availableModels = input.modelSelection?.model
-          ? await sharedClient.client.listModels()
-          : [];
+        const availableModels = input.modelSelection?.model ? await sdkClient.listModels() : [];
         const normalizedModelOptions = normalizeGitHubCopilotModelOptionsForModel(
           availableModels.find((model) => model.id === input.modelSelection?.model),
           input.modelSelection?.options,
@@ -1818,16 +1783,16 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           streaming: true,
         };
         const resumedFromCursor = typeof input.resumeCursor === "string";
-        const sdkSession = resumedFromCursor
-          ? await sharedClient.client
+        sdkSession = resumedFromCursor
+          ? await sdkClient
               .resumeSession(input.resumeCursor, sessionConfig)
               .catch(async (cause) => {
                 if (!isMissingResumableGitHubCopilotSession(cause)) {
                   throw cause;
                 }
-                return sharedClient.client.createSession(sessionConfig);
+                return sdkClient.createSession(sessionConfig);
               })
-          : await sharedClient.client.createSession(sessionConfig);
+          : await sdkClient.createSession(sessionConfig);
         const replayTurns = cloneReplayTurns(input.replayTurns);
         const resumedExistingSession =
           resumedFromCursor && sdkSession.sessionId === input.resumeCursor;
@@ -1845,7 +1810,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             createdAt: now,
             updatedAt: now,
           },
-          sharedClientKey: sharedClient.key,
+          sdkClient,
           sdkSession,
           pendingApprovals: new Map(),
           pendingUserInputs: new Map(),
@@ -1899,16 +1864,41 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
 
         return cloneSession(createdContext.session);
       } catch (cause) {
-        try {
-          await releaseSharedClientByKey(sharedClient.key);
-        } catch {
-          // Ignore secondary shutdown failures.
+        const cleanupErrors: Array<Error> = [];
+        if (sdkSession) {
+          try {
+            await sdkSession.disconnect();
+          } catch (disconnectCause) {
+            cleanupErrors.push(
+              disconnectCause instanceof Error
+                ? disconnectCause
+                : new Error(
+                    `Failed to disconnect GitHub Copilot session during startup cleanup: ${String(disconnectCause)}`,
+                  ),
+            );
+          }
         }
+        try {
+          const stopErrors = await sdkClient.stop();
+          cleanupErrors.push(...stopErrors);
+        } catch (stopCause) {
+          cleanupErrors.push(
+            stopCause instanceof Error
+              ? stopCause
+              : new Error(
+                  `Failed to stop GitHub Copilot client during startup cleanup: ${String(stopCause)}`,
+                ),
+          );
+        }
+        const detailSuffix =
+          cleanupErrors.length === 0
+            ? ""
+            : ` Cleanup also failed: ${cleanupErrors.map((error) => error.message).join("; ")}`;
         throw new ProviderAdapterProcessError({
           provider: PROVIDER,
           threadId: input.threadId,
-          detail: toMessage(cause, "Failed to start GitHub Copilot session."),
-          cause,
+          detail: `${toMessage(cause, "Failed to start GitHub Copilot session.")}${detailSuffix}`,
+          cause: cleanupErrors.length === 0 ? cause : new AggregateError([cause, ...cleanupErrors]),
         });
       }
     });

@@ -17,9 +17,9 @@ import {
   type ServerProvider,
   type ServerProviderModel,
   ThreadId,
-} from "@t3tools/contracts";
-import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
-import { buildProviderModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
+} from "@ace/contracts";
+import { DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
+import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
 import { shortcutLabelForCommand } from "../../keybindings";
@@ -171,7 +171,7 @@ function getProviderSummary(provider: ServerProvider | undefined) {
     return {
       headline: "Disabled",
       detail:
-        provider.message ?? "This provider is installed but disabled for new sessions in T3 Code.",
+        provider.message ?? "This provider is installed but disabled for new sessions in ace.",
     };
   }
   if (!provider.installed) {
@@ -926,7 +926,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
           <SettingsSection title="Appearance">
             <SettingsRow
               title="Theme"
-              description="Choose how T3 Code looks across the app."
+              description="Choose how ace looks across the app."
               resetAction={
                 theme !== "system" ? (
                   <SettingResetButton label="theme" onClick={() => setTheme("system")} />

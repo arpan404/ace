@@ -5,13 +5,13 @@ import {
   type TerminalEvent,
   type TerminalSessionSnapshot,
   type TerminalSessionStatus,
-} from "@t3tools/contracts";
-import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
+} from "@ace/contracts";
+import { makeKeyedCoalescingWorker } from "@ace/shared/KeyedCoalescingWorker";
 import {
   applyTerminalInputToBuffer,
   deriveTerminalTitleFromCommand,
   extractTerminalOscTitle,
-} from "@t3tools/shared/terminalTitles";
+} from "@ace/shared/terminalTitles";
 import {
   Data,
   Effect,
@@ -614,7 +614,7 @@ function toSessionKey(threadId: string, terminalId: string): string {
 
 function shouldExcludeTerminalEnvKey(key: string): boolean {
   const normalizedKey = key.toUpperCase();
-  if (normalizedKey.startsWith("T3CODE_")) {
+  if (normalizedKey.startsWith("ACE_")) {
     return true;
   }
   if (normalizedKey.startsWith("VITE_")) {

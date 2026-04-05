@@ -4,7 +4,7 @@
  * @module opencodeSdk
  */
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client";
-import type { ServerProviderModel } from "@t3tools/contracts";
+import type { ServerProviderModel } from "@ace/contracts";
 
 export const OPENCODE_PROVIDER_MODEL_LIMIT = 10;
 export const OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT = 10;

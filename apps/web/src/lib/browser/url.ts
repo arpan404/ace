@@ -1,7 +1,4 @@
-import {
-  DEFAULT_BROWSER_SEARCH_ENGINE,
-  type BrowserSearchEngine,
-} from "@t3tools/contracts/settings";
+import { DEFAULT_BROWSER_SEARCH_ENGINE, type BrowserSearchEngine } from "@ace/contracts/settings";
 
 const SEARCH_ENGINE_CONFIG = {
   brave: {

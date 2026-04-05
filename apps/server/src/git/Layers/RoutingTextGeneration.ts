@@ -7,7 +7,7 @@
  *
  * @module RoutingTextGeneration
  */
-import { type ModelSelection, type ProviderKind } from "@t3tools/contracts";
+import { type ModelSelection, type ProviderKind } from "@ace/contracts";
 import { Effect, Layer, ServiceMap } from "effect";
 
 import {
@@ -27,27 +27,27 @@ import { OpenCodeTextGenerationLive } from "./OpenCodeTextGeneration.ts";
 // ---------------------------------------------------------------------------
 
 class CodexTextGen extends ServiceMap.Service<CodexTextGen, TextGenerationShape>()(
-  "t3/git/Layers/RoutingTextGeneration/CodexTextGen",
+  "ace/git/Layers/RoutingTextGeneration/CodexTextGen",
 ) {}
 
 class ClaudeTextGen extends ServiceMap.Service<ClaudeTextGen, TextGenerationShape>()(
-  "t3/git/Layers/RoutingTextGeneration/ClaudeTextGen",
+  "ace/git/Layers/RoutingTextGeneration/ClaudeTextGen",
 ) {}
 
 class GitHubCopilotTextGen extends ServiceMap.Service<GitHubCopilotTextGen, TextGenerationShape>()(
-  "t3/git/Layers/RoutingTextGeneration/GitHubCopilotTextGen",
+  "ace/git/Layers/RoutingTextGeneration/GitHubCopilotTextGen",
 ) {}
 
 class CursorTextGen extends ServiceMap.Service<CursorTextGen, TextGenerationShape>()(
-  "t3/git/Layers/RoutingTextGeneration/CursorTextGen",
+  "ace/git/Layers/RoutingTextGeneration/CursorTextGen",
 ) {}
 
 class GeminiTextGen extends ServiceMap.Service<GeminiTextGen, TextGenerationShape>()(
-  "t3/git/Layers/RoutingTextGeneration/GeminiTextGen",
+  "ace/git/Layers/RoutingTextGeneration/GeminiTextGen",
 ) {}
 
 class OpenCodeTextGen extends ServiceMap.Service<OpenCodeTextGen, TextGenerationShape>()(
-  "t3/git/Layers/RoutingTextGeneration/OpenCodeTextGen",
+  "ace/git/Layers/RoutingTextGeneration/OpenCodeTextGen",
 ) {}
 
 const isTextGenerationProvider = (provider: ProviderKind): provider is TextGenerationProvider =>

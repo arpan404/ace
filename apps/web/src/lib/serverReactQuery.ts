@@ -1,4 +1,4 @@
-import type { ServerSearchOpenCodeModelsResult } from "@t3tools/contracts";
+import type { ServerSearchOpenCodeModelsResult } from "@ace/contracts";
 import { infiniteQueryOptions } from "@tanstack/react-query";
 
 import { ensureNativeApi } from "~/nativeApi";

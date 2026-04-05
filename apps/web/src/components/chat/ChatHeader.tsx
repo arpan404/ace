@@ -4,7 +4,7 @@ import {
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { BugIcon, DiffIcon, GlobeIcon, TerminalSquareIcon } from "lucide-react";

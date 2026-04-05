@@ -1,12 +1,12 @@
-import type { OpenCodeSettings, ServerProvider } from "@t3tools/contracts";
+import type { OpenCodeSettings, ServerProvider } from "@ace/contracts";
 import { Cache, Cause, Duration, Effect, Equal, Layer, Result, Stream } from "effect";
 
 import { buildServerProvider, providerModelsFromSettings } from "../providerSnapshot";
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import { OpenCodeProvider } from "../Services/OpenCodeProvider";
 import { ServerSettingsService } from "../../serverSettings";
-import { ServerSettingsError } from "@t3tools/contracts";
-import { ensureOpenCodeServer } from "../opencodeRuntime";
+import { ServerSettingsError } from "@ace/contracts";
+import { startOpenCodeServer } from "../opencodeRuntime";
 import { probeOpenCodeSdk } from "../opencodeSdk";
 
 const PROVIDER = "opencode" as const;
@@ -38,14 +38,18 @@ export const checkOpenCodeProviderStatus = Effect.fn("checkOpenCodeProviderStatu
           version: null,
           status: "warning",
           auth: { status: "unknown" },
-          message: "OpenCode is disabled in T3 Code settings.",
+          message: "OpenCode is disabled in ace settings.",
         },
       });
     }
 
     const probeResult = yield* Effect.promise(async () => {
-      const server = await ensureOpenCodeServer(settings.binaryPath);
-      return await probeOpenCodeSdk(server.url);
+      const server = await startOpenCodeServer(settings.binaryPath);
+      try {
+        return await probeOpenCodeSdk(server.url);
+      } finally {
+        await server.close();
+      }
     }).pipe(Effect.result);
 
     if (Result.isFailure(probeResult)) {

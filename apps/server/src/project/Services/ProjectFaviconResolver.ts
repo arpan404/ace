@@ -27,4 +27,4 @@ export interface ProjectFaviconResolverShape {
 export class ProjectFaviconResolver extends ServiceMap.Service<
   ProjectFaviconResolver,
   ProjectFaviconResolverShape
->()("t3/project/Services/ProjectFaviconResolver") {}
+>()("ace/project/Services/ProjectFaviconResolver") {}

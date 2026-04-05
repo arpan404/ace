@@ -4,7 +4,7 @@ import {
   TurnId,
   MessageId,
   type OrchestrationReadModel,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { createThreadHydrationCache } from "./threadHydrationCache";
