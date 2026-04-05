@@ -64,7 +64,7 @@ describe("MessagesTimeline", () => {
           streaming: false,
         },
         durationStart: "2026-03-17T19:12:20.000Z",
-        showCompletionDivider: false,
+        completionSummary: null,
       },
       ...Array.from({ length: 24 }, (_, index) => ({
         kind: "work" as const,
@@ -104,7 +104,7 @@ describe("MessagesTimeline", () => {
           streaming: false,
         },
         durationStart: "2026-03-17T19:12:20.000Z",
-        showCompletionDivider: false,
+        completionSummary: null,
       },
       {
         kind: "message" as const,
@@ -118,7 +118,7 @@ describe("MessagesTimeline", () => {
           streaming: false,
         },
         durationStart: "2026-03-17T19:12:20.500Z",
-        showCompletionDivider: false,
+        completionSummary: null,
       },
       {
         kind: "message" as const,
@@ -132,7 +132,7 @@ describe("MessagesTimeline", () => {
           streaming: false,
         },
         durationStart: "2026-03-17T19:12:21.000Z",
-        showCompletionDivider: false,
+        completionSummary: null,
       },
       ...Array.from({ length: 12 }, (_, index) => ({
         kind: "work" as const,
@@ -151,6 +151,7 @@ describe("MessagesTimeline", () => {
         id: "working-indicator-row",
         createdAt: "2026-03-17T19:12:40.000Z",
         mode: "live" as const,
+        intentText: null,
       },
     ];
 
@@ -1253,7 +1254,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-work-entry-id="image-view-tool"');
   });
 
-  it("does not create an intent tool disclosure for thinking-only work", async () => {
+  it("groups completed intent and thinking work into the same disclosure", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1300,9 +1301,10 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('data-intent-message="true"');
+    expect(markup).toContain('data-meta-disclosure="true"');
     expect(markup).not.toContain('data-intent-disclosure="true"');
     expect(markup).toContain('data-thinking-disclosure="true"');
+    expect(markup).toContain("1 intent · 1 reasoning step");
     expect(markup).not.toContain("0 tool calls");
   });
 
@@ -1462,10 +1464,100 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup.match(/data-intent-message="true"/g) ?? []).toHaveLength(2);
+    expect(markup.match(/data-intent-message="true"/g) ?? []).toHaveLength(0);
+    expect(markup.match(/data-inline-intent="true"/g) ?? []).toHaveLength(1);
     expect(markup).toContain('data-tool-disclosure="true"');
     expect(markup).not.toContain("ProviderService.ts");
+    expect(markup).toContain("Intent");
+    expect(markup).toContain("Exploring cursor flow");
     expect(markup).toContain("MessagesTimeline.tsx");
+  });
+
+  it("moves the final response summary into the assistant footer", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "assistant-summary-row",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.500Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-summary-message"),
+              role: "assistant",
+              text: "Updated the timeline rendering.",
+              createdAt: "2026-03-17T19:12:31.500Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId="assistant-summary-row"
+        completionSummary="Worked for 2m 20s"
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:35.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-response-summary="true"');
+    expect(markup).toContain("Worked for 2m 20s");
+    expect(markup).not.toContain("Response • Worked for 2m 20s");
+  });
+
+  it("keeps a trailing live intent inside the live status row when no tool has started yet", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:30.000Z"
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "intent-only-live",
+            kind: "intent",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            text: "Inspecting the provider transcript before responding",
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:35.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).not.toContain('data-intent-message="true"');
+    expect(markup).toContain('data-inline-intent="true"');
+    expect(markup).toContain("Inspecting the provider transcript before responding");
   });
 
   it("uses the matching group id when expanding completed tool calls", async () => {
