@@ -135,9 +135,43 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     }),
   );
 
+  const ensureThreadProposedPlanLoaded = (threadId: ThreadId, planId: string) =>
+    Effect.gen(function* () {
+      const thread = readModel.threads.find((entry) => entry.id === threadId);
+      if (!thread) {
+        return;
+      }
+      if (thread.proposedPlans.some((entry) => entry.id === planId)) {
+        return;
+      }
+      if (thread.proposedPlans.length > 0) {
+        return;
+      }
+
+      const snapshot = yield* projectionSnapshotQuery.getSnapshot({
+        hydrateThreadId: threadId,
+      });
+      const hydratedThread = snapshot.threads.find((entry) => entry.id === threadId);
+      if (!hydratedThread) {
+        return;
+      }
+
+      readModel = snapshot;
+    });
+
   const processEnvelope = (envelope: CommandEnvelope): Effect.Effect<void> => {
     return Effect.gen(function* () {
       yield* reconcilePersistedReadModel;
+
+      if (
+        envelope.command.type === "thread.turn.start" &&
+        envelope.command.sourceProposedPlan !== undefined
+      ) {
+        yield* ensureThreadProposedPlanLoaded(
+          envelope.command.sourceProposedPlan.threadId,
+          envelope.command.sourceProposedPlan.planId,
+        );
+      }
 
       const existingReceipt = yield* commandReceiptRepository.getByCommandId({
         commandId: envelope.command.commandId,
@@ -246,7 +280,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   };
 
   yield* projectionPipeline.bootstrap;
-  readModel = yield* projectionSnapshotQuery.getSnapshot();
+  readModel = yield* projectionSnapshotQuery.getSnapshot({ hydrateThreadId: null });
 
   const fanoutWorker = Effect.forever(
     Queue.take(commandQueue).pipe(

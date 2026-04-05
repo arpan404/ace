@@ -37,6 +37,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     turnDiffSummaries: [],
     activities: [],
     proposedPlans: [],
+    latestProposedPlanSummary: null,
     error: null,
     createdAt: "2026-02-13T00:00:00.000Z",
     archivedAt: null,
@@ -121,6 +122,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     messages: [],
     activities: [],
     proposedPlans: [],
+    latestProposedPlanSummary: null,
     queuedComposerMessages: [],
     queuedSteerRequest: null,
     checkpoints: [],
@@ -247,6 +249,35 @@ describe("store read model sync", () => {
     const next = syncServerReadModel(initialState, readModel);
 
     expect(next.threads[0]?.modelSelection.model).toBe("claude-sonnet-4-6");
+  });
+
+  it.each([
+    ["gemini", "gemini-2.5-pro"],
+    ["opencode", "auto"],
+  ] as const)("preserves %s session providers from the read model", (providerName, model) => {
+    const initialState = makeState(makeThread());
+    const readModel = makeReadModel(
+      makeReadModelThread({
+        modelSelection: {
+          provider: providerName,
+          model,
+        },
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "ready",
+          providerName,
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        },
+      }),
+    );
+
+    const next = syncServerReadModel(initialState, readModel);
+
+    expect(next.threads[0]?.session?.provider).toBe(providerName);
+    expect(next.threads[0]?.modelSelection.model).toBe(model);
   });
 
   it("preserves project and thread updatedAt timestamps from the read model", () => {
@@ -445,6 +476,42 @@ describe("store read model sync", () => {
       MessageId.makeUnsafe("message-1"),
       MessageId.makeUnsafe("message-2"),
     ]);
+  });
+
+  it("derives sidebar proposed-plan state from latestProposedPlanSummary for lean threads", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const initialState = makeState(makeThread({ id: threadId }));
+    const readModel = makeReadModel(
+      makeReadModelThread({
+        id: threadId,
+        interactionMode: "plan",
+        latestTurn: {
+          turnId: TurnId.makeUnsafe("turn-1"),
+          state: "completed",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: "2026-02-27T00:00:01.000Z",
+          assistantMessageId: MessageId.makeUnsafe("message-1"),
+        },
+        proposedPlans: [],
+        latestProposedPlanSummary: {
+          id: "plan-1",
+          turnId: TurnId.makeUnsafe("turn-1"),
+          implementedAt: null,
+          implementationThreadId: null,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+      }),
+    );
+
+    const next = syncServerReadModel(initialState, readModel, {
+      hydrateThreadId: null,
+    });
+
+    expect(next.threads[0]?.historyLoaded).toBe(false);
+    expect(next.threads[0]?.proposedPlans).toEqual([]);
+    expect(next.sidebarThreadsById[threadId]?.hasActionableProposedPlan).toBe(true);
   });
 
   it("replaces projects using snapshot order during recovery", () => {
@@ -696,6 +763,48 @@ describe("incremental orchestration updates", () => {
     expect(next.threads[0]?.messages[0]?.text).toBe("hello world");
     expect(next.threads[0]?.latestTurn?.state).toBe("running");
     expect(next.threads[1]).toBe(thread2);
+  });
+
+  it("keeps lean thread plan bodies unloaded while refreshing the latest plan summary", () => {
+    const thread = makeThread({
+      latestTurn: {
+        turnId: TurnId.makeUnsafe("turn-1"),
+        state: "completed",
+        requestedAt: "2026-02-27T00:00:00.000Z",
+        startedAt: "2026-02-27T00:00:00.000Z",
+        completedAt: "2026-02-27T00:00:01.000Z",
+        assistantMessageId: MessageId.makeUnsafe("message-1"),
+      },
+      historyLoaded: false,
+    });
+    const state = makeState(thread);
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.proposed-plan-upserted", {
+        threadId: thread.id,
+        proposedPlan: {
+          id: "plan-1",
+          turnId: TurnId.makeUnsafe("turn-1"),
+          planMarkdown: "# Plan",
+          implementedAt: null,
+          implementationThreadId: null,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+      }),
+    );
+
+    expect(next.threads[0]?.proposedPlans).toEqual([]);
+    expect(next.threads[0]?.latestProposedPlanSummary).toEqual({
+      id: "plan-1",
+      turnId: TurnId.makeUnsafe("turn-1"),
+      implementedAt: null,
+      implementationThreadId: null,
+      createdAt: "2026-02-27T00:00:00.000Z",
+      updatedAt: "2026-02-27T00:00:01.000Z",
+    });
+    expect(next.sidebarThreadsById[thread.id]?.hasActionableProposedPlan).toBe(true);
   });
 
   it("orders appended activities by createdAt when legacy entries are missing sequence", () => {

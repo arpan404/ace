@@ -28,6 +28,8 @@ import type {
 } from "./project";
 import type {
   ServerConfig,
+  ServerSearchOpenCodeModelsInput,
+  ServerSearchOpenCodeModelsResult,
   ServerProviderUpdatedPayload,
   ServerUpsertKeybindingResult,
 } from "./server";
@@ -204,6 +206,9 @@ export interface NativeApi {
   server: {
     getConfig: () => Promise<ServerConfig>;
     refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
+    searchOpenCodeModels: (
+      input: ServerSearchOpenCodeModelsInput,
+    ) => Promise<ServerSearchOpenCodeModelsResult>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;

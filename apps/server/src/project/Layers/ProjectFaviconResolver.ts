@@ -57,6 +57,7 @@ function extractIconHref(source: string): string | null {
 export const makeProjectFaviconResolver = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const resolvedPathByCwd = new Map<string, string | null>();
 
   const resolveIconHref = (projectCwd: string, href: string): string[] => {
     const clean = href.replace(/^\//, "");
@@ -89,10 +90,16 @@ export const makeProjectFaviconResolver = Effect.gen(function* () {
   const resolvePath: ProjectFaviconResolverShape["resolvePath"] = Effect.fn(
     "ProjectFaviconResolver.resolvePath",
   )(function* (cwd: string): Effect.fn.Return<string | null> {
+    const cached = resolvedPathByCwd.get(cwd);
+    if (cached !== undefined) {
+      return cached;
+    }
+
     for (const candidate of FAVICON_CANDIDATES) {
       const resolved = path.join(cwd, candidate);
       const existing = yield* findExistingFile(cwd, [resolved]);
       if (existing) {
+        resolvedPathByCwd.set(cwd, existing);
         return existing;
       }
     }
@@ -111,10 +118,12 @@ export const makeProjectFaviconResolver = Effect.gen(function* () {
       }
       const existing = yield* findExistingFile(cwd, resolveIconHref(cwd, href));
       if (existing) {
+        resolvedPathByCwd.set(cwd, existing);
         return existing;
       }
     }
 
+    resolvedPathByCwd.set(cwd, null);
     return null;
   });
 

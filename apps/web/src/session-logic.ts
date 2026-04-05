@@ -32,6 +32,7 @@ export const PROVIDER_OPTIONS: Array<{
   { value: "claudeAgent", label: "Claude", available: true },
   { value: "githubCopilot", label: "Copilot", available: true },
   { value: "cursor", label: "Cursor", available: true },
+  { value: "gemini", label: "Gemini", available: true },
   { value: "opencode", label: "OpenCode", available: true },
 ];
 
@@ -490,9 +491,16 @@ export function hasActionableProposedPlan(
   return proposedPlan !== null && proposedPlan.implementedAt === null;
 }
 
+/**
+ * Builds ordered work-log rows for the chat timeline.
+ *
+ * When `latestTurnId` is set, only activities for that turn are included (used in tests
+ * and for narrow call sites). The main chat view passes `undefined` so **every turn’s**
+ * tool/thinking steps stay visible in the thread history (Copilot-style timeline).
+ */
 export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
-  latestTurnId: TurnId | undefined,
+  latestTurnId?: TurnId | undefined,
 ): WorkLogEntry[] {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
   const entries = ordered
@@ -591,7 +599,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (requestKind) {
     entry.requestKind = requestKind;
   }
-  const collapseKey = deriveActivityCollapseKey(entry, payload);
+  const collapseKey = deriveActivityCollapseKey(entry, payload, activity.turnId);
   if (collapseKey) {
     entry.collapseKey = collapseKey;
   }
@@ -705,11 +713,13 @@ function isToolLifecycleActivityKind(kind: OrchestrationThreadActivity["kind"]):
 function deriveActivityCollapseKey(
   entry: DerivedWorkLogEntry,
   payload: Record<string, unknown> | null,
+  turnId: TurnId | null | undefined,
 ): string | undefined {
+  const turnSegment = turnId ?? "none";
   if (entry.tone === "thinking") {
     const taskId = asTrimmedString(payload?.taskId);
     if (taskId) {
-      return `thinking:${taskId}`;
+      return `thinking:${turnSegment}:${taskId}`;
     }
   }
 
@@ -722,7 +732,7 @@ function deriveActivityCollapseKey(
   if (normalizedLabel.length === 0 && itemType.length === 0) {
     return undefined;
   }
-  return [itemType, normalizedLabel].join("\u001f");
+  return [turnSegment, itemType, normalizedLabel].join("\u001f");
 }
 
 function normalizeCompactToolLabel(value: string): string {

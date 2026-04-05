@@ -34,6 +34,9 @@ export const CursorModelOptions = Schema.Struct({
 });
 export type CursorModelOptions = typeof CursorModelOptions.Type;
 
+export const GeminiModelOptions = Schema.Struct({});
+export type GeminiModelOptions = typeof GeminiModelOptions.Type;
+
 export const OpenCodeModelOptions = Schema.Struct({});
 export type OpenCodeModelOptions = typeof OpenCodeModelOptions.Type;
 
@@ -42,6 +45,7 @@ export const ProviderModelOptions = Schema.Struct({
   claudeAgent: Schema.optional(ClaudeModelOptions),
   githubCopilot: Schema.optional(GitHubCopilotModelOptions),
   cursor: Schema.optional(CursorModelOptions),
+  gemini: Schema.optional(GeminiModelOptions),
   opencode: Schema.optional(OpenCodeModelOptions),
 });
 export type ProviderModelOptions = typeof ProviderModelOptions.Type;
@@ -74,6 +78,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderKind, string> = {
   claudeAgent: "claude-sonnet-4-6",
   githubCopilot: "gpt-5",
   cursor: "auto",
+  gemini: "gemini-2.5-pro",
   opencode: "auto",
 };
 
@@ -85,6 +90,7 @@ export const DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER: Record<ProviderKind,
   claudeAgent: "claude-haiku-4-5",
   githubCopilot: "gpt-5-mini",
   cursor: "auto",
+  gemini: "gemini-2.5-flash",
   opencode: "auto",
 };
 
@@ -128,6 +134,14 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string,
     "sonnet-4": "claude-4-sonnet",
     "sonnet-4-thinking": "claude-4-sonnet-thinking",
   },
+  gemini: {
+    auto: "auto",
+    pro: "gemini-2.5-pro",
+    flash: "gemini-2.5-flash",
+    "flash-lite": "gemini-2.5-flash-lite",
+    "gemini-2.5-pro-latest": "gemini-2.5-pro",
+    "gemini-2.5-flash-latest": "gemini-2.5-flash",
+  },
   opencode: {
     default: "auto",
   },
@@ -140,5 +154,6 @@ export const PROVIDER_DISPLAY_NAMES: Record<ProviderKind, string> = {
   claudeAgent: "Claude",
   githubCopilot: "Copilot",
   cursor: "Cursor",
+  gemini: "Gemini",
   opencode: "OpenCode",
 };

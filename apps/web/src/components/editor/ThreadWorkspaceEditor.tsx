@@ -45,13 +45,16 @@ import {
   useEditorStateStore,
 } from "~/editorStateStore";
 import { isElectron } from "~/env";
+import { useSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
+import { isTerminalFocused } from "~/lib/terminalFocus";
 import { normalizePaneRatios, resizePaneRatios } from "~/lib/paneRatios";
 import { projectListTreeQueryOptions, projectQueryKeys } from "~/lib/projectReactQuery";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 import { basenameOfPath } from "~/vscode-icons";
+import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
 
 import GitActionsControl from "../GitActionsControl";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
@@ -366,6 +369,14 @@ export default function ThreadWorkspaceEditor(props: {
   ensureMonacoConfigured();
 
   const { resolvedTheme } = useTheme();
+  const editorSettings = useSettings((settings) => ({
+    lineNumbers: settings.editorLineNumbers,
+    minimap: settings.editorMinimap,
+    renderWhitespace: settings.editorRenderWhitespace,
+    stickyScroll: settings.editorStickyScroll,
+    suggestions: settings.editorSuggestions,
+    wordWrap: settings.editorWordWrap,
+  }));
   const queryClient = useQueryClient();
   const api = readNativeApi();
   const [treeSearch, setTreeSearch] = useState("");
@@ -377,6 +388,7 @@ export default function ThreadWorkspaceEditor(props: {
   const discardDraft = useEditorStateStore((state) => state.discardDraft);
   const hydrateFile = useEditorStateStore((state) => state.hydrateFile);
   const markFileSaved = useEditorStateStore((state) => state.markFileSaved);
+  const moveFile = useEditorStateStore((state) => state.moveFile);
   const openFile = useEditorStateStore((state) => state.openFile);
   const setActiveFile = useEditorStateStore((state) => state.setActiveFile);
   const setActivePane = useEditorStateStore((state) => state.setActivePane);
@@ -402,6 +414,43 @@ export default function ThreadWorkspaceEditor(props: {
   const activePane = useMemo(
     () => panes.find((pane) => pane.id === activePaneId) ?? panes[0] ?? null,
     [activePaneId, panes],
+  );
+  const editorOptions = useMemo(
+    () => ({
+      acceptSuggestionOnCommitCharacter: editorSettings.suggestions,
+      acceptSuggestionOnEnter: editorSettings.suggestions ? ("on" as const) : ("off" as const),
+      automaticLayout: true,
+      bracketPairColorization: { enabled: true },
+      cursorBlinking: "smooth" as const,
+      fontLigatures: true,
+      fontSize: 13.5,
+      guides: {
+        bracketPairs: true,
+        highlightActiveBracketPair: true,
+        indentation: true,
+      },
+      inlineSuggest: { enabled: editorSettings.suggestions },
+      lineNumbers: editorSettings.lineNumbers,
+      minimap: { enabled: editorSettings.minimap },
+      padding: { top: 12, bottom: 24 },
+      parameterHints: { enabled: editorSettings.suggestions },
+      quickSuggestions: editorSettings.suggestions,
+      renderLineHighlightOnlyWhenFocus: true,
+      renderWhitespace: editorSettings.renderWhitespace ? ("all" as const) : ("none" as const),
+      roundedSelection: true,
+      scrollBeyondLastLine: false,
+      smoothScrolling: true,
+      snippetSuggestions: editorSettings.suggestions ? ("inline" as const) : ("none" as const),
+      stickyScroll: { enabled: editorSettings.stickyScroll },
+      suggestOnTriggerCharacters: editorSettings.suggestions,
+      tabCompletion: editorSettings.suggestions ? ("on" as const) : ("off" as const),
+      tabSize: 2,
+      wordBasedSuggestions: editorSettings.suggestions
+        ? ("currentDocument" as const)
+        : ("off" as const),
+      wordWrap: editorSettings.wordWrap ? ("on" as const) : ("off" as const),
+    }),
+    [editorSettings],
   );
 
   const workspaceTreeQuery = useQuery(
@@ -678,6 +727,180 @@ export default function ThreadWorkspaceEditor(props: {
     },
     [activePane?.id, handleSplitPane, openFile, panes.length, props.threadId],
   );
+  const handleRetryActiveFile = useCallback(() => {
+    if (!activePane?.activeFilePath) {
+      return;
+    }
+    void queryClient.invalidateQueries({
+      queryKey: projectQueryKeys.readFile(props.gitCwd, activePane.activeFilePath),
+    });
+  }, [activePane?.activeFilePath, props.gitCwd, queryClient]);
+
+  useEffect(() => {
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || !activePane) {
+        return;
+      }
+      const terminalFocus = isTerminalFocused();
+      const command = resolveShortcutCommand(event, props.keybindings, {
+        context: {
+          browserOpen: props.browserOpen,
+          editorFocus: !terminalFocus,
+          terminalFocus,
+          terminalOpen: props.terminalOpen,
+        },
+      });
+      if (!command) {
+        return;
+      }
+
+      if (command === "editor.split") {
+        event.preventDefault();
+        event.stopPropagation();
+        handleSplitPane(activePane.id);
+        return;
+      }
+
+      if (command === "editor.closeWindow") {
+        if (panes.length <= 1) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        closePane(props.threadId, activePane.id);
+        return;
+      }
+
+      if (command === "editor.focusNextWindow" || command === "editor.focusPreviousWindow") {
+        if (panes.length <= 1) {
+          return;
+        }
+        const currentIndex = panes.findIndex((pane) => pane.id === activePane.id);
+        if (currentIndex < 0) {
+          return;
+        }
+        const offset = command === "editor.focusNextWindow" ? 1 : -1;
+        const nextPane = panes[(currentIndex + offset + panes.length) % panes.length];
+        if (!nextPane) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        setActivePane(props.threadId, nextPane.id);
+        return;
+      }
+
+      if (command === "editor.nextTab" || command === "editor.previousTab") {
+        if (activePane.openFilePaths.length <= 1 || !activePane.activeFilePath) {
+          return;
+        }
+        const currentIndex = activePane.openFilePaths.indexOf(activePane.activeFilePath);
+        if (currentIndex < 0) {
+          return;
+        }
+        const offset = command === "editor.nextTab" ? 1 : -1;
+        const nextFilePath =
+          activePane.openFilePaths[
+            (currentIndex + offset + activePane.openFilePaths.length) %
+              activePane.openFilePaths.length
+          ];
+        if (!nextFilePath) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        setActiveFile(props.threadId, nextFilePath, activePane.id);
+        return;
+      }
+
+      if (command === "editor.moveTabLeft" || command === "editor.moveTabRight") {
+        if (!activePane.activeFilePath) {
+          return;
+        }
+        const currentIndex = activePane.openFilePaths.indexOf(activePane.activeFilePath);
+        if (currentIndex < 0) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        const direction = command === "editor.moveTabRight" ? 1 : -1;
+        const nextIndex = currentIndex + direction;
+        if (nextIndex >= 0 && nextIndex < activePane.openFilePaths.length) {
+          moveFile(props.threadId, {
+            filePath: activePane.activeFilePath,
+            sourcePaneId: activePane.id,
+            targetPaneId: activePane.id,
+            targetIndex: nextIndex,
+          });
+          return;
+        }
+
+        const paneIndex = panes.findIndex((pane) => pane.id === activePane.id);
+        const adjacentPane = panes[paneIndex + direction];
+        if (!adjacentPane) {
+          return;
+        }
+        moveFile(props.threadId, {
+          filePath: activePane.activeFilePath,
+          sourcePaneId: activePane.id,
+          targetPaneId: adjacentPane.id,
+          targetIndex: direction > 0 ? 0 : adjacentPane.openFilePaths.length,
+        });
+      }
+    };
+
+    window.addEventListener("keydown", onWindowKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onWindowKeyDown);
+    };
+  }, [
+    activePane,
+    closePane,
+    handleSplitPane,
+    moveFile,
+    panes,
+    props.browserOpen,
+    props.keybindings,
+    props.terminalOpen,
+    props.threadId,
+    setActiveFile,
+    setActivePane,
+  ]);
+
+  const editorShortcutLabelOptions = useMemo(
+    () => ({
+      context: {
+        browserOpen: props.browserOpen,
+        editorFocus: true,
+        terminalFocus: false,
+        terminalOpen: props.terminalOpen,
+      },
+    }),
+    [props.browserOpen, props.terminalOpen],
+  );
+  const splitWindowShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(props.keybindings, "editor.split", editorShortcutLabelOptions),
+    [editorShortcutLabelOptions, props.keybindings],
+  );
+  const nextWindowShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        props.keybindings,
+        "editor.focusNextWindow",
+        editorShortcutLabelOptions,
+      ),
+    [editorShortcutLabelOptions, props.keybindings],
+  );
+  const previousWindowShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        props.keybindings,
+        "editor.focusPreviousWindow",
+        editorShortcutLabelOptions,
+      ),
+    [editorShortcutLabelOptions, props.keybindings],
+  );
 
   const workspaceSignals = useMemo(
     () => [
@@ -697,7 +920,13 @@ export default function ThreadWorkspaceEditor(props: {
         active: panes.length > 1,
         detail:
           activePane?.activeFilePath !== null && activePane?.activeFilePath !== undefined
-            ? `Focused on ${basenameOfPath(activePane.activeFilePath)}`
+            ? `Focused on ${basenameOfPath(activePane.activeFilePath)}${
+                nextWindowShortcutLabel || previousWindowShortcutLabel
+                  ? ` · ${[previousWindowShortcutLabel, nextWindowShortcutLabel]
+                      .filter(Boolean)
+                      .join(" / ")}`
+                  : ""
+              }`
             : "New files route into the focused window",
         icon: <Columns2Icon className="size-4" />,
         label: "Windows",
@@ -741,6 +970,8 @@ export default function ThreadWorkspaceEditor(props: {
       props.isGitRepo,
       props.terminalAvailable,
       props.terminalOpen,
+      nextWindowShortcutLabel,
+      previousWindowShortcutLabel,
       visibleRows.length,
       workspaceFileCount,
       workspaceTreeQuery.data?.truncated,
@@ -793,7 +1024,9 @@ export default function ThreadWorkspaceEditor(props: {
       <TooltipPopup side="bottom">
         {panes.length >= MAX_THREAD_EDITOR_PANES
           ? `Up to ${MAX_THREAD_EDITOR_PANES} editor windows are supported in this milestone.`
-          : "Split the focused editor into a new window"}
+          : splitWindowShortcutLabel
+            ? `Split the focused editor into a new window (${splitWindowShortcutLabel})`
+            : "Split the focused editor into a new window"}
       </TooltipPopup>
     </Tooltip>,
     panes.length > 1 && activePane ? (
@@ -1095,6 +1328,7 @@ export default function ThreadWorkspaceEditor(props: {
                           canSplitPane={panes.length < MAX_THREAD_EDITOR_PANES}
                           dirtyFilePaths={activeDirtyPaths}
                           draftsByFilePath={draftsByFilePath}
+                          editorOptions={editorOptions}
                           gitCwd={props.gitCwd}
                           onCloseFile={(paneId, filePath) =>
                             closeFile(props.threadId, filePath, paneId)
@@ -1103,6 +1337,8 @@ export default function ThreadWorkspaceEditor(props: {
                           onDiscardDraft={(filePath) => discardDraft(props.threadId, filePath)}
                           onFocusPane={(paneId) => setActivePane(props.threadId, paneId)}
                           onHydrateFile={handleHydrateFile}
+                          onMoveFile={(input) => moveFile(props.threadId, input)}
+                          onRetryActiveFile={handleRetryActiveFile}
                           onSaveFile={handleSaveFile}
                           onSetActiveFile={(paneId, filePath) =>
                             setActiveFile(props.threadId, filePath, paneId)

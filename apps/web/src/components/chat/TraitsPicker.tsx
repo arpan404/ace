@@ -67,6 +67,7 @@ function getRawEffort(
       );
     case "claudeAgent":
       return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.effort);
+    case "gemini":
     case "opencode":
       return null;
   }
@@ -108,6 +109,8 @@ function buildNextOptions(
         ...(modelOptions as ClaudeModelOptions | undefined),
         ...patch,
       } as ClaudeModelOptions;
+    case "gemini":
+      return {} as ProviderModelOptions["gemini"];
     case "opencode":
       return {
         ...(modelOptions as OpenCodeModelOptions | undefined),

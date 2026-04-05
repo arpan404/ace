@@ -91,7 +91,14 @@ export class ServerSettingsService extends ServiceMap.Service<
 
 const ServerSettingsJson = fromLenientJson(ServerSettings);
 
-const PROVIDER_ORDER: readonly ProviderKind[] = ["codex", "claudeAgent", "githubCopilot", "cursor"];
+const PROVIDER_ORDER: readonly ProviderKind[] = [
+  "codex",
+  "claudeAgent",
+  "githubCopilot",
+  "cursor",
+  "gemini",
+  "opencode",
+];
 
 /**
  * Ensure the `textGenerationModelSelection` points to an enabled provider.

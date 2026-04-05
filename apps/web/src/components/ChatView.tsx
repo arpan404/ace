@@ -100,6 +100,7 @@ import {
   type TurnDiffSummary,
 } from "../types";
 import { LRUCache } from "../lib/lruCache";
+import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
 
 import { basenameOfPath } from "../vscode-icons";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -448,6 +449,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setStoreThreadError = useStore((store) => store.setError);
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
   const setStoreThreadQueueState = useStore((store) => store.setThreadQueueState);
+  const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
   const activeThreadLastVisitedAt = useUiStateStore(
     (store) => store.threadLastVisitedAtById[threadId],
@@ -715,19 +717,74 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const diffOpen = rawSearch.diff === "1";
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
+  const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
+  const sourcePlanThread = useThreadById(sourceProposedPlanThreadId);
+  const sourcePlanHydrationInFlightRef = useRef<ThreadId | null>(null);
   const threadPlanCatalog = useThreadPlanCatalog(
     useMemo(() => {
       const threadIds: ThreadId[] = [];
       if (activeThread?.id) {
         threadIds.push(activeThread.id);
       }
-      const sourceThreadId = activeLatestTurn?.sourceProposedPlan?.threadId;
+      const sourceThreadId = sourceProposedPlanThreadId;
       if (sourceThreadId && sourceThreadId !== activeThread?.id) {
         threadIds.push(sourceThreadId);
       }
       return threadIds;
-    }, [activeLatestTurn?.sourceProposedPlan?.threadId, activeThread?.id]),
+    }, [activeThread?.id, sourceProposedPlanThreadId]),
   );
+  useEffect(() => {
+    if (
+      sourceProposedPlanThreadId === null ||
+      sourceProposedPlanThreadId === activeThread?.id ||
+      sourcePlanThread === undefined ||
+      sourcePlanThread.historyLoaded !== false
+    ) {
+      return;
+    }
+
+    const cachedHydratedThread =
+      sourcePlanThread.updatedAt === undefined
+        ? null
+        : readCachedHydratedThread(sourceProposedPlanThreadId, sourcePlanThread.updatedAt);
+    if (cachedHydratedThread) {
+      hydrateThreadFromReadModel(cachedHydratedThread);
+      return;
+    }
+
+    if (sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
+      return;
+    }
+
+    sourcePlanHydrationInFlightRef.current = sourceProposedPlanThreadId;
+    let canceled = false;
+    void (async () => {
+      try {
+        const readModelThread = await hydrateThreadFromCache(sourceProposedPlanThreadId, {
+          expectedUpdatedAt: sourcePlanThread.updatedAt ?? null,
+        });
+        if (canceled) {
+          return;
+        }
+        hydrateThreadFromReadModel(readModelThread);
+      } catch (error) {
+        if (!canceled) {
+          console.error("Failed to hydrate source proposed-plan thread", error);
+        }
+      } finally {
+        if (!canceled && sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
+          sourcePlanHydrationInFlightRef.current = null;
+        }
+      }
+    })();
+
+    return () => {
+      canceled = true;
+      if (sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
+        sourcePlanHydrationInFlightRef.current = null;
+      }
+    };
+  }, [activeThread?.id, hydrateThreadFromReadModel, sourcePlanThread, sourceProposedPlanThreadId]);
   const activeContextWindow = useMemo(
     () => deriveLatestContextWindowSnapshot(activeThread?.activities ?? []),
     [activeThread?.activities],
@@ -929,10 +986,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       deriveVisibleWorkTurnId(activeLatestTurn, activeThread?.session ?? null, threadActivities),
     [activeLatestTurn, activeThread?.session, threadActivities],
   );
-  const workLogEntries = useMemo(
-    () => deriveWorkLogEntries(threadActivities, activeWorkTurnId),
-    [activeWorkTurnId, threadActivities],
-  );
+  const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
   const latestTurnHasToolActivity = useMemo(
     () => hasToolActivityForTurn(threadActivities, activeLatestTurn?.turnId),
     [activeLatestTurn?.turnId, threadActivities],
@@ -1307,6 +1361,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       githubCopilot:
         providerStatuses.find((provider) => provider.provider === "githubCopilot")?.models ?? [],
       cursor: providerStatuses.find((provider) => provider.provider === "cursor")?.models ?? [],
+      gemini: providerStatuses.find((provider) => provider.provider === "gemini")?.models ?? [],
       opencode: providerStatuses.find((provider) => provider.provider === "opencode")?.models ?? [],
     }),
     [providerStatuses],

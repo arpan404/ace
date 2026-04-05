@@ -3,6 +3,7 @@ import {
   ProjectId,
   ThreadId,
   type ModelSelection,
+  type ProviderKind,
   type ProviderModelOptions,
 } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -80,7 +81,7 @@ function resetComposerDraftStore() {
 }
 
 function modelSelection(
-  provider: "codex" | "claudeAgent" | "githubCopilot" | "cursor",
+  provider: ProviderKind,
   model: string,
   options?: ModelSelection["options"],
 ): ModelSelection {
@@ -934,6 +935,19 @@ describe("composerDraftStore setModelSelection", () => {
     expect(
       useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.codex,
     ).toEqual(modelSelection("codex", "gpt-5.3-codex"));
+  });
+
+  it.each([
+    ["gemini", "gemini-2.5-pro"],
+    ["opencode", "auto"],
+  ] as const)("stores %s selections in the draft", (provider, model) => {
+    const store = useComposerDraftStore.getState();
+
+    store.setModelSelection(threadId, modelSelection(provider, model));
+
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.modelSelectionByProvider[provider]).toEqual(modelSelection(provider, model));
+    expect(draft?.activeProvider).toBe(provider);
   });
 });
 

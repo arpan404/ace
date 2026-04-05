@@ -72,6 +72,14 @@ function makeThread(
         updatedAt: NOW,
       },
     ],
+    latestProposedPlanSummary: {
+      id: `${threadId}-plan`,
+      turnId: TURN_ID,
+      implementedAt: null,
+      implementationThreadId: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    },
     queuedComposerMessages: [],
     queuedSteerRequest: null,
     activities: [
@@ -154,7 +162,8 @@ describe("createReadModelSnapshotView", () => {
       expect(thread.messages.map((message) => message.role)).toEqual(["user"]);
       expect(thread.activities.map((activity) => activity.kind)).toEqual(["approval.requested"]);
       expect(thread.checkpoints).toEqual([]);
-      expect(thread.proposedPlans).toHaveLength(1);
+      expect(thread.proposedPlans).toEqual([]);
+      expect(thread.latestProposedPlanSummary?.id).toBe(`${thread.id}-plan`);
     }
   });
 
@@ -174,12 +183,15 @@ describe("createReadModelSnapshotView", () => {
       "tool.progress",
     ]);
     expect(hydratedThread?.checkpoints).toHaveLength(1);
+    expect(hydratedThread?.proposedPlans).toHaveLength(1);
 
     expect(summarizedThread?.messages.map((message) => message.role)).toEqual(["user"]);
     expect(summarizedThread?.activities.map((activity) => activity.kind)).toEqual([
       "approval.requested",
     ]);
     expect(summarizedThread?.checkpoints).toEqual([]);
+    expect(summarizedThread?.proposedPlans).toEqual([]);
+    expect(summarizedThread?.latestProposedPlanSummary?.id).toBe(`${THREAD_TWO_ID}-plan`);
   });
 });
 

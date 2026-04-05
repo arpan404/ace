@@ -103,6 +103,7 @@ const makeDefaultOrchestrationReadModel = (): OrchestrationReadModel => {
         session: null,
         activities: [],
         proposedPlans: [],
+        latestProposedPlanSummary: null,
         queuedComposerMessages: [],
         queuedSteerRequest: null,
         checkpoints: [],
@@ -1110,6 +1111,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             session: null,
             activities: [],
             proposedPlans: [],
+            latestProposedPlanSummary: null,
             queuedComposerMessages: [],
             queuedSteerRequest: null,
             checkpoints: [],
@@ -1124,6 +1126,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             getReadModel: () => Effect.succeed(snapshot),
             dispatch: () => Effect.succeed({ sequence: 7 }),
             readEvents: () => Stream.empty,
+          },
+          projectionSnapshotQuery: {
+            getSnapshot: () => Effect.succeed(snapshot),
           },
           checkpointDiffQuery: {
             getTurnDiff: () =>
@@ -1329,6 +1334,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               },
             ],
             proposedPlans: [],
+            latestProposedPlanSummary: null,
             queuedComposerMessages: [],
             queuedSteerRequest: null,
             checkpoints: [
@@ -1346,12 +1352,23 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           },
         ],
       };
+      const leanSnapshotFixture: OrchestrationReadModel = {
+        ...snapshot,
+        threads: [
+          {
+            ...snapshot.threads[0]!,
+            messages: [snapshot.threads[0]!.messages[0]!],
+            activities: [snapshot.threads[0]!.activities[0]!],
+            checkpoints: [],
+          },
+        ],
+      };
 
       yield* buildAppUnderTest({
         layers: {
-          orchestrationEngine: {
-            getReadModel: () => Effect.succeed(snapshot),
-            readEvents: () => Stream.empty,
+          projectionSnapshotQuery: {
+            getSnapshot: (input) =>
+              Effect.succeed(input?.hydrateThreadId === null ? leanSnapshotFixture : snapshot),
           },
         },
       });

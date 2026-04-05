@@ -193,3 +193,18 @@ export const ServerProviderUpdatedPayload = Schema.Struct({
   providers: ServerProviders,
 });
 export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.Type;
+
+export const ServerSearchOpenCodeModelsInput = Schema.Struct({
+  query: Schema.String,
+  limit: NonNegativeInt,
+  offset: NonNegativeInt,
+});
+export type ServerSearchOpenCodeModelsInput = typeof ServerSearchOpenCodeModelsInput.Type;
+
+export const ServerSearchOpenCodeModelsResult = Schema.Struct({
+  models: Schema.Array(ServerProviderModel),
+  totalModels: NonNegativeInt,
+  nextOffset: Schema.NullOr(NonNegativeInt),
+  hasMore: Schema.Boolean,
+});
+export type ServerSearchOpenCodeModelsResult = typeof ServerSearchOpenCodeModelsResult.Type;

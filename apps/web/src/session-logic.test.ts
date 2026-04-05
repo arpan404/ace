@@ -668,6 +668,47 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["turn-2"]);
   });
 
+  it("does not merge identical tool lifecycles from different turns", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "t1-start",
+        turnId: "turn-1",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.started",
+        summary: "Read file",
+        payload: { itemType: "file_change", title: "Read file" },
+      }),
+      makeActivity({
+        id: "t1-done",
+        turnId: "turn-1",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.completed",
+        summary: "Read file",
+        payload: { itemType: "file_change", title: "Read file" },
+      }),
+      makeActivity({
+        id: "t2-start",
+        turnId: "turn-2",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "tool.started",
+        summary: "Read file",
+        payload: { itemType: "file_change", title: "Read file" },
+      }),
+      makeActivity({
+        id: "t2-done",
+        turnId: "turn-2",
+        createdAt: "2026-02-23T00:00:04.000Z",
+        kind: "tool.completed",
+        summary: "Read file",
+        payload: { itemType: "file_change", title: "Read file" },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities);
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.id)).toEqual(["t1-done", "t2-done"]);
+  });
+
   it("omits checkpoint captured info entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -1804,6 +1845,7 @@ describe("PROVIDER_OPTIONS", () => {
       { value: "claudeAgent", label: "Claude", available: true },
       { value: "githubCopilot", label: "Copilot", available: true },
       { value: "cursor", label: "Cursor", available: true },
+      { value: "gemini", label: "Gemini", available: true },
       { value: "opencode", label: "OpenCode", available: true },
     ]);
     expect(claude).toEqual({

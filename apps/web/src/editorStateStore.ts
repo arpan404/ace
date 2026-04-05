@@ -48,6 +48,15 @@ interface EditorStoreState {
   hydrateFile: (threadId: ThreadId, filePath: string, contents: string) => void;
   isDirty: (threadId: ThreadId, filePath: string) => boolean;
   markFileSaved: (threadId: ThreadId, filePath: string, contents: string) => void;
+  moveFile: (
+    threadId: ThreadId,
+    input: {
+      filePath: string;
+      sourcePaneId: string;
+      targetPaneId: string;
+      targetIndex?: number;
+    },
+  ) => void;
   openFile: (threadId: ThreadId, filePath: string, paneId?: string) => void;
   runtimeStateByThreadId: Record<string, RuntimeThreadEditorState>;
   setActiveFile: (threadId: ThreadId, filePath: string | null, paneId?: string) => void;
@@ -79,7 +88,7 @@ export const DEFAULT_THREAD_EDITOR_TREE_WIDTH = 280;
 const MIN_TREE_WIDTH = 220;
 const MAX_TREE_WIDTH = 420;
 const DEFAULT_THREAD_EDITOR_PANE_ID = "pane-1";
-export const MAX_THREAD_EDITOR_PANES = 3;
+export const MAX_THREAD_EDITOR_PANES = 4;
 const DEFAULT_THREAD_EDITOR_STATE = createDefaultThreadEditorState();
 const DEFAULT_RUNTIME_THREAD_EDITOR_STATE = createDefaultRuntimeThreadEditorState();
 const threadEditorStateCache = new Map<ThreadId, ThreadEditorStateCacheEntry>();
@@ -319,6 +328,16 @@ function createNextPaneId(panes: readonly ThreadEditorPaneState[]): string {
   return assignUniquePaneId(`pane-${panes.length + 1}`, usedPaneIds);
 }
 
+function insertPathAtIndex(paths: readonly string[], path: string, targetIndex?: number): string[] {
+  const next = [...paths];
+  const normalizedTargetIndex =
+    typeof targetIndex === "number" && Number.isFinite(targetIndex)
+      ? Math.max(0, Math.min(next.length, Math.trunc(targetIndex)))
+      : next.length;
+  next.splice(normalizedTargetIndex, 0, path);
+  return next;
+}
+
 function splitPaneRatios(
   paneRatios: readonly number[],
   paneIndex: number,
@@ -524,6 +543,85 @@ export const useEditorStateStore = create<EditorStoreState>()(
               },
             },
           };
+        }),
+      moveFile: (threadId, input) =>
+        set((state) => {
+          const normalizedPath = input.filePath.trim();
+          if (normalizedPath.length === 0) {
+            return state;
+          }
+          const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
+          const sourcePaneIndex = current.panes.findIndex((pane) => pane.id === input.sourcePaneId);
+          const targetPaneIndex = current.panes.findIndex((pane) => pane.id === input.targetPaneId);
+          if (sourcePaneIndex < 0 || targetPaneIndex < 0) {
+            return state;
+          }
+
+          const sourcePane = current.panes[sourcePaneIndex];
+          const targetPane = current.panes[targetPaneIndex];
+          if (!sourcePane || !targetPane || !sourcePane.openFilePaths.includes(normalizedPath)) {
+            return state;
+          }
+
+          if (sourcePane.id === targetPane.id) {
+            const currentIndex = sourcePane.openFilePaths.indexOf(normalizedPath);
+            if (currentIndex < 0) {
+              return state;
+            }
+            const nextPaths = sourcePane.openFilePaths.filter((path) => path !== normalizedPath);
+            const targetIndex =
+              typeof input.targetIndex === "number" && Number.isFinite(input.targetIndex)
+                ? Math.max(0, Math.min(nextPaths.length, Math.trunc(input.targetIndex)))
+                : nextPaths.length;
+            nextPaths.splice(targetIndex, 0, normalizedPath);
+            const nextThreadState = {
+              ...current,
+              activePaneId: sourcePane.id,
+              panes: replacePaneAtIndex(current.panes, sourcePaneIndex, {
+                ...sourcePane,
+                activeFilePath: normalizedPath,
+                openFilePaths: nextPaths,
+              }),
+            };
+            return threadStatesEqual(current, nextThreadState)
+              ? state
+              : writeThreadState(state, threadId, nextThreadState);
+          }
+
+          const nextSourcePaths = sourcePane.openFilePaths.filter(
+            (path) => path !== normalizedPath,
+          );
+          const nextTargetPaths = insertPathAtIndex(
+            targetPane.openFilePaths.filter((path) => path !== normalizedPath),
+            normalizedPath,
+            input.targetIndex,
+          );
+          const sourceFileIndex = sourcePane.openFilePaths.indexOf(normalizedPath);
+          const nextSourceActiveFilePath =
+            sourcePane.activeFilePath === normalizedPath
+              ? (nextSourcePaths.at(Math.min(sourceFileIndex, nextSourcePaths.length - 1)) ?? null)
+              : sourcePane.activeFilePath;
+          const nextPanes = replacePaneAtIndex(
+            replacePaneAtIndex(current.panes, sourcePaneIndex, {
+              ...sourcePane,
+              activeFilePath: nextSourceActiveFilePath,
+              openFilePaths: nextSourcePaths,
+            }),
+            targetPaneIndex,
+            {
+              ...targetPane,
+              activeFilePath: normalizedPath,
+              openFilePaths: nextTargetPaths,
+            },
+          );
+          const nextThreadState = {
+            ...current,
+            activePaneId: targetPane.id,
+            panes: nextPanes,
+          };
+          return threadStatesEqual(current, nextThreadState)
+            ? state
+            : writeThreadState(state, threadId, nextThreadState);
         }),
       openFile: (threadId, filePath, paneId) =>
         set((state) => {

@@ -112,6 +112,7 @@ import { isNonEmpty as isNonEmptyString } from "effect/String";
 import {
   getVisibleSidebarThreadIds,
   getVisibleThreadsForProject,
+  getProjectSortTimestamp,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
   resolveProjectStatusIndicator,
@@ -131,8 +132,9 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
 import { useSidebarThreadSummaryById } from "../storeSelectors";
-import type { Project } from "../types";
+import type { Project, SidebarThreadSummary } from "../types";
 const THREAD_PREVIEW_LIMIT = 6;
+const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
@@ -755,7 +757,6 @@ export default function Sidebar() {
       })),
     [orderedProjects, projectExpandedById],
   );
-  const sidebarThreads = useMemo(() => Object.values(sidebarThreadsById), [sidebarThreadsById]);
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
@@ -773,53 +774,6 @@ export default function Sidebar() {
     }),
     [platform, routeTerminalOpen],
   );
-  const threadGitTargets = useMemo(
-    () =>
-      sidebarThreads.map((thread) => ({
-        threadId: thread.id,
-        branch: thread.branch,
-        cwd: thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null,
-      })),
-    [projectCwdById, sidebarThreads],
-  );
-  const threadGitStatusCwds = useMemo(
-    () => [
-      ...new Set(
-        threadGitTargets
-          .filter((target) => target.branch !== null)
-          .map((target) => target.cwd)
-          .filter((cwd): cwd is string => cwd !== null),
-      ),
-    ],
-    [threadGitTargets],
-  );
-  const threadGitStatusQueries = useQueries({
-    queries: threadGitStatusCwds.map((cwd) => ({
-      ...gitStatusQueryOptions(cwd),
-      staleTime: 30_000,
-      refetchInterval: 60_000,
-    })),
-  });
-  const prByThreadId = useMemo(() => {
-    const statusByCwd = new Map<string, GitStatusResult>();
-    for (let index = 0; index < threadGitStatusCwds.length; index += 1) {
-      const cwd = threadGitStatusCwds[index];
-      if (!cwd) continue;
-      const status = threadGitStatusQueries[index]?.data;
-      if (status) {
-        statusByCwd.set(cwd, status);
-      }
-    }
-
-    const map = new Map<ThreadId, ThreadPr>();
-    for (const target of threadGitTargets) {
-      const status = target.cwd ? statusByCwd.get(target.cwd) : undefined;
-      const branchMatches =
-        target.branch !== null && status?.branch !== null && status?.branch === target.branch;
-      map.set(target.threadId, branchMatches ? (status?.pr ?? null) : null);
-    }
-    return map;
-  }, [threadGitStatusCwds, threadGitStatusQueries, threadGitTargets]);
 
   const openPrLink = useCallback((event: MouseEvent<HTMLElement>, prUrl: string) => {
     event.preventDefault();
@@ -1409,53 +1363,101 @@ export default function Sidebar() {
     [],
   );
 
-  const visibleThreads = useMemo(
-    () => sidebarThreads.filter((thread) => thread.archivedAt === null),
-    [sidebarThreads],
-  );
-  const sortedProjects = useMemo(
-    () =>
-      sortProjectsForSidebar(sidebarProjects, visibleThreads, appSettings.sidebarProjectSortOrder),
-    [appSettings.sidebarProjectSortOrder, sidebarProjects, visibleThreads],
-  );
+  const activeThreadId = routeThreadId ?? undefined;
+  const visibleProjectThreadsByProjectId = useMemo(() => {
+    const next = new Map<ProjectId, SidebarThreadSummary[]>();
+    for (const project of projects) {
+      next.set(project.id, []);
+    }
+    for (const [projectId, threadIds] of Object.entries(threadIdsByProjectId)) {
+      const projectThreads: SidebarThreadSummary[] = [];
+      for (const threadId of threadIds) {
+        const thread = sidebarThreadsById[threadId];
+        if (!thread || thread.archivedAt !== null) {
+          continue;
+        }
+        projectThreads.push(thread);
+      }
+      next.set(ProjectId.makeUnsafe(projectId), projectThreads);
+    }
+    return next;
+  }, [projects, sidebarThreadsById, threadIdsByProjectId]);
+  const visibleThreads = useMemo(() => {
+    const next: SidebarThreadSummary[] = [];
+    for (const projectThreads of visibleProjectThreadsByProjectId.values()) {
+      next.push(...projectThreads);
+    }
+    return next;
+  }, [visibleProjectThreadsByProjectId]);
+  const sortedProjects = useMemo(() => {
+    if (appSettings.sidebarProjectSortOrder === "manual") {
+      return sidebarProjects;
+    }
+
+    const sortOrder = appSettings.sidebarProjectSortOrder;
+    return [...sidebarProjects].toSorted((left, right) => {
+      const rightTimestamp = getProjectSortTimestamp(
+        right,
+        visibleProjectThreadsByProjectId.get(right.id) ?? EMPTY_SIDEBAR_THREADS,
+        sortOrder,
+      );
+      const leftTimestamp = getProjectSortTimestamp(
+        left,
+        visibleProjectThreadsByProjectId.get(left.id) ?? EMPTY_SIDEBAR_THREADS,
+        sortOrder,
+      );
+      const byTimestamp =
+        rightTimestamp === leftTimestamp ? 0 : rightTimestamp > leftTimestamp ? 1 : -1;
+      if (byTimestamp !== 0) {
+        return byTimestamp;
+      }
+      return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+    });
+  }, [appSettings.sidebarProjectSortOrder, sidebarProjects, visibleProjectThreadsByProjectId]);
   const isManualProjectSorting = appSettings.sidebarProjectSortOrder === "manual";
   const renderedProjects = useMemo(
     () =>
       sortedProjects.map((project) => {
-        const resolveProjectThreadStatus = (thread: (typeof visibleThreads)[number]) =>
+        const resolveProjectThreadStatus = (thread: SidebarThreadSummary) =>
           resolveThreadStatusPill({
             thread: {
               ...thread,
               lastVisitedAt: threadLastVisitedAtById[thread.id],
             },
           });
-        const projectThreads = sortThreadsForSidebar(
-          (threadIdsByProjectId[project.id] ?? [])
-            .map((threadId) => sidebarThreadsById[threadId])
-            .filter((thread): thread is NonNullable<typeof thread> => thread !== undefined)
-            .filter((thread) => thread.archivedAt === null),
-          appSettings.sidebarThreadSortOrder,
-        );
+        const unsortedProjectThreads =
+          visibleProjectThreadsByProjectId.get(project.id) ?? EMPTY_SIDEBAR_THREADS;
         const projectStatus = resolveProjectStatusIndicator(
-          projectThreads.map((thread) => resolveProjectThreadStatus(thread)),
+          unsortedProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
         );
-        const activeThreadId = routeThreadId ?? undefined;
         const isThreadListExpanded = expandedThreadListsByProject.has(project.id);
+        const shouldShowThreadPanel =
+          project.expanded ||
+          (activeThreadId !== undefined &&
+            unsortedProjectThreads.some((thread) => thread.id === activeThreadId));
+        const projectThreads = shouldShowThreadPanel
+          ? sortThreadsForSidebar(unsortedProjectThreads, appSettings.sidebarThreadSortOrder)
+          : EMPTY_SIDEBAR_THREADS;
         const pinnedCollapsedThread =
           !project.expanded && activeThreadId
             ? (projectThreads.find((thread) => thread.id === activeThreadId) ?? null)
             : null;
-        const shouldShowThreadPanel = project.expanded || pinnedCollapsedThread !== null;
         const {
           hasHiddenThreads,
           hiddenThreads,
           visibleThreads: visibleProjectThreads,
-        } = getVisibleThreadsForProject({
-          threads: projectThreads,
-          activeThreadId,
-          isThreadListExpanded,
-          previewLimit: THREAD_PREVIEW_LIMIT,
-        });
+        } = shouldShowThreadPanel
+          ? getVisibleThreadsForProject({
+              threads: projectThreads,
+              activeThreadId,
+              isThreadListExpanded,
+              previewLimit: THREAD_PREVIEW_LIMIT,
+            })
+          : {
+              hasHiddenThreads: false,
+              hiddenThreads: EMPTY_SIDEBAR_THREADS,
+              visibleThreads: EMPTY_SIDEBAR_THREADS,
+            };
         const hiddenThreadStatus = resolveProjectStatusIndicator(
           hiddenThreads.map((thread) => resolveProjectThreadStatus(thread)),
         );
@@ -1480,17 +1482,71 @@ export default function Sidebar() {
     [
       appSettings.sidebarThreadSortOrder,
       expandedThreadListsByProject,
-      routeThreadId,
       sortedProjects,
-      sidebarThreadsById,
-      threadIdsByProjectId,
+      activeThreadId,
       threadLastVisitedAtById,
+      visibleProjectThreadsByProjectId,
     ],
   );
   const visibleSidebarThreadIds = useMemo(
     () => getVisibleSidebarThreadIds(renderedProjects),
     [renderedProjects],
   );
+  const visibleSidebarThreads = useMemo(
+    () =>
+      visibleSidebarThreadIds.flatMap((threadId) => {
+        const thread = sidebarThreadsById[threadId];
+        return thread ? [thread] : [];
+      }),
+    [sidebarThreadsById, visibleSidebarThreadIds],
+  );
+  const threadGitTargets = useMemo(
+    () =>
+      visibleSidebarThreads.map((thread) => ({
+        threadId: thread.id,
+        branch: thread.branch,
+        cwd: thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null,
+      })),
+    [projectCwdById, visibleSidebarThreads],
+  );
+  const threadGitStatusCwds = useMemo(
+    () => [
+      ...new Set(
+        threadGitTargets
+          .filter((target) => target.branch !== null)
+          .map((target) => target.cwd)
+          .filter((cwd): cwd is string => cwd !== null),
+      ),
+    ],
+    [threadGitTargets],
+  );
+  const threadGitStatusQueries = useQueries({
+    queries: threadGitStatusCwds.map((cwd) => ({
+      ...gitStatusQueryOptions(cwd),
+      staleTime: 30_000,
+      refetchInterval: 60_000,
+    })),
+  });
+  const prByThreadId = useMemo(() => {
+    const statusByCwd = new Map<string, GitStatusResult>();
+    for (let index = 0; index < threadGitStatusCwds.length; index += 1) {
+      const cwd = threadGitStatusCwds[index];
+      if (!cwd) continue;
+      const status = threadGitStatusQueries[index]?.data;
+      if (status) {
+        statusByCwd.set(cwd, status);
+      }
+    }
+
+    const map = new Map<ThreadId, ThreadPr>();
+    for (const target of threadGitTargets) {
+      const status = target.cwd ? statusByCwd.get(target.cwd) : undefined;
+      const branchMatches =
+        target.branch !== null && status?.branch !== null && status?.branch === target.branch;
+      map.set(target.threadId, branchMatches ? (status?.pr ?? null) : null);
+    }
+    return map;
+  }, [threadGitStatusCwds, threadGitStatusQueries, threadGitTargets]);
   const threadJumpCommandById = useMemo(() => {
     const mapping = new Map<ThreadId, NonNullable<ReturnType<typeof threadJumpCommandForIndex>>>();
     for (const [visibleThreadIndex, threadId] of visibleSidebarThreadIds.entries()) {

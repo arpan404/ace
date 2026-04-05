@@ -22,6 +22,7 @@ import {
   ClientSettingsSchema,
   DEFAULT_CLIENT_SETTINGS,
   DEFAULT_UNIFIED_SETTINGS,
+  EditorLineNumbers,
   SidebarProjectSortOrder,
   SidebarThreadSortOrder,
   TimestampFormat,
@@ -44,8 +45,17 @@ const ClientSettingsPatchSchema = Schema.Struct({
   confirmThreadArchive: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadArchive),
   confirmThreadDelete: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadDelete),
   diffWordWrap: Schema.optionalKey(ClientSettingsSchema.fields.diffWordWrap),
+  editorLineNumbers: Schema.optionalKey(ClientSettingsSchema.fields.editorLineNumbers),
+  editorMinimap: Schema.optionalKey(ClientSettingsSchema.fields.editorMinimap),
+  editorRenderWhitespace: Schema.optionalKey(ClientSettingsSchema.fields.editorRenderWhitespace),
+  editorStickyScroll: Schema.optionalKey(ClientSettingsSchema.fields.editorStickyScroll),
+  editorSuggestions: Schema.optionalKey(ClientSettingsSchema.fields.editorSuggestions),
+  editorWordWrap: Schema.optionalKey(ClientSettingsSchema.fields.editorWordWrap),
   sidebarProjectSortOrder: Schema.optionalKey(ClientSettingsSchema.fields.sidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(ClientSettingsSchema.fields.sidebarThreadSortOrder),
+  threadHydrationCacheMemoryMb: Schema.optionalKey(
+    ClientSettingsSchema.fields.threadHydrationCacheMemoryMb,
+  ),
   timestampFormat: Schema.optionalKey(ClientSettingsSchema.fields.timestampFormat),
 });
 type ClientSettingsPatch = typeof ClientSettingsPatchSchema.Type;
@@ -80,9 +90,9 @@ function splitPatch(patch: Partial<UnifiedSettings>): {
  * only re-render when the slice they care about changes.
  */
 
-export function useSettings<T extends UnifiedSettings = UnifiedSettings>(
-  selector?: (s: UnifiedSettings) => T,
-): T {
+export function useSettings(): UnifiedSettings;
+export function useSettings<T>(selector: (s: UnifiedSettings) => T): T;
+export function useSettings<T>(selector?: (s: UnifiedSettings) => T): UnifiedSettings | T {
   const serverSettings = useServerSettings();
   const [clientSettings] = useLocalStorage(
     CLIENT_SETTINGS_STORAGE_KEY,
@@ -98,7 +108,7 @@ export function useSettings<T extends UnifiedSettings = UnifiedSettings>(
     [clientSettings, serverSettings],
   );
 
-  return useMemo(() => (selector ? selector(merged) : (merged as T)), [merged, selector]);
+  return useMemo(() => (selector ? selector(merged) : merged), [merged, selector]);
 }
 
 /**
@@ -231,12 +241,44 @@ export function buildLegacyClientSettingsMigrationPatch(
     patch.diffWordWrap = legacySettings.diffWordWrap;
   }
 
+  if (Schema.is(EditorLineNumbers)(legacySettings.editorLineNumbers)) {
+    patch.editorLineNumbers = legacySettings.editorLineNumbers;
+  }
+
+  if (Predicate.isBoolean(legacySettings.editorMinimap)) {
+    patch.editorMinimap = legacySettings.editorMinimap;
+  }
+
+  if (Predicate.isBoolean(legacySettings.editorRenderWhitespace)) {
+    patch.editorRenderWhitespace = legacySettings.editorRenderWhitespace;
+  }
+
+  if (Predicate.isBoolean(legacySettings.editorStickyScroll)) {
+    patch.editorStickyScroll = legacySettings.editorStickyScroll;
+  }
+
+  if (Predicate.isBoolean(legacySettings.editorSuggestions)) {
+    patch.editorSuggestions = legacySettings.editorSuggestions;
+  }
+
+  if (Predicate.isBoolean(legacySettings.editorWordWrap)) {
+    patch.editorWordWrap = legacySettings.editorWordWrap;
+  }
+
   if (Schema.is(SidebarProjectSortOrder)(legacySettings.sidebarProjectSortOrder)) {
     patch.sidebarProjectSortOrder = legacySettings.sidebarProjectSortOrder;
   }
 
   if (Schema.is(SidebarThreadSortOrder)(legacySettings.sidebarThreadSortOrder)) {
     patch.sidebarThreadSortOrder = legacySettings.sidebarThreadSortOrder;
+  }
+
+  if (
+    typeof legacySettings.threadHydrationCacheMemoryMb === "number" &&
+    Number.isInteger(legacySettings.threadHydrationCacheMemoryMb) &&
+    legacySettings.threadHydrationCacheMemoryMb >= 0
+  ) {
+    patch.threadHydrationCacheMemoryMb = legacySettings.threadHydrationCacheMemoryMb;
   }
 
   if (Schema.is(TimestampFormat)(legacySettings.timestampFormat)) {

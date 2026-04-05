@@ -70,15 +70,13 @@ describe("MessagesTimeline", () => {
         kind: "work" as const,
         id: `thinking-${index}`,
         createdAt: `2026-03-17T19:12:${21 + index}.000Z`,
-        groupedEntries: [
-          {
-            id: `thinking-entry-${index}`,
-            createdAt: `2026-03-17T19:12:${21 + index}.000Z`,
-            label: "Reasoning",
-            detail: `step ${index}`,
-            tone: "thinking" as const,
-          },
-        ],
+        workEntry: {
+          id: `thinking-entry-${index}`,
+          createdAt: `2026-03-17T19:12:${21 + index}.000Z`,
+          label: "Reasoning",
+          detail: `step ${index}`,
+          tone: "thinking" as const,
+        },
       })),
     ];
 
@@ -140,20 +138,19 @@ describe("MessagesTimeline", () => {
         kind: "work" as const,
         id: `tool-${index}`,
         createdAt: `2026-03-17T19:12:${22 + index}.000Z`,
-        groupedEntries: [
-          {
-            id: `tool-entry-${index}`,
-            createdAt: `2026-03-17T19:12:${22 + index}.000Z`,
-            label: "Run command",
-            detail: `cmd ${index}`,
-            tone: "tool" as const,
-          },
-        ],
+        workEntry: {
+          id: `tool-entry-${index}`,
+          createdAt: `2026-03-17T19:12:${22 + index}.000Z`,
+          label: "Run command",
+          detail: `cmd ${index}`,
+          tone: "tool" as const,
+        },
       })),
       {
         kind: "working" as const,
         id: "working-indicator-row",
         createdAt: "2026-03-17T19:12:40.000Z",
+        mode: "live" as const,
       },
     ];
 
@@ -201,7 +198,7 @@ describe("MessagesTimeline", () => {
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "work-group:tool-after-intent": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -222,7 +219,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-thread-row="true"');
   });
 
-  it("renders context compaction entries in the normal work log", async () => {
+  it("renders context compaction entries as normal work rows", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -248,7 +245,7 @@ describe("MessagesTimeline", () => {
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "work-group:image-view-tool": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -263,7 +260,7 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Context compacted");
-    expect(markup).toContain("Work log");
+    expect(markup).toContain('data-work-entry-id="work-1"');
   });
 
   it("renders assistant, tool, follow-up, thinking, and tool rows in chronological order", async () => {
@@ -350,6 +347,7 @@ describe("MessagesTimeline", () => {
         expandedWorkGroups={{
           "work-group:work-tool-1": true,
           "work-group:thinking-1": true,
+          "work-group:work-tool-2": true,
         }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
@@ -437,7 +435,7 @@ describe("MessagesTimeline", () => {
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:31.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "work-group:tool-after-empty": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -486,7 +484,7 @@ describe("MessagesTimeline", () => {
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:33.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "work-group:tool-after-intent": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -504,7 +502,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("cat package.json");
   });
 
-  it("shows completed tool-only runs in a collapsed tool summary", async () => {
+  it("collapses completed tool-only runs until expanded", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const hiddenEntries = [
       { label: "Read file", toolTitle: "Read file" },
@@ -542,7 +540,7 @@ describe("MessagesTimeline", () => {
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:40.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "work-group:image-view-tool": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -556,13 +554,14 @@ describe("MessagesTimeline", () => {
       />,
     );
 
+    expect(markup).toContain('data-tool-disclosure="true"');
+    expect(markup).toContain('data-tool-disclosure-open="false"');
     expect(markup).toContain("10 tool calls");
-    expect(markup).toContain("4 earlier hidden, showing latest 6");
     expect(markup).not.toContain('data-work-entry-id="work-tool-1"');
-    expect(markup).toContain('data-work-entry-id="work-tool-10"');
+    expect(markup).not.toContain('data-work-entry-id="work-tool-10"');
   });
 
-  it("keeps live work groups collapsed even when an expanded state exists", async () => {
+  it("keeps the current live work row visible while earlier live work can expand", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const timelineEntries = Array.from({ length: 10 }, (_, index) => ({
       id: `live-work-tool-${index + 1}`,
@@ -604,11 +603,10 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("4 earlier hidden, showing latest 6");
-    expect(markup).toContain(">Live<");
-    expect(markup).not.toContain(">Expand<");
-    expect(markup).not.toContain(">Show less<");
-    expect(markup).not.toContain('data-work-entry-id="live-work-tool-1"');
+    expect(markup).toContain('data-tool-disclosure="true"');
+    expect(markup).toContain('data-tool-disclosure-open="true"');
+    expect(markup).toContain("9 tool calls");
+    expect(markup).toContain('data-work-entry-id="live-work-tool-1"');
     expect(markup).toContain('data-work-entry-id="live-work-tool-10"');
   });
 
@@ -653,7 +651,7 @@ describe("MessagesTimeline", () => {
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:40.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "work-group:tool-after-intent": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -667,9 +665,10 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("README.md");
+    expect(markup).toContain("1 tool call");
+    expect(markup).not.toContain("README.md");
     expect(markup).toContain("bun lint");
-    expect(markup.indexOf("README.md")).toBeLessThan(markup.indexOf("bun lint"));
+    expect(markup.indexOf("1 tool call")).toBeLessThan(markup.indexOf("bun lint"));
   });
 
   it("shows accumulated thinking text instead of a single truncated token line", async () => {
@@ -760,7 +759,7 @@ describe("MessagesTimeline", () => {
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:33.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "work-group:image-view-tool": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -777,14 +776,13 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-thinking-disclosure="true"');
     expect(markup).toContain('data-thinking-disclosure-open="false"');
     expect(markup).toContain("Thought for 2s");
-    expect(markup).toContain("2 thinking steps");
-    expect(markup).toContain("lucide-chevron-right");
-    expect(markup).not.toContain("Inspecting package scripts before patching the renderer.");
     expect(markup).not.toContain('data-work-entry-id="thinking-collapsed"');
     expect(markup).not.toContain('data-work-entry-id="thinking-collapsed-2"');
+    expect(markup).not.toContain("Inspecting package scripts before patching the renderer.");
+    expect(markup).not.toContain("Comparing the grouped timeline behavior after the patch.");
   });
 
-  it("visually attaches live thinking rows to a streaming assistant response", async () => {
+  it("moves completed thinking behind a disclosure once assistant output starts", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -824,7 +822,7 @@ describe("MessagesTimeline", () => {
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:35.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "work-group:tool-after-intent": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -838,9 +836,12 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('data-thinking-attached="true"');
-    expect(markup).toContain('data-assistant-attached="true"');
-    expect(markup).toContain('data-thread-attached-surface="true"');
+    const thinkingIndex = markup.indexOf('data-thinking-disclosure="true"');
+    const assistantIndex = markup.indexOf('data-message-id="assistant-streaming"');
+
+    expect(thinkingIndex).toBeGreaterThanOrEqual(0);
+    expect(assistantIndex).toBeGreaterThan(thinkingIndex);
+    expect(markup).not.toContain('data-work-entry-id="thinking-live"');
   });
 
   it("renders thinking rows with outline treatment instead of a filled background", async () => {
@@ -886,12 +887,13 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("border-dashed");
     expect(markup).not.toContain("bg-amber-500/[0.035]");
+    expect(markup).toContain('data-thinking-disclosure="true"');
     expect(markup).toContain('data-work-entry-tone="thinking"');
+    expect(markup).toContain("Tracing the ordering boundary before patching the renderer.");
     expect(markup).toContain("Thought for 1s");
-    expect(markup).toContain("lucide-chevron-down");
   });
 
-  it("visually attaches assistant follow-ups beneath the preceding work row", async () => {
+  it("keeps assistant follow-ups beneath the preceding work row in order", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -947,9 +949,13 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('data-work-followup-attached="true"');
+    const workIndex = markup.indexOf('data-tool-disclosure="true"');
+    const assistantIndex = markup.indexOf('data-message-id="assistant-followup"');
+
+    expect(workIndex).toBeGreaterThanOrEqual(0);
+    expect(assistantIndex).toBeGreaterThan(workIndex);
     expect(markup).toContain("Found the next grouping edge case.");
-    expect(markup).toContain('data-thread-attached-surface="true"');
+    expect(markup).not.toContain('data-work-entry-id="work-tool-followup"');
   });
 
   it("renders changed-files summaries after preceding work without swallowing the next turn", async () => {
@@ -1091,7 +1097,7 @@ describe("MessagesTimeline", () => {
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:35.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "work-group:tool-after-intent": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -1149,7 +1155,7 @@ describe("MessagesTimeline", () => {
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:35.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "work-group:image-view-tool": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -1276,7 +1282,10 @@ describe("MessagesTimeline", () => {
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:35.000Z"
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{
+          "work-group:tool-burst-1": true,
+          "work-group:tool-burst-2": true,
+        }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -1300,11 +1309,12 @@ describe("MessagesTimeline", () => {
     expect(secondIntentIndex).toBeGreaterThan(firstToolIndex);
     expect(secondToolIndex).toBeGreaterThan(secondIntentIndex);
     expect(markup.match(/data-intent-message="true"/g) ?? []).toHaveLength(2);
+    expect(markup).toContain('data-tool-disclosure-open="true"');
     expect(markup).toContain('data-work-entry-id="tool-burst-1"');
     expect(markup).toContain('data-work-entry-id="tool-burst-2"');
   });
 
-  it("merges repeated live intent bursts with the same text into one disclosure", async () => {
+  it("keeps repeated live intent bursts separate while only the current tool stays inline", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1373,13 +1383,13 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup.match(/data-intent-disclosure="true"/g) ?? []).toHaveLength(1);
-    expect(markup).toContain("2 tool calls");
-    expect(markup).toContain("ProviderService.ts");
+    expect(markup.match(/data-intent-message="true"/g) ?? []).toHaveLength(2);
+    expect(markup).toContain('data-tool-disclosure="true"');
+    expect(markup).not.toContain("ProviderService.ts");
     expect(markup).toContain("MessagesTimeline.tsx");
   });
 
-  it("shows completed tool calls regardless of saved expansion state", async () => {
+  it("uses the matching group id when expanding completed tool calls", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1429,7 +1439,7 @@ describe("MessagesTimeline", () => {
         turnDiffSummaryByAssistantMessageId={new Map()}
         nowIso="2026-03-17T19:12:35.000Z"
         expandedWorkGroups={{
-          "work-group:intent-primary": false,
+          "work-group:tool-burst-primary-1": true,
         }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
@@ -1445,13 +1455,14 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Running format and checks");
+    expect(markup).toContain('data-tool-disclosure-open="true"');
     expect(markup).toContain("bun fmt");
     expect(markup).toContain("bun typecheck");
     expect(markup).toContain('data-work-entry-id="tool-burst-primary-1"');
     expect(markup).toContain('data-work-entry-id="tool-burst-primary-2"');
   });
 
-  it("keeps disclosure state isolated when separate work rows share a timestamp", async () => {
+  it("keeps separate work disclosures isolated when they share a timestamp", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1516,7 +1527,8 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('data-work-entry-id="thinking-second"');
+    expect(markup.match(/data-thinking-disclosure="true"/g) ?? []).toHaveLength(2);
     expect(markup).not.toContain('data-work-entry-id="thinking-first"');
+    expect(markup).toContain('data-work-entry-id="thinking-second"');
   });
 });

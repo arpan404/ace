@@ -339,6 +339,14 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               updatedAt: "2026-02-24T00:00:05.500Z",
             },
           ],
+          latestProposedPlanSummary: {
+            id: "plan-1",
+            turnId: asTurnId("turn-1"),
+            implementedAt: "2026-02-24T00:00:05.500Z",
+            implementationThreadId: ThreadId.makeUnsafe("thread-2"),
+            createdAt: "2026-02-24T00:00:05.000Z",
+            updatedAt: "2026-02-24T00:00:05.500Z",
+          },
           activities: [
             {
               id: asEventId("activity-1"),
@@ -663,7 +671,15 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           leanThread2?.activities.map((activity) => activity.id),
           [asEventId("thread-2-user-input")],
         );
-        assert.equal(leanThread2?.proposedPlans[0]?.id, "plan-1");
+        assert.deepEqual(leanThread2?.proposedPlans, []);
+        assert.deepEqual(leanThread2?.latestProposedPlanSummary, {
+          id: "plan-1",
+          turnId: null,
+          implementedAt: null,
+          implementationThreadId: null,
+          createdAt: "2026-03-03T00:00:09.000Z",
+          updatedAt: "2026-03-03T00:00:09.000Z",
+        });
 
         const hydratedSnapshot = yield* snapshotQuery.getSnapshot({
           hydrateThreadId: ThreadId.makeUnsafe("thread-1"),
@@ -693,6 +709,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           [asEventId("thread-2-user-input")],
         );
         assert.deepEqual(hydratedThread2?.checkpoints, []);
+        assert.deepEqual(hydratedThread2?.proposedPlans, []);
+        assert.equal(hydratedThread2?.latestProposedPlanSummary?.id, "plan-1");
       }),
   );
 

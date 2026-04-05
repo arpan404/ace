@@ -22,6 +22,7 @@ import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/Projectio
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderRuntimeIngestionService,
   type ProviderRuntimeIngestionShape,
@@ -673,6 +674,7 @@ function isRenderableAssistantBoundaryActivity(activity: OrchestrationThreadActi
 const make = Effect.fn("make")(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
 
@@ -1204,6 +1206,13 @@ const make = Effect.fn("make")(function* () {
     return session?.activeTurnId;
   });
 
+  const getHydratedThread = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const snapshot = yield* projectionSnapshotQuery.getSnapshot({
+      hydrateThreadId: threadId,
+    });
+    return snapshot.threads.find((entry) => entry.id === threadId);
+  });
+
   const getSourceProposedPlanReferenceForAcceptedTurnStart = Effect.fnUntraced(function* (
     threadId: ThreadId,
     eventTurnId: TurnId | undefined,
@@ -1227,8 +1236,12 @@ const make = Effect.fn("make")(function* () {
     implementedAt: string,
   ) {
     const readModel = yield* orchestrationEngine.getReadModel();
-    const sourceThread = readModel.threads.find((entry) => entry.id === sourceThreadId);
-    const sourcePlan = sourceThread?.proposedPlans.find((entry) => entry.id === sourcePlanId);
+    let sourceThread = readModel.threads.find((entry) => entry.id === sourceThreadId);
+    let sourcePlan = sourceThread?.proposedPlans.find((entry) => entry.id === sourcePlanId);
+    if (sourceThread && !sourcePlan && sourceThread.proposedPlans.length === 0) {
+      sourceThread = yield* getHydratedThread(sourceThreadId);
+      sourcePlan = sourceThread?.proposedPlans.find((entry) => entry.id === sourcePlanId);
+    }
     if (!sourceThread || !sourcePlan || sourcePlan.implementedAt !== null) {
       return;
     }

@@ -1,4 +1,5 @@
 import { type OrchestrationReadModel, type ThreadId } from "@t3tools/contracts";
+import { DEFAULT_THREAD_HYDRATION_CACHE_MEMORY_MB } from "@t3tools/contracts/settings";
 
 import { ensureNativeApi } from "../nativeApi";
 import { LRUCache } from "./lruCache";
@@ -10,8 +11,19 @@ interface HydratedThreadCacheEntry {
   readonly thread: HydratedReadModelThread;
 }
 
-const MAX_CACHED_THREADS = 12;
-const MAX_CACHE_MEMORY_BYTES = 16 * 1024 * 1024;
+const BYTES_PER_MEGABYTE = 1024 * 1024;
+const DEFAULT_MAX_CACHED_THREADS = 256;
+const DEFAULT_CACHE_MEMORY_BYTES = DEFAULT_THREAD_HYDRATION_CACHE_MEMORY_MB * BYTES_PER_MEGABYTE;
+
+export interface ThreadHydrationCacheConfig {
+  readonly maxEntries?: number;
+  readonly maxMemoryBytes?: number;
+}
+
+interface ResolvedThreadHydrationCacheConfig {
+  readonly maxEntries: number;
+  readonly maxMemoryBytes: number;
+}
 
 function estimateHydratedThreadSize(thread: HydratedReadModelThread): number {
   return (
@@ -39,6 +51,20 @@ function findReadModelThread(
   return thread;
 }
 
+function resolveThreadHydrationCacheConfig(
+  config?: ThreadHydrationCacheConfig,
+): ResolvedThreadHydrationCacheConfig {
+  const maxEntries = Math.max(1, Math.trunc(config?.maxEntries ?? DEFAULT_MAX_CACHED_THREADS));
+  const maxMemoryBytes = Math.max(
+    BYTES_PER_MEGABYTE,
+    Math.trunc(config?.maxMemoryBytes ?? DEFAULT_CACHE_MEMORY_BYTES),
+  );
+  return {
+    maxEntries,
+    maxMemoryBytes,
+  };
+}
+
 export interface ThreadHydrationCache {
   readonly read: (
     threadId: ThreadId,
@@ -58,8 +84,13 @@ export interface ThreadHydrationCache {
 
 export function createThreadHydrationCache(
   fetchThread: (threadId: ThreadId) => Promise<HydratedReadModelThread>,
+  config?: ThreadHydrationCacheConfig,
 ): ThreadHydrationCache {
-  const cache = new LRUCache<HydratedThreadCacheEntry>(MAX_CACHED_THREADS, MAX_CACHE_MEMORY_BYTES);
+  const resolvedConfig = resolveThreadHydrationCacheConfig(config);
+  const cache = new LRUCache<HydratedThreadCacheEntry>(
+    resolvedConfig.maxEntries,
+    resolvedConfig.maxMemoryBytes,
+  );
   const inFlightByThreadId = new Map<ThreadId, Promise<HydratedReadModelThread>>();
 
   const read = (
@@ -138,12 +169,32 @@ export function createThreadHydrationCache(
   };
 }
 
-const sharedThreadHydrationCache = createThreadHydrationCache(async (threadId) => {
-  const snapshot = await ensureNativeApi().orchestration.getSnapshot({
-    hydrateThreadId: threadId,
-  });
-  return findReadModelThread(snapshot, threadId);
-});
+function createSharedThreadHydrationCache(
+  config?: ThreadHydrationCacheConfig,
+): ThreadHydrationCache {
+  return createThreadHydrationCache(async (threadId) => {
+    const snapshot = await ensureNativeApi().orchestration.getSnapshot({
+      hydrateThreadId: threadId,
+    });
+    return findReadModelThread(snapshot, threadId);
+  }, config);
+}
+
+let sharedThreadHydrationCacheConfig = resolveThreadHydrationCacheConfig();
+let sharedThreadHydrationCache = createSharedThreadHydrationCache(sharedThreadHydrationCacheConfig);
+
+export function configureThreadHydrationCache(config?: ThreadHydrationCacheConfig): void {
+  const nextConfig = resolveThreadHydrationCacheConfig(config);
+  if (
+    nextConfig.maxEntries === sharedThreadHydrationCacheConfig.maxEntries &&
+    nextConfig.maxMemoryBytes === sharedThreadHydrationCacheConfig.maxMemoryBytes
+  ) {
+    return;
+  }
+
+  sharedThreadHydrationCacheConfig = nextConfig;
+  sharedThreadHydrationCache = createSharedThreadHydrationCache(sharedThreadHydrationCacheConfig);
+}
 
 export function readCachedHydratedThread(
   threadId: ThreadId,
@@ -171,5 +222,6 @@ export function prefetchHydratedThread(
 }
 
 export function __resetThreadHydrationCacheForTests(): void {
-  sharedThreadHydrationCache.clear();
+  sharedThreadHydrationCacheConfig = resolveThreadHydrationCacheConfig();
+  sharedThreadHydrationCache = createSharedThreadHydrationCache(sharedThreadHydrationCacheConfig);
 }

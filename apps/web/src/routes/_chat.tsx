@@ -2,6 +2,7 @@ import { Outlet, createFileRoute } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { configureThreadHydrationCache } from "../lib/threadHydrationCache";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { resolveShortcutCommand } from "../keybindings";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
@@ -22,6 +23,12 @@ function ChatRouteGlobalShortcuts() {
       : false,
   );
   const appSettings = useSettings();
+
+  useEffect(() => {
+    configureThreadHydrationCache({
+      maxMemoryBytes: appSettings.threadHydrationCacheMemoryMb * 1024 * 1024,
+    });
+  }, [appSettings.threadHydrationCacheMemoryMb]);
 
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {

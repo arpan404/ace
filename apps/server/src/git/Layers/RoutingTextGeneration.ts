@@ -7,11 +7,7 @@
  *
  * @module RoutingTextGeneration
  */
-import {
-  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
-  type ModelSelection,
-  type ProviderKind,
-} from "@t3tools/contracts";
+import { type ModelSelection, type ProviderKind } from "@t3tools/contracts";
 import { Effect, Layer, ServiceMap } from "effect";
 
 import {
@@ -22,7 +18,9 @@ import {
 import { CursorTextGenerationLive } from "./CursorTextGeneration.ts";
 import { CodexTextGenerationLive } from "./CodexTextGeneration.ts";
 import { ClaudeTextGenerationLive } from "./ClaudeTextGeneration.ts";
+import { GeminiTextGenerationLive } from "./GeminiTextGeneration.ts";
 import { GitHubCopilotTextGenerationLive } from "./GitHubCopilotTextGeneration.ts";
+import { OpenCodeTextGenerationLive } from "./OpenCodeTextGeneration.ts";
 
 // ---------------------------------------------------------------------------
 // Internal service tags so both concrete layers can coexist.
@@ -44,11 +42,21 @@ class CursorTextGen extends ServiceMap.Service<CursorTextGen, TextGenerationShap
   "t3/git/Layers/RoutingTextGeneration/CursorTextGen",
 ) {}
 
+class GeminiTextGen extends ServiceMap.Service<GeminiTextGen, TextGenerationShape>()(
+  "t3/git/Layers/RoutingTextGeneration/GeminiTextGen",
+) {}
+
+class OpenCodeTextGen extends ServiceMap.Service<OpenCodeTextGen, TextGenerationShape>()(
+  "t3/git/Layers/RoutingTextGeneration/OpenCodeTextGen",
+) {}
+
 const isTextGenerationProvider = (provider: ProviderKind): provider is TextGenerationProvider =>
   provider === "codex" ||
   provider === "claudeAgent" ||
   provider === "githubCopilot" ||
-  provider === "cursor";
+  provider === "cursor" ||
+  provider === "gemini" ||
+  provider === "opencode";
 
 const toTextGenerationProvider = (provider: ProviderKind): TextGenerationProvider =>
   isTextGenerationProvider(provider) ? provider : "codex";
@@ -63,12 +71,10 @@ export function normalizeTextGenerationModelSelection(
     case "claudeAgent":
     case "githubCopilot":
     case "cursor":
+    case "gemini":
       return selection;
     case "opencode":
-      return {
-        provider: "codex",
-        model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
-      };
+      return selection;
   }
 }
 
@@ -81,6 +87,8 @@ const makeRoutingTextGeneration = Effect.gen(function* () {
   const claude = yield* ClaudeTextGen;
   const gitHubCopilot = yield* GitHubCopilotTextGen;
   const cursor = yield* CursorTextGen;
+  const gemini = yield* GeminiTextGen;
+  const opencode = yield* OpenCodeTextGen;
 
   const route = (provider?: TextGenerationProvider): TextGenerationShape =>
     provider === "claudeAgent"
@@ -89,7 +97,11 @@ const makeRoutingTextGeneration = Effect.gen(function* () {
         ? gitHubCopilot
         : provider === "cursor"
           ? cursor
-          : codex;
+          : provider === "gemini"
+            ? gemini
+            : provider === "opencode"
+              ? opencode
+              : codex;
 
   return {
     generateCommitMessage: (input) => {
@@ -155,6 +167,22 @@ const InternalCursorLayer = Layer.effect(
   }),
 ).pipe(Layer.provide(CursorTextGenerationLive));
 
+const InternalGeminiLayer = Layer.effect(
+  GeminiTextGen,
+  Effect.gen(function* () {
+    const svc = yield* TextGeneration;
+    return svc;
+  }),
+).pipe(Layer.provide(GeminiTextGenerationLive));
+
+const InternalOpenCodeLayer = Layer.effect(
+  OpenCodeTextGen,
+  Effect.gen(function* () {
+    const svc = yield* TextGeneration;
+    return svc;
+  }),
+).pipe(Layer.provide(OpenCodeTextGenerationLive));
+
 export const RoutingTextGenerationLive = Layer.effect(
   TextGeneration,
   makeRoutingTextGeneration,
@@ -163,4 +191,6 @@ export const RoutingTextGenerationLive = Layer.effect(
   Layer.provide(InternalClaudeLayer),
   Layer.provide(InternalGitHubCopilotLayer),
   Layer.provide(InternalCursorLayer),
+  Layer.provide(InternalGeminiLayer),
+  Layer.provide(InternalOpenCodeLayer),
 );

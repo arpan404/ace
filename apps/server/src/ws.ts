@@ -28,9 +28,11 @@ import { GitManager } from "./git/Services/GitManager";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
-import { createReadModelSnapshotViewCache } from "./orchestration/readModelSnapshotView";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
+import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
+import { ensureOpenCodeServer } from "./provider/opencodeRuntime";
+import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./provider/opencodeSdk";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
@@ -47,6 +49,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const open = yield* Open;
     const gitManager = yield* GitManager;
     const git = yield* GitCore;
+    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const terminalManager = yield* TerminalManager;
     const providerRegistry = yield* ProviderRegistry;
     const config = yield* ServerConfig;
@@ -55,7 +58,6 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const startup = yield* ServerRuntimeStartup;
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
-    const snapshotViewCache = createReadModelSnapshotViewCache();
 
     const loadServerConfig = Effect.gen(function* () {
       const keybindingsConfig = yield* keybindings.loadConfigState;
@@ -75,16 +77,13 @@ const WsRpcLayer = WsRpcGroup.toLayer(
 
     return WsRpcGroup.of({
       [ORCHESTRATION_WS_METHODS.getSnapshot]: (input) =>
-        orchestrationEngine.getReadModel().pipe(
-          Effect.flatMap((readModel) =>
-            Effect.try({
-              try: () => snapshotViewCache.getSnapshot(readModel, input),
-              catch: (cause) =>
-                new OrchestrationGetSnapshotError({
-                  message: "Failed to load orchestration snapshot",
-                  cause,
-                }),
-            }),
+        projectionSnapshotQuery.getSnapshot(input).pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetSnapshotError({
+                message: "Failed to load orchestration snapshot",
+                cause,
+              }),
           ),
         ),
       [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
@@ -196,6 +195,33 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig,
       [WS_METHODS.serverRefreshProviders]: (_input) =>
         providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
+      [WS_METHODS.serverSearchOpenCodeModels]: (input) =>
+        Effect.gen(function* () {
+          const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
+          if (!settings.providers.opencode.enabled) {
+            return {
+              models: [],
+              totalModels: 0,
+              nextOffset: null,
+              hasMore: false,
+            };
+          }
+
+          const server = yield* Effect.promise(() =>
+            ensureOpenCodeServer(settings.providers.opencode.binaryPath),
+          ).pipe(Effect.orDie);
+
+          return yield* Effect.promise(() =>
+            searchOpenCodeModels(server.url, {
+              query: input.query,
+              limit: clamp(input.limit, {
+                minimum: 1,
+                maximum: OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT,
+              }),
+              offset: clamp(input.offset, { minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
+            }),
+          ).pipe(Effect.orDie);
+        }),
       [WS_METHODS.serverUpsertKeybinding]: (rule) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.upsertKeybindingRule(rule);

@@ -2,6 +2,7 @@ import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@t3to
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
+  OrchestrationProposedPlanSummary,
   OrchestrationSession,
   OrchestrationThread,
 } from "@t3tools/contracts";
@@ -137,6 +138,31 @@ function retainThreadProposedPlansAfterRevert(
   return proposedPlans.filter(
     (proposedPlan) => proposedPlan.turnId === null || retainedTurnIds.has(proposedPlan.turnId),
   );
+}
+
+function toLatestProposedPlanSummary(
+  proposedPlan: OrchestrationThread["proposedPlans"][number],
+): OrchestrationThread["latestProposedPlanSummary"] {
+  return Schema.decodeUnknownSync(OrchestrationProposedPlanSummary)({
+    id: proposedPlan.id,
+    turnId: proposedPlan.turnId,
+    implementedAt: proposedPlan.implementedAt,
+    implementationThreadId: proposedPlan.implementationThreadId,
+    createdAt: proposedPlan.createdAt,
+    updatedAt: proposedPlan.updatedAt,
+  });
+}
+
+function findLatestProposedPlanSummary(
+  proposedPlans: ReadonlyArray<OrchestrationThread["proposedPlans"][number]>,
+): OrchestrationThread["latestProposedPlanSummary"] {
+  const latestPlan = [...proposedPlans]
+    .toSorted(
+      (left, right) =>
+        left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
+    )
+    .at(-1);
+  return latestPlan ? toLatestProposedPlanSummary(latestPlan) : null;
 }
 
 function compareThreadActivities(
@@ -280,6 +306,8 @@ export function projectEvent(
             archivedAt: null,
             deletedAt: null,
             messages: [],
+            proposedPlans: [],
+            latestProposedPlanSummary: null,
             activities: [],
             queuedComposerMessages: [],
             queuedSteerRequest: null,
@@ -521,6 +549,7 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             proposedPlans,
+            latestProposedPlanSummary: toLatestProposedPlanSummary(payload.proposedPlan),
             updatedAt: event.occurredAt,
           }),
         };
@@ -637,6 +666,7 @@ export function projectEvent(
               checkpoints,
               messages,
               proposedPlans,
+              latestProposedPlanSummary: findLatestProposedPlanSummary(proposedPlans),
               activities,
               latestTurn,
               updatedAt: event.occurredAt,

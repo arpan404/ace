@@ -1,7 +1,15 @@
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { useQuery } from "@tanstack/react-query";
-import { Columns2Icon, FolderIcon, XIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { AlertCircleIcon, Columns2Icon, FolderIcon, RefreshCwIcon, XIcon } from "lucide-react";
+import type { editor as MonacoEditor } from "monaco-editor";
+import {
+  type DragEvent as ReactDragEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type { ThreadEditorPaneState } from "~/editorStateStore";
 import { projectReadFileQueryOptions } from "~/lib/projectReactQuery";
@@ -17,12 +25,20 @@ interface WorkspaceEditorPaneProps {
   canSplitPane: boolean;
   dirtyFilePaths: ReadonlySet<string>;
   draftsByFilePath: Record<string, { draftContents: string; savedContents: string }>;
+  editorOptions: MonacoEditor.IStandaloneEditorConstructionOptions;
   gitCwd: string | null;
   onCloseFile: (paneId: string, filePath: string) => void;
   onClosePane: (paneId: string) => void;
   onDiscardDraft: (filePath: string) => void;
   onFocusPane: (paneId: string) => void;
   onHydrateFile: (filePath: string, contents: string) => void;
+  onMoveFile: (input: {
+    filePath: string;
+    sourcePaneId: string;
+    targetPaneId: string;
+    targetIndex?: number;
+  }) => void;
+  onRetryActiveFile: () => void;
   onSaveFile: (relativePath: string, contents: string) => void;
   onSetActiveFile: (paneId: string, filePath: string | null) => void;
   onSplitPane: (paneId: string) => void;
@@ -42,6 +58,8 @@ function formatFileSize(sizeBytes: number): string {
   }
   return `${Math.round(sizeBytes / 1024)} KB`;
 }
+
+const EDITOR_TAB_TRANSFER_TYPE = "application/x-t3code-editor-tab";
 
 function FilePathBreadcrumbs(props: { pathValue: string }) {
   const segments = useMemo(() => {
@@ -70,7 +88,9 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const pane = props.pane;
   const onFocusPane = props.onFocusPane;
   const onHydrateFile = props.onHydrateFile;
+  const onMoveFile = props.onMoveFile;
   const onSaveFile = props.onSaveFile;
+  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
   const activeFileQuery = useQuery(
     projectReadFileQueryOptions({
       cwd: props.gitCwd,
@@ -120,6 +140,66 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     [onFocusPane, pane.id],
   );
 
+  const readDraggedTab = useCallback((event: ReactDragEvent<HTMLElement>) => {
+    const raw =
+      event.dataTransfer.getData(EDITOR_TAB_TRANSFER_TYPE) ||
+      event.dataTransfer.getData("text/plain");
+    if (raw.length === 0) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw) as { filePath?: string; sourcePaneId?: string };
+      if (
+        typeof parsed.filePath !== "string" ||
+        parsed.filePath.trim().length === 0 ||
+        typeof parsed.sourcePaneId !== "string" ||
+        parsed.sourcePaneId.trim().length === 0
+      ) {
+        return null;
+      }
+      return {
+        filePath: parsed.filePath.trim(),
+        sourcePaneId: parsed.sourcePaneId.trim(),
+      };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const handleTabDrop = useCallback(
+    (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
+      const draggedTab = readDraggedTab(event);
+      if (!draggedTab) {
+        return;
+      }
+      event.preventDefault();
+      setDropTargetIndex(null);
+      onMoveFile({
+        ...draggedTab,
+        targetPaneId: pane.id,
+        ...(targetIndex === undefined ? {} : { targetIndex }),
+      });
+    },
+    [onMoveFile, pane.id, readDraggedTab],
+  );
+
+  const handleTabDragOver = useCallback(
+    (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
+      const draggedTab = readDraggedTab(event);
+      if (!draggedTab) {
+        return;
+      }
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
+    },
+    [pane.openFilePaths.length, readDraggedTab],
+  );
+
+  const clearDropTarget = useCallback(() => {
+    setDropTargetIndex(null);
+  }, []);
+
   return (
     <section
       data-pane-active={props.active ? "true" : "false"}
@@ -137,51 +217,84 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           "flex h-[38px] shrink-0 overflow-x-auto scrollbar-none",
           props.resolvedTheme === "dark" ? "bg-[#18181b]" : "bg-[#f3f4f6]",
         )}
+        onDragLeave={(event) => {
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            return;
+          }
+          clearDropTarget();
+        }}
+        onDragOver={(event) => handleTabDragOver(event)}
+        onDrop={(event) => handleTabDrop(event)}
       >
         {props.pane.openFilePaths.map((filePath) => {
           const isActive = filePath === props.pane.activeFilePath;
           const isDirty = props.dirtyFilePaths.has(filePath);
           return (
-            <button
-              key={filePath}
-              type="button"
-              className={cn(
-                "group/tab flex h-full shrink-0 items-center gap-2 border-r border-border/40 px-3 text-[13px] transition-colors relative",
-                isActive
-                  ? props.resolvedTheme === "dark"
-                    ? "bg-[#0b0d10] text-foreground"
-                    : "bg-[#fcfaf5] text-foreground"
-                  : "bg-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
-              )}
-              onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
-              title={filePath}
-            >
-              {isActive && <div className="absolute top-0 left-0 h-[2px] w-full bg-primary" />}
-              <VscodeEntryIcon
-                pathValue={filePath}
-                kind="file"
-                theme={props.resolvedTheme}
-                className="size-[14px] shrink-0"
-              />
-              <span className="max-w-[160px] truncate">{basenameOfPath(filePath)}</span>
-              {isDirty ? (
-                <span className="size-2 shrink-0 rounded-full bg-foreground/30 group-hover/tab:hidden" />
+            <div key={filePath} className="relative flex shrink-0">
+              {dropTargetIndex === props.pane.openFilePaths.indexOf(filePath) ? (
+                <div className="absolute top-1.5 bottom-1.5 left-0 z-20 w-[2px] rounded-full bg-primary" />
               ) : null}
-              <span
+              <button
+                type="button"
                 className={cn(
-                  "flex size-5 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity hover:bg-foreground/10 group-hover/tab:opacity-100",
-                  isDirty ? "hidden group-hover/tab:flex" : "",
+                  "group/tab flex h-full shrink-0 items-center gap-2 border-r border-border/40 px-3 text-[13px] transition-colors relative",
+                  isActive
+                    ? props.resolvedTheme === "dark"
+                      ? "bg-[#0b0d10] text-foreground"
+                      : "bg-[#fcfaf5] text-foreground"
+                    : "bg-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
                 )}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  props.onCloseFile(props.pane.id, filePath);
+                draggable
+                onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
+                onDragStart={(event) => {
+                  props.onFocusPane(props.pane.id);
+                  event.dataTransfer.effectAllowed = "move";
+                  const payload = JSON.stringify({
+                    filePath,
+                    sourcePaneId: props.pane.id,
+                  });
+                  event.dataTransfer.setData(EDITOR_TAB_TRANSFER_TYPE, payload);
+                  event.dataTransfer.setData("text/plain", payload);
                 }}
+                onDragEnd={clearDropTarget}
+                onDragOver={(event) =>
+                  handleTabDragOver(event, props.pane.openFilePaths.indexOf(filePath))
+                }
+                onDrop={(event) => handleTabDrop(event, props.pane.openFilePaths.indexOf(filePath))}
+                title={filePath}
               >
-                <XIcon className="size-3.5" />
-              </span>
-            </button>
+                {isActive && <div className="absolute top-0 left-0 h-[2px] w-full bg-primary" />}
+                <VscodeEntryIcon
+                  pathValue={filePath}
+                  kind="file"
+                  theme={props.resolvedTheme}
+                  className="size-[14px] shrink-0"
+                />
+                <span className="max-w-[160px] truncate">{basenameOfPath(filePath)}</span>
+                {isDirty ? (
+                  <span className="size-2 shrink-0 rounded-full bg-foreground/30 group-hover/tab:hidden" />
+                ) : null}
+                <span
+                  className={cn(
+                    "flex size-5 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity hover:bg-foreground/10 group-hover/tab:opacity-100",
+                    isDirty ? "hidden group-hover/tab:flex" : "",
+                  )}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    props.onCloseFile(props.pane.id, filePath);
+                  }}
+                >
+                  <XIcon className="size-3.5" />
+                </span>
+              </button>
+            </div>
           );
         })}
+        {dropTargetIndex === props.pane.openFilePaths.length ? (
+          <div className="relative flex shrink-0 items-stretch px-0.5">
+            <div className="my-1.5 w-[2px] rounded-full bg-primary" />
+          </div>
+        ) : null}
       </div>
 
       <div
@@ -190,7 +303,10 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           props.resolvedTheme === "dark" ? "bg-[#0b0d10]" : "bg-[#fcfaf5]",
         )}
       >
-        <div className="flex min-w-0 items-center">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="rounded-sm border border-border/50 px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+            Window {props.paneIndex + 1}
+          </span>
           {props.pane.activeFilePath ? (
             <FilePathBreadcrumbs pathValue={props.pane.activeFilePath} />
           ) : null}
@@ -243,20 +359,34 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           </div>
         ) : activeFileQuery.isPending && !activeDraft ? (
           <div className="space-y-4 px-6 py-6">
+            <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
+              Opening file
+            </p>
             <div className="h-5 w-52 rounded bg-foreground/6" />
             <div className="h-4 w-full rounded bg-foreground/4" />
             <div className="h-4 w-[88%] rounded bg-foreground/4" />
             <div className="h-4 w-[76%] rounded bg-foreground/4" />
           </div>
         ) : activeFileQuery.isError && !activeDraft ? (
-          <div className="flex h-full items-center justify-center px-6 text-center">
-            <div>
-              <p className="text-sm font-medium text-foreground">This file could not be opened.</p>
+          <div className="flex h-full items-center justify-center px-6">
+            <div className="max-w-md rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-center">
+              <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                <AlertCircleIcon className="size-5" />
+              </div>
+              <p className="mt-3 text-sm font-medium text-foreground">
+                This file could not be opened.
+              </p>
               <p className="mt-1 text-sm text-muted-foreground">
                 {activeFileQuery.error instanceof Error
                   ? activeFileQuery.error.message
                   : "An unexpected error occurred."}
               </p>
+              <div className="mt-4 flex items-center justify-center gap-2">
+                <Button size="sm" variant="outline" onClick={props.onRetryActiveFile}>
+                  <RefreshCwIcon className="size-3.5" />
+                  Retry
+                </Button>
+              </div>
             </div>
           </div>
         ) : (
@@ -274,21 +404,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 }
                 props.onUpdateDraft(props.pane.activeFilePath, value);
               }}
-              options={{
-                automaticLayout: true,
-                cursorBlinking: "smooth",
-                fontLigatures: true,
-                fontSize: 13.5,
-                minimap: { enabled: false },
-                padding: { top: 12, bottom: 24 },
-                renderLineHighlightOnlyWhenFocus: true,
-                roundedSelection: true,
-                scrollBeyondLastLine: false,
-                smoothScrolling: true,
-                stickyScroll: { enabled: true },
-                tabSize: 2,
-                wordWrap: "off",
-              }}
+              options={props.editorOptions}
             />
           </div>
         )}

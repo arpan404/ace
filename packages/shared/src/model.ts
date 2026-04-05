@@ -5,6 +5,7 @@ import {
   type ClaudeModelOptions,
   type CodexModelOptions,
   type CursorModelOptions,
+  type GeminiModelOptions,
   type GitHubCopilotModelOptions,
   type OpenCodeModelOptions,
   type ModelCapabilities,
@@ -170,6 +171,11 @@ export function buildProviderModelSelection(
   options?: ProviderModelOptions["cursor"],
 ): Extract<ModelSelection, { provider: "cursor" }>;
 export function buildProviderModelSelection(
+  provider: "gemini",
+  model: string,
+  options?: ProviderModelOptions["gemini"],
+): Extract<ModelSelection, { provider: "gemini" }>;
+export function buildProviderModelSelection(
   provider: "opencode",
   model: string,
   options?: ProviderModelOptions["opencode"],
@@ -209,6 +215,12 @@ export function buildProviderModelSelection(
         model,
         ...(options ? { options: options as ProviderModelOptions["cursor"] } : {}),
       } as Extract<ModelSelection, { provider: "cursor" }>;
+    case "gemini":
+      return {
+        provider,
+        model,
+        ...(options ? { options: options as GeminiModelOptions } : {}),
+      } as Extract<ModelSelection, { provider: "gemini" }>;
     case "opencode":
       return {
         provider,

@@ -1,11 +1,12 @@
 import { Effect } from "effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
-import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas";
+import { NonNegativeInt, TrimmedNonEmptyString, TrimmedString } from "./baseSchemas";
 import {
   ClaudeModelOptions,
   CodexModelOptions,
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
+  GeminiModelOptions,
   GitHubCopilotModelOptions,
   OpenCodeModelOptions,
 } from "./model";
@@ -29,6 +30,11 @@ export const BrowserSearchEngine = Schema.Literals(["duckduckgo", "google", "bra
 export type BrowserSearchEngine = typeof BrowserSearchEngine.Type;
 export const DEFAULT_BROWSER_SEARCH_ENGINE: BrowserSearchEngine = "duckduckgo";
 
+export const EditorLineNumbers = Schema.Literals(["off", "on", "relative"]);
+export type EditorLineNumbers = typeof EditorLineNumbers.Type;
+export const DEFAULT_EDITOR_LINE_NUMBERS: EditorLineNumbers = "on";
+export const DEFAULT_THREAD_HYDRATION_CACHE_MEMORY_MB = 100;
+
 export const ClientSettingsSchema = Schema.Struct({
   browserSearchEngine: BrowserSearchEngine.pipe(
     Schema.withDecodingDefault(() => DEFAULT_BROWSER_SEARCH_ENGINE),
@@ -36,11 +42,22 @@ export const ClientSettingsSchema = Schema.Struct({
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   diffWordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  editorLineNumbers: EditorLineNumbers.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_EDITOR_LINE_NUMBERS),
+  ),
+  editorMinimap: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  editorRenderWhitespace: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  editorStickyScroll: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  editorSuggestions: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  editorWordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
     Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_PROJECT_SORT_ORDER),
   ),
   sidebarThreadSortOrder: SidebarThreadSortOrder.pipe(
     Schema.withDecodingDefault(() => DEFAULT_SIDEBAR_THREAD_SORT_ORDER),
+  ),
+  threadHydrationCacheMemoryMb: NonNegativeInt.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_THREAD_HYDRATION_CACHE_MEMORY_MB),
   ),
   timestampFormat: TimestampFormat.pipe(Schema.withDecodingDefault(() => DEFAULT_TIMESTAMP_FORMAT)),
 });
@@ -95,6 +112,13 @@ export const CursorSettings = Schema.Struct({
 });
 export type CursorSettings = typeof CursorSettings.Type;
 
+export const GeminiSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  binaryPath: makeBinaryPathSetting("gemini"),
+  customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+});
+export type GeminiSettings = typeof GeminiSettings.Type;
+
 export const OpenCodeSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   binaryPath: makeBinaryPathSetting("opencode"),
@@ -103,7 +127,7 @@ export const OpenCodeSettings = Schema.Struct({
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
 
 export const ServerSettings = Schema.Struct({
-  enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   enableToolStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   enableThinkingStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   defaultThreadEnvMode: ThreadEnvMode.pipe(
@@ -122,6 +146,7 @@ export const ServerSettings = Schema.Struct({
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(() => ({}))),
     githubCopilot: GitHubCopilotSettings.pipe(Schema.withDecodingDefault(() => ({}))),
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(() => ({}))),
+    gemini: GeminiSettings.pipe(Schema.withDecodingDefault(() => ({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   }).pipe(Schema.withDecodingDefault(() => ({}))),
 });
@@ -172,6 +197,10 @@ const OpenCodeModelOptionsPatch = Schema.Struct({
   ...(OpenCodeModelOptions.fields satisfies Record<string, never>),
 });
 
+const GeminiModelOptionsPatch = Schema.Struct({
+  ...(GeminiModelOptions.fields satisfies Record<string, never>),
+});
+
 const ModelSelectionPatch = Schema.Union([
   Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("codex")),
@@ -191,6 +220,11 @@ const ModelSelectionPatch = Schema.Union([
   Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("cursor")),
     model: Schema.optionalKey(TrimmedNonEmptyString),
+  }),
+  Schema.Struct({
+    provider: Schema.optionalKey(Schema.Literal("gemini")),
+    model: Schema.optionalKey(TrimmedNonEmptyString),
+    options: Schema.optionalKey(GeminiModelOptionsPatch),
   }),
   Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("opencode")),
@@ -225,6 +259,12 @@ const CursorSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+const GeminiSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(Schema.String),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 const OpenCodeSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(Schema.String),
@@ -243,6 +283,7 @@ export const ServerSettingsPatch = Schema.Struct({
       claudeAgent: Schema.optionalKey(ClaudeSettingsPatch),
       githubCopilot: Schema.optionalKey(GitHubCopilotSettingsPatch),
       cursor: Schema.optionalKey(CursorSettingsPatch),
+      gemini: Schema.optionalKey(GeminiSettingsPatch),
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
     }),
   ),

@@ -693,6 +693,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     session: null,
     messages: [],
     proposedPlans: [],
+    latestProposedPlanSummary: null,
     error: null,
     createdAt: "2026-03-09T10:00:00.000Z",
     archivedAt: null,
