@@ -56,6 +56,8 @@ type OpenCodeSessionContext = {
   readonly opencodeSessionId: string;
   defaultModels: Record<string, string>;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
+  readonly sequenceTieBreakersByTimestampMs: Map<number, number>;
+  nextFallbackSessionSequence: number;
   activeTurn: {
     id: TurnId;
     assistantItemId: RuntimeItemId;
@@ -122,6 +124,11 @@ function isoNow(): string {
   return new Date().toISOString();
 }
 
+function parseIsoTimestampMs(value: string): number | undefined {
+  const timestampMs = Date.parse(value);
+  return Number.isFinite(timestampMs) ? timestampMs : undefined;
+}
+
 function toMessage(cause: unknown, fallback: string): string {
   return cause instanceof Error && cause.message.length > 0 ? cause.message : fallback;
 }
@@ -138,6 +145,44 @@ function asString(value: unknown): string | undefined {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+export function openCodeTimestampToIso(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (Math.abs(value) < 1_000_000_000) {
+      return undefined;
+    }
+    const timestampMs = Math.abs(value) >= 1_000_000_000_000 ? value : value * 1_000;
+    const parsed = new Date(timestampMs);
+    return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : undefined;
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
+    return openCodeTimestampToIso(Number(trimmed));
+  }
+
+  const parsedMs = Date.parse(trimmed);
+  return Number.isFinite(parsedMs) ? new Date(parsedMs).toISOString() : undefined;
+}
+
+export function resolveOpenCodePartTimestamp(
+  part: Record<string, unknown>,
+  boundary: "start" | "end",
+): string | undefined {
+  const time = asRecord(part.time);
+  if (!time) {
+    return undefined;
+  }
+  return openCodeTimestampToIso(time[boundary]);
 }
 
 function nonEmptyString(value: unknown): string | undefined {
@@ -356,24 +401,38 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     ctx: OpenCodeSessionContext,
     input: {
       readonly type: TType;
-      readonly createdAt?: string;
+      readonly createdAt?: string | undefined;
       readonly turnId?: TurnId;
       readonly itemId?: RuntimeItemId;
       readonly requestId?: RuntimeRequestId;
       readonly payload: ProviderRuntimeEventByType<TType>["payload"];
     },
-  ): ProviderRuntimeEventByType<TType> =>
-    ({
+  ): ProviderRuntimeEventByType<TType> => {
+    const createdAt = input.createdAt ?? isoNow();
+    const timestampMs = parseIsoTimestampMs(createdAt);
+    const sessionSequence = (() => {
+      if (timestampMs !== undefined) {
+        const nextTieBreaker = (ctx.sequenceTieBreakersByTimestampMs.get(timestampMs) ?? 0) + 1;
+        ctx.sequenceTieBreakersByTimestampMs.set(timestampMs, nextTieBreaker);
+        return timestampMs * 1_000 + nextTieBreaker;
+      }
+      ctx.nextFallbackSessionSequence += 1;
+      return ctx.nextFallbackSessionSequence;
+    })();
+
+    return {
       type: input.type,
       eventId: EventId.makeUnsafe(randomUUID()),
       provider: PROVIDER,
       threadId: ctx.threadId,
-      createdAt: input.createdAt ?? isoNow(),
+      createdAt,
       ...(input.turnId ? { turnId: input.turnId } : {}),
       ...(input.itemId ? { itemId: input.itemId } : {}),
       ...(input.requestId ? { requestId: input.requestId } : {}),
+      sessionSequence,
       payload: input.payload,
-    }) as ProviderRuntimeEventByType<TType>;
+    } as unknown as ProviderRuntimeEventByType<TType>;
+  };
 
   const completeTurn = (
     ctx: OpenCodeSessionContext,
@@ -485,6 +544,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
   const ensureReasoningItem = (
     ctx: OpenCodeSessionContext,
     partId: string,
+    createdAt?: string | undefined,
   ): {
     turn: NonNullable<OpenCodeSessionContext["activeTurn"]>;
     reasoning: OpenCodeReasoningItemState;
@@ -505,6 +565,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       emit(
         baseEvent(ctx, {
           type: "item.started",
+          ...(createdAt ? { createdAt } : {}),
           turnId: turn.id,
           itemId: reasoning.itemId,
           payload: {
@@ -525,9 +586,10 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       text: string;
       streamKind: Extract<OpenCodeDeltaStreamKind, "reasoning_text" | "reasoning_summary_text">;
       isSnapshot?: boolean;
+      createdAt?: string | undefined;
     },
   ) => {
-    const state = ensureReasoningItem(ctx, partId);
+    const state = ensureReasoningItem(ctx, partId, input.createdAt);
     if (!state) {
       return;
     }
@@ -547,6 +609,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     emit(
       baseEvent(ctx, {
         type: "content.delta",
+        ...(input.createdAt ? { createdAt: input.createdAt } : {}),
         turnId: state.turn.id,
         itemId: state.reasoning.itemId,
         payload: {
@@ -563,22 +626,31 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     partId: string,
   ) => {
     const text = asString(part.text) ?? "";
-    const state = ensureReasoningItem(ctx, partId);
+    const time = asRecord(part.time);
+    const reasoningStartedAt =
+      resolveOpenCodePartTimestamp(part, "start") ?? resolveOpenCodePartTimestamp(part, "end");
+    const reasoningCompletedAt = resolveOpenCodePartTimestamp(part, "end");
+    const state = ensureReasoningItem(ctx, partId, reasoningStartedAt);
     if (!state) {
       return;
     }
-    emitReasoningDelta(ctx, partId, {
+    const reasoningDeltaInput: Parameters<typeof emitReasoningDelta>[2] = {
       text,
       streamKind: "reasoning_text",
       isSnapshot: true,
-    });
+    };
+    const reasoningDeltaCreatedAt = reasoningStartedAt ?? reasoningCompletedAt;
+    if (reasoningDeltaCreatedAt) {
+      reasoningDeltaInput.createdAt = reasoningDeltaCreatedAt;
+    }
+    emitReasoningDelta(ctx, partId, reasoningDeltaInput);
 
-    const time = asRecord(part.time);
     if (time && "end" in time && !state.reasoning.completed) {
       state.reasoning.completed = true;
       emit(
         baseEvent(ctx, {
           type: "item.completed",
+          ...(reasoningCompletedAt ? { createdAt: reasoningCompletedAt } : {}),
           turnId: state.turn.id,
           itemId: state.reasoning.itemId,
           payload: {
@@ -1027,6 +1099,8 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           opencodeSessionId,
           defaultModels,
           turns: [],
+          sequenceTieBreakersByTimestampMs: new Map(),
+          nextFallbackSessionSequence: 0,
           activeTurn: null,
           pendingApprovals: new Map(),
           pendingUserInputs: new Map(),

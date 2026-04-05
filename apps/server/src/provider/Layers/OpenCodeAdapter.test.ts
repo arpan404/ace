@@ -5,6 +5,8 @@ import {
   classifyOpenCodeDeltaStreamKind,
   classifyOpenCodeToolItemType,
   mapOpenCodeTodoStatus,
+  openCodeTimestampToIso,
+  resolveOpenCodePartTimestamp,
 } from "./OpenCodeAdapter.ts";
 
 describe("classifyOpenCodeToolItemType", () => {
@@ -52,5 +54,35 @@ describe("mapOpenCodeTodoStatus", () => {
     expect(mapOpenCodeTodoStatus("in_progress")).toBe("inProgress");
     expect(mapOpenCodeTodoStatus("completed")).toBe("completed");
     expect(mapOpenCodeTodoStatus("cancelled")).toBe("completed");
+  });
+});
+
+describe("openCodeTimestampToIso", () => {
+  it("normalizes OpenCode epoch timestamps into ISO datetimes", () => {
+    expect(openCodeTimestampToIso(1_742_533_200)).toBe(new Date(1_742_533_200_000).toISOString());
+    expect(openCodeTimestampToIso("1742533200456")).toBe(new Date(1_742_533_200_456).toISOString());
+  });
+
+  it("ignores values that do not look like absolute timestamps", () => {
+    expect(openCodeTimestampToIso(42)).toBeUndefined();
+    expect(openCodeTimestampToIso("not-a-time")).toBeUndefined();
+  });
+});
+
+describe("resolveOpenCodePartTimestamp", () => {
+  it("reads provider part boundaries so reasoning can stay anchored in order", () => {
+    const part = {
+      time: {
+        start: 1_742_533_200,
+        end: "1742533200456",
+      },
+    };
+
+    expect(resolveOpenCodePartTimestamp(part, "start")).toBe(
+      new Date(1_742_533_200_000).toISOString(),
+    );
+    expect(resolveOpenCodePartTimestamp(part, "end")).toBe(
+      new Date(1_742_533_200_456).toISOString(),
+    );
   });
 });
