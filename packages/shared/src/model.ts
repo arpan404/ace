@@ -6,6 +6,7 @@ import {
   type CodexModelOptions,
   type CursorModelOptions,
   type GitHubCopilotModelOptions,
+  type OpenCodeModelOptions,
   type ModelCapabilities,
   type ModelSelection,
   type ProviderKind,
@@ -169,6 +170,11 @@ export function buildProviderModelSelection(
   options?: ProviderModelOptions["cursor"],
 ): Extract<ModelSelection, { provider: "cursor" }>;
 export function buildProviderModelSelection(
+  provider: "opencode",
+  model: string,
+  options?: ProviderModelOptions["opencode"],
+): Extract<ModelSelection, { provider: "opencode" }>;
+export function buildProviderModelSelection(
   provider: ProviderKind,
   model: string,
   options?: ProviderModelOptions[ProviderKind],
@@ -203,6 +209,12 @@ export function buildProviderModelSelection(
         model,
         ...(options ? { options: options as ProviderModelOptions["cursor"] } : {}),
       } as Extract<ModelSelection, { provider: "cursor" }>;
+    case "opencode":
+      return {
+        provider,
+        model,
+        ...(options ? { options: options as OpenCodeModelOptions } : {}),
+      } as Extract<ModelSelection, { provider: "opencode" }>;
   }
 }
 

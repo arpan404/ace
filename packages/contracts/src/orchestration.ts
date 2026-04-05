@@ -4,6 +4,7 @@ import {
   CodexModelOptions,
   CursorModelOptions,
   GitHubCopilotModelOptions,
+  OpenCodeModelOptions,
 } from "./model";
 import {
   ApprovalRequestId,
@@ -28,7 +29,13 @@ export const ORCHESTRATION_WS_METHODS = {
   replayEvents: "orchestration.replayEvents",
 } as const;
 
-export const ProviderKind = Schema.Literals(["codex", "claudeAgent", "githubCopilot", "cursor"]);
+export const ProviderKind = Schema.Literals([
+  "codex",
+  "claudeAgent",
+  "githubCopilot",
+  "cursor",
+  "opencode",
+]);
 export type ProviderKind = typeof ProviderKind.Type;
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
@@ -74,11 +81,19 @@ export const CursorModelSelection = Schema.Struct({
 });
 export type CursorModelSelection = typeof CursorModelSelection.Type;
 
+export const OpenCodeModelSelection = Schema.Struct({
+  provider: Schema.Literal("opencode"),
+  model: TrimmedNonEmptyString,
+  options: Schema.optionalKey(OpenCodeModelOptions),
+});
+export type OpenCodeModelSelection = typeof OpenCodeModelSelection.Type;
+
 export const ModelSelection = Schema.Union([
   CodexModelSelection,
   ClaudeModelSelection,
   GitHubCopilotModelSelection,
   CursorModelSelection,
+  OpenCodeModelSelection,
 ]);
 export type ModelSelection = typeof ModelSelection.Type;
 

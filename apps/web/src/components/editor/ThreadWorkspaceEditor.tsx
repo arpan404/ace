@@ -315,33 +315,20 @@ function WorkspaceSignalCard(props: {
   return (
     <div
       className={cn(
-        "flex min-w-0 items-start gap-3 rounded-2xl border px-3 py-3 transition-colors",
+        "flex min-w-0 items-center gap-1.5 rounded-sm px-2 py-1 text-[11px] transition-colors cursor-default",
         props.resolvedTheme === "dark"
           ? props.active
-            ? "border-primary/28 bg-primary/8"
-            : "border-border/55 bg-[#0f141b]/80"
+            ? "bg-primary/10 text-primary"
+            : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
           : props.active
-            ? "border-primary/24 bg-primary/[0.06]"
-            : "border-border/70 bg-white/78",
+            ? "bg-primary/10 text-primary"
+            : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
       )}
+      title={props.detail}
     >
-      <div
-        className={cn(
-          "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border",
-          props.resolvedTheme === "dark"
-            ? "border-border/55 bg-white/[0.03] text-foreground"
-            : "border-border/70 bg-[#f8f3ea] text-foreground",
-        )}
-      >
-        {props.icon}
-      </div>
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold tracking-[0.22em] text-muted-foreground uppercase">
-          {props.label}
-        </p>
-        <p className="truncate text-sm font-semibold text-foreground">{props.value}</p>
-        <p className="truncate text-[11px] text-muted-foreground/80">{props.detail}</p>
-      </div>
+      <div className="flex shrink-0 items-center justify-center opacity-70">{props.icon}</div>
+      <span className="font-semibold tracking-[0.06em] uppercase opacity-80">{props.label}</span>
+      <span className="text-foreground opacity-90">{props.value}</span>
     </div>
   );
 }
@@ -412,7 +399,10 @@ export default function ThreadWorkspaceEditor(props: {
   );
   const { activePaneId, draftsByFilePath, expandedDirectoryPaths, paneRatios, panes, treeWidth } =
     editorState;
-  const activePane = panes.find((pane) => pane.id === activePaneId) ?? panes[0] ?? null;
+  const activePane = useMemo(
+    () => panes.find((pane) => pane.id === activePaneId) ?? panes[0] ?? null,
+    [activePaneId, panes],
+  );
 
   const workspaceTreeQuery = useQuery(
     projectListTreeQueryOptions({
@@ -433,14 +423,14 @@ export default function ThreadWorkspaceEditor(props: {
 
   const hasAnyOpenFile = panes.some((pane) => pane.openFilePaths.length > 0);
   useEffect(() => {
-    if (hasAnyOpenFile || treeEntries.length === 0 || !activePane) {
+    if (hasAnyOpenFile || treeEntries.length === 0 || activePane?.id === undefined) {
       return;
     }
     const firstFile = treeEntries.find((entry) => entry.kind === "file");
     if (firstFile) {
       openFile(props.threadId, firstFile.path, activePane.id);
     }
-  }, [activePane, hasAnyOpenFile, openFile, props.threadId, treeEntries]);
+  }, [activePane?.id, hasAnyOpenFile, openFile, props.threadId, treeEntries]);
 
   const saveMutation = useMutation({
     mutationFn: async (input: { contents: string; relativePath: string }) => {
@@ -485,6 +475,12 @@ export default function ThreadWorkspaceEditor(props: {
       void saveMutation.mutate({ contents, relativePath });
     },
     [saveMutation],
+  );
+  const handleHydrateFile = useCallback(
+    (filePath: string, contents: string) => {
+      hydrateFile(props.threadId, filePath, contents);
+    },
+    [hydrateFile, props.threadId],
   );
 
   const normalizedPaneRatios = useMemo(
@@ -645,17 +641,6 @@ export default function ThreadWorkspaceEditor(props: {
     document.body.style.removeProperty("cursor");
     document.body.style.removeProperty("user-select");
   }, []);
-
-  const paneDirtyCounts = useMemo(
-    () =>
-      Object.fromEntries(
-        panes.map((pane) => [
-          pane.id,
-          pane.openFilePaths.filter((path) => activeDirtyPaths.has(path)).length,
-        ]),
-      ),
-    [activeDirtyPaths, panes],
-  );
 
   const workspaceFileCount = useMemo(
     () => treeEntries.filter((entry) => entry.kind === "file").length,
@@ -966,31 +951,19 @@ export default function ThreadWorkspaceEditor(props: {
       </header>
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        <div
-          aria-hidden="true"
-          className={cn(
-            "pointer-events-none absolute inset-0 opacity-100",
-            resolvedTheme === "dark"
-              ? "bg-[radial-gradient(circle_at_top_left,rgba(247,162,103,0.12),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(90,157,255,0.08),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.02),transparent_20%)]"
-              : "bg-[radial-gradient(circle_at_top_left,rgba(159,79,29,0.08),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(75,126,184,0.08),transparent_26%),linear-gradient(180deg,rgba(255,255,255,0.76),transparent_18%)]",
-          )}
-        />
-
         <div className="relative flex h-full min-h-0 flex-col">
-          <div className="border-b border-border/60 px-3 py-3 sm:px-5">
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-              {workspaceSignals.map((signal) => (
-                <WorkspaceSignalCard
-                  key={signal.label}
-                  active={signal.active}
-                  detail={signal.detail}
-                  icon={signal.icon}
-                  label={signal.label}
-                  resolvedTheme={resolvedTheme}
-                  value={signal.value}
-                />
-              ))}
-            </div>
+          <div className="border-b border-border/40 px-3 py-1 flex items-center gap-1 bg-muted/10 overflow-x-auto scrollbar-none">
+            {workspaceSignals.map((signal) => (
+              <WorkspaceSignalCard
+                key={signal.label}
+                active={signal.active}
+                detail={signal.detail}
+                icon={signal.icon}
+                label={signal.label}
+                resolvedTheme={resolvedTheme}
+                value={signal.value}
+              />
+            ))}
           </div>
 
           <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -1103,59 +1076,9 @@ export default function ThreadWorkspaceEditor(props: {
                 onPointerCancel={handleTreeResizeEnd}
               />
 
-              <section className="min-h-0 min-w-0 overflow-hidden">
-                <div className="flex h-full min-h-0 flex-col px-3 py-3 sm:px-4 sm:py-4">
-                  <div className="mb-3 flex shrink-0 gap-2 overflow-x-auto pb-1">
-                    {panes.map((pane, index) => {
-                      const dirtyCount = paneDirtyCounts[pane.id] ?? 0;
-                      const paneTitle = pane.activeFilePath
-                        ? basenameOfPath(pane.activeFilePath)
-                        : `Window ${index + 1}`;
-                      return (
-                        <button
-                          key={pane.id}
-                          type="button"
-                          className={cn(
-                            "flex min-w-[220px] shrink-0 items-center gap-3 rounded-2xl border px-3 py-2 text-left transition-colors",
-                            pane.id === activePaneId
-                              ? resolvedTheme === "dark"
-                                ? "border-primary/28 bg-primary/8 text-foreground"
-                                : "border-primary/24 bg-primary/[0.06] text-foreground"
-                              : resolvedTheme === "dark"
-                                ? "border-border/55 bg-[#0f151c]/82 text-muted-foreground hover:border-border/80 hover:text-foreground"
-                                : "border-border/70 bg-white/76 text-muted-foreground hover:border-border hover:text-foreground",
-                          )}
-                          onClick={() => setActivePane(props.threadId, pane.id)}
-                        >
-                          <div
-                            className={cn(
-                              "flex size-8 shrink-0 items-center justify-center rounded-xl border text-xs font-semibold",
-                              pane.id === activePaneId
-                                ? "border-primary/28 bg-primary/10 text-primary"
-                                : "border-border/60 bg-foreground/[0.03] text-muted-foreground",
-                            )}
-                          >
-                            {index + 1}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-semibold text-foreground">
-                              {paneTitle}
-                            </div>
-                            <div className="truncate text-[11px] text-muted-foreground/80">
-                              {pane.activeFilePath ?? "No file selected"}
-                            </div>
-                          </div>
-                          {dirtyCount > 0 ? (
-                            <Badge variant="warning" size="sm" className="rounded-full px-2">
-                              {dirtyCount}
-                            </Badge>
-                          ) : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div ref={paneGroupRef} className="flex min-h-0 flex-1 gap-3 overflow-hidden">
+              <section className="min-h-0 min-w-0 overflow-hidden bg-background">
+                <div className="flex h-full min-h-0 flex-col">
+                  <div ref={paneGroupRef} className="flex min-h-0 flex-1 overflow-hidden">
                     {panes.map((pane, index) => (
                       <div
                         key={pane.id}
@@ -1179,9 +1102,7 @@ export default function ThreadWorkspaceEditor(props: {
                           onClosePane={(paneId) => closePane(props.threadId, paneId)}
                           onDiscardDraft={(filePath) => discardDraft(props.threadId, filePath)}
                           onFocusPane={(paneId) => setActivePane(props.threadId, paneId)}
-                          onHydrateFile={(filePath, contents) =>
-                            hydrateFile(props.threadId, filePath, contents)
-                          }
+                          onHydrateFile={handleHydrateFile}
                           onSaveFile={handleSaveFile}
                           onSetActiveFile={(paneId, filePath) =>
                             setActiveFile(props.threadId, filePath, paneId)
@@ -1204,13 +1125,13 @@ export default function ThreadWorkspaceEditor(props: {
                             aria-label={`Resize between editor windows ${index + 1} and ${index + 2}`}
                             role="separator"
                             aria-orientation="vertical"
-                            className="group mx-1 flex w-3 shrink-0 cursor-col-resize items-center justify-center touch-none select-none"
+                            className="group relative z-10 -mx-[3px] flex w-[6px] shrink-0 cursor-col-resize items-center justify-center touch-none select-none"
                             onPointerDown={handlePaneResizeStart(index)}
                             onPointerMove={handlePaneResizeMove}
                             onPointerUp={handlePaneResizeEnd}
                             onPointerCancel={handlePaneResizeEnd}
                           >
-                            <div className="h-full w-px bg-border/80 transition-colors group-hover:bg-primary/55" />
+                            <div className="h-full w-[2px] bg-border/40 transition-colors group-hover:bg-primary" />
                           </div>
                         ) : null}
                       </div>
