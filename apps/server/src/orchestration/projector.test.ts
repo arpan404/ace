@@ -447,6 +447,67 @@ describe("orchestration projector", () => {
     expect(message?.updatedAt).toBe(completeAt);
   });
 
+  it("preserves payload sequence on assistant messages when provided", async () => {
+    const createdAt = "2026-02-23T09:30:00.000Z";
+    const model = createEmptyReadModel(createdAt);
+
+    const afterCreate = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: createdAt,
+          commandId: "cmd-create",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "demo",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.3-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      ),
+    );
+
+    const payloadSequence = 1_706_255_202_000_001;
+    const afterMessage = await Effect.runPromise(
+      projectEvent(
+        afterCreate,
+        makeEvent({
+          sequence: 2,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: "2026-02-23T09:30:01.000Z",
+          commandId: "cmd-assistant",
+          payload: {
+            threadId: "thread-1",
+            messageId: "assistant-sequenced",
+            role: "assistant",
+            text: "sequenced",
+            turnId: "turn-1",
+            streaming: false,
+            sequence: payloadSequence,
+            createdAt: "2026-02-23T09:30:01.000Z",
+            updatedAt: "2026-02-23T09:30:01.000Z",
+          },
+        }),
+      ),
+    );
+
+    expect(afterMessage.threads[0]?.messages[0]?.sequence).toBe(payloadSequence);
+  });
+
   it("prunes reverted turn messages from in-memory thread snapshot", async () => {
     const createdAt = "2026-02-23T10:00:00.000Z";
     const model = createEmptyReadModel(createdAt);

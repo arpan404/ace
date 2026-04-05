@@ -1133,16 +1133,20 @@ function compareTimelineEntriesByOrder(
     sequence?: number | undefined;
   },
 ): number {
-  const orderComparison = compareSequenceThenCreatedAt(
-    {
-      createdAt: left.timelineEntry.createdAt,
-      sequence: left.sequence,
-    },
-    {
-      createdAt: right.timelineEntry.createdAt,
-      sequence: right.sequence,
-    },
-  );
+  const orderComparison =
+    left.timelineEntry.kind === "work" && right.timelineEntry.kind === "work"
+      ? compareSequenceThenCreatedAt(
+          {
+            createdAt: left.timelineEntry.createdAt,
+            sequence: left.sequence,
+          },
+          {
+            createdAt: right.timelineEntry.createdAt,
+            sequence: right.sequence,
+          },
+        )
+      : left.timelineEntry.createdAt.localeCompare(right.timelineEntry.createdAt) ||
+        compareCompatibleTimelineSequence(left.sequence, right.sequence);
   if (orderComparison !== 0) {
     return orderComparison;
   }
@@ -1151,6 +1155,25 @@ function compareTimelineEntriesByOrder(
     left.sourceIndex - right.sourceIndex ||
     left.timelineEntry.id.localeCompare(right.timelineEntry.id)
   );
+}
+
+function compareCompatibleTimelineSequence(
+  left: number | undefined,
+  right: number | undefined,
+): number {
+  if (
+    left === undefined ||
+    right === undefined ||
+    left === right ||
+    isTimestampDerivedSequence(left) !== isTimestampDerivedSequence(right)
+  ) {
+    return 0;
+  }
+  return left - right;
+}
+
+function isTimestampDerivedSequence(sequence: number): boolean {
+  return sequence >= 1_000_000_000_000;
 }
 
 function normalizeIntentToolLabel(value: string | undefined): string | null {

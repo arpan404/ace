@@ -718,6 +718,8 @@ describe("MessagesTimeline", () => {
     );
     expect(markup).not.toContain("line-clamp-4");
     expect(markup).toContain("whitespace-pre-wrap");
+    expect(markup).toContain("text-[11px] leading-5 text-foreground/72");
+    expect(markup).not.toContain("font-mono text-[10px] leading-4 text-muted-foreground/65");
   });
 
   it("keeps thinking disclosures collapsed by default until expanded", async () => {

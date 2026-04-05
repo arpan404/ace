@@ -650,6 +650,7 @@ const ThreadMessageAssistantDeltaCommand = Schema.Struct({
   messageId: MessageId,
   delta: Schema.String,
   turnId: Schema.optional(TurnId),
+  sequence: Schema.optional(NonNegativeInt),
   createdAt: IsoDateTime,
 });
 
@@ -659,6 +660,7 @@ const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   turnId: Schema.optional(TurnId),
+  sequence: Schema.optional(NonNegativeInt),
   createdAt: IsoDateTime,
 });
 
@@ -835,6 +837,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
+  sequence: Schema.optional(NonNegativeInt),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
