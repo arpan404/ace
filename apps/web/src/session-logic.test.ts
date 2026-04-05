@@ -11,6 +11,7 @@ import {
   deriveCompletionDividerBeforeEntryId,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveVisibleWorkTurnId,
   PROVIDER_OPTIONS,
   derivePendingApprovals,
   derivePendingUserInputs,
@@ -300,6 +301,64 @@ describe("derivePendingUserInputs", () => {
     ];
 
     expect(derivePendingUserInputs(activities)).toEqual([]);
+  });
+
+  it("preserves multi-select question metadata for open prompts", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "user-input-open-multi",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: {
+          requestId: "req-user-input-multi",
+          questions: [
+            {
+              id: "tools",
+              header: "Tools",
+              question: "Which tools should run?",
+              multiSelect: true,
+              options: [
+                {
+                  label: "Search",
+                  description: "Run search",
+                },
+                {
+                  label: "Edit",
+                  description: "Run edits",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ];
+
+    expect(derivePendingUserInputs(activities)).toEqual([
+      {
+        requestId: "req-user-input-multi",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        questions: [
+          {
+            id: "tools",
+            header: "Tools",
+            question: "Which tools should run?",
+            multiSelect: true,
+            options: [
+              {
+                label: "Search",
+                description: "Run search",
+              },
+              {
+                label: "Edit",
+                description: "Run edits",
+              },
+            ],
+          },
+        ],
+      },
+    ]);
   });
 });
 
@@ -1601,6 +1660,98 @@ describe("deriveActiveWorkStartedAt", () => {
         "2026-02-27T21:11:00.000Z",
       ),
     ).toBe("2026-02-27T21:11:00.000Z");
+  });
+});
+
+describe("deriveVisibleWorkTurnId", () => {
+  const runningSession = {
+    orchestrationStatus: "running" as const,
+    activeTurnId: TurnId.makeUnsafe("turn-2"),
+  };
+
+  it("prefers the latest renderable work activity during running turn churn", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "turn-1-tool",
+        createdAt: "2026-02-27T21:10:01.000Z",
+        kind: "tool.completed",
+        summary: "Ran tool",
+        tone: "tool",
+        turnId: "turn-1",
+      }),
+      makeActivity({
+        id: "turn-2-task-started",
+        createdAt: "2026-02-27T21:10:02.000Z",
+        kind: "task.started",
+        summary: "Task started",
+        tone: "info",
+        turnId: "turn-2",
+      }),
+    ];
+
+    const visibleTurnId = deriveVisibleWorkTurnId(
+      {
+        turnId: TurnId.makeUnsafe("turn-2"),
+        startedAt: "2026-02-27T21:10:02.000Z",
+        completedAt: null,
+      },
+      runningSession,
+      activities,
+    );
+
+    expect(visibleTurnId).toBe(TurnId.makeUnsafe("turn-1"));
+    expect(deriveWorkLogEntries(activities, visibleTurnId).map((entry) => entry.id)).toEqual([
+      "turn-1-tool",
+    ]);
+  });
+
+  it("falls back to the active session turn when no renderable work activity exists yet", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "turn-2-task-started",
+        createdAt: "2026-02-27T21:10:02.000Z",
+        kind: "task.started",
+        summary: "Task started",
+        tone: "info",
+        turnId: "turn-2",
+      }),
+    ];
+
+    expect(
+      deriveVisibleWorkTurnId(
+        {
+          turnId: TurnId.makeUnsafe("turn-2"),
+          startedAt: "2026-02-27T21:10:02.000Z",
+          completedAt: null,
+        },
+        runningSession,
+        activities,
+      ),
+    ).toBe(TurnId.makeUnsafe("turn-2"));
+  });
+
+  it("uses the settled latest turn once the session is no longer running", () => {
+    expect(
+      deriveVisibleWorkTurnId(
+        {
+          turnId: TurnId.makeUnsafe("turn-2"),
+          startedAt: "2026-02-27T21:10:02.000Z",
+          completedAt: "2026-02-27T21:10:06.000Z",
+        },
+        {
+          orchestrationStatus: "ready",
+          activeTurnId: undefined,
+        },
+        [
+          makeActivity({
+            id: "turn-1-tool",
+            turnId: "turn-1",
+            kind: "tool.completed",
+            tone: "tool",
+          }),
+        ],
+      ),
+    ).toBe(TurnId.makeUnsafe("turn-2"));
   });
 });
 

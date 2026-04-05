@@ -240,6 +240,40 @@ describe("wsNativeApi", () => {
     expect(onDomainEvent).toHaveBeenCalledWith(orchestrationEvent);
   });
 
+  it("defaults orchestration snapshot requests to an empty rpc payload", async () => {
+    rpcClientMock.orchestration.getSnapshot.mockResolvedValue({
+      snapshotSequence: 1,
+      updatedAt: "2026-02-24T00:00:00.000Z",
+      projects: [],
+      threads: [],
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.orchestration.getSnapshot();
+
+    expect(rpcClientMock.orchestration.getSnapshot).toHaveBeenCalledWith(undefined);
+  });
+
+  it("forwards snapshot hydration input to the orchestration rpc", async () => {
+    rpcClientMock.orchestration.getSnapshot.mockResolvedValue({
+      snapshotSequence: 1,
+      updatedAt: "2026-02-24T00:00:00.000Z",
+      projects: [],
+      threads: [],
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.orchestration.getSnapshot({
+      hydrateThreadId: ThreadId.makeUnsafe("thread-1"),
+    });
+
+    expect(rpcClientMock.orchestration.getSnapshot).toHaveBeenCalledWith({
+      hydrateThreadId: "thread-1",
+    });
+  });
+
   it("sends orchestration dispatch commands as the direct RPC payload", async () => {
     rpcClientMock.orchestration.dispatchCommand.mockResolvedValue({ sequence: 1 });
     const { createWsNativeApi } = await import("./wsNativeApi");

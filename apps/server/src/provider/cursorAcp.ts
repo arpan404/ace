@@ -43,6 +43,7 @@ export interface CursorAcpClient {
     params?: unknown,
     options?: CursorAcpRequestOptions,
   ) => Promise<unknown>;
+  notify: (method: string, params?: unknown) => void;
   respond: (id: CursorAcpJsonRpcId, result: unknown) => void;
   respondError: (id: CursorAcpJsonRpcId, code: number, message: string) => void;
   setNotificationHandler: (handler: (notification: CursorAcpNotification) => void) => void;
@@ -64,6 +65,55 @@ export interface StartCursorAcpClientOptions {
 
 function writeJsonLine(child: ChildProcessWithoutNullStreams, payload: unknown): void {
   child.stdin.write(`${JSON.stringify(payload)}\n`);
+}
+
+function isJsonRpcId(value: unknown): value is CursorAcpJsonRpcId {
+  return typeof value === "string" || typeof value === "number";
+}
+
+function readJsonRpcError(value: unknown): JsonRpcError | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const code = typeof record.code === "number" ? record.code : undefined;
+  const message = typeof record.message === "string" ? record.message : undefined;
+
+  if (("code" in record && code === undefined) || ("message" in record && message === undefined)) {
+    return undefined;
+  }
+
+  return {
+    ...(code !== undefined ? { code } : {}),
+    ...(message !== undefined ? { message } : {}),
+  };
+}
+
+function parseJsonRpcResponse(message: Record<string, unknown>): JsonRpcResponse | undefined {
+  if (!isJsonRpcId(message.id) || (!("result" in message) && !("error" in message))) {
+    return undefined;
+  }
+
+  if ("error" in message) {
+    const error = readJsonRpcError(message.error);
+    if (message.error !== undefined && error === undefined) {
+      return undefined;
+    }
+    return {
+      id: message.id,
+      ...("result" in message ? { result: message.result } : {}),
+      ...(error ? { error } : {}),
+    };
+  }
+
+  return {
+    id: message.id,
+    ...("result" in message ? { result: message.result } : {}),
+  };
 }
 
 export function startCursorAcpClient(options: StartCursorAcpClientOptions): CursorAcpClient {
@@ -108,24 +158,21 @@ export function startCursorAcpClient(options: StartCursorAcpClientOptions): Curs
       return;
     }
 
-    if (!parsed || typeof parsed !== "object") {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return;
     }
 
     const message = parsed as Record<string, unknown>;
-    if (
-      (typeof message.id === "string" || typeof message.id === "number") &&
-      ("result" in message || "error" in message)
-    ) {
-      const pendingRequest = pending.get(message.id);
+    const response = parseJsonRpcResponse(message);
+    if (response) {
+      const pendingRequest = pending.get(response.id);
       if (!pendingRequest) {
         return;
       }
-      pending.delete(message.id);
+      pending.delete(response.id);
       if (pendingRequest.timeout) {
         clearTimeout(pendingRequest.timeout);
       }
-      const response = message as unknown as JsonRpcResponse;
       if (response.error) {
         pendingRequest.reject(
           new Error(response.error.message ?? `ACP request failed (${pendingRequest.method})`),
@@ -135,12 +182,16 @@ export function startCursorAcpClient(options: StartCursorAcpClientOptions): Curs
       pendingRequest.resolve(response.result);
       return;
     }
+    if (isJsonRpcId(message.id) && ("result" in message || "error" in message)) {
+      protocolErrorHandler?.(new Error("Received malformed ACP JSON-RPC response."));
+      return;
+    }
 
     if (typeof message.method !== "string") {
       return;
     }
 
-    if (typeof message.id === "string" || typeof message.id === "number") {
+    if (isJsonRpcId(message.id)) {
       requestHandler?.({
         id: message.id,
         method: message.method,
@@ -188,6 +239,9 @@ export function startCursorAcpClient(options: StartCursorAcpClientOptions): Curs
         });
         writeJsonLine(child, { jsonrpc: "2.0", id, method, params });
       });
+    },
+    notify(method, params) {
+      writeJsonLine(child, { jsonrpc: "2.0", method, params });
     },
     respond(id, result) {
       writeJsonLine(child, { jsonrpc: "2.0", id, result });

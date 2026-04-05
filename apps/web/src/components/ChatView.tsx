@@ -61,6 +61,7 @@ import {
   derivePhase,
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
+  deriveVisibleWorkTurnId,
   deriveActivePlanState,
   findSidebarProposedPlan,
   findLatestProposedPlan,
@@ -74,6 +75,7 @@ import { isScrollContainerNearBottom } from "../chat-scroll";
 import {
   buildPendingUserInputAnswers,
   derivePendingUserInputProgress,
+  selectPendingUserInputOption,
   setPendingUserInputCustomAnswer,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
@@ -888,9 +890,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const selectedModelForPicker = selectedModel;
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
+  const activeWorkTurnId = useMemo(
+    () =>
+      deriveVisibleWorkTurnId(activeLatestTurn, activeThread?.session ?? null, threadActivities),
+    [activeLatestTurn, activeThread?.session, threadActivities],
+  );
   const workLogEntries = useMemo(
-    () => deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined),
-    [activeLatestTurn?.turnId, threadActivities],
+    () => deriveWorkLogEntries(threadActivities, activeWorkTurnId),
+    [activeWorkTurnId, threadActivities],
   );
   const latestTurnHasToolActivity = useMemo(
     () => hasToolActivityForTurn(threadActivities, activeLatestTurn?.turnId),
@@ -957,8 +964,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [activeLatestTurn, activeThread?.id, latestTurnSettled, threadPlanCatalog],
   );
   const activePlan = useMemo(
-    () => deriveActivePlanState(threadActivities, activeLatestTurn?.turnId ?? undefined),
-    [activeLatestTurn?.turnId, threadActivities],
+    () => deriveActivePlanState(threadActivities, activeWorkTurnId),
+    [activeWorkTurnId, threadActivities],
   );
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
@@ -4115,14 +4122,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (!activePendingUserInput) {
         return;
       }
+      const question = activePendingUserInput.questions.find((entry) => entry.id === questionId);
+      if (!question) {
+        return;
+      }
       setPendingUserInputAnswersByRequestId((existing) => ({
         ...existing,
         [activePendingUserInput.requestId]: {
           ...existing[activePendingUserInput.requestId],
-          [questionId]: {
-            selectedOptionLabel: optionLabel,
-            customAnswer: "",
-          },
+          [questionId]: selectPendingUserInputOption(
+            question,
+            existing[activePendingUserInput.requestId]?.[questionId],
+            optionLabel,
+          ),
         },
       }));
       promptRef.current = "";
@@ -4832,8 +4844,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
           {/* Top bar */}
           <header
             className={cn(
-              "border-b border-border px-3 sm:px-5",
-              isElectron ? "drag-region flex h-13 items-center" : "py-2 sm:py-3",
+              "border-b border-border/70 bg-background/95 px-3 sm:px-5 supports-[backdrop-filter]:bg-background/84 supports-[backdrop-filter]:backdrop-blur-md",
+              isElectron ? "drag-region flex h-13 items-center" : "py-2.5 sm:py-3",
             )}
           >
             <ChatHeader

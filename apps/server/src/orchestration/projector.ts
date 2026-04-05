@@ -7,7 +7,7 @@ import {
 } from "@t3tools/contracts";
 import { Effect, Schema } from "effect";
 
-import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
+import { OrchestrationProjectorDecodeError, toProjectorDecodeError } from "./Errors.ts";
 import {
   MessageSentPayloadSchema,
   ProjectCreatedPayload,
@@ -46,14 +46,21 @@ function updateThread(
 }
 
 function decodeForEvent<A>(
-  schema: Schema.Schema<A>,
+  schema: Schema.Decoder<A>,
   value: unknown,
   eventType: OrchestrationEvent["type"],
   field: string,
 ): Effect.Effect<A, OrchestrationProjectorDecodeError> {
-  return Effect.try({
-    try: () => Schema.decodeUnknownSync(schema as any)(value),
-    catch: (error) => toProjectorDecodeError(`${eventType}:${field}`)(error as Schema.SchemaError),
+  return Effect.try<A, OrchestrationProjectorDecodeError>({
+    try: () => Schema.decodeUnknownSync(schema)(value),
+    catch: (error) =>
+      Schema.isSchemaError(error)
+        ? toProjectorDecodeError(`${eventType}:${field}`)(error)
+        : new OrchestrationProjectorDecodeError({
+            eventType: `${eventType}:${field}`,
+            issue: String(error),
+            cause: error,
+          }),
   });
 }
 

@@ -176,7 +176,18 @@ function mapTurnDiffSummary(
   };
 }
 
-function mapThread(thread: OrchestrationThread): Thread {
+export interface SnapshotSyncOptions {
+  hydrateThreadId?: ThreadId | null;
+}
+
+function resolveThreadHistoryLoaded(threadId: ThreadId, options?: SnapshotSyncOptions): boolean {
+  if (options === undefined || !Object.prototype.hasOwnProperty.call(options, "hydrateThreadId")) {
+    return true;
+  }
+  return options.hydrateThreadId !== null && options.hydrateThreadId === threadId;
+}
+
+function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): Thread {
   return {
     id: thread.id,
     codexThreadId: null,
@@ -196,6 +207,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    historyLoaded: resolveThreadHistoryLoaded(thread.id, options),
     queuedComposerMessages: thread.queuedComposerMessages.map(mapQueuedComposerMessage),
     queuedSteerRequest: thread.queuedSteerRequest ? { ...thread.queuedSteerRequest } : null,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
@@ -597,11 +609,17 @@ function updateThreadState(
 
 // ── Pure state transition functions ────────────────────────────────────
 
-export function syncServerReadModel(state: AppState, readModel: OrchestrationReadModel): AppState {
+export function syncServerReadModel(
+  state: AppState,
+  readModel: OrchestrationReadModel,
+  options?: SnapshotSyncOptions,
+): AppState {
   const projects = readModel.projects
     .filter((project) => project.deletedAt === null)
     .map(mapProject);
-  const threads = readModel.threads.filter((thread) => thread.deletedAt === null).map(mapThread);
+  const threads = readModel.threads
+    .filter((thread) => thread.deletedAt === null)
+    .map((thread) => mapThread(thread, options));
   const sidebarThreadsById = buildSidebarThreadsById(threads);
   const threadIdsByProjectId = buildThreadIdsByProjectId(threads);
   return {
@@ -611,6 +629,49 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     sidebarThreadsById,
     threadIdsByProjectId,
     bootstrapComplete: true,
+  };
+}
+
+export function hydrateThreadFromReadModel(
+  state: AppState,
+  readModelThread: OrchestrationReadModel["threads"][number],
+): AppState {
+  if (readModelThread.deletedAt !== null) {
+    return state;
+  }
+
+  const nextThread = mapThread(readModelThread, { hydrateThreadId: readModelThread.id });
+  const existingThread = state.threads.find((thread) => thread.id === nextThread.id);
+  const threads = existingThread
+    ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
+    : [...state.threads, nextThread];
+  const nextSummary = buildSidebarThreadSummary(nextThread);
+  const previousSummary = state.sidebarThreadsById[nextThread.id];
+  const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
+    ? state.sidebarThreadsById
+    : {
+        ...state.sidebarThreadsById,
+        [nextThread.id]: nextSummary,
+      };
+  const nextThreadIdsByProjectId =
+    existingThread !== undefined && existingThread.projectId !== nextThread.projectId
+      ? removeThreadIdByProjectId(
+          state.threadIdsByProjectId,
+          existingThread.projectId,
+          existingThread.id,
+        )
+      : state.threadIdsByProjectId;
+  const threadIdsByProjectId = appendThreadIdByProjectId(
+    nextThreadIdsByProjectId,
+    nextThread.projectId,
+    nextThread.id,
+  );
+
+  return {
+    ...state,
+    threads,
+    sidebarThreadsById,
+    threadIdsByProjectId,
   };
 }
 
@@ -1198,7 +1259,8 @@ export function setThreadQueueState(
 // ── Zustand store ────────────────────────────────────────────────────
 
 interface AppStore extends AppState {
-  syncServerReadModel: (readModel: OrchestrationReadModel) => void;
+  syncServerReadModel: (readModel: OrchestrationReadModel, options?: SnapshotSyncOptions) => void;
+  hydrateThreadFromReadModel: (readModelThread: OrchestrationReadModel["threads"][number]) => void;
   applyOrchestrationEvent: (event: OrchestrationEvent) => void;
   applyOrchestrationEvents: (events: ReadonlyArray<OrchestrationEvent>) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
@@ -1212,7 +1274,10 @@ interface AppStore extends AppState {
 
 export const useStore = create<AppStore>((set) => ({
   ...initialState,
-  syncServerReadModel: (readModel) => set((state) => syncServerReadModel(state, readModel)),
+  syncServerReadModel: (readModel, options) =>
+    set((state) => syncServerReadModel(state, readModel, options)),
+  hydrateThreadFromReadModel: (readModelThread) =>
+    set((state) => hydrateThreadFromReadModel(state, readModelThread)),
   applyOrchestrationEvent: (event) => set((state) => applyOrchestrationEvent(state, event)),
   applyOrchestrationEvents: (events) => set((state) => applyOrchestrationEvents(state, events)),
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),

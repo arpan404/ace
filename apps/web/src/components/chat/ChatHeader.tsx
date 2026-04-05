@@ -4,7 +4,7 @@ import {
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@t3tools/contracts";
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { BugIcon, DiffIcon, GlobeIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
@@ -14,6 +14,7 @@ import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { OpenInPicker } from "./OpenInPicker";
 import { WorkspaceModeToggle } from "../editor/WorkspaceModeToggle";
+import { TopBarCluster, interleaveTopBarItems } from "../thread/TopBarCluster";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 interface ChatHeaderProps {
@@ -79,137 +80,163 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleDiff,
   onWorkspaceModeChange,
 }: ChatHeaderProps) {
+  const workspaceActionItems: ReactNode[] = [
+    activeProjectScripts ? (
+      <ProjectScriptsControl
+        key="scripts"
+        scripts={activeProjectScripts}
+        keybindings={keybindings}
+        preferredScriptId={preferredScriptId}
+        onRunScript={onRunProjectScript}
+        onAddScript={onAddProjectScript}
+        onUpdateScript={onUpdateProjectScript}
+        onDeleteScript={onDeleteProjectScript}
+      />
+    ) : null,
+    activeProjectName ? (
+      <OpenInPicker
+        key="open-in"
+        keybindings={keybindings}
+        availableEditors={availableEditors}
+        openInCwd={openInCwd}
+      />
+    ) : null,
+    activeProjectName ? (
+      <GitActionsControl key="git" gitCwd={gitCwd} activeThreadId={activeThreadId} />
+    ) : null,
+  ];
+  const workspaceActionNodes = interleaveTopBarItems(workspaceActionItems);
+  const utilityItems = interleaveTopBarItems([
+    browserAvailable ? (
+      <Tooltip key="browser">
+        <TooltipTrigger
+          render={
+            <Toggle
+              className="shrink-0 rounded-xl"
+              pressed={browserOpen}
+              onPressedChange={(pressed) => {
+                if (!pressed) {
+                  onCloseBrowser();
+                }
+              }}
+              onDoubleClick={onOpenBrowser}
+              aria-label={browserOpen ? "Close in-app browser" : "Open in-app browser"}
+              variant="default"
+              size="xs"
+            >
+              <span className="relative flex items-center justify-center">
+                <GlobeIcon className="size-3" />
+                {browserOpen && browserDevToolsOpen ? (
+                  <span className="absolute -top-1 -right-1 flex size-3 items-center justify-center rounded-full border border-background bg-amber-500 text-amber-950 shadow-sm">
+                    <BugIcon className="size-2" />
+                  </span>
+                ) : null}
+              </span>
+            </Toggle>
+          }
+        />
+        <TooltipPopup side="bottom">
+          {browserOpen
+            ? browserToggleShortcutLabel
+              ? `${browserDevToolsOpen ? "Close in-app browser · DevTools open" : "Close in-app browser"} (${browserToggleShortcutLabel})`
+              : browserDevToolsOpen
+                ? "Close in-app browser · DevTools open"
+                : "Close in-app browser"
+            : browserToggleShortcutLabel
+              ? `Double-click to open in-app browser (${browserToggleShortcutLabel})`
+              : "Double-click to open in-app browser"}
+        </TooltipPopup>
+      </Tooltip>
+    ) : null,
+    <Tooltip key="terminal">
+      <TooltipTrigger
+        render={
+          <Toggle
+            className="shrink-0 rounded-xl"
+            pressed={terminalOpen}
+            onPressedChange={onToggleTerminal}
+            aria-label="Toggle terminal drawer"
+            variant="default"
+            size="xs"
+            disabled={!terminalAvailable}
+          >
+            <TerminalSquareIcon className="size-3" />
+          </Toggle>
+        }
+      />
+      <TooltipPopup side="bottom">
+        {!terminalAvailable
+          ? "Terminal is unavailable until this thread has an active project."
+          : terminalToggleShortcutLabel
+            ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
+            : "Toggle terminal drawer"}
+      </TooltipPopup>
+    </Tooltip>,
+    <Tooltip key="diff">
+      <TooltipTrigger
+        render={
+          <Toggle
+            className="shrink-0 rounded-xl"
+            pressed={diffOpen}
+            onPressedChange={onToggleDiff}
+            aria-label="Toggle diff panel"
+            variant="default"
+            size="xs"
+            disabled={!isGitRepo}
+          >
+            <DiffIcon className="size-3" />
+          </Toggle>
+        }
+      />
+      <TooltipPopup side="bottom">
+        {!isGitRepo
+          ? "Diff panel is unavailable because this project is not a git repository."
+          : diffToggleShortcutLabel
+            ? `Toggle diff panel (${diffToggleShortcutLabel})`
+            : "Toggle diff panel"}
+      </TooltipPopup>
+    </Tooltip>,
+  ]);
+
   return (
-    <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
+    <div className="@container/header-actions flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
         <SidebarTrigger className="size-7 shrink-0 md:hidden" />
-        <h2
-          className="min-w-0 shrink truncate text-sm font-medium text-foreground"
-          title={activeThreadTitle}
-        >
-          {activeThreadTitle}
-        </h2>
-        {activeProjectName && (
-          <Badge variant="outline" className="min-w-0 shrink overflow-hidden">
-            <span className="min-w-0 truncate">{activeProjectName}</span>
-          </Badge>
-        )}
-        {activeProjectName && !isGitRepo && (
-          <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
-            No Git
-          </Badge>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3">
-        <WorkspaceModeToggle mode={workspaceMode} onModeChange={onWorkspaceModeChange} />
-        {activeProjectScripts && (
-          <ProjectScriptsControl
-            scripts={activeProjectScripts}
-            keybindings={keybindings}
-            preferredScriptId={preferredScriptId}
-            onRunScript={onRunProjectScript}
-            onAddScript={onAddProjectScript}
-            onUpdateScript={onUpdateProjectScript}
-            onDeleteScript={onDeleteProjectScript}
-          />
-        )}
-        {activeProjectName && (
-          <OpenInPicker
-            keybindings={keybindings}
-            availableEditors={availableEditors}
-            openInCwd={openInCwd}
-          />
-        )}
-        {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />}
-        {browserAvailable && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Toggle
-                  className="shrink-0"
-                  pressed={browserOpen}
-                  onPressedChange={(pressed) => {
-                    if (!pressed) {
-                      onCloseBrowser();
-                    }
-                  }}
-                  onDoubleClick={onOpenBrowser}
-                  aria-label={browserOpen ? "Close in-app browser" : "Open in-app browser"}
+        <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2.5">
+          <h2
+            className="min-w-0 shrink truncate text-sm leading-none font-medium text-foreground"
+            title={activeThreadTitle}
+          >
+            {activeThreadTitle}
+          </h2>
+          {activeProjectName && (
+            <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+              {activeProjectName && (
+                <Badge
                   variant="outline"
-                  size="xs"
+                  size="sm"
+                  className="min-w-0 max-w-48 shrink overflow-hidden text-muted-foreground/85"
                 >
-                  <span className="relative flex items-center justify-center">
-                    <GlobeIcon className="size-3" />
-                    {browserOpen && browserDevToolsOpen ? (
-                      <span className="absolute -top-1 -right-1 flex size-3 items-center justify-center rounded-full border border-background bg-amber-500 text-amber-950 shadow-sm">
-                        <BugIcon className="size-2" />
-                      </span>
-                    ) : null}
-                  </span>
-                </Toggle>
-              }
-            />
-            <TooltipPopup side="bottom">
-              {browserOpen
-                ? browserToggleShortcutLabel
-                  ? `${browserDevToolsOpen ? "Close in-app browser · DevTools open" : "Close in-app browser"} (${browserToggleShortcutLabel})`
-                  : browserDevToolsOpen
-                    ? "Close in-app browser · DevTools open"
-                    : "Close in-app browser"
-                : browserToggleShortcutLabel
-                  ? `Double-click to open in-app browser (${browserToggleShortcutLabel})`
-                  : "Double-click to open in-app browser"}
-            </TooltipPopup>
-          </Tooltip>
-        )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                className="shrink-0"
-                pressed={terminalOpen}
-                onPressedChange={onToggleTerminal}
-                aria-label="Toggle terminal drawer"
-                variant="outline"
-                size="xs"
-                disabled={!terminalAvailable}
-              >
-                <TerminalSquareIcon className="size-3" />
-              </Toggle>
-            }
-          />
-          <TooltipPopup side="bottom">
-            {!terminalAvailable
-              ? "Terminal is unavailable until this thread has an active project."
-              : terminalToggleShortcutLabel
-                ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
-                : "Toggle terminal drawer"}
-          </TooltipPopup>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                className="shrink-0"
-                pressed={diffOpen}
-                onPressedChange={onToggleDiff}
-                aria-label="Toggle diff panel"
-                variant="outline"
-                size="xs"
-                disabled={!isGitRepo}
-              >
-                <DiffIcon className="size-3" />
-              </Toggle>
-            }
-          />
-          <TooltipPopup side="bottom">
-            {!isGitRepo
-              ? "Diff panel is unavailable because this project is not a git repository."
-              : diffToggleShortcutLabel
-                ? `Toggle diff panel (${diffToggleShortcutLabel})`
-                : "Toggle diff panel"}
-          </TooltipPopup>
-        </Tooltip>
+                  <span className="min-w-0 truncate">{activeProjectName}</span>
+                </Badge>
+              )}
+              {activeProjectName && !isGitRepo && (
+                <Badge variant="warning" size="sm" className="shrink-0">
+                  No Git
+                </Badge>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 @3xl/header-actions:w-auto @3xl/header-actions:min-w-fit @3xl/header-actions:justify-end">
+        <WorkspaceModeToggle mode={workspaceMode} onModeChange={onWorkspaceModeChange} />
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          {workspaceActionNodes.length > 0 ? (
+            <TopBarCluster className="max-w-full">{workspaceActionNodes}</TopBarCluster>
+          ) : null}
+          <TopBarCluster>{utilityItems}</TopBarCluster>
+        </div>
       </div>
     </div>
   );

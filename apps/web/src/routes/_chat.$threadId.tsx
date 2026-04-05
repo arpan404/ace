@@ -18,6 +18,7 @@ import {
 } from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useStore } from "../store";
+import { ensureNativeApi } from "../nativeApi";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 
@@ -71,6 +72,14 @@ const LazyDiffPanel = (props: { mode: DiffPanelMode }) => {
     </DiffWorkerPoolProvider>
   );
 };
+
+const ThreadRouteLoadingState = () => (
+  <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      Loading thread...
+    </div>
+  </SidebarInset>
+);
 
 const DiffPanelInlineSidebar = (props: {
   diffOpen: boolean;
@@ -162,12 +171,14 @@ const DiffPanelInlineSidebar = (props: {
 
 function ChatThreadRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
+  const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
   const navigate = useNavigate();
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
   const search = Route.useSearch();
-  const threadExists = useStore((store) => store.threads.some((thread) => thread.id === threadId));
+  const serverThread = useStore((store) => store.threads.find((thread) => thread.id === threadId));
+  const threadExists = serverThread !== undefined;
   const draftThreadExists = useComposerDraftStore((store) =>
     Object.hasOwn(store.draftThreadsByThreadId, threadId),
   );
@@ -177,6 +188,8 @@ function ChatThreadRouteView() {
   // TanStack Router keeps active route components mounted across param-only navigations
   // unless remountDeps are configured, so this stays warm across thread switches.
   const [hasOpenedDiff, setHasOpenedDiff] = useState(diffOpen);
+  const [hydratingThreadId, setHydratingThreadId] = useState<ThreadId | null>(null);
+  const [threadHydrationFailed, setThreadHydrationFailed] = useState(false);
   const closeDiff = useCallback(() => {
     void navigate({
       to: "/$threadId",
@@ -202,6 +215,11 @@ function ChatThreadRouteView() {
   }, [diffOpen]);
 
   useEffect(() => {
+    setThreadHydrationFailed(false);
+    setHydratingThreadId(null);
+  }, [threadId]);
+
+  useEffect(() => {
     if (!bootstrapComplete) {
       return;
     }
@@ -212,8 +230,65 @@ function ChatThreadRouteView() {
     }
   }, [bootstrapComplete, navigate, routeThreadExists, threadId]);
 
+  useEffect(() => {
+    if (
+      !bootstrapComplete ||
+      !serverThread ||
+      serverThread.historyLoaded !== false ||
+      threadHydrationFailed ||
+      hydratingThreadId === threadId
+    ) {
+      return;
+    }
+
+    let canceled = false;
+    setHydratingThreadId(threadId);
+    void (async () => {
+      try {
+        const snapshot = await ensureNativeApi().orchestration.getSnapshot({
+          hydrateThreadId: threadId,
+        });
+        const readModelThread = snapshot.threads.find((thread) => thread.id === threadId);
+        if (canceled) {
+          return;
+        }
+        if (!readModelThread || readModelThread.deletedAt !== null) {
+          void navigate({ to: "/", replace: true });
+          return;
+        }
+        hydrateThreadFromReadModel(readModelThread);
+      } catch {
+        if (!canceled) {
+          setThreadHydrationFailed(true);
+        }
+      } finally {
+        if (!canceled) {
+          setHydratingThreadId((current) => (current === threadId ? null : current));
+        }
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, [
+    bootstrapComplete,
+    hydrateThreadFromReadModel,
+    hydratingThreadId,
+    navigate,
+    serverThread,
+    threadHydrationFailed,
+    threadId,
+  ]);
+
   if (!bootstrapComplete || !routeThreadExists) {
     return null;
+  }
+
+  const shouldBlockOnThreadHydration =
+    serverThread !== undefined && serverThread.historyLoaded === false && !threadHydrationFailed;
+  if (shouldBlockOnThreadHydration) {
+    return <ThreadRouteLoadingState />;
   }
 
   const shouldRenderDiffContent = diffOpen || hasOpenedDiff;

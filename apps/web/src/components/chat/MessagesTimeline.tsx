@@ -1,27 +1,8 @@
 import { type MessageId, type TurnId } from "@t3tools/contracts";
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import {
-  measureElement as measureVirtualElement,
-  type VirtualItem,
-  useVirtualizer,
-} from "@tanstack/react-virtual";
+import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { deriveTimelineEntries, formatElapsed } from "../../session-logic";
-import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX } from "../../chat-scroll";
 import { type TurnDiffSummary } from "../../types";
-import {
-  buildTurnDiffTree,
-  summarizeTurnDiffStats,
-  type TurnDiffTreeNode,
-} from "../../lib/turnDiffTree";
+import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
@@ -40,8 +21,6 @@ import {
   ZapIcon,
 } from "lucide-react";
 import { Button } from "../ui/button";
-import { clamp } from "effect/Number";
-import { estimateTimelineMessageHeight } from "~/lib/chat/timelineHeight";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
@@ -68,8 +47,6 @@ import {
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 const LARGE_TOOL_GROUP_SUMMARY_THRESHOLD = 10;
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
-const TURN_DIFF_CARD_CHROME_HEIGHT_PX = 88;
-const TURN_DIFF_TREE_ROW_HEIGHT_PX = 26;
 
 interface MessagesTimelineProps {
   hasMessages: boolean;
@@ -100,7 +77,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isWorking,
   activeTurnInProgress,
   activeTurnStartedAt,
-  scrollContainer,
+  scrollContainer: _scrollContainer,
   timelineEntries,
   completionDividerBeforeEntryId,
   completionSummary,
@@ -118,34 +95,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
 }: MessagesTimelineProps) {
-  const timelineRootRef = useRef<HTMLDivElement | null>(null);
-  const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
-
-  useLayoutEffect(() => {
-    const timelineRoot = timelineRootRef.current;
-    if (!timelineRoot) return;
-
-    const updateWidth = (nextWidth: number) => {
-      setTimelineWidthPx((previousWidth) => {
-        if (previousWidth !== null && Math.abs(previousWidth - nextWidth) < 0.5) {
-          return previousWidth;
-        }
-        return nextWidth;
-      });
-    };
-
-    updateWidth(timelineRoot.getBoundingClientRect().width);
-
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      updateWidth(timelineRoot.getBoundingClientRect().width);
-    });
-    observer.observe(timelineRoot);
-    return () => {
-      observer.disconnect();
-    };
-  }, [hasMessages, isWorking]);
-
   const rows = useMemo<TimelineRow[]>(() => {
     const nextRows: TimelineRow[] = [];
     const durationStartByMessageId = computeMessageDurationStart(
@@ -238,6 +187,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         continue;
       }
 
+      if (
+        timelineEntry.message.role === "assistant" &&
+        shouldSkipAssistantMessageRow(
+          timelineEntry.message,
+          turnDiffSummaryByAssistantMessageId.get(timelineEntry.message.id),
+        )
+      ) {
+        continue;
+      }
+
       nextRows.push({
         kind: "message",
         id: timelineEntry.id,
@@ -266,89 +225,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     isWorking,
     activeTurnStartedAt,
     activeTurnInProgress,
+    turnDiffSummaryByAssistantMessageId,
   ]);
-
-  const firstUnvirtualizedRowIndex = useMemo(
-    () =>
-      deriveFirstUnvirtualizedTimelineRowIndex(rows, {
-        activeTurnInProgress,
-        activeTurnStartedAt,
-        preserveCurrentTurnTail: isWorking,
-      }),
-    [activeTurnInProgress, activeTurnStartedAt, isWorking, rows],
-  );
-
-  const virtualizedRowCount = clamp(firstUnvirtualizedRowIndex, {
-    minimum: 0,
-    maximum: rows.length,
-  });
-
-  const rowVirtualizer = useVirtualizer({
-    count: virtualizedRowCount,
-    getScrollElement: () => scrollContainer,
-    // Use stable row ids so virtual measurements do not leak across thread switches.
-    getItemKey: (index: number) => rows[index]?.id ?? index,
-    estimateSize: (index: number) => {
-      const row = rows[index];
-      if (!row) return 96;
-      if (row.kind === "work") return 112;
-      if (row.kind === "intent-work") return 160;
-      if (row.kind === "intent") return 76;
-      if (row.kind === "proposed-plan") return estimateTimelineProposedPlanHeight(row.proposedPlan);
-      if (row.kind === "working") return 40;
-      const messageEstimate = estimateTimelineMessageHeight(row.message, { timelineWidthPx });
-      if (row.message.role !== "assistant") {
-        return messageEstimate;
-      }
-      return (
-        messageEstimate +
-        estimateTurnDiffSummaryHeight(turnDiffSummaryByAssistantMessageId.get(row.message.id))
-      );
-    },
-    measureElement: measureVirtualElement,
-    useAnimationFrameWithResizeObserver: true,
-    overscan: 8,
-  });
-  useEffect(() => {
-    if (timelineWidthPx === null) return;
-    rowVirtualizer.measure();
-  }, [rowVirtualizer, timelineWidthPx]);
-  useEffect(() => {
-    rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
-      const viewportHeight = instance.scrollRect?.height ?? 0;
-      const scrollOffset = instance.scrollOffset ?? 0;
-      const itemIntersectsViewport =
-        item.end > scrollOffset && item.start < scrollOffset + viewportHeight;
-      if (itemIntersectsViewport) {
-        return false;
-      }
-      const remainingDistance = instance.getTotalSize() - (scrollOffset + viewportHeight);
-      return remainingDistance > AUTO_SCROLL_BOTTOM_THRESHOLD_PX;
-    };
-    return () => {
-      rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = undefined;
-    };
-  }, [rowVirtualizer]);
-  const pendingMeasureFrameRef = useRef<number | null>(null);
-  const scheduleTimelineMeasure = useCallback(() => {
-    if (pendingMeasureFrameRef.current !== null) return;
-    pendingMeasureFrameRef.current = window.requestAnimationFrame(() => {
-      pendingMeasureFrameRef.current = null;
-      rowVirtualizer.measure();
-    });
-  }, [rowVirtualizer]);
-  const onTimelineImageLoad = scheduleTimelineMeasure;
-  useEffect(() => {
-    return () => {
-      const frame = pendingMeasureFrameRef.current;
-      if (frame !== null) {
-        window.cancelAnimationFrame(frame);
-      }
-    };
-  }, []);
-
-  const virtualRows = rowVirtualizer.getVirtualItems();
-  const nonVirtualizedRows = rows.slice(virtualizedRowCount);
   const lastExpandableWorkRowId = useMemo(() => {
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index];
@@ -361,58 +239,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
     Record<string, boolean>
   >({});
-  const onToggleAllDirectories = useCallback(
-    (turnId: TurnId) => {
-      setAllDirectoriesExpandedByTurnId((current) => ({
-        ...current,
-        [turnId]: !(current[turnId] ?? true),
-      }));
-      scheduleTimelineMeasure();
-    },
-    [scheduleTimelineMeasure],
-  );
-  useEffect(() => {
-    scheduleTimelineMeasure();
-  }, [scheduleTimelineMeasure, turnDiffSummaryByAssistantMessageId]);
+  const onToggleAllDirectories = useCallback((turnId: TurnId) => {
+    setAllDirectoriesExpandedByTurnId((current) => ({
+      ...current,
+      [turnId]: !(current[turnId] ?? true),
+    }));
+  }, []);
 
   const renderRowContent = (row: TimelineRow, rowIndex: number) => {
     const previousRow = rowIndex > 0 ? rows[rowIndex - 1] : undefined;
     const nextRow = rowIndex + 1 < rows.length ? rows[rowIndex + 1] : undefined;
-    const isUserMessageRow = row.kind === "message" && row.message.role === "user";
-    const usesThreadShell = !isUserMessageRow;
     const attachThinkingToStreamingAssistant =
       isThinkingWorkRow(row) && isStreamingAssistantMessageRow(nextRow);
     const attachStreamingAssistantToThinking =
       isStreamingAssistantMessageRow(row) && isThinkingWorkRow(previousRow);
     const attachWorkToFollowUp = isWorkContainerRow(row) && isWorkFollowUpRow(nextRow);
     const attachFollowUpToWork = isWorkFollowUpRow(row) && isWorkContainerRow(previousRow);
-    const threadMarkerClass =
-      row.kind === "message"
-        ? "border-border/70 bg-background"
-        : row.kind === "intent" || row.kind === "intent-work"
-          ? "border-primary/25 bg-primary/10"
-          : row.kind === "proposed-plan"
-            ? "border-emerald-500/30 bg-emerald-500/10"
-            : row.kind === "working"
-              ? "border-foreground/18 bg-foreground/24"
-              : row.groupedEntries.every((entry) => entry.tone === "thinking")
-                ? "border-amber-500/35 bg-amber-500/12"
-                : row.groupedEntries.some((entry) => entry.tone === "error")
-                  ? "border-rose-500/35 bg-rose-500/12"
-                  : row.groupedEntries.every((entry) => entry.tone === "tool")
-                    ? "border-border/70 bg-background"
-                    : "border-emerald-500/28 bg-emerald-500/10";
 
     return (
       <div
         className={cn(
-          "group/timeline relative pb-5",
-          usesThreadShell && "pl-10",
-          attachWorkToFollowUp && "pb-2",
-          attachThinkingToStreamingAssistant && "pb-2",
-          (attachStreamingAssistantToThinking || attachFollowUpToWork) && "-mt-1 pb-5",
+          "group/timeline relative pb-3",
+          attachWorkToFollowUp && "pb-1.5",
+          attachThinkingToStreamingAssistant && "pb-1.5",
+          (attachStreamingAssistantToThinking || attachFollowUpToWork) && "-mt-0.5 pb-3",
         )}
-        data-thread-row={usesThreadShell ? "true" : undefined}
         data-timeline-row-kind={row.kind}
         data-message-id={row.kind === "message" ? row.message.id : undefined}
         data-message-role={row.kind === "message" ? row.message.role : undefined}
@@ -429,21 +280,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             : undefined
         }
       >
-        {usesThreadShell && (
-          <>
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute bottom-0 left-[0.95rem] top-0 w-px bg-border/42"
-            />
-            <span
-              aria-hidden="true"
-              className={cn(
-                "pointer-events-none absolute left-2.5 top-3.5 size-3 rounded-full border ring-4 ring-background",
-                threadMarkerClass,
-              )}
-            />
-          </>
-        )}
         {row.kind === "work" &&
           (() => {
             const groupedEntries = row.groupedEntries;
@@ -641,8 +477,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         {row.kind === "intent" && (
           <div
             className={cn(
-              "min-w-0 px-1 py-0.5",
-              attachFollowUpToWork && "border-border/35 border-l pl-4",
+              "min-w-0 border-primary/18 border-l py-0.5 pr-1 pl-4",
+              attachFollowUpToWork && "border-border/35",
             )}
             data-intent-message="true"
             data-thread-attached-surface={attachFollowUpToWork ? "true" : undefined}
@@ -692,8 +528,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                                   src={image.previewUrl}
                                   alt={image.name}
                                   className="h-full max-h-55 w-full object-cover"
-                                  onLoad={onTimelineImageLoad}
-                                  onError={onTimelineImageLoad}
                                 />
                               </button>
                             ) : (
@@ -744,7 +578,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           row.message.role === "assistant" &&
           (() => {
             const messageText =
-              row.message.text || (row.message.streaming ? "" : "(empty response)");
+              row.message.text.trim().length > 0
+                ? row.message.text
+                : row.message.streaming
+                  ? ""
+                  : "(empty response)";
             return (
               <>
                 {row.showCompletionDivider && (
@@ -758,9 +596,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 )}
                 <div
                   className={cn(
-                    "min-w-0 px-1 py-0.5",
-                    (attachStreamingAssistantToThinking || attachFollowUpToWork) &&
-                      "border-border/35 border-l pl-4",
+                    "min-w-0 border-border/35 border-l py-0.5 pr-1 pl-4",
+                    attachStreamingAssistantToThinking && "border-amber-500/35",
                   )}
                   data-thread-attached-surface={
                     attachStreamingAssistantToThinking || attachFollowUpToWork ? "true" : undefined
@@ -830,7 +667,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           allDirectoriesExpanded={allDirectoriesExpanded}
                           resolvedTheme={resolvedTheme}
                           onOpenTurnDiff={onOpenTurnDiff}
-                          onLayoutChange={scheduleTimelineMeasure}
                         />
                       </div>
                     );
@@ -850,7 +686,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           })()}
 
         {row.kind === "proposed-plan" && (
-          <div className="min-w-0 px-1 py-0.5">
+          <div className="min-w-0 border-emerald-500/18 border-l py-0.5 pr-1 pl-4">
             <ProposedPlanCard
               planMarkdown={row.proposedPlan.planMarkdown}
               cwd={markdownCwd}
@@ -880,82 +716,23 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         )}
       </div>
     );
-
-    if (!hasMessages && !isWorking) {
-      return (
-        <div className="flex h-full items-center justify-center">
-          <p className="text-sm text-muted-foreground/30">
-            Send a message to start the conversation.
-          </p>
-        </div>
-      );
-    }
-
-    return (
-      <div
-        ref={timelineRootRef}
-        data-timeline-root="true"
-        className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
-      >
-        {virtualizedRowCount > 0 && (
-          <div className="relative" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-            {virtualRows.map((virtualRow: VirtualItem) => {
-              const row = rows[virtualRow.index];
-              if (!row) return null;
-
-              return (
-                <div
-                  key={`virtual-row:${row.id}`}
-                  data-index={virtualRow.index}
-                  ref={rowVirtualizer.measureElement}
-                  className="absolute left-0 top-0 w-full"
-                  style={{ transform: `translateY(${virtualRow.start}px)` }}
-                >
-                  {renderRowContent(row, virtualRow.index)}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {nonVirtualizedRows.map((row) => (
-          <div key={`non-virtual-row:${row.id}`}>{renderRowContent(row, rows.indexOf(row))}</div>
-        ))}
-      </div>
-    );
   };
 
+  if (!hasMessages && !isWorking) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-muted-foreground/30">
+          Send a message to start the conversation.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div
-      ref={timelineRootRef}
-      data-timeline-root="true"
-      className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
-    >
-      {virtualizedRowCount > 0 && (
-        <div className="relative" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-          {virtualRows.map((virtualRow: VirtualItem) => {
-            const row = rows[virtualRow.index];
-            if (!row) return null;
-
-            return (
-              <div
-                key={`virtual-row:${row.id}`}
-                data-index={virtualRow.index}
-                ref={rowVirtualizer.measureElement}
-                className="absolute left-0 top-0 w-full"
-                style={{ transform: `translateY(${virtualRow.start}px)` }}
-              >
-                {renderRowContent(row, virtualRow.index)}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {nonVirtualizedRows.map((row, index) => {
-        const rowIndex = virtualizedRowCount + index;
-        return <div key={`non-virtual-row:${row.id}`}>{renderRowContent(row, rowIndex)}</div>;
-      })}
+    <div data-timeline-root="true" className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden">
+      {rows.map((row, index) => (
+        <div key={`row:${row.id}`}>{renderRowContent(row, index)}</div>
+      ))}
     </div>
   );
 });
@@ -1050,29 +827,6 @@ export function deriveFirstUnvirtualizedTimelineRowIndex(
   return Math.min(firstCurrentTurnRowIndex, firstTailRowIndex);
 }
 
-function estimateTimelineProposedPlanHeight(proposedPlan: TimelineProposedPlan): number {
-  const estimatedLines = Math.max(1, Math.ceil(proposedPlan.planMarkdown.length / 72));
-  return 120 + Math.min(estimatedLines * 22, 880);
-}
-
-function estimateTurnDiffSummaryHeight(turnSummary: TurnDiffSummary | undefined): number {
-  const checkpointFiles = turnSummary?.files ?? [];
-  if (checkpointFiles.length === 0) return 0;
-  return (
-    TURN_DIFF_CARD_CHROME_HEIGHT_PX +
-    countTurnDiffTreeNodes(buildTurnDiffTree(checkpointFiles)) * TURN_DIFF_TREE_ROW_HEIGHT_PX
-  );
-}
-
-function countTurnDiffTreeNodes(nodes: ReadonlyArray<TurnDiffTreeNode>): number {
-  return nodes.reduce((count, node) => {
-    if (node.kind === "file") {
-      return count + 1;
-    }
-    return count + 1 + countTurnDiffTreeNodes(node.children);
-  }, 0);
-}
-
 function formatWorkingTimer(startIso: string, endIso: string): string | null {
   const startedAtMs = Date.parse(startIso);
   const endedAtMs = Date.parse(endIso);
@@ -1142,6 +896,19 @@ function isStreamingAssistantMessageRow(row: TimelineRow | undefined): boolean {
 
 function isWorkFollowUpRow(row: TimelineRow | undefined): boolean {
   return row?.kind === "intent" || (row?.kind === "message" && row.message.role === "assistant");
+}
+
+function shouldSkipAssistantMessageRow(
+  message: TimelineMessage,
+  turnSummary: TurnDiffSummary | undefined,
+): boolean {
+  if (message.role !== "assistant" || message.streaming) {
+    return false;
+  }
+  if (turnSummary && turnSummary.files.length > 0) {
+    return false;
+  }
+  return message.text.trim().length === 0;
 }
 
 const UserMessageTerminalContextInlineLabel = memo(

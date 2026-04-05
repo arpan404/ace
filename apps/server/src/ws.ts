@@ -74,8 +74,8 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     });
 
     return WsRpcGroup.of({
-      [ORCHESTRATION_WS_METHODS.getSnapshot]: (_input) =>
-        projectionSnapshotQuery.getSnapshot().pipe(
+      [ORCHESTRATION_WS_METHODS.getSnapshot]: (input) =>
+        projectionSnapshotQuery.getSnapshot(input).pipe(
           Effect.mapError(
             (cause) =>
               new OrchestrationGetSnapshotError({

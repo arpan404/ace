@@ -6,6 +6,7 @@ import {
   derivePendingUserInputProgress,
   findFirstUnansweredPendingUserInputQuestionIndex,
   resolvePendingUserInputAnswer,
+  selectPendingUserInputOption,
   setPendingUserInputCustomAnswer,
 } from "./pendingUserInput";
 
@@ -32,12 +33,52 @@ describe("resolvePendingUserInputAnswer", () => {
       setPendingUserInputCustomAnswer(
         {
           selectedOptionLabel: "Preserve existing tags",
+          selectedOptionLabels: ["Preserve existing tags", "Drop legacy tags"],
         },
         "doesn't matter",
       ),
     ).toEqual({
       selectedOptionLabel: undefined,
+      selectedOptionLabels: undefined,
       customAnswer: "doesn't matter",
+    });
+  });
+});
+
+describe("selectPendingUserInputOption", () => {
+  const multiSelectQuestion = {
+    id: "tools",
+    header: "Tools",
+    question: "Which tools should run?",
+    multiSelect: true,
+    options: [
+      {
+        label: "Search",
+        description: "Run search",
+      },
+      {
+        label: "Edit",
+        description: "Run edits",
+      },
+    ],
+  } as const;
+
+  it("toggles multi-select options in question order", () => {
+    const onceSelected = selectPendingUserInputOption(multiSelectQuestion, undefined, "Search");
+    expect(onceSelected).toEqual({
+      selectedOptionLabels: ["Search"],
+      customAnswer: "",
+    });
+
+    const twiceSelected = selectPendingUserInputOption(multiSelectQuestion, onceSelected, "Edit");
+    expect(twiceSelected).toEqual({
+      selectedOptionLabels: ["Search", "Edit"],
+      customAnswer: "",
+    });
+
+    expect(selectPendingUserInputOption(multiSelectQuestion, twiceSelected, "Search")).toEqual({
+      selectedOptionLabels: ["Edit"],
+      customAnswer: "",
     });
   });
 });
@@ -104,6 +145,38 @@ describe("buildPendingUserInputAnswers", () => {
         {},
       ),
     ).toBeNull();
+  });
+
+  it("returns array answers for complete multi-select prompts", () => {
+    expect(
+      buildPendingUserInputAnswers(
+        [
+          {
+            id: "tools",
+            header: "Tools",
+            question: "Which tools should run?",
+            multiSelect: true,
+            options: [
+              {
+                label: "Search",
+                description: "Run search",
+              },
+              {
+                label: "Edit",
+                description: "Run edits",
+              },
+            ],
+          },
+        ],
+        {
+          tools: {
+            selectedOptionLabels: ["Search", "Edit"],
+          },
+        },
+      ),
+    ).toEqual({
+      tools: ["Search", "Edit"],
+    });
   });
 });
 
@@ -186,6 +259,47 @@ describe("pending user input question progress", () => {
       answeredQuestionCount: 1,
       isLastQuestion: false,
       isComplete: false,
+      canAdvance: true,
+    });
+  });
+
+  it("derives multi-select progress from selected option arrays", () => {
+    const question = {
+      id: "tools",
+      header: "Tools",
+      question: "Which tools should run?",
+      multiSelect: true,
+      options: [
+        {
+          label: "Search",
+          description: "Run search",
+        },
+        {
+          label: "Edit",
+          description: "Run edits",
+        },
+      ],
+    } as const;
+
+    expect(
+      derivePendingUserInputProgress(
+        [question],
+        {
+          tools: {
+            selectedOptionLabels: ["Search", "Edit"],
+          },
+        },
+        0,
+      ),
+    ).toMatchObject({
+      questionIndex: 0,
+      activeQuestion: question,
+      selectedOptionLabels: ["Search", "Edit"],
+      customAnswer: "",
+      resolvedAnswer: ["Search", "Edit"],
+      answeredQuestionCount: 1,
+      isLastQuestion: true,
+      isComplete: true,
       canAdvance: true,
     });
   });

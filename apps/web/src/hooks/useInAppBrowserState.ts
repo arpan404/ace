@@ -119,6 +119,17 @@ function readTextFile(file: File): Promise<string> {
   });
 }
 
+export function shouldAutoFocusBrowserAddressBarOnOpen(options: {
+  activeTabIsNewTab: boolean;
+  browserTabCount: number;
+}): boolean {
+  return options.activeTabIsNewTab && options.browserTabCount === 1;
+}
+
+export function resolveBrowserSuggestionDraftValue(suggestion: BrowserSuggestion): string {
+  return suggestion.kind === "search" ? suggestion.title : suggestion.url;
+}
+
 export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const { mode, onActiveRuntimeStateChange, onControllerChange, open, viewportRef } = options;
   const api = readNativeApi();
@@ -126,6 +137,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const { updateSettings } = useUpdateSettings();
   const browserSearchEngine = settings.browserSearchEngine;
   const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const initialAddressBarAutoFocusHandledRef = useRef(false);
   const browserContextMenuFallbackTimerRef = useRef<number | null>(null);
   const lastNativeBrowserContextMenuAtRef = useRef<number>(-Infinity);
   const webviewHandlesRef = useRef(new Map<string, BrowserTabHandle>());
@@ -217,9 +229,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const showAddressBarSuggestions = mode !== "pip" && isAddressBarFocused;
 
   const focusAddressBar = useCallback(() => {
-    if (mode === "pip") {
-      return;
-    }
     window.requestAnimationFrame(() => {
       const input = addressInputRef.current;
       if (!input) {
@@ -228,7 +237,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       input.focus();
       input.select();
     });
-  }, [mode]);
+  }, []);
 
   const setActiveTabByIndex = useCallback(
     (index: number) => {
@@ -334,9 +343,12 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     if (!activeTab) {
       return;
     }
+    const shouldFocusReplacementTab = browserSession.tabs.length <= 1;
     closeTab(activeTab.id);
-    focusAddressBar();
-  }, [activeTab, closeTab, focusAddressBar]);
+    if (shouldFocusReplacementTab) {
+      focusAddressBar();
+    }
+  }, [activeTab, browserSession.tabs.length, closeTab, focusAddressBar]);
 
   const duplicateActiveTab = useCallback(() => {
     if (!activeTab) {
@@ -395,7 +407,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         setSelectedSuggestionIndex(0);
         return;
       }
-      setDraftUrl(suggestion.title);
+      setDraftUrl(resolveBrowserSuggestionDraftValue(suggestion));
       openUrl(suggestion.url, { newTab: activeTabIsSettings });
       setIsAddressBarFocused(false);
       setSelectedSuggestionIndex(0);
@@ -1133,11 +1145,20 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   }, [activeRuntime.devToolsOpen, activeRuntime.loading, onActiveRuntimeStateChange]);
 
   useEffect(() => {
-    if (!open || mode === "pip") {
+    if (!open || initialAddressBarAutoFocusHandledRef.current) {
+      return;
+    }
+    initialAddressBarAutoFocusHandledRef.current = true;
+    if (
+      !shouldAutoFocusBrowserAddressBarOnOpen({
+        activeTabIsNewTab,
+        browserTabCount: browserSession.tabs.length,
+      })
+    ) {
       return;
     }
     focusAddressBar();
-  }, [focusAddressBar, mode, open]);
+  }, [activeTabIsNewTab, browserSession.tabs.length, focusAddressBar, open]);
 
   useEffect(() => {
     if (!window.desktopBridge?.onBrowserShortcutAction) {

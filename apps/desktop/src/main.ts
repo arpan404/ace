@@ -408,6 +408,19 @@ function normalizeCommitHash(value: unknown): string | null {
   return trimmed.slice(0, COMMIT_HASH_DISPLAY_LENGTH).toLowerCase();
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseJsonObject(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function resolveEmbeddedCommitHash(): string | null {
   const packageJsonPath = Path.join(resolveAppRoot(), "package.json");
   if (!FS.existsSync(packageJsonPath)) {
@@ -416,8 +429,7 @@ function resolveEmbeddedCommitHash(): string | null {
 
   try {
     const raw = FS.readFileSync(packageJsonPath, "utf8");
-    const parsed = JSON.parse(raw) as { t3codeCommitHash?: unknown };
-    return normalizeCommitHash(parsed.t3codeCommitHash);
+    return normalizeCommitHash(parseJsonObject(raw)?.t3codeCommitHash);
   } catch {
     return null;
   }

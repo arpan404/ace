@@ -5,7 +5,9 @@ import {
   ApprovalRequestId,
   type CanonicalItemType,
   type CanonicalRequestType,
+  type CursorModelOptions,
   EventId,
+  type ProviderSendTurnInput,
   RuntimeItemId,
   RuntimeRequestId,
   RuntimeTaskId,
@@ -19,7 +21,7 @@ import {
   type RuntimeItemStatus,
   type UserInputQuestion,
 } from "@t3tools/contracts";
-import { Effect, Layer, PubSub, Schema, Stream } from "effect";
+import { Effect, FileSystem, Layer, PubSub, Schema, Stream } from "effect";
 
 import {
   ProviderAdapterProcessError,
@@ -29,6 +31,7 @@ import {
 } from "../Errors.ts";
 import { startCursorAcpClient, type CursorAcpClient, type CursorAcpJsonRpcId } from "../cursorAcp";
 import { type CursorAdapterShape, CursorAdapter } from "../Services/CursorAdapter.ts";
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { resolveCursorCliModelId } from "./CursorProvider.ts";
@@ -40,9 +43,90 @@ type CursorResumeCursor = {
   readonly sessionId: string;
 };
 
+type CursorPromptCapabilities = {
+  readonly image: boolean;
+  readonly audio: boolean;
+  readonly embeddedContext: boolean;
+};
+
+type CursorPermissionOptionKind = "allow_once" | "allow_always" | "reject_once" | "reject_always";
+
+type CursorPermissionOption = {
+  readonly optionId: string;
+  readonly kind?: CursorPermissionOptionKind;
+  readonly name?: string;
+};
+
+type CursorAuthMethod = {
+  readonly id: string;
+  readonly name?: string;
+  readonly description?: string;
+};
+
+type CursorInitializeState = {
+  readonly protocolVersion?: number;
+  readonly agentCapabilities: {
+    readonly loadSession: boolean;
+    readonly promptCapabilities: CursorPromptCapabilities;
+  };
+  readonly authMethods: ReadonlyArray<CursorAuthMethod>;
+};
+
+type CursorSessionModeDefinition = {
+  readonly id: string;
+  readonly name?: string;
+  readonly description?: string;
+};
+
+type CursorSessionModeState = {
+  readonly currentModeId?: string;
+  readonly availableModes: ReadonlyArray<CursorSessionModeDefinition>;
+};
+
+type CursorSessionModelDefinition = {
+  readonly modelId: string;
+  readonly name?: string;
+};
+
+type CursorSessionModelState = {
+  readonly currentModelId?: string;
+  readonly availableModels: ReadonlyArray<CursorSessionModelDefinition>;
+};
+
+type CursorSessionConfigOptionValue = {
+  readonly value: string;
+  readonly name: string;
+  readonly description?: string;
+};
+
+type CursorSessionConfigOption = {
+  readonly id: string;
+  readonly name: string;
+  readonly description?: string;
+  readonly category?: string;
+  readonly currentValue: string;
+  readonly options: ReadonlyArray<CursorSessionConfigOptionValue>;
+};
+
+type CursorAvailableCommand = {
+  readonly name: string;
+  readonly description?: string;
+};
+
+type CursorSessionMetadata = {
+  readonly initialize: CursorInitializeState;
+  readonly configOptions: ReadonlyArray<CursorSessionConfigOption>;
+  readonly modes?: CursorSessionModeState;
+  readonly models?: CursorSessionModelState;
+  readonly availableCommands: ReadonlyArray<CursorAvailableCommand>;
+  readonly defaultModeId?: string;
+};
+
 type PendingApproval = {
   readonly requestId: ApprovalRequestId;
   readonly jsonRpcId: CursorAcpJsonRpcId;
+  readonly requestType: CanonicalRequestType;
+  readonly options: ReadonlyArray<CursorPermissionOption>;
   readonly turnId?: TurnId;
 };
 
@@ -72,6 +156,7 @@ type TurnSnapshot = {
   readonly id: TurnId;
   readonly items: Array<unknown>;
   assistantText: string;
+  interruptRequested: boolean;
   reasoningText: string;
   assistantItem: CursorContentItemState | undefined;
   reasoningItem: CursorContentItemState | undefined;
@@ -81,6 +166,7 @@ type TurnSnapshot = {
 type CursorSessionContext = {
   session: ProviderSession;
   readonly client: CursorAcpClient;
+  metadata: CursorSessionMetadata;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
   readonly turns: Array<TurnSnapshot>;
@@ -97,6 +183,26 @@ type CursorToolState = {
   readonly status: RuntimeItemStatus;
   readonly detail?: string;
   readonly data: Record<string, unknown>;
+};
+
+const EMPTY_CURSOR_PROMPT_CAPABILITIES: CursorPromptCapabilities = {
+  image: false,
+  audio: false,
+  embeddedContext: false,
+};
+
+const EMPTY_CURSOR_INITIALIZE_STATE: CursorInitializeState = {
+  agentCapabilities: {
+    loadSession: false,
+    promptCapabilities: EMPTY_CURSOR_PROMPT_CAPABILITIES,
+  },
+  authMethods: [],
+};
+
+const EMPTY_CURSOR_SESSION_METADATA: CursorSessionMetadata = {
+  initialize: EMPTY_CURSOR_INITIALIZE_STATE,
+  configOptions: [],
+  availableCommands: [],
 };
 
 function isoNow(): string {
@@ -125,6 +231,409 @@ function asString(value: unknown): string | undefined {
 
 function asStreamText(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function parseCursorPromptCapabilities(value: unknown): CursorPromptCapabilities {
+  const record = asObject(value);
+  return {
+    image: record?.image === true,
+    audio: record?.audio === true,
+    embeddedContext: record?.embeddedContext === true,
+  };
+}
+
+function parseCursorAuthMethods(value: unknown): ReadonlyArray<CursorAuthMethod> {
+  const methods = asArray(value);
+  if (!methods) {
+    return [];
+  }
+  const parsed: Array<CursorAuthMethod> = [];
+  for (const method of methods) {
+    const entry = asObject(method);
+    if (!entry) {
+      continue;
+    }
+    const id = asString(entry.id);
+    if (!id) {
+      continue;
+    }
+    const normalized: { id: string; name?: string; description?: string } = { id };
+    const name = asString(entry.name);
+    if (name) {
+      normalized.name = name;
+    }
+    const description = asString(entry.description);
+    if (description) {
+      normalized.description = description;
+    }
+    parsed.push(normalized);
+  }
+  return parsed;
+}
+
+function parseCursorInitializeState(value: unknown): CursorInitializeState {
+  const record = asObject(value);
+  const agentCapabilities = asObject(record?.agentCapabilities);
+  return {
+    ...(typeof record?.protocolVersion === "number"
+      ? { protocolVersion: record.protocolVersion }
+      : {}),
+    agentCapabilities: {
+      loadSession: agentCapabilities?.loadSession === true,
+      promptCapabilities: parseCursorPromptCapabilities(agentCapabilities?.promptCapabilities),
+    },
+    authMethods: parseCursorAuthMethods(record?.authMethods),
+  };
+}
+
+function parseCursorSessionModeState(value: unknown): CursorSessionModeState | undefined {
+  const record = asObject(value);
+  const availableModesRaw = asArray(record?.availableModes);
+  const availableModes: Array<CursorSessionModeDefinition> = [];
+  if (availableModesRaw) {
+    for (const mode of availableModesRaw) {
+      const entry = asObject(mode);
+      if (!entry) {
+        continue;
+      }
+      const id = asString(entry.id);
+      if (!id) {
+        continue;
+      }
+      const normalized: { id: string; name?: string; description?: string } = { id };
+      const name = asString(entry.name);
+      if (name) {
+        normalized.name = name;
+      }
+      const description = asString(entry.description);
+      if (description) {
+        normalized.description = description;
+      }
+      availableModes.push(normalized);
+    }
+  }
+  const currentModeId = asString(record?.currentModeId);
+  if (!currentModeId && availableModes.length === 0) {
+    return undefined;
+  }
+  return {
+    ...(currentModeId ? { currentModeId } : {}),
+    availableModes,
+  };
+}
+
+function parseCursorSessionModelState(value: unknown): CursorSessionModelState | undefined {
+  const record = asObject(value);
+  const availableModelsRaw = asArray(record?.availableModels);
+  const availableModels: Array<CursorSessionModelDefinition> = [];
+  if (availableModelsRaw) {
+    for (const model of availableModelsRaw) {
+      const entry = asObject(model);
+      if (!entry) {
+        continue;
+      }
+      const modelId = asString(entry.modelId);
+      if (!modelId) {
+        continue;
+      }
+      const normalized: { modelId: string; name?: string } = { modelId };
+      const name = asString(entry.name);
+      if (name) {
+        normalized.name = name;
+      }
+      availableModels.push(normalized);
+    }
+  }
+  const currentModelId = asString(record?.currentModelId);
+  if (!currentModelId && availableModels.length === 0) {
+    return undefined;
+  }
+  return {
+    ...(currentModelId ? { currentModelId } : {}),
+    availableModels,
+  };
+}
+
+function parseCursorConfigOptionValues(
+  value: unknown,
+): ReadonlyArray<CursorSessionConfigOptionValue> {
+  const options = asArray(value);
+  if (!options) {
+    return [];
+  }
+  const parsed: Array<CursorSessionConfigOptionValue> = [];
+  for (const option of options) {
+    const entry = asObject(option);
+    if (!entry) {
+      continue;
+    }
+    const optionValue = asString(entry.value);
+    const name = asString(entry.name) ?? optionValue;
+    if (!optionValue || !name) {
+      continue;
+    }
+    const normalized: { value: string; name: string; description?: string } = {
+      value: optionValue,
+      name,
+    };
+    const description = asString(entry.description);
+    if (description) {
+      normalized.description = description;
+    }
+    parsed.push(normalized);
+  }
+  return parsed;
+}
+
+function parseCursorConfigOptions(value: unknown): ReadonlyArray<CursorSessionConfigOption> {
+  const configOptions = asArray(value);
+  if (!configOptions) {
+    return [];
+  }
+  const parsed: Array<CursorSessionConfigOption> = [];
+  for (const option of configOptions) {
+    const entry = asObject(option);
+    if (!entry) {
+      continue;
+    }
+    const id = asString(entry.id);
+    const name = asString(entry.name);
+    const currentValue = asString(entry.currentValue);
+    if (!id || !name || !currentValue) {
+      continue;
+    }
+    const normalized: {
+      id: string;
+      name: string;
+      currentValue: string;
+      options: ReadonlyArray<CursorSessionConfigOptionValue>;
+      description?: string;
+      category?: string;
+    } = {
+      id,
+      name,
+      currentValue,
+      options: parseCursorConfigOptionValues(entry.options),
+    };
+    const description = asString(entry.description);
+    if (description) {
+      normalized.description = description;
+    }
+    const category = asString(entry.category);
+    if (category) {
+      normalized.category = category;
+    }
+    parsed.push(normalized);
+  }
+  return parsed;
+}
+
+function parseCursorAvailableCommands(value: unknown): ReadonlyArray<CursorAvailableCommand> {
+  const commands = asArray(value);
+  if (!commands) {
+    return [];
+  }
+  const parsed: Array<CursorAvailableCommand> = [];
+  for (const command of commands) {
+    const entry = asObject(command);
+    if (!entry) {
+      continue;
+    }
+    const name = asString(entry.name);
+    if (!name) {
+      continue;
+    }
+    const normalized: { name: string; description?: string } = { name };
+    const description = asString(entry.description);
+    if (description) {
+      normalized.description = description;
+    }
+    parsed.push(normalized);
+  }
+  return parsed;
+}
+
+function findCursorConfigOption(
+  configOptions: ReadonlyArray<CursorSessionConfigOption>,
+  input: { readonly category?: string; readonly id?: string },
+): CursorSessionConfigOption | undefined {
+  const normalizedCategory = input.category?.trim().toLowerCase();
+  const normalizedId = input.id?.trim().toLowerCase();
+  return configOptions.find((option) => {
+    if (normalizedCategory && option.category?.trim().toLowerCase() === normalizedCategory) {
+      return true;
+    }
+    return normalizedId !== undefined && option.id.trim().toLowerCase() === normalizedId;
+  });
+}
+
+function replaceCursorConfigOptionCurrentValue(
+  configOptions: ReadonlyArray<CursorSessionConfigOption>,
+  optionId: string | undefined,
+  currentValue: string | undefined,
+): ReadonlyArray<CursorSessionConfigOption> {
+  if (!optionId || !currentValue) {
+    return configOptions;
+  }
+  return configOptions.map((option) =>
+    option.id === optionId && option.currentValue !== currentValue
+      ? { ...option, currentValue }
+      : option,
+  );
+}
+
+function cursorModeStateFromConfigOption(
+  option: CursorSessionConfigOption | undefined,
+): CursorSessionModeState | undefined {
+  if (!option) {
+    return undefined;
+  }
+  return {
+    currentModeId: option.currentValue,
+    availableModes: option.options.map((entry) => ({
+      id: entry.value,
+      name: entry.name,
+      ...(entry.description ? { description: entry.description } : {}),
+    })),
+  };
+}
+
+function cursorModelStateFromConfigOption(
+  option: CursorSessionConfigOption | undefined,
+): CursorSessionModelState | undefined {
+  if (!option) {
+    return undefined;
+  }
+  return {
+    currentModelId: option.currentValue,
+    availableModels: option.options.map((entry) => ({
+      modelId: entry.value,
+      name: entry.name,
+    })),
+  };
+}
+
+function mergeCursorModeStates(
+  primary: CursorSessionModeState | undefined,
+  secondary: CursorSessionModeState | undefined,
+): CursorSessionModeState | undefined {
+  const currentModeId = primary?.currentModeId ?? secondary?.currentModeId;
+  const availableModes =
+    primary?.availableModes && primary.availableModes.length > 0
+      ? primary.availableModes
+      : (secondary?.availableModes ?? []);
+  if (!currentModeId && availableModes.length === 0) {
+    return undefined;
+  }
+  return {
+    ...(currentModeId ? { currentModeId } : {}),
+    availableModes,
+  };
+}
+
+function mergeCursorModelStates(
+  primary: CursorSessionModelState | undefined,
+  secondary: CursorSessionModelState | undefined,
+): CursorSessionModelState | undefined {
+  const currentModelId = primary?.currentModelId ?? secondary?.currentModelId;
+  const availableModels =
+    primary?.availableModels && primary.availableModels.length > 0
+      ? primary.availableModels
+      : (secondary?.availableModels ?? []);
+  if (!currentModelId && availableModels.length === 0) {
+    return undefined;
+  }
+  return {
+    ...(currentModelId ? { currentModelId } : {}),
+    availableModels,
+  };
+}
+
+function buildCursorSessionMetadata(input: {
+  readonly previous?: CursorSessionMetadata | undefined;
+  readonly initialize?: CursorInitializeState | undefined;
+  readonly configOptions?: ReadonlyArray<CursorSessionConfigOption> | undefined;
+  readonly modes?: CursorSessionModeState | undefined;
+  readonly models?: CursorSessionModelState | undefined;
+  readonly availableCommands?: ReadonlyArray<CursorAvailableCommand> | undefined;
+  readonly currentModeId?: string | undefined;
+  readonly currentModelId?: string | undefined;
+}): CursorSessionMetadata {
+  const previous = input.previous ?? EMPTY_CURSOR_SESSION_METADATA;
+  let configOptions = input.configOptions ?? previous.configOptions;
+  const requestedModeOption = findCursorConfigOption(configOptions, {
+    category: "mode",
+    id: "mode",
+  });
+  configOptions = replaceCursorConfigOptionCurrentValue(
+    configOptions,
+    requestedModeOption?.id,
+    input.currentModeId,
+  );
+  const requestedModelOption = findCursorConfigOption(configOptions, {
+    category: "model",
+    id: "model",
+  });
+  configOptions = replaceCursorConfigOptionCurrentValue(
+    configOptions,
+    requestedModelOption?.id,
+    input.currentModelId,
+  );
+  const modeConfigState = cursorModeStateFromConfigOption(
+    findCursorConfigOption(configOptions, { category: "mode", id: "mode" }),
+  );
+  const modelConfigState = cursorModelStateFromConfigOption(
+    findCursorConfigOption(configOptions, { category: "model", id: "model" }),
+  );
+  const explicitModes = input.modes ?? previous.modes;
+  const explicitModels = input.models ?? previous.models;
+  let modes =
+    input.configOptions !== undefined
+      ? mergeCursorModeStates(modeConfigState, explicitModes)
+      : mergeCursorModeStates(explicitModes, modeConfigState);
+  let models =
+    input.configOptions !== undefined
+      ? mergeCursorModelStates(modelConfigState, explicitModels)
+      : mergeCursorModelStates(explicitModels, modelConfigState);
+  if (input.currentModeId) {
+    modes = {
+      currentModeId: input.currentModeId,
+      availableModes: modes?.availableModes ?? [],
+    };
+  }
+  if (input.currentModelId) {
+    models = {
+      currentModelId: input.currentModelId,
+      availableModels: models?.availableModels ?? [],
+    };
+  }
+  const currentModeId = modes?.currentModeId;
+  const defaultModeId =
+    (input.currentModeId && input.currentModeId !== "plan" ? input.currentModeId : undefined) ??
+    (currentModeId && currentModeId !== "plan" ? currentModeId : undefined) ??
+    previous.defaultModeId ??
+    currentModeId;
+  return {
+    initialize: input.initialize ?? previous.initialize,
+    configOptions,
+    ...(modes ? { modes } : {}),
+    ...(models ? { models } : {}),
+    availableCommands: input.availableCommands ?? previous.availableCommands,
+    ...(defaultModeId ? { defaultModeId } : {}),
+  };
+}
+
+function cursorSessionMetadataSnapshot(metadata: CursorSessionMetadata): Record<string, unknown> {
+  return {
+    initialize: metadata.initialize,
+    configOptions: metadata.configOptions,
+    ...(metadata.modes ? { modes: metadata.modes } : {}),
+    ...(metadata.models ? { models: metadata.models } : {}),
+    ...(metadata.availableCommands.length > 0
+      ? { availableCommands: metadata.availableCommands }
+      : {}),
+    ...(metadata.defaultModeId ? { defaultModeId: metadata.defaultModeId } : {}),
+  };
 }
 
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
@@ -242,19 +751,122 @@ function requestIdFromApprovalRequest(requestId: ApprovalRequestId) {
   return RuntimeRequestId.makeUnsafe(requestId);
 }
 
-function toDecisionOptionId(
+function parseCursorPermissionOptions(value: unknown): ReadonlyArray<CursorPermissionOption> {
+  const options = asArray(value);
+  if (!options) {
+    return [];
+  }
+  const parsed: Array<CursorPermissionOption> = [];
+  for (const option of options) {
+    const entry = asObject(option);
+    if (!entry) {
+      continue;
+    }
+    const optionId = asString(entry.optionId);
+    if (!optionId) {
+      continue;
+    }
+    const normalized: {
+      optionId: string;
+      kind?: CursorPermissionOptionKind;
+      name?: string;
+    } = { optionId };
+    const kind = asString(entry.kind)?.toLowerCase();
+    if (
+      kind === "allow_once" ||
+      kind === "allow_always" ||
+      kind === "reject_once" ||
+      kind === "reject_always"
+    ) {
+      normalized.kind = kind;
+    }
+    const name = asString(entry.name);
+    if (name) {
+      normalized.name = name;
+    }
+    parsed.push(normalized);
+  }
+  return parsed;
+}
+
+function cursorPermissionKindsForDecision(
   decision: ProviderApprovalDecision,
-): "allow-once" | "allow-always" | "reject-once" {
+): ReadonlyArray<CursorPermissionOptionKind> {
   switch (decision) {
     case "acceptForSession":
-      return "allow-always";
+      return ["allow_always", "allow_once"];
     case "accept":
-      return "allow-once";
+      return ["allow_once", "allow_always"];
     case "decline":
     case "cancel":
     default:
-      return "reject-once";
+      return ["reject_once", "reject_always"];
   }
+}
+
+function cursorPermissionKindsForRuntimeMode(
+  runtimeMode: ProviderSession["runtimeMode"],
+): ReadonlyArray<CursorPermissionOptionKind> {
+  return runtimeMode === "full-access"
+    ? ["allow_always", "allow_once"]
+    : ["allow_once", "allow_always"];
+}
+
+function permissionOptionMatchesKind(
+  option: CursorPermissionOption,
+  kind: CursorPermissionOptionKind,
+): boolean {
+  if (option.kind === kind) {
+    return true;
+  }
+  const normalizedOptionId = option.optionId.toLowerCase();
+  const normalizedName = option.name?.toLowerCase() ?? "";
+  switch (kind) {
+    case "allow_once":
+      return (
+        (normalizedOptionId.includes("allow") || normalizedName.includes("allow")) &&
+        (normalizedOptionId.includes("once") || normalizedName.includes("once"))
+      );
+    case "allow_always":
+      return (
+        (normalizedOptionId.includes("allow") || normalizedName.includes("allow")) &&
+        (normalizedOptionId.includes("always") ||
+          normalizedOptionId.includes("session") ||
+          normalizedName.includes("always") ||
+          normalizedName.includes("session"))
+      );
+    case "reject_once":
+      return (
+        normalizedOptionId.includes("reject") ||
+        normalizedOptionId.includes("deny") ||
+        normalizedName.includes("reject") ||
+        normalizedName.includes("deny")
+      );
+    case "reject_always":
+      return (
+        (normalizedOptionId.includes("reject") ||
+          normalizedOptionId.includes("deny") ||
+          normalizedName.includes("reject") ||
+          normalizedName.includes("deny")) &&
+        (normalizedOptionId.includes("always") ||
+          normalizedOptionId.includes("session") ||
+          normalizedName.includes("always") ||
+          normalizedName.includes("session"))
+      );
+  }
+}
+
+function selectCursorPermissionOption(
+  options: ReadonlyArray<CursorPermissionOption>,
+  preferredKinds: ReadonlyArray<CursorPermissionOptionKind>,
+): CursorPermissionOption | undefined {
+  for (const kind of preferredKinds) {
+    const matched = options.find((option) => permissionOptionMatchesKind(option, kind));
+    if (matched) {
+      return matched;
+    }
+  }
+  return options[0];
 }
 
 function stripWrappingBackticks(value: string): string {
@@ -613,21 +1225,121 @@ export function streamKindFromUpdateKind(updateKind: string): RuntimeContentStre
   return "assistant_text";
 }
 
-export function permissionOptionIdForRuntimeMode(runtimeMode: ProviderSession["runtimeMode"]): {
-  readonly primary: "allow-always" | "allow-once";
+export function permissionOptionKindForRuntimeMode(runtimeMode: ProviderSession["runtimeMode"]): {
+  readonly primary: CursorPermissionOptionKind;
+  readonly fallback: CursorPermissionOptionKind;
   readonly decision: ProviderApprovalDecision;
 } {
   if (runtimeMode === "full-access") {
     return {
-      primary: "allow-always",
+      primary: "allow_always",
+      fallback: "allow_once",
       decision: "acceptForSession",
     };
   }
 
   return {
-    primary: "allow-once",
+    primary: "allow_once",
+    fallback: "allow_always",
     decision: "accept",
   };
+}
+
+function cursorModelTokens(value: string): ReadonlySet<string> {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/\[|\]|=|,/g, "-")
+    .split(/[^a-z0-9]+/g)
+    .filter((entry): entry is string => entry.length > 0);
+  const tokens = new Set<string>();
+  for (const entry of normalized) {
+    if (entry === "default" || entry === "auto") {
+      tokens.add("default");
+      tokens.add("auto");
+      continue;
+    }
+    if (entry === "false") {
+      continue;
+    }
+    if (entry === "reasoning" || entry === "effort" || entry === "context") {
+      continue;
+    }
+    tokens.add(entry);
+  }
+  return tokens;
+}
+
+type ParsedCursorModelConfigChoice = {
+  readonly choice: CursorSessionConfigOptionValue;
+  readonly valuePrefix: string;
+  readonly tokens: ReadonlySet<string>;
+};
+
+function parseCursorModelConfigChoice(
+  choice: CursorSessionConfigOptionValue,
+): ParsedCursorModelConfigChoice {
+  const bracketIndex = choice.value.indexOf("[");
+  const valuePrefix = bracketIndex === -1 ? choice.value : choice.value.slice(0, bracketIndex);
+  return {
+    choice,
+    valuePrefix,
+    tokens: new Set<string>([
+      ...cursorModelTokens(valuePrefix),
+      ...cursorModelTokens(choice.value),
+      ...cursorModelTokens(choice.name),
+    ]),
+  };
+}
+
+function resolveCursorModelConfigValue(input: {
+  readonly model: string;
+  readonly options?: CursorModelOptions | null | undefined;
+  readonly modelOption: CursorSessionConfigOption;
+}): string | undefined {
+  const cliModelId = resolveCursorCliModelId({
+    model: input.model,
+    options: input.options,
+  });
+  const targetTokens = cursorModelTokens(cliModelId);
+  const targetIdentityTokens = cursorModelTokens(input.model);
+  let best:
+    | {
+        readonly value: string;
+        readonly score: number;
+      }
+    | undefined;
+  for (const choice of input.modelOption.options) {
+    const parsed = parseCursorModelConfigChoice(choice);
+    if (parsed.valuePrefix.toLowerCase() === cliModelId.toLowerCase()) {
+      return choice.value;
+    }
+    let score = 0;
+    let missingToken = false;
+    for (const token of targetTokens) {
+      if (!parsed.tokens.has(token)) {
+        missingToken = true;
+        break;
+      }
+      score += 10;
+    }
+    if (missingToken) {
+      continue;
+    }
+    for (const token of targetIdentityTokens) {
+      if (parsed.tokens.has(token)) {
+        score += 3;
+      }
+    }
+    score -= Math.max(0, parsed.tokens.size - targetTokens.size);
+    if (!best || score > best.score) {
+      best = {
+        value: choice.value,
+        score,
+      };
+    }
+  }
+  return best?.value;
 }
 
 function planStepsFromTodos(
@@ -655,6 +1367,7 @@ export const CursorAdapterLive = Layer.effect(
   Effect.gen(function* () {
     const serverConfig = yield* ServerConfig;
     const settingsService = yield* ServerSettingsService;
+    const fileSystem = yield* FileSystem.FileSystem;
     const services = yield* Effect.services();
     const runPromise = Effect.runPromiseWith(services);
     const eventsPubSub = yield* Effect.acquireRelease(
@@ -709,6 +1422,280 @@ export const CursorAdapterLive = Layer.effect(
         ...patch,
         updatedAt: isoNow(),
       };
+    };
+
+    const updateMetadata = (
+      context: CursorSessionContext,
+      patch: Parameters<typeof buildCursorSessionMetadata>[0],
+    ) => {
+      context.metadata = buildCursorSessionMetadata({
+        previous: context.metadata,
+        ...patch,
+      });
+    };
+
+    const emitSessionConfigured = (
+      context: CursorSessionContext,
+      input: {
+        readonly rawMethod: string;
+        readonly rawPayload?: unknown;
+        readonly rawSource?: "cursor.acp.request" | "cursor.acp.notification" | undefined;
+      },
+    ) => {
+      emit({
+        ...baseEvent(context, {
+          rawMethod: input.rawMethod,
+          ...(input.rawPayload !== undefined ? { rawPayload: input.rawPayload } : {}),
+          ...(input.rawSource ? { rawSource: input.rawSource } : {}),
+        }),
+        type: "session.configured",
+        payload: {
+          config: cursorSessionMetadataSnapshot(context.metadata),
+        },
+      });
+    };
+
+    const requireCursorSessionId = (context: CursorSessionContext, method: string) => {
+      const sessionId = readResumeSessionId(context.session.resumeCursor);
+      if (!sessionId) {
+        throw new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method,
+          detail: "Cursor session is missing a resumable session id.",
+        });
+      }
+      return sessionId;
+    };
+
+    const currentCursorModeId = (context: CursorSessionContext) =>
+      findCursorConfigOption(context.metadata.configOptions, { category: "mode", id: "mode" })
+        ?.currentValue ?? context.metadata.modes?.currentModeId;
+
+    const currentCursorModelConfigValue = (context: CursorSessionContext) =>
+      findCursorConfigOption(context.metadata.configOptions, { category: "model", id: "model" })
+        ?.currentValue ?? context.metadata.models?.currentModelId;
+
+    const availableCursorModeIds = (context: CursorSessionContext) => {
+      const modeOption = findCursorConfigOption(context.metadata.configOptions, {
+        category: "mode",
+        id: "mode",
+      });
+      if (modeOption) {
+        return new Set(modeOption.options.map((option) => option.value));
+      }
+      return new Set(context.metadata.modes?.availableModes.map((mode) => mode.id) ?? []);
+    };
+
+    const cursorControlRequest = async (
+      context: CursorSessionContext,
+      method: string,
+      params: unknown,
+    ) =>
+      context.client.request(method, params, {
+        timeoutMs: ACP_CONTROL_TIMEOUT_MS,
+      });
+
+    const buildCursorPromptContent = Effect.fn("buildCursorPromptContent")(function* (
+      context: CursorSessionContext,
+      input: ProviderSendTurnInput,
+    ) {
+      const prompt: Array<Record<string, unknown>> = [];
+      if (input.input !== undefined) {
+        prompt.push({ type: "text", text: input.input });
+      }
+
+      const attachments = input.attachments ?? [];
+      if (
+        attachments.length > 0 &&
+        !context.metadata.initialize.agentCapabilities.promptCapabilities.image
+      ) {
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "sendTurn",
+          issue: "Cursor ACP session does not advertise image prompt support.",
+        });
+      }
+
+      for (const attachment of attachments) {
+        if (attachment.type !== "image") {
+          continue;
+        }
+        const attachmentPath = resolveAttachmentPath({
+          attachmentsDir: serverConfig.attachmentsDir,
+          attachment,
+        });
+        if (!attachmentPath) {
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "session/prompt",
+            detail: `Invalid attachment id '${attachment.id}'.`,
+          });
+        }
+        const bytes = yield* fileSystem.readFile(attachmentPath).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderAdapterRequestError({
+                provider: PROVIDER,
+                method: "session/prompt",
+                detail: describeCursorAdapterCause(cause),
+                cause,
+              }),
+          ),
+        );
+        prompt.push({
+          type: "image",
+          mimeType: attachment.mimeType,
+          data: Buffer.from(bytes).toString("base64"),
+        });
+      }
+
+      if (prompt.length === 0) {
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "sendTurn",
+          issue: "Cursor prompts require text or supported prompt attachments.",
+        });
+      }
+
+      return prompt;
+    });
+
+    const syncCursorInteractionMode = async (
+      context: CursorSessionContext,
+      interactionMode: ProviderSendTurnInput["interactionMode"],
+    ) => {
+      if (interactionMode === undefined) {
+        return;
+      }
+      const sessionId = requireCursorSessionId(context, "session/set_mode");
+      const currentModeId = currentCursorModeId(context);
+      const availableModeIds = availableCursorModeIds(context);
+      const desiredModeId =
+        interactionMode === "plan"
+          ? availableModeIds.has("plan")
+            ? "plan"
+            : undefined
+          : (context.metadata.defaultModeId ??
+            currentModeId ??
+            findCursorConfigOption(context.metadata.configOptions, { category: "mode", id: "mode" })
+              ?.options[0]?.value ??
+            context.metadata.modes?.availableModes[0]?.id);
+      if (!desiredModeId) {
+        if (interactionMode === "plan") {
+          throw new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "session/set_mode",
+            detail: "Cursor ACP session does not expose a plan mode.",
+          });
+        }
+        return;
+      }
+      if (currentModeId === desiredModeId) {
+        return;
+      }
+      const modeOption = findCursorConfigOption(context.metadata.configOptions, {
+        category: "mode",
+        id: "mode",
+      });
+      if (modeOption?.options.some((option) => option.value === desiredModeId)) {
+        const result = await cursorControlRequest(context, "session/set_config_option", {
+          sessionId,
+          configId: modeOption.id,
+          value: desiredModeId,
+        });
+        const resultRecord = asObject(result);
+        updateMetadata(context, {
+          configOptions:
+            resultRecord && "configOptions" in resultRecord
+              ? parseCursorConfigOptions(resultRecord.configOptions)
+              : context.metadata.configOptions,
+          currentModeId: desiredModeId,
+        });
+        emitSessionConfigured(context, {
+          rawMethod: "session/set_config_option",
+          rawPayload: result,
+          rawSource: "cursor.acp.request",
+        });
+        return;
+      }
+      if (!availableModeIds.has(desiredModeId)) {
+        throw new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "session/set_mode",
+          detail: `Cursor ACP session does not support mode '${desiredModeId}'.`,
+        });
+      }
+      await cursorControlRequest(context, "session/set_mode", {
+        sessionId,
+        modeId: desiredModeId,
+      });
+      updateMetadata(context, {
+        currentModeId: desiredModeId,
+      });
+      emitSessionConfigured(context, {
+        rawMethod: "session/set_mode",
+        rawPayload: { currentModeId: desiredModeId },
+        rawSource: "cursor.acp.request",
+      });
+    };
+
+    const syncCursorModelSelection = async (
+      context: CursorSessionContext,
+      modelSelection:
+        | {
+            readonly provider: "cursor";
+            readonly model: string;
+            readonly options?: CursorModelOptions | undefined;
+          }
+        | undefined,
+    ) => {
+      if (!modelSelection) {
+        return;
+      }
+      const modelOption = findCursorConfigOption(context.metadata.configOptions, {
+        category: "model",
+        id: "model",
+      });
+      updateSession(context, {
+        model: modelSelection.model,
+      });
+      if (!modelOption) {
+        return;
+      }
+      const desiredValue = resolveCursorModelConfigValue({
+        model: modelSelection.model,
+        options: modelSelection.options,
+        modelOption,
+      });
+      if (!desiredValue) {
+        throw new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "session/set_config_option",
+          detail: `Cursor ACP session does not expose model '${modelSelection.model}'.`,
+        });
+      }
+      if (currentCursorModelConfigValue(context) === desiredValue) {
+        return;
+      }
+      const sessionId = requireCursorSessionId(context, "session/set_config_option");
+      const result = await cursorControlRequest(context, "session/set_config_option", {
+        sessionId,
+        configId: modelOption.id,
+        value: desiredValue,
+      });
+      const resultRecord = asObject(result);
+      updateMetadata(context, {
+        configOptions:
+          resultRecord && "configOptions" in resultRecord
+            ? parseCursorConfigOptions(resultRecord.configOptions)
+            : context.metadata.configOptions,
+        currentModelId: desiredValue,
+      });
+      emitSessionConfigured(context, {
+        rawMethod: "session/set_config_option",
+        rawPayload: result,
+        rawSource: "cursor.acp.request",
+      });
     };
 
     const ensureContentItem = (
@@ -952,13 +1939,93 @@ export const CursorAdapterLive = Layer.effect(
       });
     };
 
+    const cancelPendingApprovalsForTurn = (
+      context: CursorSessionContext,
+      turnId: TurnId,
+      input: {
+        readonly rawMethod: string;
+        readonly rawPayload?: unknown;
+      },
+    ) => {
+      for (const [requestId, pending] of context.pendingApprovals.entries()) {
+        if (pending.turnId !== turnId) {
+          continue;
+        }
+        context.pendingApprovals.delete(requestId);
+        context.client.respond(pending.jsonRpcId, {
+          outcome: {
+            outcome: "cancelled",
+          },
+        });
+        emit({
+          ...baseEvent(context, {
+            turnId,
+            requestId,
+            rawMethod: input.rawMethod,
+            ...(input.rawPayload !== undefined ? { rawPayload: input.rawPayload } : {}),
+            rawSource: "cursor.acp.notification",
+          }),
+          type: "request.resolved",
+          payload: {
+            requestType: pending.requestType,
+            decision: "cancel",
+            resolution: {
+              outcome: "cancelled",
+            },
+          },
+        });
+      }
+    };
+
     const handleSessionUpdate = (context: CursorSessionContext, params: unknown) => {
       const record = asObject(params);
       const update = asObject(record?.update);
       const updateKind = asString(update?.sessionUpdate);
-      const turnId = context.activeTurn?.id;
+      if (!updateKind || !update) {
+        return;
+      }
 
-      if (!updateKind || !turnId || !update) {
+      if (updateKind === "current_mode_update") {
+        updateMetadata(context, {
+          currentModeId: asString(update.currentModeId),
+        });
+        emitSessionConfigured(context, {
+          rawMethod: "session/update",
+          rawPayload: params,
+          rawSource: "cursor.acp.notification",
+        });
+        return;
+      }
+
+      if (updateKind === "config_option_update") {
+        const configOptions = parseCursorConfigOptions(update.configOptions);
+        if (configOptions.length > 0) {
+          updateMetadata(context, {
+            configOptions,
+          });
+        }
+        emitSessionConfigured(context, {
+          rawMethod: "session/update",
+          rawPayload: params,
+          rawSource: "cursor.acp.notification",
+        });
+        return;
+      }
+
+      if (updateKind === "available_commands_update") {
+        updateMetadata(context, {
+          availableCommands: parseCursorAvailableCommands(update.availableCommands),
+        });
+        emitSessionConfigured(context, {
+          rawMethod: "session/update",
+          rawPayload: params,
+          rawSource: "cursor.acp.notification",
+        });
+        return;
+      }
+
+      const turnId = context.activeTurn?.id;
+      if (!turnId) {
         return;
       }
 
@@ -1070,14 +2137,44 @@ export const CursorAdapterLive = Layer.effect(
             title: asString(toolCall?.title),
           }),
         );
+        const permissionOptions = parseCursorPermissionOptions(params?.options);
         if (context.session.runtimeMode === "full-access") {
-          const resolution = permissionOptionIdForRuntimeMode(context.session.runtimeMode);
-          context.client.respond(request.id, {
-            outcome: {
-              outcome: "selected",
-              optionId: resolution.primary,
-            },
-          });
+          const resolution = permissionOptionKindForRuntimeMode(context.session.runtimeMode);
+          const selectedOption = selectCursorPermissionOption(
+            permissionOptions,
+            cursorPermissionKindsForRuntimeMode(context.session.runtimeMode),
+          );
+          if (selectedOption) {
+            context.client.respond(request.id, {
+              outcome: {
+                outcome: "selected",
+                optionId: selectedOption.optionId,
+              },
+            });
+            emit({
+              ...baseEvent(context, {
+                ...(turnId ? { turnId } : {}),
+                rawMethod: request.method,
+                rawPayload: request.params,
+                rawSource: "cursor.acp.request",
+              }),
+              type: "request.resolved",
+              payload: {
+                requestType,
+                decision: resolution.decision,
+                resolution: {
+                  optionId: selectedOption.optionId,
+                  kind: selectedOption.kind ?? resolution.primary,
+                },
+              },
+            });
+          } else {
+            context.client.respond(request.id, {
+              outcome: {
+                outcome: "cancelled",
+              },
+            });
+          }
           return;
         }
 
@@ -1085,6 +2182,8 @@ export const CursorAdapterLive = Layer.effect(
         context.pendingApprovals.set(requestId, {
           requestId,
           jsonRpcId: request.id,
+          requestType,
+          options: permissionOptions,
           ...(turnId ? { turnId } : {}),
         });
         emit({
@@ -1391,6 +2490,7 @@ export const CursorAdapterLive = Layer.effect(
           const context: CursorSessionContext = {
             session,
             client,
+            metadata: EMPTY_CURSOR_SESSION_METADATA,
             pendingApprovals: new Map(),
             pendingUserInputs: new Map(),
             turns: [],
@@ -1448,38 +2548,53 @@ export const CursorAdapterLive = Layer.effect(
                 },
               });
 
-              await client.request(
-                "initialize",
-                {
-                  protocolVersion: 1,
-                  clientCapabilities: {
-                    fs: { readTextFile: false, writeTextFile: false },
-                    terminal: false,
+              const initialized = parseCursorInitializeState(
+                await client.request(
+                  "initialize",
+                  {
+                    protocolVersion: 1,
+                    clientCapabilities: {
+                      fs: { readTextFile: false, writeTextFile: false },
+                      terminal: false,
+                    },
+                    clientInfo: {
+                      name: "t3code",
+                      version: "1.0.17",
+                    },
                   },
-                  clientInfo: {
-                    name: "t3code",
-                    version: "1.0.17",
-                  },
-                },
-                { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
+                  { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
+                ),
               );
-              await client.request(
-                "authenticate",
-                { methodId: "cursor_login" },
-                { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
-              );
+              updateMetadata(context, {
+                initialize: initialized,
+              });
+              const authMethodId =
+                initialized.authMethods.find((method) => method.id === "cursor_login")?.id ??
+                initialized.authMethods[0]?.id;
+              if (authMethodId) {
+                await client.request(
+                  "authenticate",
+                  { methodId: authMethodId },
+                  { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
+                );
+              }
 
               const resumeSessionId = readResumeSessionId(input.resumeCursor);
-              const sessionMethod = resumeSessionId ? "session/load" : "session/new";
-              const sessionResult = (await client.request(
-                sessionMethod,
-                {
-                  cwd: input.cwd ?? serverConfig.cwd,
-                  mcpServers: [],
-                  ...(resumeSessionId ? { sessionId: resumeSessionId } : {}),
-                },
-                { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
-              )) as { readonly sessionId?: unknown };
+              const canLoadSession =
+                resumeSessionId !== undefined &&
+                context.metadata.initialize.agentCapabilities.loadSession;
+              const sessionMethod = canLoadSession ? "session/load" : "session/new";
+              const sessionResult = asObject(
+                await client.request(
+                  sessionMethod,
+                  {
+                    cwd: input.cwd ?? serverConfig.cwd,
+                    mcpServers: [],
+                    ...(canLoadSession ? { sessionId: resumeSessionId } : {}),
+                  },
+                  { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
+                ),
+              );
               const sessionId = asString(sessionResult?.sessionId) ?? resumeSessionId;
               if (!sessionId) {
                 throw new ProviderAdapterRequestError({
@@ -1496,6 +2611,19 @@ export const CursorAdapterLive = Layer.effect(
                 resumeCursor: {
                   sessionId,
                 } satisfies CursorResumeCursor,
+              });
+              updateMetadata(context, {
+                configOptions: parseCursorConfigOptions(sessionResult?.configOptions),
+                modes: parseCursorSessionModeState(sessionResult?.modes),
+                models: parseCursorSessionModelState(sessionResult?.models),
+              });
+              if (input.modelSelection?.provider === PROVIDER) {
+                await syncCursorModelSelection(context, input.modelSelection);
+              }
+              emitSessionConfigured(context, {
+                rawMethod: sessionMethod,
+                rawPayload: sessionResult,
+                rawSource: "cursor.acp.request",
               });
 
               emit({
@@ -1549,8 +2677,8 @@ export const CursorAdapterLive = Layer.effect(
       });
 
     const sendTurn: CursorAdapterShape["sendTurn"] = (input) =>
-      Effect.try({
-        try: () => {
+      Effect.tryPromise({
+        try: async () => {
           const context = sessions.get(input.threadId);
           if (!context) {
             throw new ProviderAdapterSessionNotFoundError({
@@ -1572,13 +2700,6 @@ export const CursorAdapterLive = Layer.effect(
               issue: `Expected Cursor model selection, received '${input.modelSelection.provider}'.`,
             });
           }
-          if (input.attachments && input.attachments.length > 0) {
-            throw new ProviderAdapterValidationError({
-              provider: PROVIDER,
-              operation: "sendTurn",
-              issue: "Cursor ACP image attachments are not implemented yet.",
-            });
-          }
           if (context.activeTurn) {
             throw new ProviderAdapterRequestError({
               provider: PROVIDER,
@@ -1586,14 +2707,13 @@ export const CursorAdapterLive = Layer.effect(
               detail: "Cursor session already has an active turn.",
             });
           }
-          const sessionId = readResumeSessionId(context.session.resumeCursor);
-          if (!sessionId) {
-            throw new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "session/prompt",
-              detail: "Cursor session is missing a resumable session id.",
-            });
+
+          const sessionId = requireCursorSessionId(context, "session/prompt");
+          const prompt = await runPromise(buildCursorPromptContent(context, input));
+          if (input.modelSelection?.provider === PROVIDER) {
+            await syncCursorModelSelection(context, input.modelSelection);
           }
+          await syncCursorInteractionMode(context, input.interactionMode);
 
           const turnId = TurnId.makeUnsafe(`cursor-turn:${randomUUID()}`);
           const selectedModel = resolveSelectedModel(input.modelSelection);
@@ -1601,6 +2721,7 @@ export const CursorAdapterLive = Layer.effect(
             id: turnId,
             items: [],
             assistantText: "",
+            interruptRequested: false,
             reasoningText: "",
             assistantItem: undefined,
             reasoningItem: undefined,
@@ -1624,13 +2745,24 @@ export const CursorAdapterLive = Layer.effect(
           void context.client
             .request("session/prompt", {
               sessionId,
-              prompt: [{ type: "text", text: input.input ?? "" }],
+              prompt,
             })
             .then((result) => {
               const record = asObject(result);
+              const stopReason = asString(record?.stopReason) ?? null;
+              if (
+                context.activeTurn?.id === turnId &&
+                (context.activeTurn.interruptRequested || stopReason === "cancelled")
+              ) {
+                settleTurn(context, turnId, {
+                  type: "aborted",
+                  reason: "Turn cancelled",
+                });
+                return;
+              }
               settleTurn(context, turnId, {
                 type: "completed",
-                stopReason: asString(record?.stopReason) ?? null,
+                stopReason,
               });
             })
             .catch((error) => {
@@ -1642,6 +2774,13 @@ export const CursorAdapterLive = Layer.effect(
                   class: "provider_error",
                 },
               });
+              if (context.activeTurn?.id === turnId && context.activeTurn.interruptRequested) {
+                settleTurn(context, turnId, {
+                  type: "aborted",
+                  reason: "Turn cancelled",
+                });
+                return;
+              }
               settleTurn(context, turnId, {
                 type: "completed",
                 errorMessage: error instanceof Error ? error.message : String(error),
@@ -1684,22 +2823,13 @@ export const CursorAdapterLive = Layer.effect(
           if (turnId && context.activeTurn.id !== turnId) {
             return;
           }
-          const sessionId = readResumeSessionId(context.session.resumeCursor);
-          if (!sessionId) {
-            throw new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "session/cancel",
-              detail: "Cursor session is missing a resumable session id.",
-            });
-          }
-          await context.client.request(
-            "session/cancel",
-            { sessionId },
-            { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
-          );
-          settleTurn(context, context.activeTurn.id, {
-            type: "aborted",
-            reason: "Turn cancelled",
+          const activeTurnId = context.activeTurn.id;
+          const sessionId = requireCursorSessionId(context, "session/cancel");
+          context.client.notify("session/cancel", { sessionId });
+          context.activeTurn.interruptRequested = true;
+          cancelPendingApprovalsForTurn(context, activeTurnId, {
+            rawMethod: "session/cancel",
+            rawPayload: { sessionId },
           });
         },
         catch: (cause) => {
@@ -1738,12 +2868,24 @@ export const CursorAdapterLive = Layer.effect(
             });
           }
           context.pendingApprovals.delete(requestId);
-          context.client.respond(pending.jsonRpcId, {
-            outcome: {
-              outcome: "selected",
-              optionId: toDecisionOptionId(decision),
-            },
-          });
+          const selectedOption = selectCursorPermissionOption(
+            pending.options,
+            cursorPermissionKindsForDecision(decision),
+          );
+          if (selectedOption) {
+            context.client.respond(pending.jsonRpcId, {
+              outcome: {
+                outcome: "selected",
+                optionId: selectedOption.optionId,
+              },
+            });
+          } else {
+            context.client.respond(pending.jsonRpcId, {
+              outcome: {
+                outcome: "cancelled",
+              },
+            });
+          }
           emit({
             ...baseEvent(context, {
               ...(pending.turnId ? { turnId: pending.turnId } : {}),
@@ -1751,10 +2893,12 @@ export const CursorAdapterLive = Layer.effect(
             }),
             type: "request.resolved",
             payload: {
-              requestType: "command_execution_approval",
+              requestType: pending.requestType,
               decision,
               resolution: {
-                optionId: toDecisionOptionId(decision),
+                ...(selectedOption ? { optionId: selectedOption.optionId } : {}),
+                ...(selectedOption?.kind ? { kind: selectedOption.kind } : {}),
+                ...(!selectedOption ? { outcome: "cancelled" } : {}),
               },
             },
           });
@@ -1800,11 +2944,22 @@ export const CursorAdapterLive = Layer.effect(
           if (pending.kind === "ask-question") {
             const selectedAnswers = pending.questions.map((question) => {
               const answer = answers[question.id];
-              const label = typeof answer === "string" ? answer : "";
-              const optionId = pending.optionIdsByQuestionAndLabel.get(question.id)?.get(label);
+              const labels =
+                typeof answer === "string"
+                  ? [answer]
+                  : Array.isArray(answer)
+                    ? answer.filter((entry): entry is string => typeof entry === "string")
+                    : [];
+              const optionIdsByLabel = pending.optionIdsByQuestionAndLabel.get(question.id);
               return {
                 questionId: question.id,
-                selectedOptionIds: optionId ? [optionId] : [],
+                selectedOptionIds: [
+                  ...new Set(
+                    labels
+                      .map((label) => optionIdsByLabel?.get(label))
+                      .filter((optionId): optionId is string => typeof optionId === "string"),
+                  ),
+                ],
               };
             });
             context.client.respond(pending.jsonRpcId, {

@@ -82,6 +82,8 @@ type ClaudeToolResultStreamKind = Extract<
   RuntimeContentStreamKind,
   "command_output" | "file_change_output"
 >;
+type ClaudeUserMessageContent = SDKUserMessage["message"]["content"];
+type ClaudeUserMessageContentBlock = ClaudeUserMessageContent[number];
 
 type PromptQueueItem =
   | {
@@ -525,7 +527,7 @@ function buildPromptText(input: ProviderSendTurnInput): string {
 }
 
 function buildUserMessage(input: {
-  readonly sdkContent: Array<Record<string, unknown>>;
+  readonly sdkContent: Array<ClaudeUserMessageContentBlock>;
 }): SDKUserMessage {
   return {
     type: "user",
@@ -533,15 +535,22 @@ function buildUserMessage(input: {
     parent_tool_use_id: null,
     message: {
       role: "user",
-      content: input.sdkContent as unknown as SDKUserMessage["message"]["content"],
+      content: input.sdkContent,
     },
-  } as SDKUserMessage;
+  } satisfies SDKUserMessage;
+}
+
+function buildClaudeTextContentBlock(text: string): ClaudeUserMessageContentBlock {
+  return {
+    type: "text",
+    text,
+  } satisfies ClaudeUserMessageContentBlock;
 }
 
 function buildClaudeImageContentBlock(input: {
   readonly mimeType: string;
   readonly bytes: Uint8Array;
-}): Record<string, unknown> {
+}): ClaudeUserMessageContentBlock {
   return {
     type: "image",
     source: {
@@ -549,7 +558,7 @@ function buildClaudeImageContentBlock(input: {
       media_type: input.mimeType,
       data: Buffer.from(input.bytes).toString("base64"),
     },
-  };
+  } satisfies ClaudeUserMessageContentBlock;
 }
 
 const buildUserMessageEffect = Effect.fn("buildUserMessageEffect")(function* (
@@ -560,10 +569,10 @@ const buildUserMessageEffect = Effect.fn("buildUserMessageEffect")(function* (
   },
 ) {
   const text = buildPromptText(input);
-  const sdkContent: Array<Record<string, unknown>> = [];
+  const sdkContent: Array<ClaudeUserMessageContentBlock> = [];
 
   if (text.length > 0) {
-    sdkContent.push({ type: "text", text });
+    sdkContent.push(buildClaudeTextContentBlock(text));
   }
 
   for (const attachment of input.attachments ?? []) {
