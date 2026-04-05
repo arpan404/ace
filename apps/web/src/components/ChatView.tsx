@@ -4881,7 +4881,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Persistent top bar — always visible regardless of workspace mode */}
       <header
         className={cn(
-          "border-b border-border/70 bg-background/95 px-3 sm:px-5 supports-[backdrop-filter]:bg-background/84 supports-[backdrop-filter]:backdrop-blur-md",
+          "border-b border-border/50 bg-background/95 px-3 sm:px-5 supports-[backdrop-filter]:bg-background/80 supports-[backdrop-filter]:backdrop-blur-lg",
           isElectron ? "drag-region flex h-13 items-center" : "py-2.5 sm:py-3",
         )}
       >
@@ -4979,7 +4979,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
               {/* Input bar */}
               <div
-                className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}
+                className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4")}
               >
                 <form
                   ref={composerFormRef}
@@ -4999,8 +4999,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   >
                     <div
                       className={cn(
-                        "rounded-4xl border bg-card transition-colors duration-200 has-focus-visible:border-ring/45",
-                        isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border",
+                        "rounded-4xl border bg-card shadow-sm transition-colors duration-200 has-focus-visible:border-ring/40",
+                        isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border/70",
                         composerProviderState.composerSurfaceClassName,
                       )}
                     >

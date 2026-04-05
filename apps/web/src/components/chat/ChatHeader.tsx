@@ -208,11 +208,11 @@ export const ChatHeader = memo(function ChatHeader({
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-3">
-      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden sm:gap-3">
         <SidebarTrigger className="size-7 shrink-0 md:hidden" />
         {workspaceMode === "editor" ? (
           <span
-            className="min-w-0 truncate text-sm leading-none font-medium text-foreground"
+            className="min-w-0 truncate text-[13px] leading-none font-medium text-foreground/90"
             title={workspaceName ?? activeProjectName}
           >
             {workspaceName ?? activeProjectName ?? "Workspace"}
@@ -220,7 +220,7 @@ export const ChatHeader = memo(function ChatHeader({
         ) : (
           <div className="flex min-w-0 items-center gap-2.5">
             <h2
-              className="min-w-0 shrink truncate text-sm leading-none font-medium text-foreground"
+              className="min-w-0 shrink truncate text-[13px] leading-none font-medium text-foreground/90"
               title={activeThreadTitle}
             >
               {activeThreadTitle}
@@ -253,7 +253,7 @@ export const ChatHeader = memo(function ChatHeader({
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1.5">
         <WorkspaceModeToggle mode={workspaceMode} onModeChange={onWorkspaceModeChange} />
         {workspaceActionNodes.length > 0 ? (
           <TopBarCluster>{workspaceActionNodes}</TopBarCluster>
