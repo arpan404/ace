@@ -33,6 +33,12 @@ import type {
   ProjectWriteFileResult,
 } from "./project";
 import type {
+  WorkspaceEditorCloseBufferInput,
+  WorkspaceEditorCloseBufferResult,
+  WorkspaceEditorSyncBufferInput,
+  WorkspaceEditorSyncBufferResult,
+} from "./workspaceEditor";
+import type {
   ServerConfig,
   ServerSearchOpenCodeModelsInput,
   ServerSearchOpenCodeModelsResult,
@@ -185,6 +191,12 @@ export interface NativeApi {
     readFile: (input: ProjectReadFileInput) => Promise<ProjectReadFileResult>;
     renameEntry: (input: ProjectRenameEntryInput) => Promise<ProjectRenameEntryResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+  };
+  workspaceEditor: {
+    syncBuffer: (input: WorkspaceEditorSyncBufferInput) => Promise<WorkspaceEditorSyncBufferResult>;
+    closeBuffer: (
+      input: WorkspaceEditorCloseBufferInput,
+    ) => Promise<WorkspaceEditorCloseBufferResult>;
   };
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;

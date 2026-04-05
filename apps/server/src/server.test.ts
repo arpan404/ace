@@ -19,6 +19,10 @@ import {
   ResolvedKeybindingRule,
   ThreadId,
   TurnId,
+  type WorkspaceEditorCloseBufferInput,
+  type WorkspaceEditorCloseBufferResult,
+  type WorkspaceEditorSyncBufferInput,
+  type WorkspaceEditorSyncBufferResult,
   WS_METHODS,
   WsRpcGroup,
   EditorId,
@@ -61,6 +65,10 @@ import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResol
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
+import {
+  WorkspaceEditor,
+  type WorkspaceEditorShape,
+} from "./workspace/Services/WorkspaceEditor.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -139,6 +147,7 @@ const buildAppUnderTest = (options?: {
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
+    workspaceEditor?: Partial<WorkspaceEditorShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -261,6 +270,20 @@ const buildAppUnderTest = (options?: {
           markHttpListening: Effect.void,
           enqueueCommand: (effect) => effect,
           ...options?.layers?.serverRuntimeStartup,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(WorkspaceEditor)({
+          closeBuffer: (input: WorkspaceEditorCloseBufferInput) =>
+            Effect.succeed({
+              relativePath: input.relativePath,
+            } satisfies WorkspaceEditorCloseBufferResult),
+          syncBuffer: (input: WorkspaceEditorSyncBufferInput) =>
+            Effect.succeed({
+              diagnostics: [],
+              relativePath: input.relativePath,
+            } satisfies WorkspaceEditorSyncBufferResult),
+          ...options?.layers?.workspaceEditor,
         }),
       ),
       Layer.provide(workspaceAndProjectServicesLayer),
@@ -770,6 +793,93 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         result.failure.message,
         "Workspace file path must stay within the project root.",
       );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc workspaceEditor sync and close operations", () =>
+    Effect.gen(function* () {
+      let syncInput: WorkspaceEditorSyncBufferInput | null = null;
+      let closeInput: WorkspaceEditorCloseBufferInput | null = null;
+
+      yield* buildAppUnderTest({
+        layers: {
+          workspaceEditor: {
+            syncBuffer: (input) =>
+              Effect.sync(() => {
+                syncInput = input;
+                return {
+                  diagnostics: [
+                    {
+                      code: "TEST001",
+                      endColumn: 5,
+                      endLine: 0,
+                      message: "Example diagnostic",
+                      severity: "error",
+                      source: "t3code-test",
+                      startColumn: 0,
+                      startLine: 0,
+                    },
+                  ],
+                  relativePath: input.relativePath,
+                } satisfies WorkspaceEditorSyncBufferResult;
+              }),
+            closeBuffer: (input) =>
+              Effect.sync(() => {
+                closeInput = input;
+                return {
+                  relativePath: input.relativePath,
+                } satisfies WorkspaceEditorCloseBufferResult;
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const syncResponse = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.workspaceEditorSyncBuffer]({
+            cwd: "/tmp/project",
+            relativePath: "src/example.ts",
+            contents: "ERROR();\n",
+          }),
+        ),
+      );
+      const closeResponse = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.workspaceEditorCloseBuffer]({
+            cwd: "/tmp/project",
+            relativePath: "src/example.ts",
+          }),
+        ),
+      );
+
+      assert.deepEqual(syncInput, {
+        cwd: "/tmp/project",
+        relativePath: "src/example.ts",
+        contents: "ERROR();\n",
+      });
+      assert.deepEqual(syncResponse, {
+        diagnostics: [
+          {
+            code: "TEST001",
+            endColumn: 5,
+            endLine: 0,
+            message: "Example diagnostic",
+            severity: "error",
+            source: "t3code-test",
+            startColumn: 0,
+            startLine: 0,
+          },
+        ],
+        relativePath: "src/example.ts",
+      });
+      assert.deepEqual(closeInput, {
+        cwd: "/tmp/project",
+        relativePath: "src/example.ts",
+      });
+      assert.deepEqual(closeResponse, {
+        relativePath: "src/example.ts",
+      });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

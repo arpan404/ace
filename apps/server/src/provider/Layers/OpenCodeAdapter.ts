@@ -391,6 +391,17 @@ export function classifyOpenCodeDeltaStreamKind(field: unknown): OpenCodeDeltaSt
   }
 }
 
+export function resolveOpenCodeDeltaStreamKind(input: {
+  field: unknown;
+  isReasoningPart: boolean;
+}): OpenCodeDeltaStreamKind {
+  const streamKind = classifyOpenCodeDeltaStreamKind(input.field);
+  if (streamKind !== "assistant_text") {
+    return streamKind;
+  }
+  return input.isReasoningPart ? "reasoning_text" : "assistant_text";
+}
+
 function mapApprovalDecision(decision: ProviderApprovalDecision): "once" | "always" | "reject" {
   switch (decision) {
     case "accept":
@@ -862,7 +873,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         const turnId = ctx.activeTurn?.id;
         if (!turnId || !ctx.activeTurn) return;
         if (delta.length > 0) {
-          const streamKind = classifyOpenCodeDeltaStreamKind(props.field);
+          const partId = asString(props.partID);
+          const streamKind = resolveOpenCodeDeltaStreamKind({
+            field: props.field,
+            isReasoningPart: partId ? ctx.activeTurn.reasoningItems.has(partId) : false,
+          });
           if (streamKind === "assistant_text") {
             ensureAssistantStarted(ctx);
             emit(
@@ -879,7 +894,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             return;
           }
 
-          emitReasoningDelta(ctx, asString(props.partID) ?? `delta:${randomUUID()}`, {
+          emitReasoningDelta(ctx, partId ?? `delta:${randomUUID()}`, {
             text: delta,
             streamKind,
           });

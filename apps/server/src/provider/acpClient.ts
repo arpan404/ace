@@ -29,9 +29,27 @@ export class AcpRequestError extends Error {
     message: string,
     readonly data?: unknown,
   ) {
-    super(message);
+    super(enrichAcpErrorMessage(message, data));
     this.name = "AcpRequestError";
   }
+}
+
+function enrichAcpErrorMessage(message: string, data: unknown): string {
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const record = data as Record<string, unknown>;
+    const details =
+      typeof record.details === "string" && record.details.length > 0
+        ? record.details
+        : typeof record.detail === "string" && record.detail.length > 0
+          ? record.detail
+          : typeof record.message === "string" && record.message.length > 0
+            ? record.message
+            : undefined;
+    if (details && details !== message) {
+      return `${message}: ${details}`;
+    }
+  }
+  return message;
 }
 
 export interface AcpNotification {

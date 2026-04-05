@@ -47,6 +47,7 @@ const ClientSettingsPatchSchema = Schema.Struct({
   diffWordWrap: Schema.optionalKey(ClientSettingsSchema.fields.diffWordWrap),
   editorLineNumbers: Schema.optionalKey(ClientSettingsSchema.fields.editorLineNumbers),
   editorMinimap: Schema.optionalKey(ClientSettingsSchema.fields.editorMinimap),
+  editorNeovimMode: Schema.optionalKey(ClientSettingsSchema.fields.editorNeovimMode),
   editorRenderWhitespace: Schema.optionalKey(ClientSettingsSchema.fields.editorRenderWhitespace),
   editorStickyScroll: Schema.optionalKey(ClientSettingsSchema.fields.editorStickyScroll),
   editorSuggestions: Schema.optionalKey(ClientSettingsSchema.fields.editorSuggestions),
@@ -247,6 +248,10 @@ export function buildLegacyClientSettingsMigrationPatch(
 
   if (Predicate.isBoolean(legacySettings.editorMinimap)) {
     patch.editorMinimap = legacySettings.editorMinimap;
+  }
+
+  if (Predicate.isBoolean(legacySettings.editorNeovimMode)) {
+    patch.editorNeovimMode = legacySettings.editorNeovimMode;
   }
 
   if (Predicate.isBoolean(legacySettings.editorRenderWhitespace)) {

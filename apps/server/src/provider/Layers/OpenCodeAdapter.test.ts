@@ -7,6 +7,7 @@ import {
   classifyOpenCodeToolItemType,
   mapOpenCodeTodoStatus,
   openCodeTimestampToIso,
+  resolveOpenCodeDeltaStreamKind,
   resolveOpenCodePartTimestamp,
 } from "./OpenCodeAdapter.ts";
 
@@ -46,6 +47,26 @@ describe("classifyOpenCodeDeltaStreamKind", () => {
   it("keeps non-reasoning deltas as assistant text", () => {
     expect(classifyOpenCodeDeltaStreamKind("text")).toBe("assistant_text");
     expect(classifyOpenCodeDeltaStreamKind(undefined)).toBe("assistant_text");
+  });
+});
+
+describe("resolveOpenCodeDeltaStreamKind", () => {
+  it("keeps known reasoning parts in the reasoning stream when deltas are ambiguous", () => {
+    expect(resolveOpenCodeDeltaStreamKind({ field: "text", isReasoningPart: true })).toBe(
+      "reasoning_text",
+    );
+    expect(resolveOpenCodeDeltaStreamKind({ field: undefined, isReasoningPart: true })).toBe(
+      "reasoning_text",
+    );
+  });
+
+  it("preserves explicit stream kind fields and normal assistant text routing", () => {
+    expect(
+      resolveOpenCodeDeltaStreamKind({ field: "reasoning_details", isReasoningPart: true }),
+    ).toBe("reasoning_summary_text");
+    expect(resolveOpenCodeDeltaStreamKind({ field: "text", isReasoningPart: false })).toBe(
+      "assistant_text",
+    );
   });
 });
 

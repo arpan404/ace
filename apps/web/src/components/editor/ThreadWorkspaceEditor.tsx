@@ -28,6 +28,7 @@ import {
 } from "react";
 
 import {
+  type ThreadEditorRowState,
   MAX_THREAD_EDITOR_PANES,
   selectThreadEditorState,
   useEditorStateStore,
@@ -46,21 +47,76 @@ import { resolveShortcutCommand } from "~/keybindings";
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import {
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "../ui/dialog";
 import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
 import WorkspaceEditorPane from "./WorkspaceEditorPane";
 
 let monacoConfigured = false;
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function updateLanguageDiagnosticsOptions(
+  namespace: unknown,
+  defaultsKey: string,
+  updater: (current: Record<string, unknown>) => Record<string, unknown>,
+): void {
+  if (!isRecord(namespace)) {
+    return;
+  }
+  const defaults = Reflect.get(namespace, defaultsKey);
+  if (!isRecord(defaults)) {
+    return;
+  }
+  const setDiagnosticsOptions = Reflect.get(defaults, "setDiagnosticsOptions");
+  if (typeof setDiagnosticsOptions !== "function") {
+    return;
+  }
+  const current = Reflect.get(defaults, "diagnosticsOptions");
+  setDiagnosticsOptions.call(defaults, updater(isRecord(current) ? current : {}));
+}
+
+function updateLanguageOptions(
+  namespace: unknown,
+  defaultsKey: string,
+  updater: (current: Record<string, unknown>) => Record<string, unknown>,
+): void {
+  if (!isRecord(namespace)) {
+    return;
+  }
+  const defaults = Reflect.get(namespace, defaultsKey);
+  if (!isRecord(defaults)) {
+    return;
+  }
+  const setOptions = Reflect.get(defaults, "setOptions");
+  if (typeof setOptions !== "function") {
+    return;
+  }
+  const current = Reflect.get(defaults, "options");
+  setOptions.call(defaults, updater(isRecord(current) ? current : {}));
+}
+
+function updateModeConfiguration(
+  namespace: unknown,
+  defaultsKey: string,
+  updater: (current: Record<string, unknown>) => Record<string, unknown>,
+): void {
+  if (!isRecord(namespace)) {
+    return;
+  }
+  const defaults = Reflect.get(namespace, defaultsKey);
+  if (!isRecord(defaults)) {
+    return;
+  }
+  const setModeConfiguration = Reflect.get(defaults, "setModeConfiguration");
+  if (typeof setModeConfiguration !== "function") {
+    return;
+  }
+  const current = Reflect.get(defaults, "modeConfiguration");
+  setModeConfiguration.call(defaults, updater(isRecord(current) ? current : {}));
+}
 
 function ensureMonacoConfigured() {
   if (monacoConfigured) {
@@ -93,6 +149,69 @@ function ensureMonacoConfigured() {
     MonacoEnvironment: environment,
   });
   loader.config({ monaco });
+  const typescriptNamespace = Reflect.get(monaco.languages, "typescript");
+  const jsonNamespace = Reflect.get(monaco.languages, "json");
+  const cssNamespace = Reflect.get(monaco.languages, "css");
+  const htmlNamespace = Reflect.get(monaco.languages, "html");
+
+  updateLanguageDiagnosticsOptions(typescriptNamespace, "javascriptDefaults", (current) => ({
+    ...current,
+    noSemanticValidation: true,
+    noSuggestionDiagnostics: true,
+    noSyntaxValidation: true,
+  }));
+  updateLanguageDiagnosticsOptions(typescriptNamespace, "typescriptDefaults", (current) => ({
+    ...current,
+    noSemanticValidation: true,
+    noSuggestionDiagnostics: true,
+    noSyntaxValidation: true,
+  }));
+  updateLanguageDiagnosticsOptions(jsonNamespace, "jsonDefaults", (current) => ({
+    ...current,
+    schemaRequest: "ignore",
+    schemaValidation: "ignore",
+    validate: false,
+  }));
+  updateModeConfiguration(jsonNamespace, "jsonDefaults", (current) => ({
+    ...current,
+    diagnostics: false,
+  }));
+  updateLanguageOptions(cssNamespace, "cssDefaults", (current) => ({
+    ...current,
+    validate: false,
+  }));
+  updateModeConfiguration(cssNamespace, "cssDefaults", (current) => ({
+    ...current,
+    diagnostics: false,
+  }));
+  updateLanguageOptions(cssNamespace, "scssDefaults", (current) => ({
+    ...current,
+    validate: false,
+  }));
+  updateModeConfiguration(cssNamespace, "scssDefaults", (current) => ({
+    ...current,
+    diagnostics: false,
+  }));
+  updateLanguageOptions(cssNamespace, "lessDefaults", (current) => ({
+    ...current,
+    validate: false,
+  }));
+  updateModeConfiguration(cssNamespace, "lessDefaults", (current) => ({
+    ...current,
+    diagnostics: false,
+  }));
+  updateModeConfiguration(htmlNamespace, "htmlDefaults", (current) => ({
+    ...current,
+    diagnostics: false,
+  }));
+  updateModeConfiguration(htmlNamespace, "handlebarDefaults", (current) => ({
+    ...current,
+    diagnostics: false,
+  }));
+  updateModeConfiguration(htmlNamespace, "razorDefaults", (current) => ({
+    ...current,
+    diagnostics: false,
+  }));
   monaco.editor.defineTheme("t3code-carbon", {
     base: "vs-dark",
     inherit: true,
@@ -130,6 +249,37 @@ type TreeRow =
       hasChildren: false;
       kind: "file";
       name: string;
+    };
+
+type ExplorerInlineEntryState =
+  | {
+      kind: "create-file";
+      parentPath: string | null;
+      value: string;
+    }
+  | {
+      kind: "create-folder";
+      parentPath: string | null;
+      value: string;
+    }
+  | {
+      entry: ProjectEntry;
+      kind: "rename";
+      parentPath: string | null;
+      value: string;
+    };
+
+type ExplorerRenderRow =
+  | {
+      kind: "entry";
+      key: string;
+      row: TreeRow;
+    }
+  | {
+      depth: number;
+      key: string;
+      kind: "inline";
+      state: ExplorerInlineEntryState;
     };
 
 function compareProjectEntries(left: ProjectEntry, right: ProjectEntry): number {
@@ -189,24 +339,74 @@ function buildTreeRows(
   return rows;
 }
 
-type ExplorerEntryDialogState =
-  | {
-      kind: "create-file";
-      parentPath: string | null;
-    }
-  | {
-      kind: "create-folder";
-      parentPath: string | null;
-    }
-  | {
-      entry: ProjectEntry;
-      kind: "rename";
-      parentPath: string | null;
-    };
-
 function pathForDialogInput(parentPath: string | null, value: string): string {
   const trimmed = value.trim().replace(/^\.\//, "");
   return parentPath ? `${parentPath}/${trimmed}` : trimmed;
+}
+
+function isAncestorPath(pathValue: string, maybeAncestor: string): boolean {
+  return pathValue === maybeAncestor || pathValue.startsWith(`${maybeAncestor}/`);
+}
+
+function movePathToParent(pathValue: string, nextParentPath: string | null): string {
+  const name = basenameOfPath(pathValue);
+  return nextParentPath ? `${nextParentPath}/${name}` : name;
+}
+
+function buildExplorerRenderRows(
+  rows: readonly TreeRow[],
+  inlineState: ExplorerInlineEntryState | null,
+): ExplorerRenderRow[] {
+  const baseRows = rows.map<ExplorerRenderRow>((row) => ({
+    kind: "entry",
+    key: row.entry.path,
+    row,
+  }));
+  if (!inlineState) {
+    return baseRows;
+  }
+
+  if (inlineState.kind === "rename") {
+    const renameIndex = rows.findIndex((row) => row.entry.path === inlineState.entry.path);
+    if (renameIndex < 0) {
+      return baseRows;
+    }
+    const targetRow = rows[renameIndex];
+    if (!targetRow) {
+      return baseRows;
+    }
+    baseRows.splice(renameIndex, 1, {
+      depth: targetRow.depth,
+      key: `inline:${inlineState.entry.path}`,
+      kind: "inline",
+      state: inlineState,
+    });
+    return baseRows;
+  }
+
+  const parentIndex = inlineState.parentPath
+    ? rows.findIndex((row) => row.entry.path === inlineState.parentPath)
+    : -1;
+  let insertIndex = baseRows.length;
+  let depth = 0;
+  if (parentIndex >= 0) {
+    const parentRow = rows[parentIndex];
+    if (parentRow) {
+      depth = parentRow.depth + 1;
+      insertIndex = parentIndex + 1;
+      while (insertIndex < rows.length && (rows[insertIndex]?.depth ?? 0) > parentRow.depth) {
+        insertIndex += 1;
+      }
+    }
+  }
+
+  baseRows.splice(insertIndex, 0, {
+    depth,
+    key: `inline:${inlineState.kind}:${inlineState.parentPath ?? "root"}`,
+    kind: "inline",
+    state: inlineState,
+  });
+  return baseRows;
 }
 
 function shouldIgnoreEditorShortcutTarget(target: EventTarget | null): boolean {
@@ -225,8 +425,12 @@ function shouldIgnoreEditorShortcutTarget(target: EventTarget | null): boolean {
 
 const FileTreeRow = memo(function FileTreeRow(props: {
   activeFilePaths: ReadonlySet<string>;
+  dragTargetPath: string | null;
   expandedDirectoryPaths: ReadonlySet<string>;
   focusedFilePath: string | null;
+  onDropEntry: (sourcePath: string, targetParentPath: string | null) => void;
+  onFocusEntry: (path: string) => void;
+  onHoverDropTarget: (targetParentPath: string | null) => void;
   onOpenFile: (filePath: string, openInNewPane: boolean) => void;
   onOpenRowContextMenu: (entry: ProjectEntry, position: { x: number; y: number }) => void;
   onSelectEntry: (path: string) => void;
@@ -241,6 +445,9 @@ const FileTreeRow = memo(function FileTreeRow(props: {
   const isSelected = props.selectedEntryPath === props.row.entry.path;
   const isOpen = props.openFilePaths.has(props.row.entry.path);
   const isActiveElsewhere = props.activeFilePaths.has(props.row.entry.path);
+  const dropTargetPath =
+    props.row.kind === "directory" ? props.row.entry.path : (props.row.entry.parentPath ?? null);
+  const isDropTarget = props.dragTargetPath !== null && props.dragTargetPath === dropTargetPath;
   const isExpanded =
     props.row.kind === "directory" && props.expandedDirectoryPaths.has(props.row.entry.path);
 
@@ -252,14 +459,18 @@ const FileTreeRow = memo(function FileTreeRow(props: {
         isFocused
           ? "bg-primary/12 text-foreground shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-primary)_25%,transparent)]"
           : isSelected
-            ? "bg-foreground/[0.06] text-foreground"
-            : isOpen
-              ? "bg-foreground/[0.04] text-foreground"
-              : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+            ? "bg-foreground/6 text-foreground"
+            : isDropTarget
+              ? "bg-primary/10 text-foreground"
+              : isOpen
+                ? "bg-foreground/4 text-foreground"
+                : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
       )}
+      data-explorer-path={props.row.entry.path}
       style={{
         paddingLeft: `${props.searchMode ? 8 : 8 + props.row.depth * 14}px`,
       }}
+      draggable
       onClick={(event) => {
         props.onSelectEntry(props.row.entry.path);
         if (props.row.kind === "directory") {
@@ -267,6 +478,49 @@ const FileTreeRow = memo(function FileTreeRow(props: {
           return;
         }
         props.onOpenFile(props.row.entry.path, event.altKey || event.metaKey);
+      }}
+      onFocus={() => {
+        props.onFocusEntry(props.row.entry.path);
+      }}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData(
+          "application/x-t3code-explorer-entry",
+          JSON.stringify({
+            kind: props.row.entry.kind,
+            path: props.row.entry.path,
+          }),
+        );
+        event.dataTransfer.setData("text/plain", props.row.entry.path);
+      }}
+      onDragOver={(event) => {
+        const payload = event.dataTransfer.getData("application/x-t3code-explorer-entry");
+        if (payload.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        props.onHoverDropTarget(dropTargetPath);
+      }}
+      onDragLeave={() => {
+        props.onHoverDropTarget(null);
+      }}
+      onDrop={(event) => {
+        const payload = event.dataTransfer.getData("application/x-t3code-explorer-entry");
+        if (payload.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        props.onHoverDropTarget(null);
+        try {
+          const parsed = JSON.parse(payload) as { path?: string };
+          if (typeof parsed.path !== "string") {
+            return;
+          }
+          props.onDropEntry(parsed.path, dropTargetPath);
+        } catch {
+          return;
+        }
       }}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -319,6 +573,65 @@ const FileTreeRow = memo(function FileTreeRow(props: {
   );
 });
 
+const InlineExplorerRow = memo(function InlineExplorerRow(props: {
+  depth: number;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onCancel: () => void;
+  onChangeValue: (value: string) => void;
+  onCommit: () => void;
+  resolvedTheme: "light" | "dark";
+  searchMode: boolean;
+  state: ExplorerInlineEntryState;
+}) {
+  return (
+    <div
+      className="flex h-8 w-full items-center gap-2 rounded-lg bg-primary/8 px-2"
+      style={{
+        paddingLeft: `${props.searchMode ? 8 : 8 + props.depth * 14}px`,
+      }}
+    >
+      <span className="size-3.5 shrink-0" />
+      <VscodeEntryIcon
+        pathValue={
+          props.state.kind === "rename"
+            ? props.state.entry.path
+            : props.state.kind === "create-folder"
+              ? `${props.state.parentPath ?? "folder"}/folder`
+              : `${props.state.parentPath ?? "file"}/file.ts`
+        }
+        kind={props.state.kind === "create-folder" ? "directory" : "file"}
+        theme={props.resolvedTheme}
+        className="size-4"
+      />
+      <Input
+        ref={props.inputRef}
+        value={props.state.value}
+        onChange={(event) => props.onChangeValue(event.target.value)}
+        onBlur={() => {
+          if (props.state.value.trim().length === 0) {
+            props.onCancel();
+            return;
+          }
+          props.onCommit();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            props.onCommit();
+            return;
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            props.onCancel();
+          }
+        }}
+        className="h-7"
+        size="sm"
+      />
+    </div>
+  );
+});
+
 export default function ThreadWorkspaceEditor(props: {
   browserOpen: boolean;
   gitCwd: string | null;
@@ -333,6 +646,7 @@ export default function ThreadWorkspaceEditor(props: {
   const editorSettings = useSettings((settings) => ({
     lineNumbers: settings.editorLineNumbers,
     minimap: settings.editorMinimap,
+    neovimMode: settings.editorNeovimMode,
     renderWhitespace: settings.editorRenderWhitespace,
     stickyScroll: settings.editorStickyScroll,
     suggestions: settings.editorSuggestions,
@@ -345,7 +659,8 @@ export default function ThreadWorkspaceEditor(props: {
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const treeSearchInputRef = useRef<HTMLInputElement | null>(null);
   const entryDialogInputRef = useRef<HTMLInputElement | null>(null);
-  const paneGroupRef = useRef<HTMLDivElement | null>(null);
+  const editorGridRef = useRef<HTMLDivElement | null>(null);
+  const rowGroupRefs = useRef(new Map<string, HTMLDivElement | null>());
   const closeFile = useEditorStateStore((state) => state.closeFile);
   const closeFilesToRight = useEditorStateStore((state) => state.closeFilesToRight);
   const closeOtherFiles = useEditorStateStore((state) => state.closeOtherFiles);
@@ -362,14 +677,15 @@ export default function ThreadWorkspaceEditor(props: {
   const setActiveFile = useEditorStateStore((state) => state.setActiveFile);
   const setActivePane = useEditorStateStore((state) => state.setActivePane);
   const setPaneRatios = useEditorStateStore((state) => state.setPaneRatios);
+  const setRowRatios = useEditorStateStore((state) => state.setRowRatios);
   const setTreeWidth = useEditorStateStore((state) => state.setTreeWidth);
   const splitPane = useEditorStateStore((state) => state.splitPane);
   const syncTree = useEditorStateStore((state) => state.syncTree);
   const toggleDirectory = useEditorStateStore((state) => state.toggleDirectory);
   const updateDraft = useEditorStateStore((state) => state.updateDraft);
   const [selectedEntryPath, setSelectedEntryPath] = useState<string | null>(null);
-  const [entryDialogState, setEntryDialogState] = useState<ExplorerEntryDialogState | null>(null);
-  const [entryDialogValue, setEntryDialogValue] = useState("");
+  const [inlineEntryState, setInlineEntryState] = useState<ExplorerInlineEntryState | null>(null);
+  const [dragTargetParentPath, setDragTargetParentPath] = useState<string | null>(null);
   const hasRecentlyClosedFiles = useEditorStateStore(
     useCallback(
       (state) =>
@@ -388,12 +704,31 @@ export default function ThreadWorkspaceEditor(props: {
       [props.threadId],
     ),
   );
-  const { activePaneId, draftsByFilePath, expandedDirectoryPaths, paneRatios, panes, treeWidth } =
-    editorState;
+  const {
+    activePaneId,
+    draftsByFilePath,
+    expandedDirectoryPaths,
+    paneRatios,
+    panes,
+    rows,
+    treeWidth,
+  } = editorState;
   const activePane = useMemo(
     () => panes.find((pane) => pane.id === activePaneId) ?? panes[0] ?? null,
     [activePaneId, panes],
   );
+  const panesById = useMemo(() => new Map(panes.map((pane) => [pane.id, pane] as const)), [panes]);
+  const openWorkspaceFilePaths = useMemo(
+    () => Array.from(new Set(panes.flatMap((pane) => pane.openFilePaths))).sort(),
+    [panes],
+  );
+  const previousWorkspaceBufferStateRef = useRef<{
+    cwd: string | null;
+    filePaths: ReadonlySet<string>;
+  }>({
+    cwd: null,
+    filePaths: new Set<string>(),
+  });
   const editorOptions = useMemo(
     () => ({
       acceptSuggestionOnCommitCharacter: editorSettings.suggestions,
@@ -430,6 +765,63 @@ export default function ThreadWorkspaceEditor(props: {
       wordWrap: editorSettings.wordWrap ? ("on" as const) : ("off" as const),
     }),
     [editorSettings],
+  );
+
+  useEffect(() => {
+    const previous = previousWorkspaceBufferStateRef.current;
+    const nextFilePaths = new Set(openWorkspaceFilePaths);
+    const removedFilePaths =
+      previous.cwd && previous.cwd !== props.gitCwd
+        ? Array.from(previous.filePaths)
+        : previous.cwd
+          ? Array.from(previous.filePaths).filter((filePath) => !nextFilePaths.has(filePath))
+          : [];
+
+    if (api && previous.cwd && removedFilePaths.length > 0) {
+      const previousCwd = previous.cwd;
+      void Promise.allSettled(
+        removedFilePaths.map((relativePath) =>
+          api.workspaceEditor.closeBuffer({
+            cwd: previousCwd,
+            relativePath,
+          }),
+        ),
+      ).then((results) => {
+        for (const [index, result] of results.entries()) {
+          if (result.status === "rejected") {
+            console.error("Failed to close workspace editor buffer", {
+              cwd: previousCwd,
+              relativePath: removedFilePaths[index],
+              error: result.reason,
+            });
+          }
+        }
+      });
+    }
+
+    previousWorkspaceBufferStateRef.current = {
+      cwd: props.gitCwd,
+      filePaths: nextFilePaths,
+    };
+  }, [api, openWorkspaceFilePaths, props.gitCwd]);
+
+  useEffect(
+    () => () => {
+      const previous = previousWorkspaceBufferStateRef.current;
+      if (!api || !previous.cwd || previous.filePaths.size === 0) {
+        return;
+      }
+      const previousCwd = previous.cwd;
+      void Promise.allSettled(
+        Array.from(previous.filePaths).map((relativePath) =>
+          api.workspaceEditor.closeBuffer({
+            cwd: previousCwd,
+            relativePath,
+          }),
+        ),
+      );
+    },
+    [api],
   );
 
   const workspaceTreeQuery = useQuery(
@@ -472,7 +864,7 @@ export default function ThreadWorkspaceEditor(props: {
   }, [activePane?.activeFilePath, entryByPath, selectedEntryPath]);
 
   useEffect(() => {
-    if (!entryDialogState) {
+    if (!inlineEntryState) {
       return;
     }
     const timer = window.setTimeout(() => {
@@ -482,7 +874,7 @@ export default function ThreadWorkspaceEditor(props: {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [entryDialogState]);
+  }, [inlineEntryState]);
 
   const saveMutation = useMutation({
     mutationFn: async (input: { contents: string; relativePath: string }) => {
@@ -535,10 +927,30 @@ export default function ThreadWorkspaceEditor(props: {
     [hydrateFile, props.threadId],
   );
 
-  const normalizedPaneRatios = useMemo(
-    () => normalizePaneRatios(paneRatios, panes.length),
-    [paneRatios, panes.length],
+  const normalizedRowRatios = useMemo(
+    () => normalizePaneRatios(paneRatios, rows.length),
+    [paneRatios, rows.length],
   );
+  const layoutRows = useMemo(
+    () =>
+      rows
+        .map((row) => {
+          const rowPanes = row.paneIds
+            .map((paneId) => panesById.get(paneId) ?? null)
+            .filter((pane): pane is NonNullable<typeof pane> => pane !== null);
+          if (rowPanes.length === 0) {
+            return null;
+          }
+          return {
+            ...row,
+            paneRatios: normalizePaneRatios(row.paneRatios, rowPanes.length),
+            panes: rowPanes,
+          };
+        })
+        .filter((row): row is ThreadEditorRowState & { panes: typeof panes } => row !== null),
+    [panesById, rows],
+  );
+  const orderedPaneIds = useMemo(() => layoutRows.flatMap((row) => row.paneIds), [layoutRows]);
 
   const activeDirtyPaths = useMemo(
     () =>
@@ -591,9 +1003,13 @@ export default function ThreadWorkspaceEditor(props: {
     () => new Set([...expandedDirectoryPaths, ...activeAncestorDirectories]),
     [activeAncestorDirectories, expandedDirectoryPaths],
   );
+  const explorerRows = useMemo(
+    () => buildExplorerRenderRows(visibleRows, inlineEntryState),
+    [inlineEntryState, visibleRows],
+  );
 
   const rowVirtualizer = useVirtualizer({
-    count: visibleRows.length,
+    count: explorerRows.length,
     estimateSize: () => 32,
     getScrollElement: () => treeScrollRef.current,
     overscan: 12,
@@ -643,33 +1059,37 @@ export default function ThreadWorkspaceEditor(props: {
   const paneResizeStateRef = useRef<{
     dividerIndex: number;
     pointerId: number;
+    rowId: string;
     startRatios: number[];
     startX: number;
   } | null>(null);
   const handlePaneResizeStart = useCallback(
-    (dividerIndex: number) => (event: ReactPointerEvent<HTMLDivElement>) => {
-      paneResizeStateRef.current = {
-        dividerIndex,
-        pointerId: event.pointerId,
-        startRatios: normalizedPaneRatios,
-        startX: event.clientX,
-      };
-      event.currentTarget.setPointerCapture(event.pointerId);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    },
-    [normalizedPaneRatios],
+    (rowId: string, dividerIndex: number, ratios: readonly number[]) =>
+      (event: ReactPointerEvent<HTMLDivElement>) => {
+        paneResizeStateRef.current = {
+          dividerIndex,
+          pointerId: event.pointerId,
+          rowId,
+          startRatios: [...ratios],
+          startX: event.clientX,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+      },
+    [],
   );
   const handlePaneResizeMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const resizeState = paneResizeStateRef.current;
-      const container = paneGroupRef.current;
+      const container = rowGroupRefs.current.get(resizeState?.rowId ?? "") ?? null;
       if (!resizeState || resizeState.pointerId !== event.pointerId || !container) {
         return;
       }
       event.preventDefault();
       setPaneRatios(
         props.threadId,
+        resizeState.rowId,
         resizePaneRatios({
           containerWidthPx: container.clientWidth,
           deltaPx: event.clientX - resizeState.startX,
@@ -694,14 +1114,69 @@ export default function ThreadWorkspaceEditor(props: {
     document.body.style.removeProperty("user-select");
   }, []);
 
+  const rowResizeStateRef = useRef<{
+    dividerIndex: number;
+    pointerId: number;
+    startRatios: number[];
+    startY: number;
+  } | null>(null);
+  const handleRowResizeStart = useCallback(
+    (dividerIndex: number) => (event: ReactPointerEvent<HTMLDivElement>) => {
+      rowResizeStateRef.current = {
+        dividerIndex,
+        pointerId: event.pointerId,
+        startRatios: normalizedRowRatios,
+        startY: event.clientY,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+    },
+    [normalizedRowRatios],
+  );
+  const handleRowResizeMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const resizeState = rowResizeStateRef.current;
+      const container = editorGridRef.current;
+      if (!resizeState || resizeState.pointerId !== event.pointerId || !container) {
+        return;
+      }
+      event.preventDefault();
+      setRowRatios(
+        props.threadId,
+        resizePaneRatios({
+          containerWidthPx: container.clientHeight,
+          deltaPx: event.clientY - resizeState.startY,
+          dividerIndex: resizeState.dividerIndex,
+          minPaneWidthPx: 220,
+          ratios: resizeState.startRatios,
+        }),
+      );
+    },
+    [props.threadId, setRowRatios],
+  );
+  const handleRowResizeEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const resizeState = rowResizeStateRef.current;
+    if (!resizeState || resizeState.pointerId !== event.pointerId) {
+      return;
+    }
+    rowResizeStateRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    document.body.style.removeProperty("cursor");
+    document.body.style.removeProperty("user-select");
+  }, []);
+
   const workspaceFileCount = useMemo(
     () => treeEntries.filter((entry) => entry.kind === "file").length,
     [treeEntries],
   );
 
   const handleSplitPane = useCallback(
-    (paneId?: string, filePath?: string) => {
+    (paneId?: string, filePath?: string, direction: "down" | "right" = "right") => {
       const createdPaneId = splitPane(props.threadId, {
+        direction,
         ...(filePath ? { filePath } : {}),
         ...(paneId ? { sourcePaneId: paneId } : {}),
       });
@@ -755,9 +1230,29 @@ export default function ThreadWorkspaceEditor(props: {
     [props.gitCwd, queryClient],
   );
 
-  const openExplorerEntryDialog = useCallback((state: ExplorerEntryDialogState) => {
-    setEntryDialogState(state);
-    setEntryDialogValue(state.kind === "rename" ? basenameOfPath(state.entry.path) : "");
+  const focusExplorerEntry = useCallback((path: string) => {
+    const target = treeScrollRef.current?.querySelector<HTMLElement>(
+      `[data-explorer-path="${CSS.escape(path)}"]`,
+    );
+    target?.focus();
+    target?.scrollIntoView({ block: "nearest" });
+  }, []);
+
+  const startInlineEntry = useCallback(
+    (state: ExplorerInlineEntryState) => {
+      if (state.parentPath) {
+        expandDirectories(
+          props.threadId,
+          collectAncestorDirectories(state.parentPath).concat(state.parentPath),
+        );
+      }
+      setInlineEntryState(state);
+    },
+    [expandDirectories, props.threadId],
+  );
+
+  const cancelInlineEntry = useCallback(() => {
+    setInlineEntryState(null);
   }, []);
 
   const focusedExplorerEntryPath = selectedEntryPath ?? activePane?.activeFilePath ?? null;
@@ -801,8 +1296,7 @@ export default function ThreadWorkspaceEditor(props: {
         title: result.kind === "directory" ? "Folder created" : "File created",
         type: "success",
       });
-      setEntryDialogState(null);
-      setEntryDialogValue("");
+      setInlineEntryState(null);
     },
   });
 
@@ -843,8 +1337,7 @@ export default function ThreadWorkspaceEditor(props: {
         title: "Entry renamed",
         type: "success",
       });
-      setEntryDialogState(null);
-      setEntryDialogValue("");
+      setInlineEntryState(null);
     },
   });
 
@@ -922,34 +1415,39 @@ export default function ThreadWorkspaceEditor(props: {
       const parentPath = entry?.kind === "directory" ? entry.path : (entry?.parentPath ?? null);
 
       if (clicked === "new-file") {
-        openExplorerEntryDialog({ kind: "create-file", parentPath });
+        startInlineEntry({ kind: "create-file", parentPath, value: "" });
         return;
       }
       if (clicked === "new-folder") {
-        openExplorerEntryDialog({ kind: "create-folder", parentPath });
+        startInlineEntry({ kind: "create-folder", parentPath, value: "" });
         return;
       }
       if (clicked === "rename" && entry) {
-        openExplorerEntryDialog({ kind: "rename", entry, parentPath: entry.parentPath ?? null });
+        startInlineEntry({
+          kind: "rename",
+          entry,
+          parentPath: entry.parentPath ?? null,
+          value: basenameOfPath(entry.path),
+        });
         return;
       }
       if (clicked === "delete" && entry) {
         await handleDeleteEntry(entry);
       }
     },
-    [api, handleDeleteEntry, openExplorerEntryDialog],
+    [api, handleDeleteEntry, startInlineEntry],
   );
 
-  const submitExplorerEntryDialog = useCallback(() => {
-    if (!entryDialogState) {
+  const submitInlineEntry = useCallback(() => {
+    if (!inlineEntryState) {
       return;
     }
 
-    const relativePath = pathForDialogInput(entryDialogState.parentPath, entryDialogValue);
+    const relativePath = pathForDialogInput(inlineEntryState.parentPath, inlineEntryState.value);
     if (
       relativePath.length === 0 ||
-      entryDialogValue.trim() === "." ||
-      entryDialogValue.trim() === ".."
+      inlineEntryState.value.trim() === "." ||
+      inlineEntryState.value.trim() === ".."
     ) {
       toastManager.add({
         description: "Enter a valid workspace-relative name.",
@@ -959,20 +1457,153 @@ export default function ThreadWorkspaceEditor(props: {
       return;
     }
 
-    if (entryDialogState.kind === "rename") {
+    if (inlineEntryState.kind === "rename") {
       void renameEntryMutation.mutate({
-        kind: entryDialogState.entry.kind,
+        kind: inlineEntryState.entry.kind,
         nextRelativePath: relativePath,
-        relativePath: entryDialogState.entry.path,
+        relativePath: inlineEntryState.entry.path,
       });
       return;
     }
 
     void createEntryMutation.mutate({
-      kind: entryDialogState.kind === "create-folder" ? "directory" : "file",
+      kind: inlineEntryState.kind === "create-folder" ? "directory" : "file",
       relativePath,
     });
-  }, [createEntryMutation, entryDialogState, entryDialogValue, renameEntryMutation]);
+  }, [createEntryMutation, inlineEntryState, renameEntryMutation]);
+
+  const moveExplorerEntry = useCallback(
+    (sourcePath: string, targetParentPath: string | null) => {
+      const sourceEntry = entryByPath.get(sourcePath);
+      if (!sourceEntry) {
+        return;
+      }
+      if (
+        targetParentPath !== null &&
+        sourceEntry.kind === "directory" &&
+        isAncestorPath(targetParentPath, sourcePath)
+      ) {
+        return;
+      }
+      const nextRelativePath = movePathToParent(sourcePath, targetParentPath);
+      if (nextRelativePath === sourcePath) {
+        return;
+      }
+      void renameEntryMutation.mutate({
+        kind: sourceEntry.kind,
+        nextRelativePath,
+        relativePath: sourcePath,
+      });
+      setDragTargetParentPath(null);
+    },
+    [entryByPath, renameEntryMutation],
+  );
+
+  const selectedVisibleEntryIndex = useMemo(
+    () => visibleRows.findIndex((row) => row.entry.path === focusedExplorerEntryPath),
+    [focusedExplorerEntryPath, visibleRows],
+  );
+
+  const handleExplorerKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (inlineEntryState || visibleRows.length === 0) {
+        return;
+      }
+      const currentIndex = selectedVisibleEntryIndex >= 0 ? selectedVisibleEntryIndex : 0;
+      const currentRow = visibleRows[currentIndex];
+      if (!currentRow) {
+        return;
+      }
+
+      const selectRowAtIndex = (index: number) => {
+        const nextRow = visibleRows[Math.max(0, Math.min(index, visibleRows.length - 1))];
+        if (!nextRow) {
+          return;
+        }
+        setSelectedEntryPath(nextRow.entry.path);
+        focusExplorerEntry(nextRow.entry.path);
+      };
+
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        selectRowAtIndex(currentIndex + 1);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        selectRowAtIndex(currentIndex - 1);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        if (currentRow.kind === "directory") {
+          event.preventDefault();
+          if (!expandedDirectoryPathSet.has(currentRow.entry.path)) {
+            toggleDirectory(props.threadId, currentRow.entry.path);
+            return;
+          }
+          const nextRow = visibleRows[currentIndex + 1];
+          if (nextRow && nextRow.depth > currentRow.depth) {
+            setSelectedEntryPath(nextRow.entry.path);
+            focusExplorerEntry(nextRow.entry.path);
+          }
+        }
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        if (
+          currentRow.kind === "directory" &&
+          expandedDirectoryPathSet.has(currentRow.entry.path)
+        ) {
+          event.preventDefault();
+          toggleDirectory(props.threadId, currentRow.entry.path);
+          return;
+        }
+        const parentPath = currentRow.entry.parentPath ?? null;
+        if (parentPath) {
+          event.preventDefault();
+          setSelectedEntryPath(parentPath);
+          focusExplorerEntry(parentPath);
+        }
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (currentRow.kind === "directory") {
+          toggleDirectory(props.threadId, currentRow.entry.path);
+          return;
+        }
+        handleOpenFile(currentRow.entry.path, false);
+        return;
+      }
+      if (event.key === "F2") {
+        event.preventDefault();
+        startInlineEntry({
+          kind: "rename",
+          entry: currentRow.entry,
+          parentPath: currentRow.entry.parentPath ?? null,
+          value: basenameOfPath(currentRow.entry.path),
+        });
+        return;
+      }
+      if ((event.key === "Backspace" || event.key === "Delete") && focusedExplorerEntry) {
+        event.preventDefault();
+        void handleDeleteEntry(focusedExplorerEntry);
+      }
+    },
+    [
+      expandedDirectoryPathSet,
+      focusExplorerEntry,
+      focusedExplorerEntry,
+      handleDeleteEntry,
+      handleOpenFile,
+      inlineEntryState,
+      props.threadId,
+      selectedVisibleEntryIndex,
+      startInlineEntry,
+      toggleDirectory,
+      visibleRows,
+    ],
+  );
 
   const handleReopenClosedTab = useCallback(
     (paneId?: string) => {
@@ -997,7 +1628,7 @@ export default function ThreadWorkspaceEditor(props: {
 
   const handleOpenFileToSide = useCallback(
     (paneId: string, filePath: string) => {
-      handleSplitPane(paneId, filePath);
+      handleSplitPane(paneId, filePath, "right");
     },
     [handleSplitPane],
   );
@@ -1007,7 +1638,7 @@ export default function ThreadWorkspaceEditor(props: {
       if (event.defaultPrevented || event.repeat || !activePane) {
         return;
       }
-      if (entryDialogState || document.activeElement === treeSearchInputRef.current) {
+      if (inlineEntryState || document.activeElement === treeSearchInputRef.current) {
         return;
       }
       if (shouldIgnoreEditorShortcutTarget(event.target)) {
@@ -1029,7 +1660,14 @@ export default function ThreadWorkspaceEditor(props: {
       if (command === "editor.split") {
         event.preventDefault();
         event.stopPropagation();
-        handleSplitPane(activePane.id);
+        handleSplitPane(activePane.id, undefined, "right");
+        return;
+      }
+
+      if (command === "editor.splitDown") {
+        event.preventDefault();
+        event.stopPropagation();
+        handleSplitPane(activePane.id, undefined, "down");
         return;
       }
 
@@ -1085,12 +1723,13 @@ export default function ThreadWorkspaceEditor(props: {
       if (command === "editor.newFile") {
         event.preventDefault();
         event.stopPropagation();
-        openExplorerEntryDialog({
+        startInlineEntry({
           kind: "create-file",
           parentPath:
             focusedExplorerEntry?.kind === "directory"
               ? focusedExplorerEntry.path
               : (focusedExplorerEntry?.parentPath ?? null),
+          value: "",
         });
         return;
       }
@@ -1098,12 +1737,13 @@ export default function ThreadWorkspaceEditor(props: {
       if (command === "editor.newFolder") {
         event.preventDefault();
         event.stopPropagation();
-        openExplorerEntryDialog({
+        startInlineEntry({
           kind: "create-folder",
           parentPath:
             focusedExplorerEntry?.kind === "directory"
               ? focusedExplorerEntry.path
               : (focusedExplorerEntry?.parentPath ?? null),
+          value: "",
         });
         return;
       }
@@ -1114,10 +1754,11 @@ export default function ThreadWorkspaceEditor(props: {
         }
         event.preventDefault();
         event.stopPropagation();
-        openExplorerEntryDialog({
+        startInlineEntry({
           kind: "rename",
           entry: focusedExplorerEntry,
           parentPath: focusedExplorerEntry.parentPath ?? null,
+          value: basenameOfPath(focusedExplorerEntry.path),
         });
         return;
       }
@@ -1136,12 +1777,14 @@ export default function ThreadWorkspaceEditor(props: {
         if (panes.length <= 1) {
           return;
         }
-        const currentIndex = panes.findIndex((pane) => pane.id === activePane.id);
+        const currentIndex = orderedPaneIds.indexOf(activePane.id);
         if (currentIndex < 0) {
           return;
         }
         const offset = command === "editor.focusNextWindow" ? 1 : -1;
-        const nextPane = panes[(currentIndex + offset + panes.length) % panes.length];
+        const nextPaneId =
+          orderedPaneIds[(currentIndex + offset + orderedPaneIds.length) % orderedPaneIds.length];
+        const nextPane = panesById.get(nextPaneId ?? "") ?? null;
         if (!nextPane) {
           return;
         }
@@ -1222,19 +1865,21 @@ export default function ThreadWorkspaceEditor(props: {
     closeFilesToRight,
     closeOtherFiles,
     editorSettings.wordWrap,
-    entryDialogState,
     focusedExplorerEntry,
     handleSplitPane,
     handleReopenClosedTab,
+    inlineEntryState,
     moveFile,
-    openExplorerEntryDialog,
+    orderedPaneIds,
     panes,
+    panesById,
     props.browserOpen,
     props.keybindings,
     props.terminalOpen,
     props.threadId,
     setActiveFile,
     setActivePane,
+    startInlineEntry,
     updateSettings,
   ]);
 
@@ -1267,12 +1912,13 @@ export default function ThreadWorkspaceEditor(props: {
               size="icon-xs"
               className="size-6 rounded-md text-muted-foreground/75 hover:text-foreground"
               onClick={() =>
-                openExplorerEntryDialog({
+                startInlineEntry({
                   kind: "create-file",
                   parentPath:
                     focusedExplorerEntry?.kind === "directory"
                       ? focusedExplorerEntry.path
                       : (focusedExplorerEntry?.parentPath ?? null),
+                  value: "",
                 })
               }
               title="New File"
@@ -1284,12 +1930,13 @@ export default function ThreadWorkspaceEditor(props: {
               size="icon-xs"
               className="size-6 rounded-md text-muted-foreground/75 hover:text-foreground"
               onClick={() =>
-                openExplorerEntryDialog({
+                startInlineEntry({
                   kind: "create-folder",
                   parentPath:
                     focusedExplorerEntry?.kind === "directory"
                       ? focusedExplorerEntry.path
                       : (focusedExplorerEntry?.parentPath ?? null),
+                  value: "",
                 })
               }
               title="New Folder"
@@ -1315,6 +1962,33 @@ export default function ThreadWorkspaceEditor(props: {
           <div
             ref={treeScrollRef}
             className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1"
+            tabIndex={0}
+            onKeyDown={handleExplorerKeyDown}
+            onDragOver={(event) => {
+              const payload = event.dataTransfer.getData("application/x-t3code-explorer-entry");
+              if (payload.length === 0) {
+                return;
+              }
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              setDragTargetParentPath(null);
+            }}
+            onDrop={(event) => {
+              const payload = event.dataTransfer.getData("application/x-t3code-explorer-entry");
+              if (payload.length === 0) {
+                return;
+              }
+              event.preventDefault();
+              try {
+                const parsed = JSON.parse(payload) as { path?: string };
+                if (typeof parsed.path !== "string") {
+                  return;
+                }
+                moveExplorerEntry(parsed.path, null);
+              } catch {
+                return;
+              }
+            }}
             onContextMenu={(event) => {
               if (event.target !== event.currentTarget) {
                 return;
@@ -1337,41 +2011,64 @@ export default function ThreadWorkspaceEditor(props: {
                   />
                 ))}
               </div>
-            ) : visibleRows.length === 0 ? (
+            ) : explorerRows.length === 0 ? (
               <div className="px-2 py-6 text-center text-xs text-muted-foreground">
                 {deferredTreeSearch.length > 0 ? "No files match this filter." : "No files found."}
               </div>
             ) : (
               <div className="relative" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const row = visibleRows[virtualRow.index];
+                  const row = explorerRows[virtualRow.index];
                   if (!row) {
                     return null;
                   }
                   return (
                     <div
-                      key={row.entry.path}
+                      key={row.key}
                       className="absolute top-0 left-0 w-full"
                       style={{ transform: `translateY(${virtualRow.start}px)` }}
                     >
-                      <FileTreeRow
-                        activeFilePaths={activeFilePathSet}
-                        expandedDirectoryPaths={expandedDirectoryPathSet}
-                        focusedFilePath={activePane?.activeFilePath ?? null}
-                        onOpenFile={handleOpenFile}
-                        onOpenRowContextMenu={(entry, position) => {
-                          void openExplorerContextMenu(entry, position);
-                        }}
-                        onSelectEntry={setSelectedEntryPath}
-                        onToggleDirectory={(directoryPath) =>
-                          toggleDirectory(props.threadId, directoryPath)
-                        }
-                        openFilePaths={openFilePaths}
-                        resolvedTheme={resolvedTheme}
-                        row={row}
-                        searchMode={deferredTreeSearch.length > 0}
-                        selectedEntryPath={selectedEntryPath}
-                      />
+                      {row.kind === "entry" ? (
+                        <FileTreeRow
+                          activeFilePaths={activeFilePathSet}
+                          dragTargetPath={dragTargetParentPath}
+                          expandedDirectoryPaths={expandedDirectoryPathSet}
+                          focusedFilePath={activePane?.activeFilePath ?? null}
+                          onDropEntry={(sourcePath, targetParentPath) => {
+                            moveExplorerEntry(sourcePath, targetParentPath);
+                          }}
+                          onFocusEntry={setSelectedEntryPath}
+                          onHoverDropTarget={setDragTargetParentPath}
+                          onOpenFile={handleOpenFile}
+                          onOpenRowContextMenu={(entry, position) => {
+                            void openExplorerContextMenu(entry, position);
+                          }}
+                          onSelectEntry={setSelectedEntryPath}
+                          onToggleDirectory={(directoryPath) =>
+                            toggleDirectory(props.threadId, directoryPath)
+                          }
+                          openFilePaths={openFilePaths}
+                          resolvedTheme={resolvedTheme}
+                          row={row.row}
+                          searchMode={deferredTreeSearch.length > 0}
+                          selectedEntryPath={selectedEntryPath}
+                        />
+                      ) : (
+                        <InlineExplorerRow
+                          depth={row.depth}
+                          inputRef={entryDialogInputRef}
+                          onCancel={cancelInlineEntry}
+                          onChangeValue={(value) =>
+                            setInlineEntryState((current) =>
+                              current ? { ...current, value } : current,
+                            )
+                          }
+                          onCommit={submitInlineEntry}
+                          resolvedTheme={resolvedTheme}
+                          searchMode={deferredTreeSearch.length > 0}
+                          state={row.state}
+                        />
+                      )}
                     </div>
                   );
                 })}
@@ -1395,68 +2092,112 @@ export default function ThreadWorkspaceEditor(props: {
 
         <section className="min-h-0 min-w-0 overflow-hidden bg-background">
           <div className="flex h-full min-h-0 flex-col">
-            <div ref={paneGroupRef} className="flex min-h-0 flex-1 overflow-hidden">
-              {panes.map((pane, index) => (
-                <div
-                  key={pane.id}
-                  className="flex min-h-0 min-w-0"
-                  style={{
-                    flexBasis: 0,
-                    flexGrow: normalizedPaneRatios[index] ?? 1,
-                    minWidth: 0,
-                  }}
-                >
-                  <WorkspaceEditorPane
-                    active={pane.id === activePaneId}
-                    canClosePane={panes.length > 1}
-                    canReopenClosedTab={hasRecentlyClosedFiles}
-                    canSplitPane={panes.length < MAX_THREAD_EDITOR_PANES}
-                    dirtyFilePaths={activeDirtyPaths}
-                    draftsByFilePath={draftsByFilePath}
-                    editorOptions={editorOptions}
-                    gitCwd={props.gitCwd}
-                    onCloseFile={(paneId, filePath) => closeFile(props.threadId, filePath, paneId)}
-                    onCloseOtherTabs={(paneId, filePath) =>
-                      closeOtherFiles(props.threadId, filePath, paneId)
-                    }
-                    onClosePane={(paneId) => closePane(props.threadId, paneId)}
-                    onCloseTabsToRight={(paneId, filePath) =>
-                      closeFilesToRight(props.threadId, filePath, paneId)
-                    }
-                    onDiscardDraft={(filePath) => discardDraft(props.threadId, filePath)}
-                    onFocusPane={(paneId) => setActivePane(props.threadId, paneId)}
-                    onHydrateFile={handleHydrateFile}
-                    onMoveFile={(input) => moveFile(props.threadId, input)}
-                    onOpenFileToSide={handleOpenFileToSide}
-                    onReopenClosedTab={handleReopenClosedTab}
-                    onRetryActiveFile={handleRetryActiveFile}
-                    onSaveFile={handleSaveFile}
-                    onSetActiveFile={(paneId, filePath) =>
-                      setActiveFile(props.threadId, filePath, paneId)
-                    }
-                    onSplitPane={(paneId) => handleSplitPane(paneId)}
-                    onUpdateDraft={(filePath, contents) =>
-                      updateDraft(props.threadId, filePath, contents)
-                    }
-                    pane={pane}
-                    paneIndex={index}
-                    resolvedTheme={resolvedTheme}
-                    savingFilePath={
-                      saveMutation.isPending ? (saveMutation.variables?.relativePath ?? null) : null
-                    }
-                  />
-                  {index < panes.length - 1 ? (
+            <div ref={editorGridRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              {layoutRows.map((row, rowIndex) => (
+                <div key={row.id} className="contents">
+                  <div
+                    className="flex min-h-0 min-w-0"
+                    style={{
+                      flexBasis: 0,
+                      flexGrow: normalizedRowRatios[rowIndex] ?? 1,
+                      minHeight: 0,
+                    }}
+                  >
                     <div
-                      aria-label={`Resize between editor windows ${index + 1} and ${index + 2}`}
-                      role="separator"
-                      aria-orientation="vertical"
-                      className="group relative z-10 -mx-[3px] flex w-[6px] shrink-0 cursor-col-resize items-center justify-center touch-none select-none"
-                      onPointerDown={handlePaneResizeStart(index)}
-                      onPointerMove={handlePaneResizeMove}
-                      onPointerUp={handlePaneResizeEnd}
-                      onPointerCancel={handlePaneResizeEnd}
+                      ref={(node) => {
+                        rowGroupRefs.current.set(row.id, node);
+                      }}
+                      className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
                     >
-                      <div className="h-full w-[2px] bg-border/40 transition-colors group-hover:bg-primary" />
+                      {row.panes.map((pane, paneIndex) => (
+                        <div
+                          key={pane.id}
+                          className="flex min-h-0 min-w-0"
+                          style={{
+                            flexBasis: 0,
+                            flexGrow: row.paneRatios[paneIndex] ?? 1,
+                            minWidth: 0,
+                          }}
+                        >
+                          <WorkspaceEditorPane
+                            active={pane.id === activePaneId}
+                            canClosePane={panes.length > 1}
+                            canReopenClosedTab={hasRecentlyClosedFiles}
+                            canSplitPane={panes.length < MAX_THREAD_EDITOR_PANES}
+                            dirtyFilePaths={activeDirtyPaths}
+                            draftsByFilePath={draftsByFilePath}
+                            editorOptions={editorOptions}
+                            gitCwd={props.gitCwd}
+                            neovimModeEnabled={editorSettings.neovimMode}
+                            onCloseFile={(paneId, filePath) =>
+                              closeFile(props.threadId, filePath, paneId)
+                            }
+                            onCloseOtherTabs={(paneId, filePath) =>
+                              closeOtherFiles(props.threadId, filePath, paneId)
+                            }
+                            onClosePane={(paneId) => closePane(props.threadId, paneId)}
+                            onCloseTabsToRight={(paneId, filePath) =>
+                              closeFilesToRight(props.threadId, filePath, paneId)
+                            }
+                            onDiscardDraft={(filePath) => discardDraft(props.threadId, filePath)}
+                            onFocusPane={(paneId) => setActivePane(props.threadId, paneId)}
+                            onHydrateFile={handleHydrateFile}
+                            onMoveFile={(input) => moveFile(props.threadId, input)}
+                            onOpenFileToSide={handleOpenFileToSide}
+                            onReopenClosedTab={handleReopenClosedTab}
+                            onRetryActiveFile={handleRetryActiveFile}
+                            onSaveFile={handleSaveFile}
+                            onSetActiveFile={(paneId, filePath) =>
+                              setActiveFile(props.threadId, filePath, paneId)
+                            }
+                            onSplitPane={(paneId) => handleSplitPane(paneId, undefined, "right")}
+                            onSplitPaneDown={(paneId) => handleSplitPane(paneId, undefined, "down")}
+                            onUpdateDraft={(filePath, contents) =>
+                              updateDraft(props.threadId, filePath, contents)
+                            }
+                            pane={pane}
+                            paneIndex={paneIndex}
+                            resolvedTheme={resolvedTheme}
+                            savingFilePath={
+                              saveMutation.isPending
+                                ? (saveMutation.variables?.relativePath ?? null)
+                                : null
+                            }
+                          />
+                          {paneIndex < row.panes.length - 1 ? (
+                            <div
+                              aria-label={`Resize between editor windows ${paneIndex + 1} and ${paneIndex + 2}`}
+                              role="separator"
+                              aria-orientation="vertical"
+                              className="group relative z-10 -mx-0.75 flex w-1.5 shrink-0 cursor-col-resize items-center justify-center touch-none select-none"
+                              onPointerDown={handlePaneResizeStart(
+                                row.id,
+                                paneIndex,
+                                row.paneRatios,
+                              )}
+                              onPointerMove={handlePaneResizeMove}
+                              onPointerUp={handlePaneResizeEnd}
+                              onPointerCancel={handlePaneResizeEnd}
+                            >
+                              <div className="h-full w-0.5 bg-border/40 transition-colors group-hover:bg-primary" />
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {rowIndex < layoutRows.length - 1 ? (
+                    <div
+                      aria-label={`Resize between editor rows ${rowIndex + 1} and ${rowIndex + 2}`}
+                      role="separator"
+                      aria-orientation="horizontal"
+                      className="group relative z-10 -my-0.75 flex h-1.5 shrink-0 cursor-row-resize items-center justify-center touch-none select-none"
+                      onPointerDown={handleRowResizeStart(rowIndex)}
+                      onPointerMove={handleRowResizeMove}
+                      onPointerUp={handleRowResizeEnd}
+                      onPointerCancel={handleRowResizeEnd}
+                    >
+                      <div className="h-0.5 w-full bg-border/40 transition-colors group-hover:bg-primary" />
                     </div>
                   ) : null}
                 </div>
@@ -1465,85 +2206,6 @@ export default function ThreadWorkspaceEditor(props: {
           </div>
         </section>
       </div>
-
-      <Dialog
-        open={entryDialogState !== null}
-        onOpenChange={(open) => {
-          if (open) {
-            return;
-          }
-          setEntryDialogState(null);
-          setEntryDialogValue("");
-        }}
-      >
-        <DialogPopup>
-          <DialogHeader>
-            <DialogTitle>
-              {entryDialogState?.kind === "create-file"
-                ? "New file"
-                : entryDialogState?.kind === "create-folder"
-                  ? "New folder"
-                  : "Rename entry"}
-            </DialogTitle>
-            <DialogDescription>
-              {entryDialogState?.kind === "rename"
-                ? `Update ${entryDialogState.entry.kind === "directory" ? "folder" : "file"} name within the workspace.`
-                : "Enter a name relative to the selected folder."}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogPanel className="space-y-3">
-            <Input
-              ref={entryDialogInputRef}
-              value={entryDialogValue}
-              onChange={(event) => setEntryDialogValue(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  submitExplorerEntryDialog();
-                }
-              }}
-              placeholder={
-                entryDialogState?.kind === "create-folder" ? "folder-name" : "file-name.ts"
-              }
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-            />
-            {(entryDialogState?.parentPath ?? null) ? (
-              <p className="text-xs text-muted-foreground">
-                Parent: {entryDialogState?.parentPath}
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">Parent: workspace root</p>
-            )}
-          </DialogPanel>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setEntryDialogState(null);
-                setEntryDialogValue("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={submitExplorerEntryDialog}
-              disabled={createEntryMutation.isPending || renameEntryMutation.isPending}
-            >
-              {entryDialogState?.kind === "rename"
-                ? renameEntryMutation.isPending
-                  ? "Renaming..."
-                  : "Rename"
-                : createEntryMutation.isPending
-                  ? "Creating..."
-                  : entryDialogState?.kind === "create-folder"
-                    ? "Create Folder"
-                    : "Create File"}
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
     </div>
   );
 }
