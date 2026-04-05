@@ -199,10 +199,10 @@ export const ChatHeader = memo(function ChatHeader({
   ]);
 
   return (
-    <div className="@container/header-actions flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
+    <div className="flex min-w-0 flex-1 items-center gap-3">
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
         <SidebarTrigger className="size-7 shrink-0 md:hidden" />
-        <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2.5">
+        <div className="flex min-w-0 items-center gap-2.5">
           <h2
             className="min-w-0 shrink truncate text-sm leading-none font-medium text-foreground"
             title={activeThreadTitle}
@@ -211,16 +211,14 @@ export const ChatHeader = memo(function ChatHeader({
           </h2>
           {activeProjectName && (
             <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-              {activeProjectName && (
-                <Badge
-                  variant="outline"
-                  size="sm"
-                  className="min-w-0 max-w-48 shrink overflow-hidden text-muted-foreground/85"
-                >
-                  <span className="min-w-0 truncate">{activeProjectName}</span>
-                </Badge>
-              )}
-              {activeProjectName && !isGitRepo && (
+              <Badge
+                variant="outline"
+                size="sm"
+                className="min-w-0 max-w-48 shrink overflow-hidden text-muted-foreground/85"
+              >
+                <span className="min-w-0 truncate">{activeProjectName}</span>
+              </Badge>
+              {!isGitRepo && (
                 <Badge variant="warning" size="sm" className="shrink-0">
                   No Git
                 </Badge>
@@ -229,14 +227,13 @@ export const ChatHeader = memo(function ChatHeader({
           )}
         </div>
       </div>
-      <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 @3xl/header-actions:w-auto @3xl/header-actions:min-w-fit @3xl/header-actions:justify-end">
+
+      <div className="flex shrink-0 items-center gap-2">
         <WorkspaceModeToggle mode={workspaceMode} onModeChange={onWorkspaceModeChange} />
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-          {workspaceActionNodes.length > 0 ? (
-            <TopBarCluster className="max-w-full">{workspaceActionNodes}</TopBarCluster>
-          ) : null}
-          <TopBarCluster>{utilityItems}</TopBarCluster>
-        </div>
+        {workspaceActionNodes.length > 0 ? (
+          <TopBarCluster>{workspaceActionNodes}</TopBarCluster>
+        ) : null}
+        <TopBarCluster>{utilityItems}</TopBarCluster>
       </div>
     </div>
   );
