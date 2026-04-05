@@ -4928,6 +4928,22 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 terminalToggleShortcutLabel={terminalToggleShortcutLabel}
                 threadId={activeThread.id}
                 workspaceName={activeProject?.name}
+                activeProjectScripts={activeProject?.scripts}
+                preferredScriptId={
+                  activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+                }
+                browserAvailable={isElectron}
+                browserOpen={browserOpen}
+                browserDevToolsOpen={browserDevToolsOpen}
+                browserToggleShortcutLabel={browserToggleShortcutLabel}
+                onRunProjectScript={(script) => {
+                  void runProjectScript(script);
+                }}
+                onAddProjectScript={saveProjectScript}
+                onUpdateProjectScript={updateProjectScript}
+                onDeleteProjectScript={deleteProjectScript}
+                onOpenBrowser={openBrowser}
+                onCloseBrowser={closeBrowser}
               />
             </Suspense>
           ) : (

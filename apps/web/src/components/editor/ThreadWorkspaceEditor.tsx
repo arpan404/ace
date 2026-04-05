@@ -4,14 +4,17 @@ import type {
   ProjectEntry,
   ResolvedKeybindingsConfig,
   ThreadId,
+  ProjectScript,
 } from "@t3tools/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  BugIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   DiffIcon,
   FolderIcon,
+  GlobeIcon,
   SearchIcon,
   TerminalSquareIcon,
   XIcon,
@@ -35,6 +38,7 @@ import {
 } from "react";
 
 import GitActionsControl from "../GitActionsControl";
+import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { OpenInPicker } from "../chat/OpenInPicker";
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Badge } from "../ui/badge";
@@ -294,6 +298,18 @@ export default function ThreadWorkspaceEditor(props: {
   terminalToggleShortcutLabel: string | null;
   threadId: ThreadId;
   workspaceName: string | undefined;
+  activeProjectScripts: ProjectScript[] | undefined;
+  preferredScriptId: string | null;
+  browserAvailable: boolean;
+  browserOpen: boolean;
+  browserDevToolsOpen: boolean;
+  browserToggleShortcutLabel: string | null;
+  onRunProjectScript: (script: ProjectScript) => void;
+  onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
+  onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
+  onDeleteProjectScript: (scriptId: string) => Promise<void>;
+  onOpenBrowser: () => void;
+  onCloseBrowser: () => void;
 }) {
   ensureMonacoConfigured();
 
@@ -529,6 +545,22 @@ export default function ThreadWorkspaceEditor(props: {
     [draftsByFilePath],
   );
   const workspaceActionItems: ReactNode[] = [
+    props.activeProjectScripts ? (
+      <div
+        key="scripts"
+        className={props.mode === "editor" ? "pointer-events-none opacity-50" : undefined}
+      >
+        <ProjectScriptsControl
+          scripts={props.activeProjectScripts}
+          keybindings={props.keybindings}
+          preferredScriptId={props.preferredScriptId}
+          onRunScript={props.onRunProjectScript}
+          onAddScript={props.onAddProjectScript}
+          onUpdateScript={props.onUpdateProjectScript}
+          onDeleteScript={props.onDeleteProjectScript}
+        />
+      </div>
+    ) : null,
     props.workspaceName ? (
       <OpenInPicker
         key="open-in"
@@ -538,11 +570,60 @@ export default function ThreadWorkspaceEditor(props: {
       />
     ) : null,
     props.workspaceName ? (
-      <GitActionsControl key="git" gitCwd={props.gitCwd} activeThreadId={props.threadId} />
+      <div
+        key="git"
+        className={props.mode === "editor" ? "pointer-events-none opacity-50" : undefined}
+      >
+        <GitActionsControl gitCwd={props.gitCwd} activeThreadId={props.threadId} />
+      </div>
     ) : null,
   ];
   const workspaceActionNodes = interleaveTopBarItems(workspaceActionItems);
   const utilityItems = interleaveTopBarItems([
+    props.browserAvailable ? (
+      <Tooltip key="browser">
+        <TooltipTrigger
+          render={
+            <Toggle
+              className="shrink-0 rounded-xl"
+              pressed={props.browserOpen}
+              onPressedChange={(pressed) => {
+                if (!pressed) {
+                  props.onCloseBrowser();
+                }
+              }}
+              onDoubleClick={props.onOpenBrowser}
+              aria-label={props.browserOpen ? "Close in-app browser" : "Open in-app browser"}
+              variant="default"
+              size="xs"
+              disabled={props.mode === "editor"}
+            >
+              <span className="relative flex items-center justify-center">
+                <GlobeIcon className="size-3" />
+                {props.browserOpen && props.browserDevToolsOpen ? (
+                  <span className="absolute -top-1 -right-1 flex size-3 items-center justify-center rounded-full border border-background bg-amber-500 text-amber-950 shadow-sm">
+                    <BugIcon className="size-2" />
+                  </span>
+                ) : null}
+              </span>
+            </Toggle>
+          }
+        />
+        <TooltipPopup side="bottom">
+          {props.mode === "editor"
+            ? "Browser is unavailable in Editor mode"
+            : props.browserOpen
+              ? props.browserToggleShortcutLabel
+                ? `${props.browserDevToolsOpen ? "Close in-app browser · DevTools open" : "Close in-app browser"} (${props.browserToggleShortcutLabel})`
+                : props.browserDevToolsOpen
+                  ? "Close in-app browser · DevTools open"
+                  : "Close in-app browser"
+              : props.browserToggleShortcutLabel
+                ? `Double-click to open in-app browser (${props.browserToggleShortcutLabel})`
+                : "Double-click to open in-app browser"}
+        </TooltipPopup>
+      </Tooltip>
+    ) : null,
     <Tooltip key="terminal">
       <TooltipTrigger
         render={
@@ -601,17 +682,17 @@ export default function ThreadWorkspaceEditor(props: {
           isElectron ? "drag-region flex h-13 items-center" : "py-2.5",
         )}
       >
-        <div className="@container/header-actions flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden sm:gap-3">
             <SidebarTrigger className="size-7 shrink-0 md:hidden" />
-            <div className="flex min-w-0 flex-col">
+            <div className="flex min-w-0 items-center gap-2.5">
               <span
-                className="truncate text-sm leading-none font-medium text-foreground"
+                className="min-w-0 shrink truncate text-sm leading-none font-medium text-foreground"
                 title={props.activeThreadTitle}
               >
                 {props.activeThreadTitle}
               </span>
-              <span className="truncate text-[11px] tracking-[0.18em] text-muted-foreground/80 uppercase">
+              <span className="shrink-0 truncate text-[11px] tracking-[0.18em] text-muted-foreground/80 uppercase">
                 Thread workspace
               </span>
             </div>
@@ -619,20 +700,19 @@ export default function ThreadWorkspaceEditor(props: {
               <Badge
                 variant="outline"
                 size="sm"
-                className="min-w-0 max-w-44 overflow-hidden text-muted-foreground/85"
+                className="min-w-0 max-w-44 shrink overflow-hidden text-muted-foreground/85"
               >
-                <span className="truncate">{props.workspaceName}</span>
+                <span className="min-w-0 truncate">{props.workspaceName}</span>
               </Badge>
             ) : null}
           </div>
-          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 @3xl/header-actions:w-auto @3xl/header-actions:min-w-fit @3xl/header-actions:justify-end">
+
+          <div className="flex shrink-0 items-center gap-2">
             <WorkspaceModeToggle mode={props.mode} onModeChange={props.onModeChange} />
-            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-              {workspaceActionNodes.length > 0 ? (
-                <TopBarCluster className="max-w-full">{workspaceActionNodes}</TopBarCluster>
-              ) : null}
-              <TopBarCluster>{utilityItems}</TopBarCluster>
-            </div>
+            {workspaceActionNodes.length > 0 ? (
+              <TopBarCluster>{workspaceActionNodes}</TopBarCluster>
+            ) : null}
+            <TopBarCluster>{utilityItems}</TopBarCluster>
           </div>
         </div>
       </header>
