@@ -1271,7 +1271,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
         }
 
         return (
-          <div className="wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground">
+          <div className="wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground/90">
             {inlineNodes}
           </div>
         );
@@ -1299,7 +1299,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
     }
 
     return (
-      <div className="wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground">
+      <div className="wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground/90">
         {inlineNodes}
       </div>
     );
@@ -1310,7 +1310,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   }
 
   return (
-    <pre className="whitespace-pre-wrap wrap-break-word font-mono text-sm leading-relaxed text-foreground">
+    <pre className="whitespace-pre-wrap wrap-break-word font-mono text-sm leading-relaxed text-foreground/90">
       {props.text}
     </pre>
   );
@@ -1333,15 +1333,15 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
   return (
     <div className="flex justify-end">
       <div
-        className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-border/30 bg-secondary/40 px-4 py-3"
+        className="group relative max-w-[80%] rounded-2xl rounded-br-md border border-border/20 bg-secondary/30 px-4 py-3"
         data-user-message-bubble="true"
       >
         {userImages.length > 0 && (
-          <div className="mb-2 grid max-w-105 grid-cols-2 gap-2">
+          <div className="mb-2 grid max-w-105 grid-cols-2 gap-1.5">
             {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
               <div
                 key={image.id}
-                className="overflow-hidden rounded-lg border border-border/25 bg-background/50"
+                className="overflow-hidden rounded-lg border border-border/15 bg-background/40"
               >
                 {image.previewUrl ? (
                   <button
@@ -1361,7 +1361,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
                     />
                   </button>
                 ) : (
-                  <div className="flex min-h-18 items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/50">
+                  <div className="flex min-h-18 items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/40">
                     {image.name}
                   </div>
                 )}
@@ -1375,7 +1375,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
             terminalContexts={terminalContexts}
           />
         )}
-        <div className="mt-1.5 flex items-center justify-end gap-2">
+        <div className="mt-1 flex items-center justify-end gap-2">
           <div className="flex items-center gap-1 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100">
             {displayedUserMessage.copyText && (
               <MessageCopyButton text={displayedUserMessage.copyText} />
@@ -1385,6 +1385,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
                 type="button"
                 size="xs"
                 variant="outline"
+                className="border-border/15"
                 disabled={props.isRevertingCheckpoint || props.isWorking}
                 onClick={() => props.onRevertUserMessage(props.message.id)}
                 title={props.revertActionTitle}
@@ -1394,7 +1395,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
               </Button>
             )}
           </div>
-          <p className="text-right text-[10px] text-muted-foreground/25">
+          <p className="text-right text-[10px] text-muted-foreground/20">
             {formatTimestamp(props.message.createdAt, props.timestampFormat)}
           </p>
         </div>
