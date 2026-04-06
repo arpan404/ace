@@ -1,5 +1,6 @@
 import type { ThreadId } from "@ace/contracts";
-import { FolderIcon, GitForkIcon } from "lucide-react";
+import { type RuntimeMode } from "@ace/contracts";
+import { FolderIcon, GitForkIcon, LockIcon, LockOpenIcon } from "lucide-react";
 import { useCallback } from "react";
 
 import { runAsyncTask } from "../lib/async";
@@ -13,6 +14,7 @@ import {
   resolveEffectiveEnvMode,
 } from "../lib/git/branchToolbar";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
+import { Button } from "./ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 
 const envModeItems = [
@@ -24,6 +26,8 @@ interface BranchToolbarProps {
   threadId: ThreadId;
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
+  runtimeMode?: RuntimeMode;
+  onRuntimeModeChange?: (mode: RuntimeMode) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
 }
@@ -32,6 +36,8 @@ export default function BranchToolbar({
   threadId,
   onEnvModeChange,
   envLocked,
+  runtimeMode,
+  onRuntimeModeChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarProps) {
@@ -112,50 +118,78 @@ export default function BranchToolbar({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-2.5 pt-1">
-      {envLocked || activeWorktreePath ? (
-        <span className="inline-flex items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/55 sm:text-xs">
-          {activeWorktreePath ? (
-            <>
-              <GitForkIcon className="size-3" />
-              Worktree
-            </>
-          ) : (
-            <>
-              <FolderIcon className="size-3" />
-              Local
-            </>
-          )}
-        </span>
-      ) : (
-        <Select
-          value={effectiveEnvMode}
-          onValueChange={(value) => onEnvModeChange(value as EnvMode)}
-          items={envModeItems}
-        >
-          <SelectTrigger variant="ghost" size="xs" className="font-medium">
-            {effectiveEnvMode === "worktree" ? (
-              <GitForkIcon className="size-3" />
+      <div className="flex items-center gap-1">
+        {envLocked || activeWorktreePath ? (
+          <span className="inline-flex items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/55 sm:text-xs">
+            {activeWorktreePath ? (
+              <>
+                <GitForkIcon className="size-3" />
+                Worktree
+              </>
             ) : (
-              <FolderIcon className="size-3" />
-            )}
-            <SelectValue />
-          </SelectTrigger>
-          <SelectPopup>
-            <SelectItem value="local">
-              <span className="inline-flex items-center gap-1.5">
+              <>
                 <FolderIcon className="size-3" />
                 Local
-              </span>
-            </SelectItem>
-            <SelectItem value="worktree">
-              <span className="inline-flex items-center gap-1.5">
+              </>
+            )}
+          </span>
+        ) : (
+          <Select
+            value={effectiveEnvMode}
+            onValueChange={(value) => onEnvModeChange(value as EnvMode)}
+            items={envModeItems}
+          >
+            <SelectTrigger variant="ghost" size="xs" className="font-medium">
+              {effectiveEnvMode === "worktree" ? (
                 <GitForkIcon className="size-3" />
-                New worktree
-              </span>
-            </SelectItem>
-          </SelectPopup>
-        </Select>
-      )}
+              ) : (
+                <FolderIcon className="size-3" />
+              )}
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value="local">
+                <span className="inline-flex items-center gap-1.5">
+                  <FolderIcon className="size-3" />
+                  Local
+                </span>
+              </SelectItem>
+              <SelectItem value="worktree">
+                <span className="inline-flex items-center gap-1.5">
+                  <GitForkIcon className="size-3" />
+                  New worktree
+                </span>
+              </SelectItem>
+            </SelectPopup>
+          </Select>
+        )}
+        {runtimeMode && onRuntimeModeChange ? (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="gap-1 font-medium text-muted-foreground/55 hover:text-foreground/70"
+            onClick={() =>
+              onRuntimeModeChange(
+                runtimeMode === "full-access" ? "approval-required" : "full-access",
+              )
+            }
+            title={
+              runtimeMode === "full-access"
+                ? "Full access — click to require approvals"
+                : "Approval required — click for full access"
+            }
+          >
+            {runtimeMode === "full-access" ? (
+              <LockOpenIcon className="size-3" />
+            ) : (
+              <LockIcon className="size-3" />
+            )}
+            <span className="text-xs">
+              {runtimeMode === "full-access" ? "Full access" : "Supervised"}
+            </span>
+          </Button>
+        ) : null}
+      </div>
 
       <BranchToolbarBranchSelector
         activeProjectCwd={activeProject.cwd}

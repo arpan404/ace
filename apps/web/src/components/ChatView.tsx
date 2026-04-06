@@ -107,8 +107,6 @@ import {
   BotIcon,
   CircleAlertIcon,
   ListTodoIcon,
-  LockIcon,
-  LockOpenIcon,
   XIcon,
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -4965,6 +4963,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
         threadId: activeThread.id,
         onEnvModeChange,
         envLocked,
+        runtimeMode,
+        onRuntimeModeChange: (mode: RuntimeMode) => void handleRuntimeModeChange(mode),
         onComposerFocusRequest: scheduleComposerFocus,
         ...(canCheckoutPullRequestIntoThread
           ? { onCheckoutPullRequestRequest: openPullRequestDialog }
@@ -5476,35 +5476,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                   )}
                                   <span className="sr-only sm:not-sr-only">
                                     {interactionMode === "plan" ? "Plan" : "Chat"}
-                                  </span>
-                                </Button>
-
-                                <Separator
-                                  orientation="vertical"
-                                  className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
-                                />
-
-                                <Button
-                                  variant="ghost"
-                                  className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5"
-                                  size="sm"
-                                  type="button"
-                                  onClick={() =>
-                                    void handleRuntimeModeChange(
-                                      runtimeMode === "full-access"
-                                        ? "approval-required"
-                                        : "full-access",
-                                    )
-                                  }
-                                  title={
-                                    runtimeMode === "full-access"
-                                      ? "Full access — click to require approvals"
-                                      : "Approval required — click for full access"
-                                  }
-                                >
-                                  {runtimeMode === "full-access" ? <LockOpenIcon /> : <LockIcon />}
-                                  <span className="sr-only sm:not-sr-only">
-                                    {runtimeMode === "full-access" ? "Full access" : "Supervised"}
                                   </span>
                                 </Button>
 
