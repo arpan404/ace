@@ -146,6 +146,12 @@ export interface DesktopUpdateCheckResult {
   state: DesktopUpdateState;
 }
 
+export interface DesktopNotificationInput {
+  id: string;
+  title: string;
+  body: string;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   getWindowShownAt?: () => number | null;
@@ -158,6 +164,9 @@ export interface DesktopBridge {
     position?: { x: number; y: number },
   ) => Promise<T | null>;
   openExternal: (url: string) => Promise<boolean>;
+  showNotification: (input: DesktopNotificationInput) => Promise<boolean>;
+  closeNotification: (id: string) => Promise<boolean>;
+  onNotificationClick: (listener: (id: string) => void) => () => void;
   onMenuAction: (listener: (action: string) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
   checkForUpdate: () => Promise<DesktopUpdateCheckResult>;

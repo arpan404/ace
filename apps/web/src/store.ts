@@ -50,6 +50,14 @@ const MAX_THREAD_CHECKPOINTS = 500;
 const MAX_THREAD_PROPOSED_PLANS = 200;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
 const threadLookupCache = new WeakMap<ReadonlyArray<Thread>, Map<ThreadId, Thread>>();
+const LEAN_THREAD_ACTIVITY_KINDS = new Set<Thread["activities"][number]["kind"]>([
+  "approval.requested",
+  "approval.resolved",
+  "provider.approval.respond.failed",
+  "user-input.requested",
+  "user-input.resolved",
+  "provider.user-input.respond.failed",
+]);
 
 // ── Pure helpers ──────────────────────────────────────────────────────
 
@@ -426,6 +434,79 @@ function buildSidebarThreadsById(
   return Object.fromEntries(
     threads.map((thread) => [thread.id, buildSidebarThreadSummary(thread)]),
   );
+}
+
+function shouldRetainLeanThreadActivity(
+  activity: Pick<Thread["activities"][number], "kind">,
+): boolean {
+  return LEAN_THREAD_ACTIVITY_KINDS.has(activity.kind);
+}
+
+function toLeanThread(thread: Thread): Thread {
+  if (thread.historyLoaded === false) {
+    return thread;
+  }
+
+  return {
+    ...thread,
+    messages: thread.messages.filter((message) => message.role === "user"),
+    proposedPlans: [],
+    latestProposedPlanSummary:
+      thread.latestProposedPlanSummary ?? findLatestProposedPlanSummary(thread.proposedPlans),
+    turnDiffSummaries: [],
+    activities: thread.activities.filter(shouldRetainLeanThreadActivity),
+    historyLoaded: false,
+  };
+}
+
+function shouldKeepHydratedThreadHistory(
+  thread: Thread,
+  keepThreadIds: ReadonlySet<ThreadId>,
+): boolean {
+  if (keepThreadIds.has(thread.id)) {
+    return true;
+  }
+
+  if (thread.latestTurn?.state === "running") {
+    return true;
+  }
+
+  return (
+    thread.session?.orchestrationStatus === "starting" ||
+    thread.session?.orchestrationStatus === "running"
+  );
+}
+
+export function pruneHydratedThreadHistories(
+  state: AppState,
+  keepThreadIds: readonly ThreadId[],
+): AppState {
+  const retainedThreadIds = new Set(keepThreadIds);
+  let changed = false;
+  const threads = state.threads.map((thread) => {
+    if (
+      thread.historyLoaded === false ||
+      shouldKeepHydratedThreadHistory(thread, retainedThreadIds)
+    ) {
+      return thread;
+    }
+
+    const leanThread = toLeanThread(thread);
+    if (leanThread !== thread) {
+      changed = true;
+    }
+    return leanThread;
+  });
+
+  if (!changed) {
+    return state;
+  }
+
+  return {
+    ...state,
+    threads,
+    sidebarThreadsById: buildSidebarThreadsById(threads),
+  };
 }
 
 function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error") {
@@ -913,38 +994,48 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           updatedAt: event.payload.updatedAt,
         });
         const existingMessage = thread.messages.find((entry) => entry.id === message.id);
-        const messages = existingMessage
-          ? thread.messages.map((entry) =>
-              entry.id !== message.id
-                ? entry
-                : {
-                    ...entry,
-                    text: message.streaming
-                      ? `${entry.text}${message.text}`
-                      : message.text.length > 0
-                        ? message.text
-                        : entry.text,
-                    streaming: message.streaming,
-                    ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
-                    ...(entry.sequence !== undefined || message.sequence !== undefined
-                      ? { sequence: entry.sequence ?? message.sequence }
-                      : {}),
-                    ...(message.streaming
-                      ? entry.completedAt !== undefined
-                        ? { completedAt: entry.completedAt }
-                        : {}
-                      : message.completedAt !== undefined
-                        ? { completedAt: message.completedAt }
+        const shouldRetainMessage =
+          thread.historyLoaded !== false ||
+          event.payload.role === "user" ||
+          existingMessage !== undefined;
+        const messages = !shouldRetainMessage
+          ? thread.messages
+          : existingMessage
+            ? thread.messages.map((entry) =>
+                entry.id !== message.id
+                  ? entry
+                  : {
+                      ...entry,
+                      text: message.streaming
+                        ? `${entry.text}${message.text}`
+                        : message.text.length > 0
+                          ? message.text
+                          : entry.text,
+                      streaming: message.streaming,
+                      ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+                      ...(entry.sequence !== undefined || message.sequence !== undefined
+                        ? { sequence: entry.sequence ?? message.sequence }
                         : {}),
-                    ...(message.attachments !== undefined
-                      ? { attachments: message.attachments }
-                      : {}),
-                  },
-            )
-          : [...thread.messages, message];
-        const cappedMessages = messages.slice(-MAX_THREAD_MESSAGES);
+                      ...(message.streaming
+                        ? entry.completedAt !== undefined
+                          ? { completedAt: entry.completedAt }
+                          : {}
+                        : message.completedAt !== undefined
+                          ? { completedAt: message.completedAt }
+                          : {}),
+                      ...(message.attachments !== undefined
+                        ? { attachments: message.attachments }
+                        : {}),
+                    },
+              )
+            : [...thread.messages, message];
+        const cappedMessages = shouldRetainMessage
+          ? messages.slice(-MAX_THREAD_MESSAGES)
+          : messages;
         const turnDiffSummaries =
-          event.payload.role === "assistant" && event.payload.turnId !== null
+          thread.historyLoaded !== false &&
+          event.payload.role === "assistant" &&
+          event.payload.turnId !== null
             ? rebindTurnDiffSummariesForAssistantMessage(
                 thread.turnDiffSummaries,
                 event.payload.turnId,
@@ -1083,16 +1174,19 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         if (existing && existing.status !== "missing" && checkpoint.status === "missing") {
           return thread;
         }
-        const turnDiffSummaries = [
-          ...thread.turnDiffSummaries.filter((entry) => entry.turnId !== checkpoint.turnId),
-          checkpoint,
-        ]
-          .toSorted(
-            (left, right) =>
-              (left.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER) -
-              (right.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER),
-          )
-          .slice(-MAX_THREAD_CHECKPOINTS);
+        const turnDiffSummaries =
+          thread.historyLoaded === false
+            ? thread.turnDiffSummaries
+            : [
+                ...thread.turnDiffSummaries.filter((entry) => entry.turnId !== checkpoint.turnId),
+                checkpoint,
+              ]
+                .toSorted(
+                  (left, right) =>
+                    (left.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER) -
+                    (right.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER),
+                )
+                .slice(-MAX_THREAD_CHECKPOINTS);
         const latestTurn =
           thread.latestTurn === null || thread.latestTurn.turnId === event.payload.turnId
             ? buildLatestTurn({
@@ -1171,13 +1265,17 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
 
     case "thread.activity-appended": {
       return updateThreadState(state, event.payload.threadId, (thread) => {
-        const activities = appendCompactedThreadActivity(
-          thread.activities,
-          { ...event.payload.activity },
-          {
-            maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
-          },
-        );
+        const shouldRetainActivity =
+          thread.historyLoaded !== false || shouldRetainLeanThreadActivity(event.payload.activity);
+        const activities = !shouldRetainActivity
+          ? thread.activities
+          : appendCompactedThreadActivity(
+              thread.activities,
+              { ...event.payload.activity },
+              {
+                maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
+              },
+            );
         return {
           ...thread,
           activities,
@@ -1361,6 +1459,7 @@ export function setThreadQueueState(
 interface AppStore extends AppState {
   syncServerReadModel: (readModel: OrchestrationReadModel, options?: SnapshotSyncOptions) => void;
   hydrateThreadFromReadModel: (readModelThread: OrchestrationReadModel["threads"][number]) => void;
+  pruneHydratedThreadHistories: (keepThreadIds: readonly ThreadId[]) => void;
   applyOrchestrationEvent: (event: OrchestrationEvent) => void;
   applyOrchestrationEvents: (events: ReadonlyArray<OrchestrationEvent>) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
@@ -1378,6 +1477,8 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => syncServerReadModel(state, readModel, options)),
   hydrateThreadFromReadModel: (readModelThread) =>
     set((state) => hydrateThreadFromReadModel(state, readModelThread)),
+  pruneHydratedThreadHistories: (keepThreadIds) =>
+    set((state) => pruneHydratedThreadHistories(state, keepThreadIds)),
   applyOrchestrationEvent: (event) => set((state) => applyOrchestrationEvent(state, event)),
   applyOrchestrationEvents: (events) => set((state) => applyOrchestrationEvents(state, events)),
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),

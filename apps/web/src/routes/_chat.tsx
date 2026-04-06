@@ -1,6 +1,7 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router";
 import { useEffect } from "react";
 
+import { MemoryPressureCacheBridge } from "../components/MemoryPressureCacheBridge";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { configureThreadHydrationCache } from "../lib/threadHydrationCache";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -96,6 +97,7 @@ function ChatRouteGlobalShortcuts() {
 function ChatRouteLayout() {
   return (
     <>
+      <MemoryPressureCacheBridge />
       <ChatRouteGlobalShortcuts />
       <Outlet />
     </>

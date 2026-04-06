@@ -2,6 +2,7 @@ import { type ThreadId } from "@ace/contracts";
 import { useMemo } from "react";
 import { type Thread } from "../../types";
 import { LRUCache } from "../lruCache";
+import { registerMemoryPressureHandler, shouldBypassNonEssentialCaching } from "../memoryPressure";
 import { getThreadsByIds, useStore } from "../../store";
 
 export type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
@@ -12,6 +13,14 @@ const threadPlanCatalogCache = new LRUCache<{
   proposedPlans: Thread["proposedPlans"];
   entry: ThreadPlanCatalogEntry;
 }>(MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES, MAX_THREAD_PLAN_CATALOG_CACHE_MEMORY_BYTES);
+
+registerMemoryPressureHandler({
+  id: "thread-plan-catalog-cache",
+  minLevel: "high",
+  release: () => {
+    threadPlanCatalogCache.clear();
+  },
+});
 
 function estimateThreadPlanCatalogEntrySize(thread: Thread): number {
   return Math.max(
@@ -30,6 +39,13 @@ function estimateThreadPlanCatalogEntrySize(thread: Thread): number {
 }
 
 function toThreadPlanCatalogEntry(thread: Thread): ThreadPlanCatalogEntry {
+  if (shouldBypassNonEssentialCaching()) {
+    return {
+      id: thread.id,
+      proposedPlans: thread.proposedPlans,
+    };
+  }
+
   const cached = threadPlanCatalogCache.get(thread.id);
   if (cached && cached.proposedPlans === thread.proposedPlans) {
     return cached.entry;

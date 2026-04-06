@@ -95,6 +95,7 @@ import {
   type Thread,
   type TurnDiffSummary,
 } from "../types";
+import { isMemoryPressureAtLeast, subscribeToMemoryPressure } from "../lib/memoryPressure";
 import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
 
 import { basenameOfPath } from "../vscode-icons";
@@ -259,6 +260,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
   const setStoreThreadQueueState = useStore((store) => store.setThreadQueueState);
   const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
+  const pruneHydratedThreadHistories = useStore((store) => store.pruneHydratedThreadHistories);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
   const activeThreadLastVisitedAt = useUiStateStore(
     (store) => store.threadLastVisitedAtById[threadId],
@@ -532,6 +534,46 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
   const sourcePlanThread = useThreadById(sourceProposedPlanThreadId);
   const sourcePlanHydrationInFlightRef = useRef<ThreadId | null>(null);
+  const hydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
+    () =>
+      activeThread?.id
+        ? sourceProposedPlanThreadId && sourceProposedPlanThreadId !== activeThread.id
+          ? [activeThread.id, sourceProposedPlanThreadId]
+          : [activeThread.id]
+        : [],
+    [activeThread?.id, sourceProposedPlanThreadId],
+  );
+  const criticalHydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
+    () => (activeThread?.id ? [activeThread.id] : []),
+    [activeThread?.id],
+  );
+
+  useEffect(() => {
+    if (hydratedThreadHistoryKeepIds.length === 0) {
+      return;
+    }
+    pruneHydratedThreadHistories(hydratedThreadHistoryKeepIds);
+  }, [hydratedThreadHistoryKeepIds, pruneHydratedThreadHistories]);
+  useEffect(() => {
+    if (hydratedThreadHistoryKeepIds.length === 0) {
+      return;
+    }
+
+    return subscribeToMemoryPressure((snapshot) => {
+      if (snapshot === null || !isMemoryPressureAtLeast("high", snapshot)) {
+        return;
+      }
+      pruneHydratedThreadHistories(
+        snapshot.level === "critical"
+          ? criticalHydratedThreadHistoryKeepIds
+          : hydratedThreadHistoryKeepIds,
+      );
+    });
+  }, [
+    criticalHydratedThreadHistoryKeepIds,
+    hydratedThreadHistoryKeepIds,
+    pruneHydratedThreadHistories,
+  ]);
   const threadPlanCatalog = useThreadPlanCatalog(
     useMemo(() => {
       const threadIds: ThreadId[] = [];

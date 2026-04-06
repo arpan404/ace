@@ -22,6 +22,11 @@ import { runAsyncTask } from "../lib/async";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
+import {
+  registerMemoryPressureHandler,
+  shouldBypassNonEssentialCaching,
+} from "../lib/memoryPressure";
+import { clampCacheBudgetBytes, clampCacheEntryCount } from "../lib/resourceProfile";
 import { useTheme } from "../hooks/useTheme";
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
@@ -54,14 +59,29 @@ interface ChatMarkdownProps {
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
-const MAX_HIGHLIGHT_CACHE_ENTRIES = 500;
-const MAX_HIGHLIGHT_CACHE_MEMORY_BYTES = 50 * 1024 * 1024;
+const MAX_HIGHLIGHT_CACHE_ENTRIES = clampCacheEntryCount(500, {
+  moderateCapEntries: 320,
+  constrainedCapEntries: 160,
+});
+const MAX_HIGHLIGHT_CACHE_MEMORY_BYTES = clampCacheBudgetBytes(50 * 1024 * 1024, {
+  moderateCapBytes: 24 * 1024 * 1024,
+  constrainedCapBytes: 12 * 1024 * 1024,
+});
 const highlightedCodeCache = new LRUCache<string>(
   MAX_HIGHLIGHT_CACHE_ENTRIES,
   MAX_HIGHLIGHT_CACHE_MEMORY_BYTES,
 );
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+
+registerMemoryPressureHandler({
+  id: "markdown-highlight-cache",
+  minLevel: "high",
+  release: () => {
+    highlightedCodeCache.clear();
+    highlighterPromiseCache.clear();
+  },
+});
 
 function extractFenceLanguage(className: string | undefined): string {
   const match = className?.match(CODE_FENCE_LANGUAGE_REGEX);
@@ -114,7 +134,8 @@ function estimateHighlightedSize(html: string, code: string): number {
 }
 
 function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
-  const cached = highlighterPromiseCache.get(language);
+  const shouldCachePromise = !shouldBypassNonEssentialCaching();
+  const cached = shouldCachePromise ? highlighterPromiseCache.get(language) : undefined;
   if (cached) return cached;
 
   const promise = getSharedHighlighter({
@@ -130,7 +151,9 @@ function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
     // Language not supported by Shiki — fall back to "text"
     return getHighlighterPromise("text");
   });
-  highlighterPromiseCache.set(language, promise);
+  if (shouldCachePromise) {
+    highlighterPromiseCache.set(language, promise);
+  }
   return promise;
 }
 
@@ -224,7 +247,7 @@ function SuspenseShikiCodeBlock({
   }, [code, highlighter, language, themeName]);
 
   useEffect(() => {
-    if (!isStreaming) {
+    if (!isStreaming && !shouldBypassNonEssentialCaching()) {
       highlightedCodeCache.set(
         cacheKey,
         highlightedHtml,

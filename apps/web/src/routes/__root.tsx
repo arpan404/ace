@@ -12,6 +12,7 @@ import { Throttler } from "@tanstack/react-pacer";
 
 import { APP_DISPLAY_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
+import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
 import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
@@ -76,6 +77,7 @@ function RootRouteView() {
       <ToastProvider>
         <AnchoredToastProvider>
           <EventRouter />
+          <AgentAttentionNotificationBridge />
           <DesktopProjectBootstrap />
           <AppSidebarLayout>
             <Outlet />
