@@ -1333,7 +1333,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
   return (
     <div className="flex justify-end">
       <div
-        className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-border/60 bg-secondary/60 px-4 py-3"
+        className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-border/30 bg-secondary/40 px-4 py-3"
         data-user-message-bubble="true"
       >
         {userImages.length > 0 && (
@@ -1341,7 +1341,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
             {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
               <div
                 key={image.id}
-                className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
+                className="overflow-hidden rounded-lg border border-border/25 bg-background/50"
               >
                 {image.previewUrl ? (
                   <button
@@ -1361,7 +1361,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
                     />
                   </button>
                 ) : (
-                  <div className="flex min-h-18 items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
+                  <div className="flex min-h-18 items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/50">
                     {image.name}
                   </div>
                 )}
@@ -1375,8 +1375,8 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
             terminalContexts={terminalContexts}
           />
         )}
-        <div className="mt-2 flex items-center justify-end gap-2">
-          <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100">
+        <div className="mt-1.5 flex items-center justify-end gap-2">
+          <div className="flex items-center gap-1 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100">
             {displayedUserMessage.copyText && (
               <MessageCopyButton text={displayedUserMessage.copyText} />
             )}
@@ -1394,7 +1394,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
               </Button>
             )}
           </div>
-          <p className="text-right text-[10px] text-muted-foreground/30">
+          <p className="text-right text-[10px] text-muted-foreground/25">
             {formatTimestamp(props.message.createdAt, props.timestampFormat)}
           </p>
         </div>
