@@ -29,8 +29,8 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         {SETTINGS_NAV_GROUPS.map((group) => {
           const items = SETTINGS_NAV_ITEMS.filter((item) => item.group === group.id);
           return (
-            <SidebarGroup key={group.id} className="px-2 py-2">
-              <SidebarGroupLabel className="h-auto px-2 py-1 text-[10px] font-semibold tracking-[0.2em] text-muted-foreground/40 uppercase">
+            <SidebarGroup key={group.id} className="px-2 py-1.5">
+              <SidebarGroupLabel className="h-auto px-2 py-1 text-[10px] font-semibold tracking-[0.18em] text-muted-foreground/35 uppercase">
                 {group.label}
               </SidebarGroupLabel>
               <SidebarMenu>
@@ -43,29 +43,21 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                         size="sm"
                         isActive={isActive}
                         className={cn(
-                          "h-auto min-h-12 items-start gap-2.5 rounded-xl px-2.5 py-2 text-left transition-all duration-200 ease-out",
+                          "h-auto min-h-10 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-all duration-150 ease-out",
                           isActive
-                            ? "bg-primary/[0.06] text-foreground shadow-xs shadow-primary/[0.03]"
-                            : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground",
+                            ? "bg-foreground/[0.05] text-foreground"
+                            : "text-muted-foreground/70 hover:bg-foreground/[0.03] hover:text-foreground",
                         )}
                         onClick={() => void navigate({ to: item.to, replace: true })}
                       >
                         <Icon
                           className={cn(
-                            "mt-0.5 size-4 shrink-0 transition-colors duration-200",
-                            isActive ? "text-primary/75" : "text-muted-foreground/50",
+                            "size-3.5 shrink-0 transition-colors duration-150",
+                            isActive ? "text-foreground/70" : "text-muted-foreground/40",
                           )}
                         />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs font-medium">{item.label}</span>
-                          <span
-                            className={cn(
-                              "mt-0.5 block truncate text-[11px] leading-4",
-                              isActive ? "text-foreground/50" : "text-muted-foreground/50",
-                            )}
-                          >
-                            {item.description}
-                          </span>
+                          <span className="block truncate text-[12px] font-medium">{item.label}</span>
                         </span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -83,10 +75,10 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
           <SidebarMenuItem>
             <SidebarMenuButton
               size="sm"
-              className="gap-2 px-2 py-2 text-xs text-muted-foreground/60 transition-all duration-200 ease-out hover:bg-foreground/[0.04] hover:text-foreground"
+              className="gap-2 px-2 py-2 text-xs text-muted-foreground/50 transition-all duration-150 ease-out hover:bg-foreground/[0.03] hover:text-foreground"
               onClick={() => window.history.back()}
             >
-              <ArrowLeftIcon className="size-4" />
+              <ArrowLeftIcon className="size-3.5" />
               <span>Back</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
