@@ -81,7 +81,7 @@ export function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string |
   }
 
   return (
-    <span className="text-[11px] text-muted-foreground/40">
+    <span className="text-[11px] text-muted-foreground/35">
       {lastCheckedRelative.suffix ? (
         <>
           Checked <span className="font-mono tabular-nums">{lastCheckedRelative.value}</span>{" "}
@@ -106,15 +106,15 @@ export function SettingsSection({
   children: ReactNode;
 }) {
   return (
-    <section className="space-y-3">
+    <section className="space-y-2.5">
       <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/45">
+        <h2 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/40">
           {icon}
           {title}
         </h2>
         {headerAction}
       </div>
-      <div className="relative overflow-hidden rounded-xl border border-border/30 bg-card/40 text-card-foreground shadow-sm dark:border-border/25 dark:bg-card/30">
+      <div className="relative overflow-hidden rounded-xl border border-border/20 bg-card/30 text-card-foreground shadow-xs/5 dark:border-border/15 dark:bg-card/20">
         {children}
       </div>
     </section>
@@ -137,18 +137,18 @@ export function SettingsRow({
   children?: ReactNode;
 }) {
   return (
-    <div className="border-t border-border/20 px-4 py-3.5 first:border-t-0 sm:px-5">
-      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+    <div className="border-t border-border/12 px-4 py-3 first:border-t-0 sm:px-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1 space-y-0.5">
           <div className="flex min-h-5 items-center gap-1.5">
-            <h3 className="text-[13px] font-medium tracking-tight text-foreground/90">{title}</h3>
+            <h3 className="text-[13px] font-medium tracking-tight text-foreground/85">{title}</h3>
             <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
               {resetAction}
             </span>
           </div>
-          <p className="text-[12px] leading-relaxed text-muted-foreground/50">{description}</p>
+          <p className="text-[12px] leading-relaxed text-muted-foreground/45">{description}</p>
           {status ? (
-            <div className="pt-0.5 text-[11px] text-muted-foreground/40">{status}</div>
+            <div className="pt-0.5 text-[11px] text-muted-foreground/35">{status}</div>
           ) : null}
         </div>
         {control ? (
@@ -171,7 +171,7 @@ export function SettingResetButton({ label, onClick }: { label: string; onClick:
             size="icon-xs"
             variant="ghost"
             aria-label={`Reset ${label} to default`}
-            className="size-5 rounded-md p-0 text-muted-foreground/40 transition-colors duration-150 hover:text-foreground/70"
+            className="size-5 rounded-md p-0 text-muted-foreground/35 transition-colors duration-150 hover:text-foreground/60"
             onClick={(event) => {
               event.stopPropagation();
               onClick();
@@ -189,7 +189,7 @@ export function SettingResetButton({ label, onClick }: { label: string; onClick:
 export function SettingsPageContainer({ children }: { children: ReactNode }) {
   return (
     <div className="flex-1 overflow-y-auto p-5 sm:p-8">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-7">{children}</div>
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">{children}</div>
     </div>
   );
 }
