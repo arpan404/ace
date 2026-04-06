@@ -1,5 +1,9 @@
 import { deriveDisplayedUserMessageState } from "~/lib/terminalContext";
 import { buildInlineTerminalContextText } from "~/lib/chat/userMessageTerminalContexts";
+import {
+  estimateCollapsedAssistantPreviewHeight,
+  type AssistantMessageRenderHint,
+} from "./messageText";
 
 const ASSISTANT_CHARS_PER_LINE_FALLBACK = 72;
 const USER_CHARS_PER_LINE_FALLBACK = 56;
@@ -20,6 +24,7 @@ interface TimelineMessageHeightInput {
   role: "user" | "assistant" | "system";
   text: string;
   attachments?: ReadonlyArray<{ id: string }>;
+  assistantRenderHint?: AssistantMessageRenderHint;
 }
 
 interface TimelineHeightEstimateLayout {
@@ -69,6 +74,12 @@ export function estimateTimelineMessageHeight(
   layout: TimelineHeightEstimateLayout = { timelineWidthPx: null },
 ): number {
   if (message.role === "assistant") {
+    if (
+      message.assistantRenderHint === "streaming-preview" ||
+      message.assistantRenderHint === "large-preview"
+    ) {
+      return estimateCollapsedAssistantPreviewHeight(message.assistantRenderHint);
+    }
     const charsPerLine = estimateCharsPerLineForAssistant(layout.timelineWidthPx);
     const estimatedLines = estimateWrappedLineCount(message.text, charsPerLine);
     return ASSISTANT_BASE_HEIGHT_PX + estimatedLines * LINE_HEIGHT_PX;

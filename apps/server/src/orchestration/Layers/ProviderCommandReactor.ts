@@ -224,6 +224,39 @@ const make = Effect.gen(function* () {
       createdAt: input.createdAt,
     });
 
+  const findLiveSession = (threadId: ThreadId) =>
+    providerService
+      .listSessions()
+      .pipe(Effect.map((sessions) => sessions.find((session) => session.threadId === threadId)));
+
+  const reconcileThreadSessionFromLiveRuntime = (input: {
+    readonly thread: {
+      readonly id: ThreadId;
+      readonly session: OrchestrationSession | null;
+    };
+    readonly liveSession: ProviderSession | undefined;
+    readonly createdAt: string;
+  }) =>
+    setThreadSession({
+      threadId: input.thread.id,
+      session: {
+        threadId: input.thread.id,
+        status:
+          input.liveSession !== undefined
+            ? mapProviderSessionStatusToOrchestrationStatus(input.liveSession.status)
+            : "stopped",
+        providerName: input.liveSession?.provider ?? input.thread.session?.providerName ?? null,
+        runtimeMode:
+          input.liveSession?.runtimeMode ??
+          input.thread.session?.runtimeMode ??
+          DEFAULT_RUNTIME_MODE,
+        activeTurnId: null,
+        lastError: input.liveSession?.lastError ?? input.thread.session?.lastError ?? null,
+        updatedAt: input.createdAt,
+      },
+      createdAt: input.createdAt,
+    });
+
   const resolveThread = Effect.fnUntraced(function* (threadId: ThreadId) {
     const readModel = yield* orchestrationEngine.getReadModel();
     return readModel.threads.find((entry) => entry.id === threadId);
@@ -636,7 +669,29 @@ const make = Effect.gen(function* () {
     }
 
     // Orchestration turn ids are not provider turn ids, so interrupt by session.
-    yield* providerService.interruptTurn({ threadId: event.payload.threadId });
+    yield* providerService.interruptTurn({ threadId: event.payload.threadId }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.gen(function* () {
+          const liveSession = yield* findLiveSession(event.payload.threadId).pipe(
+            Effect.catchCause(() => Effect.failCause(cause)),
+          );
+
+          if (thread.session?.status !== "running") {
+            return yield* Effect.failCause(cause);
+          }
+
+          if (liveSession?.status === "running") {
+            return yield* Effect.failCause(cause);
+          }
+
+          yield* reconcileThreadSessionFromLiveRuntime({
+            thread,
+            liveSession,
+            createdAt: event.payload.createdAt,
+          });
+        }),
+      ),
+    );
   });
 
   const processApprovalResponseRequested = Effect.fnUntraced(function* (
@@ -739,7 +794,24 @@ const make = Effect.gen(function* () {
 
     const now = event.payload.createdAt;
     if (thread.session && thread.session.status !== "stopped") {
-      yield* providerService.stopSession({ threadId: thread.id });
+      yield* providerService.stopSession({ threadId: thread.id }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.gen(function* () {
+            const liveSession = yield* findLiveSession(thread.id).pipe(
+              Effect.catchCause(() => Effect.failCause(cause)),
+            );
+            if (liveSession !== undefined) {
+              return yield* Effect.failCause(cause);
+            }
+
+            yield* reconcileThreadSessionFromLiveRuntime({
+              thread,
+              liveSession,
+              createdAt: now,
+            });
+          }),
+        ),
+      );
     }
 
     yield* setThreadSession({

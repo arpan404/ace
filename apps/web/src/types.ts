@@ -73,10 +73,21 @@ export interface QueuedSteerRequest {
   interruptRequested: boolean;
 }
 
+export interface ChatMessageStreamingTextState {
+  chunks: ReadonlyArray<string>;
+  previewText: string;
+  previewLineCount: number;
+  totalLength: number;
+  totalLineCount: number;
+  truncatedCharCount: number;
+  truncatedLineCount: number;
+}
+
 export interface ChatMessage {
   id: MessageId;
   role: "user" | "assistant" | "system";
   text: string;
+  streamingTextState?: ChatMessageStreamingTextState;
   attachments?: ChatAttachment[];
   turnId?: TurnId | null;
   createdAt: string;

@@ -25,6 +25,11 @@ import {
   DEFAULT_MAX_THREAD_ACTIVITIES,
 } from "@ace/shared/orchestrationThreadActivities";
 import { compareSequenceThenCreatedAt } from "./lib/activityOrder";
+import {
+  appendChatMessageStreamingTextState,
+  createChatMessageStreamingTextState,
+  finalizeChatMessageText,
+} from "./lib/chat/messageText";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
 
@@ -101,14 +106,21 @@ function updateThread(
   threadId: ThreadId,
   updater: (t: Thread) => Thread,
 ): Thread[] {
-  let changed = false;
-  const next = threads.map((t) => {
-    if (t.id !== threadId) return t;
-    const updated = updater(t);
-    if (updated !== t) changed = true;
-    return updated;
-  });
-  return changed ? next : threads;
+  const threadIndex = threads.findIndex((thread) => thread.id === threadId);
+  if (threadIndex < 0) {
+    return threads;
+  }
+  const thread = threads[threadIndex];
+  if (!thread) {
+    return threads;
+  }
+  const updatedThread = updater(thread);
+  if (updatedThread === thread) {
+    return threads;
+  }
+  const next = [...threads];
+  next[threadIndex] = updatedThread;
+  return next;
 }
 
 function updateProject(
@@ -168,7 +180,10 @@ function mapMessage(message: OrchestrationMessage): ChatMessage {
   return {
     id: message.id,
     role: message.role,
-    text: message.text,
+    text: message.streaming ? "" : message.text,
+    ...(message.streaming
+      ? { streamingTextState: createChatMessageStreamingTextState(message.text) }
+      : {}),
     turnId: message.turnId,
     createdAt: message.createdAt,
     ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
@@ -993,7 +1008,9 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
         });
-        const existingMessage = thread.messages.find((entry) => entry.id === message.id);
+        const existingMessageIndex = thread.messages.findIndex((entry) => entry.id === message.id);
+        const existingMessage =
+          existingMessageIndex >= 0 ? thread.messages[existingMessageIndex] : undefined;
         const shouldRetainMessage =
           thread.historyLoaded !== false ||
           event.payload.role === "user" ||
@@ -1001,33 +1018,41 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         const messages = !shouldRetainMessage
           ? thread.messages
           : existingMessage
-            ? thread.messages.map((entry) =>
-                entry.id !== message.id
-                  ? entry
-                  : {
-                      ...entry,
-                      text: message.streaming
-                        ? `${entry.text}${message.text}`
-                        : message.text.length > 0
-                          ? message.text
-                          : entry.text,
-                      streaming: message.streaming,
-                      ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
-                      ...(entry.sequence !== undefined || message.sequence !== undefined
-                        ? { sequence: entry.sequence ?? message.sequence }
-                        : {}),
-                      ...(message.streaming
-                        ? entry.completedAt !== undefined
-                          ? { completedAt: entry.completedAt }
-                          : {}
-                        : message.completedAt !== undefined
-                          ? { completedAt: message.completedAt }
-                          : {}),
-                      ...(message.attachments !== undefined
-                        ? { attachments: message.attachments }
-                        : {}),
-                    },
-              )
+            ? (() => {
+                const nextMessages = [...thread.messages];
+                const { streamingTextState: _previousStreamingTextState, ...restEntry } =
+                  existingMessage;
+                const nextStreamingTextState = message.streaming
+                  ? appendChatMessageStreamingTextState(
+                      existingMessage.streamingTextState ??
+                        createChatMessageStreamingTextState(existingMessage.text),
+                      event.payload.text,
+                    )
+                  : undefined;
+                nextMessages[existingMessageIndex] = {
+                  ...restEntry,
+                  text: message.streaming
+                    ? ""
+                    : finalizeChatMessageText(existingMessage, message.text),
+                  ...(nextStreamingTextState ? { streamingTextState: nextStreamingTextState } : {}),
+                  streaming: message.streaming,
+                  ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+                  ...(existingMessage.sequence !== undefined || message.sequence !== undefined
+                    ? { sequence: existingMessage.sequence ?? message.sequence }
+                    : {}),
+                  ...(message.streaming
+                    ? existingMessage.completedAt !== undefined
+                      ? { completedAt: existingMessage.completedAt }
+                      : {}
+                    : message.completedAt !== undefined
+                      ? { completedAt: message.completedAt }
+                      : {}),
+                  ...(message.attachments !== undefined
+                    ? { attachments: message.attachments }
+                    : {}),
+                };
+                return nextMessages;
+              })()
             : [...thread.messages, message];
         const cappedMessages = shouldRetainMessage
           ? messages.slice(-MAX_THREAD_MESSAGES)
@@ -1271,7 +1296,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           ? thread.activities
           : appendCompactedThreadActivity(
               thread.activities,
-              { ...event.payload.activity },
+              event.payload.activity,
               {
                 maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
               },

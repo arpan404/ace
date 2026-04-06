@@ -16,6 +16,9 @@ const PARENT_CLEANUP_EVENTS = [
   "uncaughtExceptionMonitor",
 ] as const;
 type ParentCleanupEvent = (typeof PARENT_CLEANUP_EVENTS)[number];
+type OpenCodeProcessOptions = {
+  readonly processGroup?: boolean;
+};
 
 export type OpenCodeServerHandle = {
   readonly url: string;
@@ -36,7 +39,11 @@ export async function getFreePort(): Promise<number> {
   });
 }
 
-function killChild(child: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): void {
+export function killChildProcess(
+  child: ChildProcess,
+  signal: NodeJS.Signals = "SIGTERM",
+  options?: OpenCodeProcessOptions,
+): void {
   if (process.platform === "win32" && child.pid !== undefined) {
     try {
       spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
@@ -45,6 +52,16 @@ function killChild(child: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): voi
       // Fall back to direct kill when taskkill is unavailable.
     }
   }
+
+  if (options?.processGroup === true && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // Fall back to killing the direct child when group shutdown is unavailable.
+    }
+  }
+
   child.kill(signal);
 }
 
@@ -60,12 +77,13 @@ type ParentCleanupProcess = Pick<NodeJS.Process, "platform"> & {
 export function registerParentProcessCleanup(
   child: ChildProcess,
   processRef: ParentCleanupProcess = process,
+  options?: OpenCodeProcessOptions,
 ): () => void {
   const cleanup = () => {
     if (child.exitCode !== null || child.signalCode !== null) {
       return;
     }
-    killChild(child);
+    killChildProcess(child, "SIGTERM", options);
   };
 
   const handlers = new Map<ParentCleanupEvent, (...args: Array<unknown>) => void>();
@@ -95,7 +113,10 @@ export function registerParentProcessCleanup(
   return unregister;
 }
 
-async function stopProcess(child: ReturnType<typeof spawn>): Promise<void> {
+async function stopProcess(
+  child: ReturnType<typeof spawn>,
+  options?: OpenCodeProcessOptions,
+): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) {
     return;
   }
@@ -132,9 +153,9 @@ async function stopProcess(child: ReturnType<typeof spawn>): Promise<void> {
     child.once("error", onError);
     child.once("exit", onExit);
 
-    killChild(child, "SIGTERM");
+    killChildProcess(child, "SIGTERM", options);
     forceKillTimer = setTimeout(() => {
-      killChild(child, "SIGKILL");
+      killChildProcess(child, "SIGKILL", options);
     }, 1_000);
     timeoutTimer = setTimeout(() => {
       finalize(() => reject(new Error("Timed out stopping OpenCode server process.")));
@@ -148,15 +169,17 @@ async function stopProcess(child: ReturnType<typeof spawn>): Promise<void> {
 export async function startOpenCodeServer(binaryPath: string): Promise<OpenCodeServerHandle> {
   const port = await getFreePort();
   const args = ["serve", `--hostname=${DEFAULT_HOST}`, `--port=${String(port)}`];
+  const processOptions = { processGroup: process.platform !== "win32" } as const;
   const child = spawn(binaryPath, args, {
+    detached: processOptions.processGroup,
     env: { ...process.env },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const unregisterParentCleanup = registerParentProcessCleanup(child);
+  const unregisterParentCleanup = registerParentProcessCleanup(child, process, processOptions);
 
   const url = await new Promise<string>((resolve, reject) => {
     const id = setTimeout(() => {
-      void stopProcess(child);
+      void stopProcess(child, processOptions);
       reject(
         new Error(
           `Timeout waiting for OpenCode server to start after ${String(START_TIMEOUT_MS)}ms`,
@@ -214,7 +237,7 @@ export async function startOpenCodeServer(binaryPath: string): Promise<OpenCodeS
     binaryPath,
     close: async () => {
       unregisterParentCleanup();
-      await stopProcess(child);
+      await stopProcess(child, processOptions);
     },
   };
 }

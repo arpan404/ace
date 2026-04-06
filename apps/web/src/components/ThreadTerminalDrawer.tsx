@@ -99,6 +99,58 @@ function writeSystemMessage(terminal: Terminal, message: string): void {
 const DEFAULT_TERMINAL_FONT_FAMILY =
   '"JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono", "JetBrains Mono", "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace';
 
+const LIGHT_TERMINAL_THEME = {
+  background: "rgb(241, 236, 228)",
+  foreground: "rgb(29, 35, 42)",
+  cursor: "rgb(47, 84, 136)",
+  selectionBackground: "rgba(63, 97, 150, 0.18)",
+  scrollbarSliderBackground: "rgba(22, 28, 36, 0.18)",
+  scrollbarSliderHoverBackground: "rgba(22, 28, 36, 0.28)",
+  scrollbarSliderActiveBackground: "rgba(22, 28, 36, 0.36)",
+  black: "rgb(52, 60, 72)",
+  red: "rgb(165, 60, 79)",
+  green: "rgb(59, 112, 79)",
+  yellow: "rgb(145, 106, 33)",
+  blue: "rgb(53, 96, 158)",
+  magenta: "rgb(120, 78, 144)",
+  cyan: "rgb(46, 114, 128)",
+  white: "rgb(195, 200, 208)",
+  brightBlack: "rgb(116, 125, 138)",
+  brightRed: "rgb(192, 83, 104)",
+  brightGreen: "rgb(82, 136, 101)",
+  brightYellow: "rgb(170, 127, 48)",
+  brightBlue: "rgb(75, 120, 188)",
+  brightMagenta: "rgb(143, 104, 168)",
+  brightCyan: "rgb(67, 139, 153)",
+  brightWhite: "rgb(233, 237, 241)",
+} satisfies ITheme;
+
+const DARK_TERMINAL_THEME = {
+  background: "rgb(10, 13, 18)",
+  foreground: "rgb(220, 227, 235)",
+  cursor: "rgb(139, 190, 255)",
+  selectionBackground: "rgba(116, 166, 245, 0.24)",
+  scrollbarSliderBackground: "rgba(255, 255, 255, 0.12)",
+  scrollbarSliderHoverBackground: "rgba(255, 255, 255, 0.18)",
+  scrollbarSliderActiveBackground: "rgba(255, 255, 255, 0.24)",
+  black: "rgb(35, 41, 49)",
+  red: "rgb(220, 96, 120)",
+  green: "rgb(132, 191, 99)",
+  yellow: "rgb(198, 162, 70)",
+  blue: "rgb(92, 147, 219)",
+  magenta: "rgb(177, 128, 223)",
+  cyan: "rgb(78, 177, 188)",
+  white: "rgb(190, 199, 211)",
+  brightBlack: "rgb(102, 113, 128)",
+  brightRed: "rgb(240, 126, 148)",
+  brightGreen: "rgb(160, 214, 122)",
+  brightYellow: "rgb(224, 186, 92)",
+  brightBlue: "rgb(120, 176, 242)",
+  brightMagenta: "rgb(204, 156, 239)",
+  brightCyan: "rgb(111, 209, 219)",
+  brightWhite: "rgb(238, 242, 247)",
+} satisfies ITheme;
+
 function readTerminalFontFamily(): string {
   if (typeof window === "undefined") return DEFAULT_TERMINAL_FONT_FAMILY;
   const configuredFont = getComputedStyle(document.documentElement)
@@ -129,65 +181,91 @@ async function waitForTerminalFontReady(fontFamily: string, fontSize: number): P
   ]);
 }
 
-function terminalThemeFromApp(): ITheme {
+function readTerminalThemeToken(
+  styles: CSSStyleDeclaration,
+  propertyName: string,
+  fallback: string,
+): string {
+  const value = styles.getPropertyValue(propertyName).trim();
+  return value.length > 0 ? value : fallback;
+}
+
+function terminalThemeFromElement(element: HTMLElement | null): ITheme {
   const isDark = document.documentElement.classList.contains("dark");
-  const bodyStyles = getComputedStyle(document.body);
-  const background =
-    bodyStyles.backgroundColor || (isDark ? "rgb(14, 18, 24)" : "rgb(255, 255, 255)");
-  const foreground = bodyStyles.color || (isDark ? "rgb(237, 241, 247)" : "rgb(28, 33, 41)");
-
-  if (isDark) {
-    return {
-      background,
-      foreground,
-      cursor: "rgb(180, 203, 255)",
-      selectionBackground: "rgba(180, 203, 255, 0.25)",
-      scrollbarSliderBackground: "rgba(255, 255, 255, 0.1)",
-      scrollbarSliderHoverBackground: "rgba(255, 255, 255, 0.18)",
-      scrollbarSliderActiveBackground: "rgba(255, 255, 255, 0.22)",
-      black: "rgb(24, 30, 38)",
-      red: "rgb(255, 122, 142)",
-      green: "rgb(134, 231, 149)",
-      yellow: "rgb(244, 205, 114)",
-      blue: "rgb(137, 190, 255)",
-      magenta: "rgb(208, 176, 255)",
-      cyan: "rgb(124, 232, 237)",
-      white: "rgb(210, 218, 230)",
-      brightBlack: "rgb(110, 120, 136)",
-      brightRed: "rgb(255, 168, 180)",
-      brightGreen: "rgb(176, 245, 186)",
-      brightYellow: "rgb(255, 224, 149)",
-      brightBlue: "rgb(174, 210, 255)",
-      brightMagenta: "rgb(229, 203, 255)",
-      brightCyan: "rgb(167, 244, 247)",
-      brightWhite: "rgb(244, 247, 252)",
-    };
-  }
-
+  const fallbackTheme = isDark ? DARK_TERMINAL_THEME : LIGHT_TERMINAL_THEME;
+  const styles = getComputedStyle(element ?? document.documentElement);
   return {
-    background,
-    foreground,
-    cursor: "rgb(38, 56, 78)",
-    selectionBackground: "rgba(37, 63, 99, 0.2)",
-    scrollbarSliderBackground: "rgba(0, 0, 0, 0.15)",
-    scrollbarSliderHoverBackground: "rgba(0, 0, 0, 0.25)",
-    scrollbarSliderActiveBackground: "rgba(0, 0, 0, 0.3)",
-    black: "rgb(44, 53, 66)",
-    red: "rgb(191, 70, 87)",
-    green: "rgb(60, 126, 86)",
-    yellow: "rgb(146, 112, 35)",
-    blue: "rgb(72, 102, 163)",
-    magenta: "rgb(132, 86, 149)",
-    cyan: "rgb(53, 127, 141)",
-    white: "rgb(210, 215, 223)",
-    brightBlack: "rgb(112, 123, 140)",
-    brightRed: "rgb(212, 95, 112)",
-    brightGreen: "rgb(85, 148, 111)",
-    brightYellow: "rgb(173, 133, 45)",
-    brightBlue: "rgb(91, 124, 194)",
-    brightMagenta: "rgb(153, 107, 172)",
-    brightCyan: "rgb(70, 149, 164)",
-    brightWhite: "rgb(236, 240, 246)",
+    background: readTerminalThemeToken(styles, "--terminal-surface", fallbackTheme.background),
+    foreground: readTerminalThemeToken(styles, "--terminal-foreground", fallbackTheme.foreground),
+    cursor: readTerminalThemeToken(styles, "--terminal-cursor", fallbackTheme.cursor),
+    selectionBackground: readTerminalThemeToken(
+      styles,
+      "--terminal-selection-background",
+      fallbackTheme.selectionBackground,
+    ),
+    scrollbarSliderBackground: readTerminalThemeToken(
+      styles,
+      "--terminal-scrollbar-slider",
+      fallbackTheme.scrollbarSliderBackground,
+    ),
+    scrollbarSliderHoverBackground: readTerminalThemeToken(
+      styles,
+      "--terminal-scrollbar-slider-hover",
+      fallbackTheme.scrollbarSliderHoverBackground,
+    ),
+    scrollbarSliderActiveBackground: readTerminalThemeToken(
+      styles,
+      "--terminal-scrollbar-slider-active",
+      fallbackTheme.scrollbarSliderActiveBackground,
+    ),
+    black: readTerminalThemeToken(styles, "--terminal-ansi-black", fallbackTheme.black),
+    red: readTerminalThemeToken(styles, "--terminal-ansi-red", fallbackTheme.red),
+    green: readTerminalThemeToken(styles, "--terminal-ansi-green", fallbackTheme.green),
+    yellow: readTerminalThemeToken(styles, "--terminal-ansi-yellow", fallbackTheme.yellow),
+    blue: readTerminalThemeToken(styles, "--terminal-ansi-blue", fallbackTheme.blue),
+    magenta: readTerminalThemeToken(styles, "--terminal-ansi-magenta", fallbackTheme.magenta),
+    cyan: readTerminalThemeToken(styles, "--terminal-ansi-cyan", fallbackTheme.cyan),
+    white: readTerminalThemeToken(styles, "--terminal-ansi-white", fallbackTheme.white),
+    brightBlack: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-black",
+      fallbackTheme.brightBlack,
+    ),
+    brightRed: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-red",
+      fallbackTheme.brightRed,
+    ),
+    brightGreen: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-green",
+      fallbackTheme.brightGreen,
+    ),
+    brightYellow: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-yellow",
+      fallbackTheme.brightYellow,
+    ),
+    brightBlue: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-blue",
+      fallbackTheme.brightBlue,
+    ),
+    brightMagenta: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-magenta",
+      fallbackTheme.brightMagenta,
+    ),
+    brightCyan: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-cyan",
+      fallbackTheme.brightCyan,
+    ),
+    brightWhite: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-white",
+      fallbackTheme.brightWhite,
+    ),
   };
 }
 
@@ -511,7 +589,7 @@ function TerminalViewport({
       letterSpacing: 0.2,
       scrollback: 5_000,
       fontFamily,
-      theme: terminalThemeFromApp(),
+      theme: terminalThemeFromElement(mount),
     });
     terminal.loadAddon(fitAddon);
 
@@ -732,7 +810,7 @@ function TerminalViewport({
     const themeObserver = new MutationObserver(() => {
       const activeTerminal = terminalRef.current;
       if (!activeTerminal) return;
-      activeTerminal.options.theme = terminalThemeFromApp();
+      activeTerminal.options.theme = terminalThemeFromElement(containerRef.current);
       activeTerminal.refresh(0, activeTerminal.rows - 1);
     });
     themeObserver.observe(document.documentElement, {
@@ -930,7 +1008,12 @@ function TerminalViewport({
       window.cancelAnimationFrame(frame);
     };
   }, [drawerHeight, resizeEpoch, terminalId, threadId]);
-  return <div ref={containerRef} className="relative h-full w-full overflow-hidden rounded-lg" />;
+  return (
+    <div
+      ref={containerRef}
+      className="terminal-viewport relative h-full w-full overflow-hidden rounded-lg"
+    />
+  );
 }
 
 interface ThreadTerminalDrawerProps {

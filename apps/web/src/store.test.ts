@@ -23,6 +23,7 @@ import {
   __resetThreadHydrationCacheForTests,
   readCachedHydratedThread,
 } from "./lib/threadHydrationCache";
+import { getChatMessageFullText } from "./lib/chat/messageText";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 
 beforeEach(() => {
@@ -977,7 +978,9 @@ describe("incremental orchestration updates", () => {
       }),
     );
 
-    expect(next.threads[0]?.messages[0]?.text).toBe("hello world");
+    expect(getChatMessageFullText(next.threads[0]?.messages[0] ?? { text: "" })).toBe(
+      "hello world",
+    );
     expect(next.threads[0]?.latestTurn?.state).toBe("running");
     expect(next.threads[1]).toBe(thread2);
   });

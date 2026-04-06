@@ -11,7 +11,6 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import { ProjectFavicon } from "./ProjectFavicon";
-import { autoAnimate } from "@formkit/auto-animate";
 import {
   memo,
   startTransition,
@@ -134,6 +133,25 @@ import { useSidebarThreadSummaryById } from "../storeSelectors";
 import type { Project, SidebarThreadSummary } from "../types";
 const THREAD_PREVIEW_LIMIT = 6;
 const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
+const sortedSidebarThreadsCache = new WeakMap<
+  ReadonlyArray<SidebarThreadSummary>,
+  Map<SidebarThreadSortOrder, SidebarThreadSummary[]>
+>();
+const threadStatusCache = new WeakMap<
+  SidebarThreadSummary,
+  Map<string, ReturnType<typeof resolveThreadStatusPill>>
+>();
+const projectStatusCache = new WeakMap<
+  Record<string, string>,
+  WeakMap<ReadonlyArray<SidebarThreadSummary>, ReturnType<typeof resolveProjectStatusIndicator>>
+>();
+const hiddenThreadStatusCache = new WeakMap<
+  Record<string, string>,
+  WeakMap<
+    ReadonlyArray<SidebarThreadSummary>,
+    Map<string, ReturnType<typeof resolveProjectStatusIndicator>>
+  >
+>();
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
@@ -142,14 +160,6 @@ const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
 const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
-};
-const SIDEBAR_LIST_ANIMATION_OPTIONS = {
-  duration: 180,
-  easing: "ease-out",
-} as const;
-
-type SidebarProjectSnapshot = Project & {
-  expanded: boolean;
 };
 interface TerminalStatusIndicator {
   label: "Terminal process running";
@@ -165,6 +175,115 @@ interface PrStatusIndicator {
 }
 
 type ThreadPr = GitStatusResult["pr"];
+
+function getCachedSortedSidebarThreads(
+  threads: ReadonlyArray<SidebarThreadSummary>,
+  sortOrder: SidebarThreadSortOrder,
+): SidebarThreadSummary[] {
+  let cacheBySortOrder = sortedSidebarThreadsCache.get(threads);
+  if (!cacheBySortOrder) {
+    cacheBySortOrder = new Map();
+    sortedSidebarThreadsCache.set(threads, cacheBySortOrder);
+  }
+
+  const cachedThreads = cacheBySortOrder.get(sortOrder);
+  if (cachedThreads) {
+    return cachedThreads;
+  }
+
+  const sortedThreads = sortThreadsForSidebar(threads, sortOrder);
+  cacheBySortOrder.set(sortOrder, sortedThreads);
+  return sortedThreads;
+}
+
+function getCachedThreadStatus(
+  thread: SidebarThreadSummary,
+  lastVisitedAt: string | undefined,
+): ReturnType<typeof resolveThreadStatusPill> {
+  let cacheByVisitedAt = threadStatusCache.get(thread);
+  if (!cacheByVisitedAt) {
+    cacheByVisitedAt = new Map();
+    threadStatusCache.set(thread, cacheByVisitedAt);
+  }
+
+  const cacheKey = lastVisitedAt ?? "";
+  if (cacheByVisitedAt.has(cacheKey)) {
+    return cacheByVisitedAt.get(cacheKey) ?? null;
+  }
+
+  const status = resolveThreadStatusPill({
+    thread: {
+      ...thread,
+      lastVisitedAt,
+    },
+  });
+  cacheByVisitedAt.set(cacheKey, status);
+  return status;
+}
+
+function getCachedProjectStatus(
+  threads: ReadonlyArray<SidebarThreadSummary>,
+  threadLastVisitedAtById: Record<string, string>,
+): ReturnType<typeof resolveProjectStatusIndicator> {
+  let cacheByThreads = projectStatusCache.get(threadLastVisitedAtById);
+  if (!cacheByThreads) {
+    cacheByThreads = new WeakMap();
+    projectStatusCache.set(threadLastVisitedAtById, cacheByThreads);
+  }
+
+  if (cacheByThreads.has(threads)) {
+    return cacheByThreads.get(threads) ?? null;
+  }
+
+  const status = resolveProjectStatusIndicator(
+    threads.map((thread) => getCachedThreadStatus(thread, threadLastVisitedAtById[thread.id])),
+  );
+  cacheByThreads.set(threads, status);
+  return status;
+}
+
+function getCachedHiddenThreadStatus(input: {
+  activeThreadId: ThreadId | undefined;
+  isThreadListExpanded: boolean;
+  previewLimit: number;
+  threadLastVisitedAtById: Record<string, string>;
+  threads: ReadonlyArray<SidebarThreadSummary>;
+}): ReturnType<typeof resolveProjectStatusIndicator> {
+  if (input.isThreadListExpanded || input.threads.length <= input.previewLimit) {
+    return null;
+  }
+
+  let cacheByThreads = hiddenThreadStatusCache.get(input.threadLastVisitedAtById);
+  if (!cacheByThreads) {
+    cacheByThreads = new WeakMap();
+    hiddenThreadStatusCache.set(input.threadLastVisitedAtById, cacheByThreads);
+  }
+
+  let cacheByKey = cacheByThreads.get(input.threads);
+  if (!cacheByKey) {
+    cacheByKey = new Map();
+    cacheByThreads.set(input.threads, cacheByKey);
+  }
+
+  const cacheKey = `${input.activeThreadId ?? ""}:${input.previewLimit}`;
+  if (cacheByKey.has(cacheKey)) {
+    return cacheByKey.get(cacheKey) ?? null;
+  }
+
+  const { hiddenThreads } = getVisibleThreadsForProject({
+    threads: input.threads,
+    activeThreadId: input.activeThreadId,
+    isThreadListExpanded: input.isThreadListExpanded,
+    previewLimit: input.previewLimit,
+  });
+  const status = resolveProjectStatusIndicator(
+    hiddenThreads.map((thread) =>
+      getCachedThreadStatus(thread, input.threadLastVisitedAtById[thread.id]),
+    ),
+  );
+  cacheByKey.set(cacheKey, status);
+  return status;
+}
 
 function ThreadStatusLabel({
   status,
@@ -731,14 +850,6 @@ export default function Sidebar() {
       getId: (project) => project.id,
     });
   }, [projectOrder, projects]);
-  const sidebarProjects = useMemo<SidebarProjectSnapshot[]>(
-    () =>
-      orderedProjects.map((project) => ({
-        ...project,
-        expanded: projectExpandedById[project.id] ?? true,
-      })),
-    [orderedProjects, projectExpandedById],
-  );
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
@@ -1314,12 +1425,12 @@ export default function Sidebar() {
       dragInProgressRef.current = false;
       const { active, over } = event;
       if (!over || active.id === over.id) return;
-      const activeProject = sidebarProjects.find((project) => project.id === active.id);
-      const overProject = sidebarProjects.find((project) => project.id === over.id);
+      const activeProject = orderedProjects.find((project) => project.id === active.id);
+      const overProject = orderedProjects.find((project) => project.id === over.id);
       if (!activeProject || !overProject) return;
       reorderProjects(activeProject.id, overProject.id);
     },
-    [appSettings.sidebarProjectSortOrder, reorderProjects, sidebarProjects],
+    [appSettings.sidebarProjectSortOrder, orderedProjects, reorderProjects],
   );
 
   const handleProjectDragStart = useCallback(
@@ -1335,24 +1446,6 @@ export default function Sidebar() {
 
   const handleProjectDragCancel = useCallback((_event: DragCancelEvent) => {
     dragInProgressRef.current = false;
-  }, []);
-
-  const animatedProjectListsRef = useRef(new WeakSet<HTMLElement>());
-  const attachProjectListAutoAnimateRef = useCallback((node: HTMLElement | null) => {
-    if (!node || animatedProjectListsRef.current.has(node)) {
-      return;
-    }
-    autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS);
-    animatedProjectListsRef.current.add(node);
-  }, []);
-
-  const animatedThreadListsRef = useRef(new WeakSet<HTMLElement>());
-  const attachThreadListAutoAnimateRef = useCallback((node: HTMLElement | null) => {
-    if (!node || animatedThreadListsRef.current.has(node)) {
-      return;
-    }
-    autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS);
-    animatedThreadListsRef.current.add(node);
   }, []);
 
   const handleProjectTitlePointerDownCapture = useCallback(
@@ -1395,11 +1488,11 @@ export default function Sidebar() {
   }, [projects, sidebarThreadsById, threadIdsByProjectId]);
   const sortedProjects = useMemo(() => {
     if (appSettings.sidebarProjectSortOrder === "manual") {
-      return sidebarProjects;
+      return orderedProjects;
     }
 
     const sortOrder = appSettings.sidebarProjectSortOrder;
-    return [...sidebarProjects].toSorted((left, right) => {
+    return [...orderedProjects].toSorted((left, right) => {
       const rightTimestamp = getProjectSortTimestamp(
         right,
         visibleProjectThreadsByProjectId.get(right.id) ?? EMPTY_SIDEBAR_THREADS,
@@ -1417,40 +1510,34 @@ export default function Sidebar() {
       }
       return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
     });
-  }, [appSettings.sidebarProjectSortOrder, sidebarProjects, visibleProjectThreadsByProjectId]);
+  }, [appSettings.sidebarProjectSortOrder, orderedProjects, visibleProjectThreadsByProjectId]);
   const isManualProjectSorting = appSettings.sidebarProjectSortOrder === "manual";
   const renderedProjects = useMemo(
     () =>
       sortedProjects.map((project) => {
-        const resolveProjectThreadStatus = (thread: SidebarThreadSummary) =>
-          resolveThreadStatusPill({
-            thread: {
-              ...thread,
-              lastVisitedAt: threadLastVisitedAtById[thread.id],
-            },
-          });
         const unsortedProjectThreads =
           visibleProjectThreadsByProjectId.get(project.id) ?? EMPTY_SIDEBAR_THREADS;
-        const projectStatus = resolveProjectStatusIndicator(
-          unsortedProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
+        const projectExpanded = projectExpandedById[project.id] ?? true;
+        const projectStatus = getCachedProjectStatus(
+          unsortedProjectThreads,
+          threadLastVisitedAtById,
         );
         const isThreadListExpanded = expandedThreadListsByProject.has(project.id);
         const shouldShowThreadPanel =
-          project.expanded ||
+          projectExpanded ||
           (activeThreadId !== undefined &&
             unsortedProjectThreads.some((thread) => thread.id === activeThreadId));
         const projectThreads = shouldShowThreadPanel
-          ? sortThreadsForSidebar(unsortedProjectThreads, appSettings.sidebarThreadSortOrder)
+          ? getCachedSortedSidebarThreads(
+              unsortedProjectThreads,
+              appSettings.sidebarThreadSortOrder,
+            )
           : EMPTY_SIDEBAR_THREADS;
         const pinnedCollapsedThread =
-          !project.expanded && activeThreadId
+          !projectExpanded && activeThreadId
             ? (projectThreads.find((thread) => thread.id === activeThreadId) ?? null)
             : null;
-        const {
-          hasHiddenThreads,
-          hiddenThreads,
-          visibleThreads: visibleProjectThreads,
-        } = shouldShowThreadPanel
+        const { hasHiddenThreads, visibleThreads: visibleProjectThreads } = shouldShowThreadPanel
           ? getVisibleThreadsForProject({
               threads: projectThreads,
               activeThreadId,
@@ -1462,18 +1549,26 @@ export default function Sidebar() {
               hiddenThreads: EMPTY_SIDEBAR_THREADS,
               visibleThreads: EMPTY_SIDEBAR_THREADS,
             };
-        const hiddenThreadStatus = resolveProjectStatusIndicator(
-          hiddenThreads.map((thread) => resolveProjectThreadStatus(thread)),
-        );
+        const hiddenThreadStatus =
+          projectExpanded && hasHiddenThreads
+            ? getCachedHiddenThreadStatus({
+                activeThreadId,
+                isThreadListExpanded,
+                previewLimit: THREAD_PREVIEW_LIMIT,
+                threadLastVisitedAtById,
+                threads: projectThreads,
+              })
+            : null;
         const orderedProjectThreadIds = projectThreads.map((thread) => thread.id);
         const renderedThreadIds = pinnedCollapsedThread
           ? [pinnedCollapsedThread.id]
           : visibleProjectThreads.map((thread) => thread.id);
-        const showEmptyThreadState = project.expanded && projectThreads.length === 0;
+        const showEmptyThreadState = projectExpanded && projectThreads.length === 0;
 
         return {
           hasHiddenThreads,
           hiddenThreadStatus,
+          projectExpanded,
           orderedProjectThreadIds,
           project,
           projectStatus,
@@ -1486,6 +1581,7 @@ export default function Sidebar() {
     [
       appSettings.sidebarThreadSortOrder,
       expandedThreadListsByProject,
+      projectExpandedById,
       sortedProjects,
       activeThreadId,
       threadLastVisitedAtById,
@@ -1699,6 +1795,7 @@ export default function Sidebar() {
     const {
       hasHiddenThreads,
       hiddenThreadStatus,
+      projectExpanded,
       orderedProjectThreadIds,
       project,
       projectStatus,
@@ -1730,7 +1827,7 @@ export default function Sidebar() {
               });
             }}
           >
-            {!project.expanded && projectStatus ? (
+            {!projectExpanded && projectStatus ? (
               <span
                 aria-hidden="true"
                 title={projectStatus.label}
@@ -1748,7 +1845,7 @@ export default function Sidebar() {
             ) : (
               <ChevronRightIcon
                 className={`-ml-0.5 size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-150 ${
-                  project.expanded ? "rotate-90" : ""
+                  projectExpanded ? "rotate-90" : ""
                 }`}
               />
             )}
@@ -1811,10 +1908,7 @@ export default function Sidebar() {
           </Tooltip>
         </div>
 
-        <SidebarMenuSub
-          ref={attachThreadListAutoAnimateRef}
-          className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0.5"
-        >
+        <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0.5">
           {shouldShowThreadPanel && showEmptyThreadState ? (
             <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
               <div
@@ -1858,7 +1952,7 @@ export default function Sidebar() {
               />
             ))}
 
-          {project.expanded && hasHiddenThreads && !isThreadListExpanded && (
+          {projectExpanded && hasHiddenThreads && !isThreadListExpanded && (
             <SidebarMenuSubItem className="w-full">
               <SidebarMenuSubButton
                 render={<button type="button" />}
@@ -1876,7 +1970,7 @@ export default function Sidebar() {
               </SidebarMenuSubButton>
             </SidebarMenuSubItem>
           )}
-          {project.expanded && hasHiddenThreads && isThreadListExpanded && (
+          {projectExpanded && hasHiddenThreads && isThreadListExpanded && (
             <SidebarMenuSubItem className="w-full">
               <SidebarMenuSubButton
                 render={<button type="button" />}
@@ -1919,7 +2013,9 @@ export default function Sidebar() {
       if (selectedThreadIds.size > 0) {
         clearSelection();
       }
-      toggleProject(projectId);
+      startTransition(() => {
+        toggleProject(projectId);
+      });
     },
     [clearSelection, selectedThreadIds.size, toggleProject],
   );
@@ -1931,7 +2027,9 @@ export default function Sidebar() {
       if (dragInProgressRef.current) {
         return;
       }
-      toggleProject(projectId);
+      startTransition(() => {
+        toggleProject(projectId);
+      });
     },
     [toggleProject],
   );
@@ -2062,20 +2160,24 @@ export default function Sidebar() {
   }, [desktopUpdateButtonAction, desktopUpdateButtonDisabled, desktopUpdateState]);
 
   const expandThreadListForProject = useCallback((projectId: ProjectId) => {
-    setExpandedThreadListsByProject((current) => {
-      if (current.has(projectId)) return current;
-      const next = new Set(current);
-      next.add(projectId);
-      return next;
+    startTransition(() => {
+      setExpandedThreadListsByProject((current) => {
+        if (current.has(projectId)) return current;
+        const next = new Set(current);
+        next.add(projectId);
+        return next;
+      });
     });
   }, []);
 
   const collapseThreadListForProject = useCallback((projectId: ProjectId) => {
-    setExpandedThreadListsByProject((current) => {
-      if (!current.has(projectId)) return current;
-      const next = new Set(current);
-      next.delete(projectId);
-      return next;
+    startTransition(() => {
+      setExpandedThreadListsByProject((current) => {
+        if (!current.has(projectId)) return current;
+        const next = new Set(current);
+        next.delete(projectId);
+        return next;
+      });
     });
   }, []);
 
@@ -2260,7 +2362,7 @@ export default function Sidebar() {
                   </SidebarMenu>
                 </DndContext>
               ) : (
-                <SidebarMenu ref={attachProjectListAutoAnimateRef}>
+                <SidebarMenu>
                   {renderedProjects.map((renderedProject) => (
                     <SidebarMenuItem key={renderedProject.project.id} className="rounded-md">
                       {renderProjectItem(renderedProject, null)}

@@ -2,6 +2,10 @@ import { type MessageId, type TurnId } from "@ace/contracts";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { estimateTimelineMessageHeight } from "../../lib/chat/timelineHeight";
+import {
+  getChatMessageRenderableText,
+  resolveAssistantMessageRenderHint,
+} from "../../lib/chat/messageText";
 import { deriveTimelineEntries } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
@@ -204,14 +208,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     (index: number) => virtualizedRows[index]?.id ?? index,
     [virtualizedRows],
   );
-  const rowVirtualizer = useVirtualizer({
-    count: virtualizedRows.length,
-    estimateSize: (index) =>
+  const estimateVirtualizedRowSize = useCallback(
+    (index: number) =>
       estimateTimelineRowHeight(virtualizedRows[index], {
         timelineWidthPx,
         expandedWorkGroups,
         turnDiffSummaryByAssistantMessageId,
       }),
+    [expandedWorkGroups, timelineWidthPx, turnDiffSummaryByAssistantMessageId, virtualizedRows],
+  );
+  const virtualizedRowsMeasurementKey = useMemo(
+    () =>
+      virtualizedRows
+        .map((row) =>
+          getTimelineRowHeightCacheKey(row, {
+            timelineWidthPx,
+            expandedWorkGroups,
+            turnDiffSummaryByAssistantMessageId,
+          }),
+        )
+        .join("|"),
+    [expandedWorkGroups, timelineWidthPx, turnDiffSummaryByAssistantMessageId, virtualizedRows],
+  );
+  const rowVirtualizer = useVirtualizer({
+    count: virtualizedRows.length,
+    estimateSize: estimateVirtualizedRowSize,
     getItemKey: getVirtualRowKey,
     getScrollElement: () => scrollContainer,
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
@@ -222,13 +243,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       return;
     }
     rowVirtualizer.measure();
-  }, [
-    expandedWorkGroups,
-    rowVirtualizer,
-    timelineWidthPx,
-    turnDiffSummaryByAssistantMessageId,
-    virtualizedRows,
-  ]);
+  }, [rowVirtualizer, virtualizedRows.length, virtualizedRowsMeasurementKey]);
 
   const renderRowContent = (row: TimelineRow, _rowIndex: number) => {
     return (
@@ -953,42 +968,7 @@ function estimateTimelineRowHeight(
     return 96;
   }
 
-  const widthCacheKey = toTimelineWidthCacheKey(input.timelineWidthPx);
-  let cacheKey: string;
-  switch (row.kind) {
-    case "message": {
-      const turnSummary = input.turnDiffSummaryByAssistantMessageId.get(row.message.id);
-      cacheKey = [
-        "message",
-        row.id,
-        row.message.role,
-        row.message.text.length,
-        row.message.attachments?.length ?? 0,
-        row.message.streaming ? 1 : 0,
-        row.message.completedAt ?? "incomplete",
-        turnSummary?.files.length ?? 0,
-        row.completionSummary ? 1 : 0,
-        widthCacheKey,
-      ].join(":");
-      break;
-    }
-    case "work":
-      cacheKey = `work:${row.id}:${row.workEntry.detail ? 1 : 0}:${row.workEntry.command ? 1 : 0}`;
-      break;
-    case "work-group":
-      cacheKey = `work-group:${row.id}:${input.expandedWorkGroups[workGroupId(row.id)] ? 1 : 0}:${row.entries.length}`;
-      break;
-    case "intent":
-      cacheKey = `intent:${row.id}`;
-      break;
-    case "proposed-plan":
-      cacheKey = `proposed-plan:${row.id}:${row.proposedPlan.planMarkdown.length}`;
-      break;
-    case "working":
-      cacheKey = `working:${row.id}:${row.mode}:${row.intentText ? 1 : 0}`;
-      break;
-  }
-
+  const cacheKey = getTimelineRowHeightCacheKey(row, input);
   const cachedHeight = readCachedTimelineRowHeight(cacheKey);
   if (cachedHeight !== null) {
     return cachedHeight;
@@ -997,22 +977,32 @@ function estimateTimelineRowHeight(
   let height: number;
   switch (row.kind) {
     case "message": {
+      const assistantRenderHint =
+        row.message.role === "assistant"
+          ? resolveAssistantMessageRenderHint(row.message)
+          : "full-text";
+      const renderedMessageText =
+        row.message.role === "assistant"
+          ? getChatMessageRenderableText(row.message)
+          : row.message.text;
       const messageText =
         row.message.role === "assistant" &&
-        row.message.text.trim().length === 0 &&
+        renderedMessageText.trim().length === 0 &&
         !row.message.streaming
           ? "(empty response)"
-          : row.message.text;
+          : renderedMessageText;
       const messageHeightInput =
         row.message.attachments === undefined
           ? {
               role: row.message.role,
               text: messageText,
+              ...(row.message.role === "assistant" ? { assistantRenderHint } : {}),
             }
           : {
               role: row.message.role,
               text: messageText,
               attachments: row.message.attachments,
+              ...(row.message.role === "assistant" ? { assistantRenderHint } : {}),
             };
       const messageHeight = estimateTimelineMessageHeight(messageHeightInput, {
         timelineWidthPx: input.timelineWidthPx,
@@ -1051,6 +1041,57 @@ function estimateTimelineRowHeight(
   }
 
   return writeCachedTimelineRowHeight(cacheKey, height);
+}
+
+function getTimelineRowHeightCacheKey(
+  row: TimelineRow | undefined,
+  input: {
+    timelineWidthPx: number | null;
+    expandedWorkGroups: Record<string, boolean>;
+    turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
+  },
+): string {
+  if (!row) {
+    return "empty";
+  }
+
+  const widthCacheKey = toTimelineWidthCacheKey(input.timelineWidthPx);
+  switch (row.kind) {
+    case "message": {
+      const assistantRenderHint =
+        row.message.role === "assistant"
+          ? resolveAssistantMessageRenderHint(row.message)
+          : "full-text";
+      const renderedMessageText =
+        row.message.role === "assistant"
+          ? getChatMessageRenderableText(row.message)
+          : row.message.text;
+      const turnSummary = input.turnDiffSummaryByAssistantMessageId.get(row.message.id);
+      return [
+        "message",
+        row.id,
+        row.message.role,
+        renderedMessageText.length,
+        assistantRenderHint,
+        row.message.attachments?.length ?? 0,
+        row.message.streaming ? 1 : 0,
+        row.message.completedAt ?? "incomplete",
+        turnSummary?.files.length ?? 0,
+        row.completionSummary ? 1 : 0,
+        widthCacheKey,
+      ].join(":");
+    }
+    case "work":
+      return `work:${row.id}:${row.workEntry.detail ? 1 : 0}:${row.workEntry.command ? 1 : 0}`;
+    case "work-group":
+      return `work-group:${row.id}:${input.expandedWorkGroups[workGroupId(row.id)] ? 1 : 0}:${row.entries.length}`;
+    case "intent":
+      return `intent:${row.id}`;
+    case "proposed-plan":
+      return `proposed-plan:${row.id}:${row.proposedPlan.planMarkdown.length}`;
+    case "working":
+      return `working:${row.id}:${row.mode}:${row.intentText ? 1 : 0}`;
+  }
 }
 
 function workGroupRailClass(entries: ReadonlyArray<TimelineMetaGroupEntry>): string {
@@ -1372,9 +1413,10 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   resolvedTheme: "light" | "dark";
   turnSummary: TurnDiffSummary | undefined;
 }) {
+  const renderedMessageText = getChatMessageRenderableText(props.message);
   const messageText =
-    props.message.text.trim().length > 0
-      ? props.message.text
+    renderedMessageText.trim().length > 0
+      ? renderedMessageText
       : props.message.streaming
         ? ""
         : "(empty response)";
@@ -1385,6 +1427,9 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         text={messageText}
         cwd={props.markdownCwd}
         isStreaming={Boolean(props.message.streaming)}
+        {...(props.message.streamingTextState
+          ? { streamingTextState: props.message.streamingTextState }
+          : {})}
       />
       {props.turnSummary && props.turnSummary.files.length > 0 && (
         <AssistantMessageTurnDiffSummary

@@ -6,6 +6,23 @@ interface ScrollPosition {
   scrollHeight: number;
 }
 
+interface ScrollableContainer extends ScrollPosition {
+  scrollTo(options: ScrollToOptions): void;
+}
+
+export function scrollContainerToBottom(
+  scrollContainer: ScrollableContainer,
+  behavior: ScrollBehavior = "auto",
+): void {
+  const top = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+  if (behavior === "smooth") {
+    scrollContainer.scrollTo({ top, behavior });
+    return;
+  }
+
+  scrollContainer.scrollTop = top;
+}
+
 export function isScrollContainerNearBottom(
   position: ScrollPosition,
   thresholdPx = AUTO_SCROLL_BOTTOM_THRESHOLD_PX,

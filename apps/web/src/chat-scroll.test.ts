@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX, isScrollContainerNearBottom } from "./chat-scroll";
+import {
+  AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
+  isScrollContainerNearBottom,
+  scrollContainerToBottom,
+} from "./chat-scroll";
 
 describe("isScrollContainerNearBottom", () => {
   it("returns true when already at bottom", () => {
@@ -58,5 +62,37 @@ describe("isScrollContainerNearBottom", () => {
       ),
     ).toBe(true);
     expect(AUTO_SCROLL_BOTTOM_THRESHOLD_PX).toBe(64);
+  });
+});
+
+describe("scrollContainerToBottom", () => {
+  it("jumps directly to the bottom by default", () => {
+    const scrollTo = vi.fn();
+    const scrollContainer = {
+      scrollTop: 0,
+      clientHeight: 400,
+      scrollHeight: 1_000,
+      scrollTo,
+    };
+
+    scrollContainerToBottom(scrollContainer);
+
+    expect(scrollContainer.scrollTop).toBe(600);
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("keeps smooth scrolling opt-in", () => {
+    const scrollTo = vi.fn();
+    const scrollContainer = {
+      scrollTop: 0,
+      clientHeight: 400,
+      scrollHeight: 1_000,
+      scrollTo,
+    };
+
+    scrollContainerToBottom(scrollContainer, "smooth");
+
+    expect(scrollContainer.scrollTop).toBe(0);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 600, behavior: "smooth" });
   });
 });

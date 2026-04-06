@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { registerParentProcessCleanup } from "./opencodeRuntime";
+import { killChildProcess, registerParentProcessCleanup } from "./opencodeRuntime";
 
 class FakeProcess extends EventEmitter {
   readonly platform = "darwin" as const;
@@ -23,6 +23,16 @@ afterEach(() => {
 });
 
 describe("registerParentProcessCleanup", () => {
+  it("kills the entire detached process group on POSIX", () => {
+    const child = makeChildProcess();
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+
+    killChildProcess(child, "SIGTERM", { processGroup: true });
+
+    expect(killSpy).toHaveBeenCalledWith(-1234, "SIGTERM");
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
   it("kills the child when the parent process exits", () => {
     const child = makeChildProcess();
     const fakeProcess = new FakeProcess();

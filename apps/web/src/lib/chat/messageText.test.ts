@@ -1,0 +1,61 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  appendChatMessageStreamingTextState,
+  buildLargeMarkdownPreviewText,
+  createChatMessageStreamingTextState,
+  getChatMessageFullText,
+  resolveAssistantMessageRenderHint,
+} from "./messageText";
+
+describe("messageText", () => {
+  it("keeps full streamed text while truncating the live preview window", () => {
+    const fullText = Array.from({ length: 2_500 }, (_, index) => `line ${index + 1}`).join("\n");
+    const midpoint = Math.floor(fullText.length / 2);
+    let state = createChatMessageStreamingTextState(fullText.slice(0, midpoint));
+    state = appendChatMessageStreamingTextState(state, fullText.slice(midpoint));
+
+    expect(getChatMessageFullText({ text: "", streamingTextState: state })).toBe(fullText);
+    expect(state.truncatedLineCount).toBeGreaterThan(0);
+    expect(state.previewLineCount).toBeLessThan(state.totalLineCount);
+    expect(state.previewText).toContain("line 2500");
+  });
+
+  it("uses the streaming preview hint once the live preview is truncated", () => {
+    const fullText = Array.from({ length: 2_500 }, (_, index) => `line ${index + 1}`).join("\n");
+    let state = createChatMessageStreamingTextState("");
+    state = appendChatMessageStreamingTextState(state, fullText);
+
+    expect(
+      resolveAssistantMessageRenderHint({
+        text: "",
+        streaming: true,
+        streamingTextState: state,
+      }),
+    ).toBe("streaming-preview");
+  });
+
+  it("preserves the trailing preview window when many small chunks stream in", () => {
+    const streamedLines = Array.from({ length: 2_500 }, (_, index) => `line ${index + 1}\n`);
+    let state = createChatMessageStreamingTextState("");
+
+    for (const chunk of streamedLines) {
+      state = appendChatMessageStreamingTextState(state, chunk);
+    }
+
+    const fullText = streamedLines.join("");
+    expect(getChatMessageFullText({ text: "", streamingTextState: state })).toBe(fullText);
+    expect(state.truncatedLineCount).toBeGreaterThan(0);
+    expect(state.previewLineCount).toBeLessThan(state.totalLineCount);
+    expect(state.previewText).toContain("line 2500");
+  });
+
+  it("builds a collapsed preview for very large completed markdown", () => {
+    const fullText = Array.from({ length: 400 }, (_, index) => `line ${index + 1}`).join("\n");
+    const repeatedText = `${fullText}\n${"x".repeat(240_000)}`;
+    const previewText = buildLargeMarkdownPreviewText(repeatedText);
+
+    expect(previewText).toContain("large response collapsed for faster rendering");
+    expect(previewText.length).toBeLessThan(repeatedText.length);
+  });
+});

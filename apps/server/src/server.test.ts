@@ -1375,7 +1375,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   );
 
   it.effect(
-    "routes websocket rpc orchestration.getSnapshot and getThread with lean and hydrated views",
+    "routes websocket rpc orchestration.getSnapshot through the in-memory lean view and targeted hydration",
     () =>
       Effect.gen(function* () {
         const now = new Date().toISOString();
@@ -1483,9 +1483,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
         yield* buildAppUnderTest({
           layers: {
+            orchestrationEngine: {
+              getReadModel: () => Effect.succeed(leanSnapshotFixture),
+            },
             projectionSnapshotQuery: {
-              getSnapshot: (input) =>
-                Effect.succeed(input?.hydrateThreadId === null ? leanSnapshotFixture : snapshot),
+              getSnapshot: () => Effect.die("unexpected full snapshot query"),
               getThread: (requestedThreadId) =>
                 Effect.succeed(
                   requestedThreadId === threadId

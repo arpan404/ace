@@ -315,4 +315,106 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       });
     }),
   );
+
+  it.effect("does not auto-bootstrap by default when no launch workspace is provided", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-cli-config-no-bootstrap-" });
+      const derivedPaths = yield* deriveServerPaths(baseDir, undefined);
+
+      const resolved = yield* resolveServerConfig(
+        {
+          mode: Option.some("web"),
+          port: Option.some(4888),
+          host: Option.none(),
+          baseDir: Option.some(baseDir),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          authToken: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(resolved).toEqual({
+        logLevel: "Info",
+        mode: "web",
+        port: 4888,
+        cwd: process.cwd(),
+        baseDir,
+        ...derivedPaths,
+        host: undefined,
+        staticDir: undefined,
+        devUrl: undefined,
+        noBrowser: false,
+        authToken: undefined,
+        autoBootstrapProjectFromCwd: false,
+        logWebSocketEvents: false,
+      });
+    }),
+  );
+
+  it.effect(
+    "auto-bootstraps and normalizes the launch workspace when a path argument is provided",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({
+          prefix: "ace-cli-config-launch-workspace-",
+        });
+        const baseDir = yield* fs.makeTempDirectoryScoped({
+          prefix: "ace-cli-config-launch-base-",
+        });
+        const derivedPaths = yield* deriveServerPaths(baseDir, undefined);
+
+        const resolved = yield* resolveServerConfig(
+          {
+            mode: Option.some("web"),
+            port: Option.some(4888),
+            host: Option.none(),
+            baseDir: Option.some(baseDir),
+            devUrl: Option.none(),
+            noBrowser: Option.none(),
+            authToken: Option.none(),
+            bootstrapFd: Option.none(),
+            autoBootstrapProjectFromCwd: Option.none(),
+            logWebSocketEvents: Option.none(),
+          },
+          Option.none(),
+          Option.some(workspaceRoot),
+        ).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+              NetService.layer,
+            ),
+          ),
+        );
+
+        expect(resolved).toEqual({
+          logLevel: "Info",
+          mode: "web",
+          port: 4888,
+          cwd: workspaceRoot,
+          baseDir,
+          ...derivedPaths,
+          host: undefined,
+          staticDir: undefined,
+          devUrl: undefined,
+          noBrowser: false,
+          authToken: undefined,
+          autoBootstrapProjectFromCwd: true,
+          logWebSocketEvents: false,
+        });
+      }),
+  );
 });

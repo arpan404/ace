@@ -11,6 +11,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useTransition,
   type ReactNode,
 } from "react";
 import type { Components } from "react-markdown";
@@ -28,8 +29,13 @@ import {
 } from "../lib/memoryPressure";
 import { clampCacheBudgetBytes, clampCacheEntryCount } from "../lib/resourceProfile";
 import { useTheme } from "../hooks/useTheme";
+import {
+  buildLargeMarkdownPreviewText,
+  shouldUseLargeMarkdownPreview,
+} from "../lib/chat/messageText";
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
+import type { ChatMessageStreamingTextState } from "../types";
 
 class CodeHighlightErrorBoundary extends React.Component<
   { fallback: ReactNode; children: ReactNode },
@@ -56,6 +62,7 @@ interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
   isStreaming?: boolean;
+  streamingTextState?: ChatMessageStreamingTextState;
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
@@ -261,9 +268,150 @@ function SuspenseShikiCodeBlock({
   );
 }
 
-function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
+function StreamingMarkdownText({ text }: { text: string }) {
+  return (
+    <div
+      className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80"
+      data-streaming-markdown="true"
+    >
+      {text}
+    </div>
+  );
+}
+
+function scheduleDeferredMarkdownUpgrade(callback: () => void): () => void {
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
+
+  if (typeof window.requestIdleCallback === "function") {
+    const idleHandle = window.requestIdleCallback(
+      () => {
+        callback();
+      },
+      { timeout: 120 },
+    );
+    return () => {
+      if (typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idleHandle);
+      }
+    };
+  }
+
+  const timeoutHandle = window.setTimeout(() => {
+    callback();
+  }, 0);
+  return () => window.clearTimeout(timeoutHandle);
+}
+
+function PreviewTextPanel({
+  text,
+  dataAttribute,
+}: {
+  text: string;
+  dataAttribute?:
+    | "data-streaming-markdown"
+    | "data-large-markdown-preview"
+    | "data-deferred-markdown";
+}) {
+  return (
+    <div
+      className="max-h-96 overflow-auto rounded-md border border-border/35 bg-background/35 px-3 py-2"
+      {...(dataAttribute ? { [dataAttribute]: "true" } : {})}
+    >
+      <div className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80 [content-visibility:auto]">
+        {text}
+      </div>
+    </div>
+  );
+}
+
+function StreamingMarkdownPreview({
+  text,
+  streamingTextState,
+}: {
+  text: string;
+  streamingTextState: ChatMessageStreamingTextState | undefined;
+}) {
+  const previewIsTruncated =
+    (streamingTextState?.truncatedCharCount ?? 0) > 0 ||
+    (streamingTextState?.truncatedLineCount ?? 0) > 0;
+  if (!previewIsTruncated) {
+    return <StreamingMarkdownText text={text} />;
+  }
+
+  return (
+    <div className="space-y-2" data-streaming-markdown="true">
+      <p className="text-[11px] text-muted-foreground/70">
+        Showing the latest{" "}
+        <span className="font-medium text-foreground/80">
+          {streamingTextState?.previewLineCount.toLocaleString() ?? "0"}
+        </span>{" "}
+        of{" "}
+        <span className="font-medium text-foreground/80">
+          {streamingTextState?.totalLineCount.toLocaleString() ?? "0"}
+        </span>{" "}
+        lines while the response streams.
+      </p>
+      <PreviewTextPanel text={text} />
+    </div>
+  );
+}
+
+function LargeMarkdownPreview({
+  text,
+  isTransitionPending,
+  onRenderMarkdown,
+}: {
+  text: string;
+  isTransitionPending: boolean;
+  onRenderMarkdown: () => void;
+}) {
+  const previewText = useMemo(() => buildLargeMarkdownPreviewText(text), [text]);
+
+  return (
+    <div className="space-y-3" data-large-markdown-preview="true">
+      <div className="space-y-1">
+        <p className="text-[11px] font-medium tracking-[0.12em] text-muted-foreground/75 uppercase">
+          Large response preview
+        </p>
+        <p className="text-[11px] text-muted-foreground/70">
+          Rendering this as plain text first keeps scrolling and streaming responsive.
+        </p>
+      </div>
+      <PreviewTextPanel text={previewText} />
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="inline-flex items-center rounded-md border border-border/50 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-border/80 hover:bg-secondary/50"
+          onClick={onRenderMarkdown}
+          disabled={isTransitionPending}
+        >
+          {isTransitionPending ? "Rendering markdown..." : "Render full markdown"}
+        </button>
+        <span className="text-[11px] text-muted-foreground/65">
+          {text.length.toLocaleString()} chars
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function CompletedMarkdownPreview({ text }: { text: string }) {
+  return <PreviewTextPanel text={text} dataAttribute="data-deferred-markdown" />;
+}
+
+function ChatMarkdown({ text, cwd, isStreaming = false, streamingTextState }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
+  const [renderPreference, setRenderPreference] = useState<"auto" | "markdown">("auto");
+  const [deferredMarkdownReady, setDeferredMarkdownReady] = useState(() => !isStreaming);
+  const previousStreamingRef = useRef(isStreaming);
+  const [isMarkdownTransitionPending, startMarkdownTransition] = useTransition();
+  const useLargePreview =
+    !isStreaming &&
+    renderPreference !== "markdown" &&
+    shouldUseLargeMarkdownPreview(text, streamingTextState?.totalLineCount);
   const markdownComponents = useMemo<Components>(
     () => ({
       a({ node: _node, href, ...props }) {
@@ -314,8 +462,58 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
     [cwd, diffThemeName, isStreaming],
   );
 
+  useEffect(() => {
+    const wasStreaming = previousStreamingRef.current;
+    previousStreamingRef.current = isStreaming;
+
+    if (isStreaming) {
+      setRenderPreference("auto");
+      setDeferredMarkdownReady(false);
+      return;
+    }
+
+    if (useLargePreview) {
+      setDeferredMarkdownReady(false);
+      return;
+    }
+
+    if (!wasStreaming) {
+      setDeferredMarkdownReady(true);
+      return;
+    }
+
+    setDeferredMarkdownReady(false);
+    return scheduleDeferredMarkdownUpgrade(() => {
+      startMarkdownTransition(() => {
+        setDeferredMarkdownReady(true);
+      });
+    });
+  }, [isStreaming, startMarkdownTransition, useLargePreview]);
+
+  if (isStreaming) {
+    return <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
+  }
+
+  if (useLargePreview) {
+    return (
+      <LargeMarkdownPreview
+        text={text}
+        isTransitionPending={isMarkdownTransitionPending}
+        onRenderMarkdown={() => {
+          startMarkdownTransition(() => {
+            setRenderPreference("markdown");
+          });
+        }}
+      />
+    );
+  }
+
+  if (!deferredMarkdownReady) {
+    return <CompletedMarkdownPreview text={text} />;
+  }
+
   return (
-    <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80">
+    <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80 [content-visibility:auto]">
       <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
         {text}
       </ReactMarkdown>

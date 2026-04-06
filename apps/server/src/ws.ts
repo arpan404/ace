@@ -4,6 +4,9 @@ import {
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
+  type OrchestrationGetSnapshotInput,
+  type OrchestrationReadModel,
+  type ThreadId,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationGetThreadError,
@@ -39,6 +42,7 @@ import { GitManager } from "./git/Services/GitManager";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
+import { createReadModelSnapshotViewCache } from "./orchestration/readModelSnapshotView";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
@@ -157,6 +161,37 @@ function resolveWsRateLimitKey(headers: Record<string, string | undefined>): str
   return headers["user-agent"]?.trim() || "ws-upgrade:unknown";
 }
 
+function hasExplicitSnapshotHydrationMode(
+  input: OrchestrationGetSnapshotInput | undefined,
+): input is OrchestrationGetSnapshotInput & { readonly hydrateThreadId: ThreadId | null } {
+  return input !== undefined && Object.prototype.hasOwnProperty.call(input, "hydrateThreadId");
+}
+
+function replaceSnapshotThread(
+  snapshot: OrchestrationReadModel,
+  threadId: OrchestrationReadModel["threads"][number]["id"],
+  nextThread: OrchestrationReadModel["threads"][number],
+): OrchestrationReadModel {
+  const threadIndex = snapshot.threads.findIndex((thread) => thread.id === threadId);
+  if (threadIndex === -1) {
+    return snapshot;
+  }
+  if (snapshot.threads[threadIndex] === nextThread) {
+    return snapshot;
+  }
+
+  const threads = snapshot.threads.slice();
+  threads[threadIndex] = nextThread;
+  return {
+    ...snapshot,
+    threads,
+    updatedAt:
+      snapshot.updatedAt.localeCompare(nextThread.updatedAt) >= 0
+        ? snapshot.updatedAt
+        : nextThread.updatedAt,
+  };
+}
+
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
     const orchestrationEngine = yield* OrchestrationEngineService;
@@ -175,6 +210,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceEditor = yield* WorkspaceEditor;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
+    const snapshotViewCache = createReadModelSnapshotViewCache();
 
     const loadServerConfig = Effect.gen(function* () {
       const keybindingsConfig = yield* keybindings.loadConfigState;
@@ -203,9 +239,29 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         Stream.filter(() => isCurrentWsClientSession(input.clientSessionId, input.connectionId)),
       );
 
+    const loadSnapshot = (input?: OrchestrationGetSnapshotInput) =>
+      Effect.gen(function* () {
+        if (!hasExplicitSnapshotHydrationMode(input)) {
+          return yield* projectionSnapshotQuery.getSnapshot(input);
+        }
+
+        const readModel = yield* orchestrationEngine.getReadModel();
+        const snapshot = snapshotViewCache.getSnapshot(readModel, input);
+        const hydrateThreadId = input.hydrateThreadId ?? null;
+        if (hydrateThreadId === null) {
+          return snapshot;
+        }
+
+        const hydratedThread = yield* projectionSnapshotQuery.getThread(hydrateThreadId);
+        return Option.match(hydratedThread, {
+          onNone: () => snapshot,
+          onSome: (thread) => replaceSnapshotThread(snapshot, hydrateThreadId, thread),
+        });
+      });
+
     return WsRpcGroup.of({
       [ORCHESTRATION_WS_METHODS.getSnapshot]: (input) =>
-        projectionSnapshotQuery.getSnapshot(input).pipe(
+        loadSnapshot(input).pipe(
           Effect.mapError(
             (cause) =>
               new OrchestrationGetSnapshotError({

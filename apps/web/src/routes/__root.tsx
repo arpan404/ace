@@ -10,6 +10,7 @@ import { useEffect, useEffectEvent, useRef } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 
+import { LEAN_SNAPSHOT_RECOVERY_INPUT, resolveWelcomeBootstrapPlan } from "../bootstrapRecovery";
 import { APP_DISPLAY_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
@@ -53,6 +54,17 @@ export const Route = createRootRouteWithContext<{
     meta: [{ name: "title", content: APP_DISPLAY_NAME }],
   }),
 });
+
+function shouldFlushDomainEventAsStreaming(event: OrchestrationEvent): boolean {
+  switch (event.type) {
+    case "thread.message-sent":
+      return event.payload.streaming;
+    case "thread.activity-appended":
+      return true;
+    default:
+      return false;
+  }
+}
 
 function RootRouteView() {
   if (!readNativeApi()) {
@@ -159,19 +171,6 @@ function errorDetails(error: unknown): string {
   }
 }
 
-function routeThreadIdFromPathname(pathname: string): ThreadId | null {
-  if (pathname === "/" || pathname.startsWith("/settings")) {
-    return null;
-  }
-
-  const [segment, ...rest] = pathname.replace(/^\/+/, "").split("/");
-  if (!segment || rest.length > 0) {
-    return null;
-  }
-
-  return ThreadId.makeUnsafe(decodeURIComponent(segment));
-}
-
 function coalesceOrchestrationUiEvents(
   events: ReadonlyArray<OrchestrationEvent>,
 ): OrchestrationEvent[] {
@@ -225,7 +224,7 @@ function EventRouter() {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const pathnameRef = useRef(pathname);
-  const handledBootstrapThreadIdRef = useRef<string | null>(null);
+  const handledBootstrapThreadIdRef = useRef<ThreadId | null>(null);
   const handledConfigReplayRef = useRef(false);
   const loggedBootstrapCompleteRef = useRef(false);
   const disposedRef = useRef(false);
@@ -263,28 +262,34 @@ function EventRouter() {
     migrateLocalSettingsToServer();
     runAsyncTask(
       (async () => {
-        await bootstrapFromSnapshotRef.current();
+        const plan = resolveWelcomeBootstrapPlan({
+          bootstrapComplete,
+          pathname: pathnameRef.current,
+          handledBootstrapThreadId: handledBootstrapThreadIdRef.current,
+          payload,
+        });
+
+        if (plan.shouldBootstrapFromSnapshot) {
+          await bootstrapFromSnapshotRef.current();
+        }
         if (disposedRef.current) {
           return;
         }
 
-        if (!payload.bootstrapProjectId || !payload.bootstrapThreadId) {
+        if (plan.expandProjectId === null) {
           return;
         }
-        setProjectExpanded(payload.bootstrapProjectId, true);
+        setProjectExpanded(plan.expandProjectId, true);
 
-        if (pathnameRef.current !== "/") {
-          return;
-        }
-        if (handledBootstrapThreadIdRef.current === payload.bootstrapThreadId) {
+        if (plan.navigateToThreadId === null) {
           return;
         }
         await navigate({
           to: "/$threadId",
-          params: { threadId: payload.bootstrapThreadId },
+          params: { threadId: plan.navigateToThreadId },
           replace: true,
         });
-        handledBootstrapThreadIdRef.current = payload.bootstrapThreadId;
+        handledBootstrapThreadIdRef.current = plan.navigateToThreadId;
       })(),
       "Failed to navigate to the bootstrap thread.",
     );
@@ -358,6 +363,12 @@ function EventRouter() {
     let needsProviderInvalidation = false;
     const pendingDomainEvents: OrchestrationEvent[] = [];
     let flushPendingDomainEventsScheduled = false;
+    let pendingDomainEventMicrotaskVersion = 0;
+    let pendingDomainEventFlushHandle:
+      | { kind: "animation-frame"; handle: number }
+      | { kind: "timeout"; handle: ReturnType<typeof setTimeout> }
+      | { kind: "microtask"; handle: number }
+      | null = null;
     let reconnectRecoveryRequested = false;
 
     const reconcileSnapshotDerivedState = () => {
@@ -450,6 +461,7 @@ function EventRouter() {
     };
     const flushPendingDomainEvents = () => {
       flushPendingDomainEventsScheduled = false;
+      pendingDomainEventFlushHandle = null;
       if (disposed || pendingDomainEvents.length === 0) {
         return;
       }
@@ -457,13 +469,68 @@ function EventRouter() {
       const events = pendingDomainEvents.splice(0, pendingDomainEvents.length);
       applyEventBatch(events);
     };
-    const schedulePendingDomainEventFlush = () => {
-      if (flushPendingDomainEventsScheduled) {
+    const cancelPendingDomainEventFlush = () => {
+      pendingDomainEventMicrotaskVersion += 1;
+      if (pendingDomainEventFlushHandle === null) {
+        flushPendingDomainEventsScheduled = false;
         return;
+      }
+      if (pendingDomainEventFlushHandle.kind === "animation-frame") {
+        cancelAnimationFrame(pendingDomainEventFlushHandle.handle);
+      } else if (pendingDomainEventFlushHandle.kind === "timeout") {
+        clearTimeout(pendingDomainEventFlushHandle.handle);
+      }
+      pendingDomainEventFlushHandle = null;
+      flushPendingDomainEventsScheduled = false;
+    };
+    const schedulePendingDomainEventFlush = (priority: "animation-frame" | "microtask") => {
+      if (flushPendingDomainEventsScheduled) {
+        if (
+          priority === "microtask" &&
+          pendingDomainEventFlushHandle !== null &&
+          pendingDomainEventFlushHandle.kind !== "microtask"
+        ) {
+          cancelPendingDomainEventFlush();
+        } else {
+          return;
+        }
       }
 
       flushPendingDomainEventsScheduled = true;
-      queueMicrotask(flushPendingDomainEvents);
+      if (priority === "microtask") {
+        const handle = pendingDomainEventMicrotaskVersion + 1;
+        pendingDomainEventMicrotaskVersion = handle;
+        pendingDomainEventFlushHandle = {
+          kind: "microtask",
+          handle,
+        };
+        queueMicrotask(() => {
+          if (
+            !flushPendingDomainEventsScheduled ||
+            pendingDomainEventFlushHandle?.kind !== "microtask" ||
+            pendingDomainEventFlushHandle.handle !== handle
+          ) {
+            return;
+          }
+          flushPendingDomainEvents();
+        });
+        return;
+      }
+      if (typeof requestAnimationFrame === "function") {
+        pendingDomainEventFlushHandle = {
+          kind: "animation-frame",
+          handle: requestAnimationFrame(() => {
+            flushPendingDomainEvents();
+          }),
+        };
+        return;
+      }
+      pendingDomainEventFlushHandle = {
+        kind: "timeout",
+        handle: setTimeout(() => {
+          flushPendingDomainEvents();
+        }, 16),
+      };
     };
 
     const recoverFromReplay = async (
@@ -500,19 +567,14 @@ function EventRouter() {
       if (!recovery.beginSnapshotRecovery(reason)) {
         return;
       }
-      const hydrateThreadId = routeThreadIdFromPathname(pathnameRef.current);
       const phase = beginLoadPhase("snapshot", `Running snapshot recovery (${reason})`, {
-        hydrateThreadId,
+        hydrateThreadId: LEAN_SNAPSHOT_RECOVERY_INPUT.hydrateThreadId,
       });
 
       try {
-        const snapshot = await api.orchestration.getSnapshot({
-          hydrateThreadId,
-        });
+        const snapshot = await api.orchestration.getSnapshot(LEAN_SNAPSHOT_RECOVERY_INPUT);
         if (!disposed) {
-          syncServerReadModel(snapshot, {
-            hydrateThreadId,
-          });
+          syncServerReadModel(snapshot, LEAN_SNAPSHOT_RECOVERY_INPUT);
           reconcileSnapshotDerivedState();
           phase.success("Snapshot recovery applied", {
             reason,
@@ -551,8 +613,8 @@ function EventRouter() {
       });
       if (state.kind === "disconnected") {
         reconnectRecoveryRequested = true;
+        cancelPendingDomainEventFlush();
         pendingDomainEvents.length = 0;
-        flushPendingDomainEventsScheduled = false;
         return;
       }
       if (!reconnectRecoveryRequested) {
@@ -566,7 +628,9 @@ function EventRouter() {
       const action = recovery.classifyDomainEvent(event.sequence);
       if (action === "apply") {
         pendingDomainEvents.push(event);
-        schedulePendingDomainEventFlush();
+        schedulePendingDomainEventFlush(
+          shouldFlushDomainEventAsStreaming(event) ? "microtask" : "animation-frame",
+        );
         return;
       }
       if (action === "recover") {
@@ -598,7 +662,7 @@ function EventRouter() {
       disposedRef.current = true;
       logLoadDiagnostic({ phase: "bootstrap", message: "Event router disposed" });
       needsProviderInvalidation = false;
-      flushPendingDomainEventsScheduled = false;
+      cancelPendingDomainEventFlush();
       pendingDomainEvents.length = 0;
       reconnectRecoveryRequested = false;
       queryInvalidationThrottler.cancel();

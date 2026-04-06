@@ -1,4 +1,5 @@
 import type { ChatMessage } from "./types";
+import { getChatMessageFullText } from "./lib/chat/messageText";
 
 export interface BootstrapInputResult {
   text: string;
@@ -33,7 +34,7 @@ function attachmentSummary(message: ChatMessage): string | null {
 }
 
 function buildMessageBlock(message: ChatMessage): string {
-  const text = message.text;
+  const text = getChatMessageFullText(message);
   const attachments = attachmentSummary(message);
 
   if (text && attachments) {

@@ -20,12 +20,20 @@ export function appendCompactedThreadActivity(
   activity: OrchestrationThreadActivity,
   options?: { maxEntries?: number | undefined },
 ): OrchestrationThreadActivity[] {
-  const ordered = [...activities.filter((entry) => entry.id !== activity.id), activity].toSorted(
-    compareOrchestrationThreadActivities,
-  );
-  return compactOrchestrationThreadActivities(ordered).slice(
-    -(options?.maxEntries ?? DEFAULT_MAX_THREAD_ACTIVITIES),
-  );
+  const existingIndex = activities.findIndex((entry) => entry.id === activity.id);
+  const withoutExisting =
+    existingIndex < 0
+      ? activities
+      : [...activities.slice(0, existingIndex), ...activities.slice(existingIndex + 1)];
+  const maxEntries = options?.maxEntries ?? DEFAULT_MAX_THREAD_ACTIVITIES;
+
+  if (canAppendCompactedThreadActivity(withoutExisting, activity)) {
+    return appendOrderedCompactedThreadActivity(withoutExisting, activity, maxEntries);
+  }
+
+  return compactOrchestrationThreadActivities(
+    [...withoutExisting, activity].toSorted(compareOrchestrationThreadActivities),
+  ).slice(-maxEntries);
 }
 
 export function compactOrchestrationThreadActivities(
@@ -50,6 +58,35 @@ export function compactOrchestrationThreadActivities(
   }
 
   return compacted;
+}
+
+function canAppendCompactedThreadActivity(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  activity: OrchestrationThreadActivity,
+): boolean {
+  const previous = activities.at(-1);
+  return !previous || compareOrchestrationThreadActivities(previous, activity) <= 0;
+}
+
+function appendOrderedCompactedThreadActivity(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  activity: OrchestrationThreadActivity,
+  maxEntries: number,
+): OrchestrationThreadActivity[] {
+  const previous = activities.at(-1);
+  if (!previous) {
+    return [activity];
+  }
+
+  const merged = mergeReasoningActivities(previous, activity);
+  if (merged) {
+    const next = [...activities];
+    next[next.length - 1] = merged;
+    return next;
+  }
+
+  const next = [...activities, activity];
+  return next.length > maxEntries ? next.slice(-maxEntries) : next;
 }
 
 function mergeReasoningActivities(

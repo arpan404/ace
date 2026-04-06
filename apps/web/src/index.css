@@ -94,6 +94,30 @@
   --success-foreground: var(--color-emerald-700);
   --warning: var(--color-amber-500);
   --warning-foreground: var(--color-amber-700);
+  --terminal-surface: rgb(241, 236, 228);
+  --terminal-surface-elevated: rgb(247, 243, 237);
+  --terminal-foreground: rgb(29, 35, 42);
+  --terminal-cursor: rgb(47, 84, 136);
+  --terminal-selection-background: rgba(63, 97, 150, 0.18);
+  --terminal-scrollbar-slider: rgba(22, 28, 36, 0.18);
+  --terminal-scrollbar-slider-hover: rgba(22, 28, 36, 0.28);
+  --terminal-scrollbar-slider-active: rgba(22, 28, 36, 0.36);
+  --terminal-ansi-black: rgb(52, 60, 72);
+  --terminal-ansi-red: rgb(165, 60, 79);
+  --terminal-ansi-green: rgb(59, 112, 79);
+  --terminal-ansi-yellow: rgb(145, 106, 33);
+  --terminal-ansi-blue: rgb(53, 96, 158);
+  --terminal-ansi-magenta: rgb(120, 78, 144);
+  --terminal-ansi-cyan: rgb(46, 114, 128);
+  --terminal-ansi-white: rgb(195, 200, 208);
+  --terminal-ansi-bright-black: rgb(116, 125, 138);
+  --terminal-ansi-bright-red: rgb(192, 83, 104);
+  --terminal-ansi-bright-green: rgb(82, 136, 101);
+  --terminal-ansi-bright-yellow: rgb(170, 127, 48);
+  --terminal-ansi-bright-blue: rgb(75, 120, 188);
+  --terminal-ansi-bright-magenta: rgb(143, 104, 168);
+  --terminal-ansi-bright-cyan: rgb(67, 139, 153);
+  --terminal-ansi-bright-white: rgb(233, 237, 241);
 
   @variant dark {
     color-scheme: dark;
@@ -122,6 +146,30 @@
     --success-foreground: var(--color-emerald-400);
     --warning: var(--color-amber-500);
     --warning-foreground: var(--color-amber-400);
+    --terminal-surface: rgb(10, 13, 18);
+    --terminal-surface-elevated: rgb(14, 18, 24);
+    --terminal-foreground: rgb(220, 227, 235);
+    --terminal-cursor: rgb(139, 190, 255);
+    --terminal-selection-background: rgba(116, 166, 245, 0.24);
+    --terminal-scrollbar-slider: rgba(255, 255, 255, 0.12);
+    --terminal-scrollbar-slider-hover: rgba(255, 255, 255, 0.18);
+    --terminal-scrollbar-slider-active: rgba(255, 255, 255, 0.24);
+    --terminal-ansi-black: rgb(35, 41, 49);
+    --terminal-ansi-red: rgb(220, 96, 120);
+    --terminal-ansi-green: rgb(132, 191, 99);
+    --terminal-ansi-yellow: rgb(198, 162, 70);
+    --terminal-ansi-blue: rgb(92, 147, 219);
+    --terminal-ansi-magenta: rgb(177, 128, 223);
+    --terminal-ansi-cyan: rgb(78, 177, 188);
+    --terminal-ansi-white: rgb(190, 199, 211);
+    --terminal-ansi-bright-black: rgb(102, 113, 128);
+    --terminal-ansi-bright-red: rgb(240, 126, 148);
+    --terminal-ansi-bright-green: rgb(160, 214, 122);
+    --terminal-ansi-bright-yellow: rgb(224, 186, 92);
+    --terminal-ansi-bright-blue: rgb(120, 176, 242);
+    --terminal-ansi-bright-magenta: rgb(204, 156, 239);
+    --terminal-ansi-bright-cyan: rgb(111, 209, 219);
+    --terminal-ansi-bright-white: rgb(238, 242, 247);
   }
 }
 
@@ -246,17 +294,36 @@ label {
 }
 
 .thread-terminal-drawer {
+  background-color: var(--terminal-surface);
   background-image:
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--background) 92%, transparent),
-      var(--background) 22%
+      color-mix(in srgb, var(--terminal-surface-elevated) 94%, transparent),
+      transparent 32%
     ),
     radial-gradient(
-      circle at top left,
-      color-mix(in srgb, var(--primary) 10%, transparent),
-      transparent 38%
+      circle at top,
+      color-mix(in srgb, var(--primary) 5%, transparent),
+      transparent 46%
     );
+}
+
+.thread-terminal-drawer .terminal-viewport {
+  background: linear-gradient(
+    180deg,
+    var(--terminal-surface-elevated),
+    color-mix(in srgb, var(--terminal-surface) 94%, var(--color-black))
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-white) 5%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--terminal-foreground) 14%, transparent);
+}
+
+.thread-terminal-drawer .xterm,
+.thread-terminal-drawer .xterm .xterm-screen,
+.thread-terminal-drawer .xterm .xterm-viewport,
+.thread-terminal-drawer .xterm .xterm-helpers {
+  background-color: var(--terminal-surface) !important;
 }
 
 .thread-terminal-drawer .xterm .xterm-scrollable-element > .scrollbar > .slider {
