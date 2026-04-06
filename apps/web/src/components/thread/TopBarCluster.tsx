@@ -7,7 +7,7 @@ export function TopBarCluster({ className, children, ...props }: ComponentProps<
   return (
     <div
       className={cn(
-        "flex min-w-0 items-center gap-px rounded-xl border border-border/25 bg-muted/20 p-[3px] shadow-xs shadow-black/[0.02] supports-[backdrop-filter]:bg-muted/12 supports-[backdrop-filter]:backdrop-blur-xl dark:border-border/30 dark:shadow-black/[0.08]",
+        "flex min-w-0 items-center gap-0.5 rounded-lg p-[2px]",
         "[&_[data-slot=button]]:border-transparent [&_[data-slot=button]]:bg-transparent [&_[data-slot=button]]:shadow-none [&_[data-slot=button]]:before:shadow-none",
         "[&_[data-slot=button]]:hover:bg-foreground/[0.06] [&_[data-slot=button]]:active:bg-foreground/[0.09] [&_[data-slot=button]:disabled]:hover:bg-transparent [&_[data-slot=button][aria-disabled='true']]:hover:bg-transparent",
         "[&_[data-slot=button]]:transition-all [&_[data-slot=button]]:duration-150 [&_[data-slot=button]]:ease-out",
@@ -28,7 +28,7 @@ export function TopBarClusterDivider({
   return (
     <Separator
       orientation="vertical"
-      className={cn("mx-0.5 h-3 bg-border/25 dark:bg-border/35", className)}
+      className={cn("mx-0.5 h-3 bg-border/20 dark:bg-border/25", className)}
       {...props}
     />
   );
