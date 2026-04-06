@@ -24,7 +24,10 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
       <Alert variant={status.status === "error" ? "error" : "warning"}>
         <CircleAlertIcon />
         <AlertTitle>{title}</AlertTitle>
-        <AlertDescription className="line-clamp-3" title={status.message ?? defaultMessage}>
+        <AlertDescription
+          className="line-clamp-3 text-[12px] leading-relaxed"
+          title={status.message ?? defaultMessage}
+        >
           {status.message ?? defaultMessage}
         </AlertDescription>
       </Alert>

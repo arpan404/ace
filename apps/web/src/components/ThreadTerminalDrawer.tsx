@@ -1628,7 +1628,7 @@ export default function ThreadTerminalDrawer({
 
   return (
     <aside
-      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/80 bg-background"
+      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/50 bg-background"
       style={{ height: `${drawerHeight}px` }}
     >
       <div
@@ -1812,10 +1812,10 @@ export default function ThreadTerminalDrawer({
 
       {!hasTerminalSidebar && (
         <div className="pointer-events-none absolute right-2 top-2 z-20">
-          <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background/80 shadow-sm backdrop-blur-sm">
+          <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-lg border border-border/50 bg-card/50 shadow-sm backdrop-blur-md">
             <button
               type="button"
-              className="inline-flex max-w-44 items-center gap-1 truncate px-2 py-1 text-[11px] text-foreground/85 transition-colors hover:bg-accent/70"
+              className="inline-flex max-w-44 items-center gap-1 truncate px-2 py-1 text-[11px] text-foreground/80 transition-all duration-200 hover:bg-accent/50"
               onContextMenu={(event) => {
                 event.preventDefault();
                 void handleTerminalContextMenu(resolvedActiveTerminalId, {
@@ -1832,7 +1832,7 @@ export default function ThreadTerminalDrawer({
               })}
               {terminalLabelById.get(resolvedActiveTerminalId) ?? "terminal"}
             </button>
-            <div className="h-4 w-px bg-border/80" />
+            <div className="h-3.5 w-px bg-border/40" />
             <TerminalActionButton
               className={`p-1 text-foreground/90 transition-colors ${
                 hasReachedSplitLimit
@@ -1844,7 +1844,7 @@ export default function ThreadTerminalDrawer({
             >
               <SquareSplitHorizontal className="size-3.25" />
             </TerminalActionButton>
-            <div className="h-4 w-px bg-border/80" />
+            <div className="h-3.5 w-px bg-border/40" />
             <TerminalActionButton
               className="p-1 text-foreground/90 transition-colors hover:bg-accent"
               onClick={onNewTerminalAction}
@@ -1852,7 +1852,7 @@ export default function ThreadTerminalDrawer({
             >
               <Plus className="size-3.25" />
             </TerminalActionButton>
-            <div className="h-4 w-px bg-border/80" />
+            <div className="h-3.5 w-px bg-border/40" />
             <TerminalActionButton
               className="p-1 text-foreground/90 transition-colors hover:bg-accent"
               onClick={(event) => {
@@ -1862,7 +1862,7 @@ export default function ThreadTerminalDrawer({
             >
               <EllipsisVertical className="size-3.25" />
             </TerminalActionButton>
-            <div className="h-4 w-px bg-border/80" />
+            <div className="h-3.5 w-px bg-border/40" />
             <TerminalActionButton
               className="p-1 text-foreground/90 transition-colors hover:bg-accent"
               onClick={() => onCloseTerminal(resolvedActiveTerminalId)}
@@ -1919,7 +1919,7 @@ export default function ThreadTerminalDrawer({
                         onPointerUp={handleSplitResizePointerEnd}
                         onPointerCancel={handleSplitResizePointerEnd}
                       >
-                        <div className="my-3 w-px rounded-full bg-border/70 transition-colors group-hover:bg-primary/60" />
+                        <div className="my-3 w-px rounded-full bg-border/35 transition-colors duration-200 group-hover:bg-primary/50" />
                       </div>
                     ) : null}
                   </Fragment>
@@ -1958,29 +1958,29 @@ export default function ThreadTerminalDrawer({
                 onPointerCancel={handleSidebarResizePointerEnd}
                 aria-hidden="true"
               >
-                <div className="my-3 w-px rounded-full bg-border/60 transition-colors group-hover:bg-primary/60" />
+                <div className="my-3 w-px rounded-full bg-border/40 transition-colors duration-200 group-hover:bg-primary/50" />
               </div>
 
               <aside
-                className="flex shrink-0 flex-col overflow-hidden border-l border-border/70 bg-muted/15"
+                className="flex shrink-0 flex-col overflow-hidden border-l border-border/40 bg-muted/10"
                 style={{ width: `${sidebarPanelWidth}px`, minWidth: `${sidebarPanelWidth}px` }}
               >
                 <div
-                  className="flex items-center justify-between gap-2 border-b border-border/60 bg-background/70 px-2.5 py-2"
+                  className="flex items-center justify-between gap-2 border-b border-border/40 bg-card/40 px-2.5 py-2 backdrop-blur-sm"
                   onContextMenu={(event) => {
                     event.preventDefault();
                     handleTerminalSectionMenu({ x: event.clientX, y: event.clientY });
                   }}
                 >
                   <div className="min-w-0">
-                    <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground/80">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/55">
                       terminals
                     </div>
-                    <div className="truncate text-[11px] text-foreground/85">
+                    <div className="truncate text-[11px] text-foreground/80">
                       {normalizedTerminalIds.length} open
                     </div>
                   </div>
-                  <div className="inline-flex items-center overflow-hidden rounded-md border border-border/70 bg-background/70">
+                  <div className="inline-flex items-center overflow-hidden rounded-lg border border-border/40 bg-card/50 backdrop-blur-sm">
                     <TerminalActionButton
                       className={`inline-flex h-7 items-center px-1.5 text-foreground/90 transition-colors ${
                         hasReachedSplitLimit
@@ -1993,14 +1993,14 @@ export default function ThreadTerminalDrawer({
                       <SquareSplitHorizontal className="size-3.25" />
                     </TerminalActionButton>
                     <TerminalActionButton
-                      className="inline-flex h-7 items-center border-l border-border/70 px-1.5 text-foreground/90 transition-colors hover:bg-accent/70"
+                      className="inline-flex h-7 items-center border-l border-border/40 px-1.5 text-foreground/70 transition-all duration-200 hover:bg-accent/50 hover:text-foreground"
                       onClick={onNewTerminalAction}
                       label={newTerminalActionLabel}
                     >
                       <Plus className="size-3.25" />
                     </TerminalActionButton>
                     <TerminalActionButton
-                      className="inline-flex h-7 items-center border-l border-border/70 px-1.5 text-foreground/90 transition-colors hover:bg-accent/70"
+                      className="inline-flex h-7 items-center border-l border-border/40 px-1.5 text-foreground/70 transition-all duration-200 hover:bg-accent/50 hover:text-foreground"
                       onClick={(event) => {
                         handleTerminalSectionMenu(menuPositionFromElement(event.currentTarget));
                       }}
@@ -2009,7 +2009,7 @@ export default function ThreadTerminalDrawer({
                       <EllipsisVertical className="size-3.25" />
                     </TerminalActionButton>
                     <TerminalActionButton
-                      className="inline-flex h-7 items-center border-l border-border/70 px-1.5 text-foreground/90 transition-colors hover:bg-accent/70"
+                      className="inline-flex h-7 items-center border-l border-border/40 px-1.5 text-foreground/70 transition-all duration-200 hover:bg-accent/50 hover:text-foreground"
                       onClick={() => onCloseTerminal(resolvedActiveTerminalId)}
                       label={closeTerminalActionLabel}
                     >

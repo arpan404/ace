@@ -34,6 +34,16 @@ export const CursorModelOptions = Schema.Struct({
 });
 export type CursorModelOptions = typeof CursorModelOptions.Type;
 
+export const CursorModelMetadata = Schema.Struct({
+  familySlug: TrimmedNonEmptyString,
+  familyName: TrimmedNonEmptyString,
+  reasoningEffort: Schema.optional(Schema.Literals(CODEX_REASONING_EFFORT_OPTIONS)),
+  fastMode: Schema.optional(Schema.Boolean),
+  thinking: Schema.optional(Schema.Boolean),
+  maxMode: Schema.optional(Schema.Boolean),
+});
+export type CursorModelMetadata = typeof CursorModelMetadata.Type;
+
 export const GeminiModelOptions = Schema.Struct({});
 export type GeminiModelOptions = typeof GeminiModelOptions.Type;
 

@@ -52,6 +52,11 @@ const cursorInitializeResult = (input?: {
 const cursorSessionConfigOptions = (input?: {
   readonly mode?: string;
   readonly model?: string;
+  readonly modelOptions?: ReadonlyArray<{
+    readonly value: string;
+    readonly name: string;
+    readonly description?: string;
+  }>;
 }) => [
   {
     id: "mode",
@@ -68,7 +73,7 @@ const cursorSessionConfigOptions = (input?: {
     name: "Model",
     category: "model",
     currentValue: input?.model ?? "gpt-5-mini[]",
-    options: [
+    options: input?.modelOptions ?? [
       { value: "gpt-5-mini[]", name: "GPT-5 mini" },
       { value: "claude-3.7-sonnet[]", name: "Claude Sonnet" },
     ],
@@ -80,6 +85,11 @@ const cursorSessionResult = (
   input?: {
     readonly mode?: string;
     readonly model?: string;
+    readonly modelOptions?: ReadonlyArray<{
+      readonly value: string;
+      readonly name: string;
+      readonly description?: string;
+    }>;
   },
 ) => ({
   sessionId,
@@ -692,6 +702,230 @@ describe("CursorAdapterLive", () => {
 
         secondPromptResult.resolve({ stopReason: "end_turn" });
         await new Promise((resolve) => setTimeout(resolve, 0));
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("prefers the original Cursor model slug when ACP exposes that exact model option", async () => {
+    const client = makeFakeCursorClient({
+      requestImpl: async (method, params) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-model-selection", {
+              model: "gpt-5.2-low[]",
+              modelOptions: [
+                { value: "gpt-5.2-low[]", name: "GPT-5.2 Low" },
+                { value: "gpt-5.2-max[]", name: "GPT-5.2 Max" },
+              ],
+            });
+          case "session/set_config_option": {
+            const record = params as { readonly configId?: string; readonly value?: string };
+            return {
+              configOptions: cursorSessionConfigOptions({
+                modelOptions: [
+                  { value: "gpt-5.2-low[]", name: "GPT-5.2 Low" },
+                  { value: "gpt-5.2-max[]", name: "GPT-5.2 Max" },
+                ],
+                ...(record.value ? { model: record.value } : {}),
+              }),
+            };
+          }
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId: asThreadId("thread-cursor-model-selection"),
+            cwd: "/repo/cursor-model-selection",
+            modelSelection: {
+              provider: "cursor",
+              model: "gpt-5.2-max",
+              options: {
+                fastMode: true,
+              },
+            },
+            runtimeMode: "full-access",
+          }),
+        );
+
+        expect(client.request).toHaveBeenCalledWith(
+          "session/set_config_option",
+          {
+            sessionId: "cursor-session-model-selection",
+            configId: "model",
+            value: "gpt-5.2-max[]",
+          },
+          { timeoutMs: 15_000 },
+        );
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("matches Cursor model options using ACP descriptions for Claude thinking variants", async () => {
+    const client = makeFakeCursorClient({
+      requestImpl: async (method, params) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-claude-thinking", {
+              model: "claude-4.6-opus-fast[]",
+              modelOptions: [
+                {
+                  value: "claude-4.6-opus[]",
+                  name: "Claude 4.6 Opus",
+                  description: "Max Thinking",
+                },
+                {
+                  value: "claude-4.6-opus-fast[]",
+                  name: "Claude 4.6 Opus Fast",
+                },
+              ],
+            });
+          case "session/set_config_option": {
+            const record = params as { readonly value?: string };
+            return {
+              configOptions: cursorSessionConfigOptions({
+                modelOptions: [
+                  {
+                    value: "claude-4.6-opus[]",
+                    name: "Claude 4.6 Opus",
+                    description: "Max Thinking",
+                  },
+                  {
+                    value: "claude-4.6-opus-fast[]",
+                    name: "Claude 4.6 Opus Fast",
+                  },
+                ],
+                ...(record.value ? { model: record.value } : {}),
+              }),
+            };
+          }
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId: asThreadId("thread-cursor-claude-thinking"),
+            cwd: "/repo/cursor-claude-thinking",
+            modelSelection: {
+              provider: "cursor",
+              model: "claude-4.6-opus-max-thinking",
+            },
+            runtimeMode: "full-access",
+          }),
+        );
+
+        expect(client.request).toHaveBeenCalledWith(
+          "session/set_config_option",
+          {
+            sessionId: "cursor-session-claude-thinking",
+            configId: "model",
+            value: "claude-4.6-opus[]",
+          },
+          { timeoutMs: 15_000 },
+        );
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("matches Cursor base model options when opaque variant tokens are absent from ACP metadata", async () => {
+    const client = makeFakeCursorClient({
+      requestImpl: async (method, params) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-claude-base-fallback", {
+              model: "claude-4.6-opus-fast[]",
+              modelOptions: [
+                {
+                  value: "claude-4.6-opus[]",
+                  name: "Claude 4.6 Opus",
+                },
+                {
+                  value: "claude-4.6-opus-fast[]",
+                  name: "Claude 4.6 Opus Fast",
+                },
+              ],
+            });
+          case "session/set_config_option": {
+            const record = params as { readonly value?: string };
+            return {
+              configOptions: cursorSessionConfigOptions({
+                modelOptions: [
+                  {
+                    value: "claude-4.6-opus[]",
+                    name: "Claude 4.6 Opus",
+                  },
+                  {
+                    value: "claude-4.6-opus-fast[]",
+                    name: "Claude 4.6 Opus Fast",
+                  },
+                ],
+                ...(record.value ? { model: record.value } : {}),
+              }),
+            };
+          }
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId: asThreadId("thread-cursor-claude-base-fallback"),
+            cwd: "/repo/cursor-claude-base-fallback",
+            modelSelection: {
+              provider: "cursor",
+              model: "claude-4.6-opus-max-thinking",
+            },
+            runtimeMode: "full-access",
+          }),
+        );
+
+        expect(client.request).toHaveBeenCalledWith(
+          "session/set_config_option",
+          {
+            sessionId: "cursor-session-claude-base-fallback",
+            configId: "model",
+            value: "claude-4.6-opus[]",
+          },
+          { timeoutMs: 15_000 },
+        );
       } finally {
         await Effect.runPromise(adapter.stopAll());
       }

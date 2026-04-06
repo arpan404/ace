@@ -113,15 +113,29 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   };
 
   return (
-    <div className="border-border/45 border-l pl-4 pr-1 py-1" data-proposed-plan-thread="true">
+    <div className="border-border/35 border-l pl-4 pr-1 py-1" data-proposed-plan-thread="true">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">Plan</p>
-          <p className="mt-1 truncate text-sm font-medium text-foreground">{title}</p>
+          <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.18em] text-emerald-500/70 uppercase">
+            <span className="relative flex size-1.5">
+              <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500/70" />
+            </span>
+            Plan
+          </p>
+          <p className="mt-1.5 truncate text-[13px] font-medium tracking-tight text-foreground">
+            {title}
+          </p>
         </div>
         <Menu>
           <MenuTrigger
-            render={<Button aria-label="Plan actions" size="icon-xs" variant="outline" />}
+            render={
+              <Button
+                aria-label="Plan actions"
+                size="icon-xs"
+                variant="outline"
+                className="border-border/40 shadow-xs"
+              />
+            }
           >
             <EllipsisIcon aria-hidden="true" className="size-4" />
           </MenuTrigger>

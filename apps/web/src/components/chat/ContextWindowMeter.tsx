@@ -65,7 +65,7 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
         render={
           <button
             type="button"
-            className="group inline-flex items-center justify-center rounded-full transition-opacity hover:opacity-85"
+            className="group inline-flex items-center justify-center rounded-full transition-all duration-200 hover:opacity-85 hover:scale-105"
             aria-label={
               usage.maxTokens !== null && usedPercentage
                 ? `Context window ${usedPercentage} used`
@@ -83,26 +83,27 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
                   cy="12"
                   r={radius}
                   fill="none"
-                  stroke="color-mix(in oklab, var(--color-muted) 70%, transparent)"
-                  strokeWidth="3"
+                  stroke="color-mix(in oklab, var(--color-muted) 50%, transparent)"
+                  strokeWidth="2.5"
                 />
                 <circle
                   cx="12"
                   cy="12"
                   r={radius}
                   fill="none"
-                  stroke="var(--color-muted-foreground)"
-                  strokeWidth="3"
+                  stroke="var(--color-primary)"
+                  strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeDasharray={circumference}
                   strokeDashoffset={dashOffset}
-                  className="transition-[stroke-dashoffset] duration-500 ease-out motion-reduce:transition-none"
+                  className="transition-[stroke-dashoffset] duration-700 ease-out motion-reduce:transition-none"
+                  style={{ opacity: 0.7 }}
                 />
               </svg>
               <span
                 className={cn(
-                  "relative flex h-3.75 w-3.75 items-center justify-center rounded-full bg-background text-[8px] font-medium",
-                  "text-muted-foreground",
+                  "relative flex h-3.75 w-3.75 items-center justify-center rounded-full bg-background text-[8px] font-semibold tabular-nums",
+                  "text-muted-foreground/80",
                 )}
               >
                 {usage.usedPercentage !== null
@@ -113,17 +114,17 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
           </button>
         }
       />
-      <PopoverPopup tooltipStyle side="top" align="end" className="w-max max-w-none px-3 py-2">
-        <div className="space-y-1.5 leading-tight">
-          <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+      <PopoverPopup tooltipStyle side="top" align="end" className="w-max max-w-none px-3.5 py-2.5">
+        <div className="space-y-2 leading-tight">
+          <div className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/60 uppercase">
             Context window
           </div>
           {usage.maxTokens !== null && usedPercentage ? (
             <div className="whitespace-nowrap text-xs font-medium text-foreground">
-              <span>{usedPercentage}</span>
-              <span className="mx-1">⋅</span>
+              <span className="text-primary/90">{usedPercentage}</span>
+              <span className="mx-1.5 text-muted-foreground/30">⋅</span>
               <span>{formatContextWindowTokens(usage.usedTokens)}</span>
-              <span>/</span>
+              <span className="text-muted-foreground/40">/</span>
               <span>{formatContextWindowTokens(usage.maxTokens ?? null)} context used</span>
             </div>
           ) : (
@@ -132,22 +133,24 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
             </div>
           )}
           {latestTurnDetails.length > 0 ? (
-            <div className="text-xs text-muted-foreground">
+            <div className="text-[11px] text-muted-foreground/70">
               Latest turn: {latestTurnDetails.join(" · ")}
             </div>
           ) : null}
           {latestMetaDetails.length > 0 ? (
-            <div className="text-xs text-muted-foreground">{latestMetaDetails.join(" · ")}</div>
+            <div className="text-[11px] text-muted-foreground/70">
+              {latestMetaDetails.join(" · ")}
+            </div>
           ) : null}
           {(usage.totalProcessedTokens ?? null) !== null &&
           (usage.totalProcessedTokens ?? 0) > usage.usedTokens ? (
-            <div className="text-xs text-muted-foreground">
+            <div className="text-[11px] text-muted-foreground/70">
               Total processed: {formatContextWindowTokens(usage.totalProcessedTokens ?? null)}{" "}
               tokens
             </div>
           ) : null}
           {usage.compactsAutomatically ? (
-            <div className="text-xs text-muted-foreground">
+            <div className="text-[11px] text-muted-foreground/70">
               Automatically compacts its context when needed.
             </div>
           ) : null}

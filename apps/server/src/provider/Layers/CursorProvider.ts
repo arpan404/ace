@@ -1,5 +1,6 @@
 import type {
   CodexReasoningEffort,
+  CursorModelMetadata,
   CursorModelOptions,
   CursorSettings,
   ModelCapabilities,
@@ -150,10 +151,12 @@ function stripAnsi(value: string): string {
 
 type ParsedCursorVariant = {
   readonly rawModel: ServerProviderModel;
-  readonly baseSlug: string;
-  readonly baseName: string;
+  readonly familySlug: string;
+  readonly familyName: string;
   readonly reasoningEffort: CodexReasoningEffort | null;
   readonly fastMode: boolean;
+  readonly thinking: boolean;
+  readonly maxMode: boolean;
 };
 
 function parseRawCursorModelsOutput(output: string): ReadonlyArray<ServerProviderModel> {
@@ -191,58 +194,66 @@ function parseRawCursorModelsOutput(output: string): ReadonlyArray<ServerProvide
 }
 
 function parseCursorVariant(model: ServerProviderModel): ParsedCursorVariant {
-  let baseSlug = model.slug;
-  let baseName = model.name;
+  let familySlug = model.slug;
+  let familyName = model.name;
   let fastMode = false;
+  let thinking = false;
+  let maxMode = false;
 
-  if (baseSlug.endsWith("-fast")) {
+  if (familySlug.endsWith("-fast")) {
     fastMode = true;
-    baseSlug = baseSlug.slice(0, -"-fast".length);
-    baseName = baseName.replace(/\s+fast$/i, "").trim();
+    familySlug = familySlug.slice(0, -"-fast".length);
+    familyName = familyName.replace(/\s+fast$/i, "").trim();
+  }
+
+  if (familySlug.endsWith("-thinking")) {
+    thinking = true;
+    familySlug = familySlug.slice(0, -"-thinking".length);
+    familyName = familyName.replace(/\s+thinking$/i, "").trim();
   }
 
   let reasoningEffort: CodexReasoningEffort | null = null;
-  if (baseSlug.endsWith("-none")) {
+  if (familySlug.endsWith("-none")) {
     reasoningEffort = "medium";
-    baseSlug = baseSlug.slice(0, -"-none".length);
-    baseName = baseName.replace(/\s+none$/i, "").trim();
+    familySlug = familySlug.slice(0, -"-none".length);
+    familyName = familyName.replace(/\s+none$/i, "").trim();
   }
   for (const variant of CURSOR_REASONING_VARIANTS) {
-    if (!baseSlug.endsWith(variant.slugSuffix)) {
+    if (!familySlug.endsWith(variant.slugSuffix)) {
       continue;
     }
     reasoningEffort = variant.value;
-    baseSlug = baseSlug.slice(0, -variant.slugSuffix.length);
-    baseName = baseName.replace(variant.nameSuffixPattern, "").trim();
+    familySlug = familySlug.slice(0, -variant.slugSuffix.length);
+    familyName = familyName.replace(variant.nameSuffixPattern, "").trim();
     break;
+  }
+
+  if (familySlug.endsWith("-max")) {
+    maxMode = true;
+    familySlug = familySlug.slice(0, -"-max".length);
+    familyName = familyName.replace(/\s+max$/i, "").trim();
   }
 
   return {
     rawModel: model,
-    baseSlug,
-    baseName: baseName || model.name,
+    familySlug,
+    familyName: familyName || model.name,
     reasoningEffort,
     fastMode,
+    thinking,
+    maxMode,
   };
 }
 
-function buildNormalizedCursorModel(
+function buildCursorFamilyCapabilities(
   variants: ReadonlyArray<ParsedCursorVariant>,
-): ServerProviderModel | null {
-  const baseVariant = variants.find(
-    (variant) => !variant.fastMode && variant.reasoningEffort === null,
-  );
-  const firstNonFastVariant = variants.find((variant) => !variant.fastMode);
-  const identityVariant = baseVariant ?? firstNonFastVariant ?? variants[0];
-  if (!identityVariant) {
-    return null;
-  }
-
-  const supportsFastMode = variants.some((variant) => variant.fastMode);
+): ModelCapabilities | null {
+  const supportsFastMode = new Set(variants.map((variant) => variant.fastMode)).size > 1;
+  const supportsThinkingToggle = new Set(variants.map((variant) => variant.thinking)).size > 1;
   const discoveredEffortLevels = new Set<CodexReasoningEffort>();
   const hasExplicitEffortVariants = variants.some((variant) => variant.reasoningEffort !== null);
   const supportsBaseEffort =
-    (baseVariant !== undefined && hasExplicitEffortVariants) ||
+    variants.some((variant) => variant.reasoningEffort === null) ||
     variants.some((variant) => variant.reasoningEffort === "medium");
 
   for (const variant of variants) {
@@ -254,7 +265,7 @@ function buildNormalizedCursorModel(
     discoveredEffortLevels.add("medium");
   }
 
-  if (!supportsFastMode && discoveredEffortLevels.size === 0) {
+  if (!supportsFastMode && !supportsThinkingToggle && discoveredEffortLevels.size === 0) {
     return null;
   }
 
@@ -263,66 +274,63 @@ function buildNormalizedCursorModel(
     : (CURSOR_REASONING_ORDER.find((value) => discoveredEffortLevels.has(value)) ?? null);
 
   return {
-    slug: identityVariant.baseSlug,
-    name: identityVariant.baseName,
-    isCustom: false,
-    capabilities: {
-      ...EMPTY_CURSOR_CAPABILITIES,
-      reasoningEffortLevels: CURSOR_REASONING_ORDER.filter((value) =>
-        discoveredEffortLevels.has(value),
-      ).map((value) => {
-        const effortLevel = {
-          value,
-          label:
-            CURSOR_REASONING_VARIANTS.find((variant) => variant.value === value)?.label ?? value,
-          isDefault: false,
-        };
-        if (value === defaultReasoningEffort) {
-          effortLevel.isDefault = true;
-        }
-        return effortLevel;
-      }),
-      supportsFastMode,
-    },
+    ...EMPTY_CURSOR_CAPABILITIES,
+    reasoningEffortLevels: CURSOR_REASONING_ORDER.filter((value) =>
+      discoveredEffortLevels.has(value),
+    ).map((value) => {
+      const effortLevel = {
+        value,
+        label: CURSOR_REASONING_VARIANTS.find((variant) => variant.value === value)?.label ?? value,
+        isDefault: false,
+      };
+      if (value === defaultReasoningEffort) {
+        effortLevel.isDefault = true;
+      }
+      return effortLevel;
+    }),
+    supportsFastMode,
+    supportsThinkingToggle,
   };
 }
 
-function normalizeCursorModels(
+function cursorMetadataFromVariant(variant: ParsedCursorVariant): CursorModelMetadata {
+  return {
+    familySlug: variant.familySlug,
+    familyName: variant.familyName,
+    ...(variant.reasoningEffort ? { reasoningEffort: variant.reasoningEffort } : {}),
+    fastMode: variant.fastMode,
+    thinking: variant.thinking,
+    maxMode: variant.maxMode,
+  };
+}
+
+function buildCursorProviderModels(
   models: ReadonlyArray<ServerProviderModel>,
 ): ReadonlyArray<ServerProviderModel> {
-  const variantsByBaseSlug = new Map<string, ParsedCursorVariant[]>();
+  const variantsByFamilySlug = new Map<string, ParsedCursorVariant[]>();
   const parsedVariants = models.map((model) => {
     const parsed = parseCursorVariant(model);
-    const group = variantsByBaseSlug.get(parsed.baseSlug);
+    const group = variantsByFamilySlug.get(parsed.familySlug);
     if (group) {
       group.push(parsed);
     } else {
-      variantsByBaseSlug.set(parsed.baseSlug, [parsed]);
+      variantsByFamilySlug.set(parsed.familySlug, [parsed]);
     }
     return parsed;
   });
 
-  const emittedBaseSlugs = new Set<string>();
-  const normalizedModels: ServerProviderModel[] = [];
   for (const parsed of parsedVariants) {
-    const groupedVariants = variantsByBaseSlug.get(parsed.baseSlug) ?? [parsed];
-    const normalized = buildNormalizedCursorModel(groupedVariants);
-    if (!normalized) {
-      normalizedModels.push(parsed.rawModel);
-      continue;
-    }
-    if (emittedBaseSlugs.has(parsed.baseSlug)) {
-      continue;
-    }
-    emittedBaseSlugs.add(parsed.baseSlug);
-    normalizedModels.push(normalized);
+    const groupedVariants = variantsByFamilySlug.get(parsed.familySlug) ?? [parsed];
+    const capabilities = buildCursorFamilyCapabilities(groupedVariants);
+    parsed.rawModel.capabilities = capabilities;
+    parsed.rawModel.cursorMetadata = cursorMetadataFromVariant(parsed);
   }
 
-  return normalizedModels;
+  return parsedVariants.map((variant) => variant.rawModel);
 }
 
 export function parseCursorModelsOutput(output: string): ReadonlyArray<ServerProviderModel> {
-  return normalizeCursorModels(parseRawCursorModelsOutput(output));
+  return buildCursorProviderModels(parseRawCursorModelsOutput(output));
 }
 
 export function resolveCursorCliModelId(input: {

@@ -259,9 +259,46 @@ function cursorModelTokens(value: string): ReadonlySet<string> {
   return tokens;
 }
 
+const CURSOR_MODEL_VARIANT_TOKENS = new Set<string>([
+  "auto",
+  "default",
+  "fast",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "thinking",
+  "think",
+  "none",
+]);
+
+function stripCursorVariantTokens(tokens: ReadonlySet<string>): ReadonlySet<string> {
+  const filtered = new Set<string>();
+  for (const token of tokens) {
+    if (!CURSOR_MODEL_VARIANT_TOKENS.has(token)) {
+      filtered.add(token);
+    }
+  }
+  return filtered;
+}
+
+function sameCursorTokenSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const token of left) {
+    if (!right.has(token)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 type ParsedCursorModelConfigChoice = {
   readonly choice: CursorSessionConfigOptionValue;
   readonly valuePrefix: string;
+  readonly identityTokens: ReadonlySet<string>;
   readonly tokens: ReadonlySet<string>;
 };
 
@@ -270,13 +307,16 @@ function parseCursorModelConfigChoice(
 ): ParsedCursorModelConfigChoice {
   const bracketIndex = choice.value.indexOf("[");
   const valuePrefix = bracketIndex === -1 ? choice.value : choice.value.slice(0, bracketIndex);
+  const identityTokens = cursorModelTokens(valuePrefix);
   return {
     choice,
     valuePrefix,
+    identityTokens,
     tokens: new Set<string>([
-      ...cursorModelTokens(valuePrefix),
+      ...identityTokens,
       ...cursorModelTokens(choice.value),
       ...cursorModelTokens(choice.name),
+      ...cursorModelTokens(choice.description ?? ""),
     ]),
   };
 }
@@ -286,12 +326,21 @@ function resolveCursorModelConfigValue(input: {
   readonly options?: CursorModelOptions | null | undefined;
   readonly modelOption: CursorSessionConfigOption;
 }): string | undefined {
+  const requestedModelId = input.model.trim();
   const cliModelId = resolveCursorCliModelId({
     model: input.model,
     options: input.options,
   });
+  const exactModelIds = [requestedModelId, cliModelId].filter(
+    (value, index, values): value is string =>
+      value.length > 0 &&
+      values.findIndex((entry) => entry.toLowerCase() === value.toLowerCase()) === index,
+  );
   const targetTokens = cursorModelTokens(cliModelId);
   const targetIdentityTokens = cursorModelTokens(input.model);
+  const targetCoreTokens = stripCursorVariantTokens(
+    targetIdentityTokens.size > 0 ? targetIdentityTokens : targetTokens,
+  );
   let best:
     | {
         readonly value: string;
@@ -300,20 +349,24 @@ function resolveCursorModelConfigValue(input: {
     | undefined;
   for (const choice of input.modelOption.options) {
     const parsed = parseCursorModelConfigChoice(choice);
-    if (parsed.valuePrefix.toLowerCase() === cliModelId.toLowerCase()) {
+    const valuePrefix = parsed.valuePrefix.toLowerCase();
+    if (exactModelIds.some((modelId) => valuePrefix === modelId.toLowerCase())) {
       return choice.value;
     }
-    let score = 0;
-    let missingToken = false;
-    for (const token of targetTokens) {
-      if (!parsed.tokens.has(token)) {
-        missingToken = true;
-        break;
-      }
-      score += 10;
-    }
-    if (missingToken) {
+    const choiceCoreTokens = stripCursorVariantTokens(parsed.identityTokens);
+    if (targetCoreTokens.size > 0 && !sameCursorTokenSet(choiceCoreTokens, targetCoreTokens)) {
       continue;
+    }
+    let score = 0;
+    for (const token of targetCoreTokens) {
+      if (parsed.tokens.has(token)) {
+        score += 12;
+      }
+    }
+    for (const token of targetTokens) {
+      if (parsed.tokens.has(token)) {
+        score += 6;
+      }
     }
     for (const token of targetIdentityTokens) {
       if (parsed.tokens.has(token)) {
@@ -1567,16 +1620,9 @@ export const CursorAdapterLive = Layer.effect(
           }
           const settings = await runPromise(settingsService.getSettings);
           const selectedModel = resolveSelectedModel(input.modelSelection);
-          const cursorCliModel = input.modelSelection
-            ? resolveCursorCliModelId({
-                model: selectedModel,
-                options: input.modelSelection.options,
-              })
-            : selectedModel;
 
           const client = startCursorAcpClient({
             binaryPath: settings.providers.cursor.binaryPath,
-            model: cursorCliModel,
           });
           const createdAt = isoNow();
           const session: ProviderSession = {
