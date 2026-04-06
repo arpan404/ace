@@ -9,6 +9,13 @@ import { createServer } from "node:net";
 const DEFAULT_HOST = "127.0.0.1";
 const START_TIMEOUT_MS = 12_000;
 const STOP_TIMEOUT_MS = 2_000;
+const PARENT_CLEANUP_EVENTS = [
+  "beforeExit",
+  "disconnect",
+  "exit",
+  "uncaughtExceptionMonitor",
+] as const;
+type ParentCleanupEvent = (typeof PARENT_CLEANUP_EVENTS)[number];
 
 export type OpenCodeServerHandle = {
   readonly url: string;
@@ -39,6 +46,53 @@ function killChild(child: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): voi
     }
   }
   child.kill(signal);
+}
+
+type ParentCleanupProcess = Pick<NodeJS.Process, "platform"> & {
+  off(event: ParentCleanupEvent, listener: (...args: Array<unknown>) => void): unknown;
+  once(
+    event: Exclude<ParentCleanupEvent, "uncaughtExceptionMonitor">,
+    listener: (...args: Array<unknown>) => void,
+  ): unknown;
+  on(event: "uncaughtExceptionMonitor", listener: (...args: Array<unknown>) => void): unknown;
+};
+
+export function registerParentProcessCleanup(
+  child: ChildProcess,
+  processRef: ParentCleanupProcess = process,
+): () => void {
+  const cleanup = () => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      return;
+    }
+    killChild(child);
+  };
+
+  const handlers = new Map<ParentCleanupEvent, (...args: Array<unknown>) => void>();
+  for (const event of PARENT_CLEANUP_EVENTS) {
+    const handler = () => {
+      cleanup();
+    };
+    handlers.set(event, handler);
+    if (event === "uncaughtExceptionMonitor") {
+      processRef.on(event, handler);
+    } else {
+      processRef.once(event, handler);
+    }
+  }
+
+  const unregister = () => {
+    for (const [event, handler] of handlers) {
+      processRef.off(event, handler);
+    }
+    child.off("error", unregister);
+    child.off("exit", unregister);
+  };
+
+  child.once("error", unregister);
+  child.once("exit", unregister);
+
+  return unregister;
 }
 
 async function stopProcess(child: ReturnType<typeof spawn>): Promise<void> {
@@ -98,6 +152,7 @@ export async function startOpenCodeServer(binaryPath: string): Promise<OpenCodeS
     env: { ...process.env },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  const unregisterParentCleanup = registerParentProcessCleanup(child);
 
   const url = await new Promise<string>((resolve, reject) => {
     const id = setTimeout(() => {
@@ -157,6 +212,9 @@ export async function startOpenCodeServer(binaryPath: string): Promise<OpenCodeS
   return {
     url,
     binaryPath,
-    close: () => stopProcess(child),
+    close: async () => {
+      unregisterParentCleanup();
+      await stopProcess(child);
+    },
   };
 }

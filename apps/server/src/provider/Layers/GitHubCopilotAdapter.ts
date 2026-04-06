@@ -110,6 +110,7 @@ interface TurnState {
   readonly reasoningItemIdsByReasoningId: Map<string, string>;
   toolItems: Map<string, ToolItemState>;
   lastIntentText?: string;
+  streamingReasoningProviderContentId?: string | undefined;
   reasoningOutputSeen: boolean;
   abortRequested: boolean;
 }
@@ -610,8 +611,43 @@ function messageIdFromSessionEventData(data: object, fallbackEventId: string): s
   return stringValue(getObjectProperty(data, "messageId")) ?? `assistant:${fallbackEventId}`;
 }
 
-function reasoningIdFromSessionEventData(data: object, fallbackEventId: string): string {
-  return stringValue(getObjectProperty(data, "reasoningId")) ?? `reasoning:${fallbackEventId}`;
+function resolveReasoningProviderContentId(
+  turnState: TurnState | undefined,
+  data: object,
+  fallbackEventId: string,
+): { providerContentId: string; fallbackProviderContentId?: string } {
+  const explicitReasoningId = stringValue(getObjectProperty(data, "reasoningId"));
+  const activeReasoningId = turnState?.streamingReasoningProviderContentId;
+
+  if (explicitReasoningId) {
+    if (turnState && activeReasoningId && activeReasoningId !== explicitReasoningId) {
+      const existingItemId = turnState.reasoningItemIdsByReasoningId.get(activeReasoningId);
+      if (existingItemId && !turnState.reasoningItemIdsByReasoningId.has(explicitReasoningId)) {
+        turnState.reasoningItemIdsByReasoningId.set(explicitReasoningId, existingItemId);
+      }
+    }
+
+    if (turnState) {
+      turnState.streamingReasoningProviderContentId = explicitReasoningId;
+    }
+
+    return {
+      providerContentId: explicitReasoningId,
+      ...(activeReasoningId && activeReasoningId !== explicitReasoningId
+        ? { fallbackProviderContentId: activeReasoningId }
+        : {}),
+    };
+  }
+
+  if (activeReasoningId) {
+    return { providerContentId: activeReasoningId };
+  }
+
+  const fallbackReasoningId = `reasoning:${fallbackEventId}`;
+  if (turnState) {
+    turnState.streamingReasoningProviderContentId = fallbackReasoningId;
+  }
+  return { providerContentId: fallbackReasoningId };
 }
 
 function toolRequestsFromSessionEventData(data: object): ReadonlyArray<Record<string, unknown>> {
@@ -911,6 +947,23 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
     contentItemRegistry(turnState, kind).delete(providerContentId);
   };
 
+  const releaseReasoningContentItem = (
+    turnState: TurnState,
+    providerContentId: string,
+    fallbackProviderContentId?: string,
+  ) => {
+    releaseContentItem(turnState, "reasoning", providerContentId);
+    if (fallbackProviderContentId && fallbackProviderContentId !== providerContentId) {
+      releaseContentItem(turnState, "reasoning", fallbackProviderContentId);
+    }
+    if (
+      turnState.streamingReasoningProviderContentId === providerContentId ||
+      turnState.streamingReasoningProviderContentId === fallbackProviderContentId
+    ) {
+      turnState.streamingReasoningProviderContentId = undefined;
+    }
+  };
+
   const syncAnnouncedToolRequest = (
     context: GitHubCopilotSessionContext,
     event: SessionEvent,
@@ -1142,7 +1195,11 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       }
       case "assistant.reasoning_delta": {
         const delta = stringValue(getObjectProperty(data, "deltaContent"));
-        const reasoningId = reasoningIdFromSessionEventData(data, event.id);
+        const { providerContentId: reasoningId } = resolveReasoningProviderContentId(
+          turnState,
+          data,
+          event.id,
+        );
         const itemId = ensureContentItem(context, {
           kind: "reasoning",
           providerContentId: reasoningId,
@@ -1228,7 +1285,8 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       }
       case "assistant.reasoning": {
         const content = stringValue(getObjectProperty(data, "content"));
-        const reasoningId = reasoningIdFromSessionEventData(data, event.id);
+        const { providerContentId: reasoningId, fallbackProviderContentId } =
+          resolveReasoningProviderContentId(turnState, data, event.id);
         const hasStreamingItem = turnState?.reasoningItemIdsByReasoningId.has(reasoningId) ?? false;
         if (!content && !hasStreamingItem) {
           return;
@@ -1265,7 +1323,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         });
         turnState.items.push(runtimeEvent);
         emitRuntimeEvent(runtimeEvent);
-        releaseContentItem(turnState, "reasoning", reasoningId);
+        releaseReasoningContentItem(turnState, reasoningId, fallbackProviderContentId);
         return;
       }
       case "session.usage_info": {

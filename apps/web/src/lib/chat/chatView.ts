@@ -233,6 +233,29 @@ export function buildExpiredTerminalContextToastCopy(
   };
 }
 
+export function deriveHydratedThreadHistoryKeepIds(input: {
+  activeThreadId: ThreadId | null | undefined;
+  sourceProposedPlanThreadId: ThreadId | null | undefined;
+  previousThreadId: ThreadId | null | undefined;
+}): ThreadId[] {
+  if (!input.activeThreadId) {
+    return [];
+  }
+
+  const nextThreadIds: ThreadId[] = [];
+  const pushThreadId = (threadId: ThreadId | null | undefined) => {
+    if (!threadId || nextThreadIds.includes(threadId)) {
+      return;
+    }
+    nextThreadIds.push(threadId);
+  };
+
+  pushThreadId(input.activeThreadId);
+  pushThreadId(input.sourceProposedPlanThreadId);
+  pushThreadId(input.previousThreadId);
+  return nextThreadIds;
+}
+
 export function threadHasStarted(thread: Thread | null | undefined): boolean {
   return Boolean(
     thread && (thread.latestTurn !== null || thread.messages.length > 0 || thread.session !== null),

@@ -68,11 +68,7 @@ import {
   isLatestTurnSettled,
   formatElapsed,
 } from "../session-logic";
-import {
-  clampScrollTop,
-  isScrollContainerNearBottom,
-  resolveThreadOpenScrollBehavior,
-} from "../chat-scroll";
+import { isScrollContainerNearBottom } from "../chat-scroll";
 import {
   buildPendingUserInputAnswers,
   derivePendingUserInputProgress,
@@ -199,6 +195,7 @@ import {
   cloneComposerImageForRetry,
   collectUserMessageBlobPreviewUrls,
   deriveComposerSendState,
+  deriveHydratedThreadHistoryKeepIds,
   formatOutgoingPrompt,
   queuedComposerImageToDraftAttachment,
   revokeComposerImagePreviewUrls,
@@ -242,14 +239,6 @@ const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
-
-interface ThreadScrollSnapshot {
-  readonly scrollTop: number;
-  readonly shouldAutoScroll: boolean;
-}
-
-const sessionThreadScrollSnapshots = new Map<ThreadId, ThreadScrollSnapshot>();
-const sessionOpenedThreadIds = new Set<ThreadId>();
 
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
@@ -547,19 +536,34 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
   const sourcePlanThread = useThreadById(sourceProposedPlanThreadId);
   const sourcePlanHydrationInFlightRef = useRef<ThreadId | null>(null);
+  const previousActiveThreadIdRef = useRef<ThreadId | null>(null);
   const hydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
     () =>
-      activeThread?.id
-        ? sourceProposedPlanThreadId && sourceProposedPlanThreadId !== activeThread.id
-          ? [activeThread.id, sourceProposedPlanThreadId]
-          : [activeThread.id]
-        : [],
-    [activeThread?.id, sourceProposedPlanThreadId],
+      deriveHydratedThreadHistoryKeepIds({
+        activeThreadId,
+        sourceProposedPlanThreadId,
+        previousThreadId: previousActiveThreadIdRef.current,
+      }),
+    [activeThreadId, sourceProposedPlanThreadId],
+  );
+  const memoryPressureHydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
+    () =>
+      deriveHydratedThreadHistoryKeepIds({
+        activeThreadId,
+        sourceProposedPlanThreadId,
+        previousThreadId: null,
+      }),
+    [activeThreadId, sourceProposedPlanThreadId],
   );
   const criticalHydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
-    () => (activeThread?.id ? [activeThread.id] : []),
-    [activeThread?.id],
+    () => (activeThreadId ? [activeThreadId] : []),
+    [activeThreadId],
   );
+
+  // Update this before the next interaction so rapid thread switches keep the just-viewed history warm.
+  useLayoutEffect(() => {
+    previousActiveThreadIdRef.current = activeThreadId;
+  }, [activeThreadId]);
 
   useEffect(() => {
     if (hydratedThreadHistoryKeepIds.length === 0) {
@@ -568,7 +572,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     pruneHydratedThreadHistories(hydratedThreadHistoryKeepIds);
   }, [hydratedThreadHistoryKeepIds, pruneHydratedThreadHistories]);
   useEffect(() => {
-    if (hydratedThreadHistoryKeepIds.length === 0) {
+    if (memoryPressureHydratedThreadHistoryKeepIds.length === 0) {
       return;
     }
 
@@ -579,12 +583,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
       pruneHydratedThreadHistories(
         snapshot.level === "critical"
           ? criticalHydratedThreadHistoryKeepIds
-          : hydratedThreadHistoryKeepIds,
+          : memoryPressureHydratedThreadHistoryKeepIds,
       );
     });
   }, [
     criticalHydratedThreadHistoryKeepIds,
-    hydratedThreadHistoryKeepIds,
+    memoryPressureHydratedThreadHistoryKeepIds,
     pruneHydratedThreadHistories,
   ]);
   const threadPlanCatalog = useThreadPlanCatalog(
@@ -2707,24 +2711,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   // Auto-scroll on new messages
   const messageCount = timelineMessages.length;
-  const saveThreadScrollSnapshot = useCallback((threadId: ThreadId) => {
-    const scrollContainer = messagesScrollRef.current;
-    if (!scrollContainer) {
-      return;
-    }
-
-    sessionThreadScrollSnapshots.set(threadId, {
-      scrollTop: scrollContainer.scrollTop,
-      shouldAutoScroll: shouldAutoScrollRef.current || isScrollContainerNearBottom(scrollContainer),
-    });
-    sessionOpenedThreadIds.add(threadId);
-  }, []);
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
     scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior });
     lastKnownScrollTopRef.current = scrollContainer.scrollTop;
     shouldAutoScrollRef.current = true;
+    pendingUserScrollUpIntentRef.current = false;
+    isPointerScrollActiveRef.current = false;
+    lastTouchClientYRef.current = null;
     setShowScrollToBottom(false);
   }, []);
   const cancelPendingStickToBottom = useCallback(() => {
@@ -2857,62 +2852,32 @@ export default function ChatView({ threadId }: ChatViewProps) {
   useLayoutEffect(() => {
     if (!activeThread?.id) return;
     cancelPendingStickToBottom();
-    const scrollContainer = messagesScrollRef.current;
-    const savedSnapshot = sessionThreadScrollSnapshots.get(activeThread.id);
-    const scrollBehavior = resolveThreadOpenScrollBehavior({
-      hasSavedScrollSnapshot: savedSnapshot !== undefined,
-      hasOpenedAnyThreadInSession: sessionOpenedThreadIds.size > 0,
-    });
-    let timeout: number | null = null;
+    cancelPendingInteractionAnchorAdjustment();
+    pendingInteractionAnchorRef.current = null;
+    pendingUserScrollUpIntentRef.current = false;
+    isPointerScrollActiveRef.current = false;
+    lastTouchClientYRef.current = null;
+    lastKnownScrollTopRef.current = messagesScrollRef.current?.scrollTop ?? 0;
+    shouldAutoScrollRef.current = true;
+    setShowScrollToBottom(false);
+    forceStickToBottom();
 
-    if (scrollContainer) {
-      if (scrollBehavior === "restore-saved" && savedSnapshot) {
-        if (savedSnapshot.shouldAutoScroll) {
-          scrollMessagesToBottom();
-          timeout = window.setTimeout(() => {
-            const activeScrollContainer = messagesScrollRef.current;
-            if (!activeScrollContainer) return;
-            if (isScrollContainerNearBottom(activeScrollContainer)) return;
-            scheduleStickToBottom();
-          }, THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS);
-        } else {
-          const nextScrollTop = clampScrollTop(savedSnapshot.scrollTop, scrollContainer);
-          scrollContainer.scrollTop = nextScrollTop;
-          lastKnownScrollTopRef.current = nextScrollTop;
-          shouldAutoScrollRef.current = false;
-          setShowScrollToBottom(!isScrollContainerNearBottom(scrollContainer));
-        }
-      } else if (scrollBehavior === "preserve-current") {
-        const isNearBottom = isScrollContainerNearBottom(scrollContainer);
-        lastKnownScrollTopRef.current = scrollContainer.scrollTop;
-        shouldAutoScrollRef.current = isNearBottom;
-        setShowScrollToBottom(!isNearBottom);
-      } else {
-        shouldAutoScrollRef.current = true;
-        setShowScrollToBottom(false);
-        scheduleStickToBottom();
-        timeout = window.setTimeout(() => {
-          const activeScrollContainer = messagesScrollRef.current;
-          if (!activeScrollContainer) return;
-          if (isScrollContainerNearBottom(activeScrollContainer)) return;
-          scheduleStickToBottom();
-        }, THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS);
-      }
-    }
+    const timeout = window.setTimeout(() => {
+      const scrollContainer = messagesScrollRef.current;
+      if (!scrollContainer) return;
+      if (isScrollContainerNearBottom(scrollContainer)) return;
+      scheduleStickToBottom();
+    }, THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS);
 
-    sessionOpenedThreadIds.add(activeThread.id);
     return () => {
-      if (timeout !== null) {
-        window.clearTimeout(timeout);
-      }
-      saveThreadScrollSnapshot(activeThread.id);
+      window.clearTimeout(timeout);
     };
   }, [
     activeThread?.id,
+    cancelPendingInteractionAnchorAdjustment,
     cancelPendingStickToBottom,
-    saveThreadScrollSnapshot,
+    forceStickToBottom,
     scheduleStickToBottom,
-    scrollMessagesToBottom,
   ]);
   useLayoutEffect(() => {
     const composerForm = composerFormRef.current;
@@ -5102,7 +5067,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 onMessagesWheel={onMessagesWheel}
                 scrollMessagesToBottom={scrollMessagesToBottom}
                 showScrollToBottom={showScrollToBottom}
-                timelineKey={activeThread.id}
+                timelineKey={`${activeThread.id}:${activeThread.historyLoaded === false ? "lean" : "hydrated"}`}
               />
 
               {/* Input bar */}

@@ -16,6 +16,7 @@ import {
   TurnId,
 } from "@ace/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
@@ -162,10 +163,7 @@ type ProviderRuntimeTestActivity = ProviderRuntimeTestThread["activities"][numbe
 type ProviderRuntimeTestCheckpoint = ProviderRuntimeTestThread["checkpoints"][number];
 
 describe("ProviderRuntimeIngestion", () => {
-  let runtime: ManagedRuntime.ManagedRuntime<
-    OrchestrationEngineService | ProviderRuntimeIngestionService,
-    unknown
-  > | null = null;
+  let runtime: ManagedRuntime.ManagedRuntime<any, unknown> | null = null;
   let scope: Scope.Closeable | null = null;
   const tempDirs: string[] = [];
 
@@ -215,6 +213,37 @@ describe("ProviderRuntimeIngestion", () => {
     scope = await Effect.runPromise(Scope.make("sequential"));
     await Effect.runPromise(ingestion.start().pipe(Scope.provide(scope)));
     const drain = () => Effect.runPromise(ingestion.drain);
+    const readActivityPersistence = () =>
+      runtime!.runPromise(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const projectionRows = yield* sql<{
+            readonly activityId: string;
+            readonly kind: string;
+            readonly payloadJson: string;
+          }>`
+            SELECT
+              activity_id AS "activityId",
+              kind,
+              payload_json AS "payloadJson"
+            FROM projection_thread_activities
+            WHERE thread_id = ${asThreadId("thread-1")}
+            ORDER BY created_at ASC, activity_id ASC
+          `;
+          const eventCountRows = yield* sql<{
+            readonly count: number;
+          }>`
+            SELECT COUNT(*) AS "count"
+            FROM orchestration_events
+            WHERE event_type = ${"thread.activity-appended"}
+              AND stream_id = ${asThreadId("thread-1")}
+          `;
+          return {
+            projectionRows,
+            activityEventCount: eventCountRows[0]?.count ?? 0,
+          };
+        }),
+      );
 
     const createdAt = new Date().toISOString();
     await Effect.runPromise(
@@ -280,6 +309,7 @@ describe("ProviderRuntimeIngestion", () => {
       emit: provider.emit,
       setProviderSession: provider.setSession,
       drain,
+      readActivityPersistence,
     };
   }
 
@@ -1294,6 +1324,96 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
+  it("coalesces repeated reasoning deltas before persisting buffered activity updates", async () => {
+    const harness = await createHarness();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-reasoning-buffer-1"),
+      provider: "githubCopilot",
+      createdAt: "2026-02-23T10:00:01.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-reasoning-buffered"),
+      itemId: asItemId("reasoning-buffer-1"),
+      payload: {
+        streamKind: "reasoning_text",
+        delta: "Inspecting",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-reasoning-buffer-2"),
+      provider: "githubCopilot",
+      createdAt: "2026-02-23T10:00:02.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-reasoning-buffered"),
+      itemId: asItemId("reasoning-buffer-1"),
+      payload: {
+        streamKind: "reasoning_text",
+        delta: "package.json",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-reasoning-buffer-3"),
+      provider: "githubCopilot",
+      createdAt: "2026-02-23T10:00:03.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-reasoning-buffered"),
+      itemId: asItemId("reasoning-buffer-1"),
+      payload: {
+        streamKind: "reasoning_text",
+        delta: "before patching.",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-reasoning-buffer-complete"),
+      provider: "githubCopilot",
+      createdAt: "2026-02-23T10:00:04.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-reasoning-buffered"),
+      itemId: asItemId("reasoning-buffer-1"),
+      payload: {
+        itemType: "reasoning",
+        status: "completed",
+        title: "Reasoning",
+        data: {
+          content: "Ready to patch the adapter.",
+        },
+      },
+    });
+
+    await harness.drain();
+    const persistence = await harness.readActivityPersistence();
+    const [progressRow, completionRow] = persistence.projectionRows.map((row) => ({
+      ...row,
+      payload: JSON.parse(row.payloadJson) as Record<string, unknown>,
+    }));
+
+    expect(persistence.activityEventCount).toBe(3);
+    expect(persistence.projectionRows).toEqual([
+      {
+        activityId: "evt-reasoning-buffer-1",
+        kind: "task.progress",
+        payloadJson: expect.any(String),
+      },
+      {
+        activityId: "evt-reasoning-buffer-complete",
+        kind: "reasoning.completed",
+        payloadJson: expect.any(String),
+      },
+    ]);
+    expect(progressRow?.payload).toMatchObject({
+      taskId: "reasoning:reasoning-buffer-1",
+      detail: "Inspecting package.json before patching.",
+    });
+    expect(completionRow?.payload).toMatchObject({
+      taskId: "reasoning:reasoning-buffer-1",
+      detail: "Ready to patch the adapter.",
+    });
+  });
+
   it("does not truncate long Copilot reasoning deltas", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -2189,6 +2309,124 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(finalMessage?.streaming).toBe(false);
     expect(finalMessage?.text).toBe(`hello ${followUpDelta}`);
+  });
+
+  it("keeps follow-up cursor assistant deltas buffered after a threshold flush", async () => {
+    const harness = await createHarness({ serverSettings: { enableAssistantStreaming: true } });
+    const now = new Date().toISOString();
+    const batchedDelta = "x".repeat(120);
+    const bufferedTail = " tail";
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-cursor-buffered-tail"),
+      provider: "cursor",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cursor-buffered-tail"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-cursor-buffered-tail",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-cursor-buffered-tail-1"),
+      provider: "cursor",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cursor-buffered-tail"),
+      itemId: asItemId("item-cursor-buffered-tail"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "hello ",
+      },
+    });
+
+    await waitForThread(harness.engine, (thread) =>
+      thread.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-cursor-buffered-tail" &&
+          message.streaming &&
+          message.text === "hello ",
+      ),
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-cursor-buffered-tail-2"),
+      provider: "cursor",
+      createdAt: "2026-03-01T12:00:01.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cursor-buffered-tail"),
+      itemId: asItemId("item-cursor-buffered-tail"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: batchedDelta,
+      },
+    });
+
+    await waitForThread(harness.engine, (thread) =>
+      thread.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-cursor-buffered-tail" &&
+          message.streaming &&
+          message.text === `hello ${batchedDelta}`,
+      ),
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-cursor-buffered-tail-3"),
+      provider: "cursor",
+      createdAt: "2026-03-01T12:00:02.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cursor-buffered-tail"),
+      itemId: asItemId("item-cursor-buffered-tail"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: bufferedTail,
+      },
+    });
+
+    await harness.drain();
+    const midReadModel = await Effect.runPromise(harness.engine.getReadModel());
+    const midThread = midReadModel.threads.find((entry) => entry.id === asThreadId("thread-1"));
+    const midMessage = midThread?.messages.find(
+      (message: ProviderRuntimeTestMessage) => message.id === "assistant:item-cursor-buffered-tail",
+    );
+    expect(midMessage?.text).toBe(`hello ${batchedDelta}`);
+    expect(midMessage?.streaming).toBe(true);
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-cursor-buffered-tail"),
+      provider: "cursor",
+      createdAt: "2026-03-01T12:00:03.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cursor-buffered-tail"),
+      itemId: asItemId("item-cursor-buffered-tail"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: `hello ${batchedDelta}${bufferedTail}`,
+      },
+    });
+
+    const finalThread = await waitForThread(harness.engine, (thread) =>
+      thread.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-cursor-buffered-tail" && !message.streaming,
+      ),
+    );
+    const finalMessage = finalThread.messages.find(
+      (message: ProviderRuntimeTestMessage) => message.id === "assistant:item-cursor-buffered-tail",
+    );
+    expect(finalMessage?.text).toBe(`hello ${batchedDelta}${bufferedTail}`);
+    expect(finalMessage?.streaming).toBe(false);
   });
 
   it("spills oversized buffered deltas and still finalizes full assistant text", async () => {

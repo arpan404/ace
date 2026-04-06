@@ -37,8 +37,10 @@ import { getRouter } from "../router";
 import { useStore } from "../store";
 import { BrowserWsRpcHarness, type NormalizedWsRpcRequestBody } from "../../test/wsRpcHarness";
 import { DEFAULT_CLIENT_SETTINGS } from "@ace/contracts/settings";
+import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX } from "../chat-scroll";
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
+const SECOND_THREAD_ID = "thread-browser-test-secondary" as ThreadId;
 const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROJECT_ID = "project-1" as ProjectId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
@@ -233,19 +235,25 @@ function createSnapshotForTargetUser(options: {
   targetText: string;
   targetAttachmentCount?: number;
   sessionStatus?: OrchestrationSessionStatus;
+  threadId?: ThreadId;
+  threadTitle?: string;
+  messageIdPrefix?: string;
 }): OrchestrationReadModel {
+  const threadId = options.threadId ?? THREAD_ID;
+  const threadTitle = options.threadTitle ?? "Browser test thread";
+  const messageIdPrefix = options.messageIdPrefix ?? "";
   const messages: Array<OrchestrationReadModel["threads"][number]["messages"][number]> = [];
 
   for (let index = 0; index < 22; index += 1) {
     const isTarget = index === 3;
-    const userId = `msg-user-${index}` as MessageId;
-    const assistantId = `msg-assistant-${index}` as MessageId;
+    const userId = `${messageIdPrefix}msg-user-${index}` as MessageId;
+    const assistantId = `${messageIdPrefix}msg-assistant-${index}` as MessageId;
     const attachments =
       isTarget && (options.targetAttachmentCount ?? 0) > 0
         ? Array.from({ length: options.targetAttachmentCount ?? 0 }, (_, attachmentIndex) => ({
             type: "image" as const,
-            id: `attachment-${attachmentIndex + 1}`,
-            name: `attachment-${attachmentIndex + 1}.png`,
+            id: `${messageIdPrefix}attachment-${attachmentIndex + 1}`,
+            name: `${messageIdPrefix}attachment-${attachmentIndex + 1}.png`,
             mimeType: "image/png",
             sizeBytes: 128,
           }))
@@ -287,9 +295,9 @@ function createSnapshotForTargetUser(options: {
     ],
     threads: [
       {
-        id: THREAD_ID,
+        id: threadId,
         projectId: PROJECT_ID,
-        title: "Browser test thread",
+        title: threadTitle,
         modelSelection: {
           provider: "codex",
           model: "gpt-5",
@@ -311,7 +319,7 @@ function createSnapshotForTargetUser(options: {
         queuedSteerRequest: null,
         checkpoints: [],
         session: {
-          threadId: THREAD_ID,
+          threadId,
           status: options.sessionStatus ?? "ready",
           providerName: "codex",
           runtimeMode: "full-access",
@@ -322,6 +330,24 @@ function createSnapshotForTargetUser(options: {
       },
     ],
     updatedAt: NOW_ISO,
+  };
+}
+
+function createSnapshotWithTwoScrollableThreads(): OrchestrationReadModel {
+  const primary = createSnapshotForTargetUser({
+    targetMessageId: "msg-user-primary-target" as MessageId,
+    targetText: "primary thread target",
+  });
+  const secondary = createSnapshotForTargetUser({
+    targetMessageId: "secondary-msg-user-target" as MessageId,
+    targetText: "secondary thread target",
+    threadId: SECOND_THREAD_ID,
+    threadTitle: "Secondary browser test thread",
+    messageIdPrefix: "secondary-",
+  });
+  return {
+    ...primary,
+    threads: [...primary.threads, ...secondary.threads],
   };
 }
 
@@ -903,6 +929,62 @@ async function waitForSendButton(): Promise<HTMLButtonElement> {
   );
 }
 
+async function waitForMessagesScrollContainer(): Promise<HTMLDivElement> {
+  return waitForElement(
+    () => document.querySelector<HTMLDivElement>("div.overflow-y-auto.overscroll-y-contain"),
+    "Unable to find ChatView message scroll container.",
+  );
+}
+
+function distanceFromBottom(scrollContainer: HTMLDivElement): number {
+  return scrollContainer.scrollHeight - scrollContainer.clientHeight - scrollContainer.scrollTop;
+}
+
+async function expectMessagesScrollNearBottom(scrollContainer: HTMLDivElement): Promise<void> {
+  await vi.waitFor(
+    () => {
+      expect(distanceFromBottom(scrollContainer)).toBeLessThanOrEqual(
+        AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
+      );
+    },
+    { timeout: 4_000, interval: 16 },
+  );
+}
+
+async function expectMessagesScrollAwayFromBottom(scrollContainer: HTMLDivElement): Promise<void> {
+  await vi.waitFor(
+    () => {
+      expect(distanceFromBottom(scrollContainer)).toBeGreaterThan(AUTO_SCROLL_BOTTOM_THRESHOLD_PX);
+    },
+    { timeout: 4_000, interval: 16 },
+  );
+}
+
+function appendAssistantMessageToThread(options: {
+  threadId: ThreadId;
+  messageId: MessageId;
+  text: string;
+  offsetSeconds: number;
+}): void {
+  const message = createAssistantMessage({
+    id: options.messageId,
+    text: options.text,
+    offsetSeconds: options.offsetSeconds,
+  });
+  useStore.setState((state) => ({
+    ...state,
+    threads: state.threads.map((thread) =>
+      thread.id === options.threadId
+        ? {
+            ...thread,
+            messages: [...thread.messages, message],
+            updatedAt: message.updatedAt,
+          }
+        : thread,
+    ),
+  }));
+}
+
 function findComposerProviderModelPicker(): HTMLButtonElement | null {
   return document.querySelector<HTMLButtonElement>('[data-chat-provider-model-picker="true"]');
 }
@@ -1464,6 +1546,139 @@ describe("ChatView timeline estimator parity (full app)", () => {
           interval: 16,
         },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("sticks to the bottom for new messages until the user scrolls away", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-scroll-behavior" as MessageId,
+        targetText: "scroll behavior test",
+      }),
+    });
+
+    try {
+      const scrollContainer = await waitForMessagesScrollContainer();
+      await expectMessagesScrollNearBottom(scrollContainer);
+
+      appendAssistantMessageToThread({
+        threadId: THREAD_ID,
+        messageId: "msg-assistant-scroll-bottom" as MessageId,
+        text: "assistant reply while already at bottom",
+        offsetSeconds: 240,
+      });
+      await expectMessagesScrollNearBottom(scrollContainer);
+
+      scrollContainer.scrollTop = 0;
+      scrollContainer.dispatchEvent(new Event("scroll"));
+      await expectMessagesScrollAwayFromBottom(scrollContainer);
+      await expect.element(page.getByText("Scroll to bottom")).toBeInTheDocument();
+
+      appendAssistantMessageToThread({
+        threadId: THREAD_ID,
+        messageId: "msg-assistant-scroll-paused" as MessageId,
+        text: "assistant reply while the user is reading older messages",
+        offsetSeconds: 260,
+      });
+      await expectMessagesScrollAwayFromBottom(scrollContainer);
+      await expect.element(page.getByText("Scroll to bottom")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("resets to the bottom whenever the active thread changes", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithTwoScrollableThreads(),
+    });
+
+    try {
+      const firstScrollContainer = await waitForMessagesScrollContainer();
+      await expectMessagesScrollNearBottom(firstScrollContainer);
+
+      firstScrollContainer.scrollTop = 0;
+      firstScrollContainer.dispatchEvent(new Event("scroll"));
+      await expectMessagesScrollAwayFromBottom(firstScrollContainer);
+
+      const secondaryThreadRow = page.getByTestId(`thread-row-${SECOND_THREAD_ID}`);
+      await expect.element(secondaryThreadRow).toBeInTheDocument();
+      await secondaryThreadRow.click();
+      await waitForURL(
+        mounted.router,
+        (pathname) => pathname === `/${SECOND_THREAD_ID}`,
+        "Expected navigation to the secondary thread.",
+      );
+      const secondScrollContainer = await waitForMessagesScrollContainer();
+      await expectMessagesScrollNearBottom(secondScrollContainer);
+
+      secondScrollContainer.scrollTop = 0;
+      secondScrollContainer.dispatchEvent(new Event("scroll"));
+      await expectMessagesScrollAwayFromBottom(secondScrollContainer);
+
+      const primaryThreadRow = page.getByTestId(`thread-row-${THREAD_ID}`);
+      await expect.element(primaryThreadRow).toBeInTheDocument();
+      await primaryThreadRow.click();
+      await waitForURL(
+        mounted.router,
+        (pathname) => pathname === `/${THREAD_ID}`,
+        "Expected navigation back to the primary thread.",
+      );
+      const returnedScrollContainer = await waitForMessagesScrollContainer();
+      await expectMessagesScrollNearBottom(returnedScrollContainer);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps recent long-thread histories hydrated across quick toggles", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithTwoScrollableThreads(),
+    });
+
+    try {
+      const secondaryThreadRow = page.getByTestId(`thread-row-${SECOND_THREAD_ID}`);
+      await expect.element(secondaryThreadRow).toBeInTheDocument();
+      await secondaryThreadRow.click();
+      await waitForURL(
+        mounted.router,
+        (pathname) => pathname === `/${SECOND_THREAD_ID}`,
+        "Expected navigation to the secondary thread.",
+      );
+      await waitForMessagesScrollContainer();
+      await vi.waitFor(
+        () => {
+          const primaryThread = useStore
+            .getState()
+            .threads.find((thread) => thread.id === THREAD_ID);
+          expect(primaryThread?.historyLoaded).toBe(true);
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+
+      const primaryThreadRow = page.getByTestId(`thread-row-${THREAD_ID}`);
+      await expect.element(primaryThreadRow).toBeInTheDocument();
+      await primaryThreadRow.click();
+      await waitForURL(
+        mounted.router,
+        (pathname) => pathname === `/${THREAD_ID}`,
+        "Expected navigation back to the primary thread.",
+      );
+      await waitForMessagesScrollContainer();
+      await vi.waitFor(
+        () => {
+          const secondaryThread = useStore
+            .getState()
+            .threads.find((thread) => thread.id === SECOND_THREAD_ID);
+          expect(secondaryThread?.historyLoaded).toBe(true);
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+      await expect.element(page.getByText("assistant filler 21")).toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }

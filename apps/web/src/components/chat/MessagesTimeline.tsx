@@ -200,6 +200,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () => rows.slice(firstUnvirtualizedRowIndex),
     [firstUnvirtualizedRowIndex, rows],
   );
+  const getVirtualRowKey = useCallback(
+    (index: number) => virtualizedRows[index]?.id ?? index,
+    [virtualizedRows],
+  );
   const rowVirtualizer = useVirtualizer({
     count: virtualizedRows.length,
     estimateSize: (index) =>
@@ -208,6 +212,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         expandedWorkGroups,
         turnDiffSummaryByAssistantMessageId,
       }),
+    getItemKey: getVirtualRowKey,
     getScrollElement: () => scrollContainer,
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
   });
