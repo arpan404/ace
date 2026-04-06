@@ -7,6 +7,7 @@ import {
 } from "@ace/contracts";
 import { describe, expect, it, vi } from "vitest";
 
+import { __resetMemoryPressureStateForTests } from "./memoryPressure";
 import { createThreadHydrationCache } from "./threadHydrationCache";
 
 const NOW = "2026-04-05T00:00:00.000Z";
@@ -52,6 +53,25 @@ function makeThread(
     checkpoints: [],
     session: null,
     ...overrides,
+  };
+}
+
+function setPerformanceMemory(usedBytes: number, limitBytes: number): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(performance, "memory");
+  Object.defineProperty(performance, "memory", {
+    configurable: true,
+    value: {
+      usedJSHeapSize: usedBytes,
+      jsHeapSizeLimit: limitBytes,
+    },
+  });
+
+  return () => {
+    if (descriptor) {
+      Object.defineProperty(performance, "memory", descriptor);
+      return;
+    }
+    Reflect.deleteProperty(performance, "memory");
   };
 }
 
@@ -137,5 +157,52 @@ describe("createThreadHydrationCache", () => {
     await cache.hydrate(threadOneId, { expectedUpdatedAt: NOW });
 
     expect(fetchThread).toHaveBeenCalledTimes(3);
+  });
+
+  it("starts immediate prefetches without waiting for background scheduling", async () => {
+    const fetchThread = vi.fn(async () => makeThread());
+    const cache = createThreadHydrationCache(fetchThread);
+
+    cache.prefetch(THREAD_ID, { priority: "immediate" });
+    await Promise.resolve();
+
+    expect(fetchThread).toHaveBeenCalledTimes(1);
+    expect(cache.read(THREAD_ID, NOW)?.id).toBe(THREAD_ID);
+  });
+
+  it("skips background prefetch when live memory pressure is elevated", async () => {
+    const restorePerformanceMemory = setPerformanceMemory(800, 1_000);
+    __resetMemoryPressureStateForTests();
+
+    try {
+      const fetchThread = vi.fn(async () => makeThread());
+      const cache = createThreadHydrationCache(fetchThread);
+
+      cache.prefetch(THREAD_ID);
+      await Promise.resolve();
+
+      expect(fetchThread).not.toHaveBeenCalled();
+    } finally {
+      restorePerformanceMemory();
+      __resetMemoryPressureStateForTests();
+    }
+  });
+
+  it("does not retain newly hydrated threads in cache while memory pressure is high", async () => {
+    const restorePerformanceMemory = setPerformanceMemory(860, 1_000);
+    __resetMemoryPressureStateForTests();
+
+    try {
+      const fetchThread = vi.fn(async () => makeThread());
+      const cache = createThreadHydrationCache(fetchThread);
+
+      await cache.hydrate(THREAD_ID, { expectedUpdatedAt: NOW });
+
+      expect(cache.read(THREAD_ID, NOW)).toBeNull();
+      expect(fetchThread).toHaveBeenCalledTimes(1);
+    } finally {
+      restorePerformanceMemory();
+      __resetMemoryPressureStateForTests();
+    }
   });
 });

@@ -1161,6 +1161,7 @@ export default function Sidebar() {
       } else {
         prefetchHydratedThread(threadId, {
           expectedUpdatedAt: thread?.updatedAt ?? null,
+          priority: "immediate",
         });
       }
       startTransition(() => {
@@ -1207,7 +1208,10 @@ export default function Sidebar() {
           useStore.getState().hydrateThreadFromReadModel(cached);
         });
       } else {
-        prefetchThreadHistory(threadId);
+        prefetchHydratedThread(threadId, {
+          expectedUpdatedAt: thread?.updatedAt ?? null,
+          priority: "immediate",
+        });
       }
       if (selectedThreadIds.size > 0) {
         clearSelection();
@@ -1220,14 +1224,7 @@ export default function Sidebar() {
         });
       });
     },
-    [
-      clearSelection,
-      navigate,
-      prefetchThreadHistory,
-      selectedThreadIds.size,
-      setSelectionAnchor,
-      sidebarThreadsById,
-    ],
+    [clearSelection, navigate, selectedThreadIds.size, setSelectionAnchor, sidebarThreadsById],
   );
 
   const handleProjectContextMenu = useCallback(

@@ -13,6 +13,7 @@ import {
   Menu,
   nativeImage,
   nativeTheme,
+  Notification as ElectronNotification,
   protocol,
   session,
   shell,
@@ -21,6 +22,7 @@ import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
 import type {
   BrowserShortcutAction,
+  DesktopNotificationInput,
   DesktopTheme,
   DesktopUpdateActionResult,
   DesktopUpdateCheckResult,
@@ -58,6 +60,9 @@ const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
+const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
+const CLOSE_NOTIFICATION_CHANNEL = "desktop:close-notification";
+const NOTIFICATION_CLICK_CHANNEL = "desktop:notification-click";
 const MENU_ACTION_CHANNEL = "desktop:menu-action";
 const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
@@ -112,6 +117,7 @@ let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
+const activeDesktopNotifications = new Map<string, Electron.Notification>();
 const desktopRuntimeInfo = resolveDesktopRuntimeInfo({
   platform: process.platform,
   processArch: process.arch,
@@ -188,6 +194,109 @@ function getSafeTheme(rawTheme: unknown): DesktopTheme | null {
   }
 
   return null;
+}
+
+function getSafeDesktopNotificationInput(rawInput: unknown): DesktopNotificationInput | null {
+  if (typeof rawInput !== "object" || rawInput === null) {
+    return null;
+  }
+
+  const input = rawInput as Record<string, unknown>;
+  const id = typeof input.id === "string" ? input.id.trim() : "";
+  const title = typeof input.title === "string" ? input.title.trim() : "";
+  const body = typeof input.body === "string" ? input.body.trim() : "";
+  if (id.length === 0 || title.length === 0 || body.length === 0) {
+    return null;
+  }
+
+  return { id, title, body };
+}
+
+function getOrCreatePrimaryWindow(): BrowserWindow {
+  const existingWindow =
+    BrowserWindow.getFocusedWindow() ?? mainWindow ?? BrowserWindow.getAllWindows()[0];
+  const targetWindow = existingWindow ?? createWindow();
+  if (!existingWindow) {
+    mainWindow = targetWindow;
+  }
+  return targetWindow;
+}
+
+function focusPrimaryWindow(window: BrowserWindow): void {
+  if (window.isDestroyed()) {
+    return;
+  }
+
+  if (window.isMinimized()) {
+    window.restore();
+  }
+  if (!window.isVisible()) {
+    window.show();
+  }
+  window.focus();
+}
+
+function withReadyPrimaryWindow(effect: (window: BrowserWindow) => void): void {
+  const targetWindow = getOrCreatePrimaryWindow();
+  focusPrimaryWindow(targetWindow);
+  const run = () => {
+    if (targetWindow.isDestroyed()) {
+      return;
+    }
+    effect(targetWindow);
+  };
+
+  if (targetWindow.webContents.isLoadingMainFrame()) {
+    targetWindow.webContents.once("did-finish-load", run);
+    return;
+  }
+
+  run();
+}
+
+function closeDesktopNotification(id: string): boolean {
+  const existingNotification = activeDesktopNotifications.get(id);
+  if (!existingNotification) {
+    return false;
+  }
+
+  activeDesktopNotifications.delete(id);
+  existingNotification.close();
+  return true;
+}
+
+function showDesktopNotification(input: DesktopNotificationInput): boolean {
+  if (!ElectronNotification.isSupported()) {
+    return false;
+  }
+
+  closeDesktopNotification(input.id);
+
+  try {
+    const notification = new ElectronNotification({
+      title: input.title,
+      body: input.body,
+    });
+
+    notification.on("click", () => {
+      closeDesktopNotification(input.id);
+      withReadyPrimaryWindow((window) => {
+        window.webContents.send(NOTIFICATION_CLICK_CHANNEL, input.id);
+      });
+    });
+    notification.on("close", () => {
+      if (activeDesktopNotifications.get(input.id) === notification) {
+        activeDesktopNotifications.delete(input.id);
+      }
+    });
+
+    activeDesktopNotifications.set(input.id, notification);
+    notification.show();
+    return true;
+  } catch {
+    activeDesktopNotifications.delete(input.id);
+    return false;
+  }
 }
 
 function resolveBrowserShortcutAction(input: Electron.Input): BrowserShortcutAction | null {
@@ -574,28 +683,9 @@ function registerDesktopProtocol(): void {
 }
 
 function dispatchMenuAction(action: string): void {
-  const existingWindow =
-    BrowserWindow.getFocusedWindow() ?? mainWindow ?? BrowserWindow.getAllWindows()[0];
-  const targetWindow = existingWindow ?? createWindow();
-  if (!existingWindow) {
-    mainWindow = targetWindow;
-  }
-
-  const send = () => {
-    if (targetWindow.isDestroyed()) return;
-    targetWindow.webContents.send(MENU_ACTION_CHANNEL, action);
-    if (!targetWindow.isVisible()) {
-      targetWindow.show();
-    }
-    targetWindow.focus();
-  };
-
-  if (targetWindow.webContents.isLoadingMainFrame()) {
-    targetWindow.webContents.once("did-finish-load", send);
-    return;
-  }
-
-  send();
+  withReadyPrimaryWindow((window) => {
+    window.webContents.send(MENU_ACTION_CHANNEL, action);
+  });
 }
 
 function handleCheckForUpdatesMenuClick(): void {
@@ -1357,6 +1447,30 @@ function registerIpcHandlers(): void {
     }
   });
 
+  ipcMain.removeHandler(SHOW_NOTIFICATION_CHANNEL);
+  ipcMain.handle(SHOW_NOTIFICATION_CHANNEL, async (_event, rawInput: unknown) => {
+    const input = getSafeDesktopNotificationInput(rawInput);
+    if (!input) {
+      return false;
+    }
+
+    return showDesktopNotification(input);
+  });
+
+  ipcMain.removeHandler(CLOSE_NOTIFICATION_CHANNEL);
+  ipcMain.handle(CLOSE_NOTIFICATION_CHANNEL, async (_event, rawId: unknown) => {
+    if (typeof rawId !== "string") {
+      return false;
+    }
+
+    const id = rawId.trim();
+    if (id.length === 0) {
+      return false;
+    }
+
+    return closeDesktopNotification(id);
+  });
+
   ipcMain.removeHandler(UPDATE_GET_STATE_CHANNEL);
   ipcMain.handle(UPDATE_GET_STATE_CHANNEL, async () => updateState);
 
@@ -1583,6 +1697,10 @@ async function bootstrap(): Promise<void> {
 app.on("before-quit", () => {
   isQuitting = true;
   updateInstallInFlight = false;
+  for (const notification of activeDesktopNotifications.values()) {
+    notification.close();
+  }
+  activeDesktopNotifications.clear();
   writeDesktopLogHeader("before-quit received");
   flushInAppBrowserSessionStorage();
   clearUpdatePollTimer();

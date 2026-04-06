@@ -7,6 +7,9 @@ const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
+const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
+const CLOSE_NOTIFICATION_CHANNEL = "desktop:close-notification";
+const NOTIFICATION_CLICK_CHANNEL = "desktop:notification-click";
 const MENU_ACTION_CHANNEL = "desktop:menu-action";
 const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
@@ -34,6 +37,25 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   setTheme: (theme) => ipcRenderer.invoke(SET_THEME_CHANNEL, theme),
   showContextMenu: (items, position) => ipcRenderer.invoke(CONTEXT_MENU_CHANNEL, items, position),
   openExternal: (url: string) => ipcRenderer.invoke(OPEN_EXTERNAL_CHANNEL, url),
+  showNotification: async (input) => {
+    const result = await ipcRenderer.invoke(SHOW_NOTIFICATION_CHANNEL, input);
+    return result === true;
+  },
+  closeNotification: async (id) => {
+    const result = await ipcRenderer.invoke(CLOSE_NOTIFICATION_CHANNEL, id);
+    return result === true;
+  },
+  onNotificationClick: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, id: unknown) => {
+      if (typeof id !== "string" || id.length === 0) return;
+      listener(id);
+    };
+
+    ipcRenderer.on(NOTIFICATION_CLICK_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(NOTIFICATION_CLICK_CHANNEL, wrappedListener);
+    };
+  },
   onMenuAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
       if (typeof action !== "string") return;

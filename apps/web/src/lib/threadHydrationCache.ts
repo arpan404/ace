@@ -4,6 +4,12 @@ import { DEFAULT_THREAD_HYDRATION_CACHE_MEMORY_MB } from "@ace/contracts/setting
 import { ensureNativeApi } from "../nativeApi";
 import { runAsyncTask } from "./async";
 import { LRUCache } from "./lruCache";
+import { registerMemoryPressureHandler, shouldBypassNonEssentialCaching } from "./memoryPressure";
+import {
+  clampCacheBudgetBytes,
+  clampCacheEntryCount,
+  shouldAvoidSpeculativeWork,
+} from "./resourceProfile";
 
 type HydratedReadModelThread = OrchestrationReadModel["threads"][number];
 
@@ -15,6 +21,12 @@ interface HydratedThreadCacheEntry {
 const BYTES_PER_MEGABYTE = 1024 * 1024;
 const DEFAULT_MAX_CACHED_THREADS = 256;
 const DEFAULT_CACHE_MEMORY_BYTES = DEFAULT_THREAD_HYDRATION_CACHE_MEMORY_MB * BYTES_PER_MEGABYTE;
+const MODERATE_DEVICE_MAX_CACHED_THREADS = 128;
+const CONSTRAINED_DEVICE_MAX_CACHED_THREADS = 64;
+const MODERATE_DEVICE_CACHE_MEMORY_BYTES = 64 * BYTES_PER_MEGABYTE;
+const CONSTRAINED_DEVICE_CACHE_MEMORY_BYTES = 32 * BYTES_PER_MEGABYTE;
+const BACKGROUND_PREFETCH_TIMEOUT_MS = 750;
+const BACKGROUND_PREFETCH_FALLBACK_DELAY_MS = 120;
 
 export interface ThreadHydrationCacheConfig {
   readonly maxEntries?: number;
@@ -25,6 +37,20 @@ interface ResolvedThreadHydrationCacheConfig {
   readonly maxEntries: number;
   readonly maxMemoryBytes: number;
 }
+
+type ThreadHydrationOptions = {
+  readonly expectedUpdatedAt?: string | null;
+};
+
+type ScheduledPrefetchHandle =
+  | {
+      readonly kind: "idle";
+      readonly handle: number;
+    }
+  | {
+      readonly kind: "timeout";
+      readonly handle: ReturnType<typeof setTimeout>;
+    };
 
 function estimateHydratedThreadSize(thread: HydratedReadModelThread): number {
   return (
@@ -44,15 +70,37 @@ function estimateHydratedThreadSize(thread: HydratedReadModelThread): number {
 function resolveThreadHydrationCacheConfig(
   config?: ThreadHydrationCacheConfig,
 ): ResolvedThreadHydrationCacheConfig {
-  const maxEntries = Math.max(1, Math.trunc(config?.maxEntries ?? DEFAULT_MAX_CACHED_THREADS));
-  const maxMemoryBytes = Math.max(
+  const requestedMaxEntries = Math.max(
+    1,
+    Math.trunc(config?.maxEntries ?? DEFAULT_MAX_CACHED_THREADS),
+  );
+  const requestedMaxMemoryBytes = Math.max(
     BYTES_PER_MEGABYTE,
     Math.trunc(config?.maxMemoryBytes ?? DEFAULT_CACHE_MEMORY_BYTES),
   );
+  const maxEntries = clampCacheEntryCount(requestedMaxEntries, {
+    moderateCapEntries: MODERATE_DEVICE_MAX_CACHED_THREADS,
+    constrainedCapEntries: CONSTRAINED_DEVICE_MAX_CACHED_THREADS,
+  });
+  const maxMemoryBytes = clampCacheBudgetBytes(requestedMaxMemoryBytes, {
+    moderateCapBytes: MODERATE_DEVICE_CACHE_MEMORY_BYTES,
+    constrainedCapBytes: CONSTRAINED_DEVICE_CACHE_MEMORY_BYTES,
+  });
   return {
     maxEntries,
     maxMemoryBytes,
   };
+}
+
+function cancelScheduledPrefetch(handle: ScheduledPrefetchHandle): void {
+  if (handle.kind === "idle") {
+    if (typeof cancelIdleCallback === "function") {
+      cancelIdleCallback(handle.handle);
+    }
+    return;
+  }
+
+  clearTimeout(handle.handle);
 }
 
 export interface ThreadHydrationCache {
@@ -63,12 +111,15 @@ export interface ThreadHydrationCache {
   readonly prime: (thread: HydratedReadModelThread) => HydratedReadModelThread;
   readonly hydrate: (
     threadId: ThreadId,
-    options?: { readonly expectedUpdatedAt?: string | null },
+    options?: ThreadHydrationOptions,
   ) => Promise<HydratedReadModelThread>;
   readonly prefetch: (
     threadId: ThreadId,
-    options?: { readonly expectedUpdatedAt?: string | null },
+    options?: ThreadHydrationOptions & {
+      readonly priority?: "background" | "immediate";
+    },
   ) => void;
+  readonly releaseMemory: () => void;
   readonly clear: () => void;
 }
 
@@ -82,6 +133,7 @@ export function createThreadHydrationCache(
     resolvedConfig.maxMemoryBytes,
   );
   const inFlightByThreadId = new Map<ThreadId, Promise<HydratedReadModelThread>>();
+  const scheduledPrefetchByThreadId = new Map<ThreadId, ScheduledPrefetchHandle>();
 
   const read = (
     threadId: ThreadId,
@@ -102,6 +154,9 @@ export function createThreadHydrationCache(
   };
 
   const prime = (thread: HydratedReadModelThread): HydratedReadModelThread => {
+    if (shouldBypassNonEssentialCaching()) {
+      return thread;
+    }
     cache.set(
       thread.id,
       {
@@ -115,7 +170,7 @@ export function createThreadHydrationCache(
 
   const hydrate = async (
     threadId: ThreadId,
-    options?: { readonly expectedUpdatedAt?: string | null },
+    options?: ThreadHydrationOptions,
   ): Promise<HydratedReadModelThread> => {
     const cached = read(threadId, options?.expectedUpdatedAt);
     if (cached) {
@@ -138,16 +193,77 @@ export function createThreadHydrationCache(
     return request;
   };
 
-  const prefetch = (
-    threadId: ThreadId,
-    options?: { readonly expectedUpdatedAt?: string | null },
-  ): void => {
+  const startPrefetch = (threadId: ThreadId, options?: ThreadHydrationOptions): void => {
+    if (read(threadId, options?.expectedUpdatedAt) || inFlightByThreadId.has(threadId)) {
+      return;
+    }
     runAsyncTask(hydrate(threadId, options), "Failed to prefetch hydrated thread data.");
   };
 
-  const clear = () => {
-    inFlightByThreadId.clear();
+  const prefetch = (
+    threadId: ThreadId,
+    options?: ThreadHydrationOptions & {
+      readonly priority?: "background" | "immediate";
+    },
+  ): void => {
+    const priority = options?.priority ?? "background";
+    const existingScheduledPrefetch = scheduledPrefetchByThreadId.get(threadId);
+    if (existingScheduledPrefetch) {
+      cancelScheduledPrefetch(existingScheduledPrefetch);
+      scheduledPrefetchByThreadId.delete(threadId);
+    }
+
+    if (priority === "immediate") {
+      startPrefetch(threadId, options);
+      return;
+    }
+
+    if (shouldAvoidSpeculativeWork()) {
+      return;
+    }
+
+    if (read(threadId, options?.expectedUpdatedAt) || inFlightByThreadId.has(threadId)) {
+      return;
+    }
+
+    const scheduledOptions =
+      options?.expectedUpdatedAt === undefined
+        ? undefined
+        : { expectedUpdatedAt: options.expectedUpdatedAt };
+    const runPrefetch = () => {
+      scheduledPrefetchByThreadId.delete(threadId);
+      startPrefetch(threadId, scheduledOptions);
+    };
+
+    if (typeof requestIdleCallback === "function") {
+      const handle = requestIdleCallback(runPrefetch, {
+        timeout: BACKGROUND_PREFETCH_TIMEOUT_MS,
+      });
+      scheduledPrefetchByThreadId.set(threadId, {
+        kind: "idle",
+        handle,
+      });
+      return;
+    }
+
+    const handle = setTimeout(runPrefetch, BACKGROUND_PREFETCH_FALLBACK_DELAY_MS);
+    scheduledPrefetchByThreadId.set(threadId, {
+      kind: "timeout",
+      handle,
+    });
+  };
+
+  const releaseMemory = () => {
+    for (const handle of scheduledPrefetchByThreadId.values()) {
+      cancelScheduledPrefetch(handle);
+    }
+    scheduledPrefetchByThreadId.clear();
     cache.clear();
+  };
+
+  const clear = () => {
+    releaseMemory();
+    inFlightByThreadId.clear();
   };
 
   return {
@@ -155,6 +271,7 @@ export function createThreadHydrationCache(
     prime,
     hydrate,
     prefetch,
+    releaseMemory,
     clear,
   };
 }
@@ -170,6 +287,14 @@ function createSharedThreadHydrationCache(
 
 let sharedThreadHydrationCacheConfig = resolveThreadHydrationCacheConfig();
 let sharedThreadHydrationCache = createSharedThreadHydrationCache(sharedThreadHydrationCacheConfig);
+
+registerMemoryPressureHandler({
+  id: "thread-hydration-cache",
+  minLevel: "high",
+  release: () => {
+    sharedThreadHydrationCache.releaseMemory();
+  },
+});
 
 export function configureThreadHydrationCache(config?: ThreadHydrationCacheConfig): void {
   const nextConfig = resolveThreadHydrationCacheConfig(config);
@@ -197,14 +322,16 @@ export function primeHydratedThreadCache(thread: HydratedReadModelThread): Hydra
 
 export function hydrateThreadFromCache(
   threadId: ThreadId,
-  options?: { readonly expectedUpdatedAt?: string | null },
+  options?: ThreadHydrationOptions,
 ): Promise<HydratedReadModelThread> {
   return sharedThreadHydrationCache.hydrate(threadId, options);
 }
 
 export function prefetchHydratedThread(
   threadId: ThreadId,
-  options?: { readonly expectedUpdatedAt?: string | null },
+  options?: ThreadHydrationOptions & {
+    readonly priority?: "background" | "immediate";
+  },
 ): void {
   sharedThreadHydrationCache.prefetch(threadId, options);
 }

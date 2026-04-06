@@ -1,6 +1,7 @@
 import { type ThreadId } from "@ace/contracts";
 
 import { LRUCache } from "./lruCache";
+import { registerMemoryPressureHandler, shouldBypassNonEssentialCaching } from "./memoryPressure";
 
 export interface TerminalContextSelection {
   terminalId: string;
@@ -44,6 +45,14 @@ const displayedUserMessageStateCache = new LRUCache<DisplayedUserMessageState>(
   DISPLAYED_USER_MESSAGE_STATE_CACHE_MAX_ENTRIES,
   DISPLAYED_USER_MESSAGE_STATE_CACHE_MAX_MEMORY_BYTES,
 );
+
+registerMemoryPressureHandler({
+  id: "displayed-user-message-state-cache",
+  minLevel: "high",
+  release: () => {
+    displayedUserMessageStateCache.clear();
+  },
+});
 
 const TRAILING_TERMINAL_CONTEXT_BLOCK_PATTERN =
   /\n*<terminal_context>\n([\s\S]*?)\n<\/terminal_context>\s*$/;
@@ -244,9 +253,11 @@ export function extractTrailingTerminalContexts(prompt: string): ExtractedTermin
 }
 
 export function deriveDisplayedUserMessageState(prompt: string): DisplayedUserMessageState {
-  const cached = displayedUserMessageStateCache.get(prompt);
-  if (cached) {
-    return cached;
+  if (!shouldBypassNonEssentialCaching()) {
+    const cached = displayedUserMessageStateCache.get(prompt);
+    if (cached) {
+      return cached;
+    }
   }
 
   const extractedContexts = extractTrailingTerminalContexts(prompt);
@@ -257,19 +268,21 @@ export function deriveDisplayedUserMessageState(prompt: string): DisplayedUserMe
     previewTitle: extractedContexts.previewTitle,
     contexts: extractedContexts.contexts,
   };
-  displayedUserMessageStateCache.set(
-    prompt,
-    displayedState,
-    Math.max(
-      256,
-      prompt.length * 2 +
-        displayedState.visibleText.length * 2 +
-        displayedState.contexts.reduce(
-          (total, context) => total + (context.header.length + context.body.length) * 2,
-          0,
-        ),
-    ),
-  );
+  if (!shouldBypassNonEssentialCaching()) {
+    displayedUserMessageStateCache.set(
+      prompt,
+      displayedState,
+      Math.max(
+        256,
+        prompt.length * 2 +
+          displayedState.visibleText.length * 2 +
+          displayedState.contexts.reduce(
+            (total, context) => total + (context.header.length + context.body.length) * 2,
+            0,
+          ),
+      ),
+    );
+  }
   return displayedState;
 }
 
