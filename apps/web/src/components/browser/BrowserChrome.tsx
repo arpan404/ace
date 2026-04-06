@@ -36,25 +36,25 @@ export function BrowserNewTabPanel(props: {
   const searchEngineLabel = resolveSearchEngineLabel(browserSearchEngine);
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--primary)_6%,transparent)_0%,transparent_45%),linear-gradient(180deg,color-mix(in_srgb,var(--background)_96%,black) 0%,var(--background) 100%)] px-5 py-8 sm:px-8 lg:px-12">
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center gap-8">
-        <div className="space-y-3 text-center">
-          <div className="inline-flex items-center gap-2 self-center rounded-full border border-border/30 bg-card/40 px-3 py-1 text-[10px] font-semibold tracking-[0.22em] text-muted-foreground/60 uppercase backdrop-blur-sm">
-            <SearchIcon className="size-3.5" />
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[radial-gradient(circle_at_top,color-mix(in_srgb,var(--primary)_4%,transparent)_0%,transparent_40%)] px-5 py-8 sm:px-8 lg:px-12">
+      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-6">
+        <div className="space-y-2 text-center">
+          <div className="inline-flex items-center gap-1.5 self-center rounded-full border border-border/20 bg-card/30 px-2.5 py-1 text-[10px] font-semibold tracking-[0.2em] text-muted-foreground/50 uppercase">
+            <SearchIcon className="size-3" />
             {searchEngineLabel}
           </div>
           <div>
-            <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+            <h2 className="text-2xl font-semibold tracking-tight text-foreground/90 sm:text-3xl">
               {BROWSER_NEW_TAB_TITLE}
             </h2>
-            <p className="mt-2 text-sm text-muted-foreground/50 sm:text-base">
+            <p className="mt-1.5 text-sm text-muted-foreground/40">
               Search the web or enter an address without leaving the browser shell.
             </p>
           </div>
         </div>
 
         <form
-          className="mx-auto flex w-full max-w-3xl flex-col gap-3"
+          className="mx-auto flex w-full max-w-2xl flex-col gap-3"
           onSubmit={(event: FormEvent<HTMLFormElement>) => {
             event.preventDefault();
             if (query.trim().length === 0) {
@@ -63,10 +63,10 @@ export function BrowserNewTabPanel(props: {
             onSubmitQuery(query);
           }}
         >
-          <div className="flex items-center gap-3 rounded-2xl border border-border/35 bg-card/40 px-4 py-3 shadow-lg shadow-black/[0.04] backdrop-blur-md transition-all duration-200 focus-within:border-primary/25 focus-within:shadow-primary/[0.06]">
-            <SearchIcon className="size-5 shrink-0 text-muted-foreground/50" />
+          <div className="flex items-center gap-3 rounded-xl border border-border/25 bg-card/30 px-4 py-2.5 transition-all duration-150 focus-within:border-primary/20 focus-within:shadow-sm focus-within:shadow-primary/[0.04]">
+            <SearchIcon className="size-4 shrink-0 text-muted-foreground/40" />
             <Input
-              className="h-auto w-full flex-1 border-0 bg-transparent px-0 text-base shadow-none before:shadow-none sm:text-lg"
+              className="h-auto w-full flex-1 border-0 bg-transparent px-0 text-base shadow-none before:shadow-none"
               unstyled
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -79,7 +79,7 @@ export function BrowserNewTabPanel(props: {
             <Button
               type="submit"
               size="sm"
-              className="shrink-0 rounded-xl px-4 shadow-xs shadow-primary/15"
+              className="shrink-0 rounded-lg px-4"
               disabled={query.trim().length === 0}
             >
               Go
@@ -87,45 +87,43 @@ export function BrowserNewTabPanel(props: {
           </div>
         </form>
 
-        <section className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-[13px] font-medium tracking-tight text-foreground">
-                Pinned pages
-              </h3>
-              <p className="mt-1 text-[12px] text-muted-foreground/50">
-                Jump back into the pages you revisit the most.
-              </p>
-            </div>
+        <section className="space-y-2.5">
+          <div>
+            <h3 className="text-[13px] font-medium tracking-tight text-foreground/90">
+              Pinned pages
+            </h3>
+            <p className="mt-0.5 text-[12px] text-muted-foreground/40">
+              Jump back into the pages you revisit the most.
+            </p>
           </div>
 
           {pinnedPages.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {pinnedPages.map((page) => (
                 <button
                   key={page.url}
                   type="button"
-                  className="group flex min-w-0 items-center gap-3 rounded-2xl border border-border/30 bg-card/35 px-4 py-3 text-left backdrop-blur-sm transition-all duration-200 hover:border-border/50 hover:bg-card/55 hover:shadow-xs"
+                  className="group flex min-w-0 items-center gap-2.5 rounded-xl border border-border/20 bg-card/25 px-3.5 py-2.5 text-left transition-all duration-150 hover:border-border/35 hover:bg-card/40"
                   onClick={() => onOpenPinnedPage(page.url)}
                 >
                   <BrowserFavicon
                     url={page.url}
                     title={page.title}
-                    className="size-5"
-                    fallbackClassName="size-5 text-muted-foreground/50"
+                    className="size-4"
+                    fallbackClassName="size-4 text-muted-foreground/40"
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-medium text-foreground">
+                    <div className="truncate text-[13px] font-medium text-foreground/90">
                       {page.title}
                     </div>
-                    <div className="truncate text-[11px] text-muted-foreground/50">{page.url}</div>
+                    <div className="truncate text-[11px] text-muted-foreground/40">{page.url}</div>
                   </div>
-                  <PinIcon className="size-3.5 shrink-0 text-muted-foreground/30 transition-colors duration-200 group-hover:text-muted-foreground/60" />
+                  <PinIcon className="size-3 shrink-0 text-muted-foreground/20 transition-colors duration-150 group-hover:text-muted-foreground/50" />
                 </button>
               ))}
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-border/30 bg-card/25 px-4 py-5 text-[13px] text-muted-foreground/50">
+            <div className="rounded-xl border border-dashed border-border/20 bg-card/15 px-4 py-4 text-[13px] text-muted-foreground/40">
               Pin pages from the toolbar and they will appear here on every new tab.
             </div>
           )}
@@ -165,38 +163,36 @@ export function BrowserSettingsPanel(props: {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="border-b border-border/30 px-5 py-4">
-        <div className="flex items-center gap-2 text-[13px] font-medium tracking-tight text-foreground">
-          <Settings2Icon className="size-4 text-muted-foreground/50" />
+      <div className="border-b border-border/20 px-5 py-3.5">
+        <div className="flex items-center gap-2 text-[13px] font-medium tracking-tight text-foreground/90">
+          <Settings2Icon className="size-3.5 text-muted-foreground/40" />
           {BROWSER_SETTINGS_TAB_TITLE}
         </div>
-        <p className="mt-1.5 max-w-2xl text-[12px] leading-relaxed text-muted-foreground/50">
+        <p className="mt-1 max-w-2xl text-[12px] leading-relaxed text-muted-foreground/40">
           Search engine, local browser history, and storage repair live here so the address bar can
           stay focused on navigation.
         </p>
       </div>
 
-      <div className="flex flex-1 flex-col gap-8 overflow-y-auto px-5 py-6">
-        <section className="space-y-3">
+      <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-5 py-5">
+        <section className="space-y-2.5">
           <div>
-            <h3 className="text-[13px] font-medium tracking-tight text-foreground">
+            <h3 className="text-[13px] font-medium tracking-tight text-foreground/90">
               Search engine
             </h3>
-            <p className="mt-1 text-[12px] text-muted-foreground/50">
+            <p className="mt-0.5 text-[12px] text-muted-foreground/40">
               Used for new-tab search actions, address-bar suggestions, and fallback home links.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {BROWSER_SEARCH_ENGINE_OPTIONS.map((engine) => (
               <Button
                 key={engine.value}
                 variant={browserSearchEngine === engine.value ? "default" : "outline"}
                 size="sm"
                 className={cn(
-                  "transition-all duration-200",
-                  browserSearchEngine === engine.value
-                    ? "shadow-xs shadow-primary/15"
-                    : "border-border/35",
+                  "transition-all duration-150",
+                  browserSearchEngine !== engine.value && "border-border/25",
                 )}
                 onClick={() => onSelectSearchEngine(engine.value)}
               >
@@ -206,18 +202,17 @@ export function BrowserSettingsPanel(props: {
           </div>
         </section>
 
-        <section className="space-y-3">
+        <section className="space-y-2.5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 className="text-[13px] font-medium tracking-tight text-foreground">
+              <h3 className="text-[13px] font-medium tracking-tight text-foreground/90">
                 Pinned pages
               </h3>
-              <p className="mt-1 text-[12px] text-muted-foreground/50">
-                Keep frequently revisited pages at the top of suggestions. Pin the current page from
-                the browser toolbar.
+              <p className="mt-0.5 text-[12px] text-muted-foreground/40">
+                Keep frequently revisited pages at the top of suggestions.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -234,7 +229,7 @@ export function BrowserSettingsPanel(props: {
               <Button
                 variant="outline"
                 size="sm"
-                className="border-border/35"
+                className="border-border/25"
                 onClick={() => fileInputRef.current?.click()}
               >
                 Import
@@ -242,7 +237,7 @@ export function BrowserSettingsPanel(props: {
               <Button
                 variant="outline"
                 size="sm"
-                className="border-border/30"
+                className="border-border/25"
                 onClick={onExportPinnedPages}
               >
                 Export
@@ -250,41 +245,41 @@ export function BrowserSettingsPanel(props: {
             </div>
           </div>
           {pinnedPages.length > 0 ? (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {pinnedPages.map((page) => (
                 <div
                   key={page.url}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-border/30 bg-card/35 px-3 py-2.5 backdrop-blur-sm transition-all duration-200 hover:bg-card/50"
+                  className="flex items-center justify-between gap-3 rounded-lg border border-border/20 bg-card/25 px-3 py-2 transition-all duration-150 hover:bg-card/40"
                 >
-                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
                     <BrowserFavicon
                       url={page.url}
                       title={page.title}
-                      className="size-4"
-                      fallbackClassName="size-4 text-muted-foreground/50"
+                      className="size-3.5"
+                      fallbackClassName="size-3.5 text-muted-foreground/40"
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-medium text-foreground">
+                      <div className="truncate text-[13px] font-medium text-foreground/90">
                         {page.title}
                       </div>
-                      <div className="truncate text-[11px] text-muted-foreground/50">
+                      <div className="truncate text-[11px] text-muted-foreground/40">
                         {page.url}
                       </div>
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
+                  <div className="flex shrink-0 items-center gap-1">
                     <Button
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
-                      className="border-border/30"
+                      className="text-muted-foreground/50 hover:text-foreground"
                       onClick={() => onOpenPinnedPage(page.url)}
                     >
                       Open
                     </Button>
                     <Button
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
-                      className="border-border/30"
+                      className="text-muted-foreground/50 hover:text-foreground"
                       onClick={() => onRemovePinnedPage(page.url)}
                     >
                       Remove
@@ -294,39 +289,36 @@ export function BrowserSettingsPanel(props: {
               ))}
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-border/30 bg-card/25 px-3 py-4 text-[13px] text-muted-foreground/50">
+            <div className="rounded-lg border border-dashed border-border/20 bg-card/15 px-3 py-3.5 text-[13px] text-muted-foreground/40">
               No pinned pages yet.
             </div>
           )}
         </section>
 
-        <section className="space-y-3">
+        <section className="space-y-2.5">
           <div>
-            <h3 className="text-[13px] font-medium tracking-tight text-foreground">History</h3>
-            <p className="mt-1 text-[12px] text-muted-foreground/50">
+            <h3 className="text-[13px] font-medium tracking-tight text-foreground/90">History</h3>
+            <p className="mt-0.5 text-[12px] text-muted-foreground/40">
               {historyCount} saved {historyCount === 1 ? "entry" : "entries"}. Suggestions in the
               address bar come from this list first.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-border/30"
-              onClick={onClearHistory}
-              disabled={historyCount === 0}
-            >
-              Clear history
-            </Button>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-border/25"
+            onClick={onClearHistory}
+            disabled={historyCount === 0}
+          >
+            Clear history
+          </Button>
         </section>
 
-        <section className="space-y-3">
+        <section className="space-y-2.5">
           <div>
-            <h3 className="text-[13px] font-medium tracking-tight text-foreground">Repair</h3>
-            <p className="mt-1 text-[12px] text-muted-foreground/50">
-              Clears the in-app browser partition, including cookies, cache, and service workers,
-              without touching the rest of the app.
+            <h3 className="text-[13px] font-medium tracking-tight text-foreground/90">Repair</h3>
+            <p className="mt-0.5 text-[12px] text-muted-foreground/40">
+              Clears the in-app browser partition, including cookies, cache, and service workers.
             </p>
           </div>
           <Button
@@ -364,19 +356,19 @@ export function BrowserSuggestionList(props: {
   }
 
   return (
-    <div className="absolute inset-x-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded-2xl border border-border/40 bg-popover/92 shadow-lg shadow-black/[0.06] backdrop-blur-xl">
-      <div className="max-h-80 overflow-y-auto py-1">
+    <div className="absolute inset-x-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded-xl border border-border/30 bg-popover/95 shadow-lg shadow-black/[0.04] backdrop-blur-xl">
+      <div className="max-h-80 overflow-y-auto py-0.5">
         {suggestions.map((suggestion, index) => {
           const isActive = index === activeIndex;
           const icon =
             suggestion.kind === "history" ? (
-              <Clock3Icon className="size-4" />
+              <Clock3Icon className="size-3.5" />
             ) : suggestion.kind === "pinned" ? (
-              <PinIcon className="size-4" />
+              <PinIcon className="size-3.5" />
             ) : suggestion.kind === "tab" ? (
-              <GlobeIcon className="size-4" />
+              <GlobeIcon className="size-3.5" />
             ) : (
-              <SearchIcon className="size-4" />
+              <SearchIcon className="size-3.5" />
             );
 
           return (
@@ -387,10 +379,10 @@ export function BrowserSuggestionList(props: {
               }}
               type="button"
               className={cn(
-                "flex w-full items-start gap-3 px-3 py-2.5 text-left transition-all duration-100",
+                "flex w-full items-start gap-2.5 px-3 py-2 text-left transition-all duration-100",
                 isActive
-                  ? "bg-primary/[0.06] text-foreground"
-                  : "hover:bg-foreground/[0.03] focus-visible:bg-foreground/[0.03]",
+                  ? "bg-foreground/[0.05] text-foreground"
+                  : "hover:bg-foreground/[0.02]",
               )}
               onMouseDown={(event) => {
                 event.preventDefault();
@@ -403,18 +395,18 @@ export function BrowserSuggestionList(props: {
               <span
                 className={cn(
                   "mt-0.5 shrink-0",
-                  isActive ? "text-primary/65" : "text-muted-foreground/40",
+                  isActive ? "text-foreground/60" : "text-muted-foreground/35",
                 )}
               >
                 {icon}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-medium text-foreground">
+                <span className="block truncate text-[13px] font-medium text-foreground/90">
                   {suggestion.title}
                 </span>
-                <span className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground/50">
+                <span className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground/40">
                   <span className="truncate">{suggestion.subtitle}</span>
-                  <span className="inline-flex shrink-0 rounded-full border border-border/30 bg-background/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/50 backdrop-blur-sm">
+                  <span className="inline-flex shrink-0 rounded-full border border-border/20 bg-background/50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/40">
                     {resolveSuggestionKindLabel(suggestion.kind)}
                   </span>
                 </span>
@@ -423,7 +415,7 @@ export function BrowserSuggestionList(props: {
           );
         })}
       </div>
-      <div className="flex items-center justify-between border-t border-border/30 bg-card/40 px-3 py-2 text-[10px] text-muted-foreground/40 backdrop-blur-sm">
+      <div className="flex items-center justify-between border-t border-border/20 bg-card/30 px-3 py-1.5 text-[10px] text-muted-foreground/35">
         <span>Enter to open</span>
         <span>↑↓ to move</span>
         <span>Esc to dismiss</span>

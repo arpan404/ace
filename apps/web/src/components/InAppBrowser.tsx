@@ -112,12 +112,12 @@ const SortableBrowserTab = memo(function SortableBrowserTab(props: {
       ref={setTabNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
-        "group flex min-w-0 max-w-64 items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-all duration-150",
+        "group flex min-w-0 max-w-64 items-center gap-1 rounded-md border px-2 py-1 text-xs transition-all duration-150",
         active
-          ? "border-border/50 bg-background text-foreground shadow-xs shadow-black/[0.03]"
-          : "border-transparent bg-transparent text-muted-foreground hover:bg-foreground/[0.05]",
+          ? "border-border/30 bg-background/80 text-foreground shadow-xs"
+          : "border-transparent bg-transparent text-muted-foreground/60 hover:bg-foreground/[0.04] hover:text-foreground/80",
         isDragging && "z-20 opacity-80",
-        isOver && !isDragging && "ring-1 ring-primary/30",
+        isOver && !isDragging && "ring-1 ring-primary/20",
       )}
     >
       <button
@@ -169,7 +169,7 @@ const SortableBrowserTab = memo(function SortableBrowserTab(props: {
       </button>
       <button
         type="button"
-        className="rounded-md p-0.5 text-muted-foreground/50 opacity-0 transition-all duration-150 group-hover:opacity-100 hover:bg-foreground/[0.06] hover:text-foreground"
+        className="rounded-md p-0.5 text-muted-foreground/40 opacity-0 transition-all duration-150 group-hover:opacity-100 hover:bg-foreground/[0.05] hover:text-foreground/70"
         aria-label={`Close ${tab.title}`}
         onClick={() => {
           onClose(tab.id);
@@ -419,7 +419,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
         {mode === "pip" ? (
           <>
             <div
-              className="flex items-center gap-2 border-b border-border/40 bg-card/80 px-3 py-2 select-none"
+              className="flex items-center gap-2 border-b border-border/25 bg-card/60 px-3 py-1.5 select-none"
               onDoubleClick={onRestore}
               onPointerDown={handlePipDragPointerDown}
               onPointerMove={handlePipDragPointerMove}
@@ -468,7 +468,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-lg transition-all duration-150"
+                  className="rounded-md transition-all duration-150"
                   onClick={goBack}
                   disabled={activeTabIsInternal || !activeRuntime.canGoBack}
                   aria-label="Go back"
@@ -479,7 +479,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-lg transition-all duration-150"
+                  className="rounded-md transition-all duration-150"
                   onClick={goForward}
                   disabled={activeTabIsInternal || !activeRuntime.canGoForward}
                   aria-label="Go forward"
@@ -490,7 +490,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-lg transition-all duration-150"
+                  className="rounded-md transition-all duration-150"
                   onClick={reload}
                   disabled={activeTabIsInternal}
                   aria-label={activeRuntime.loading ? "Stop loading" : "Reload page"}
@@ -505,7 +505,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-lg transition-all duration-150"
+                  className="rounded-md transition-all duration-150"
                   onClick={onRestore}
                   aria-label="Restore browser"
                   data-browser-control
@@ -515,7 +515,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-lg transition-all duration-150"
+                  className="rounded-md transition-all duration-150"
                   onClick={() => {
                     openActiveTabExternally();
                   }}
@@ -528,7 +528,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-lg transition-all duration-150"
+                  className="rounded-md transition-all duration-150"
                   onClick={onClose}
                   aria-label="Close browser"
                   data-browser-control
@@ -540,7 +540,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
           </>
         ) : (
           <>
-            <div className="flex items-center gap-2 border-b border-border/35 bg-card/50 px-3 py-2 sm:px-5">
+            <div className="flex items-center gap-2 border-b border-border/20 bg-card/40 px-3 py-1.5 sm:px-5">
               <div className="relative flex min-w-0 flex-1 items-center">
                 {canScrollTabsLeft ? (
                   <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-linear-to-r from-card/90 to-transparent" />
@@ -552,7 +552,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                   variant="ghost"
                   size="icon-xs"
                   className={cn(
-                    "absolute left-0 z-20 rounded-full border border-border/35 bg-background/90 shadow-xs shadow-black/[0.02] transition-opacity",
+                    "absolute left-0 z-20 rounded-full border border-border/25 bg-background/80 shadow-xs transition-opacity",
                     canScrollTabsLeft ? "opacity-100" : "pointer-events-none opacity-0",
                   )}
                   onClick={() => scrollTabsBy(-1)}
@@ -656,7 +656,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
               </Tooltip>
             </div>
 
-            <div className="flex items-center gap-2 border-b border-border/30 bg-card/40 px-3 py-2 sm:px-5">
+            <div className="flex items-center gap-2 border-b border-border/20 bg-card/30 px-3 py-1.5 sm:px-5">
               <div className="flex shrink-0 items-center gap-1.5">
                 <Tooltip>
                   <TooltipTrigger
