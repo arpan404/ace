@@ -8,6 +8,7 @@ import {
   setProjectExpanded,
   syncProjects,
   syncThreads,
+  trackActiveThread,
   type UiState,
 } from "./uiStateStore";
 
@@ -16,6 +17,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     threadLastVisitedAtById: {},
+    activeThreadId: null,
+    previousActiveThreadId: null,
     ...overrides,
   };
 }
@@ -137,6 +140,8 @@ describe("uiStateStore pure functions", () => {
         [thread1]: "2026-02-25T12:35:00.000Z",
         [thread2]: "2026-02-25T12:36:00.000Z",
       },
+      activeThreadId: thread2,
+      previousActiveThreadId: thread1,
     });
 
     const next = syncThreads(initialState, [{ id: thread1 }]);
@@ -144,6 +149,8 @@ describe("uiStateStore pure functions", () => {
     expect(next.threadLastVisitedAtById).toEqual({
       [thread1]: "2026-02-25T12:35:00.000Z",
     });
+    expect(next.activeThreadId).toBeNull();
+    expect(next.previousActiveThreadId).toBe(thread1);
   });
 
   it("syncThreads seeds visit state for unseen snapshot threads", () => {
@@ -183,10 +190,24 @@ describe("uiStateStore pure functions", () => {
       threadLastVisitedAtById: {
         [thread1]: "2026-02-25T12:35:00.000Z",
       },
+      activeThreadId: thread1,
+      previousActiveThreadId: thread1,
     });
 
     const next = clearThreadUi(initialState, thread1);
 
     expect(next.threadLastVisitedAtById).toEqual({});
+    expect(next.activeThreadId).toBeNull();
+    expect(next.previousActiveThreadId).toBeNull();
+  });
+
+  it("trackActiveThread keeps the previous thread when the active thread changes", () => {
+    const thread1 = ThreadId.makeUnsafe("thread-1");
+    const thread2 = ThreadId.makeUnsafe("thread-2");
+    const first = trackActiveThread(makeUiState(), thread1);
+    const second = trackActiveThread(first, thread2);
+
+    expect(second.activeThreadId).toBe(thread2);
+    expect(second.previousActiveThreadId).toBe(thread1);
   });
 });

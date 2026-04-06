@@ -264,6 +264,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
   const pruneHydratedThreadHistories = useStore((store) => store.pruneHydratedThreadHistories);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
+  const trackActiveThread = useUiStateStore((store) => store.trackActiveThread);
+  const trackedActiveThreadId = useUiStateStore((store) => store.activeThreadId);
+  const previousActiveThreadId = useUiStateStore((store) => store.previousActiveThreadId);
   const activeThreadLastVisitedAt = useUiStateStore(
     (store) => store.threadLastVisitedAtById[threadId],
   );
@@ -536,15 +539,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
   const sourcePlanThread = useThreadById(sourceProposedPlanThreadId);
   const sourcePlanHydrationInFlightRef = useRef<ThreadId | null>(null);
-  const previousActiveThreadIdRef = useRef<ThreadId | null>(null);
+  const recentThreadHistoryKeepId =
+    trackedActiveThreadId === activeThreadId ? previousActiveThreadId : trackedActiveThreadId;
+  const recentThreadHistoryThread = useThreadById(recentThreadHistoryKeepId);
+  const recentThreadHistoryHydrationInFlightRef = useRef<ThreadId | null>(null);
   const hydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
     () =>
       deriveHydratedThreadHistoryKeepIds({
         activeThreadId,
         sourceProposedPlanThreadId,
-        previousThreadId: previousActiveThreadIdRef.current,
+        previousThreadId: recentThreadHistoryKeepId,
       }),
-    [activeThreadId, sourceProposedPlanThreadId],
+    [activeThreadId, recentThreadHistoryKeepId, sourceProposedPlanThreadId],
   );
   const memoryPressureHydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
     () =>
@@ -562,8 +568,73 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   // Update this before the next interaction so rapid thread switches keep the just-viewed history warm.
   useLayoutEffect(() => {
-    previousActiveThreadIdRef.current = activeThreadId;
-  }, [activeThreadId]);
+    trackActiveThread(activeThreadId);
+  }, [activeThreadId, trackActiveThread]);
+
+  useEffect(() => {
+    if (
+      !recentThreadHistoryKeepId ||
+      recentThreadHistoryKeepId === activeThreadId ||
+      recentThreadHistoryThread === undefined ||
+      recentThreadHistoryThread.historyLoaded !== false
+    ) {
+      return;
+    }
+
+    const cachedHydratedThread =
+      recentThreadHistoryThread.updatedAt === undefined
+        ? null
+        : readCachedHydratedThread(recentThreadHistoryKeepId, recentThreadHistoryThread.updatedAt);
+    if (cachedHydratedThread) {
+      startTransition(() => {
+        hydrateThreadFromReadModel(cachedHydratedThread);
+      });
+      return;
+    }
+
+    if (recentThreadHistoryHydrationInFlightRef.current === recentThreadHistoryKeepId) {
+      return;
+    }
+
+    recentThreadHistoryHydrationInFlightRef.current = recentThreadHistoryKeepId;
+    let canceled = false;
+    void (async () => {
+      try {
+        const readModelThread = await hydrateThreadFromCache(recentThreadHistoryKeepId, {
+          expectedUpdatedAt: recentThreadHistoryThread.updatedAt ?? null,
+        });
+        if (canceled) {
+          return;
+        }
+        startTransition(() => {
+          hydrateThreadFromReadModel(readModelThread);
+        });
+      } catch (error) {
+        if (!canceled) {
+          console.error("Failed to hydrate recent thread history", error);
+        }
+      } finally {
+        if (
+          !canceled &&
+          recentThreadHistoryHydrationInFlightRef.current === recentThreadHistoryKeepId
+        ) {
+          recentThreadHistoryHydrationInFlightRef.current = null;
+        }
+      }
+    })();
+
+    return () => {
+      canceled = true;
+      if (recentThreadHistoryHydrationInFlightRef.current === recentThreadHistoryKeepId) {
+        recentThreadHistoryHydrationInFlightRef.current = null;
+      }
+    };
+  }, [
+    activeThreadId,
+    hydrateThreadFromReadModel,
+    recentThreadHistoryKeepId,
+    recentThreadHistoryThread,
+  ]);
 
   useEffect(() => {
     if (hydratedThreadHistoryKeepIds.length === 0) {
