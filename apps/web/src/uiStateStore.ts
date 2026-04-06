@@ -1,25 +1,28 @@
 import { Debouncer } from "@tanstack/react-pacer";
-import { type ProjectId, type ThreadId } from "@t3tools/contracts";
+import { type ProjectId, type ThreadId } from "@ace/contracts";
+import * as Schema from "effect/Schema";
 import { create } from "zustand";
 
-const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
+const PERSISTED_STATE_KEY = "ace:ui-state:v1";
 const LEGACY_PERSISTED_STATE_KEYS = [
-  "t3code:renderer-state:v8",
-  "t3code:renderer-state:v7",
-  "t3code:renderer-state:v6",
-  "t3code:renderer-state:v5",
-  "t3code:renderer-state:v4",
-  "t3code:renderer-state:v3",
+  "ace:renderer-state:v8",
+  "ace:renderer-state:v7",
+  "ace:renderer-state:v6",
+  "ace:renderer-state:v5",
+  "ace:renderer-state:v4",
+  "ace:renderer-state:v3",
   "codething:renderer-state:v4",
   "codething:renderer-state:v3",
   "codething:renderer-state:v2",
   "codething:renderer-state:v1",
 ] as const;
 
-interface PersistedUiState {
-  expandedProjectCwds?: string[];
-  projectOrderCwds?: string[];
-}
+const PersistedUiStateSchema = Schema.Struct({
+  expandedProjectCwds: Schema.optional(Schema.Array(Schema.String)),
+  projectOrderCwds: Schema.optional(Schema.Array(Schema.String)),
+});
+type PersistedUiState = typeof PersistedUiStateSchema.Type;
+const decodePersistedUiState = Schema.decodeSync(Schema.fromJsonString(PersistedUiStateSchema));
 
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
@@ -65,12 +68,12 @@ function readPersistedState(): UiState {
         if (!legacyRaw) {
           continue;
         }
-        hydratePersistedProjectState(JSON.parse(legacyRaw) as PersistedUiState);
+        hydratePersistedProjectState(decodePersistedUiState(legacyRaw));
         return initialState;
       }
       return initialState;
     }
-    hydratePersistedProjectState(JSON.parse(raw) as PersistedUiState);
+    hydratePersistedProjectState(decodePersistedUiState(raw));
     return initialState;
   } catch {
     return initialState;

@@ -1,21 +1,8 @@
-import { type MessageId, type TurnId } from "@t3tools/contracts";
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import {
-  measureElement as measureVirtualElement,
-  type VirtualItem,
-  useVirtualizer,
-} from "@tanstack/react-virtual";
-import { deriveTimelineEntries, formatElapsed } from "../../session-logic";
-import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX } from "../../chat-scroll";
+import { type MessageId, type TurnId } from "@ace/contracts";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { estimateTimelineMessageHeight } from "../../lib/chat/timelineHeight";
+import { deriveTimelineEntries } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
@@ -23,6 +10,9 @@ import {
   BotIcon,
   CheckIcon,
   CircleAlertIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  Clock3Icon,
   EyeIcon,
   GlobeIcon,
   HammerIcon,
@@ -34,30 +24,60 @@ import {
   ZapIcon,
 } from "lucide-react";
 import { Button } from "../ui/button";
-import { clamp } from "effect/Number";
-import { estimateTimelineMessageHeight } from "../timelineHeight";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
-import { computeMessageDurationStart, normalizeCompactToolLabel } from "./MessagesTimeline.logic";
+import { normalizeCompactToolLabel } from "~/lib/chat/messagesTimeline";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
 import { cn } from "~/lib/utils";
-import { type TimestampFormat } from "@t3tools/contracts/settings";
+import { type TimestampFormat } from "@ace/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
 import {
   buildInlineTerminalContextText,
   formatInlineTerminalContextLabel,
   textContainsInlineTerminalContextLabels,
-} from "./userMessageTerminalContexts";
+} from "~/lib/chat/userMessageTerminalContexts";
 
-const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
+const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
+const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
+
+const timelineRowHeightCache = new Map<string, number>();
+
+function readCachedTimelineRowHeight(cacheKey: string): number | null {
+  const cachedHeight = timelineRowHeightCache.get(cacheKey);
+  if (cachedHeight === undefined) {
+    return null;
+  }
+
+  timelineRowHeightCache.delete(cacheKey);
+  timelineRowHeightCache.set(cacheKey, cachedHeight);
+  return cachedHeight;
+}
+
+function writeCachedTimelineRowHeight(cacheKey: string, height: number): number {
+  timelineRowHeightCache.set(cacheKey, height);
+  if (timelineRowHeightCache.size > MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES) {
+    const oldestCacheKey = timelineRowHeightCache.keys().next().value;
+    if (oldestCacheKey !== undefined) {
+      timelineRowHeightCache.delete(oldestCacheKey);
+    }
+  }
+  return height;
+}
+
+function toTimelineWidthCacheKey(timelineWidthPx: number | null): string {
+  if (timelineWidthPx === null || !Number.isFinite(timelineWidthPx)) {
+    return "auto";
+  }
+  return String(Math.max(0, Math.round(timelineWidthPx / 4) * 4));
+}
 
 interface MessagesTimelineProps {
   hasMessages: boolean;
@@ -69,12 +89,12 @@ interface MessagesTimelineProps {
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
-  nowIso: string;
   expandedWorkGroups: Record<string, boolean>;
   onToggleWorkGroup: (groupId: string) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   onRevertUserMessage: (messageId: MessageId) => void;
+  revertActionTitle?: string;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   markdownCwd: string | undefined;
@@ -93,12 +113,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   completionDividerBeforeEntryId,
   completionSummary,
   turnDiffSummaryByAssistantMessageId,
-  nowIso,
   expandedWorkGroups,
   onToggleWorkGroup,
   onOpenTurnDiff,
   revertTurnCountByUserMessageId,
   onRevertUserMessage,
+  revertActionTitle = "Revert to this message",
   isRevertingCheckpoint,
   onImageExpand,
   markdownCwd,
@@ -106,201 +126,32 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
 }: MessagesTimelineProps) {
-  const timelineRootRef = useRef<HTMLDivElement | null>(null);
-  const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
-
-  useLayoutEffect(() => {
-    const timelineRoot = timelineRootRef.current;
-    if (!timelineRoot) return;
-
-    const updateWidth = (nextWidth: number) => {
-      setTimelineWidthPx((previousWidth) => {
-        if (previousWidth !== null && Math.abs(previousWidth - nextWidth) < 0.5) {
-          return previousWidth;
-        }
-        return nextWidth;
-      });
-    };
-
-    updateWidth(timelineRoot.getBoundingClientRect().width);
-
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      updateWidth(timelineRoot.getBoundingClientRect().width);
-    });
-    observer.observe(timelineRoot);
-    return () => {
-      observer.disconnect();
-    };
-  }, [hasMessages, isWorking]);
-
-  const rows = useMemo<TimelineRow[]>(() => {
-    const nextRows: TimelineRow[] = [];
-    const durationStartByMessageId = computeMessageDurationStart(
-      timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
-    );
-
-    for (let index = 0; index < timelineEntries.length; index += 1) {
-      const timelineEntry = timelineEntries[index];
-      if (!timelineEntry) {
-        continue;
-      }
-
-      if (timelineEntry.kind === "work") {
-        const groupedEntries = [timelineEntry.entry];
-        let cursor = index + 1;
-        while (cursor < timelineEntries.length) {
-          const nextEntry = timelineEntries[cursor];
-          if (!nextEntry || nextEntry.kind !== "work") break;
-          groupedEntries.push(nextEntry.entry);
-          cursor += 1;
-        }
-        nextRows.push({
-          kind: "work",
-          id: timelineEntry.id,
-          createdAt: timelineEntry.createdAt,
-          groupedEntries,
-        });
-        index = cursor - 1;
-        continue;
-      }
-
-      if (timelineEntry.kind === "proposed-plan") {
-        nextRows.push({
-          kind: "proposed-plan",
-          id: timelineEntry.id,
-          createdAt: timelineEntry.createdAt,
-          proposedPlan: timelineEntry.proposedPlan,
-        });
-        continue;
-      }
-
-      nextRows.push({
-        kind: "message",
-        id: timelineEntry.id,
-        createdAt: timelineEntry.createdAt,
-        message: timelineEntry.message,
-        durationStart:
-          durationStartByMessageId.get(timelineEntry.message.id) ?? timelineEntry.message.createdAt,
-        showCompletionDivider:
-          timelineEntry.message.role === "assistant" &&
-          completionDividerBeforeEntryId === timelineEntry.id,
-      });
-    }
-
-    if (isWorking) {
-      nextRows.push({
-        kind: "working",
-        id: "working-indicator-row",
-        createdAt: activeTurnStartedAt,
-      });
-    }
-
-    return nextRows;
-  }, [timelineEntries, completionDividerBeforeEntryId, isWorking, activeTurnStartedAt]);
-
-  const firstUnvirtualizedRowIndex = useMemo(() => {
-    const firstTailRowIndex = Math.max(rows.length - ALWAYS_UNVIRTUALIZED_TAIL_ROWS, 0);
-    if (!activeTurnInProgress) return firstTailRowIndex;
-
-    const turnStartedAtMs =
-      typeof activeTurnStartedAt === "string" ? Date.parse(activeTurnStartedAt) : Number.NaN;
-    let firstCurrentTurnRowIndex = -1;
-    if (!Number.isNaN(turnStartedAtMs)) {
-      firstCurrentTurnRowIndex = rows.findIndex((row) => {
-        if (row.kind === "working") return true;
-        if (!row.createdAt) return false;
-        const rowCreatedAtMs = Date.parse(row.createdAt);
-        return !Number.isNaN(rowCreatedAtMs) && rowCreatedAtMs >= turnStartedAtMs;
-      });
-    }
-
-    if (firstCurrentTurnRowIndex < 0) {
-      firstCurrentTurnRowIndex = rows.findIndex(
-        (row) => row.kind === "message" && row.message.streaming,
-      );
-    }
-
-    if (firstCurrentTurnRowIndex < 0) return firstTailRowIndex;
-
-    for (let index = firstCurrentTurnRowIndex - 1; index >= 0; index -= 1) {
-      const previousRow = rows[index];
-      if (!previousRow || previousRow.kind !== "message") continue;
-      if (previousRow.message.role === "user") {
-        return Math.min(index, firstTailRowIndex);
-      }
-      if (previousRow.message.role === "assistant" && !previousRow.message.streaming) {
-        break;
-      }
-    }
-
-    return Math.min(firstCurrentTurnRowIndex, firstTailRowIndex);
-  }, [activeTurnInProgress, activeTurnStartedAt, rows]);
-
-  const virtualizedRowCount = clamp(firstUnvirtualizedRowIndex, {
-    minimum: 0,
-    maximum: rows.length,
-  });
-
-  const rowVirtualizer = useVirtualizer({
-    count: virtualizedRowCount,
-    getScrollElement: () => scrollContainer,
-    // Use stable row ids so virtual measurements do not leak across thread switches.
-    getItemKey: (index: number) => rows[index]?.id ?? index,
-    estimateSize: (index: number) => {
-      const row = rows[index];
-      if (!row) return 96;
-      if (row.kind === "work") return 112;
-      if (row.kind === "proposed-plan") return estimateTimelineProposedPlanHeight(row.proposedPlan);
-      if (row.kind === "working") return 40;
-      return estimateTimelineMessageHeight(row.message, { timelineWidthPx });
-    },
-    measureElement: measureVirtualElement,
-    useAnimationFrameWithResizeObserver: true,
-    overscan: 8,
-  });
-  useEffect(() => {
-    if (timelineWidthPx === null) return;
-    rowVirtualizer.measure();
-  }, [rowVirtualizer, timelineWidthPx]);
-  useEffect(() => {
-    rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
-      const viewportHeight = instance.scrollRect?.height ?? 0;
-      const scrollOffset = instance.scrollOffset ?? 0;
-      const itemIntersectsViewport =
-        item.end > scrollOffset && item.start < scrollOffset + viewportHeight;
-      if (itemIntersectsViewport) {
-        return false;
-      }
-      const remainingDistance = instance.getTotalSize() - (scrollOffset + viewportHeight);
-      return remainingDistance > AUTO_SCROLL_BOTTOM_THRESHOLD_PX;
-    };
-    return () => {
-      rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = undefined;
-    };
-  }, [rowVirtualizer]);
-  const pendingMeasureFrameRef = useRef<number | null>(null);
-  const onTimelineImageLoad = useCallback(() => {
-    if (pendingMeasureFrameRef.current !== null) return;
-    pendingMeasureFrameRef.current = window.requestAnimationFrame(() => {
-      pendingMeasureFrameRef.current = null;
-      rowVirtualizer.measure();
-    });
-  }, [rowVirtualizer]);
-  useEffect(() => {
-    return () => {
-      const frame = pendingMeasureFrameRef.current;
-      if (frame !== null) {
-        window.cancelAnimationFrame(frame);
-      }
-    };
-  }, []);
-
-  const virtualRows = rowVirtualizer.getVirtualItems();
-  const nonVirtualizedRows = rows.slice(virtualizedRowCount);
+  const rows = useMemo<TimelineRow[]>(
+    () =>
+      buildTimelineRows({
+        timelineEntries,
+        activeTurnInProgress,
+        activeTurnStartedAt,
+        completionDividerBeforeEntryId,
+        completionSummary,
+        isWorking,
+        turnDiffSummaryByAssistantMessageId,
+      }),
+    [
+      activeTurnInProgress,
+      timelineEntries,
+      completionDividerBeforeEntryId,
+      completionSummary,
+      isWorking,
+      activeTurnStartedAt,
+      turnDiffSummaryByAssistantMessageId,
+    ],
+  );
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
     Record<string, boolean>
   >({});
+  const [timelineRootElement, setTimelineRootElement] = useState<HTMLDivElement | null>(null);
+  const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
   const onToggleAllDirectories = useCallback((turnId: TurnId) => {
     setAllDirectoriesExpandedByTurnId((current) => ({
       ...current,
@@ -308,261 +159,284 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }));
   }, []);
 
-  const renderRowContent = (row: TimelineRow) => (
-    <div
-      className="pb-4"
-      data-timeline-row-kind={row.kind}
-      data-message-id={row.kind === "message" ? row.message.id : undefined}
-      data-message-role={row.kind === "message" ? row.message.role : undefined}
-    >
-      {row.kind === "work" &&
-        (() => {
-          const groupId = row.id;
-          const groupedEntries = row.groupedEntries;
-          const isExpanded = expandedWorkGroups[groupId] ?? false;
-          const hasOverflow = groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
-          const visibleEntries =
-            hasOverflow && !isExpanded
-              ? groupedEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES)
-              : groupedEntries;
-          const hiddenCount = groupedEntries.length - visibleEntries.length;
-          const onlyToolEntries = groupedEntries.every((entry) => entry.tone === "tool");
-          const showHeader = hasOverflow || !onlyToolEntries;
-          const groupLabel = onlyToolEntries ? "Tool calls" : "Work log";
+  useEffect(() => {
+    if (!timelineRootElement) {
+      setTimelineWidthPx(null);
+      return;
+    }
 
-          return (
-            <div className="rounded-xl border border-border/45 bg-card/25 px-2 py-1.5">
-              {showHeader && (
-                <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
-                  <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground/55">
-                    {groupLabel} ({groupedEntries.length})
-                  </p>
-                  {hasOverflow && (
-                    <button
-                      type="button"
-                      className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/55 transition-colors duration-150 hover:text-foreground/75"
-                      onClick={() => onToggleWorkGroup(groupId)}
-                    >
-                      {isExpanded ? "Show less" : `Show ${hiddenCount} more`}
-                    </button>
-                  )}
-                </div>
-              )}
-              <div className="space-y-0.5">
-                {visibleEntries.map((workEntry) => (
-                  <SimpleWorkEntryRow key={`work-row:${workEntry.id}`} workEntry={workEntry} />
-                ))}
-              </div>
-            </div>
-          );
-        })()}
+    const updateWidth = () => {
+      const nextWidth = timelineRootElement.getBoundingClientRect().width;
+      setTimelineWidthPx((current) =>
+        current !== null && Math.abs(current - nextWidth) < 0.5 ? current : nextWidth,
+      );
+    };
 
-      {row.kind === "message" &&
-        row.message.role === "user" &&
-        (() => {
-          const userImages = row.message.attachments ?? [];
-          const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text);
-          const terminalContexts = displayedUserMessage.contexts;
-          const canRevertAgentWork = revertTurnCountByUserMessageId.has(row.message.id);
-          return (
-            <div className="flex justify-end">
-              <div className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-border bg-secondary px-4 py-3">
-                {userImages.length > 0 && (
-                  <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
-                    {userImages.map(
-                      (image: NonNullable<TimelineMessage["attachments"]>[number]) => (
-                        <div
-                          key={image.id}
-                          className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
-                        >
-                          {image.previewUrl ? (
-                            <button
-                              type="button"
-                              className="h-full w-full cursor-zoom-in"
-                              aria-label={`Preview ${image.name}`}
-                              onClick={() => {
-                                const preview = buildExpandedImagePreview(userImages, image.id);
-                                if (!preview) return;
-                                onImageExpand(preview);
-                              }}
-                            >
-                              <img
-                                src={image.previewUrl}
-                                alt={image.name}
-                                className="h-full max-h-[220px] w-full object-cover"
-                                onLoad={onTimelineImageLoad}
-                                onError={onTimelineImageLoad}
-                              />
-                            </button>
-                          ) : (
-                            <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
-                              {image.name}
-                            </div>
-                          )}
-                        </div>
+    updateWidth();
+
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => updateWidth());
+    observer.observe(timelineRootElement);
+    return () => observer.disconnect();
+  }, [timelineRootElement]);
+
+  const firstUnvirtualizedRowIndex = useMemo(
+    () =>
+      deriveFirstUnvirtualizedTimelineRowIndex(rows, {
+        activeTurnInProgress,
+        activeTurnStartedAt,
+        preserveCurrentTurnTail: true,
+      }),
+    [activeTurnInProgress, activeTurnStartedAt, rows],
+  );
+  const virtualizedRows = useMemo(
+    () => rows.slice(0, firstUnvirtualizedRowIndex),
+    [firstUnvirtualizedRowIndex, rows],
+  );
+  const trailingRows = useMemo(
+    () => rows.slice(firstUnvirtualizedRowIndex),
+    [firstUnvirtualizedRowIndex, rows],
+  );
+  const rowVirtualizer = useVirtualizer({
+    count: virtualizedRows.length,
+    estimateSize: (index) =>
+      estimateTimelineRowHeight(virtualizedRows[index], {
+        timelineWidthPx,
+        expandedWorkGroups,
+        turnDiffSummaryByAssistantMessageId,
+      }),
+    getScrollElement: () => scrollContainer,
+    overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
+  });
+
+  useEffect(() => {
+    if (virtualizedRows.length === 0) {
+      return;
+    }
+    rowVirtualizer.measure();
+  }, [
+    expandedWorkGroups,
+    rowVirtualizer,
+    timelineWidthPx,
+    turnDiffSummaryByAssistantMessageId,
+    virtualizedRows,
+  ]);
+
+  const renderRowContent = (row: TimelineRow, _rowIndex: number) => {
+    return (
+      <div
+        className="group/timeline relative pb-3"
+        data-timeline-row-kind={row.kind}
+        data-message-id={row.kind === "message" ? row.message.id : undefined}
+        data-message-role={row.kind === "message" ? row.message.role : undefined}
+      >
+        {row.kind === "work" && (
+          <div className="min-w-0 border-border/35 border-l py-0.5 pl-4">
+            <SimpleWorkEntryRow
+              workEntry={row.workEntry}
+              inlineIntentText={row.workEntry.intentText ?? null}
+            />
+            <p className="mt-1.5 pl-5.5 text-[10px] text-muted-foreground/30">
+              {formatTimestamp(row.createdAt, timestampFormat)}
+            </p>
+          </div>
+        )}
+
+        {row.kind === "work-group" &&
+          (() => {
+            const groupId = workGroupId(row.id);
+            const isExpanded = expandedWorkGroups[groupId] ?? false;
+            const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon;
+            const disclosureLabel = summarizeWorkGroupLabel(row.entries, row.summaryEndAt);
+            const secondaryLabel = summarizeWorkGroupBreakdown(row.entries);
+            const hasThinkingEntries = row.entries.some(
+              (entry) => entry.kind === "work" && entry.workEntry.tone === "thinking",
+            );
+            const hasToolEntries = row.entries.some(
+              (entry) => entry.kind === "work" && entry.workEntry.tone === "tool",
+            );
+            const hasIntentEntries = row.entries.some((entry) => entry.kind === "intent");
+            const threadGroupTone = hasToolEntries
+              ? hasThinkingEntries
+                ? "mixed"
+                : "tool"
+              : hasThinkingEntries
+                ? "thinking"
+                : hasIntentEntries
+                  ? "intent"
+                  : row.entries.some(
+                        (entry) => entry.kind === "work" && entry.workEntry.tone === "error",
+                      )
+                    ? "error"
+                    : "info";
+
+            return (
+              <div
+                className={cn("min-w-0 border-l pl-4", workGroupRailClass(row.entries))}
+                data-thread-group={threadGroupTone}
+              >
+                <button
+                  type="button"
+                  className="w-full text-left"
+                  onClick={() => onToggleWorkGroup(groupId)}
+                  data-meta-disclosure="true"
+                  data-meta-disclosure-open={String(isExpanded)}
+                  data-thinking-disclosure={hasThinkingEntries ? "true" : undefined}
+                  data-thinking-disclosure-open={
+                    hasThinkingEntries ? String(isExpanded) : undefined
+                  }
+                  data-tool-disclosure={hasToolEntries ? "true" : undefined}
+                  data-tool-disclosure-open={hasToolEntries ? String(isExpanded) : undefined}
+                >
+                  <div className="flex items-start gap-3 py-1.5 transition-colors duration-100 hover:text-foreground/92">
+                    <span className="mt-1 flex size-4 shrink-0 items-center justify-center text-muted-foreground/40 transition-transform duration-100 group-hover/timeline:text-foreground/55">
+                      <ChevronIcon className="size-3.5" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-baseline justify-between gap-3">
+                        <p className="truncate text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground/58">
+                          {disclosureLabel}
+                        </p>
+                        <span className="shrink-0 text-[10px] text-muted-foreground/45">
+                          {isExpanded ? "Hide log" : "Show log"}
+                        </span>
+                      </div>
+                      <p className="wrap-break-word pt-1 text-[13px] leading-6 text-foreground/78">
+                        {secondaryLabel}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+                {isExpanded && (
+                  <div className="mt-2 space-y-2 border-border/25 border-l pl-4">
+                    {row.entries.map((entry) =>
+                      entry.kind === "work" ? (
+                        <SimpleWorkEntryRow
+                          key={`work-group:${row.id}:${entry.id}`}
+                          workEntry={entry.workEntry}
+                          inlineIntentText={null}
+                        />
+                      ) : (
+                        <SimpleIntentEntryRow
+                          key={`work-group:${row.id}:${entry.id}`}
+                          entry={entry}
+                        />
                       ),
                     )}
                   </div>
                 )}
-                {(displayedUserMessage.visibleText.trim().length > 0 ||
-                  terminalContexts.length > 0) && (
-                  <UserMessageBody
-                    text={displayedUserMessage.visibleText}
-                    terminalContexts={terminalContexts}
-                  />
-                )}
-                <div className="mt-1.5 flex items-center justify-end gap-2">
-                  <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
-                    {displayedUserMessage.copyText && (
-                      <MessageCopyButton text={displayedUserMessage.copyText} />
-                    )}
-                    {canRevertAgentWork && (
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="outline"
-                        disabled={isRevertingCheckpoint || isWorking}
-                        onClick={() => onRevertUserMessage(row.message.id)}
-                        title="Revert to this message"
-                      >
-                        <Undo2Icon className="size-3" />
-                      </Button>
-                    )}
-                  </div>
-                  <p className="text-right text-[10px] text-muted-foreground/30">
-                    {formatTimestamp(row.message.createdAt, timestampFormat)}
-                  </p>
-                </div>
               </div>
-            </div>
-          );
-        })()}
+            );
+          })()}
 
-      {row.kind === "message" &&
-        row.message.role === "assistant" &&
-        (() => {
-          const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
-          return (
-            <>
-              {row.showCompletionDivider && (
-                <div className="my-3 flex items-center gap-3">
-                  <span className="h-px flex-1 bg-border" />
-                  <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/80">
-                    {completionSummary ? `Response • ${completionSummary}` : "Response"}
-                  </span>
-                  <span className="h-px flex-1 bg-border" />
-                </div>
-              )}
-              <div className="min-w-0 px-1 py-0.5">
-                <ChatMarkdown
-                  text={messageText}
-                  cwd={markdownCwd}
-                  isStreaming={Boolean(row.message.streaming)}
-                />
-                {(() => {
-                  const turnSummary = turnDiffSummaryByAssistantMessageId.get(row.message.id);
-                  if (!turnSummary) return null;
-                  const checkpointFiles = turnSummary.files;
-                  if (checkpointFiles.length === 0) return null;
-                  const summaryStat = summarizeTurnDiffStats(checkpointFiles);
-                  const changedFileCountLabel = String(checkpointFiles.length);
-                  const allDirectoriesExpanded =
-                    allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? true;
-                  return (
-                    <div className="mt-2 rounded-lg border border-border/80 bg-card/45 p-2.5">
-                      <div className="mb-1.5 flex items-center justify-between gap-2">
-                        <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/65">
-                          <span>Changed files ({changedFileCountLabel})</span>
-                          {hasNonZeroStat(summaryStat) && (
-                            <>
-                              <span className="mx-1">•</span>
-                              <DiffStatLabel
-                                additions={summaryStat.additions}
-                                deletions={summaryStat.deletions}
-                              />
-                            </>
-                          )}
-                        </p>
-                        <div className="flex items-center gap-1.5">
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="outline"
-                            data-scroll-anchor-ignore
-                            onClick={() => onToggleAllDirectories(turnSummary.turnId)}
-                          >
-                            {allDirectoriesExpanded ? "Collapse all" : "Expand all"}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="outline"
-                            onClick={() =>
-                              onOpenTurnDiff(turnSummary.turnId, checkpointFiles[0]?.path)
-                            }
-                          >
-                            View diff
-                          </Button>
-                        </div>
-                      </div>
-                      <ChangedFilesTree
-                        key={`changed-files-tree:${turnSummary.turnId}`}
-                        turnId={turnSummary.turnId}
-                        files={checkpointFiles}
-                        allDirectoriesExpanded={allDirectoriesExpanded}
-                        resolvedTheme={resolvedTheme}
-                        onOpenTurnDiff={onOpenTurnDiff}
-                      />
-                    </div>
-                  );
-                })()}
-                <p className="mt-1.5 text-[10px] text-muted-foreground/30">
-                  {formatMessageMeta(
-                    row.message.createdAt,
-                    row.message.streaming
-                      ? formatElapsed(row.durationStart, nowIso)
-                      : formatElapsed(row.durationStart, row.message.completedAt),
-                    timestampFormat,
-                  )}
-                </p>
-              </div>
-            </>
-          );
-        })()}
+        {row.kind === "intent" && (
+          <div
+            className="min-w-0 border-primary/18 border-l py-0.5 pr-1 pl-4"
+            data-intent-message="true"
+          >
+            <p className="px-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
+              Message
+            </p>
+            <p className="wrap-break-word px-0.5 pt-1 text-[13px] leading-6 text-foreground/84">
+              <span>&quot;{row.text}&quot;</span>
+            </p>
+          </div>
+        )}
 
-      {row.kind === "proposed-plan" && (
-        <div className="min-w-0 px-1 py-0.5">
-          <ProposedPlanCard
-            planMarkdown={row.proposedPlan.planMarkdown}
+        {row.kind === "message" && isUserTimelineMessage(row.message) && (
+          <UserMessageTimelineRow
+            canRevertAgentWork={revertTurnCountByUserMessageId.has(row.message.id)}
+            isRevertingCheckpoint={isRevertingCheckpoint}
+            isWorking={isWorking}
+            message={row.message}
+            onImageExpand={onImageExpand}
+            onRevertUserMessage={onRevertUserMessage}
+            revertActionTitle={revertActionTitle}
+            timestampFormat={timestampFormat}
+          />
+        )}
+
+        {row.kind === "message" &&
+          isAssistantTimelineMessage(row.message) &&
+          (() => {
+            const turnSummary = turnDiffSummaryByAssistantMessageId.get(row.message.id);
+            return (
+              <AssistantMessageTimelineRow
+                allDirectoriesExpanded={
+                  turnSummary ? (allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? true) : true
+                }
+                completionSummary={row.completionSummary}
+                markdownCwd={markdownCwd}
+                message={row.message}
+                onOpenTurnDiff={onOpenTurnDiff}
+                onToggleAllDirectories={onToggleAllDirectories}
+                resolvedTheme={resolvedTheme}
+                turnSummary={turnSummary}
+              />
+            );
+          })()}
+
+        {row.kind === "proposed-plan" && (
+          <ProposedPlanTimelineRow
             cwd={markdownCwd}
+            proposedPlan={row.proposedPlan}
             workspaceRoot={workspaceRoot}
           />
-        </div>
-      )}
+        )}
 
-      {row.kind === "working" && (
-        <div className="py-0.5 pl-1.5">
-          <div className="flex items-center gap-2 pt-1 text-[11px] text-muted-foreground/70">
-            <span className="inline-flex items-center gap-[3px]">
-              <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse" />
-              <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:200ms]" />
-              <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-pulse [animation-delay:400ms]" />
-            </span>
-            <span>
-              {row.createdAt
-                ? `Working for ${formatWorkingTimer(row.createdAt, nowIso) ?? "0s"}`
-                : "Working..."}
-            </span>
+        {row.kind === "working" && (
+          <div
+            className={cn(
+              "border-l py-0.5 pl-4",
+              row.mode === "silent-thinking" ? "border-amber-500/26" : "border-border/35",
+            )}
+          >
+            <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
+              {row.mode === "silent-thinking" ? "Thought" : "Live"}
+            </p>
+            <div className="flex items-center gap-2.5 text-[11px] text-muted-foreground/65">
+              <span className="inline-flex items-center gap-1">
+                <span className="h-1 w-1 rounded-full bg-muted-foreground/25 animate-pulse" />
+                <span className="h-1 w-1 rounded-full bg-muted-foreground/25 animate-pulse [animation-delay:200ms]" />
+                <span className="h-1 w-1 rounded-full bg-muted-foreground/25 animate-pulse [animation-delay:400ms]" />
+              </span>
+              <span>
+                {row.createdAt ? (
+                  <WorkingTimer
+                    createdAt={row.createdAt}
+                    label={row.mode === "silent-thinking" ? "Thought for" : "Working for"}
+                  />
+                ) : row.mode === "silent-thinking" ? (
+                  "Thought in progress..."
+                ) : (
+                  "Working..."
+                )}
+              </span>
+            </div>
+            {row.intentText && (
+              <p
+                className="mt-2 pl-0.5 text-[11px] leading-5 text-muted-foreground/68"
+                data-inline-intent="true"
+              >
+                <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
+                  Intent
+                </span>
+                <span className="text-foreground/72">{row.intentText}</span>
+              </p>
+            )}
           </div>
-        </div>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
+  };
 
   if (!hasMessages && !isWorking) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground/30">
+        <p className="text-sm text-muted-foreground/25">
           Send a message to start the conversation.
         </p>
       </div>
@@ -571,33 +445,41 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   return (
     <div
-      ref={timelineRootRef}
+      ref={setTimelineRootElement}
       data-timeline-root="true"
       className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
     >
-      {virtualizedRowCount > 0 && (
-        <div className="relative" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-          {virtualRows.map((virtualRow: VirtualItem) => {
-            const row = rows[virtualRow.index];
-            if (!row) return null;
-
+      {scrollContainer && virtualizedRows.length > 0 ? (
+        <div
+          data-virtualizer-buffer="true"
+          className="relative"
+          style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+        >
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const row = virtualizedRows[virtualRow.index];
+            if (!row) {
+              return null;
+            }
             return (
               <div
-                key={`virtual-row:${row.id}`}
-                data-index={virtualRow.index}
+                key={`row:${row.id}`}
                 ref={rowVirtualizer.measureElement}
-                className="absolute left-0 top-0 w-full"
+                data-index={virtualRow.index}
+                className="absolute top-0 left-0 w-full"
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
-                {renderRowContent(row)}
+                {renderRowContent(row, virtualRow.index)}
               </div>
             );
           })}
         </div>
+      ) : (
+        virtualizedRows.map((row, index) => (
+          <div key={`row:${row.id}`}>{renderRowContent(row, index)}</div>
+        ))
       )}
-
-      {nonVirtualizedRows.map((row) => (
-        <div key={`non-virtual-row:${row.id}`}>{renderRowContent(row)}</div>
+      {trailingRows.map((row, index) => (
+        <div key={`row:${row.id}`}>{renderRowContent(row, virtualizedRows.length + index)}</div>
       ))}
     </div>
   );
@@ -605,14 +487,42 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
 type TimelineEntry = ReturnType<typeof deriveTimelineEntries>[number];
 type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];
+type UserTimelineMessage = TimelineMessage & { role: "user" };
+type AssistantTimelineMessage = TimelineMessage & { role: "assistant" };
 type TimelineProposedPlan = Extract<TimelineEntry, { kind: "proposed-plan" }>["proposedPlan"];
 type TimelineWorkEntry = Extract<TimelineEntry, { kind: "work" }>["entry"];
+type TimelineMetaGroupEntry =
+  | {
+      kind: "intent";
+      id: string;
+      createdAt: string;
+      text: string;
+    }
+  | {
+      kind: "work";
+      id: string;
+      createdAt: string;
+      workEntry: TimelineWorkEntry;
+    };
 type TimelineRow =
   | {
       kind: "work";
       id: string;
       createdAt: string;
-      groupedEntries: TimelineWorkEntry[];
+      workEntry: TimelineWorkEntry;
+    }
+  | {
+      kind: "work-group";
+      id: string;
+      createdAt: string;
+      entries: TimelineMetaGroupEntry[];
+      summaryEndAt: string | null;
+    }
+  | {
+      kind: "intent";
+      id: string;
+      createdAt: string;
+      text: string;
     }
   | {
       kind: "message";
@@ -620,7 +530,7 @@ type TimelineRow =
       createdAt: string;
       message: TimelineMessage;
       durationStart: string;
-      showCompletionDivider: boolean;
+      completionSummary: string | null;
     }
   | {
       kind: "proposed-plan";
@@ -628,21 +538,559 @@ type TimelineRow =
       createdAt: string;
       proposedPlan: TimelineProposedPlan;
     }
-  | { kind: "working"; id: string; createdAt: string | null };
+  | {
+      kind: "working";
+      id: string;
+      createdAt: string | null;
+      mode: "live" | "silent-thinking";
+      intentText: string | null;
+    };
 
-function estimateTimelineProposedPlanHeight(proposedPlan: TimelineProposedPlan): number {
-  const estimatedLines = Math.max(1, Math.ceil(proposedPlan.planMarkdown.length / 72));
-  return 120 + Math.min(estimatedLines * 22, 880);
+export function deriveFirstUnvirtualizedTimelineRowIndex(
+  rows: ReadonlyArray<TimelineRow>,
+  input: {
+    activeTurnInProgress: boolean;
+    activeTurnStartedAt: string | null;
+    preserveCurrentTurnTail: boolean;
+  },
+): number {
+  const firstTailRowIndex = Math.max(rows.length - ALWAYS_UNVIRTUALIZED_TAIL_ROWS, 0);
+  if (!input.activeTurnInProgress || !input.preserveCurrentTurnTail) {
+    return firstTailRowIndex;
+  }
+
+  const turnStartedAtMs =
+    typeof input.activeTurnStartedAt === "string"
+      ? Date.parse(input.activeTurnStartedAt)
+      : Number.NaN;
+  let firstCurrentTurnRowIndex = -1;
+  if (!Number.isNaN(turnStartedAtMs)) {
+    firstCurrentTurnRowIndex = rows.findIndex((row) => {
+      if (row.kind === "working") return true;
+      if (!row.createdAt) return false;
+      const rowCreatedAtMs = Date.parse(row.createdAt);
+      return !Number.isNaN(rowCreatedAtMs) && rowCreatedAtMs >= turnStartedAtMs;
+    });
+  }
+
+  if (firstCurrentTurnRowIndex < 0) {
+    firstCurrentTurnRowIndex = rows.findIndex(
+      (row) => row.kind === "message" && row.message.role === "assistant" && row.message.streaming,
+    );
+  }
+
+  if (firstCurrentTurnRowIndex < 0) return firstTailRowIndex;
+
+  for (let index = firstCurrentTurnRowIndex - 1; index >= 0; index -= 1) {
+    const previousRow = rows[index];
+    if (!previousRow || previousRow.kind !== "message") continue;
+    if (previousRow.message.role === "user") {
+      return Math.min(index, firstTailRowIndex);
+    }
+    if (previousRow.message.role === "assistant" && !previousRow.message.streaming) {
+      break;
+    }
+  }
+
+  return Math.min(firstCurrentTurnRowIndex, firstTailRowIndex);
 }
 
-function formatWorkingTimer(startIso: string, endIso: string): string | null {
+function formatElapsedSeconds(elapsedSeconds: number): string {
+  if (elapsedSeconds < 60) return `${elapsedSeconds}s`;
+  const hours = Math.floor(elapsedSeconds / 3600);
+  const minutes = Math.floor((elapsedSeconds % 3600) / 60);
+  const seconds = elapsedSeconds % 60;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+/** Self-contained timer that re-renders only itself every second. */
+const WorkingTimer = memo(function WorkingTimer({
+  createdAt,
+  label,
+}: {
+  createdAt: string;
+  label: string;
+}) {
+  const startedAtMs = Date.parse(createdAt);
+  const [elapsed, setElapsed] = useState(() =>
+    Number.isFinite(startedAtMs) ? Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)) : 0,
+  );
+
+  useEffect(() => {
+    if (!Number.isFinite(startedAtMs)) return;
+    const timer = window.setInterval(() => {
+      setElapsed(Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [startedAtMs]);
+
+  return (
+    <>
+      {label} {formatElapsedSeconds(elapsed)}
+    </>
+  );
+});
+
+function buildTimelineRows(input: {
+  timelineEntries: ReadonlyArray<TimelineEntry>;
+  activeTurnInProgress: boolean;
+  activeTurnStartedAt: string | null;
+  completionDividerBeforeEntryId: string | null;
+  completionSummary: string | null;
+  isWorking: boolean;
+  turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
+}): TimelineRow[] {
+  const nextRows: TimelineRow[] = [];
+  const activeTurnStartedAtMs =
+    typeof input.activeTurnStartedAt === "string"
+      ? Date.parse(input.activeTurnStartedAt)
+      : Number.NaN;
+  const liveWorkEntryId = findTrailingLiveWorkEntryId(input.timelineEntries, {
+    activeTurnInProgress: input.activeTurnInProgress,
+    activeTurnStartedAtMs,
+  });
+  let hasRenderableCurrentTurnOutput = false;
+  let lastMessageBoundaryAt: string | null = null;
+  let pendingMetaRowId: string | null = null;
+  let pendingMetaCreatedAt: string | null = null;
+  let pendingMetaEntries: TimelineMetaGroupEntry[] = [];
+  let pendingIntentEntries: Array<Extract<TimelineMetaGroupEntry, { kind: "intent" }>> = [];
+  let activeLiveIntentText: string | null = null;
+
+  const resetPendingMetaEntries = () => {
+    pendingMetaEntries = [];
+    pendingMetaRowId = null;
+    pendingMetaCreatedAt = null;
+  };
+
+  const appendPendingIntentEntriesToMeta = (preferredRowId: string | null) => {
+    if (pendingIntentEntries.length === 0) {
+      return;
+    }
+
+    if (!pendingMetaCreatedAt) {
+      pendingMetaCreatedAt = pendingIntentEntries[0]?.createdAt ?? null;
+    }
+    if (!pendingMetaRowId) {
+      pendingMetaRowId = preferredRowId ?? pendingIntentEntries[0]?.id ?? null;
+    }
+
+    pendingMetaEntries.push(...pendingIntentEntries);
+    pendingIntentEntries = [];
+  };
+
+  const consumeLatestPendingIntentText = () => {
+    const latestIntentText = pendingIntentEntries.at(-1)?.text ?? null;
+    pendingIntentEntries = [];
+    return latestIntentText;
+  };
+
+  const flushPendingMetaEntries = (
+    nextEventCreatedAt: string | null,
+    options?: { includePendingIntents?: boolean },
+  ) => {
+    if (options?.includePendingIntents !== false) {
+      appendPendingIntentEntriesToMeta(null);
+    }
+
+    if (pendingMetaEntries.length === 0 || !pendingMetaRowId || !pendingMetaCreatedAt) {
+      resetPendingMetaEntries();
+      return;
+    }
+
+    if (shouldCollapseMetaEntries(pendingMetaEntries)) {
+      nextRows.push({
+        kind: "work-group",
+        id: pendingMetaRowId,
+        createdAt: pendingMetaCreatedAt,
+        entries: pendingMetaEntries,
+        summaryEndAt: resolveWorkGroupSummaryEndAt(pendingMetaEntries, nextEventCreatedAt),
+      });
+    } else {
+      for (const entry of pendingMetaEntries) {
+        if (entry.kind === "work") {
+          nextRows.push({
+            kind: "work",
+            id: entry.id,
+            createdAt: entry.createdAt,
+            workEntry: entry.workEntry,
+          });
+          continue;
+        }
+
+        nextRows.push({
+          kind: "intent",
+          id: entry.id,
+          createdAt: entry.createdAt,
+          text: entry.text,
+        });
+      }
+    }
+
+    resetPendingMetaEntries();
+  };
+
+  const pushPendingWorkEntry = (timelineEntry: Extract<TimelineEntry, { kind: "work" }>) => {
+    if (timelineEntry.id === liveWorkEntryId) {
+      flushPendingMetaEntries(timelineEntry.createdAt, { includePendingIntents: false });
+      const liveIntentText = consumeLatestPendingIntentText();
+      nextRows.push({
+        kind: "work",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        workEntry: withInlineIntentText(timelineEntry.entry, liveIntentText),
+      });
+      return;
+    }
+
+    if (pendingMetaEntries.length === 0) {
+      if (pendingIntentEntries.length > 0) {
+        pendingMetaEntries = [...pendingIntentEntries];
+        pendingMetaCreatedAt = pendingIntentEntries[0]?.createdAt ?? timelineEntry.createdAt;
+        pendingIntentEntries = [];
+      } else {
+        pendingMetaCreatedAt = timelineEntry.createdAt;
+      }
+      pendingMetaRowId = timelineEntry.id;
+    } else {
+      appendPendingIntentEntriesToMeta(pendingMetaRowId);
+    }
+
+    pendingMetaEntries.push({
+      kind: "work",
+      id: timelineEntry.id,
+      createdAt: timelineEntry.createdAt,
+      workEntry: timelineEntry.entry,
+    });
+  };
+
+  for (const timelineEntry of input.timelineEntries) {
+    if (!timelineEntry) {
+      continue;
+    }
+
+    if (timelineEntry.kind === "work") {
+      if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
+        hasRenderableCurrentTurnOutput = true;
+      }
+      pushPendingWorkEntry(timelineEntry);
+      continue;
+    }
+
+    if (timelineEntry.kind === "intent") {
+      pendingIntentEntries.push({
+        kind: "intent",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        text: timelineEntry.text,
+      });
+      continue;
+    }
+
+    flushPendingMetaEntries(timelineEntry.createdAt);
+
+    if (timelineEntry.kind === "proposed-plan") {
+      if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
+        hasRenderableCurrentTurnOutput = true;
+      }
+      nextRows.push({
+        kind: "proposed-plan",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        proposedPlan: timelineEntry.proposedPlan,
+      });
+      continue;
+    }
+
+    if (
+      timelineEntry.message.role === "assistant" &&
+      shouldSkipAssistantMessageRow(
+        timelineEntry.message,
+        input.turnDiffSummaryByAssistantMessageId.get(timelineEntry.message.id),
+      )
+    ) {
+      continue;
+    }
+
+    if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
+      hasRenderableCurrentTurnOutput = true;
+    }
+
+    const durationStart = lastMessageBoundaryAt ?? timelineEntry.message.createdAt;
+    if (timelineEntry.message.role === "user") {
+      lastMessageBoundaryAt = timelineEntry.message.createdAt;
+    }
+
+    nextRows.push({
+      kind: "message",
+      id: timelineEntry.id,
+      createdAt: timelineEntry.createdAt,
+      message: timelineEntry.message,
+      durationStart,
+      completionSummary:
+        timelineEntry.message.role === "assistant" &&
+        input.completionDividerBeforeEntryId === timelineEntry.id
+          ? input.completionSummary
+          : null,
+    });
+
+    if (timelineEntry.message.role === "assistant" && timelineEntry.message.completedAt) {
+      lastMessageBoundaryAt = timelineEntry.message.completedAt;
+    }
+  }
+
+  if (input.isWorking && pendingIntentEntries.length > 0) {
+    flushPendingMetaEntries(null, { includePendingIntents: false });
+    activeLiveIntentText = consumeLatestPendingIntentText();
+  } else {
+    flushPendingMetaEntries(null);
+  }
+
+  if (input.isWorking) {
+    nextRows.push({
+      kind: "working",
+      id: "working-indicator-row",
+      createdAt: input.activeTurnStartedAt,
+      mode: hasRenderableCurrentTurnOutput ? "live" : "silent-thinking",
+      intentText: activeLiveIntentText,
+    });
+  }
+
+  return nextRows;
+}
+
+function workGroupId(rowId: string): string {
+  return `work-group:${rowId}`;
+}
+
+function shouldCollapseMetaEntries(entries: ReadonlyArray<TimelineMetaGroupEntry>): boolean {
+  if (entries.some((entry) => entry.kind === "intent")) {
+    return true;
+  }
+
+  if (entries.length !== 1) {
+    return entries.length > 0;
+  }
+
+  const [entry] = entries;
+  return (
+    entry?.kind === "work" &&
+    (entry.workEntry.tone === "thinking" || entry.workEntry.tone === "tool")
+  );
+}
+
+function isEventInActiveTurn(createdAt: string, activeTurnStartedAtMs: number): boolean {
+  if (Number.isNaN(activeTurnStartedAtMs)) {
+    return false;
+  }
+  const createdAtMs = Date.parse(createdAt);
+  return !Number.isNaN(createdAtMs) && createdAtMs >= activeTurnStartedAtMs;
+}
+
+function resolveWorkGroupSummaryEndAt(
+  entries: ReadonlyArray<TimelineMetaGroupEntry>,
+  nextEventCreatedAt: string | null,
+): string | null {
+  if (typeof nextEventCreatedAt === "string") {
+    return nextEventCreatedAt;
+  }
+  return entries.at(-1)?.createdAt ?? null;
+}
+
+function withInlineIntentText(
+  workEntry: TimelineWorkEntry,
+  intentText: string | null,
+): TimelineWorkEntry {
+  if (!intentText || workEntry.intentText === intentText) {
+    return workEntry;
+  }
+  return {
+    ...workEntry,
+    intentText,
+  };
+}
+
+function findTrailingLiveWorkEntryId(
+  timelineEntries: ReadonlyArray<TimelineEntry>,
+  input: {
+    activeTurnInProgress: boolean;
+    activeTurnStartedAtMs: number;
+  },
+): string | null {
+  if (!input.activeTurnInProgress) {
+    return null;
+  }
+
+  for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
+    const entry = timelineEntries[index];
+    if (!entry) {
+      continue;
+    }
+    if (entry.kind === "work") {
+      return isEventInActiveTurn(entry.createdAt, input.activeTurnStartedAtMs) ? entry.id : null;
+    }
+    return null;
+  }
+
+  return null;
+}
+
+function estimateTimelineRowHeight(
+  row: TimelineRow | undefined,
+  input: {
+    timelineWidthPx: number | null;
+    expandedWorkGroups: Record<string, boolean>;
+    turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
+  },
+): number {
+  if (!row) {
+    return 96;
+  }
+
+  const widthCacheKey = toTimelineWidthCacheKey(input.timelineWidthPx);
+  let cacheKey: string;
+  switch (row.kind) {
+    case "message": {
+      const turnSummary = input.turnDiffSummaryByAssistantMessageId.get(row.message.id);
+      cacheKey = [
+        "message",
+        row.id,
+        row.message.role,
+        row.message.text.length,
+        row.message.attachments?.length ?? 0,
+        row.message.streaming ? 1 : 0,
+        row.message.completedAt ?? "incomplete",
+        turnSummary?.files.length ?? 0,
+        row.completionSummary ? 1 : 0,
+        widthCacheKey,
+      ].join(":");
+      break;
+    }
+    case "work":
+      cacheKey = `work:${row.id}:${row.workEntry.detail ? 1 : 0}:${row.workEntry.command ? 1 : 0}`;
+      break;
+    case "work-group":
+      cacheKey = `work-group:${row.id}:${input.expandedWorkGroups[workGroupId(row.id)] ? 1 : 0}:${row.entries.length}`;
+      break;
+    case "intent":
+      cacheKey = `intent:${row.id}`;
+      break;
+    case "proposed-plan":
+      cacheKey = `proposed-plan:${row.id}:${row.proposedPlan.planMarkdown.length}`;
+      break;
+    case "working":
+      cacheKey = `working:${row.id}:${row.mode}:${row.intentText ? 1 : 0}`;
+      break;
+  }
+
+  const cachedHeight = readCachedTimelineRowHeight(cacheKey);
+  if (cachedHeight !== null) {
+    return cachedHeight;
+  }
+
+  let height: number;
+  switch (row.kind) {
+    case "message": {
+      const messageText =
+        row.message.role === "assistant" &&
+        row.message.text.trim().length === 0 &&
+        !row.message.streaming
+          ? "(empty response)"
+          : row.message.text;
+      const messageHeightInput =
+        row.message.attachments === undefined
+          ? {
+              role: row.message.role,
+              text: messageText,
+            }
+          : {
+              role: row.message.role,
+              text: messageText,
+              attachments: row.message.attachments,
+            };
+      const messageHeight = estimateTimelineMessageHeight(messageHeightInput, {
+        timelineWidthPx: input.timelineWidthPx,
+      });
+      if (row.message.role !== "assistant") {
+        height = messageHeight + 16;
+        break;
+      }
+      const turnSummary = input.turnDiffSummaryByAssistantMessageId.get(row.message.id);
+      const changedFilesExtra =
+        turnSummary && turnSummary.files.length > 0
+          ? 84 + Math.min(turnSummary.files.length, 8) * 22
+          : 0;
+      const completionSummaryExtra = row.completionSummary ? 24 : 0;
+      height = messageHeight + changedFilesExtra + completionSummaryExtra + 16;
+      break;
+    }
+    case "work":
+      height = row.workEntry.detail || row.workEntry.command ? 92 : 68;
+      break;
+    case "work-group": {
+      const collapsedHeight = 88;
+      const isExpanded = input.expandedWorkGroups[workGroupId(row.id)] ?? false;
+      height = isExpanded ? collapsedHeight + row.entries.length * 52 : collapsedHeight;
+      break;
+    }
+    case "intent":
+      height = 72;
+      break;
+    case "proposed-plan":
+      height = 160 + Math.min(12, Math.ceil(row.proposedPlan.planMarkdown.length / 120)) * 24;
+      break;
+    case "working":
+      height = row.intentText ? 112 : 84;
+      break;
+  }
+
+  return writeCachedTimelineRowHeight(cacheKey, height);
+}
+
+function workGroupRailClass(entries: ReadonlyArray<TimelineMetaGroupEntry>): string {
+  const hasThinking = entries.some(
+    (entry) => entry.kind === "work" && entry.workEntry.tone === "thinking",
+  );
+  const hasTool = entries.some((entry) => entry.kind === "work" && entry.workEntry.tone === "tool");
+  const hasIntent = entries.some((entry) => entry.kind === "intent");
+
+  if (entries.some((entry) => entry.kind === "work" && entry.workEntry.tone === "error")) {
+    return "border-rose-500/22";
+  }
+  if (hasThinking && !hasTool) {
+    return "border-amber-500/26";
+  }
+  if (hasTool) {
+    return "border-border/35";
+  }
+  if (hasIntent) {
+    return "border-primary/18";
+  }
+  return "border-emerald-500/18";
+}
+
+function summarizeWorkGroupLabel(
+  entries: ReadonlyArray<TimelineMetaGroupEntry>,
+  summaryEndAt: string | null,
+): string {
+  const firstEntry = entries[0];
+  const duration =
+    firstEntry && summaryEndAt
+      ? formatCompletedWorkTimer(firstEntry.createdAt, summaryEndAt)
+      : null;
+
+  return duration ? `Worked for ${duration}` : "Activity log";
+}
+
+function formatCompletedWorkTimer(startIso: string, endIso: string): string | null {
   const startedAtMs = Date.parse(startIso);
   const endedAtMs = Date.parse(endIso);
   if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs)) {
     return null;
   }
 
-  const elapsedSeconds = Math.max(0, Math.floor((endedAtMs - startedAtMs) / 1000));
+  const elapsedSeconds = Math.max(1, Math.ceil((endedAtMs - startedAtMs) / 1000));
   if (elapsedSeconds < 60) {
     return `${elapsedSeconds}s`;
   }
@@ -658,13 +1106,64 @@ function formatWorkingTimer(startIso: string, endIso: string): string | null {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-function formatMessageMeta(
-  createdAt: string,
-  duration: string | null,
-  timestampFormat: TimestampFormat,
-): string {
-  if (!duration) return formatTimestamp(createdAt, timestampFormat);
-  return `${formatTimestamp(createdAt, timestampFormat)} • ${duration}`;
+function summarizeWorkGroupBreakdown(entries: ReadonlyArray<TimelineMetaGroupEntry>): string {
+  const intentCount = entries.filter((entry) => entry.kind === "intent").length;
+  const toolCount = entries.filter(
+    (entry) => entry.kind === "work" && entry.workEntry.tone === "tool",
+  ).length;
+  const thinkingCount = entries.filter(
+    (entry) => entry.kind === "work" && entry.workEntry.tone === "thinking",
+  ).length;
+  const errorCount = entries.filter(
+    (entry) => entry.kind === "work" && entry.workEntry.tone === "error",
+  ).length;
+  const infoCount = entries.filter(
+    (entry) => entry.kind === "work" && entry.workEntry.tone === "info",
+  ).length;
+  const parts: string[] = [];
+
+  if (intentCount > 0) {
+    parts.push(intentCount === 1 ? "1 intent" : `${intentCount} intents`);
+  }
+  if (toolCount > 0) {
+    parts.push(toolCount === 1 ? "1 tool call" : `${toolCount} tool calls`);
+  }
+  if (thinkingCount > 0) {
+    parts.push(thinkingCount === 1 ? "1 reasoning step" : `${thinkingCount} reasoning steps`);
+  }
+  if (errorCount > 0) {
+    parts.push(errorCount === 1 ? "1 issue" : `${errorCount} issues`);
+  }
+  if (infoCount > 0) {
+    parts.push(infoCount === 1 ? "1 event" : `${infoCount} events`);
+  }
+
+  if (parts.length > 0) {
+    return parts.join(" · ");
+  }
+
+  return entries.length === 1 ? "1 log entry" : `${entries.length} log entries`;
+}
+
+function shouldSkipAssistantMessageRow(
+  message: TimelineMessage,
+  turnSummary: TurnDiffSummary | undefined,
+): boolean {
+  if (message.role !== "assistant" || message.streaming) {
+    return false;
+  }
+  if (turnSummary && turnSummary.files.length > 0) {
+    return false;
+  }
+  return message.text.trim().length === 0;
+}
+
+function isUserTimelineMessage(message: TimelineMessage): message is UserTimelineMessage {
+  return message.role === "user";
+}
+
+function isAssistantTimelineMessage(message: TimelineMessage): message is AssistantTimelineMessage {
+  return message.role === "assistant";
 }
 
 const UserMessageTerminalContextInlineLabel = memo(
@@ -771,6 +1270,212 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   );
 });
 
+const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
+  canRevertAgentWork: boolean;
+  isRevertingCheckpoint: boolean;
+  isWorking: boolean;
+  message: UserTimelineMessage;
+  onImageExpand: (preview: ExpandedImagePreview) => void;
+  onRevertUserMessage: (messageId: MessageId) => void;
+  revertActionTitle: string;
+  timestampFormat: TimestampFormat;
+}) {
+  const userImages = props.message.attachments ?? [];
+  const displayedUserMessage = deriveDisplayedUserMessageState(props.message.text);
+  const terminalContexts = displayedUserMessage.contexts;
+
+  return (
+    <div className="flex justify-end">
+      <div
+        className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-border/60 bg-secondary/60 px-4 py-3"
+        data-user-message-bubble="true"
+      >
+        {userImages.length > 0 && (
+          <div className="mb-2 grid max-w-105 grid-cols-2 gap-2">
+            {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
+              <div
+                key={image.id}
+                className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
+              >
+                {image.previewUrl ? (
+                  <button
+                    type="button"
+                    className="h-full w-full cursor-zoom-in"
+                    aria-label={`Preview ${image.name}`}
+                    onClick={() => {
+                      const preview = buildExpandedImagePreview(userImages, image.id);
+                      if (!preview) return;
+                      props.onImageExpand(preview);
+                    }}
+                  >
+                    <img
+                      src={image.previewUrl}
+                      alt={image.name}
+                      className="h-full max-h-55 w-full object-cover"
+                    />
+                  </button>
+                ) : (
+                  <div className="flex min-h-18 items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
+                    {image.name}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {(displayedUserMessage.visibleText.trim().length > 0 || terminalContexts.length > 0) && (
+          <UserMessageBody
+            text={displayedUserMessage.visibleText}
+            terminalContexts={terminalContexts}
+          />
+        )}
+        <div className="mt-2 flex items-center justify-end gap-2">
+          <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100">
+            {displayedUserMessage.copyText && (
+              <MessageCopyButton text={displayedUserMessage.copyText} />
+            )}
+            {props.canRevertAgentWork && (
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                disabled={props.isRevertingCheckpoint || props.isWorking}
+                onClick={() => props.onRevertUserMessage(props.message.id)}
+                title={props.revertActionTitle}
+                aria-label={props.revertActionTitle}
+              >
+                <Undo2Icon className="size-3" />
+              </Button>
+            )}
+          </div>
+          <p className="text-right text-[10px] text-muted-foreground/30">
+            {formatTimestamp(props.message.createdAt, props.timestampFormat)}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(props: {
+  allDirectoriesExpanded: boolean;
+  completionSummary: string | null;
+  markdownCwd: string | undefined;
+  message: AssistantTimelineMessage;
+  onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  onToggleAllDirectories: (turnId: TurnId) => void;
+  resolvedTheme: "light" | "dark";
+  turnSummary: TurnDiffSummary | undefined;
+}) {
+  const messageText =
+    props.message.text.trim().length > 0
+      ? props.message.text
+      : props.message.streaming
+        ? ""
+        : "(empty response)";
+
+  return (
+    <div className="min-w-0 border-border/35 border-l py-0.5 pr-1 pl-4">
+      <ChatMarkdown
+        text={messageText}
+        cwd={props.markdownCwd}
+        isStreaming={Boolean(props.message.streaming)}
+      />
+      {props.turnSummary && props.turnSummary.files.length > 0 && (
+        <AssistantMessageTurnDiffSummary
+          allDirectoriesExpanded={props.allDirectoriesExpanded}
+          onOpenTurnDiff={props.onOpenTurnDiff}
+          onToggleAllDirectories={props.onToggleAllDirectories}
+          resolvedTheme={props.resolvedTheme}
+          turnSummary={props.turnSummary}
+        />
+      )}
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 pl-0.5">
+        {props.completionSummary && (
+          <span
+            className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/52"
+            data-response-summary="true"
+          >
+            <Clock3Icon className="size-3 shrink-0" />
+            <span>{props.completionSummary}</span>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+});
+
+const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSummary(props: {
+  allDirectoriesExpanded: boolean;
+  onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  onToggleAllDirectories: (turnId: TurnId) => void;
+  resolvedTheme: "light" | "dark";
+  turnSummary: TurnDiffSummary;
+}) {
+  const checkpointFiles = props.turnSummary.files;
+  const summaryStat = summarizeTurnDiffStats(checkpointFiles);
+  const changedFileCountLabel = String(checkpointFiles.length);
+
+  return (
+    <div className="mt-3 border-border/35 border-l pl-4" data-turn-diff-summary="true">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/65">
+          <span>Changed files ({changedFileCountLabel})</span>
+          {hasNonZeroStat(summaryStat) && (
+            <>
+              <span className="mx-1">•</span>
+              <DiffStatLabel additions={summaryStat.additions} deletions={summaryStat.deletions} />
+            </>
+          )}
+        </p>
+        <div className="flex items-center gap-1.5">
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            data-scroll-anchor-ignore
+            onClick={() => props.onToggleAllDirectories(props.turnSummary.turnId)}
+          >
+            {props.allDirectoriesExpanded ? "Collapse all" : "Expand all"}
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            onClick={() => props.onOpenTurnDiff(props.turnSummary.turnId, checkpointFiles[0]?.path)}
+          >
+            View diff
+          </Button>
+        </div>
+      </div>
+      <ChangedFilesTree
+        key={`changed-files-tree:${props.turnSummary.turnId}`}
+        turnId={props.turnSummary.turnId}
+        files={checkpointFiles}
+        allDirectoriesExpanded={props.allDirectoriesExpanded}
+        resolvedTheme={props.resolvedTheme}
+        onOpenTurnDiff={props.onOpenTurnDiff}
+      />
+    </div>
+  );
+});
+
+const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
+  cwd: string | undefined;
+  proposedPlan: TimelineProposedPlan;
+  workspaceRoot: string | undefined;
+}) {
+  return (
+    <div className="min-w-0 border-emerald-500/18 border-l py-0.5 pr-1 pl-4">
+      <ProposedPlanCard
+        planMarkdown={props.proposedPlan.planMarkdown}
+        cwd={props.cwd}
+        workspaceRoot={props.workspaceRoot}
+      />
+    </div>
+  );
+});
+
 function workToneIcon(tone: TimelineWorkEntry["tone"]): {
   icon: LucideIcon;
   className: string;
@@ -806,17 +1511,38 @@ function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
   return "text-muted-foreground/40";
 }
 
-function workEntryPreview(
+function workEntryMarkerClass(tone: TimelineWorkEntry["tone"]): string {
+  if (tone === "thinking") return "bg-amber-500/55";
+  if (tone === "tool") return "bg-border";
+  if (tone === "error") return "bg-rose-500/60";
+  return "bg-emerald-500/60";
+}
+
+function workEntryDetailText(
   workEntry: Pick<TimelineWorkEntry, "detail" | "command" | "changedFiles">,
 ) {
-  if (workEntry.command) return workEntry.command;
-  if (workEntry.detail) return workEntry.detail;
+  const detailText = workEntry.detail?.trim() || null;
+  const commandText = normalizeWorkCommandText(workEntry.command);
+
+  if (detailText) return detailText;
+  if (commandText) return commandText;
   if ((workEntry.changedFiles?.length ?? 0) === 0) return null;
   const [firstPath] = workEntry.changedFiles ?? [];
   if (!firstPath) return null;
   return workEntry.changedFiles!.length === 1
     ? firstPath
     : `${firstPath} +${workEntry.changedFiles!.length - 1} more`;
+}
+
+function normalizeWorkCommandText(command: string | undefined): string | null {
+  if (!command) {
+    return null;
+  }
+  const normalized = command.replace(/\r\n?/g, "\n").trim();
+  if (normalized.length === 0) {
+    return null;
+  }
+  return normalized;
 }
 
 function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
@@ -859,48 +1585,115 @@ function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
   return capitalizePhrase(normalizeCompactToolLabel(workEntry.toolTitle));
 }
 
+const SimpleIntentEntryRow = memo(function SimpleIntentEntryRow(props: {
+  entry: Extract<TimelineMetaGroupEntry, { kind: "intent" }>;
+}) {
+  return (
+    <div className="pl-0.5" data-intent-message="true" data-meta-entry-kind="intent">
+      <div className="flex items-start gap-2.5 transition-[opacity,translate] duration-200">
+        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary/55" />
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <div className="mb-0.5 flex min-w-0 items-center gap-1.5">
+            <SquarePenIcon className="size-3 shrink-0 text-foreground/88" />
+            <p className="min-w-0 flex-1 truncate text-[12px] leading-5 text-muted-foreground/68">
+              <span className="text-foreground/80">Intent</span>
+            </p>
+            <span className="shrink-0 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
+              Note
+            </span>
+          </div>
+          <p className="pl-5.5 wrap-break-word whitespace-pre-wrap text-[11px] leading-5 text-foreground/72">
+            {props.entry.text}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
+  inlineIntentText?: string | null;
 }) {
   const { workEntry } = props;
   const iconConfig = workToneIcon(workEntry.tone);
   const EntryIcon = workEntryIcon(workEntry);
   const heading = toolWorkEntryHeading(workEntry);
-  const preview = workEntryPreview(workEntry);
-  const displayText = preview ? `${heading} - ${preview}` : heading;
+  const detailText = workEntryDetailText(workEntry);
+  const displayText = detailText ? `${heading} - ${detailText}` : heading;
   const hasChangedFiles = (workEntry.changedFiles?.length ?? 0) > 0;
   const previewIsChangedFiles = hasChangedFiles && !workEntry.command && !workEntry.detail;
+  const inlineIntentText = props.inlineIntentText?.trim() || null;
+  const toneLabel =
+    workEntry.tone === "thinking"
+      ? "Thinking"
+      : workEntry.tone === "tool"
+        ? "Tool"
+        : workEntry.tone === "error"
+          ? "Issue"
+          : "Event";
 
   return (
-    <div className="rounded-lg px-1 py-1">
-      <div className="flex items-center gap-2 transition-[opacity,translate] duration-200">
+    <div className="pl-0.5" data-work-entry-id={workEntry.id} data-work-entry-tone={workEntry.tone}>
+      <div className="flex items-start gap-2.5 transition-[opacity,translate] duration-200">
         <span
-          className={cn("flex size-5 shrink-0 items-center justify-center", iconConfig.className)}
-        >
-          <EntryIcon className="size-3" />
-        </span>
+          className={cn(
+            "mt-1.5 size-1.5 shrink-0 rounded-full",
+            workEntryMarkerClass(workEntry.tone),
+          )}
+        />
         <div className="min-w-0 flex-1 overflow-hidden">
-          <p
-            className={cn(
-              "truncate text-[11px] leading-5",
-              workToneClass(workEntry.tone),
-              preview ? "text-muted-foreground/70" : "",
-            )}
-            title={displayText}
-          >
-            <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
-              {heading}
+          <div className="mb-0.5 flex min-w-0 items-center gap-1.5">
+            <EntryIcon className={cn("size-3 shrink-0", iconConfig.className)} />
+            <p
+              className={cn(
+                "min-w-0 flex-1 truncate text-[12px] leading-5",
+                workEntry.tone === "thinking" && "tracking-[0.01em]",
+                workToneClass(workEntry.tone),
+                detailText ? "text-muted-foreground/70" : "",
+              )}
+              title={displayText}
+            >
+              <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
+                {heading}
+              </span>
+            </p>
+            <span className="shrink-0 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
+              {toneLabel}
             </span>
-            {preview && <span className="text-muted-foreground/55"> - {preview}</span>}
-          </p>
+          </div>
+          {inlineIntentText && (
+            <p
+              className="mb-1 pl-5.5 text-[11px] leading-5 text-muted-foreground/68"
+              data-inline-intent="true"
+            >
+              <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
+                Intent
+              </span>
+              <span className="text-foreground/72">{inlineIntentText}</span>
+            </p>
+          )}
+          {detailText && (
+            <p
+              className={cn(
+                "pl-5.5",
+                workEntry.tone === "thinking"
+                  ? "wrap-break-word whitespace-pre-wrap text-[11px] leading-5 text-foreground/72"
+                  : "wrap-break-word whitespace-pre-wrap font-mono text-[10px] leading-5 text-muted-foreground/65",
+              )}
+              title={detailText}
+            >
+              {detailText}
+            </p>
+          )}
         </div>
       </div>
       {hasChangedFiles && !previewIsChangedFiles && (
-        <div className="mt-1 flex flex-wrap gap-1 pl-6">
+        <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-1 pl-5.5">
           {workEntry.changedFiles?.slice(0, 4).map((filePath) => (
             <span
               key={`${workEntry.id}:${filePath}`}
-              className="rounded-md border border-border/55 bg-background/75 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/75"
+              className="font-mono text-[10px] text-muted-foreground/75"
               title={filePath}
             >
               {filePath}

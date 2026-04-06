@@ -1,7 +1,6 @@
 import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
-  type ClaudeCodeEffort,
   type MessageId,
   type ModelSelection,
   type ProjectScript,
@@ -19,10 +18,22 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
   TerminalOpenInput,
-} from "@t3tools/contracts";
-import { applyClaudePromptEffortPrefix, normalizeModelSlug } from "@t3tools/shared/model";
-import { truncate } from "@t3tools/shared/String";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+} from "@ace/contracts";
+import * as Schema from "effect/Schema";
+import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/model";
+import { truncate } from "@ace/shared/String";
+import {
+  type PointerEvent as ReactPointerEvent,
+  Suspense,
+  lazy,
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -36,6 +47,7 @@ import {
   collapseExpandedComposerCursor,
   detectComposerTrigger,
   expandCollapsedComposerCursor,
+  extendReplacementRangeForTrailingSpace,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "../composer-logic";
@@ -46,6 +58,7 @@ import {
   derivePhase,
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
+  deriveVisibleWorkTurnId,
   deriveActivePlanState,
   findSidebarProposedPlan,
   findLatestProposedPlan,
@@ -55,14 +68,19 @@ import {
   isLatestTurnSettled,
   formatElapsed,
 } from "../session-logic";
-import { isScrollContainerNearBottom } from "../chat-scroll";
+import {
+  clampScrollTop,
+  isScrollContainerNearBottom,
+  resolveThreadOpenScrollBehavior,
+} from "../chat-scroll";
 import {
   buildPendingUserInputAnswers,
   derivePendingUserInputProgress,
+  selectPendingUserInputOption,
   setPendingUserInputCustomAnswer,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
-import { useStore } from "../store";
+import { getThreadById, useStore } from "../store";
 import { useProjectById, useThreadById } from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";
 import {
@@ -77,24 +95,20 @@ import {
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
-  type SessionPhase,
+  type QueuedComposerImageAttachment,
   type Thread,
   type TurnDiffSummary,
 } from "../types";
-import { LRUCache } from "../lib/lruCache";
+import { isMemoryPressureAtLeast, subscribeToMemoryPressure } from "../lib/memoryPressure";
+import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
 
 import { basenameOfPath } from "../vscode-icons";
+import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
-import BranchToolbar from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
-import PlanSidebar from "./PlanSidebar";
-import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
   BotIcon,
-  ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   CircleAlertIcon,
   ListTodoIcon,
   LockIcon,
@@ -103,7 +117,9 @@ import {
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
+import { Spinner } from "./ui/spinner";
 import { cn, randomUUID } from "~/lib/utils";
+import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
@@ -116,14 +132,11 @@ import {
   projectScriptIdFromCommand,
   setupProjectScript,
 } from "~/projectScripts";
-import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
-import {
-  getProviderModelCapabilities,
-  getProviderModels,
-  resolveSelectableProvider,
-} from "../providerModels";
+import { reportBackgroundError, runAsyncTask } from "~/lib/async";
+import { deriveTerminalTitleFromCommand } from "~/lib/terminalPresentation";
+import { getProviderModels, resolveSelectableProvider } from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -140,6 +153,8 @@ import {
   formatTerminalContextLabel,
   insertInlineTerminalContextPlaceholder,
   removeInlineTerminalContextPlaceholder,
+  syncTerminalContextsByIds,
+  terminalContextIdListsEqual,
   type TerminalContextDraft,
   type TerminalContextSelection,
 } from "../lib/terminalContext";
@@ -149,19 +164,24 @@ import {
   shouldForceCompactComposerFooterForFit,
   shouldUseCompactComposerPrimaryActions,
   shouldUseCompactComposerFooter,
-} from "./composerFooterLayout";
+} from "~/lib/composer/footerLayout";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
-import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
-import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
+import { ChatConversationExtras } from "./chat/ChatConversationExtras";
+import { ChatMessagesPane } from "./chat/ChatMessagesPane";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
-import { buildExpandedImagePreview, ExpandedImagePreview } from "./chat/ExpandedImagePreview";
+import { ChatViewPanels } from "./chat/ChatViewPanels";
+import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
+import { buildExpandedImagePreview, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
+import { NewThreadLanding } from "./chat/NewThreadLanding";
 import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
+import { type InAppBrowserController, type InAppBrowserMode } from "./InAppBrowser";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./chat/CompactComposerControlsMenu";
 import { ComposerPrimaryActions } from "./chat/ComposerPrimaryActions";
+import { ComposerQueuedMessages } from "./chat/ComposerQueuedMessages";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
@@ -178,25 +198,39 @@ import {
   buildTemporaryWorktreeBranchName,
   cloneComposerImageForRetry,
   collectUserMessageBlobPreviewUrls,
-  createLocalDispatchSnapshot,
   deriveComposerSendState,
-  hasServerAcknowledgedLocalDispatch,
+  formatOutgoingPrompt,
+  queuedComposerImageToDraftAttachment,
+  revokeComposerImagePreviewUrls,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
   LastInvokedScriptByProjectSchema,
-  type LocalDispatchSnapshot,
   PullRequestDialogState,
   readFileAsDataUrl,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
   threadHasStarted,
   waitForStartedServerThread,
-} from "./ChatView.logic";
+} from "~/lib/chat/chatView";
+import {
+  buildCheckpointRestoreConfirmation,
+  checkpointRestoreActionTitle,
+  checkpointRestoreFailureMessage,
+} from "~/lib/chat/checkpointRestore";
+import { useThreadPlanCatalog } from "~/lib/chat/threadPlanCatalog";
+import {
+  BROWSER_SPLIT_WIDTH_STORAGE_KEY,
+  DEFAULT_BROWSER_SPLIT_WIDTH,
+  clampBrowserSplitWidth,
+} from "~/lib/chat/browserSplit";
+import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   useServerAvailableEditors,
   useServerConfig,
   useServerKeybindings,
 } from "~/rpc/serverState";
+
+const ThreadWorkspaceEditor = lazy(() => import("./editor/ThreadWorkspaceEditor"));
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
@@ -206,126 +240,22 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
+const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 
-type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
-
-const MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES = 500;
-const MAX_THREAD_PLAN_CATALOG_CACHE_MEMORY_BYTES = 512 * 1024;
-const threadPlanCatalogCache = new LRUCache<{
-  proposedPlans: Thread["proposedPlans"];
-  entry: ThreadPlanCatalogEntry;
-}>(MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES, MAX_THREAD_PLAN_CATALOG_CACHE_MEMORY_BYTES);
-
-function estimateThreadPlanCatalogEntrySize(thread: Thread): number {
-  return Math.max(
-    64,
-    thread.id.length +
-      thread.proposedPlans.reduce(
-        (total, plan) =>
-          total +
-          plan.id.length +
-          plan.planMarkdown.length +
-          plan.updatedAt.length +
-          (plan.turnId?.length ?? 0),
-        0,
-      ),
-  );
+interface ThreadScrollSnapshot {
+  readonly scrollTop: number;
+  readonly shouldAutoScroll: boolean;
 }
 
-function toThreadPlanCatalogEntry(thread: Thread): ThreadPlanCatalogEntry {
-  const cached = threadPlanCatalogCache.get(thread.id);
-  if (cached && cached.proposedPlans === thread.proposedPlans) {
-    return cached.entry;
-  }
+const sessionThreadScrollSnapshots = new Map<ThreadId, ThreadScrollSnapshot>();
+const sessionOpenedThreadIds = new Set<ThreadId>();
 
-  const entry: ThreadPlanCatalogEntry = {
-    id: thread.id,
-    proposedPlans: thread.proposedPlans,
-  };
-  threadPlanCatalogCache.set(
-    thread.id,
-    {
-      proposedPlans: thread.proposedPlans,
-      entry,
-    },
-    estimateThreadPlanCatalogEntrySize(thread),
-  );
-  return entry;
-}
-
-function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlanCatalogEntry[] {
-  const selector = useMemo(() => {
-    let previousThreads: Array<Thread | undefined> | null = null;
-    let previousEntries: ThreadPlanCatalogEntry[] = [];
-
-    return (state: { threads: Thread[] }): ThreadPlanCatalogEntry[] => {
-      const nextThreads = threadIds.map((threadId) =>
-        state.threads.find((thread) => thread.id === threadId),
-      );
-      const cachedThreads = previousThreads;
-      if (
-        cachedThreads &&
-        nextThreads.length === cachedThreads.length &&
-        nextThreads.every((thread, index) => thread === cachedThreads[index])
-      ) {
-        return previousEntries;
-      }
-
-      previousThreads = nextThreads;
-      previousEntries = nextThreads.flatMap((thread) =>
-        thread ? [toThreadPlanCatalogEntry(thread)] : [],
-      );
-      return previousEntries;
-    };
-  }, [threadIds]);
-
-  return useStore(selector);
-}
-
-function formatOutgoingPrompt(params: {
-  provider: ProviderKind;
-  model: string | null;
-  models: ReadonlyArray<ServerProvider["models"][number]>;
-  effort: string | null;
-  text: string;
-}): string {
-  const caps = getProviderModelCapabilities(params.models, params.model, params.provider);
-  if (params.effort && caps.promptInjectedEffortLevels.includes(params.effort)) {
-    return applyClaudePromptEffortPrefix(params.text, params.effort as ClaudeCodeEffort | null);
-  }
-  return params.text;
-}
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
 
-const extendReplacementRangeForTrailingSpace = (
-  text: string,
-  rangeEnd: number,
-  replacement: string,
-): number => {
-  if (!replacement.endsWith(" ")) {
-    return rangeEnd;
-  }
-  return text[rangeEnd] === " " ? rangeEnd + 1 : rangeEnd;
-};
-
-const syncTerminalContextsByIds = (
-  contexts: ReadonlyArray<TerminalContextDraft>,
-  ids: ReadonlyArray<string>,
-): TerminalContextDraft[] => {
-  const contextsById = new Map(contexts.map((context) => [context.id, context]));
-  return ids.flatMap((id) => {
-    const context = contextsById.get(id);
-    return context ? [context] : [];
-  });
-};
-
-const terminalContextIdListsEqual = (
-  contexts: ReadonlyArray<TerminalContextDraft>,
-  ids: ReadonlyArray<string>,
-): boolean =>
-  contexts.length === ids.length && contexts.every((context, index) => context.id === ids[index]);
+type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
 interface ChatViewProps {
   threadId: ThreadId;
@@ -337,82 +267,23 @@ interface PendingPullRequestSetupRequest {
   scriptId: string;
 }
 
-function useLocalDispatchState(input: {
-  activeThread: Thread | undefined;
-  activeLatestTurn: Thread["latestTurn"] | null;
-  phase: SessionPhase;
-  activePendingApproval: ApprovalRequestId | null;
-  activePendingUserInput: ApprovalRequestId | null;
-  threadError: string | null | undefined;
-}) {
-  const [localDispatch, setLocalDispatch] = useState<LocalDispatchSnapshot | null>(null);
-
-  const beginLocalDispatch = useCallback(
-    (options?: { preparingWorktree?: boolean }) => {
-      const preparingWorktree = Boolean(options?.preparingWorktree);
-      setLocalDispatch((current) => {
-        if (current) {
-          return current.preparingWorktree === preparingWorktree
-            ? current
-            : { ...current, preparingWorktree };
-        }
-        return createLocalDispatchSnapshot(input.activeThread, options);
-      });
-    },
-    [input.activeThread],
-  );
-
-  const resetLocalDispatch = useCallback(() => {
-    setLocalDispatch(null);
-  }, []);
-
-  const serverAcknowledgedLocalDispatch = useMemo(
-    () =>
-      hasServerAcknowledgedLocalDispatch({
-        localDispatch,
-        phase: input.phase,
-        latestTurn: input.activeLatestTurn,
-        session: input.activeThread?.session ?? null,
-        hasPendingApproval: input.activePendingApproval !== null,
-        hasPendingUserInput: input.activePendingUserInput !== null,
-        threadError: input.threadError,
-      }),
-    [
-      input.activeLatestTurn,
-      input.activePendingApproval,
-      input.activePendingUserInput,
-      input.activeThread?.session,
-      input.phase,
-      input.threadError,
-      localDispatch,
-    ],
-  );
-
-  useEffect(() => {
-    if (!serverAcknowledgedLocalDispatch) {
-      return;
-    }
-    resetLocalDispatch();
-  }, [resetLocalDispatch, serverAcknowledgedLocalDispatch]);
-
-  return {
-    beginLocalDispatch,
-    resetLocalDispatch,
-    localDispatchStartedAt: localDispatch?.startedAt ?? null,
-    isPreparingWorktree: localDispatch?.preparingWorktree ?? false,
-    isSendBusy: localDispatch !== null && !serverAcknowledgedLocalDispatch,
-  };
-}
-
 export default function ChatView({ threadId }: ChatViewProps) {
   const serverThread = useThreadById(threadId);
   const setStoreThreadError = useStore((store) => store.setError);
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
+  const setStoreThreadQueueState = useStore((store) => store.setThreadQueueState);
+  const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
+  const pruneHydratedThreadHistories = useStore((store) => store.pruneHydratedThreadHistories);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
   const activeThreadLastVisitedAt = useUiStateStore(
     (store) => store.threadLastVisitedAtById[threadId],
   );
   const settings = useSettings();
+  const {
+    activeDraftThread: currentRouteDraftThread,
+    activeThread: currentRouteThread,
+    handleNewThread,
+  } = useHandleNewThread();
   const setStickyComposerModelSelection = useComposerDraftStore(
     (store) => store.setStickyModelSelection,
   );
@@ -429,6 +300,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const prompt = composerDraft.prompt;
   const composerImages = composerDraft.images;
   const composerTerminalContexts = composerDraft.terminalContexts;
+  const persistedComposerAttachments = composerDraft.persistedAttachments;
   const composerSendState = useMemo(
     () =>
       deriveComposerSendState({
@@ -441,6 +313,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
+  const setComposerDraftProviderModelOptions = useComposerDraftStore(
+    (store) => store.setProviderModelOptions,
+  );
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
@@ -510,7 +385,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   // When set, the thread-change reset effect will open the sidebar instead of closing it.
   // Used by "Implement in a new thread" to carry the sidebar-open intent across navigation.
   const planSidebarOpenOnNextThreadRef = useRef(false);
-  const [nowTick, setNowTick] = useState(() => Date.now());
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
   const [pullRequestDialogState, setPullRequestDialogState] =
@@ -570,10 +444,22 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const storeSetTerminalOpen = useTerminalStateStore((s) => s.setTerminalOpen);
   const storeSetTerminalHeight = useTerminalStateStore((s) => s.setTerminalHeight);
+  const storeSetTerminalSidebarWidth = useTerminalStateStore((s) => s.setTerminalSidebarWidth);
+  const storeSetTerminalSidebarDensity = useTerminalStateStore((s) => s.setTerminalSidebarDensity);
   const storeSplitTerminal = useTerminalStateStore((s) => s.splitTerminal);
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
   const storeSetActiveTerminal = useTerminalStateStore((s) => s.setActiveTerminal);
+  const storeMoveTerminal = useTerminalStateStore((s) => s.moveTerminal);
+  const storeMoveTerminalToNewGroup = useTerminalStateStore((s) => s.moveTerminalToNewGroup);
+  const storeRenameTerminal = useTerminalStateStore((s) => s.renameTerminal);
+  const storeSetTerminalAutoTitle = useTerminalStateStore((s) => s.setTerminalAutoTitle);
+  const storeSetTerminalIcon = useTerminalStateStore((s) => s.setTerminalIcon);
+  const storeSetTerminalColor = useTerminalStateStore((s) => s.setTerminalColor);
+  const storeSetTerminalGroupSplitRatios = useTerminalStateStore(
+    (s) => s.setTerminalGroupSplitRatios,
+  );
   const storeCloseTerminal = useTerminalStateStore((s) => s.closeTerminal);
+  const storeClearTerminalState = useTerminalStateStore((s) => s.clearTerminalState);
 
   const setPrompt = useCallback(
     (nextPrompt: string) => {
@@ -652,29 +538,164 @@ export default function ChatView({ threadId }: ChatViewProps) {
     composerDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
+  const isThreadHistoryLoading = isServerThread && activeThread?.historyLoaded === false;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
+  const workspaceMode = rawSearch.mode === "editor" ? "editor" : "chat";
   const diffOpen = rawSearch.diff === "1";
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
+  const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
+  const sourcePlanThread = useThreadById(sourceProposedPlanThreadId);
+  const sourcePlanHydrationInFlightRef = useRef<ThreadId | null>(null);
+  const hydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
+    () =>
+      activeThread?.id
+        ? sourceProposedPlanThreadId && sourceProposedPlanThreadId !== activeThread.id
+          ? [activeThread.id, sourceProposedPlanThreadId]
+          : [activeThread.id]
+        : [],
+    [activeThread?.id, sourceProposedPlanThreadId],
+  );
+  const criticalHydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
+    () => (activeThread?.id ? [activeThread.id] : []),
+    [activeThread?.id],
+  );
+
+  useEffect(() => {
+    if (hydratedThreadHistoryKeepIds.length === 0) {
+      return;
+    }
+    pruneHydratedThreadHistories(hydratedThreadHistoryKeepIds);
+  }, [hydratedThreadHistoryKeepIds, pruneHydratedThreadHistories]);
+  useEffect(() => {
+    if (hydratedThreadHistoryKeepIds.length === 0) {
+      return;
+    }
+
+    return subscribeToMemoryPressure((snapshot) => {
+      if (snapshot === null || !isMemoryPressureAtLeast("high", snapshot)) {
+        return;
+      }
+      pruneHydratedThreadHistories(
+        snapshot.level === "critical"
+          ? criticalHydratedThreadHistoryKeepIds
+          : hydratedThreadHistoryKeepIds,
+      );
+    });
+  }, [
+    criticalHydratedThreadHistoryKeepIds,
+    hydratedThreadHistoryKeepIds,
+    pruneHydratedThreadHistories,
+  ]);
   const threadPlanCatalog = useThreadPlanCatalog(
     useMemo(() => {
       const threadIds: ThreadId[] = [];
       if (activeThread?.id) {
         threadIds.push(activeThread.id);
       }
-      const sourceThreadId = activeLatestTurn?.sourceProposedPlan?.threadId;
+      const sourceThreadId = sourceProposedPlanThreadId;
       if (sourceThreadId && sourceThreadId !== activeThread?.id) {
         threadIds.push(sourceThreadId);
       }
       return threadIds;
-    }, [activeLatestTurn?.sourceProposedPlan?.threadId, activeThread?.id]),
+    }, [activeThread?.id, sourceProposedPlanThreadId]),
   );
+  useEffect(() => {
+    if (
+      sourceProposedPlanThreadId === null ||
+      sourceProposedPlanThreadId === activeThread?.id ||
+      sourcePlanThread === undefined ||
+      sourcePlanThread.historyLoaded !== false
+    ) {
+      return;
+    }
+
+    const cachedHydratedThread =
+      sourcePlanThread.updatedAt === undefined
+        ? null
+        : readCachedHydratedThread(sourceProposedPlanThreadId, sourcePlanThread.updatedAt);
+    if (cachedHydratedThread) {
+      startTransition(() => {
+        hydrateThreadFromReadModel(cachedHydratedThread);
+      });
+      return;
+    }
+
+    if (sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
+      return;
+    }
+
+    sourcePlanHydrationInFlightRef.current = sourceProposedPlanThreadId;
+    let canceled = false;
+    void (async () => {
+      try {
+        const readModelThread = await hydrateThreadFromCache(sourceProposedPlanThreadId, {
+          expectedUpdatedAt: sourcePlanThread.updatedAt ?? null,
+        });
+        if (canceled) {
+          return;
+        }
+        startTransition(() => {
+          hydrateThreadFromReadModel(readModelThread);
+        });
+      } catch (error) {
+        if (!canceled) {
+          console.error("Failed to hydrate source proposed-plan thread", error);
+        }
+      } finally {
+        if (!canceled && sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
+          sourcePlanHydrationInFlightRef.current = null;
+        }
+      }
+    })();
+
+    return () => {
+      canceled = true;
+      if (sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
+        sourcePlanHydrationInFlightRef.current = null;
+      }
+    };
+  }, [activeThread?.id, hydrateThreadFromReadModel, sourcePlanThread, sourceProposedPlanThreadId]);
   const activeContextWindow = useMemo(
     () => deriveLatestContextWindowSnapshot(activeThread?.activities ?? []),
     [activeThread?.activities],
   );
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = useProjectById(activeThread?.projectId);
+  const handleActiveProjectChange = useCallback(
+    (projectId: ProjectId) => {
+      void handleNewThread(
+        projectId,
+        resolveSidebarNewThreadOptions({
+          projectId,
+          defaultEnvMode: settings.defaultThreadEnvMode,
+          activeThread:
+            currentRouteThread && currentRouteThread.projectId === projectId
+              ? {
+                  projectId: currentRouteThread.projectId,
+                  branch: currentRouteThread.branch,
+                  worktreePath: currentRouteThread.worktreePath,
+                }
+              : null,
+          activeDraftThread:
+            currentRouteDraftThread && currentRouteDraftThread.projectId === projectId
+              ? {
+                  projectId: currentRouteDraftThread.projectId,
+                  branch: currentRouteDraftThread.branch,
+                  worktreePath: currentRouteDraftThread.worktreePath,
+                  envMode: currentRouteDraftThread.envMode,
+                }
+              : null,
+        }),
+      );
+    },
+    [currentRouteDraftThread, currentRouteThread, handleNewThread, settings.defaultThreadEnvMode],
+  );
+  const queuedComposerMessages =
+    serverThread?.queuedComposerMessages ?? EMPTY_QUEUED_COMPOSER_MESSAGES;
+  const queuedSteerRequest = serverThread?.queuedSteerRequest ?? null;
+  const queuedComposerMessagesRef = useRef(queuedComposerMessages);
+  queuedComposerMessagesRef.current = queuedComposerMessages;
 
   const openPullRequestDialog = useCallback(
     (reference?: string) => {
@@ -824,20 +845,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const selectedPromptEffort = composerProviderState.promptEffort;
   const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
   const selectedModelSelection = useMemo<ModelSelection>(
-    () => ({
-      provider: selectedProvider,
-      model: selectedModel,
-      ...(selectedModelOptionsForDispatch ? { options: selectedModelOptionsForDispatch } : {}),
-    }),
+    () =>
+      buildProviderModelSelection(selectedProvider, selectedModel, selectedModelOptionsForDispatch),
     [selectedModel, selectedModelOptionsForDispatch, selectedProvider],
   );
   const selectedModelForPicker = selectedModel;
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
-  const workLogEntries = useMemo(
-    () => deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined),
-    [activeLatestTurn?.turnId, threadActivities],
+  const activeWorkTurnId = useMemo(
+    () =>
+      deriveVisibleWorkTurnId(activeLatestTurn, activeThread?.session ?? null, threadActivities),
+    [activeLatestTurn, activeThread?.session, threadActivities],
   );
+  const workLogEntries = useMemo(() => deriveWorkLogEntries(threadActivities), [threadActivities]);
   const latestTurnHasToolActivity = useMemo(
     () => hasToolActivityForTurn(threadActivities, activeLatestTurn?.turnId),
     [activeLatestTurn?.turnId, threadActivities],
@@ -903,8 +923,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [activeLatestTurn, activeThread?.id, latestTurnSettled, threadPlanCatalog],
   );
   const activePlan = useMemo(
-    () => deriveActivePlanState(threadActivities, activeLatestTurn?.turnId ?? undefined),
-    [activeLatestTurn?.turnId, threadActivities],
+    () => deriveActivePlanState(threadActivities, activeWorkTurnId),
+    [activeWorkTurnId, threadActivities],
   );
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
@@ -927,7 +947,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     threadError: activeThread?.error,
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
-  const nowIso = new Date(nowTick).toISOString();
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -1209,6 +1228,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
       codex: providerStatuses.find((provider) => provider.provider === "codex")?.models ?? [],
       claudeAgent:
         providerStatuses.find((provider) => provider.provider === "claudeAgent")?.models ?? [],
+      githubCopilot:
+        providerStatuses.find((provider) => provider.provider === "githubCopilot")?.models ?? [],
+      cursor: providerStatuses.find((provider) => provider.provider === "cursor")?.models ?? [],
+      gemini: providerStatuses.find((provider) => provider.provider === "gemini")?.models ?? [],
+      opencode: providerStatuses.find((provider) => provider.provider === "opencode")?.models ?? [],
     }),
     [providerStatuses],
   );
@@ -1377,6 +1401,77 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "diff.toggle", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
+  const browserToggleShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "browser.toggle", nonTerminalShortcutLabelOptions),
+    [keybindings, nonTerminalShortcutLabelOptions],
+  );
+  const browserActionShortcutLabelOptions = useMemo(
+    () => ({
+      context: {
+        terminalFocus: false,
+        terminalOpen: Boolean(terminalState.terminalOpen),
+        browserOpen: true,
+      },
+    }),
+    [terminalState.terminalOpen],
+  );
+  const browserBackShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "browser.back", browserActionShortcutLabelOptions),
+    [browserActionShortcutLabelOptions, keybindings],
+  );
+  const browserForwardShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(keybindings, "browser.forward", browserActionShortcutLabelOptions),
+    [browserActionShortcutLabelOptions, keybindings],
+  );
+  const browserReloadShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "browser.reload", browserActionShortcutLabelOptions),
+    [browserActionShortcutLabelOptions, keybindings],
+  );
+  const browserDevToolsShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(keybindings, "browser.devtools", browserActionShortcutLabelOptions),
+    [browserActionShortcutLabelOptions, keybindings],
+  );
+  const [browserMode, setBrowserMode] = useState<"closed" | InAppBrowserMode>("closed");
+  const [browserDevToolsOpen, setBrowserDevToolsOpen] = useState(false);
+  const [storedBrowserSplitWidth, setStoredBrowserSplitWidth] = useLocalStorage(
+    BROWSER_SPLIT_WIDTH_STORAGE_KEY,
+    DEFAULT_BROWSER_SPLIT_WIDTH,
+    Schema.Number,
+  );
+  const [browserSplitWidth, setBrowserSplitWidth] = useState(() =>
+    clampBrowserSplitWidth(storedBrowserSplitWidth, 0),
+  );
+  const browserControllerRef = useRef<InAppBrowserController | null>(null);
+  const pendingBrowserOpenUrlRef = useRef<string | null>(null);
+  const chatViewportRef = useRef<HTMLDivElement | null>(null);
+  const browserSplitWidthRef = useRef(browserSplitWidth);
+  const browserSplitResizePointerIdRef = useRef<number | null>(null);
+  const browserSplitResizeStateRef = useRef<{
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+  const didResizeBrowserSplitDuringDragRef = useRef(false);
+  const lastSyncedBrowserSplitWidthRef = useRef(browserSplitWidth);
+  const browserOpen = browserMode !== "closed";
+  const onWorkspaceModeChange = useCallback(
+    (mode: "chat" | "editor") => {
+      if (mode === workspaceMode) {
+        return;
+      }
+      void navigate({
+        to: "/$threadId",
+        params: { threadId },
+        replace: true,
+        search: (previous) => ({
+          ...previous,
+          mode: mode === "editor" ? "editor" : undefined,
+        }),
+      });
+    },
+    [navigate, threadId, workspaceMode],
+  );
   const onToggleDiff = useCallback(() => {
     void navigate({
       to: "/$threadId",
@@ -1407,7 +1502,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setThreadError = useCallback(
     (targetThreadId: ThreadId | null, error: string | null) => {
       if (!targetThreadId) return;
-      if (useStore.getState().threads.some((thread) => thread.id === targetThreadId)) {
+      if (getThreadById(useStore.getState().threads, targetThreadId)) {
         setStoreThreadError(targetThreadId, error);
         return;
       }
@@ -1432,6 +1527,345 @@ export default function ChatView({ threadId }: ChatViewProps) {
       focusComposer();
     });
   }, [focusComposer]);
+  const persistQueuedComposerState = useCallback(
+    async (
+      nextMessages: Thread["queuedComposerMessages"],
+      nextSteerRequest: Thread["queuedSteerRequest"],
+      previousMessages: Thread["queuedComposerMessages"],
+      previousSteerRequest: Thread["queuedSteerRequest"],
+    ) => {
+      if (!serverThread) {
+        return false;
+      }
+      const api = readNativeApi();
+      if (!api) {
+        return false;
+      }
+      setStoreThreadQueueState(serverThread.id, nextMessages, nextSteerRequest);
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "thread.meta.update",
+          commandId: newCommandId(),
+          threadId: serverThread.id,
+          queuedComposerMessages: nextMessages.map((message) => ({
+            id: message.id,
+            prompt: message.prompt,
+            images: message.images.map((image) => ({
+              type: "image" as const,
+              id: image.id,
+              name: image.name,
+              mimeType: image.mimeType,
+              sizeBytes: image.sizeBytes,
+              dataUrl: image.dataUrl,
+            })),
+            terminalContexts: message.terminalContexts.map((context) => ({ ...context })),
+            modelSelection: message.modelSelection,
+            runtimeMode: message.runtimeMode,
+            interactionMode: message.interactionMode,
+          })),
+          queuedSteerRequest: nextSteerRequest,
+        });
+        return true;
+      } catch (error) {
+        const currentThread = getThreadById(useStore.getState().threads, serverThread.id);
+        if (
+          currentThread &&
+          currentThread.queuedComposerMessages === nextMessages &&
+          currentThread.queuedSteerRequest === nextSteerRequest
+        ) {
+          setStoreThreadQueueState(serverThread.id, previousMessages, previousSteerRequest);
+        }
+        setThreadError(
+          serverThread.id,
+          error instanceof Error ? error.message : "Failed to persist queued messages.",
+        );
+        return false;
+      }
+    },
+    [serverThread, setStoreThreadQueueState, setThreadError],
+  );
+  const buildQueuedComposerImages = useCallback(
+    async (
+      images: ReadonlyArray<ComposerImageAttachment>,
+    ): Promise<QueuedComposerImageAttachment[]> => {
+      const persistedAttachmentById = new Map(
+        persistedComposerAttachments.map((attachment) => [attachment.id, attachment] as const),
+      );
+      return await Promise.all(
+        images.map(async (image) => {
+          const persistedAttachment = persistedAttachmentById.get(image.id);
+          const dataUrl = persistedAttachment?.dataUrl ?? (await readFileAsDataUrl(image.file));
+          return {
+            type: "image" as const,
+            id: image.id,
+            name: image.name,
+            mimeType: image.mimeType,
+            sizeBytes: image.sizeBytes,
+            dataUrl,
+            previewUrl: image.previewUrl || dataUrl,
+            file: image.file,
+          };
+        }),
+      );
+    },
+    [persistedComposerAttachments],
+  );
+  const removeQueuedComposerMessage = useCallback(
+    async (messageId: MessageId) => {
+      if (!serverThread) {
+        return;
+      }
+      const removedMessage =
+        queuedComposerMessages.find((message) => message.id === messageId) ?? null;
+      if (!removedMessage) {
+        return;
+      }
+      const nextMessages = queuedComposerMessages.filter((message) => message.id !== messageId);
+      const nextSteerRequest =
+        queuedSteerRequest?.messageId === messageId ? null : queuedSteerRequest;
+      if (
+        !(await persistQueuedComposerState(
+          nextMessages,
+          nextSteerRequest,
+          queuedComposerMessages,
+          queuedSteerRequest,
+        ))
+      ) {
+        return;
+      }
+      revokeComposerImagePreviewUrls(removedMessage.images);
+    },
+    [persistQueuedComposerState, queuedComposerMessages, queuedSteerRequest, serverThread],
+  );
+  const restoreQueuedComposerMessageToDraft = useCallback(
+    (message: QueuedComposerMessage, restoredImages: ReadonlyArray<ComposerImageAttachment>) => {
+      promptRef.current = message.prompt;
+      setPrompt(message.prompt);
+      addComposerImagesToDraft([...restoredImages]);
+      setComposerDraftTerminalContexts(
+        threadId,
+        message.terminalContexts.map((context) => ({ ...context, threadId })),
+      );
+      setComposerDraftModelSelection(threadId, message.modelSelection);
+      setComposerDraftRuntimeMode(threadId, message.runtimeMode);
+      setComposerDraftInteractionMode(threadId, message.interactionMode);
+      if (isLocalDraftThread) {
+        setDraftThreadContext(threadId, {
+          runtimeMode: message.runtimeMode,
+          interactionMode: message.interactionMode,
+        });
+      }
+      const nextCursor = collapseExpandedComposerCursor(message.prompt, message.prompt.length);
+      setComposerCursor(nextCursor);
+      setComposerTrigger(detectComposerTrigger(message.prompt, message.prompt.length));
+      setComposerHighlightedItemId(null);
+      scheduleComposerFocus();
+    },
+    [
+      addComposerImagesToDraft,
+      isLocalDraftThread,
+      scheduleComposerFocus,
+      setComposerDraftInteractionMode,
+      setComposerDraftModelSelection,
+      setComposerDraftRuntimeMode,
+      setComposerDraftTerminalContexts,
+      setDraftThreadContext,
+      setPrompt,
+      threadId,
+    ],
+  );
+  const onEditQueuedComposerMessage = useCallback(
+    async (messageId: MessageId) => {
+      const nextMessage = queuedComposerMessagesRef.current.find(
+        (message) => message.id === messageId,
+      );
+      if (!nextMessage) {
+        return;
+      }
+      let restoredImages: ComposerImageAttachment[];
+      try {
+        restoredImages = await Promise.all(
+          nextMessage.images.map((image) => queuedComposerImageToDraftAttachment(image)),
+        );
+      } catch (error) {
+        setThreadError(
+          threadId,
+          error instanceof Error ? error.message : "Failed to restore queued images.",
+        );
+        return;
+      }
+      const nextMessages = queuedComposerMessagesRef.current.filter(
+        (message) => message.id !== messageId,
+      );
+      const nextSteerRequest =
+        queuedSteerRequest?.messageId === messageId ? null : queuedSteerRequest;
+      if (
+        !(await persistQueuedComposerState(
+          nextMessages,
+          nextSteerRequest,
+          queuedComposerMessagesRef.current,
+          queuedSteerRequest,
+        ))
+      ) {
+        return;
+      }
+      restoreQueuedComposerMessageToDraft(nextMessage, restoredImages);
+    },
+    [
+      persistQueuedComposerState,
+      queuedSteerRequest,
+      setThreadError,
+      restoreQueuedComposerMessageToDraft,
+      threadId,
+    ],
+  );
+  const queueCurrentComposerMessage = useCallback(
+    async (mode: "queue" | "steer" = "queue") => {
+      const { sendableTerminalContexts, expiredTerminalContextCount, hasSendableContent } =
+        deriveComposerSendState({
+          prompt: promptRef.current,
+          imageCount: composerImages.length,
+          terminalContexts: composerTerminalContexts,
+        });
+      if (!hasSendableContent) {
+        if (expiredTerminalContextCount > 0) {
+          const toastCopy = buildExpiredTerminalContextToastCopy(
+            expiredTerminalContextCount,
+            "empty",
+          );
+          toastManager.add({
+            type: "warning",
+            title: toastCopy.title,
+            description: toastCopy.description,
+          });
+        }
+        return false;
+      }
+
+      let queuedImages: QueuedComposerImageAttachment[];
+      try {
+        queuedImages = await buildQueuedComposerImages(composerImages);
+      } catch (error) {
+        setThreadError(
+          threadId,
+          error instanceof Error ? error.message : "Failed to queue message attachments.",
+        );
+        return false;
+      }
+      const queuedMessage: QueuedComposerMessage = {
+        id: newMessageId(),
+        prompt: promptRef.current,
+        images: queuedImages,
+        terminalContexts: sendableTerminalContexts.map((context) => ({
+          id: context.id,
+          createdAt: context.createdAt,
+          terminalId: context.terminalId,
+          terminalLabel: context.terminalLabel,
+          lineStart: context.lineStart,
+          lineEnd: context.lineEnd,
+          text: context.text,
+        })),
+        modelSelection: selectedModelSelection,
+        runtimeMode,
+        interactionMode,
+      };
+      const nextMessages =
+        mode === "steer"
+          ? [queuedMessage, ...queuedComposerMessages]
+          : [...queuedComposerMessages, queuedMessage];
+      const nextSteerRequest: Thread["queuedSteerRequest"] =
+        mode === "steer"
+          ? {
+              messageId: queuedMessage.id,
+              baselineWorkLogEntryCount: workLogEntries.length,
+              interruptRequested: false,
+            }
+          : queuedSteerRequest;
+      if (
+        !(await persistQueuedComposerState(
+          nextMessages,
+          nextSteerRequest,
+          queuedComposerMessages,
+          queuedSteerRequest,
+        ))
+      ) {
+        return false;
+      }
+
+      if (expiredTerminalContextCount > 0) {
+        const toastCopy = buildExpiredTerminalContextToastCopy(
+          expiredTerminalContextCount,
+          "omitted",
+        );
+        toastManager.add({
+          type: "warning",
+          title: toastCopy.title,
+          description: toastCopy.description,
+        });
+      }
+
+      promptRef.current = "";
+      clearComposerDraftContent(threadId);
+      setComposerHighlightedItemId(null);
+      setComposerCursor(0);
+      setComposerTrigger(null);
+      return true;
+    },
+    [
+      buildQueuedComposerImages,
+      clearComposerDraftContent,
+      composerImages,
+      composerTerminalContexts,
+      interactionMode,
+      persistQueuedComposerState,
+      queuedComposerMessages,
+      queuedSteerRequest,
+      runtimeMode,
+      selectedModelSelection,
+      setThreadError,
+      workLogEntries.length,
+      threadId,
+    ],
+  );
+  const onSteerQueuedComposerMessage = useCallback(
+    async (messageId: MessageId) => {
+      const nextMessage = queuedComposerMessagesRef.current.find(
+        (message) => message.id === messageId,
+      );
+      if (!nextMessage) {
+        return;
+      }
+      const nextIndex = queuedComposerMessagesRef.current.findIndex(
+        (message) => message.id === messageId,
+      );
+      if (nextIndex < 0) {
+        return;
+      }
+      const nextMessages =
+        nextIndex === 0
+          ? queuedComposerMessagesRef.current
+          : (() => {
+              const next = [...queuedComposerMessagesRef.current];
+              const [promoted] = next.splice(nextIndex, 1);
+              if (!promoted) {
+                return queuedComposerMessagesRef.current;
+              }
+              next.unshift(promoted);
+              return next;
+            })();
+      await persistQueuedComposerState(
+        nextMessages,
+        {
+          messageId,
+          baselineWorkLogEntryCount: workLogEntries.length,
+          interruptRequested: false,
+        },
+        queuedComposerMessagesRef.current,
+        queuedSteerRequest,
+      );
+    },
+    [persistQueuedComposerState, queuedSteerRequest, workLogEntries.length],
+  );
   const addTerminalContextToDraft = useCallback(
     (selection: TerminalContextSelection) => {
       if (!activeThread) {
@@ -1488,10 +1922,207 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [activeThreadId, storeSetTerminalHeight],
   );
+  const setTerminalSidebarWidth = useCallback(
+    (width: number) => {
+      if (!activeThreadId) return;
+      storeSetTerminalSidebarWidth(activeThreadId, width);
+    },
+    [activeThreadId, storeSetTerminalSidebarWidth],
+  );
+  const setTerminalSidebarDensity = useCallback(
+    (density: "compact" | "comfortable") => {
+      if (!activeThreadId) return;
+      storeSetTerminalSidebarDensity(activeThreadId, density);
+    },
+    [activeThreadId, storeSetTerminalSidebarDensity],
+  );
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadId) return;
     setTerminalOpen(!terminalState.terminalOpen);
   }, [activeThreadId, setTerminalOpen, terminalState.terminalOpen]);
+  const openBrowser = useCallback(() => {
+    if (!isElectron) return;
+    setBrowserMode("full");
+  }, []);
+  const openSplitBrowser = useCallback(() => {
+    if (!isElectron) return;
+    setBrowserMode("split");
+  }, []);
+  const closeBrowser = useCallback(() => {
+    setBrowserMode("closed");
+    setBrowserDevToolsOpen(false);
+  }, []);
+  const minimizeBrowser = useCallback(() => {
+    if (!isElectron) return;
+    setBrowserMode((current) => (current === "closed" ? current : "pip"));
+  }, []);
+  const restoreBrowser = useCallback(() => {
+    if (!isElectron) return;
+    setBrowserMode("full");
+  }, []);
+  const toggleBrowserVisibility = useCallback(() => {
+    if (!isElectron) return;
+    setBrowserMode((current) => (current === "closed" ? "full" : "closed"));
+  }, []);
+  const setBrowserController = useCallback((controller: InAppBrowserController | null) => {
+    browserControllerRef.current = controller;
+    if (!controller) {
+      setBrowserDevToolsOpen(false);
+      return;
+    }
+    const pendingUrl = pendingBrowserOpenUrlRef.current;
+    if (!pendingUrl) {
+      return;
+    }
+    pendingBrowserOpenUrlRef.current = null;
+    controller.openUrl(pendingUrl, { newTab: true });
+  }, []);
+  const openBrowserUrl = useCallback((url: string, options?: { newTab?: boolean }) => {
+    if (!isElectron || typeof url !== "string" || url.length === 0) return;
+    setBrowserMode("full");
+    const controller = browserControllerRef.current;
+    if (!controller) {
+      pendingBrowserOpenUrlRef.current = url;
+      return;
+    }
+    controller.openUrl(url, options);
+  }, []);
+
+  useEffect(() => {
+    if (!isElectron) return;
+    return window.desktopBridge?.onBrowserOpenUrl?.((url) => {
+      if (typeof url !== "string" || url.length === 0) return;
+      openBrowserUrl(url, { newTab: true });
+    });
+  }, [openBrowserUrl]);
+
+  useEffect(() => {
+    if (!isElectron) return;
+    const handleSidebarInteraction = () => {
+      setBrowserMode((current) => (current === "full" ? "pip" : current));
+    };
+    window.addEventListener("ace:sidebar-interaction", handleSidebarInteraction);
+    return () => {
+      window.removeEventListener("ace:sidebar-interaction", handleSidebarInteraction);
+    };
+  }, []);
+
+  const syncBrowserSplitWidth = useCallback(
+    (nextWidth: number) => {
+      const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+      const clampedWidth = clampBrowserSplitWidth(nextWidth, viewportWidth);
+      if (lastSyncedBrowserSplitWidthRef.current === clampedWidth) {
+        return;
+      }
+      lastSyncedBrowserSplitWidthRef.current = clampedWidth;
+      setStoredBrowserSplitWidth(clampedWidth);
+    },
+    [setStoredBrowserSplitWidth],
+  );
+
+  const handleBrowserSplitResizePointerMove = useCallback((event: PointerEvent) => {
+    const resizeState = browserSplitResizeStateRef.current;
+    if (!resizeState) {
+      return;
+    }
+    const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+    const nextWidth = clampBrowserSplitWidth(
+      resizeState.startWidth + (resizeState.startX - event.clientX),
+      viewportWidth,
+    );
+    browserSplitWidthRef.current = nextWidth;
+    setBrowserSplitWidth(nextWidth);
+    didResizeBrowserSplitDuringDragRef.current = true;
+  }, []);
+
+  const handleBrowserSplitResizePointerEnd = useCallback(() => {
+    browserSplitResizePointerIdRef.current = null;
+    browserSplitResizeStateRef.current = null;
+    if (!didResizeBrowserSplitDuringDragRef.current) {
+      return;
+    }
+    didResizeBrowserSplitDuringDragRef.current = false;
+    syncBrowserSplitWidth(browserSplitWidthRef.current);
+  }, [syncBrowserSplitWidth]);
+
+  const handleBrowserSplitResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      browserSplitResizePointerIdRef.current = event.pointerId;
+      browserSplitResizeStateRef.current = {
+        startX: event.clientX,
+        startWidth: browserSplitWidthRef.current,
+      };
+      didResizeBrowserSplitDuringDragRef.current = false;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      if (browserSplitResizePointerIdRef.current !== null) {
+        handleBrowserSplitResizePointerMove(event);
+      }
+    };
+    const handlePointerEnd = () => {
+      if (browserSplitResizePointerIdRef.current === null) {
+        return;
+      }
+      handleBrowserSplitResizePointerEnd();
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+    };
+  }, [handleBrowserSplitResizePointerEnd, handleBrowserSplitResizePointerMove]);
+
+  useEffect(() => {
+    const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+    const clampedWidth = clampBrowserSplitWidth(storedBrowserSplitWidth, viewportWidth);
+    browserSplitWidthRef.current = clampedWidth;
+    lastSyncedBrowserSplitWidthRef.current = clampedWidth;
+    setBrowserSplitWidth(clampedWidth);
+  }, [storedBrowserSplitWidth]);
+
+  useEffect(() => {
+    const syncViewportWidth = () => {
+      const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+      const clampedWidth = clampBrowserSplitWidth(browserSplitWidthRef.current, viewportWidth);
+      if (browserSplitWidthRef.current !== clampedWidth) {
+        browserSplitWidthRef.current = clampedWidth;
+        setBrowserSplitWidth(clampedWidth);
+      }
+      if (browserSplitResizePointerIdRef.current === null) {
+        syncBrowserSplitWidth(clampedWidth);
+      }
+    };
+
+    syncViewportWidth();
+    const viewportElement = chatViewportRef.current;
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" || !viewportElement
+        ? null
+        : new ResizeObserver(() => {
+            syncViewportWidth();
+          });
+    if (resizeObserver && viewportElement) {
+      resizeObserver.observe(viewportElement);
+    }
+    window.addEventListener("resize", syncViewportWidth);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", syncViewportWidth);
+    };
+  }, [syncBrowserSplitWidth]);
+
   const splitTerminal = useCallback(() => {
     if (!activeThreadId || hasReachedSplitLimit) return;
     const terminalId = `terminal-${randomUUID()}`;
@@ -1512,6 +2143,152 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [activeThreadId, storeSetActiveTerminal],
   );
+  const moveTerminal = useCallback(
+    (terminalId: string, targetGroupId: string, targetIndex: number) => {
+      if (!activeThreadId) return;
+      storeMoveTerminal(activeThreadId, terminalId, targetGroupId, targetIndex);
+    },
+    [activeThreadId, storeMoveTerminal],
+  );
+  const moveTerminalToNewGroup = useCallback(
+    (terminalId: string, targetGroupIndex: number) => {
+      if (!activeThreadId) return;
+      storeMoveTerminalToNewGroup(activeThreadId, terminalId, targetGroupIndex);
+    },
+    [activeThreadId, storeMoveTerminalToNewGroup],
+  );
+  const renameTerminal = useCallback(
+    (terminalId: string, title: string) => {
+      if (!activeThreadId) return;
+      storeRenameTerminal(activeThreadId, terminalId, title);
+    },
+    [activeThreadId, storeRenameTerminal],
+  );
+  const clearTerminal = useCallback(
+    (terminalId: string) => {
+      const api = readNativeApi();
+      if (!activeThreadId || !api) return;
+      storeSetTerminalAutoTitle(activeThreadId, terminalId, null);
+      runAsyncTask(
+        api.terminal.clear({ threadId: activeThreadId, terminalId }),
+        "Failed to clear the terminal from ChatView.",
+      );
+    },
+    [activeThreadId, storeSetTerminalAutoTitle],
+  );
+  const restartTerminal = useCallback(
+    (terminalId: string) => {
+      const api = readNativeApi();
+      if (!activeThreadId || !api || !activeProject) return;
+      void api.terminal
+        .restart({
+          threadId: activeThreadId,
+          terminalId,
+          cwd: gitCwd ?? activeProject.cwd,
+          env: threadTerminalRuntimeEnv,
+          cols: SCRIPT_TERMINAL_COLS,
+          rows: SCRIPT_TERMINAL_ROWS,
+        })
+        .then(() => {
+          setTerminalFocusRequestId((value) => value + 1);
+        })
+        .catch((err: unknown) => {
+          reportBackgroundError("Failed to restart the terminal from ChatView.", err);
+        });
+    },
+    [activeProject, activeThreadId, gitCwd, threadTerminalRuntimeEnv],
+  );
+  const setTerminalAutoTitle = useCallback(
+    (terminalId: string, title: string | null) => {
+      if (!activeThreadId) return;
+      storeSetTerminalAutoTitle(activeThreadId, terminalId, title);
+    },
+    [activeThreadId, storeSetTerminalAutoTitle],
+  );
+  const setTerminalIcon = useCallback(
+    (terminalId: string, icon: Parameters<typeof storeSetTerminalIcon>[2]) => {
+      if (!activeThreadId) return;
+      storeSetTerminalIcon(activeThreadId, terminalId, icon);
+    },
+    [activeThreadId, storeSetTerminalIcon],
+  );
+  const setTerminalColor = useCallback(
+    (terminalId: string, color: Parameters<typeof storeSetTerminalColor>[2]) => {
+      if (!activeThreadId) return;
+      storeSetTerminalColor(activeThreadId, terminalId, color);
+    },
+    [activeThreadId, storeSetTerminalColor],
+  );
+  const setTerminalGroupSplitRatios = useCallback(
+    (groupId: string, ratios: number[]) => {
+      if (!activeThreadId) return;
+      storeSetTerminalGroupSplitRatios(activeThreadId, groupId, ratios);
+    },
+    [activeThreadId, storeSetTerminalGroupSplitRatios],
+  );
+  const duplicateTerminal = useCallback(
+    (terminalId: string) => {
+      if (!activeThreadId) return;
+      const sourceGroup = terminalState.terminalGroups.find((group) =>
+        group.terminalIds.includes(terminalId),
+      );
+      const sourceIndex = sourceGroup?.terminalIds.indexOf(terminalId) ?? -1;
+      const nextTerminalId = `terminal-${randomUUID()}`;
+
+      if (sourceGroup && sourceGroup.terminalIds.length < MAX_TERMINALS_PER_GROUP) {
+        storeNewTerminal(activeThreadId, nextTerminalId);
+        storeMoveTerminal(
+          activeThreadId,
+          nextTerminalId,
+          sourceGroup.id,
+          Math.max(sourceIndex + 1, 0),
+        );
+      } else {
+        storeNewTerminal(activeThreadId, nextTerminalId);
+      }
+
+      const icon = terminalState.terminalIconsById[terminalId] ?? null;
+      const color = terminalState.terminalColorsById[terminalId] ?? null;
+      if (icon) {
+        storeSetTerminalIcon(activeThreadId, nextTerminalId, icon);
+      }
+      if (color) {
+        storeSetTerminalColor(activeThreadId, nextTerminalId, color);
+      }
+      setTerminalFocusRequestId((value) => value + 1);
+    },
+    [
+      activeThreadId,
+      storeMoveTerminal,
+      storeNewTerminal,
+      storeSetTerminalColor,
+      storeSetTerminalIcon,
+      terminalState.terminalColorsById,
+      terminalState.terminalGroups,
+      terminalState.terminalIconsById,
+    ],
+  );
+  const clearAllTerminals = useCallback(() => {
+    const api = readNativeApi();
+    if (!activeThreadId || !api) return;
+    for (const terminalId of terminalState.terminalIds) {
+      storeSetTerminalAutoTitle(activeThreadId, terminalId, null);
+      runAsyncTask(
+        api.terminal.clear({ threadId: activeThreadId, terminalId }),
+        "Failed to clear a terminal while clearing all terminals from ChatView.",
+      );
+    }
+  }, [activeThreadId, storeSetTerminalAutoTitle, terminalState.terminalIds]);
+  const closeAllTerminals = useCallback(() => {
+    const api = readNativeApi();
+    if (!activeThreadId || !api) return;
+    runAsyncTask(
+      api.terminal.close({ threadId: activeThreadId, deleteHistory: true }),
+      "Failed to close all terminals from ChatView.",
+    );
+    storeClearTerminalState(activeThreadId);
+    setTerminalFocusRequestId((value) => value + 1);
+  }, [activeThreadId, storeClearTerminalState]);
   const closeTerminal = useCallback(
     (terminalId: string) => {
       const api = readNativeApi();
@@ -1520,13 +2297,21 @@ export default function ChatView({ threadId }: ChatViewProps) {
       const fallbackExitWrite = () =>
         api.terminal
           .write({ threadId: activeThreadId, terminalId, data: "exit\n" })
-          .catch(() => undefined);
+          .catch((error) => {
+            reportBackgroundError(
+              "Failed to write the terminal exit fallback from ChatView.",
+              error,
+            );
+          });
       if ("close" in api.terminal && typeof api.terminal.close === "function") {
         void (async () => {
           if (isFinalTerminal) {
-            await api.terminal
-              .clear({ threadId: activeThreadId, terminalId })
-              .catch(() => undefined);
+            await api.terminal.clear({ threadId: activeThreadId, terminalId }).catch((error) => {
+              reportBackgroundError(
+                "Failed to clear the final terminal before closing it from ChatView.",
+                error,
+              );
+            });
           }
           await api.terminal.close({
             threadId: activeThreadId,
@@ -1579,6 +2364,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
       } else {
         storeSetActiveTerminal(activeThreadId, targetTerminalId);
       }
+      storeSetTerminalAutoTitle(
+        activeThreadId,
+        targetTerminalId,
+        deriveTerminalTitleFromCommand(script.command) ?? script.name,
+      );
       setTerminalFocusRequestId((value) => value + 1);
 
       const runtimeEnv = projectScriptRuntimeEnv({
@@ -1626,6 +2416,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setTerminalOpen,
       setThreadError,
       storeNewTerminal,
+      storeSetTerminalAutoTitle,
       storeSetActiveTerminal,
       setLastInvokedScriptByProjectId,
       terminalState.activeTerminalId,
@@ -1916,12 +2707,25 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   // Auto-scroll on new messages
   const messageCount = timelineMessages.length;
+  const saveThreadScrollSnapshot = useCallback((threadId: ThreadId) => {
+    const scrollContainer = messagesScrollRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+
+    sessionThreadScrollSnapshots.set(threadId, {
+      scrollTop: scrollContainer.scrollTop,
+      shouldAutoScroll: shouldAutoScrollRef.current || isScrollContainerNearBottom(scrollContainer),
+    });
+    sessionOpenedThreadIds.add(threadId);
+  }, []);
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
     scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior });
     lastKnownScrollTopRef.current = scrollContainer.scrollTop;
     shouldAutoScrollRef.current = true;
+    setShowScrollToBottom(false);
   }, []);
   const cancelPendingStickToBottom = useCallback(() => {
     const pendingFrame = pendingAutoScrollFrameRef.current;
@@ -2052,18 +2856,64 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [cancelPendingInteractionAnchorAdjustment, cancelPendingStickToBottom]);
   useLayoutEffect(() => {
     if (!activeThread?.id) return;
-    shouldAutoScrollRef.current = true;
-    scheduleStickToBottom();
-    const timeout = window.setTimeout(() => {
-      const scrollContainer = messagesScrollRef.current;
-      if (!scrollContainer) return;
-      if (isScrollContainerNearBottom(scrollContainer)) return;
-      scheduleStickToBottom();
-    }, 96);
+    cancelPendingStickToBottom();
+    const scrollContainer = messagesScrollRef.current;
+    const savedSnapshot = sessionThreadScrollSnapshots.get(activeThread.id);
+    const scrollBehavior = resolveThreadOpenScrollBehavior({
+      hasSavedScrollSnapshot: savedSnapshot !== undefined,
+      hasOpenedAnyThreadInSession: sessionOpenedThreadIds.size > 0,
+    });
+    let timeout: number | null = null;
+
+    if (scrollContainer) {
+      if (scrollBehavior === "restore-saved" && savedSnapshot) {
+        if (savedSnapshot.shouldAutoScroll) {
+          scrollMessagesToBottom();
+          timeout = window.setTimeout(() => {
+            const activeScrollContainer = messagesScrollRef.current;
+            if (!activeScrollContainer) return;
+            if (isScrollContainerNearBottom(activeScrollContainer)) return;
+            scheduleStickToBottom();
+          }, THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS);
+        } else {
+          const nextScrollTop = clampScrollTop(savedSnapshot.scrollTop, scrollContainer);
+          scrollContainer.scrollTop = nextScrollTop;
+          lastKnownScrollTopRef.current = nextScrollTop;
+          shouldAutoScrollRef.current = false;
+          setShowScrollToBottom(!isScrollContainerNearBottom(scrollContainer));
+        }
+      } else if (scrollBehavior === "preserve-current") {
+        const isNearBottom = isScrollContainerNearBottom(scrollContainer);
+        lastKnownScrollTopRef.current = scrollContainer.scrollTop;
+        shouldAutoScrollRef.current = isNearBottom;
+        setShowScrollToBottom(!isNearBottom);
+      } else {
+        shouldAutoScrollRef.current = true;
+        setShowScrollToBottom(false);
+        scheduleStickToBottom();
+        timeout = window.setTimeout(() => {
+          const activeScrollContainer = messagesScrollRef.current;
+          if (!activeScrollContainer) return;
+          if (isScrollContainerNearBottom(activeScrollContainer)) return;
+          scheduleStickToBottom();
+        }, THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS);
+      }
+    }
+
+    sessionOpenedThreadIds.add(activeThread.id);
     return () => {
-      window.clearTimeout(timeout);
+      if (timeout !== null) {
+        window.clearTimeout(timeout);
+      }
+      saveThreadScrollSnapshot(activeThread.id);
     };
-  }, [activeThread?.id, scheduleStickToBottom]);
+  }, [
+    activeThread?.id,
+    cancelPendingStickToBottom,
+    saveThreadScrollSnapshot,
+    scheduleStickToBottom,
+    scrollMessagesToBottom,
+  ]);
   useLayoutEffect(() => {
     const composerForm = composerFormRef.current;
     if (!composerForm) return;
@@ -2365,16 +3215,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       : "local";
 
   useEffect(() => {
-    if (phase !== "running") return;
-    const timer = window.setInterval(() => {
-      setNowTick(Date.now());
-    }, 1000);
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [phase]);
-
-  useEffect(() => {
     if (!activeThreadId) return;
     const previous = terminalOpenByThreadRef.current[activeThreadId] ?? false;
     const current = Boolean(terminalState.terminalOpen);
@@ -2402,6 +3242,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       const shortcutContext = {
         terminalFocus: isTerminalFocused(),
         terminalOpen: Boolean(terminalState.terminalOpen),
+        browserOpen,
       };
 
       const command = resolveShortcutCommand(event, keybindings, {
@@ -2451,6 +3292,69 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return;
       }
 
+      if (command === "browser.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleBrowserVisibility();
+        return;
+      }
+
+      if (command === "browser.back") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.goBack();
+        return;
+      }
+
+      if (command === "browser.forward") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.goForward();
+        return;
+      }
+
+      if (command === "browser.reload") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.reload();
+        return;
+      }
+
+      if (command === "browser.devtools") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.toggleDevTools();
+        return;
+      }
+
+      if (command === "browser.duplicateTab") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.duplicateActiveTab();
+        return;
+      }
+
+      if (command === "browser.moveTabLeft") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.moveActiveTabLeft();
+        return;
+      }
+
+      if (command === "browser.moveTabRight") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.moveActiveTabRight();
+        return;
+      }
+
+      if (command === "chat.togglePlanMode") {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleInteractionMode();
+        return;
+      }
+
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject) return;
       const script = activeProject.scripts.find((entry) => entry.id === scriptId);
@@ -2463,9 +3367,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [
     activeProject,
+    browserOpen,
     terminalState.terminalOpen,
     terminalState.activeTerminalId,
     activeThreadId,
+    toggleBrowserVisibility,
     closeTerminal,
     createNewTerminal,
     setTerminalOpen,
@@ -2473,6 +3379,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     splitTerminal,
     keybindings,
     onToggleDiff,
+    toggleInteractionMode,
     toggleTerminalVisibility,
   ]);
 
@@ -2597,11 +3504,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return;
       }
       const confirmed = await api.dialogs.confirm(
-        [
-          `Revert this thread to checkpoint ${turnCount}?`,
-          "This will discard newer messages and turn diffs in this thread.",
-          "This action cannot be undone.",
-        ].join("\n"),
+        buildCheckpointRestoreConfirmation(activeThread.session?.provider, turnCount),
       );
       if (!confirmed) {
         return;
@@ -2620,7 +3523,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
       } catch (err) {
         setThreadError(
           activeThread.id,
-          err instanceof Error ? err.message : "Failed to revert thread state.",
+          err instanceof Error
+            ? err.message
+            : checkpointRestoreFailureMessage(activeThread.session?.provider),
         );
       }
       setIsRevertingCheckpoint(false);
@@ -2628,12 +3533,322 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [activeThread, isConnecting, isRevertingCheckpoint, isSendBusy, phase, setThreadError],
   );
 
+  const dispatchComposerMessage = useCallback(
+    async (
+      submission: {
+        prompt: string;
+        images: Array<ComposerImageAttachment | QueuedComposerImageAttachment>;
+        terminalContexts: TerminalContextDraft[];
+        modelSelection: ModelSelection;
+        runtimeMode: RuntimeMode;
+        interactionMode: ProviderInteractionMode;
+      },
+      options?: {
+        onFailure?: () => void;
+      },
+    ) => {
+      const api = readNativeApi();
+      if (!api || !activeThread || sendInFlightRef.current) return;
+      if (!activeProject) return;
+
+      const promptForSend = submission.prompt;
+      const composerImagesSnapshot = [...submission.images];
+      const composerTerminalContextsSnapshot = [...submission.terminalContexts];
+      const threadIdForSend = activeThread.id;
+      const submissionModelOptions = submission.modelSelection.options
+        ? {
+            [submission.modelSelection.provider]: submission.modelSelection.options,
+          }
+        : null;
+      const submissionProviderModels = getProviderModels(
+        providerStatuses,
+        submission.modelSelection.provider,
+      );
+      const submissionProviderState = getComposerProviderState({
+        provider: submission.modelSelection.provider,
+        model: submission.modelSelection.model,
+        models: submissionProviderModels,
+        prompt: promptForSend,
+        modelOptions: submissionModelOptions,
+      });
+      const isFirstMessage = !isServerThread || activeThread.messages.length === 0;
+      const baseBranchForWorktree =
+        isFirstMessage && envMode === "worktree" && !activeThread.worktreePath
+          ? activeThread.branch
+          : null;
+
+      const shouldCreateWorktree =
+        isFirstMessage && envMode === "worktree" && !activeThread.worktreePath;
+      if (shouldCreateWorktree && !activeThread.branch) {
+        setStoreThreadError(
+          threadIdForSend,
+          "Select a base branch before sending in New worktree mode.",
+        );
+        return;
+      }
+
+      const strippedPrompt = promptForSend.trim();
+      const messageTextForSend = appendTerminalContextsToPrompt(
+        promptForSend,
+        composerTerminalContextsSnapshot,
+      );
+      const messageIdForSend = newMessageId();
+      const messageCreatedAt = new Date().toISOString();
+      const outgoingMessageText = formatOutgoingPrompt({
+        provider: submission.modelSelection.provider,
+        model: submission.modelSelection.model,
+        models: submissionProviderModels,
+        effort: submissionProviderState.promptEffort,
+        text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
+      });
+      const turnAttachmentsPromise = Promise.all(
+        composerImagesSnapshot.map(async (image) => ({
+          type: "image" as const,
+          name: image.name,
+          mimeType: image.mimeType,
+          sizeBytes: image.sizeBytes,
+          dataUrl: "dataUrl" in image ? image.dataUrl : await readFileAsDataUrl(image.file),
+        })),
+      );
+      const optimisticAttachments = composerImagesSnapshot.map((image) => ({
+        type: "image" as const,
+        id: image.id,
+        name: image.name,
+        mimeType: image.mimeType,
+        sizeBytes: image.sizeBytes,
+        previewUrl: image.previewUrl,
+      }));
+
+      sendInFlightRef.current = true;
+      beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
+      setOptimisticUserMessages((existing) => [
+        ...existing,
+        {
+          id: messageIdForSend,
+          role: "user",
+          text: outgoingMessageText,
+          ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
+          createdAt: messageCreatedAt,
+          streaming: false,
+        },
+      ]);
+      shouldAutoScrollRef.current = true;
+      forceStickToBottom();
+
+      setThreadError(threadIdForSend, null);
+
+      let createdServerThreadForLocalDraft = false;
+      let turnStartSucceeded = false;
+      let nextThreadBranch = activeThread.branch;
+      let nextThreadWorktreePath = activeThread.worktreePath;
+      await (async () => {
+        if (baseBranchForWorktree) {
+          beginLocalDispatch({ preparingWorktree: true });
+          const newBranch = buildTemporaryWorktreeBranchName();
+          const result = await createWorktreeMutation.mutateAsync({
+            cwd: activeProject.cwd,
+            branch: baseBranchForWorktree,
+            newBranch,
+          });
+          nextThreadBranch = result.worktree.branch;
+          nextThreadWorktreePath = result.worktree.path;
+          if (isServerThread) {
+            await api.orchestration.dispatchCommand({
+              type: "thread.meta.update",
+              commandId: newCommandId(),
+              threadId: threadIdForSend,
+              branch: result.worktree.branch,
+              worktreePath: result.worktree.path,
+            });
+            setStoreThreadBranch(threadIdForSend, result.worktree.branch, result.worktree.path);
+          }
+        }
+
+        let firstComposerImageName: string | null = null;
+        if (composerImagesSnapshot.length > 0) {
+          const firstComposerImage = composerImagesSnapshot[0];
+          if (firstComposerImage) {
+            firstComposerImageName = firstComposerImage.name;
+          }
+        }
+        let titleSeed = strippedPrompt;
+        if (!titleSeed) {
+          if (firstComposerImageName) {
+            titleSeed = `Image: ${firstComposerImageName}`;
+          } else if (composerTerminalContextsSnapshot.length > 0) {
+            titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
+          } else {
+            titleSeed = "New thread";
+          }
+        }
+        const title = truncate(titleSeed);
+        const threadCreateModelSelection: ModelSelection = buildProviderModelSelection(
+          submission.modelSelection.provider,
+          submission.modelSelection.model ||
+            activeProject.defaultModelSelection?.model ||
+            DEFAULT_MODEL_BY_PROVIDER[submission.modelSelection.provider],
+          submission.modelSelection.options,
+        );
+
+        if (isLocalDraftThread) {
+          await api.orchestration.dispatchCommand({
+            type: "thread.create",
+            commandId: newCommandId(),
+            threadId: threadIdForSend,
+            projectId: activeProject.id,
+            title,
+            modelSelection: threadCreateModelSelection,
+            runtimeMode: submission.runtimeMode,
+            interactionMode: submission.interactionMode,
+            branch: nextThreadBranch,
+            worktreePath: nextThreadWorktreePath,
+            createdAt: activeThread.createdAt,
+          });
+          createdServerThreadForLocalDraft = true;
+        }
+
+        let setupScript: ProjectScript | null = null;
+        if (baseBranchForWorktree) {
+          setupScript = setupProjectScript(activeProject.scripts);
+        }
+        if (setupScript) {
+          let shouldRunSetupScript = false;
+          if (isServerThread) {
+            shouldRunSetupScript = true;
+          } else if (createdServerThreadForLocalDraft) {
+            shouldRunSetupScript = true;
+          }
+          if (shouldRunSetupScript) {
+            const setupScriptOptions: Parameters<typeof runProjectScript>[1] = {
+              worktreePath: nextThreadWorktreePath,
+              rememberAsLastInvoked: false,
+            };
+            if (nextThreadWorktreePath) {
+              setupScriptOptions.cwd = nextThreadWorktreePath;
+            }
+            await runProjectScript(setupScript, setupScriptOptions);
+          }
+        }
+
+        if (isFirstMessage && isServerThread) {
+          await api.orchestration.dispatchCommand({
+            type: "thread.meta.update",
+            commandId: newCommandId(),
+            threadId: threadIdForSend,
+            title,
+          });
+        }
+
+        if (isServerThread) {
+          await persistThreadSettingsForNextTurn({
+            threadId: threadIdForSend,
+            createdAt: messageCreatedAt,
+            modelSelection: submission.modelSelection,
+            runtimeMode: submission.runtimeMode,
+            interactionMode: submission.interactionMode,
+          });
+        }
+
+        beginLocalDispatch({ preparingWorktree: false });
+        const turnAttachments = await turnAttachmentsPromise;
+        await api.orchestration.dispatchCommand({
+          type: "thread.turn.start",
+          commandId: newCommandId(),
+          threadId: threadIdForSend,
+          message: {
+            messageId: messageIdForSend,
+            role: "user",
+            text: outgoingMessageText,
+            attachments: turnAttachments,
+          },
+          modelSelection: submission.modelSelection,
+          titleSeed: title,
+          runtimeMode: submission.runtimeMode,
+          interactionMode: submission.interactionMode,
+          createdAt: messageCreatedAt,
+        });
+        turnStartSucceeded = true;
+      })().catch(async (err: unknown) => {
+        if (createdServerThreadForLocalDraft && !turnStartSucceeded) {
+          await api.orchestration
+            .dispatchCommand({
+              type: "thread.delete",
+              commandId: newCommandId(),
+              threadId: threadIdForSend,
+            })
+            .catch((cleanupErr: unknown) => {
+              reportBackgroundError("Failed to clean up thread after send failure.", cleanupErr);
+            });
+        }
+        if (
+          !turnStartSucceeded &&
+          promptRef.current.length === 0 &&
+          composerImagesRef.current.length === 0 &&
+          composerTerminalContextsRef.current.length === 0
+        ) {
+          setOptimisticUserMessages((existing) => {
+            const removed = existing.filter((message) => message.id === messageIdForSend);
+            for (const message of removed) {
+              revokeUserMessagePreviewUrls(message);
+            }
+            const next = existing.filter((message) => message.id !== messageIdForSend);
+            return next.length === existing.length ? existing : next;
+          });
+          promptRef.current = promptForSend;
+          setPrompt(promptForSend);
+          setComposerCursor(collapseExpandedComposerCursor(promptForSend, promptForSend.length));
+          addComposerImagesToDraft(
+            composerImagesSnapshot.flatMap((image) =>
+              "dataUrl" in image ? [] : [cloneComposerImageForRetry(image)],
+            ),
+          );
+          addComposerTerminalContextsToDraft(composerTerminalContextsSnapshot);
+          setComposerTrigger(detectComposerTrigger(promptForSend, promptForSend.length));
+        } else {
+          options?.onFailure?.();
+        }
+        setThreadError(
+          threadIdForSend,
+          err instanceof Error ? err.message : "Failed to send message.",
+        );
+      });
+      sendInFlightRef.current = false;
+      if (!turnStartSucceeded) {
+        resetLocalDispatch();
+      }
+    },
+    [
+      activeProject,
+      activeThread,
+      addComposerImagesToDraft,
+      addComposerTerminalContextsToDraft,
+      beginLocalDispatch,
+      createWorktreeMutation,
+      envMode,
+      forceStickToBottom,
+      isLocalDraftThread,
+      isServerThread,
+      persistThreadSettingsForNextTurn,
+      providerStatuses,
+      resetLocalDispatch,
+      runProjectScript,
+      setPrompt,
+      setStoreThreadBranch,
+      setStoreThreadError,
+      setThreadError,
+    ],
+  );
+
   const onSend = async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     const api = readNativeApi();
-    if (!api || !activeThread || isSendBusy || isConnecting || sendInFlightRef.current) return;
+    if (!api || !activeThread || sendInFlightRef.current) return;
     if (activePendingProgress) {
       onAdvanceActivePendingUserInput();
+      return;
+    }
+    if (phase === "running" || isSendBusy || isConnecting) {
+      await queueCurrentComposerMessage();
       return;
     }
     const promptForSend = promptRef.current;
@@ -2691,76 +3906,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
     if (!activeProject) return;
-    const threadIdForSend = activeThread.id;
-    const isFirstMessage = !isServerThread || activeThread.messages.length === 0;
-    const baseBranchForWorktree =
-      isFirstMessage && envMode === "worktree" && !activeThread.worktreePath
-        ? activeThread.branch
-        : null;
-
-    // In worktree mode, require an explicit base branch so we don't silently
-    // fall back to local execution when branch selection is missing.
-    const shouldCreateWorktree =
-      isFirstMessage && envMode === "worktree" && !activeThread.worktreePath;
-    if (shouldCreateWorktree && !activeThread.branch) {
-      setStoreThreadError(
-        threadIdForSend,
-        "Select a base branch before sending in New worktree mode.",
-      );
-      return;
-    }
-
-    sendInFlightRef.current = true;
-    beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
-
-    const composerImagesSnapshot = [...composerImages];
-    const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
-    const messageTextForSend = appendTerminalContextsToPrompt(
-      promptForSend,
-      composerTerminalContextsSnapshot,
-    );
-    const messageIdForSend = newMessageId();
-    const messageCreatedAt = new Date().toISOString();
-    const outgoingMessageText = formatOutgoingPrompt({
-      provider: selectedProvider,
-      model: selectedModel,
-      models: selectedProviderModels,
-      effort: selectedPromptEffort,
-      text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
-    });
-    const turnAttachmentsPromise = Promise.all(
-      composerImagesSnapshot.map(async (image) => ({
-        type: "image" as const,
-        name: image.name,
-        mimeType: image.mimeType,
-        sizeBytes: image.sizeBytes,
-        dataUrl: await readFileAsDataUrl(image.file),
-      })),
-    );
-    const optimisticAttachments = composerImagesSnapshot.map((image) => ({
-      type: "image" as const,
-      id: image.id,
-      name: image.name,
-      mimeType: image.mimeType,
-      sizeBytes: image.sizeBytes,
-      previewUrl: image.previewUrl,
-    }));
-    setOptimisticUserMessages((existing) => [
-      ...existing,
-      {
-        id: messageIdForSend,
-        role: "user",
-        text: outgoingMessageText,
-        ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
-        createdAt: messageCreatedAt,
-        streaming: false,
-      },
-    ]);
-    // Sending a message should always bring the latest user turn into view.
-    shouldAutoScrollRef.current = true;
-    forceStickToBottom();
-
-    setThreadError(threadIdForSend, null);
     if (expiredTerminalContextCount > 0) {
       const toastCopy = buildExpiredTerminalContextToastCopy(
         expiredTerminalContextCount,
@@ -2773,190 +3918,148 @@ export default function ChatView({ threadId }: ChatViewProps) {
       });
     }
     promptRef.current = "";
-    clearComposerDraftContent(threadIdForSend);
+    clearComposerDraftContent(activeThread.id);
     setComposerHighlightedItemId(null);
     setComposerCursor(0);
     setComposerTrigger(null);
 
-    let createdServerThreadForLocalDraft = false;
-    let turnStartSucceeded = false;
-    let nextThreadBranch = activeThread.branch;
-    let nextThreadWorktreePath = activeThread.worktreePath;
-    await (async () => {
-      // On first message: lock in branch + create worktree if needed.
-      if (baseBranchForWorktree) {
-        beginLocalDispatch({ preparingWorktree: true });
-        const newBranch = buildTemporaryWorktreeBranchName();
-        const result = await createWorktreeMutation.mutateAsync({
-          cwd: activeProject.cwd,
-          branch: baseBranchForWorktree,
-          newBranch,
-        });
-        nextThreadBranch = result.worktree.branch;
-        nextThreadWorktreePath = result.worktree.path;
-        if (isServerThread) {
-          await api.orchestration.dispatchCommand({
-            type: "thread.meta.update",
-            commandId: newCommandId(),
-            threadId: threadIdForSend,
-            branch: result.worktree.branch,
-            worktreePath: result.worktree.path,
-          });
-          // Keep local thread state in sync immediately so terminal drawer opens
-          // with the worktree cwd/env instead of briefly using the project root.
-          setStoreThreadBranch(threadIdForSend, result.worktree.branch, result.worktree.path);
-        }
-      }
-
-      let firstComposerImageName: string | null = null;
-      if (composerImagesSnapshot.length > 0) {
-        const firstComposerImage = composerImagesSnapshot[0];
-        if (firstComposerImage) {
-          firstComposerImageName = firstComposerImage.name;
-        }
-      }
-      let titleSeed = trimmed;
-      if (!titleSeed) {
-        if (firstComposerImageName) {
-          titleSeed = `Image: ${firstComposerImageName}`;
-        } else if (composerTerminalContextsSnapshot.length > 0) {
-          titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
-        } else {
-          titleSeed = "New thread";
-        }
-      }
-      const title = truncate(titleSeed);
-      const threadCreateModelSelection: ModelSelection = {
-        provider: selectedProvider,
-        model:
-          selectedModel ||
-          activeProject.defaultModelSelection?.model ||
-          DEFAULT_MODEL_BY_PROVIDER.codex,
-        ...(selectedModelSelection.options ? { options: selectedModelSelection.options } : {}),
-      };
-
-      if (isLocalDraftThread) {
-        await api.orchestration.dispatchCommand({
-          type: "thread.create",
-          commandId: newCommandId(),
-          threadId: threadIdForSend,
-          projectId: activeProject.id,
-          title,
-          modelSelection: threadCreateModelSelection,
-          runtimeMode,
-          interactionMode,
-          branch: nextThreadBranch,
-          worktreePath: nextThreadWorktreePath,
-          createdAt: activeThread.createdAt,
-        });
-        createdServerThreadForLocalDraft = true;
-      }
-
-      let setupScript: ProjectScript | null = null;
-      if (baseBranchForWorktree) {
-        setupScript = setupProjectScript(activeProject.scripts);
-      }
-      if (setupScript) {
-        let shouldRunSetupScript = false;
-        if (isServerThread) {
-          shouldRunSetupScript = true;
-        } else {
-          if (createdServerThreadForLocalDraft) {
-            shouldRunSetupScript = true;
-          }
-        }
-        if (shouldRunSetupScript) {
-          const setupScriptOptions: Parameters<typeof runProjectScript>[1] = {
-            worktreePath: nextThreadWorktreePath,
-            rememberAsLastInvoked: false,
-          };
-          if (nextThreadWorktreePath) {
-            setupScriptOptions.cwd = nextThreadWorktreePath;
-          }
-          await runProjectScript(setupScript, setupScriptOptions);
-        }
-      }
-
-      // Auto-title from first message
-      if (isFirstMessage && isServerThread) {
-        await api.orchestration.dispatchCommand({
-          type: "thread.meta.update",
-          commandId: newCommandId(),
-          threadId: threadIdForSend,
-          title,
-        });
-      }
-
-      if (isServerThread) {
-        await persistThreadSettingsForNextTurn({
-          threadId: threadIdForSend,
-          createdAt: messageCreatedAt,
-          ...(selectedModel ? { modelSelection: selectedModelSelection } : {}),
-          runtimeMode,
-          interactionMode,
-        });
-      }
-
-      beginLocalDispatch({ preparingWorktree: false });
-      const turnAttachments = await turnAttachmentsPromise;
-      await api.orchestration.dispatchCommand({
-        type: "thread.turn.start",
-        commandId: newCommandId(),
-        threadId: threadIdForSend,
-        message: {
-          messageId: messageIdForSend,
-          role: "user",
-          text: outgoingMessageText,
-          attachments: turnAttachments,
-        },
-        modelSelection: selectedModelSelection,
-        titleSeed: title,
-        runtimeMode,
-        interactionMode,
-        createdAt: messageCreatedAt,
-      });
-      turnStartSucceeded = true;
-    })().catch(async (err: unknown) => {
-      if (createdServerThreadForLocalDraft && !turnStartSucceeded) {
-        await api.orchestration
-          .dispatchCommand({
-            type: "thread.delete",
-            commandId: newCommandId(),
-            threadId: threadIdForSend,
-          })
-          .catch(() => undefined);
-      }
-      if (
-        !turnStartSucceeded &&
-        promptRef.current.length === 0 &&
-        composerImagesRef.current.length === 0 &&
-        composerTerminalContextsRef.current.length === 0
-      ) {
-        setOptimisticUserMessages((existing) => {
-          const removed = existing.filter((message) => message.id === messageIdForSend);
-          for (const message of removed) {
-            revokeUserMessagePreviewUrls(message);
-          }
-          const next = existing.filter((message) => message.id !== messageIdForSend);
-          return next.length === existing.length ? existing : next;
-        });
-        promptRef.current = promptForSend;
-        setPrompt(promptForSend);
-        setComposerCursor(collapseExpandedComposerCursor(promptForSend, promptForSend.length));
-        addComposerImagesToDraft(composerImagesSnapshot.map(cloneComposerImageForRetry));
-        addComposerTerminalContextsToDraft(composerTerminalContextsSnapshot);
-        setComposerTrigger(detectComposerTrigger(promptForSend, promptForSend.length));
-      }
-      setThreadError(
-        threadIdForSend,
-        err instanceof Error ? err.message : "Failed to send message.",
-      );
+    await dispatchComposerMessage({
+      prompt: promptForSend,
+      images: composerImages,
+      terminalContexts: sendableComposerTerminalContexts,
+      modelSelection: selectedModelSelection,
+      runtimeMode,
+      interactionMode,
     });
-    sendInFlightRef.current = false;
-    if (!turnStartSucceeded) {
-      resetLocalDispatch();
-    }
   };
+
+  useEffect(() => {
+    if (!activeThread || queuedComposerMessages.length === 0) {
+      return;
+    }
+    if (
+      phase === "running" ||
+      isSendBusy ||
+      isConnecting ||
+      sendInFlightRef.current ||
+      activePendingProgress ||
+      activePendingApproval
+    ) {
+      return;
+    }
+
+    const nextQueuedMessage = queuedComposerMessages[0];
+    if (!nextQueuedMessage) {
+      return;
+    }
+    const previousMessages = queuedComposerMessages;
+    const previousSteerRequest = queuedSteerRequest;
+    const nextMessages = queuedComposerMessages.slice(1);
+    const nextSteerRequest =
+      queuedSteerRequest?.messageId === nextQueuedMessage.id ? null : queuedSteerRequest;
+    void (async () => {
+      if (
+        !(await persistQueuedComposerState(
+          nextMessages,
+          nextSteerRequest,
+          previousMessages,
+          previousSteerRequest,
+        ))
+      ) {
+        return;
+      }
+      void dispatchComposerMessage(
+        {
+          prompt: nextQueuedMessage.prompt,
+          images: [...nextQueuedMessage.images],
+          terminalContexts: nextQueuedMessage.terminalContexts.map((context) => ({
+            ...context,
+            threadId,
+          })),
+          modelSelection: nextQueuedMessage.modelSelection,
+          runtimeMode: nextQueuedMessage.runtimeMode,
+          interactionMode: nextQueuedMessage.interactionMode,
+        },
+        {
+          onFailure: () => {
+            void persistQueuedComposerState(
+              [nextQueuedMessage, ...nextMessages],
+              previousSteerRequest,
+              nextMessages,
+              nextSteerRequest,
+            );
+          },
+        },
+      );
+    })();
+  }, [
+    activePendingApproval,
+    activePendingProgress,
+    activeThread,
+    dispatchComposerMessage,
+    isConnecting,
+    isSendBusy,
+    phase,
+    persistQueuedComposerState,
+    queuedSteerRequest,
+    queuedComposerMessages,
+    threadId,
+  ]);
+
+  useEffect(() => {
+    if (!queuedSteerRequest) {
+      return;
+    }
+    if (!queuedComposerMessages.some((message) => message.id === queuedSteerRequest.messageId)) {
+      void persistQueuedComposerState(
+        queuedComposerMessages,
+        null,
+        queuedComposerMessages,
+        queuedSteerRequest,
+      );
+      return;
+    }
+    if (phase !== "running" || isConnecting || queuedSteerRequest.interruptRequested) {
+      return;
+    }
+    if (workLogEntries.length <= queuedSteerRequest.baselineWorkLogEntryCount) {
+      return;
+    }
+
+    const api = readNativeApi();
+    if (!api || !activeThread) {
+      return;
+    }
+    void (async () => {
+      if (
+        !(await persistQueuedComposerState(
+          queuedComposerMessages,
+          {
+            ...queuedSteerRequest,
+            interruptRequested: true,
+          },
+          queuedComposerMessages,
+          queuedSteerRequest,
+        ))
+      ) {
+        return;
+      }
+      void api.orchestration.dispatchCommand({
+        type: "thread.turn.interrupt",
+        commandId: newCommandId(),
+        threadId: activeThread.id,
+        createdAt: new Date().toISOString(),
+      });
+    })();
+  }, [
+    activeThread,
+    isConnecting,
+    phase,
+    persistQueuedComposerState,
+    queuedComposerMessages,
+    queuedSteerRequest,
+    workLogEntries.length,
+  ]);
 
   const onInterrupt = async () => {
     const api = readNativeApi();
@@ -3043,14 +4146,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (!activePendingUserInput) {
         return;
       }
+      const question = activePendingUserInput.questions.find((entry) => entry.id === questionId);
+      if (!question) {
+        return;
+      }
       setPendingUserInputAnswersByRequestId((existing) => ({
         ...existing,
         [activePendingUserInput.requestId]: {
           ...existing[activePendingUserInput.requestId],
-          [questionId]: {
-            selectedOptionLabel: optionLabel,
-            customAnswer: "",
-          },
+          [questionId]: selectPendingUserInputOption(
+            question,
+            existing[activePendingUserInput.requestId]?.[questionId],
+            optionLabel,
+          ),
         },
       }));
       promptRef.current = "";
@@ -3336,7 +4444,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
             commandId: newCommandId(),
             threadId: nextThreadId,
           })
-          .catch(() => undefined);
+          .catch((cleanupErr: unknown) => {
+            reportBackgroundError(
+              "Failed to clean up thread after plan implementation failure.",
+              cleanupErr,
+            );
+          });
         toastManager.add({
           type: "error",
           title: "Could not start implementation thread",
@@ -3381,6 +4494,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
         provider: resolvedProvider,
         model: resolvedModel,
       };
+      if (resolvedProvider === "cursor") {
+        setComposerDraftProviderModelOptions(activeThread.id, "cursor", undefined, {
+          persistSticky: true,
+        });
+      }
       setComposerDraftModelSelection(activeThread.id, nextModelSelection);
       setStickyComposerModelSelection(nextModelSelection);
       scheduleComposerFocus();
@@ -3390,6 +4508,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       lockedProvider,
       scheduleComposerFocus,
       setComposerDraftModelSelection,
+      setComposerDraftProviderModelOptions,
       setStickyComposerModelSelection,
       providerStatuses,
       settings,
@@ -3534,7 +4653,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           trigger.rangeStart,
           replacementRangeEnd,
           replacement,
-          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+          {
+            expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+          },
         );
         if (applied) {
           setComposerHighlightedItemId(null);
@@ -3553,7 +4674,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
             trigger.rangeStart,
             replacementRangeEnd,
             replacement,
-            { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+            {
+              expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+            },
           );
           if (applied) {
             setComposerHighlightedItemId(null);
@@ -3723,44 +4846,167 @@ export default function ChatView({ threadId }: ChatViewProps) {
     void onRevertToTurnCount(targetTurnCount);
   };
 
-  // Empty state: no active thread
   if (!activeThread) {
-    return (
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-muted-foreground/40">
-        {!isElectron && (
-          <header className="border-b border-border px-3 py-2 md:hidden">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="size-7 shrink-0" />
-              <span className="text-sm font-medium text-foreground">Threads</span>
-            </div>
-          </header>
-        )}
-        {isElectron && (
-          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-5">
-            <span className="text-xs text-muted-foreground/50">No active thread</span>
-          </div>
-        )}
-        <div className="flex flex-1 items-center justify-center">
-          <div className="text-center">
-            <p className="text-sm">Select a thread or create a new one to get started.</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <NewThreadLanding />;
   }
+
+  const messagesTimelineProps = {
+    hasMessages: timelineEntries.length > 0 || isThreadHistoryLoading,
+    isWorking,
+    activeTurnInProgress: isWorking || !latestTurnSettled,
+    activeTurnStartedAt: activeWorkStartedAt,
+    scrollContainer: messagesScrollElement,
+    timelineEntries,
+    completionDividerBeforeEntryId,
+    completionSummary,
+    turnDiffSummaryByAssistantMessageId,
+    expandedWorkGroups,
+    onToggleWorkGroup,
+    onOpenTurnDiff,
+    revertTurnCountByUserMessageId,
+    onRevertUserMessage,
+    revertActionTitle: checkpointRestoreActionTitle(activeThread.session?.provider),
+    isRevertingCheckpoint,
+    onImageExpand: onExpandTimelineImage,
+    markdownCwd: gitCwd ?? undefined,
+    resolvedTheme,
+    timestampFormat,
+    workspaceRoot: activeProject?.cwd ?? undefined,
+  };
+  const branchToolbarProps = isGitRepo
+    ? {
+        threadId: activeThread.id,
+        onEnvModeChange,
+        envLocked,
+        onComposerFocusRequest: scheduleComposerFocus,
+        ...(canCheckoutPullRequestIntoThread
+          ? { onCheckoutPullRequestRequest: openPullRequestDialog }
+          : {}),
+      }
+    : null;
+  const pullRequestDialogProps = pullRequestDialogState
+    ? {
+        open: true,
+        cwd: activeProject?.cwd ?? null,
+        initialReference: pullRequestDialogState.initialReference,
+        onOpenChange: (open: boolean) => {
+          if (!open) {
+            closePullRequestDialog();
+          }
+        },
+        onPrepared: handlePreparedPullRequestThread,
+      }
+    : null;
+  const planSidebarProps =
+    workspaceMode === "chat" && planSidebarOpen
+      ? {
+          activePlan,
+          activeProposedPlan: sidebarProposedPlan,
+          markdownCwd: gitCwd ?? undefined,
+          workspaceRoot: activeProject?.cwd ?? undefined,
+          timestampFormat,
+          onClose: () => {
+            setPlanSidebarOpen(false);
+            const turnKey = activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? null;
+            if (turnKey) {
+              planSidebarDismissedForTurnRef.current = turnKey;
+            }
+          },
+        }
+      : null;
+  const browserPanel =
+    browserOpen && isElectron
+      ? {
+          mode: browserMode,
+          splitWidth: browserSplitWidth,
+          onResizePointerDown: handleBrowserSplitResizePointerDown,
+          inAppBrowserProps: {
+            open: browserOpen,
+            mode: browserMode,
+            onClose: closeBrowser,
+            onMinimize: minimizeBrowser,
+            onRestore: restoreBrowser,
+            onSplit: openSplitBrowser,
+            onControllerChange: setBrowserController,
+            onActiveRuntimeStateChange: (state: { devToolsOpen: boolean }) => {
+              setBrowserDevToolsOpen(state.devToolsOpen);
+            },
+            backShortcutLabel: browserBackShortcutLabel,
+            devToolsShortcutLabel: browserDevToolsShortcutLabel,
+            forwardShortcutLabel: browserForwardShortcutLabel,
+            reloadShortcutLabel: browserReloadShortcutLabel,
+            viewportRef: chatViewportRef,
+          },
+        }
+      : null;
+  const terminalDrawerProps =
+    terminalState.terminalOpen && activeProject
+      ? {
+          threadId: activeThread.id,
+          cwd: gitCwd ?? activeProject.cwd,
+          runtimeEnv: threadTerminalRuntimeEnv,
+          height: terminalState.terminalHeight,
+          sidebarWidth: terminalState.terminalSidebarWidth,
+          sidebarDensity: terminalState.terminalSidebarDensity,
+          terminalIds: terminalState.terminalIds,
+          activeTerminalId: terminalState.activeTerminalId,
+          terminalGroups: terminalState.terminalGroups,
+          activeTerminalGroupId: terminalState.activeTerminalGroupId,
+          runningTerminalIds: terminalState.runningTerminalIds,
+          customTerminalTitlesById: terminalState.customTerminalTitlesById,
+          autoTerminalTitlesById: terminalState.autoTerminalTitlesById,
+          terminalIconsById: terminalState.terminalIconsById,
+          terminalColorsById: terminalState.terminalColorsById,
+          splitRatiosByGroupId: terminalState.splitRatiosByGroupId,
+          focusRequestId: terminalFocusRequestId,
+          onSplitTerminal: splitTerminal,
+          onNewTerminal: createNewTerminal,
+          splitShortcutLabel: splitTerminalShortcutLabel ?? undefined,
+          newShortcutLabel: newTerminalShortcutLabel ?? undefined,
+          closeShortcutLabel: closeTerminalShortcutLabel ?? undefined,
+          onActiveTerminalChange: activateTerminal,
+          onMoveTerminal: moveTerminal,
+          onMoveTerminalToNewGroup: moveTerminalToNewGroup,
+          onDuplicateTerminal: duplicateTerminal,
+          onRenameTerminal: renameTerminal,
+          onClearTerminal: clearTerminal,
+          onClearAllTerminals: clearAllTerminals,
+          onRestartTerminal: restartTerminal,
+          onCloseAllTerminals: closeAllTerminals,
+          onAutoTerminalTitleChange: setTerminalAutoTitle,
+          onTerminalIconChange: setTerminalIcon,
+          onTerminalColorChange: setTerminalColor,
+          onSplitRatiosChange: setTerminalGroupSplitRatios,
+          onCloseTerminal: closeTerminal,
+          onHeightChange: setTerminalHeight,
+          onSidebarWidthChange: setTerminalSidebarWidth,
+          onSidebarDensityChange: setTerminalSidebarDensity,
+          onAddTerminalContext: addTerminalContextToDraft,
+        }
+      : null;
+  const expandedImageOverlay =
+    expandedImage && expandedImageItem
+      ? {
+          expandedImage,
+          expandedImageItem,
+          closeExpandedImage,
+          navigateExpandedImage,
+        }
+      : null;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
-      {/* Top bar */}
+      {/* Persistent top bar — always visible regardless of workspace mode */}
       <header
         className={cn(
-          "border-b border-border px-3 sm:px-5",
-          isElectron ? "drag-region flex h-[52px] items-center" : "py-2 sm:py-3",
+          "border-b border-border/30 bg-background/95 px-3 sm:px-5 supports-[backdrop-filter]:bg-background/80 supports-[backdrop-filter]:backdrop-blur-xl",
+          isElectron ? "drag-region flex h-13 items-center" : "py-2.5 sm:py-3",
         )}
       >
         <ChatHeader
           activeThreadId={activeThread.id}
           activeThreadTitle={activeThread.title}
+          activeProjectId={activeProject?.id ?? null}
           activeProjectName={activeProject?.name}
           isGitRepo={isGitRepo}
           openInCwd={gitCwd}
@@ -3774,16 +5020,26 @@ export default function ChatView({ threadId }: ChatViewProps) {
           terminalOpen={terminalState.terminalOpen}
           terminalToggleShortcutLabel={terminalToggleShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
+          browserToggleShortcutLabel={browserToggleShortcutLabel}
+          browserAvailable={isElectron}
+          browserOpen={browserOpen}
+          browserDevToolsOpen={browserDevToolsOpen}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
+          workspaceMode={workspaceMode}
+          workspaceName={activeProject?.name}
           onRunProjectScript={(script) => {
             void runProjectScript(script);
           }}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
+          onOpenBrowser={openBrowser}
+          onCloseBrowser={closeBrowser}
+          onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
+          onWorkspaceModeChange={onWorkspaceModeChange}
         />
       </header>
 
@@ -3794,592 +5050,486 @@ export default function ChatView({ threadId }: ChatViewProps) {
         onDismiss={() => setThreadError(activeThread.id, null)}
       />
       {/* Main content area with optional plan sidebar */}
-      <div className="flex min-h-0 min-w-0 flex-1">
+      <div ref={chatViewportRef} className="relative flex min-h-0 min-w-0 flex-1">
         {/* Chat column */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* Messages Wrapper */}
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            {/* Messages */}
-            <div
-              ref={setMessagesScrollContainerRef}
-              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-3 sm:px-5 sm:py-4"
-              onScroll={onMessagesScroll}
-              onClickCapture={onMessagesClickCapture}
-              onWheel={onMessagesWheel}
-              onPointerDown={onMessagesPointerDown}
-              onPointerUp={onMessagesPointerUp}
-              onPointerCancel={onMessagesPointerCancel}
-              onTouchStart={onMessagesTouchStart}
-              onTouchMove={onMessagesTouchMove}
-              onTouchEnd={onMessagesTouchEnd}
-              onTouchCancel={onMessagesTouchEnd}
+          {workspaceMode === "editor" ? (
+            <Suspense
+              fallback={
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+                  <div className="border-b border-border/60 px-4 py-3">
+                    <div className="h-5 w-44 rounded bg-foreground/6" />
+                  </div>
+                  <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
+                    <div className="border-r border-border/60 bg-foreground/3" />
+                    <div className="bg-background" />
+                  </div>
+                </div>
+              }
             >
-              <MessagesTimeline
-                key={activeThread.id}
-                hasMessages={timelineEntries.length > 0}
-                isWorking={isWorking}
-                activeTurnInProgress={isWorking || !latestTurnSettled}
-                activeTurnStartedAt={activeWorkStartedAt}
-                scrollContainer={messagesScrollElement}
-                timelineEntries={timelineEntries}
-                completionDividerBeforeEntryId={completionDividerBeforeEntryId}
-                completionSummary={completionSummary}
-                turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-                nowIso={nowIso}
-                expandedWorkGroups={expandedWorkGroups}
-                onToggleWorkGroup={onToggleWorkGroup}
-                onOpenTurnDiff={onOpenTurnDiff}
-                revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-                onRevertUserMessage={onRevertUserMessage}
-                isRevertingCheckpoint={isRevertingCheckpoint}
-                onImageExpand={onExpandTimelineImage}
-                markdownCwd={gitCwd ?? undefined}
-                resolvedTheme={resolvedTheme}
-                timestampFormat={timestampFormat}
-                workspaceRoot={activeProject?.cwd ?? undefined}
+              <ThreadWorkspaceEditor
+                gitCwd={gitCwd}
+                keybindings={keybindings}
+                browserOpen={browserOpen}
+                terminalOpen={terminalState.terminalOpen}
+                threadId={activeThread.id}
               />
-            </div>
+            </Suspense>
+          ) : (
+            <>
+              {/* Messages Wrapper */}
+              <ChatMessagesPane
+                messagesContainerRef={setMessagesScrollContainerRef}
+                messagesTimelineProps={messagesTimelineProps}
+                loadingNotice={
+                  isThreadHistoryLoading ? (
+                    <div className="sticky top-0 z-10 mb-3 flex justify-center">
+                      <div className="inline-flex items-center gap-2 rounded-full border border-border/45 bg-background/88 px-3 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm">
+                        <Spinner className="size-3" />
+                        <span>Loading full history...</span>
+                      </div>
+                    </div>
+                  ) : null
+                }
+                onMessagesClickCapture={onMessagesClickCapture}
+                onMessagesPointerCancel={onMessagesPointerCancel}
+                onMessagesPointerDown={onMessagesPointerDown}
+                onMessagesPointerUp={onMessagesPointerUp}
+                onMessagesScroll={onMessagesScroll}
+                onMessagesTouchEnd={onMessagesTouchEnd}
+                onMessagesTouchMove={onMessagesTouchMove}
+                onMessagesTouchStart={onMessagesTouchStart}
+                onMessagesWheel={onMessagesWheel}
+                scrollMessagesToBottom={scrollMessagesToBottom}
+                showScrollToBottom={showScrollToBottom}
+                timelineKey={activeThread.id}
+              />
 
-            {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}
-            {showScrollToBottom && (
-              <div className="pointer-events-none absolute bottom-1 left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5">
-                <button
-                  type="button"
-                  onClick={() => scrollMessagesToBottom("smooth")}
-                  className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1 text-muted-foreground text-xs shadow-sm transition-colors hover:border-border hover:text-foreground hover:cursor-pointer"
-                >
-                  <ChevronDownIcon className="size-3.5" />
-                  Scroll to bottom
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Input bar */}
-          <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
-            <form
-              ref={composerFormRef}
-              onSubmit={onSend}
-              className="mx-auto w-full min-w-0 max-w-[52rem]"
-              data-chat-composer-form="true"
-            >
+              {/* Input bar */}
               <div
-                className={cn(
-                  "group rounded-[22px] p-px transition-colors duration-200",
-                  composerProviderState.composerFrameClassName,
-                )}
-                onDragEnter={onComposerDragEnter}
-                onDragOver={onComposerDragOver}
-                onDragLeave={onComposerDragLeave}
-                onDrop={onComposerDrop}
+                className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4")}
               >
-                <div
-                  className={cn(
-                    "rounded-[20px] border bg-card transition-colors duration-200 has-focus-visible:border-ring/45",
-                    isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border",
-                    composerProviderState.composerSurfaceClassName,
-                  )}
+                <form
+                  ref={composerFormRef}
+                  onSubmit={onSend}
+                  className="mx-auto w-full min-w-0 max-w-208"
+                  data-chat-composer-form="true"
                 >
-                  {activePendingApproval ? (
-                    <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
-                      <ComposerPendingApprovalPanel
-                        approval={activePendingApproval}
-                        pendingCount={pendingApprovals.length}
-                      />
-                    </div>
-                  ) : pendingUserInputs.length > 0 ? (
-                    <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
-                      <ComposerPendingUserInputPanel
-                        pendingUserInputs={pendingUserInputs}
-                        respondingRequestIds={respondingRequestIds}
-                        answers={activePendingDraftAnswers}
-                        questionIndex={activePendingQuestionIndex}
-                        onSelectOption={onSelectActivePendingUserInputOption}
-                        onAdvance={onAdvanceActivePendingUserInput}
-                      />
-                    </div>
-                  ) : showPlanFollowUpPrompt && activeProposedPlan ? (
-                    <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
-                      <ComposerPlanFollowUpBanner
-                        key={activeProposedPlan.id}
-                        planTitle={proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null}
-                      />
-                    </div>
-                  ) : null}
                   <div
                     className={cn(
-                      "relative px-3 pb-2 sm:px-4",
-                      hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
+                      "group rounded-2xl p-px transition-colors duration-200",
+                      composerProviderState.composerFrameClassName,
                     )}
+                    onDragEnter={onComposerDragEnter}
+                    onDragOver={onComposerDragOver}
+                    onDragLeave={onComposerDragLeave}
+                    onDrop={onComposerDrop}
                   >
-                    {composerMenuOpen && !isComposerApprovalState && (
-                      <div className="absolute inset-x-0 bottom-full z-20 mb-2 px-1">
-                        <ComposerCommandMenu
-                          items={composerMenuItems}
-                          resolvedTheme={resolvedTheme}
-                          isLoading={isComposerMenuLoading}
-                          triggerKind={composerTriggerKind}
-                          activeItemId={activeComposerMenuItem?.id ?? null}
-                          onHighlightedItemChange={onComposerMenuItemHighlighted}
-                          onSelect={onSelectComposerItem}
-                        />
-                      </div>
-                    )}
-
-                    {!isComposerApprovalState &&
-                      pendingUserInputs.length === 0 &&
-                      composerImages.length > 0 && (
-                        <div className="mb-3 flex flex-wrap gap-2">
-                          {composerImages.map((image) => (
-                            <div
-                              key={image.id}
-                              className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
-                            >
-                              {image.previewUrl ? (
-                                <button
-                                  type="button"
-                                  className="h-full w-full cursor-zoom-in"
-                                  aria-label={`Preview ${image.name}`}
-                                  onClick={() => {
-                                    const preview = buildExpandedImagePreview(
-                                      composerImages,
-                                      image.id,
-                                    );
-                                    if (!preview) return;
-                                    setExpandedImage(preview);
-                                  }}
-                                >
-                                  <img
-                                    src={image.previewUrl}
-                                    alt={image.name}
-                                    className="h-full w-full object-cover"
-                                  />
-                                </button>
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-muted-foreground/70">
-                                  {image.name}
-                                </div>
-                              )}
-                              {nonPersistedComposerImageIdSet.has(image.id) && (
-                                <Tooltip>
-                                  <TooltipTrigger
-                                    render={
-                                      <span
-                                        role="img"
-                                        aria-label="Draft attachment may not persist"
-                                        className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600"
-                                      >
-                                        <CircleAlertIcon className="size-3" />
-                                      </span>
-                                    }
-                                  />
-                                  <TooltipPopup
-                                    side="top"
-                                    className="max-w-64 whitespace-normal leading-tight"
-                                  >
-                                    Draft attachment could not be saved locally and may be lost on
-                                    navigation.
-                                  </TooltipPopup>
-                                </Tooltip>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
-                                onClick={() => removeComposerImage(image.id)}
-                                aria-label={`Remove ${image.name}`}
-                              >
-                                <XIcon />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    <ComposerPromptEditor
-                      ref={composerEditorRef}
-                      value={
-                        isComposerApprovalState
-                          ? ""
-                          : activePendingProgress
-                            ? activePendingProgress.customAnswer
-                            : prompt
-                      }
-                      cursor={composerCursor}
-                      terminalContexts={
-                        !isComposerApprovalState && pendingUserInputs.length === 0
-                          ? composerTerminalContexts
-                          : []
-                      }
-                      onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
-                      onChange={onPromptChange}
-                      onCommandKeyDown={onComposerCommandKey}
-                      onPaste={onComposerPaste}
-                      placeholder={
-                        isComposerApprovalState
-                          ? (activePendingApproval?.detail ??
-                            "Resolve this approval request to continue")
-                          : activePendingProgress
-                            ? "Type your own answer, or leave this blank to use the selected option"
-                            : showPlanFollowUpPrompt && activeProposedPlan
-                              ? "Add feedback to refine the plan, or leave this blank to implement it"
-                              : phase === "disconnected"
-                                ? "Ask for follow-up changes or attach images"
-                                : "Ask anything, @tag files/folders, or use / to show available commands"
-                      }
-                      disabled={isConnecting || isComposerApprovalState}
-                    />
-                  </div>
-
-                  {/* Bottom toolbar */}
-                  {activePendingApproval ? (
-                    <div className="flex items-center justify-end gap-2 px-2.5 pb-2.5 sm:px-3 sm:pb-3">
-                      <ComposerPendingApprovalActions
-                        requestId={activePendingApproval.requestId}
-                        isResponding={respondingRequestIds.includes(
-                          activePendingApproval.requestId,
-                        )}
-                        onRespondToApproval={onRespondToApproval}
-                      />
-                    </div>
-                  ) : (
                     <div
-                      ref={composerFooterRef}
-                      data-chat-composer-footer="true"
-                      data-chat-composer-footer-compact={isComposerFooterCompact ? "true" : "false"}
                       className={cn(
-                        "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-hidden px-2.5 pb-2.5 sm:px-3 sm:pb-3",
-                        isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
+                        "rounded-2xl border bg-card/80 shadow-sm transition-all duration-200 has-focus-visible:border-ring/30 has-focus-visible:shadow-ring/5 has-focus-visible:shadow-md",
+                        isDragOverComposer ? "border-primary/50 bg-accent/20" : "border-border/50",
+                        composerProviderState.composerSurfaceClassName,
                       )}
                     >
+                      {activePendingApproval ? (
+                        <div className="rounded-t-[15px] border-b border-border/40 bg-muted/15">
+                          <ComposerPendingApprovalPanel
+                            approval={activePendingApproval}
+                            pendingCount={pendingApprovals.length}
+                          />
+                        </div>
+                      ) : pendingUserInputs.length > 0 ? (
+                        <div className="rounded-t-[15px] border-b border-border/40 bg-muted/15">
+                          <ComposerPendingUserInputPanel
+                            pendingUserInputs={pendingUserInputs}
+                            respondingRequestIds={respondingRequestIds}
+                            answers={activePendingDraftAnswers}
+                            questionIndex={activePendingQuestionIndex}
+                            onSelectOption={onSelectActivePendingUserInputOption}
+                            onAdvance={onAdvanceActivePendingUserInput}
+                          />
+                        </div>
+                      ) : showPlanFollowUpPrompt && activeProposedPlan ? (
+                        <div className="rounded-t-[15px] border-b border-border/40 bg-muted/15">
+                          <ComposerPlanFollowUpBanner
+                            key={activeProposedPlan.id}
+                            planTitle={proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null}
+                          />
+                        </div>
+                      ) : null}
                       <div
-                        ref={composerFooterLeadingRef}
                         className={cn(
-                          "flex min-w-0 flex-1 items-center",
-                          isComposerFooterCompact
-                            ? "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                            : "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
+                          "relative px-3 pb-2 sm:px-4",
+                          hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
                         )}
                       >
-                        {/* Provider/model picker */}
-                        <ProviderModelPicker
-                          compact={isComposerFooterCompact}
-                          provider={selectedProvider}
-                          model={selectedModelForPickerWithCustomFallback}
-                          lockedProvider={lockedProvider}
-                          providers={providerStatuses}
-                          modelOptionsByProvider={modelOptionsByProvider}
-                          {...(composerProviderState.modelPickerIconClassName
-                            ? {
-                                activeProviderIconClassName:
-                                  composerProviderState.modelPickerIconClassName,
-                              }
-                            : {})}
-                          onProviderModelChange={onProviderModelSelect}
+                        {composerMenuOpen && !isComposerApprovalState && (
+                          <div className="absolute inset-x-0 bottom-full z-20 mb-2 px-1">
+                            <ComposerCommandMenu
+                              items={composerMenuItems}
+                              resolvedTheme={resolvedTheme}
+                              isLoading={isComposerMenuLoading}
+                              triggerKind={composerTriggerKind}
+                              activeItemId={activeComposerMenuItem?.id ?? null}
+                              onHighlightedItemChange={onComposerMenuItemHighlighted}
+                              onSelect={onSelectComposerItem}
+                            />
+                          </div>
+                        )}
+
+                        <ComposerQueuedMessages
+                          messages={queuedComposerMessages}
+                          className="mb-3"
+                          steerMessageId={queuedSteerRequest?.messageId ?? null}
+                          onEdit={onEditQueuedComposerMessage}
+                          onDelete={removeQueuedComposerMessage}
+                          onSteer={onSteerQueuedComposerMessage}
                         />
 
-                        {isComposerFooterCompact ? (
-                          <CompactComposerControlsMenu
-                            activePlan={Boolean(
-                              activePlan || sidebarProposedPlan || planSidebarOpen,
+                        {!isComposerApprovalState &&
+                          pendingUserInputs.length === 0 &&
+                          composerImages.length > 0 && (
+                            <div className="mb-3 flex flex-wrap gap-2">
+                              {composerImages.map((image) => (
+                                <div
+                                  key={image.id}
+                                  className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
+                                >
+                                  {image.previewUrl ? (
+                                    <button
+                                      type="button"
+                                      className="h-full w-full cursor-zoom-in"
+                                      aria-label={`Preview ${image.name}`}
+                                      onClick={() => {
+                                        const preview = buildExpandedImagePreview(
+                                          composerImages,
+                                          image.id,
+                                        );
+                                        if (!preview) return;
+                                        setExpandedImage(preview);
+                                      }}
+                                    >
+                                      <img
+                                        src={image.previewUrl}
+                                        alt={image.name}
+                                        className="h-full w-full object-cover"
+                                      />
+                                    </button>
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-muted-foreground/70">
+                                      {image.name}
+                                    </div>
+                                  )}
+                                  {nonPersistedComposerImageIdSet.has(image.id) && (
+                                    <Tooltip>
+                                      <TooltipTrigger
+                                        render={
+                                          <span
+                                            role="img"
+                                            aria-label="Draft attachment may not persist"
+                                            className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600"
+                                          >
+                                            <CircleAlertIcon className="size-3" />
+                                          </span>
+                                        }
+                                      />
+                                      <TooltipPopup
+                                        side="top"
+                                        className="max-w-64 whitespace-normal leading-tight"
+                                      >
+                                        Draft attachment could not be saved locally and may be lost
+                                        on navigation.
+                                      </TooltipPopup>
+                                    </Tooltip>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
+                                    onClick={() => removeComposerImage(image.id)}
+                                    aria-label={`Remove ${image.name}`}
+                                  >
+                                    <XIcon />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        <ComposerPromptEditor
+                          ref={composerEditorRef}
+                          value={
+                            isComposerApprovalState
+                              ? ""
+                              : activePendingProgress
+                                ? activePendingProgress.customAnswer
+                                : prompt
+                          }
+                          cursor={composerCursor}
+                          terminalContexts={
+                            !isComposerApprovalState && pendingUserInputs.length === 0
+                              ? composerTerminalContexts
+                              : []
+                          }
+                          onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
+                          onChange={onPromptChange}
+                          onCommandKeyDown={onComposerCommandKey}
+                          onPaste={onComposerPaste}
+                          placeholder={
+                            isComposerApprovalState
+                              ? (activePendingApproval?.detail ??
+                                "Resolve this approval request to continue")
+                              : activePendingProgress
+                                ? "Type your own answer, or leave this blank to use the selected option"
+                                : showPlanFollowUpPrompt && activeProposedPlan
+                                  ? "Add feedback to refine the plan, or leave this blank to implement it"
+                                  : phase === "disconnected"
+                                    ? "Ask for follow-up changes or attach images"
+                                    : "Ask anything, @tag files/folders, or use / to show available commands"
+                          }
+                          disabled={isConnecting || isComposerApprovalState}
+                        />
+                      </div>
+
+                      {/* Bottom toolbar */}
+                      {activePendingApproval ? (
+                        <div className="flex items-center justify-end gap-2 px-2.5 pb-2 sm:px-3 sm:pb-2.5">
+                          <ComposerPendingApprovalActions
+                            requestId={activePendingApproval.requestId}
+                            isResponding={respondingRequestIds.includes(
+                              activePendingApproval.requestId,
                             )}
-                            interactionMode={interactionMode}
-                            planSidebarOpen={planSidebarOpen}
-                            runtimeMode={runtimeMode}
-                            traitsMenuContent={providerTraitsMenuContent}
-                            onToggleInteractionMode={toggleInteractionMode}
-                            onTogglePlanSidebar={togglePlanSidebar}
-                            onToggleRuntimeMode={toggleRuntimeMode}
+                            onRespondToApproval={onRespondToApproval}
                           />
-                        ) : (
-                          <>
-                            {providerTraitsPicker ? (
-                              <>
-                                <Separator
-                                  orientation="vertical"
-                                  className="mx-0.5 hidden h-4 sm:block"
-                                />
-                                {providerTraitsPicker}
-                              </>
-                            ) : null}
-
-                            <Separator
-                              orientation="vertical"
-                              className="mx-0.5 hidden h-4 sm:block"
+                        </div>
+                      ) : (
+                        <div
+                          ref={composerFooterRef}
+                          data-chat-composer-footer="true"
+                          data-chat-composer-footer-compact={
+                            isComposerFooterCompact ? "true" : "false"
+                          }
+                          className={cn(
+                            "flex min-w-0 flex-nowrap items-center justify-between overflow-hidden px-2.5 pb-2 sm:px-3 sm:pb-2.5",
+                            isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
+                          )}
+                        >
+                          <div
+                            ref={composerFooterLeadingRef}
+                            className={cn(
+                              "flex min-w-0 flex-1 items-center",
+                              isComposerFooterCompact
+                                ? "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                                : "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
+                            )}
+                          >
+                            {/* Provider/model picker */}
+                            <ProviderModelPicker
+                              compact={isComposerFooterCompact}
+                              provider={selectedProvider}
+                              model={selectedModelForPickerWithCustomFallback}
+                              lockedProvider={lockedProvider}
+                              providers={providerStatuses}
+                              modelOptionsByProvider={modelOptionsByProvider}
+                              {...(composerProviderState.modelPickerIconClassName
+                                ? {
+                                    activeProviderIconClassName:
+                                      composerProviderState.modelPickerIconClassName,
+                                  }
+                                : {})}
+                              onProviderModelChange={onProviderModelSelect}
                             />
 
-                            <Button
-                              variant="ghost"
-                              className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
-                              size="sm"
-                              type="button"
-                              onClick={toggleInteractionMode}
-                              title={
-                                interactionMode === "plan"
-                                  ? "Plan mode — click to return to normal chat mode"
-                                  : "Default mode — click to enter plan mode"
-                              }
-                            >
-                              <BotIcon />
-                              <span className="sr-only sm:not-sr-only">
-                                {interactionMode === "plan" ? "Plan" : "Chat"}
-                              </span>
-                            </Button>
-
-                            <Separator
-                              orientation="vertical"
-                              className="mx-0.5 hidden h-4 sm:block"
-                            />
-
-                            <Button
-                              variant="ghost"
-                              className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
-                              size="sm"
-                              type="button"
-                              onClick={() =>
-                                void handleRuntimeModeChange(
-                                  runtimeMode === "full-access"
-                                    ? "approval-required"
-                                    : "full-access",
-                                )
-                              }
-                              title={
-                                runtimeMode === "full-access"
-                                  ? "Full access — click to require approvals"
-                                  : "Approval required — click for full access"
-                              }
-                            >
-                              {runtimeMode === "full-access" ? <LockOpenIcon /> : <LockIcon />}
-                              <span className="sr-only sm:not-sr-only">
-                                {runtimeMode === "full-access" ? "Full access" : "Supervised"}
-                              </span>
-                            </Button>
-
-                            {activePlan || sidebarProposedPlan || planSidebarOpen ? (
+                            {isComposerFooterCompact ? (
+                              <CompactComposerControlsMenu
+                                activePlan={Boolean(
+                                  activePlan || sidebarProposedPlan || planSidebarOpen,
+                                )}
+                                interactionMode={interactionMode}
+                                planSidebarOpen={planSidebarOpen}
+                                runtimeMode={runtimeMode}
+                                traitsMenuContent={providerTraitsMenuContent}
+                                onToggleInteractionMode={toggleInteractionMode}
+                                onTogglePlanSidebar={togglePlanSidebar}
+                                onToggleRuntimeMode={toggleRuntimeMode}
+                              />
+                            ) : (
                               <>
+                                {providerTraitsPicker ? (
+                                  <>
+                                    <Separator
+                                      orientation="vertical"
+                                      className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
+                                    />
+                                    {providerTraitsPicker}
+                                  </>
+                                ) : null}
+
                                 <Separator
                                   orientation="vertical"
-                                  className="mx-0.5 hidden h-4 sm:block"
+                                  className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
                                 />
+
                                 <Button
                                   variant="ghost"
-                                  className={cn(
-                                    "shrink-0 whitespace-nowrap px-2 sm:px-3",
-                                    planSidebarOpen
-                                      ? "text-blue-400 hover:text-blue-300"
-                                      : "text-muted-foreground/70 hover:text-foreground/80",
-                                  )}
+                                  className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5"
                                   size="sm"
                                   type="button"
-                                  onClick={togglePlanSidebar}
+                                  onClick={toggleInteractionMode}
                                   title={
-                                    planSidebarOpen ? "Hide plan sidebar" : "Show plan sidebar"
+                                    interactionMode === "plan"
+                                      ? "Plan mode — click to return to normal chat mode"
+                                      : "Default mode — click to enter plan mode"
                                   }
                                 >
-                                  <ListTodoIcon />
-                                  <span className="sr-only sm:not-sr-only">Plan</span>
+                                  {interactionMode === "plan" ? (
+                                    <ListTodoIcon className="size-4" />
+                                  ) : (
+                                    <BotIcon className="size-4" />
+                                  )}
+                                  <span className="sr-only sm:not-sr-only">
+                                    {interactionMode === "plan" ? "Plan" : "Chat"}
+                                  </span>
                                 </Button>
+
+                                <Separator
+                                  orientation="vertical"
+                                  className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
+                                />
+
+                                <Button
+                                  variant="ghost"
+                                  className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5"
+                                  size="sm"
+                                  type="button"
+                                  onClick={() =>
+                                    void handleRuntimeModeChange(
+                                      runtimeMode === "full-access"
+                                        ? "approval-required"
+                                        : "full-access",
+                                    )
+                                  }
+                                  title={
+                                    runtimeMode === "full-access"
+                                      ? "Full access — click to require approvals"
+                                      : "Approval required — click for full access"
+                                  }
+                                >
+                                  {runtimeMode === "full-access" ? <LockOpenIcon /> : <LockIcon />}
+                                  <span className="sr-only sm:not-sr-only">
+                                    {runtimeMode === "full-access" ? "Full access" : "Supervised"}
+                                  </span>
+                                </Button>
+
+                                {activePlan || sidebarProposedPlan || planSidebarOpen ? (
+                                  <>
+                                    <Separator
+                                      orientation="vertical"
+                                      className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
+                                    />
+                                    <Button
+                                      variant="ghost"
+                                      className={cn(
+                                        "shrink-0 whitespace-nowrap px-2 sm:px-2.5",
+                                        planSidebarOpen
+                                          ? "text-primary/80 hover:text-primary"
+                                          : "text-muted-foreground/60 hover:text-foreground/70",
+                                      )}
+                                      size="sm"
+                                      type="button"
+                                      onClick={togglePlanSidebar}
+                                      title={
+                                        planSidebarOpen ? "Hide plan sidebar" : "Show plan sidebar"
+                                      }
+                                    >
+                                      <ListTodoIcon />
+                                      <span className="sr-only sm:not-sr-only">Plan</span>
+                                    </Button>
+                                  </>
+                                ) : null}
                               </>
+                            )}
+                          </div>
+
+                          {/* Right side: send / stop button */}
+                          <div
+                            ref={composerFooterActionsRef}
+                            data-chat-composer-actions="right"
+                            data-chat-composer-primary-actions-compact={
+                              isComposerPrimaryActionsCompact ? "true" : "false"
+                            }
+                            className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
+                          >
+                            {activeContextWindow ? (
+                              <ContextWindowMeter usage={activeContextWindow} />
                             ) : null}
-                          </>
-                        )}
-                      </div>
-
-                      {/* Right side: send / stop button */}
-                      <div
-                        ref={composerFooterActionsRef}
-                        data-chat-composer-actions="right"
-                        data-chat-composer-primary-actions-compact={
-                          isComposerPrimaryActionsCompact ? "true" : "false"
-                        }
-                        className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
-                      >
-                        {activeContextWindow ? (
-                          <ContextWindowMeter usage={activeContextWindow} />
-                        ) : null}
-                        {isPreparingWorktree ? (
-                          <span className="text-muted-foreground/70 text-xs">
-                            Preparing worktree...
-                          </span>
-                        ) : null}
-                        <ComposerPrimaryActions
-                          compact={isComposerPrimaryActionsCompact}
-                          pendingAction={
-                            activePendingProgress
-                              ? {
-                                  questionIndex: activePendingProgress.questionIndex,
-                                  isLastQuestion: activePendingProgress.isLastQuestion,
-                                  canAdvance: activePendingProgress.canAdvance,
-                                  isResponding: activePendingIsResponding,
-                                  isComplete: Boolean(activePendingResolvedAnswers),
-                                }
-                              : null
-                          }
-                          isRunning={phase === "running"}
-                          showPlanFollowUpPrompt={
-                            pendingUserInputs.length === 0 && showPlanFollowUpPrompt
-                          }
-                          promptHasText={prompt.trim().length > 0}
-                          isSendBusy={isSendBusy}
-                          isConnecting={isConnecting}
-                          isPreparingWorktree={isPreparingWorktree}
-                          hasSendableContent={composerSendState.hasSendableContent}
-                          onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
-                          onInterrupt={() => void onInterrupt()}
-                          onImplementPlanInNewThread={() => void onImplementPlanInNewThread()}
-                        />
-                      </div>
+                            {isPreparingWorktree ? (
+                              <span className="text-muted-foreground/70 text-xs">
+                                Preparing worktree...
+                              </span>
+                            ) : null}
+                            <ComposerPrimaryActions
+                              compact={isComposerPrimaryActionsCompact}
+                              pendingAction={
+                                activePendingProgress
+                                  ? {
+                                      questionIndex: activePendingProgress.questionIndex,
+                                      isLastQuestion: activePendingProgress.isLastQuestion,
+                                      canAdvance: activePendingProgress.canAdvance,
+                                      isResponding: activePendingIsResponding,
+                                      isComplete: Boolean(activePendingResolvedAnswers),
+                                    }
+                                  : null
+                              }
+                              isRunning={phase === "running"}
+                              showPlanFollowUpPrompt={
+                                pendingUserInputs.length === 0 && showPlanFollowUpPrompt
+                              }
+                              promptHasText={prompt.trim().length > 0}
+                              isSendBusy={isSendBusy}
+                              isConnecting={isConnecting}
+                              isPreparingWorktree={isPreparingWorktree}
+                              hasSendableContent={composerSendState.hasSendableContent}
+                              canQueueMessage={composerSendState.hasSendableContent}
+                              onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+                              onInterrupt={() => void onInterrupt()}
+                              onImplementPlanInNewThread={() => void onImplementPlanInNewThread()}
+                              onQueueMessage={() =>
+                                queueCurrentComposerMessage(phase === "running" ? "steer" : "queue")
+                              }
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  </div>
+                </form>
               </div>
-            </form>
-          </div>
 
-          {isGitRepo && (
-            <BranchToolbar
-              threadId={activeThread.id}
-              onEnvModeChange={onEnvModeChange}
-              envLocked={envLocked}
-              onComposerFocusRequest={scheduleComposerFocus}
-              {...(canCheckoutPullRequestIntoThread
-                ? { onCheckoutPullRequestRequest: openPullRequestDialog }
-                : {})}
-            />
+              <ChatConversationExtras
+                branchToolbarProps={branchToolbarProps}
+                pullRequestDialogKey={pullRequestDialogState?.key ?? null}
+                pullRequestDialogProps={pullRequestDialogProps}
+              />
+            </>
           )}
-          {pullRequestDialogState ? (
-            <PullRequestThreadDialog
-              key={pullRequestDialogState.key}
-              open
-              cwd={activeProject?.cwd ?? null}
-              initialReference={pullRequestDialogState.initialReference}
-              onOpenChange={(open) => {
-                if (!open) {
-                  closePullRequestDialog();
-                }
-              }}
-              onPrepared={handlePreparedPullRequestThread}
-            />
-          ) : null}
         </div>
         {/* end chat column */}
 
-        {/* Plan sidebar */}
-        {planSidebarOpen ? (
-          <PlanSidebar
-            activePlan={activePlan}
-            activeProposedPlan={sidebarProposedPlan}
-            markdownCwd={gitCwd ?? undefined}
-            workspaceRoot={activeProject?.cwd ?? undefined}
-            timestampFormat={timestampFormat}
-            onClose={() => {
-              setPlanSidebarOpen(false);
-              // Track that the user explicitly dismissed for this turn so auto-open won't fight them.
-              const turnKey = activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? null;
-              if (turnKey) {
-                planSidebarDismissedForTurnRef.current = turnKey;
-              }
-            }}
-          />
-        ) : null}
+        <ChatViewPanels
+          browserPanel={browserPanel}
+          expandedImageOverlay={expandedImageOverlay}
+          planSidebarProps={planSidebarProps}
+        />
       </div>
       {/* end horizontal flex container */}
 
-      {(() => {
-        if (!terminalState.terminalOpen || !activeProject) {
-          return null;
-        }
-        return (
-          <ThreadTerminalDrawer
-            key={activeThread.id}
-            threadId={activeThread.id}
-            cwd={gitCwd ?? activeProject.cwd}
-            runtimeEnv={threadTerminalRuntimeEnv}
-            height={terminalState.terminalHeight}
-            terminalIds={terminalState.terminalIds}
-            activeTerminalId={terminalState.activeTerminalId}
-            terminalGroups={terminalState.terminalGroups}
-            activeTerminalGroupId={terminalState.activeTerminalGroupId}
-            focusRequestId={terminalFocusRequestId}
-            onSplitTerminal={splitTerminal}
-            onNewTerminal={createNewTerminal}
-            splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
-            newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-            closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
-            onActiveTerminalChange={activateTerminal}
-            onCloseTerminal={closeTerminal}
-            onHeightChange={setTerminalHeight}
-            onAddTerminalContext={addTerminalContextToDraft}
-          />
-        );
-      })()}
-
-      {expandedImage && expandedImageItem && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-6 [-webkit-app-region:no-drag]"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Expanded image preview"
-        >
-          <button
-            type="button"
-            className="absolute inset-0 z-0 cursor-zoom-out"
-            aria-label="Close image preview"
-            onClick={closeExpandedImage}
-          />
-          {expandedImage.images.length > 1 && (
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="absolute left-2 top-1/2 z-20 -translate-y-1/2 text-white/90 hover:bg-white/10 hover:text-white sm:left-6"
-              aria-label="Previous image"
-              onClick={() => {
-                navigateExpandedImage(-1);
-              }}
-            >
-              <ChevronLeftIcon className="size-5" />
-            </Button>
-          )}
-          <div className="relative isolate z-10 max-h-[92vh] max-w-[92vw]">
-            <Button
-              type="button"
-              size="icon-xs"
-              variant="ghost"
-              className="absolute right-2 top-2"
-              onClick={closeExpandedImage}
-              aria-label="Close image preview"
-            >
-              <XIcon />
-            </Button>
-            <img
-              src={expandedImageItem.src}
-              alt={expandedImageItem.name}
-              className="max-h-[86vh] max-w-[92vw] select-none rounded-lg border border-border/70 bg-background object-contain shadow-2xl"
-              draggable={false}
-            />
-            <p className="mt-2 max-w-[92vw] truncate text-center text-xs text-muted-foreground/80">
-              {expandedImageItem.name}
-              {expandedImage.images.length > 1
-                ? ` (${expandedImage.index + 1}/${expandedImage.images.length})`
-                : ""}
-            </p>
-          </div>
-          {expandedImage.images.length > 1 && (
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="absolute right-2 top-1/2 z-20 -translate-y-1/2 text-white/90 hover:bg-white/10 hover:text-white sm:right-6"
-              aria-label="Next image"
-              onClick={() => {
-                navigateExpandedImage(1);
-              }}
-            >
-              <ChevronRightIcon className="size-5" />
-            </Button>
-          )}
-        </div>
-      )}
+      {terminalDrawerProps ? (
+        <ThreadTerminalDrawer
+          key={terminalState.terminalOpen && activeProject ? activeThread.id : undefined}
+          {...terminalDrawerProps}
+        />
+      ) : null}
     </div>
   );
 }

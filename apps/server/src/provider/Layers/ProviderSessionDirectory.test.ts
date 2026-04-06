@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId } from "@ace/contracts";
 import { it, assert } from "@effect/vitest";
 import { assertFailure, assertSome } from "@effect/vitest/utils";
 import { Effect, Layer, Option } from "effect";
@@ -165,7 +165,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
 
   it("rehydrates persisted mappings across layer restart", () =>
     Effect.gen(function* () {
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "t3-provider-directory-"));
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ace-provider-directory-"));
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const directoryLayer = makeDirectoryLayer(makeSqlitePersistenceLive(dbPath));
 
@@ -203,5 +203,108 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       }).pipe(Effect.provide(directoryLayer));
 
       fs.rmSync(tempDir, { recursive: true, force: true });
+    }));
+
+  it("decodes persisted githubCopilot bindings", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const threadId = ThreadId.makeUnsafe("thread-github-copilot");
+
+      yield* runtimeRepository.upsert({
+        threadId,
+        providerName: "githubCopilot",
+        adapterKey: "githubCopilot",
+        runtimeMode: "full-access",
+        status: "running",
+        lastSeenAt: new Date().toISOString(),
+        resumeCursor: { sessionId: "copilot-session-1" },
+        runtimePayload: { model: "gpt-5-mini" },
+      });
+
+      const provider = yield* directory.getProvider(threadId);
+      assert.equal(provider, "githubCopilot");
+
+      const binding = yield* directory.getBinding(threadId);
+      assertSome(binding, {
+        threadId,
+        provider: "githubCopilot",
+        adapterKey: "githubCopilot",
+      });
+      if (Option.isSome(binding)) {
+        assert.deepEqual(binding.value.resumeCursor, { sessionId: "copilot-session-1" });
+        assert.deepEqual(binding.value.runtimePayload, { model: "gpt-5-mini" });
+      }
+    }));
+
+  it("decodes persisted cursor bindings", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const threadId = ThreadId.makeUnsafe("thread-cursor");
+
+      yield* runtimeRepository.upsert({
+        threadId,
+        providerName: "cursor",
+        adapterKey: "cursor",
+        runtimeMode: "full-access",
+        status: "running",
+        lastSeenAt: new Date().toISOString(),
+        resumeCursor: { sessionId: "cursor-session-1" },
+        runtimePayload: { model: "auto" },
+      });
+
+      const provider = yield* directory.getProvider(threadId);
+      assert.equal(provider, "cursor");
+
+      const binding = yield* directory.getBinding(threadId);
+      assertSome(binding, {
+        threadId,
+        provider: "cursor",
+        adapterKey: "cursor",
+      });
+      if (Option.isSome(binding)) {
+        assert.deepEqual(binding.value.resumeCursor, { sessionId: "cursor-session-1" });
+        assert.deepEqual(binding.value.runtimePayload, { model: "auto" });
+      }
+    }));
+
+  it("decodes persisted gemini and opencode bindings", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+
+      for (const [threadName, provider, model] of [
+        ["thread-gemini", "gemini", "gemini-2.5-pro"],
+        ["thread-opencode", "opencode", "auto"],
+      ] as const) {
+        const threadId = ThreadId.makeUnsafe(threadName);
+        const resumeCursor = { sessionId: `${provider}-session-1` };
+
+        yield* runtimeRepository.upsert({
+          threadId,
+          providerName: provider,
+          adapterKey: provider,
+          runtimeMode: "full-access",
+          status: "running",
+          lastSeenAt: new Date().toISOString(),
+          resumeCursor,
+          runtimePayload: { model },
+        });
+
+        const resolvedProvider = yield* directory.getProvider(threadId);
+        assert.equal(resolvedProvider, provider);
+
+        const binding = yield* directory.getBinding(threadId);
+        assertSome(binding, {
+          threadId,
+          provider,
+          adapterKey: provider,
+        });
+        if (Option.isSome(binding)) {
+          assert.deepEqual(binding.value.resumeCursor, resumeCursor);
+          assert.deepEqual(binding.value.runtimePayload, { model });
+        }
+      }
     }));
 });

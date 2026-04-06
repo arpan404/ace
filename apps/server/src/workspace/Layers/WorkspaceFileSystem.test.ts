@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { PROJECT_READ_FILE_MAX_BYTES } from "@ace/contracts";
 import { it, describe, expect } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path } from "effect";
 
@@ -22,7 +23,7 @@ const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(GitCoreLive),
   Layer.provide(
     ServerConfig.layerTest(process.cwd(), {
-      prefix: "t3-workspace-files-test-",
+      prefix: "ace-workspace-files-test-",
     }),
   ),
   Layer.provideMerge(NodeServices.layer),
@@ -31,7 +32,7 @@ const TestLayer = Layer.empty.pipe(
 const makeTempDir = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   return yield* fileSystem.makeTempDirectoryScoped({
-    prefix: "t3code-workspace-files-",
+    prefix: "ace-workspace-files-",
   });
 });
 
@@ -50,6 +51,40 @@ const writeTextFile = Effect.fn("writeTextFile")(function* (
 });
 
 it.layer(TestLayer)("WorkspaceFileSystemLive", (it) => {
+  describe("createEntry", () => {
+    it.effect("creates new files and directories relative to the workspace root", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+
+        const createdDirectory = yield* workspaceFileSystem.createEntry({
+          cwd,
+          relativePath: "src/features",
+          kind: "directory",
+        });
+        const createdFile = yield* workspaceFileSystem.createEntry({
+          cwd,
+          relativePath: "src/features/index.ts",
+          kind: "file",
+        });
+
+        const directoryStat = yield* fileSystem
+          .stat(path.join(cwd, "src/features"))
+          .pipe(Effect.orDie);
+        const fileContents = yield* fileSystem
+          .readFileString(path.join(cwd, "src/features/index.ts"))
+          .pipe(Effect.orDie);
+
+        expect(createdDirectory).toEqual({ kind: "directory", relativePath: "src/features" });
+        expect(createdFile).toEqual({ kind: "file", relativePath: "src/features/index.ts" });
+        expect(directoryStat.type).toBe("Directory");
+        expect(fileContents).toBe("");
+      }),
+    );
+  });
+
   describe("writeFile", () => {
     it.effect("writes files relative to the workspace root", () =>
       Effect.gen(function* () {
@@ -130,6 +165,138 @@ it.layer(TestLayer)("WorkspaceFileSystemLive", (it) => {
           .stat(escapedPath)
           .pipe(Effect.catch(() => Effect.succeed(null)));
         expect(escapedStat).toBeNull();
+      }),
+    );
+  });
+
+  describe("readFile", () => {
+    it.effect("reads UTF-8 files relative to the workspace root", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "src/editor.ts", "export const value = 1;\n");
+
+        const result = yield* workspaceFileSystem.readFile({
+          cwd,
+          relativePath: "src/editor.ts",
+        });
+
+        expect(result).toEqual({
+          relativePath: "src/editor.ts",
+          contents: "export const value = 1;\n",
+          sizeBytes: Buffer.byteLength("export const value = 1;\n"),
+        });
+      }),
+    );
+
+    it.effect("rejects binary files", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const absolutePath = path.join(cwd, "assets/icon.bin");
+
+        yield* fileSystem
+          .makeDirectory(path.dirname(absolutePath), { recursive: true })
+          .pipe(Effect.orDie);
+        yield* fileSystem.writeFile(absolutePath, new Uint8Array([0, 255, 10])).pipe(Effect.orDie);
+
+        const error = yield* workspaceFileSystem
+          .readFile({
+            cwd,
+            relativePath: "assets/icon.bin",
+          })
+          .pipe(Effect.flip);
+
+        expect(error._tag).toBe("WorkspaceFileSystemError");
+        if (error._tag !== "WorkspaceFileSystemError") {
+          throw new Error(`Unexpected error: ${error.message}`);
+        }
+        expect(error.detail).toContain("Binary files are not supported");
+      }),
+    );
+
+    it.effect("rejects oversized files", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "src/huge.ts", "a".repeat(PROJECT_READ_FILE_MAX_BYTES + 1));
+
+        const error = yield* workspaceFileSystem
+          .readFile({
+            cwd,
+            relativePath: "src/huge.ts",
+          })
+          .pipe(Effect.flip);
+
+        expect(error._tag).toBe("WorkspaceFileSystemError");
+        if (error._tag !== "WorkspaceFileSystemError") {
+          throw new Error(`Unexpected error: ${error.message}`);
+        }
+        expect(error.detail).toContain("Files larger than");
+      }),
+    );
+  });
+
+  describe("renameEntry", () => {
+    it.effect("renames files while keeping the workspace tree cache fresh", () =>
+      Effect.gen(function* () {
+        const workspaceEntries = yield* WorkspaceEntries;
+        const workspaceFileSystem = yield* WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+
+        yield* writeTextFile(cwd, "src/main.ts", "export {}\n");
+
+        const result = yield* workspaceFileSystem.renameEntry({
+          cwd,
+          relativePath: "src/main.ts",
+          nextRelativePath: "src/app.ts",
+        });
+
+        const renamed = yield* fileSystem
+          .readFileString(path.join(cwd, "src/app.ts"))
+          .pipe(Effect.orDie);
+        const search = yield* workspaceEntries.search({
+          cwd,
+          query: "app.ts",
+          limit: 10,
+        });
+
+        expect(result).toEqual({
+          previousRelativePath: "src/main.ts",
+          relativePath: "src/app.ts",
+        });
+        expect(renamed).toBe("export {}\n");
+        expect(search.entries).toEqual(
+          expect.arrayContaining([expect.objectContaining({ path: "src/app.ts" })]),
+        );
+      }),
+    );
+  });
+
+  describe("deleteEntry", () => {
+    it.effect("deletes files and directories recursively", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+
+        yield* writeTextFile(cwd, "src/utils/helpers.ts", "export const ok = true;\n");
+
+        const result = yield* workspaceFileSystem.deleteEntry({
+          cwd,
+          relativePath: "src/utils",
+        });
+        const deleted = yield* fileSystem
+          .stat(path.join(cwd, "src/utils"))
+          .pipe(Effect.catch(() => Effect.succeed(null)));
+
+        expect(result).toEqual({ relativePath: "src/utils" });
+        expect(deleted).toBeNull();
       }),
     );
   });

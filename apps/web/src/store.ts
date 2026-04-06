@@ -3,15 +3,16 @@ import {
   type OrchestrationMessage,
   type OrchestrationProposedPlan,
   type ProjectId,
-  type ProviderKind,
+  ProviderKind,
   ThreadId,
   type OrchestrationReadModel,
   type OrchestrationSession,
   type OrchestrationCheckpointSummary,
   type OrchestrationThread,
   type OrchestrationSessionStatus,
-} from "@t3tools/contracts";
-import { resolveModelSlugForProvider } from "@t3tools/shared/model";
+} from "@ace/contracts";
+import * as Schema from "effect/Schema";
+import { resolveModelSlugForProvider } from "@ace/shared/model";
 import { create } from "zustand";
 import {
   findLatestProposedPlan,
@@ -19,6 +20,12 @@ import {
   derivePendingApprovals,
   derivePendingUserInputs,
 } from "./session-logic";
+import {
+  appendCompactedThreadActivity,
+  DEFAULT_MAX_THREAD_ACTIVITIES,
+} from "@ace/shared/orchestrationThreadActivities";
+import { compareSequenceThenCreatedAt } from "./lib/activityOrder";
+import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
 
 // ── State ────────────────────────────────────────────────────────────
@@ -41,10 +48,53 @@ const initialState: AppState = {
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
 const MAX_THREAD_PROPOSED_PLANS = 200;
-const MAX_THREAD_ACTIVITIES = 500;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
+const threadLookupCache = new WeakMap<ReadonlyArray<Thread>, Map<ThreadId, Thread>>();
+const LEAN_THREAD_ACTIVITY_KINDS = new Set<Thread["activities"][number]["kind"]>([
+  "approval.requested",
+  "approval.resolved",
+  "provider.approval.respond.failed",
+  "user-input.requested",
+  "user-input.resolved",
+  "provider.user-input.respond.failed",
+]);
 
 // ── Pure helpers ──────────────────────────────────────────────────────
+
+function getThreadLookup(threads: ReadonlyArray<Thread>): Map<ThreadId, Thread> {
+  const cached = threadLookupCache.get(threads);
+  if (cached) {
+    return cached;
+  }
+
+  const lookup = new Map<ThreadId, Thread>();
+  for (const thread of threads) {
+    lookup.set(thread.id, thread);
+  }
+  threadLookupCache.set(threads, lookup);
+  return lookup;
+}
+
+export function getThreadById(
+  threads: ReadonlyArray<Thread>,
+  threadId: ThreadId | null | undefined,
+): Thread | undefined {
+  if (!threadId) {
+    return undefined;
+  }
+  return getThreadLookup(threads).get(threadId);
+}
+
+export function getThreadsByIds(
+  threads: ReadonlyArray<Thread>,
+  threadIds: readonly ThreadId[],
+): Array<Thread | undefined> {
+  if (threadIds.length === 0) {
+    return [];
+  }
+  const lookup = getThreadLookup(threads);
+  return threadIds.map((threadId) => lookup.get(threadId));
+}
 
 function updateThread(
   threads: Thread[],
@@ -80,7 +130,7 @@ function updateProject(
   return changed ? next : projects;
 }
 
-function normalizeModelSelection<T extends { provider: "codex" | "claudeAgent"; model: string }>(
+function normalizeModelSelection<T extends { provider: ProviderKind; model: string }>(
   selection: T,
 ): T {
   return {
@@ -121,9 +171,32 @@ function mapMessage(message: OrchestrationMessage): ChatMessage {
     text: message.text,
     turnId: message.turnId,
     createdAt: message.createdAt,
+    ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
     streaming: message.streaming,
     ...(message.streaming ? {} : { completedAt: message.updatedAt }),
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
+  };
+}
+
+function mapQueuedComposerMessage(
+  message: OrchestrationThread["queuedComposerMessages"][number],
+): Thread["queuedComposerMessages"][number] {
+  return {
+    id: message.id,
+    prompt: message.prompt,
+    images: message.images.map((image) => ({
+      type: "image",
+      id: image.id,
+      name: image.name,
+      mimeType: image.mimeType,
+      sizeBytes: image.sizeBytes,
+      dataUrl: image.dataUrl,
+      previewUrl: image.dataUrl,
+    })),
+    terminalContexts: message.terminalContexts.map((context) => ({ ...context })),
+    modelSelection: normalizeModelSelection(message.modelSelection),
+    runtimeMode: message.runtimeMode,
+    interactionMode: message.interactionMode,
   };
 }
 
@@ -137,6 +210,40 @@ function mapProposedPlan(proposedPlan: OrchestrationProposedPlan): Thread["propo
     createdAt: proposedPlan.createdAt,
     updatedAt: proposedPlan.updatedAt,
   };
+}
+
+function mapLatestProposedPlanSummary(
+  summary: OrchestrationThread["latestProposedPlanSummary"],
+): Thread["latestProposedPlanSummary"] {
+  return summary ? { ...summary } : null;
+}
+
+function toLatestProposedPlanSummary(
+  proposedPlan: Pick<
+    Thread["proposedPlans"][number],
+    "id" | "turnId" | "implementedAt" | "implementationThreadId" | "createdAt" | "updatedAt"
+  >,
+): Thread["latestProposedPlanSummary"] {
+  return {
+    id: proposedPlan.id,
+    turnId: proposedPlan.turnId,
+    implementedAt: proposedPlan.implementedAt,
+    implementationThreadId: proposedPlan.implementationThreadId,
+    createdAt: proposedPlan.createdAt,
+    updatedAt: proposedPlan.updatedAt,
+  };
+}
+
+function findLatestProposedPlanSummary(
+  proposedPlans: ReadonlyArray<Thread["proposedPlans"][number]>,
+): Thread["latestProposedPlanSummary"] {
+  const latestPlan = [...proposedPlans]
+    .toSorted(
+      (left, right) =>
+        left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
+    )
+    .at(-1);
+  return latestPlan ? toLatestProposedPlanSummary(latestPlan) : null;
 }
 
 function mapTurnDiffSummary(
@@ -153,7 +260,18 @@ function mapTurnDiffSummary(
   };
 }
 
-function mapThread(thread: OrchestrationThread): Thread {
+export interface SnapshotSyncOptions {
+  hydrateThreadId?: ThreadId | null;
+}
+
+function resolveThreadHistoryLoaded(threadId: ThreadId, options?: SnapshotSyncOptions): boolean {
+  if (options === undefined || !Object.prototype.hasOwnProperty.call(options, "hydrateThreadId")) {
+    return true;
+  }
+  return options.hydrateThreadId !== null && options.hydrateThreadId === threadId;
+}
+
+function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): Thread {
   return {
     id: thread.id,
     codexThreadId: null,
@@ -165,6 +283,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     session: thread.session ? mapSession(thread.session) : null,
     messages: thread.messages.map(mapMessage),
     proposedPlans: thread.proposedPlans.map(mapProposedPlan),
+    latestProposedPlanSummary: mapLatestProposedPlanSummary(thread.latestProposedPlanSummary),
     error: thread.session?.lastError ?? null,
     createdAt: thread.createdAt,
     archivedAt: thread.archivedAt,
@@ -173,6 +292,9 @@ function mapThread(thread: OrchestrationThread): Thread {
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    historyLoaded: resolveThreadHistoryLoaded(thread.id, options),
+    queuedComposerMessages: thread.queuedComposerMessages.map(mapQueuedComposerMessage),
+    queuedSteerRequest: thread.queuedSteerRequest ? { ...thread.queuedSteerRequest } : null,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
   };
@@ -226,7 +348,8 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
     hasActionableProposedPlan: hasActionableProposedPlan(
-      findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
+      thread.latestProposedPlanSummary ??
+        findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
     ),
   };
 }
@@ -313,6 +436,79 @@ function buildSidebarThreadsById(
   );
 }
 
+function shouldRetainLeanThreadActivity(
+  activity: Pick<Thread["activities"][number], "kind">,
+): boolean {
+  return LEAN_THREAD_ACTIVITY_KINDS.has(activity.kind);
+}
+
+function toLeanThread(thread: Thread): Thread {
+  if (thread.historyLoaded === false) {
+    return thread;
+  }
+
+  return {
+    ...thread,
+    messages: thread.messages.filter((message) => message.role === "user"),
+    proposedPlans: [],
+    latestProposedPlanSummary:
+      thread.latestProposedPlanSummary ?? findLatestProposedPlanSummary(thread.proposedPlans),
+    turnDiffSummaries: [],
+    activities: thread.activities.filter(shouldRetainLeanThreadActivity),
+    historyLoaded: false,
+  };
+}
+
+function shouldKeepHydratedThreadHistory(
+  thread: Thread,
+  keepThreadIds: ReadonlySet<ThreadId>,
+): boolean {
+  if (keepThreadIds.has(thread.id)) {
+    return true;
+  }
+
+  if (thread.latestTurn?.state === "running") {
+    return true;
+  }
+
+  return (
+    thread.session?.orchestrationStatus === "starting" ||
+    thread.session?.orchestrationStatus === "running"
+  );
+}
+
+export function pruneHydratedThreadHistories(
+  state: AppState,
+  keepThreadIds: readonly ThreadId[],
+): AppState {
+  const retainedThreadIds = new Set(keepThreadIds);
+  let changed = false;
+  const threads = state.threads.map((thread) => {
+    if (
+      thread.historyLoaded === false ||
+      shouldKeepHydratedThreadHistory(thread, retainedThreadIds)
+    ) {
+      return thread;
+    }
+
+    const leanThread = toLeanThread(thread);
+    if (leanThread !== thread) {
+      changed = true;
+    }
+    return leanThread;
+  });
+
+  if (!changed) {
+    return state;
+  }
+
+  return {
+    ...state,
+    threads,
+    sidebarThreadsById: buildSidebarThreadsById(threads),
+  };
+}
+
 function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error") {
   if (status === "error") {
     return "error" as const;
@@ -321,23 +517,6 @@ function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error"
     return "interrupted" as const;
   }
   return "completed" as const;
-}
-
-function compareActivities(
-  left: Thread["activities"][number],
-  right: Thread["activities"][number],
-): number {
-  if (left.sequence !== undefined && right.sequence !== undefined) {
-    if (left.sequence !== right.sequence) {
-      return left.sequence - right.sequence;
-    }
-  } else if (left.sequence !== undefined) {
-    return 1;
-  } else if (right.sequence !== undefined) {
-    return -1;
-  }
-
-  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 }
 
 function buildLatestTurn(params: {
@@ -420,7 +599,7 @@ function retainThreadMessagesAfterRevert(
       )
       .toSorted(
         (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+          compareSequenceThenCreatedAt(left, right) || left.id.localeCompare(right.id),
       )
       .slice(0, missingUserCount);
     for (const message of fallbackUserMessages) {
@@ -444,7 +623,7 @@ function retainThreadMessagesAfterRevert(
       )
       .toSorted(
         (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+          compareSequenceThenCreatedAt(left, right) || left.id.localeCompare(right.id),
       )
       .slice(0, missingAssistantCount);
     for (const message of fallbackAssistantMessages) {
@@ -493,7 +672,7 @@ function toLegacySessionStatus(
 }
 
 function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (providerName === "codex" || providerName === "claudeAgent") {
+  if (Schema.is(ProviderKind)(providerName)) {
     return providerName;
   }
   return "codex";
@@ -571,26 +750,7 @@ function updateThreadState(
   };
 }
 
-// ── Pure state transition functions ────────────────────────────────────
-
-export function syncServerReadModel(state: AppState, readModel: OrchestrationReadModel): AppState {
-  const projects = readModel.projects
-    .filter((project) => project.deletedAt === null)
-    .map(mapProject);
-  const threads = readModel.threads.filter((thread) => thread.deletedAt === null).map(mapThread);
-  const sidebarThreadsById = buildSidebarThreadsById(threads);
-  const threadIdsByProjectId = buildThreadIdsByProjectId(threads);
-  return {
-    ...state,
-    projects,
-    threads,
-    sidebarThreadsById,
-    threadIdsByProjectId,
-    bootstrapComplete: true,
-  };
-}
-
-export function applyOrchestrationEvent(state: AppState, event: OrchestrationEvent): AppState {
+function applyProjectEvent(state: AppState, event: OrchestrationEvent): AppState | null {
   switch (event.type) {
     case "project.created": {
       const existingIndex = state.projects.findIndex(
@@ -641,6 +801,13 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
       return projects.length === state.projects.length ? state : { ...state, projects };
     }
 
+    default:
+      return null;
+  }
+}
+
+function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState | null {
+  switch (event.type) {
     case "thread.created": {
       const existing = state.threads.find((thread) => thread.id === event.payload.threadId);
       const nextThread = mapThread({
@@ -652,6 +819,8 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         interactionMode: event.payload.interactionMode,
         branch: event.payload.branch,
         worktreePath: event.payload.worktreePath,
+        queuedComposerMessages: [],
+        queuedSteerRequest: null,
         latestTurn: null,
         createdAt: event.payload.createdAt,
         updatedAt: event.payload.updatedAt,
@@ -659,6 +828,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         deletedAt: null,
         messages: [],
         proposedPlans: [],
+        latestProposedPlanSummary: null,
         activities: [],
         checkpoints: [],
         session: null,
@@ -741,6 +911,15 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         ...(event.payload.worktreePath !== undefined
           ? { worktreePath: event.payload.worktreePath }
           : {}),
+        ...(event.payload.queuedComposerMessages !== undefined
+          ? {
+              queuedComposerMessages:
+                event.payload.queuedComposerMessages.map(mapQueuedComposerMessage),
+            }
+          : {}),
+        ...(event.payload.queuedSteerRequest !== undefined
+          ? { queuedSteerRequest: event.payload.queuedSteerRequest }
+          : {}),
         updatedAt: event.payload.updatedAt,
       }));
     }
@@ -810,39 +989,53 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
             : {}),
           turnId: event.payload.turnId,
           streaming: event.payload.streaming,
+          sequence: event.payload.sequence ?? event.sequence,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
         });
         const existingMessage = thread.messages.find((entry) => entry.id === message.id);
-        const messages = existingMessage
-          ? thread.messages.map((entry) =>
-              entry.id !== message.id
-                ? entry
-                : {
-                    ...entry,
-                    text: message.streaming
-                      ? `${entry.text}${message.text}`
-                      : message.text.length > 0
-                        ? message.text
-                        : entry.text,
-                    streaming: message.streaming,
-                    ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
-                    ...(message.streaming
-                      ? entry.completedAt !== undefined
-                        ? { completedAt: entry.completedAt }
-                        : {}
-                      : message.completedAt !== undefined
-                        ? { completedAt: message.completedAt }
+        const shouldRetainMessage =
+          thread.historyLoaded !== false ||
+          event.payload.role === "user" ||
+          existingMessage !== undefined;
+        const messages = !shouldRetainMessage
+          ? thread.messages
+          : existingMessage
+            ? thread.messages.map((entry) =>
+                entry.id !== message.id
+                  ? entry
+                  : {
+                      ...entry,
+                      text: message.streaming
+                        ? `${entry.text}${message.text}`
+                        : message.text.length > 0
+                          ? message.text
+                          : entry.text,
+                      streaming: message.streaming,
+                      ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+                      ...(entry.sequence !== undefined || message.sequence !== undefined
+                        ? { sequence: entry.sequence ?? message.sequence }
                         : {}),
-                    ...(message.attachments !== undefined
-                      ? { attachments: message.attachments }
-                      : {}),
-                  },
-            )
-          : [...thread.messages, message];
-        const cappedMessages = messages.slice(-MAX_THREAD_MESSAGES);
+                      ...(message.streaming
+                        ? entry.completedAt !== undefined
+                          ? { completedAt: entry.completedAt }
+                          : {}
+                        : message.completedAt !== undefined
+                          ? { completedAt: message.completedAt }
+                          : {}),
+                      ...(message.attachments !== undefined
+                        ? { attachments: message.attachments }
+                        : {}),
+                    },
+              )
+            : [...thread.messages, message];
+        const cappedMessages = shouldRetainMessage
+          ? messages.slice(-MAX_THREAD_MESSAGES)
+          : messages;
         const turnDiffSummaries =
-          event.payload.role === "assistant" && event.payload.turnId !== null
+          thread.historyLoaded !== false &&
+          event.payload.role === "assistant" &&
+          event.payload.turnId !== null
             ? rebindTurnDiffSummariesForAssistantMessage(
                 thread.turnDiffSummaries,
                 event.payload.turnId,
@@ -942,18 +1135,23 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
     case "thread.proposed-plan-upserted": {
       return updateThreadState(state, event.payload.threadId, (thread) => {
         const proposedPlan = mapProposedPlan(event.payload.proposedPlan);
-        const proposedPlans = [
-          ...thread.proposedPlans.filter((entry) => entry.id !== proposedPlan.id),
-          proposedPlan,
-        ]
-          .toSorted(
-            (left, right) =>
-              left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-          )
-          .slice(-MAX_THREAD_PROPOSED_PLANS);
+        const proposedPlans =
+          thread.historyLoaded === false
+            ? thread.proposedPlans
+            : [
+                ...thread.proposedPlans.filter((entry) => entry.id !== proposedPlan.id),
+                proposedPlan,
+              ]
+                .toSorted(
+                  (left, right) =>
+                    left.createdAt.localeCompare(right.createdAt) ||
+                    left.id.localeCompare(right.id),
+                )
+                .slice(-MAX_THREAD_PROPOSED_PLANS);
         return {
           ...thread,
           proposedPlans,
+          latestProposedPlanSummary: toLatestProposedPlanSummary(proposedPlan),
           updatedAt: event.occurredAt,
         };
       });
@@ -976,16 +1174,19 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         if (existing && existing.status !== "missing" && checkpoint.status === "missing") {
           return thread;
         }
-        const turnDiffSummaries = [
-          ...thread.turnDiffSummaries.filter((entry) => entry.turnId !== checkpoint.turnId),
-          checkpoint,
-        ]
-          .toSorted(
-            (left, right) =>
-              (left.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER) -
-              (right.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER),
-          )
-          .slice(-MAX_THREAD_CHECKPOINTS);
+        const turnDiffSummaries =
+          thread.historyLoaded === false
+            ? thread.turnDiffSummaries
+            : [
+                ...thread.turnDiffSummaries.filter((entry) => entry.turnId !== checkpoint.turnId),
+                checkpoint,
+              ]
+                .toSorted(
+                  (left, right) =>
+                    (left.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER) -
+                    (right.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER),
+                )
+                .slice(-MAX_THREAD_CHECKPOINTS);
         const latestTurn =
           thread.latestTurn === null || thread.latestTurn.turnId === event.payload.turnId
             ? buildLatestTurn({
@@ -1040,6 +1241,8 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
           turnDiffSummaries,
           messages,
           proposedPlans,
+          latestProposedPlanSummary:
+            thread.historyLoaded === false ? null : findLatestProposedPlanSummary(proposedPlans),
           activities,
           pendingSourceProposedPlan: undefined,
           latestTurn:
@@ -1062,12 +1265,17 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
 
     case "thread.activity-appended": {
       return updateThreadState(state, event.payload.threadId, (thread) => {
-        const activities = [
-          ...thread.activities.filter((activity) => activity.id !== event.payload.activity.id),
-          { ...event.payload.activity },
-        ]
-          .toSorted(compareActivities)
-          .slice(-MAX_THREAD_ACTIVITIES);
+        const shouldRetainActivity =
+          thread.historyLoaded !== false || shouldRetainLeanThreadActivity(event.payload.activity);
+        const activities = !shouldRetainActivity
+          ? thread.activities
+          : appendCompactedThreadActivity(
+              thread.activities,
+              { ...event.payload.activity },
+              {
+                maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
+              },
+            );
         return {
           ...thread,
           activities,
@@ -1079,9 +1287,95 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
     case "thread.approval-response-requested":
     case "thread.user-input-response-requested":
       return state;
+
+    default:
+      return null;
+  }
+}
+
+// ── Pure state transition functions ────────────────────────────────────
+
+export function syncServerReadModel(
+  state: AppState,
+  readModel: OrchestrationReadModel,
+  options?: SnapshotSyncOptions,
+): AppState {
+  const projects = readModel.projects
+    .filter((project) => project.deletedAt === null)
+    .map(mapProject);
+  const threads = readModel.threads
+    .filter((thread) => thread.deletedAt === null)
+    .map((thread) => {
+      const nextThread = mapThread(thread, options);
+      if (options !== undefined && nextThread.historyLoaded !== false) {
+        primeHydratedThreadCache(thread);
+      }
+      return nextThread;
+    });
+  const sidebarThreadsById = buildSidebarThreadsById(threads);
+  const threadIdsByProjectId = buildThreadIdsByProjectId(threads);
+  return {
+    ...state,
+    projects,
+    threads,
+    sidebarThreadsById,
+    threadIdsByProjectId,
+    bootstrapComplete: true,
+  };
+}
+
+export function hydrateThreadFromReadModel(
+  state: AppState,
+  readModelThread: OrchestrationReadModel["threads"][number],
+): AppState {
+  if (readModelThread.deletedAt !== null) {
+    return state;
   }
 
-  return state;
+  primeHydratedThreadCache(readModelThread);
+  const nextThread = mapThread(readModelThread, { hydrateThreadId: readModelThread.id });
+  const existingThread = state.threads.find((thread) => thread.id === nextThread.id);
+  const threads = existingThread
+    ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
+    : [...state.threads, nextThread];
+  const nextSummary = buildSidebarThreadSummary(nextThread);
+  const previousSummary = state.sidebarThreadsById[nextThread.id];
+  const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
+    ? state.sidebarThreadsById
+    : {
+        ...state.sidebarThreadsById,
+        [nextThread.id]: nextSummary,
+      };
+  const nextThreadIdsByProjectId =
+    existingThread !== undefined && existingThread.projectId !== nextThread.projectId
+      ? removeThreadIdByProjectId(
+          state.threadIdsByProjectId,
+          existingThread.projectId,
+          existingThread.id,
+        )
+      : state.threadIdsByProjectId;
+  const threadIdsByProjectId = appendThreadIdByProjectId(
+    nextThreadIdsByProjectId,
+    nextThread.projectId,
+    nextThread.id,
+  );
+
+  return {
+    ...state,
+    threads,
+    sidebarThreadsById,
+    threadIdsByProjectId,
+  };
+}
+
+export function applyOrchestrationEvent(state: AppState, event: OrchestrationEvent): AppState {
+  const projectState = applyProjectEvent(state, event);
+  if (projectState !== null) {
+    return projectState;
+  }
+
+  const threadState = applyThreadEvent(state, event);
+  return threadState ?? state;
 }
 
 export function applyOrchestrationEvents(
@@ -1102,7 +1396,7 @@ export const selectProjectById =
 export const selectThreadById =
   (threadId: ThreadId | null | undefined) =>
   (state: AppState): Thread | undefined =>
-    threadId ? state.threads.find((thread) => thread.id === threadId) : undefined;
+    getThreadById(state.threads, threadId);
 
 export const selectSidebarThreadSummaryById =
   (threadId: ThreadId | null | undefined) =>
@@ -1139,22 +1433,59 @@ export function setThreadBranch(
   });
 }
 
+export function setThreadQueueState(
+  state: AppState,
+  threadId: ThreadId,
+  queuedComposerMessages: Thread["queuedComposerMessages"],
+  queuedSteerRequest: Thread["queuedSteerRequest"],
+): AppState {
+  return updateThreadState(state, threadId, (thread) => {
+    if (
+      thread.queuedComposerMessages === queuedComposerMessages &&
+      thread.queuedSteerRequest === queuedSteerRequest
+    ) {
+      return thread;
+    }
+    return {
+      ...thread,
+      queuedComposerMessages,
+      queuedSteerRequest,
+    };
+  });
+}
+
 // ── Zustand store ────────────────────────────────────────────────────
 
 interface AppStore extends AppState {
-  syncServerReadModel: (readModel: OrchestrationReadModel) => void;
+  syncServerReadModel: (readModel: OrchestrationReadModel, options?: SnapshotSyncOptions) => void;
+  hydrateThreadFromReadModel: (readModelThread: OrchestrationReadModel["threads"][number]) => void;
+  pruneHydratedThreadHistories: (keepThreadIds: readonly ThreadId[]) => void;
   applyOrchestrationEvent: (event: OrchestrationEvent) => void;
   applyOrchestrationEvents: (events: ReadonlyArray<OrchestrationEvent>) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
   setThreadBranch: (threadId: ThreadId, branch: string | null, worktreePath: string | null) => void;
+  setThreadQueueState: (
+    threadId: ThreadId,
+    queuedComposerMessages: Thread["queuedComposerMessages"],
+    queuedSteerRequest: Thread["queuedSteerRequest"],
+  ) => void;
 }
 
 export const useStore = create<AppStore>((set) => ({
   ...initialState,
-  syncServerReadModel: (readModel) => set((state) => syncServerReadModel(state, readModel)),
+  syncServerReadModel: (readModel, options) =>
+    set((state) => syncServerReadModel(state, readModel, options)),
+  hydrateThreadFromReadModel: (readModelThread) =>
+    set((state) => hydrateThreadFromReadModel(state, readModelThread)),
+  pruneHydratedThreadHistories: (keepThreadIds) =>
+    set((state) => pruneHydratedThreadHistories(state, keepThreadIds)),
   applyOrchestrationEvent: (event) => set((state) => applyOrchestrationEvent(state, event)),
   applyOrchestrationEvents: (events) => set((state) => applyOrchestrationEvents(state, events)),
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),
   setThreadBranch: (threadId, branch, worktreePath) =>
     set((state) => setThreadBranch(state, threadId, branch, worktreePath)),
+  setThreadQueueState: (threadId, queuedComposerMessages, queuedSteerRequest) =>
+    set((state) =>
+      setThreadQueueState(state, threadId, queuedComposerMessages, queuedSteerRequest),
+    ),
 }));

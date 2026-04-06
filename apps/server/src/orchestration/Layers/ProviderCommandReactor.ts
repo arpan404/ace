@@ -10,16 +10,18 @@ import {
   type ProviderSession,
   type RuntimeMode,
   type TurnId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Cache, Cause, Duration, Effect, Equal, Layer, Option, Schema, Stream } from "effect";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { makeDrainableWorker } from "@ace/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
+import { meaningfulErrorMessage } from "../../provider/errorCause.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { resolveTextGenerationModelSelection } from "../../git/textGenerationModelSelection.ts";
 import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
@@ -71,7 +73,7 @@ const serverCommandId = (tag: string): CommandId =>
 const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
-const WORKTREE_BRANCH_PREFIX = "t3code";
+const WORKTREE_BRANCH_PREFIX = "ace";
 const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
 const DEFAULT_THREAD_TITLE = "New thread";
 
@@ -111,11 +113,21 @@ function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServic
   return Cause.pretty(cause).toLowerCase().includes("unknown pending user-input request");
 }
 
+function providerFailureDetailFromCause(cause: Cause.Cause<unknown>): string {
+  return meaningfulErrorMessage(Cause.squash(cause), Cause.pretty(cause));
+}
+
 function stalePendingRequestDetail(
   requestKind: "approval" | "user-input",
   requestId: string,
 ): string {
   return `Stale pending ${requestKind} request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
+}
+
+function activeTurnAlreadyRunningDetail(activeTurnId: TurnId | undefined): string {
+  return activeTurnId
+    ? `Provider session is already running turn '${activeTurnId}'. Wait for it to finish or interrupt it before starting another turn.`
+    : "Provider session is already running a turn. Wait for it to finish or interrupt it before starting another turn.";
 }
 
 function isTemporaryWorktreeBranch(branch: string): boolean {
@@ -222,6 +234,7 @@ const make = Effect.gen(function* () {
     createdAt: string,
     options?: {
       readonly modelSelection?: ModelSelection;
+      readonly preferFreshSession?: boolean;
     },
   ) {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -307,15 +320,20 @@ const make = Effect.gen(function* () {
       const shouldRestartForModelChange = modelChanged && sessionModelSwitch === "restart-session";
       const previousModelSelection = threadModelSelections.get(threadId);
       const shouldRestartForModelSelectionChange =
-        currentProvider === "claudeAgent" &&
+        (currentProvider === "claudeAgent" || currentProvider === "cursor") &&
         requestedModelSelection !== undefined &&
         !Equal.equals(previousModelSelection, requestedModelSelection);
+      const shouldRestartReadySessionForTurn =
+        options?.preferFreshSession === true &&
+        sessionModelSwitch === "restart-session" &&
+        thread.session?.activeTurnId === null;
 
       if (
         !runtimeModeChanged &&
         !providerChanged &&
         !shouldRestartForModelChange &&
-        !shouldRestartForModelSelectionChange
+        !shouldRestartForModelSelectionChange &&
+        !shouldRestartReadySessionForTurn
       ) {
         return existingSessionThreadId;
       }
@@ -336,6 +354,7 @@ const make = Effect.gen(function* () {
         modelChanged,
         shouldRestartForModelChange,
         shouldRestartForModelSelectionChange,
+        shouldRestartReadySessionForTurn,
         hasResumeCursor: resumeCursor !== undefined,
       });
       const restartedSession = yield* startProviderSession(
@@ -369,11 +388,10 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
-    yield* ensureSessionForThread(
-      input.threadId,
-      input.createdAt,
-      input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {},
-    );
+    yield* ensureSessionForThread(input.threadId, input.createdAt, {
+      ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+      preferFreshSession: true,
+    });
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
@@ -384,6 +402,13 @@ const make = Effect.gen(function* () {
       .pipe(
         Effect.map((sessions) => sessions.find((session) => session.threadId === input.threadId)),
       );
+    if (activeSession?.status === "running") {
+      return yield* new ProviderAdapterRequestError({
+        provider: activeSession.provider,
+        method: "thread.turn.start",
+        detail: activeTurnAlreadyRunningDetail(activeSession.activeTurnId),
+      });
+    }
     const sessionModelSwitch =
       activeSession === undefined
         ? "in-session"
@@ -414,6 +439,7 @@ const make = Effect.gen(function* () {
     readonly branch: string | null;
     readonly worktreePath: string | null;
     readonly messageText: string;
+    readonly modelSelection: ModelSelection;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
   }) {
     if (!input.branch || !input.worktreePath) {
@@ -427,8 +453,11 @@ const make = Effect.gen(function* () {
     const cwd = input.worktreePath;
     const attachments = input.attachments ?? [];
     yield* Effect.gen(function* () {
-      const { textGenerationModelSelection: modelSelection } =
-        yield* serverSettingsService.getSettings;
+      const serverSettings = yield* serverSettingsService.getSettings;
+      const modelSelection = resolveTextGenerationModelSelection({
+        serverSettings,
+        fallbackModelSelection: input.modelSelection,
+      });
 
       const generated = yield* textGeneration.generateBranchName({
         cwd,
@@ -466,18 +495,20 @@ const make = Effect.gen(function* () {
     readonly cwd: string;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
+    readonly modelSelection: ModelSelection;
     readonly titleSeed?: string;
   }) {
     const attachments = input.attachments ?? [];
     yield* Effect.gen(function* () {
-      const { textGenerationModelSelection: modelSelection } =
-        yield* serverSettingsService.getSettings;
-
+      const serverSettings = yield* serverSettingsService.getSettings;
       const generated = yield* textGeneration.generateThreadTitle({
         cwd: input.cwd,
         message: input.messageText,
         ...(attachments.length > 0 ? { attachments } : {}),
-        modelSelection,
+        modelSelection: resolveTextGenerationModelSelection({
+          serverSettings,
+          fallbackModelSelection: input.modelSelection,
+        }),
       });
       if (!generated) return;
 
@@ -548,6 +579,7 @@ const make = Effect.gen(function* () {
         threadId: event.payload.threadId,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
+        modelSelection: event.payload.modelSelection ?? thread.modelSelection,
         ...generationInput,
       }).pipe(Effect.forkScoped);
 
@@ -555,6 +587,7 @@ const make = Effect.gen(function* () {
         yield* maybeGenerateThreadTitleForFirstTurn({
           threadId: event.payload.threadId,
           cwd: generationCwd,
+          modelSelection: event.payload.modelSelection ?? thread.modelSelection,
           ...generationInput,
         }).pipe(Effect.forkScoped);
       }
@@ -575,7 +608,7 @@ const make = Effect.gen(function* () {
           threadId: event.payload.threadId,
           kind: "provider.turn.start.failed",
           summary: "Provider turn start failed",
-          detail: Cause.pretty(cause),
+          detail: providerFailureDetailFromCause(cause),
           turnId: null,
           createdAt: event.payload.createdAt,
         }),

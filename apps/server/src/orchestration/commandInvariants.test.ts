@@ -7,7 +7,7 @@ import {
   ThreadId,
   type OrchestrationCommand,
   type OrchestrationReadModel,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect } from "effect";
 
 import {
@@ -72,6 +72,9 @@ const readModel: OrchestrationReadModel = {
       session: null,
       activities: [],
       proposedPlans: [],
+      latestProposedPlanSummary: null,
+      queuedComposerMessages: [],
+      queuedSteerRequest: null,
       checkpoints: [],
       deletedAt: null,
     },
@@ -95,6 +98,9 @@ const readModel: OrchestrationReadModel = {
       session: null,
       activities: [],
       proposedPlans: [],
+      latestProposedPlanSummary: null,
+      queuedComposerMessages: [],
+      queuedSteerRequest: null,
       checkpoints: [],
       deletedAt: null,
     },

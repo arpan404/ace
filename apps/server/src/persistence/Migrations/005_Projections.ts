@@ -40,6 +40,7 @@ export default Effect.gen(function* () {
       role TEXT NOT NULL,
       text TEXT NOT NULL,
       is_streaming INTEGER NOT NULL,
+      sequence INTEGER,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )
@@ -124,6 +125,11 @@ export default Effect.gen(function* () {
   yield* sql`
     CREATE INDEX IF NOT EXISTS idx_projection_thread_messages_thread_created
     ON projection_thread_messages(thread_id, created_at)
+  `;
+
+  yield* sql`
+    CREATE INDEX IF NOT EXISTS idx_projection_thread_messages_thread_created_sequence
+    ON projection_thread_messages(thread_id, created_at, sequence)
   `;
 
   yield* sql`

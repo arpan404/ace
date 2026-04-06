@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MODEL_BY_PROVIDER, type ModelCapabilities } from "@t3tools/contracts";
+import { DEFAULT_MODEL_BY_PROVIDER, type ModelCapabilities } from "@ace/contracts";
 
 import {
   applyClaudePromptEffortPrefix,
@@ -10,7 +10,10 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeClaudeModelOptionsWithCapabilities,
   normalizeCodexModelOptionsWithCapabilities,
+  normalizeCursorModelOptionsWithCapabilities,
+  normalizeGitHubCopilotModelOptionsWithCapabilities,
   normalizeModelSlug,
+  inferModelContextWindowTokens,
   resolveApiModelId,
   resolveContextWindow,
   resolveEffort,
@@ -46,10 +49,36 @@ const claudeCaps: ModelCapabilities = {
   promptInjectedEffortLevels: ["ultrathink"],
 };
 
+const githubCopilotCaps: ModelCapabilities = {
+  reasoningEffortLevels: [
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High", isDefault: true },
+    { value: "xhigh", label: "Extra High" },
+  ],
+  supportsFastMode: false,
+  supportsThinkingToggle: false,
+  contextWindowOptions: [],
+  promptInjectedEffortLevels: [],
+};
+
+const cursorCaps: ModelCapabilities = {
+  reasoningEffortLevels: [
+    { value: "xhigh", label: "Extra High" },
+    { value: "high", label: "High" },
+    { value: "medium", label: "Medium", isDefault: true },
+    { value: "low", label: "Low" },
+  ],
+  supportsFastMode: true,
+  supportsThinkingToggle: false,
+  contextWindowOptions: [],
+  promptInjectedEffortLevels: [],
+};
+
 describe("normalizeModelSlug", () => {
   it("maps known aliases to canonical slugs", () => {
     expect(normalizeModelSlug("5.3")).toBe("gpt-5.3-codex");
     expect(normalizeModelSlug("sonnet", "claudeAgent")).toBe("claude-sonnet-4-6");
+    expect(normalizeModelSlug("sonnet-4", "cursor")).toBe("claude-4-sonnet");
   });
 
   it("returns null for empty or missing values", () => {
@@ -83,6 +112,40 @@ describe("resolveSelectableModel", () => {
     expect(resolveSelectableModel("codex", "gpt-5.3-codex", options)).toBe("gpt-5.3-codex");
     expect(resolveSelectableModel("codex", "gpt-5.3 codex", options)).toBe("gpt-5.3-codex");
     expect(resolveSelectableModel("claudeAgent", "sonnet", options)).toBe("claude-sonnet-4-6");
+  });
+
+  it("maps legacy Cursor variant slugs onto normalized base model options", () => {
+    const options = [{ slug: "gpt-5.3-codex", name: "GPT-5.3 Codex" }];
+    expect(resolveSelectableModel("cursor", "gpt-5.3-codex-high-fast", options)).toBe(
+      "gpt-5.3-codex",
+    );
+  });
+
+  it("maps legacy Cursor none slugs onto normalized base model options", () => {
+    const options = [{ slug: "gpt-5.4-mini", name: "GPT-5.4 Mini" }];
+    expect(resolveSelectableModel("cursor", "gpt-5.4-mini-none-fast", options)).toBe(
+      "gpt-5.4-mini",
+    );
+  });
+});
+
+describe("inferModelContextWindowTokens", () => {
+  it("returns Gemini CLI token limits for configured Gemini models", () => {
+    expect(inferModelContextWindowTokens("gemini", "gemini-2.5-pro")).toBe(1_048_576);
+    expect(inferModelContextWindowTokens("gemini", "gemini-3.1-pro-preview")).toBe(1_048_576);
+    expect(inferModelContextWindowTokens("gemini", "auto")).toBe(1_048_576);
+  });
+
+  it("returns Cursor defaults for documented Cursor models", () => {
+    expect(inferModelContextWindowTokens("cursor", "claude-4-sonnet")).toBe(200_000);
+    expect(inferModelContextWindowTokens("cursor", "composer-2")).toBe(200_000);
+    expect(inferModelContextWindowTokens("cursor", "gpt-5.4")).toBe(272_000);
+  });
+
+  it("returns undefined when the provider model limit is not known", () => {
+    expect(inferModelContextWindowTokens("cursor", "auto")).toBeUndefined();
+    expect(inferModelContextWindowTokens("cursor", "gpt-5.4-mini")).toBeUndefined();
+    expect(inferModelContextWindowTokens("gemini", "custom-model")).toBeUndefined();
   });
 });
 
@@ -280,5 +343,57 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
     ).toEqual({
       thinking: true,
     });
+  });
+
+  it("normalizes GitHub Copilot reasoning effort against capabilities", () => {
+    expect(
+      normalizeGitHubCopilotModelOptionsWithCapabilities(githubCopilotCaps, {
+        reasoningEffort: "medium",
+      }),
+    ).toEqual({
+      reasoningEffort: "medium",
+    });
+  });
+
+  it("drops GitHub Copilot reasoning effort for models without effort controls", () => {
+    expect(
+      normalizeGitHubCopilotModelOptionsWithCapabilities(
+        {
+          ...githubCopilotCaps,
+          reasoningEffortLevels: [],
+        },
+        {
+          reasoningEffort: "high",
+        },
+      ),
+    ).toBeUndefined();
+  });
+
+  it("normalizes Cursor reasoning effort and fast mode against capabilities", () => {
+    expect(
+      normalizeCursorModelOptionsWithCapabilities(cursorCaps, {
+        reasoningEffort: "low",
+        fastMode: true,
+      }),
+    ).toEqual({
+      reasoningEffort: "low",
+      fastMode: true,
+    });
+  });
+
+  it("drops unsupported Cursor fast mode and effort options", () => {
+    expect(
+      normalizeCursorModelOptionsWithCapabilities(
+        {
+          ...cursorCaps,
+          reasoningEffortLevels: [],
+          supportsFastMode: false,
+        },
+        {
+          reasoningEffort: "high",
+          fastMode: true,
+        },
+      ),
+    ).toBeUndefined();
   });
 });

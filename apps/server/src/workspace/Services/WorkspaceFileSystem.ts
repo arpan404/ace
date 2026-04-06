@@ -9,7 +9,18 @@
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
-import type { ProjectWriteFileInput, ProjectWriteFileResult } from "@t3tools/contracts";
+import type {
+  ProjectCreateEntryInput,
+  ProjectCreateEntryResult,
+  ProjectDeleteEntryInput,
+  ProjectDeleteEntryResult,
+  ProjectReadFileInput,
+  ProjectReadFileResult,
+  ProjectRenameEntryInput,
+  ProjectRenameEntryResult,
+  ProjectWriteFileInput,
+  ProjectWriteFileResult,
+} from "@ace/contracts";
 import { WorkspacePathOutsideRootError } from "./WorkspacePaths.ts";
 
 export class WorkspaceFileSystemError extends Schema.TaggedErrorClass<WorkspaceFileSystemError>()(
@@ -28,6 +39,30 @@ export class WorkspaceFileSystemError extends Schema.TaggedErrorClass<WorkspaceF
  */
 export interface WorkspaceFileSystemShape {
   /**
+   * Create a file or directory relative to the workspace root.
+   *
+   * File creation also creates missing parent directories.
+   */
+  readonly createEntry: (
+    input: ProjectCreateEntryInput,
+  ) => Effect.Effect<
+    ProjectCreateEntryResult,
+    WorkspaceFileSystemError | WorkspacePathOutsideRootError
+  >;
+
+  /**
+   * Delete a file or directory relative to the workspace root.
+   *
+   * Directory deletion is recursive.
+   */
+  readonly deleteEntry: (
+    input: ProjectDeleteEntryInput,
+  ) => Effect.Effect<
+    ProjectDeleteEntryResult,
+    WorkspaceFileSystemError | WorkspacePathOutsideRootError
+  >;
+
+  /**
    * Write a file relative to the workspace root.
    *
    * Creates parent directories as needed and rejects paths that escape the
@@ -39,6 +74,26 @@ export interface WorkspaceFileSystemShape {
     ProjectWriteFileResult,
     WorkspaceFileSystemError | WorkspacePathOutsideRootError
   >;
+
+  /**
+   * Read a UTF-8 text file relative to the workspace root.
+   */
+  readonly readFile: (
+    input: ProjectReadFileInput,
+  ) => Effect.Effect<
+    ProjectReadFileResult,
+    WorkspaceFileSystemError | WorkspacePathOutsideRootError
+  >;
+
+  /**
+   * Rename or move a file or directory within the workspace root.
+   */
+  readonly renameEntry: (
+    input: ProjectRenameEntryInput,
+  ) => Effect.Effect<
+    ProjectRenameEntryResult,
+    WorkspaceFileSystemError | WorkspacePathOutsideRootError
+  >;
 }
 
 /**
@@ -47,4 +102,4 @@ export interface WorkspaceFileSystemShape {
 export class WorkspaceFileSystem extends ServiceMap.Service<
   WorkspaceFileSystem,
   WorkspaceFileSystemShape
->()("t3/workspace/Services/WorkspaceFileSystem") {}
+>()("ace/workspace/Services/WorkspaceFileSystem") {}

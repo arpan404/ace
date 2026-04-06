@@ -41,6 +41,24 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedDiffToggle.command, "diff.toggle");
 
+    const parsedBrowserToggle = yield* decode(KeybindingRule, {
+      key: "mod+b",
+      command: "browser.toggle",
+    });
+    assert.strictEqual(parsedBrowserToggle.command, "browser.toggle");
+
+    const parsedBrowserReload = yield* decode(KeybindingRule, {
+      key: "mod+r",
+      command: "browser.reload",
+    });
+    assert.strictEqual(parsedBrowserReload.command, "browser.reload");
+
+    const parsedBrowserDevTools = yield* decode(KeybindingRule, {
+      key: "mod+shift+i",
+      command: "browser.devtools",
+    });
+    assert.strictEqual(parsedBrowserDevTools.command, "browser.devtools");
+
     const parsedLocal = yield* decode(KeybindingRule, {
       key: "mod+shift+n",
       command: "chat.newLocal",
@@ -52,6 +70,18 @@ it.effect("parses keybinding rules", () =>
       command: "thread.previous",
     });
     assert.strictEqual(parsedThreadPrevious.command, "thread.previous");
+
+    const parsedEditorSplit = yield* decode(KeybindingRule, {
+      key: "mod+\\",
+      command: "editor.split",
+    });
+    assert.strictEqual(parsedEditorSplit.command, "editor.split");
+
+    const parsedEditorMoveTab = yield* decode(KeybindingRule, {
+      key: "mod+alt+shift+arrowright",
+      command: "editor.moveTabRight",
+    });
+    assert.strictEqual(parsedEditorMoveTab.command, "editor.moveTabRight");
   }),
 );
 

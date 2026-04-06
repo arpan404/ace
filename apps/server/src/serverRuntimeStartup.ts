@@ -4,7 +4,7 @@ import {
   type ModelSelection,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import {
   Data,
   Deferred,
@@ -27,6 +27,7 @@ import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnap
 import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReactor";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerSettingsService } from "./serverSettings";
+import { logStartupEvent, withStartupTiming } from "./startupDiagnostics";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 
 const isWildcardHost = (host: string | undefined): boolean =>
@@ -51,7 +52,7 @@ export interface ServerRuntimeStartupShape {
 export class ServerRuntimeStartup extends ServiceMap.Service<
   ServerRuntimeStartup,
   ServerRuntimeStartupShape
->()("t3/serverRuntimeStartup") {}
+>()("ace/serverRuntimeStartup") {}
 
 interface QueuedCommand {
   readonly run: Effect.Effect<void, never>;
@@ -261,7 +262,10 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
   yield* Effect.addFinalizer(() => Scope.close(reactorScope, Exit.void));
 
   const startup = Effect.gen(function* () {
-    yield* Effect.logDebug("startup phase: starting keybindings runtime");
+    yield* logStartupEvent({
+      phase: "runtime",
+      message: "Starting keybindings runtime",
+    });
     yield* keybindings.start.pipe(
       Effect.catch((error) =>
         Effect.logWarning("failed to start keybindings runtime", {
@@ -273,7 +277,10 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
       Effect.forkScoped,
     );
 
-    yield* Effect.logDebug("startup phase: starting server settings runtime");
+    yield* logStartupEvent({
+      phase: "runtime",
+      message: "Starting server settings runtime",
+    });
     yield* serverSettings.start.pipe(
       Effect.catch((error) =>
         Effect.logWarning("failed to start server settings runtime", {
@@ -285,26 +292,50 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
       Effect.forkScoped,
     );
 
-    yield* Effect.logDebug("startup phase: starting orchestration reactors");
-    yield* orchestrationReactor.start().pipe(Scope.provide(reactorScope));
+    yield* withStartupTiming(
+      "runtime",
+      "Starting orchestration reactors",
+      orchestrationReactor.start().pipe(Scope.provide(reactorScope)),
+    );
 
-    yield* Effect.logDebug("startup phase: preparing welcome payload");
-    const welcome = yield* autoBootstrapWelcome;
-    yield* Effect.logDebug("startup phase: publishing welcome event", {
-      cwd: welcome.cwd,
-      projectName: welcome.projectName,
-      bootstrapProjectId: welcome.bootstrapProjectId,
-      bootstrapThreadId: welcome.bootstrapThreadId,
-    });
-    yield* lifecycleEvents.publish({
-      version: 1,
-      type: "welcome",
-      payload: welcome,
-    });
+    const welcome = yield* withStartupTiming(
+      "runtime",
+      "Preparing welcome payload",
+      autoBootstrapWelcome,
+      {
+        endDetail: (payload) => ({
+          cwd: payload.cwd,
+          projectName: payload.projectName,
+          bootstrapProjectId: payload.bootstrapProjectId ?? null,
+          bootstrapThreadId: payload.bootstrapThreadId ?? null,
+        }),
+      },
+    );
+    yield* withStartupTiming(
+      "runtime",
+      "Publishing welcome event",
+      lifecycleEvents.publish({
+        version: 1,
+        type: "welcome",
+        payload: welcome,
+      }),
+      {
+        startDetail: {
+          cwd: welcome.cwd,
+          projectName: welcome.projectName,
+          bootstrapProjectId: welcome.bootstrapProjectId ?? null,
+          bootstrapThreadId: welcome.bootstrapThreadId ?? null,
+        },
+      },
+    );
   });
 
   yield* Effect.forkScoped(
     Effect.gen(function* () {
+      yield* logStartupEvent({
+        phase: "runtime",
+        message: "Server runtime startup flow started",
+      });
       const startupExit = yield* Effect.exit(startup);
       if (Exit.isFailure(startupExit)) {
         const error = new ServerRuntimeStartupError({
@@ -316,28 +347,44 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
         return;
       }
 
-      yield* Effect.logDebug("Accepting commands");
-      yield* commandGate.signalCommandReady;
-      yield* Effect.logDebug("startup phase: waiting for http listener");
-      yield* Deferred.await(httpListening);
-      yield* Effect.logDebug("startup phase: publishing ready event");
-      yield* lifecycleEvents.publish({
-        version: 1,
-        type: "ready",
-        payload: { at: new Date().toISOString() },
+      yield* logStartupEvent({
+        phase: "runtime",
+        message: "Accepting commands",
       });
+      yield* commandGate.signalCommandReady;
+      yield* withStartupTiming(
+        "runtime",
+        "Waiting for HTTP listener",
+        Deferred.await(httpListening),
+      );
+      yield* withStartupTiming(
+        "runtime",
+        "Publishing ready event",
+        lifecycleEvents.publish({
+          version: 1,
+          type: "ready",
+          payload: { at: new Date().toISOString() },
+        }),
+      );
 
-      yield* Effect.logDebug("startup phase: recording startup heartbeat");
-      yield* launchStartupHeartbeat;
-      yield* Effect.logDebug("startup phase: browser open check");
-      yield* maybeOpenBrowser;
-      yield* Effect.logDebug("startup phase: complete");
+      yield* withStartupTiming("runtime", "Recording startup heartbeat", launchStartupHeartbeat);
+      yield* withStartupTiming("runtime", "Running browser open check", maybeOpenBrowser);
+      yield* logStartupEvent({
+        phase: "runtime",
+        message: "Server runtime startup complete",
+      });
     }),
   );
 
   return {
     awaitCommandReady: commandGate.awaitCommandReady,
-    markHttpListening: Deferred.succeed(httpListening, undefined),
+    markHttpListening: Effect.gen(function* () {
+      yield* logStartupEvent({
+        phase: "server",
+        message: "HTTP listener reported ready",
+      });
+      yield* Deferred.succeed(httpListening, undefined);
+    }),
     enqueueCommand: commandGate.enqueueCommand,
   } satisfies ServerRuntimeStartupShape;
 });

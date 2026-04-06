@@ -10,7 +10,7 @@ import {
   type ProviderUserInputAnswers,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { afterAll, it, vi } from "@effect/vitest";
 
@@ -717,6 +717,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
                 id: "sandbox_mode",
                 header: "Sandbox",
                 question: "Which mode should be used?",
+                multiSelect: true,
                 options: [
                   {
                     label: "workspace-write",
@@ -749,6 +750,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         if (events[0]?.type === "user-input.requested") {
           assert.equal(events[0].requestId, "req-user-input-1");
           assert.equal(events[0].payload.questions[0]?.id, "sandbox_mode");
+          assert.equal(events[0].payload.questions[0]?.multiSelect, true);
         }
 
         assert.equal(events[1]?.type, "user-input.resolved");

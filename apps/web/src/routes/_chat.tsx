@@ -1,12 +1,14 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router";
 import { useEffect } from "react";
 
+import { MemoryPressureCacheBridge } from "../components/MemoryPressureCacheBridge";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { configureThreadHydrationCache } from "../lib/threadHydrationCache";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { resolveShortcutCommand } from "../keybindings";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
-import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
+import { resolveSidebarNewThreadEnvMode } from "~/lib/sidebar";
 import { useSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "~/rpc/serverState";
 
@@ -22,6 +24,12 @@ function ChatRouteGlobalShortcuts() {
       : false,
   );
   const appSettings = useSettings();
+
+  useEffect(() => {
+    configureThreadHydrationCache({
+      maxMemoryBytes: appSettings.threadHydrationCacheMemoryMb * 1024 * 1024,
+    });
+  }, [appSettings.threadHydrationCacheMemoryMb]);
 
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
@@ -89,6 +97,7 @@ function ChatRouteGlobalShortcuts() {
 function ChatRouteLayout() {
   return (
     <>
+      <MemoryPressureCacheBridge />
       <ChatRouteGlobalShortcuts />
       <Outlet />
     </>

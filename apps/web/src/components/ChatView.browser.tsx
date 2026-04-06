@@ -2,6 +2,7 @@
 import "../index.css";
 
 import {
+  type CheckpointRef,
   EventId,
   ORCHESTRATION_WS_METHODS,
   type MessageId,
@@ -15,7 +16,7 @@ import {
   WS_METHODS,
   OrchestrationSessionStatus,
   DEFAULT_SERVER_SETTINGS,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
 import { setupWorker } from "msw/browser";
@@ -29,13 +30,13 @@ import {
   type TerminalContextDraft,
   removeInlineTerminalContextPlaceholder,
 } from "../lib/terminalContext";
+import { estimateTimelineMessageHeight } from "~/lib/chat/timelineHeight";
 import { isMacPlatform } from "../lib/utils";
 import { __resetNativeApiForTests } from "../nativeApi";
 import { getRouter } from "../router";
 import { useStore } from "../store";
 import { BrowserWsRpcHarness, type NormalizedWsRpcRequestBody } from "../../test/wsRpcHarness";
-import { estimateTimelineMessageHeight } from "./timelineHeight";
-import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
+import { DEFAULT_CLIENT_SETTINGS } from "@ace/contracts/settings";
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
 const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -87,14 +88,44 @@ const COMPACT_FOOTER_VIEWPORT: ViewportSpec = {
 };
 const TEXT_VIEWPORT_MATRIX = [
   DEFAULT_VIEWPORT,
-  { name: "tablet", width: 720, height: 1_024, textTolerancePx: 44, attachmentTolerancePx: 56 },
-  { name: "mobile", width: 430, height: 932, textTolerancePx: 56, attachmentTolerancePx: 56 },
-  { name: "narrow", width: 320, height: 700, textTolerancePx: 84, attachmentTolerancePx: 56 },
+  {
+    name: "tablet",
+    width: 720,
+    height: 1_024,
+    textTolerancePx: 44,
+    attachmentTolerancePx: 56,
+  },
+  {
+    name: "mobile",
+    width: 430,
+    height: 932,
+    textTolerancePx: 56,
+    attachmentTolerancePx: 56,
+  },
+  {
+    name: "narrow",
+    width: 320,
+    height: 700,
+    textTolerancePx: 84,
+    attachmentTolerancePx: 56,
+  },
 ] as const satisfies readonly ViewportSpec[];
 const ATTACHMENT_VIEWPORT_MATRIX = [
   DEFAULT_VIEWPORT,
-  { name: "mobile", width: 430, height: 932, textTolerancePx: 56, attachmentTolerancePx: 56 },
-  { name: "narrow", width: 320, height: 700, textTolerancePx: 84, attachmentTolerancePx: 56 },
+  {
+    name: "mobile",
+    width: 430,
+    height: 932,
+    textTolerancePx: 56,
+    attachmentTolerancePx: 56,
+  },
+  {
+    name: "narrow",
+    width: 320,
+    height: 700,
+    textTolerancePx: 84,
+    attachmentTolerancePx: 56,
+  },
 ] as const satisfies readonly ViewportSpec[];
 
 interface UserRowMeasurement {
@@ -119,7 +150,7 @@ function isoAt(offsetSeconds: number): string {
 function createBaseServerConfig(): ServerConfig {
   return {
     cwd: "/repo/project",
-    keybindingsConfigPath: "/repo/project/.t3code-keybindings.json",
+    keybindingsConfigPath: "/repo/project/.ace-keybindings.json",
     keybindings: [],
     issues: [],
     providers: [
@@ -275,6 +306,9 @@ function createSnapshotForTargetUser(options: {
         messages,
         activities: [],
         proposedPlans: [],
+        latestProposedPlanSummary: null,
+        queuedComposerMessages: [],
+        queuedSteerRequest: null,
         checkpoints: [],
         session: {
           threadId: THREAD_ID,
@@ -288,6 +322,61 @@ function createSnapshotForTargetUser(options: {
       },
     ],
     updatedAt: NOW_ISO,
+  };
+}
+
+function createSnapshotWithAssistantDiffSummary(options: {
+  targetUserMessageId: MessageId;
+}): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: options.targetUserMessageId,
+    targetText: "follow-up turn after a diff summary",
+  });
+
+  return {
+    ...snapshot,
+    threads: snapshot.threads.map((thread) =>
+      thread.id === THREAD_ID
+        ? Object.assign({}, thread, {
+            checkpoints: [
+              {
+                turnId: "turn-diff-summary" as TurnId,
+                checkpointTurnCount: 1,
+                checkpointRef: "checkpoint-diff-summary" as CheckpointRef,
+                status: "ready" as const,
+                assistantMessageId: "msg-assistant-2" as MessageId,
+                completedAt: isoAt(24),
+                files: [
+                  {
+                    path: "apps/web/src/components/chat/MessagesTimeline.tsx",
+                    kind: "modified",
+                    additions: 26,
+                    deletions: 7,
+                  },
+                  {
+                    path: "apps/web/src/components/chat/ChangedFilesTree.tsx",
+                    kind: "modified",
+                    additions: 9,
+                    deletions: 3,
+                  },
+                  {
+                    path: "apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts",
+                    kind: "modified",
+                    additions: 14,
+                    deletions: 2,
+                  },
+                  {
+                    path: "packages/shared/src/model.ts",
+                    kind: "modified",
+                    additions: 8,
+                    deletions: 4,
+                  },
+                ],
+              },
+            ],
+          })
+        : thread,
+    ),
   };
 }
 
@@ -333,6 +422,9 @@ function addThreadToSnapshot(
         messages: [],
         activities: [],
         proposedPlans: [],
+        latestProposedPlanSummary: null,
+        queuedComposerMessages: [],
+        queuedSteerRequest: null,
         checkpoints: [],
         session: {
           threadId,
@@ -625,6 +717,13 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
   }
+  if (tag === ORCHESTRATION_WS_METHODS.getThread) {
+    const requestedThreadId = typeof body.threadId === "string" ? body.threadId : null;
+    return (
+      fixture.snapshot.threads.find((thread) => thread.id === requestedThreadId) ??
+      fixture.snapshot.threads[0]
+    );
+  }
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
@@ -661,6 +760,19 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
     return {
       entries: [],
       truncated: false,
+    };
+  }
+  if (tag === WS_METHODS.projectsListTree) {
+    return {
+      entries: [],
+      truncated: false,
+    };
+  }
+  if (tag === WS_METHODS.projectsReadFile) {
+    return {
+      relativePath: "README.md",
+      contents: "",
+      sizeBytes: 0,
     };
   }
   if (tag === WS_METHODS.shellOpenInEditor) {
@@ -995,7 +1107,11 @@ async function measureUserRow(options: {
     },
   );
 
-  return { measuredRowHeightPx, timelineWidthMeasuredPx, renderedInVirtualizedRegion };
+  return {
+    measuredRowHeightPx,
+    timelineWidthMeasuredPx,
+    renderedInVirtualizedRegion,
+  };
 }
 
 async function mountChatView(options: {
@@ -1191,7 +1307,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       const measurements: Array<
-        UserRowMeasurement & { viewport: ViewportSpec; estimatedHeightPx: number }
+        UserRowMeasurement & {
+          viewport: ViewportSpec;
+          estimatedHeightPx: number;
+        }
       > = [];
 
       for (const viewport of TEXT_VIEWPORT_MATRIX) {
@@ -1301,6 +1420,54 @@ describe("ChatView timeline estimator parity (full app)", () => {
       }
     },
   );
+
+  it("keeps assistant diff summaries from overlapping the next turn", async () => {
+    const targetUserMessageId = "msg-user-after-diff-summary" as MessageId;
+    const assistantMessageId = "msg-assistant-2" as MessageId;
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithAssistantDiffSummary({ targetUserMessageId }),
+    });
+
+    try {
+      const scrollContainer = await waitForElement(
+        () => document.querySelector<HTMLDivElement>("div.overflow-y-auto.overscroll-y-contain"),
+        "Unable to find ChatView message scroll container.",
+      );
+
+      await vi.waitFor(
+        async () => {
+          scrollContainer.scrollTop = 0;
+          scrollContainer.dispatchEvent(new Event("scroll"));
+          await waitForLayout();
+
+          const assistantRow = document.querySelector<HTMLElement>(
+            `[data-message-id="${assistantMessageId}"][data-message-role="assistant"]`,
+          );
+          const nextUserRow = document.querySelector<HTMLElement>(
+            `[data-message-id="${targetUserMessageId}"][data-message-role="user"]`,
+          );
+
+          expect(assistantRow, "Unable to locate assistant row with diff summary.").toBeTruthy();
+          expect(nextUserRow, "Unable to locate next user row after diff summary.").toBeTruthy();
+          expect(assistantRow!.closest("[data-index]")).toBeInstanceOf(HTMLElement);
+          expect(assistantRow!.querySelector('[data-turn-diff-card="true"]')).toBeTruthy();
+
+          const assistantRect = assistantRow!.getBoundingClientRect();
+          const nextUserRect = nextUserRow!.getBoundingClientRect();
+
+          expect(assistantRect.height).toBeGreaterThan(180);
+          expect(nextUserRect.top).toBeGreaterThanOrEqual(assistantRect.bottom - 1);
+        },
+        {
+          timeout: 4_000,
+          interval: 16,
+        },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
 
   it("shows an explicit empty state for projects without threads in the sidebar", async () => {
     const mounted = await mountChatView({
@@ -1517,7 +1684,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("falls back to the first installed editor when the stored favorite is unavailable", async () => {
-    localStorage.setItem("t3code:last-editor", JSON.stringify("vscodium"));
+    localStorage.setItem("ace:last-editor", JSON.stringify("vscodium"));
     setDraftThreadWithoutWorktree();
 
     const mounted = await mountChatView({
@@ -1614,7 +1781,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: THREAD_ID,
             cwd: "/repo/project",
             env: {
-              T3CODE_PROJECT_ROOT: "/repo/project",
+              ACE_PROJECT_ROOT: "/repo/project",
             },
           });
         },
@@ -1690,8 +1857,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: THREAD_ID,
             cwd: "/repo/worktrees/feature-draft",
             env: {
-              T3CODE_PROJECT_ROOT: "/repo/project",
-              T3CODE_WORKTREE_PATH: "/repo/worktrees/feature-draft",
+              ACE_PROJECT_ROOT: "/repo/project",
+              ACE_WORKTREE_PATH: "/repo/worktrees/feature-draft",
             },
           });
         },
@@ -1737,7 +1904,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             pullRequest: {
               number: 1359,
               title: "Add thread archiving and settings navigation",
-              url: "https://github.com/pingdotgg/t3code/pull/1359",
+              url: "https://github.com/pingdotgg/ace/pull/1359",
               baseBranch: "main",
               headBranch: "archive-settings-overhaul",
               state: "open",
@@ -1749,7 +1916,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             pullRequest: {
               number: 1359,
               title: "Add thread archiving and settings navigation",
-              url: "https://github.com/pingdotgg/t3code/pull/1359",
+              url: "https://github.com/pingdotgg/ace/pull/1359",
               baseBranch: "main",
               headBranch: "archive-settings-overhaul",
               state: "open",
@@ -1823,8 +1990,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: expect.any(String),
             cwd: "/repo/worktrees/pr-1359",
             env: {
-              T3CODE_PROJECT_ROOT: "/repo/project",
-              T3CODE_WORKTREE_PATH: "/repo/worktrees/pr-1359",
+              ACE_PROJECT_ROOT: "/repo/project",
+              ACE_WORKTREE_PATH: "/repo/worktrees/pr-1359",
             },
           });
         },
@@ -2140,7 +2307,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("shows the confirm archive action after clicking the archive button", async () => {
     localStorage.setItem(
-      "t3code:client-settings:v1",
+      "ace:client-settings:v1",
       JSON.stringify({
         ...DEFAULT_CLIENT_SETTINGS,
         confirmThreadArchive: true,
@@ -2169,7 +2336,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect.element(confirmButton).toBeInTheDocument();
       await expect.element(confirmButton).toBeVisible();
     } finally {
-      localStorage.removeItem("t3code:client-settings:v1");
+      localStorage.removeItem("ace:client-settings:v1");
       await mounted.cleanup();
     }
   });

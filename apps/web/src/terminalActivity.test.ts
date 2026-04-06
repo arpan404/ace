@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { TerminalEvent, TerminalSessionSnapshot } from "@t3tools/contracts";
+import type { TerminalEvent, TerminalSessionSnapshot } from "@ace/contracts";
 import { terminalRunningSubprocessFromEvent } from "./terminalActivity";
 
 const snapshot: TerminalSessionSnapshot = {
   threadId: "thread-1",
   terminalId: "default",
   cwd: "/tmp",
+  title: null,
   status: "running",
   pid: 1234,
   history: "",

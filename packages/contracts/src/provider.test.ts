@@ -68,6 +68,51 @@ describe("ProviderSessionStartInput", () => {
     expect(parsed.modelSelection.options?.fastMode).toBe(true);
     expect(parsed.runtimeMode).toBe("full-access");
   });
+
+  it("accepts github copilot reasoning effort", () => {
+    const parsed = decodeProviderSessionStartInput({
+      threadId: "thread-1",
+      provider: "githubCopilot",
+      cwd: "/tmp/workspace",
+      modelSelection: {
+        provider: "githubCopilot",
+        model: "gpt-5",
+        options: {
+          reasoningEffort: "medium",
+        },
+      },
+      runtimeMode: "full-access",
+    });
+    expect(parsed.provider).toBe("githubCopilot");
+    expect(parsed.modelSelection?.provider).toBe("githubCopilot");
+    if (parsed.modelSelection?.provider !== "githubCopilot") {
+      throw new Error("Expected githubCopilot modelSelection");
+    }
+    expect(parsed.modelSelection.options?.reasoningEffort).toBe("medium");
+  });
+
+  it("accepts replay turns for local transcript recovery", () => {
+    const parsed = decodeProviderSessionStartInput({
+      threadId: "thread-1",
+      provider: "cursor",
+      runtimeMode: "full-access",
+      replayTurns: [
+        {
+          prompt: "Original prompt",
+          attachmentNames: ["diagram.png"],
+          assistantResponse: "Original answer",
+        },
+      ],
+    });
+
+    expect(parsed.replayTurns).toEqual([
+      {
+        prompt: "Original prompt",
+        attachmentNames: ["diagram.png"],
+        assistantResponse: "Original answer",
+      },
+    ]);
+  });
 });
 
 describe("ProviderSendTurnInput", () => {
@@ -112,5 +157,24 @@ describe("ProviderSendTurnInput", () => {
     }
     expect(parsed.modelSelection.options?.effort).toBe("ultrathink");
     expect(parsed.modelSelection.options?.fastMode).toBe(true);
+  });
+
+  it("accepts github copilot modelSelection", () => {
+    const parsed = decodeProviderSendTurnInput({
+      threadId: "thread-1",
+      modelSelection: {
+        provider: "githubCopilot",
+        model: "gpt-5",
+        options: {
+          reasoningEffort: "high",
+        },
+      },
+    });
+
+    expect(parsed.modelSelection?.provider).toBe("githubCopilot");
+    if (parsed.modelSelection?.provider !== "githubCopilot") {
+      throw new Error("Expected githubCopilot modelSelection");
+    }
+    expect(parsed.modelSelection.options?.reasoningEffort).toBe("high");
   });
 });

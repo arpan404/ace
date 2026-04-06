@@ -21,7 +21,7 @@ import {
   TerminalSessionLookupError,
   TerminalSessionStatus,
   TerminalWriteInput,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { PtyProcess } from "./PTY";
 import { Effect, ServiceMap } from "effect";
 
@@ -37,10 +37,12 @@ export interface TerminalSessionState {
   threadId: string;
   terminalId: string;
   cwd: string;
+  title: string | null;
   status: TerminalSessionStatus;
   pid: number | null;
   history: string;
   pendingHistoryControlSequence: string;
+  pendingInputCommandBuffer: string;
   exitCode: number | null;
   exitSignal: number | null;
   updatedAt: string;
@@ -122,5 +124,5 @@ export interface TerminalManagerShape {
  * TerminalManager - Service tag for terminal session orchestration.
  */
 export class TerminalManager extends ServiceMap.Service<TerminalManager, TerminalManagerShape>()(
-  "t3/terminal/Services/Manager/TerminalManager",
+  "ace/terminal/Services/Manager/TerminalManager",
 ) {}

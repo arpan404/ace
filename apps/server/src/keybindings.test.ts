@@ -1,4 +1,4 @@
-import { KeybindingCommand, KeybindingRule, KeybindingsConfig } from "@t3tools/contracts";
+import { KeybindingCommand, KeybindingRule, KeybindingsConfig } from "@ace/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { assertFailure } from "@effect/vitest/utils";
@@ -14,7 +14,7 @@ import {
   compileResolvedKeybindingsConfig,
   parseKeybindingShortcut,
 } from "./keybindings";
-import { KeybindingsConfigError } from "@t3tools/contracts";
+import { KeybindingsConfigError } from "@ace/contracts";
 
 const KeybindingsConfigJson = Schema.fromJsonString(KeybindingsConfig);
 const makeKeybindingsLayer = () => {
@@ -22,7 +22,7 @@ const makeKeybindingsLayer = () => {
     Layer.provideMerge(
       Layer.fresh(
         ServerConfig.layerTest(process.cwd(), {
-          prefix: "t3code-keybindings-test-",
+          prefix: "ace-keybindings-test-",
         }),
       ),
     ),
@@ -165,12 +165,20 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
-  it.effect("ships configurable thread navigation defaults", () =>
+  it.effect("ships configurable browser and thread navigation defaults", () =>
     Effect.sync(() => {
       const defaultsByCommand = new Map(
         DEFAULT_KEYBINDINGS.map((binding) => [binding.command, binding.key] as const),
       );
 
+      assert.equal(defaultsByCommand.get("browser.toggle"), "mod+b");
+      assert.equal(defaultsByCommand.get("browser.back"), "mod+[");
+      assert.equal(defaultsByCommand.get("browser.forward"), "mod+]");
+      assert.equal(defaultsByCommand.get("browser.reload"), "mod+r");
+      assert.equal(defaultsByCommand.get("browser.devtools"), "mod+shift+i");
+      assert.equal(defaultsByCommand.get("browser.duplicateTab"), "mod+shift+d");
+      assert.equal(defaultsByCommand.get("browser.moveTabLeft"), "mod+alt+[");
+      assert.equal(defaultsByCommand.get("browser.moveTabRight"), "mod+alt+]");
       assert.equal(defaultsByCommand.get("thread.previous"), "mod+shift+[");
       assert.equal(defaultsByCommand.get("thread.next"), "mod+shift+]");
       assert.equal(defaultsByCommand.get("thread.jump.1"), "mod+1");

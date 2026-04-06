@@ -66,12 +66,12 @@ describe("TerminalOpenInput", () => {
       cols: 100,
       rows: 24,
       env: {
-        T3CODE_PROJECT_ROOT: "/tmp/project",
+        ACE_PROJECT_ROOT: "/tmp/project",
         CUSTOM_FLAG: "1",
       },
     });
     expect(parsed.env).toMatchObject({
-      T3CODE_PROJECT_ROOT: "/tmp/project",
+      ACE_PROJECT_ROOT: "/tmp/project",
       CUSTOM_FLAG: "1",
     });
   });
@@ -157,6 +157,7 @@ describe("TerminalSessionSnapshot", () => {
         threadId: "thread-1",
         terminalId: DEFAULT_TERMINAL_ID,
         cwd: "/tmp/project",
+        title: "bun dev",
         status: "running",
         pid: 1234,
         history: "hello\n",
@@ -177,6 +178,18 @@ describe("TerminalEvent", () => {
         terminalId: DEFAULT_TERMINAL_ID,
         createdAt: new Date().toISOString(),
         data: "line\n",
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts title events", () => {
+    expect(
+      decodes(TerminalEvent, {
+        type: "title",
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        createdAt: new Date().toISOString(),
+        title: "bun dev",
       }),
     ).toBe(true);
   });

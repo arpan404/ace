@@ -8,11 +8,13 @@
  */
 import type {
   OrchestrationCheckpointSummary,
+  OrchestrationGetSnapshotInput,
   OrchestrationProject,
   OrchestrationReadModel,
+  OrchestrationThread,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { ServiceMap } from "effect";
 import type { Option } from "effect";
 import type { Effect } from "effect";
@@ -42,7 +44,16 @@ export interface ProjectionSnapshotQueryShape {
    * Rehydrates from projection tables and derives snapshot sequence from
    * projector cursor state.
    */
-  readonly getSnapshot: () => Effect.Effect<OrchestrationReadModel, ProjectionRepositoryError>;
+  readonly getSnapshot: (
+    input?: OrchestrationGetSnapshotInput,
+  ) => Effect.Effect<OrchestrationReadModel, ProjectionRepositoryError>;
+
+  /**
+   * Read a single fully hydrated active thread.
+   */
+  readonly getThread: (
+    threadId: ThreadId,
+  ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
 
   /**
    * Read aggregate projection counts without hydrating the full read model.
@@ -77,4 +88,4 @@ export interface ProjectionSnapshotQueryShape {
 export class ProjectionSnapshotQuery extends ServiceMap.Service<
   ProjectionSnapshotQuery,
   ProjectionSnapshotQueryShape
->()("t3/orchestration/Services/ProjectionSnapshotQuery") {}
+>()("ace/orchestration/Services/ProjectionSnapshotQuery") {}

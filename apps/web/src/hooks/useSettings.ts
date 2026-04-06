@@ -10,32 +10,51 @@
  * store.
  */
 import { useCallback, useMemo } from "react";
+import { ServerSettings, ServerSettingsPatch, ModelSelection, ThreadEnvMode } from "@ace/contracts";
 import {
-  ServerSettings,
-  ServerSettingsPatch,
-  ModelSelection,
-  ThreadEnvMode,
-} from "@t3tools/contracts";
-import {
+  BrowserSearchEngine,
   type ClientSettings,
   ClientSettingsSchema,
   DEFAULT_CLIENT_SETTINGS,
   DEFAULT_UNIFIED_SETTINGS,
+  EditorLineNumbers,
   SidebarProjectSortOrder,
   SidebarThreadSortOrder,
   TimestampFormat,
   UnifiedSettings,
-} from "@t3tools/contracts/settings";
+} from "@ace/contracts/settings";
 import { ensureNativeApi } from "~/nativeApi";
 import { useLocalStorage } from "./useLocalStorage";
 import { normalizeCustomModelSlugs } from "~/modelSelection";
 import { Predicate, Schema, Struct } from "effect";
 import { DeepMutable } from "effect/Types";
-import { deepMerge } from "@t3tools/shared/Struct";
+import { deepMerge } from "@ace/shared/Struct";
 import { applySettingsUpdated, getServerConfig, useServerSettings } from "~/rpc/serverState";
 
-const CLIENT_SETTINGS_STORAGE_KEY = "t3code:client-settings:v1";
-const OLD_SETTINGS_KEY = "t3code:app-settings:v1";
+const CLIENT_SETTINGS_STORAGE_KEY = "ace:client-settings:v1";
+const OLD_SETTINGS_KEY = "ace:app-settings:v1";
+const JsonObjectSchema = Schema.Record(Schema.String, Schema.Unknown);
+const decodeJsonObject = Schema.decodeSync(Schema.fromJsonString(JsonObjectSchema));
+const ClientSettingsPatchSchema = Schema.Struct({
+  browserSearchEngine: Schema.optionalKey(ClientSettingsSchema.fields.browserSearchEngine),
+  confirmThreadArchive: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadArchive),
+  confirmThreadDelete: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadDelete),
+  diffWordWrap: Schema.optionalKey(ClientSettingsSchema.fields.diffWordWrap),
+  editorLineNumbers: Schema.optionalKey(ClientSettingsSchema.fields.editorLineNumbers),
+  editorMinimap: Schema.optionalKey(ClientSettingsSchema.fields.editorMinimap),
+  editorNeovimMode: Schema.optionalKey(ClientSettingsSchema.fields.editorNeovimMode),
+  editorRenderWhitespace: Schema.optionalKey(ClientSettingsSchema.fields.editorRenderWhitespace),
+  editorStickyScroll: Schema.optionalKey(ClientSettingsSchema.fields.editorStickyScroll),
+  editorSuggestions: Schema.optionalKey(ClientSettingsSchema.fields.editorSuggestions),
+  editorWordWrap: Schema.optionalKey(ClientSettingsSchema.fields.editorWordWrap),
+  sidebarProjectSortOrder: Schema.optionalKey(ClientSettingsSchema.fields.sidebarProjectSortOrder),
+  sidebarThreadSortOrder: Schema.optionalKey(ClientSettingsSchema.fields.sidebarThreadSortOrder),
+  threadHydrationCacheMemoryMb: Schema.optionalKey(
+    ClientSettingsSchema.fields.threadHydrationCacheMemoryMb,
+  ),
+  timestampFormat: Schema.optionalKey(ClientSettingsSchema.fields.timestampFormat),
+});
+type ClientSettingsPatch = typeof ClientSettingsPatchSchema.Type;
 
 // ── Key sets for routing patches ─────────────────────────────────────
 
@@ -43,7 +62,7 @@ const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields))
 
 function splitPatch(patch: Partial<UnifiedSettings>): {
   serverPatch: ServerSettingsPatch;
-  clientPatch: Partial<ClientSettings>;
+  clientPatch: ClientSettingsPatch;
 } {
   const serverPatch: Record<string, unknown> = {};
   const clientPatch: Record<string, unknown> = {};
@@ -55,8 +74,8 @@ function splitPatch(patch: Partial<UnifiedSettings>): {
     }
   }
   return {
-    serverPatch: serverPatch as ServerSettingsPatch,
-    clientPatch: clientPatch as Partial<ClientSettings>,
+    serverPatch: Schema.decodeSync(ServerSettingsPatch)(serverPatch),
+    clientPatch: Schema.decodeSync(ClientSettingsPatchSchema)(clientPatch),
   };
 }
 
@@ -67,9 +86,9 @@ function splitPatch(patch: Partial<UnifiedSettings>): {
  * only re-render when the slice they care about changes.
  */
 
-export function useSettings<T extends UnifiedSettings = UnifiedSettings>(
-  selector?: (s: UnifiedSettings) => T,
-): T {
+export function useSettings(): UnifiedSettings;
+export function useSettings<T>(selector: (s: UnifiedSettings) => T): T;
+export function useSettings<T>(selector?: (s: UnifiedSettings) => T): UnifiedSettings | T {
   const serverSettings = useServerSettings();
   const [clientSettings] = useLocalStorage(
     CLIENT_SETTINGS_STORAGE_KEY,
@@ -85,7 +104,7 @@ export function useSettings<T extends UnifiedSettings = UnifiedSettings>(
     [clientSettings, serverSettings],
   );
 
-  return useMemo(() => (selector ? selector(merged) : (merged as T)), [merged, selector]);
+  return useMemo(() => (selector ? selector(merged) : merged), [merged, selector]);
 }
 
 /**
@@ -138,6 +157,14 @@ export function buildLegacyServerSettingsMigrationPatch(legacySettings: Record<s
 
   if (Predicate.isBoolean(legacySettings.enableAssistantStreaming)) {
     patch.enableAssistantStreaming = legacySettings.enableAssistantStreaming;
+  }
+
+  if (Predicate.isBoolean(legacySettings.enableToolStreaming)) {
+    patch.enableToolStreaming = legacySettings.enableToolStreaming;
+  }
+
+  if (Predicate.isBoolean(legacySettings.enableThinkingStreaming)) {
+    patch.enableThinkingStreaming = legacySettings.enableThinkingStreaming;
   }
 
   if (Schema.is(ThreadEnvMode)(legacySettings.defaultThreadEnvMode)) {
@@ -194,6 +221,10 @@ export function buildLegacyClientSettingsMigrationPatch(
 ): Partial<DeepMutable<ClientSettings>> {
   const patch: Partial<DeepMutable<ClientSettings>> = {};
 
+  if (Schema.is(BrowserSearchEngine)(legacySettings.browserSearchEngine)) {
+    patch.browserSearchEngine = legacySettings.browserSearchEngine;
+  }
+
   if (Predicate.isBoolean(legacySettings.confirmThreadArchive)) {
     patch.confirmThreadArchive = legacySettings.confirmThreadArchive;
   }
@@ -206,12 +237,48 @@ export function buildLegacyClientSettingsMigrationPatch(
     patch.diffWordWrap = legacySettings.diffWordWrap;
   }
 
+  if (Schema.is(EditorLineNumbers)(legacySettings.editorLineNumbers)) {
+    patch.editorLineNumbers = legacySettings.editorLineNumbers;
+  }
+
+  if (Predicate.isBoolean(legacySettings.editorMinimap)) {
+    patch.editorMinimap = legacySettings.editorMinimap;
+  }
+
+  if (Predicate.isBoolean(legacySettings.editorNeovimMode)) {
+    patch.editorNeovimMode = legacySettings.editorNeovimMode;
+  }
+
+  if (Predicate.isBoolean(legacySettings.editorRenderWhitespace)) {
+    patch.editorRenderWhitespace = legacySettings.editorRenderWhitespace;
+  }
+
+  if (Predicate.isBoolean(legacySettings.editorStickyScroll)) {
+    patch.editorStickyScroll = legacySettings.editorStickyScroll;
+  }
+
+  if (Predicate.isBoolean(legacySettings.editorSuggestions)) {
+    patch.editorSuggestions = legacySettings.editorSuggestions;
+  }
+
+  if (Predicate.isBoolean(legacySettings.editorWordWrap)) {
+    patch.editorWordWrap = legacySettings.editorWordWrap;
+  }
+
   if (Schema.is(SidebarProjectSortOrder)(legacySettings.sidebarProjectSortOrder)) {
     patch.sidebarProjectSortOrder = legacySettings.sidebarProjectSortOrder;
   }
 
   if (Schema.is(SidebarThreadSortOrder)(legacySettings.sidebarThreadSortOrder)) {
     patch.sidebarThreadSortOrder = legacySettings.sidebarThreadSortOrder;
+  }
+
+  if (
+    typeof legacySettings.threadHydrationCacheMemoryMb === "number" &&
+    Number.isInteger(legacySettings.threadHydrationCacheMemoryMb) &&
+    legacySettings.threadHydrationCacheMemoryMb >= 0
+  ) {
+    patch.threadHydrationCacheMemoryMb = legacySettings.threadHydrationCacheMemoryMb;
   }
 
   if (Schema.is(TimestampFormat)(legacySettings.timestampFormat)) {
@@ -233,8 +300,7 @@ export function migrateLocalSettingsToServer(): void {
   if (!raw) return;
 
   try {
-    const old = JSON.parse(raw);
-    if (!Predicate.isObject(old)) return;
+    const old = decodeJsonObject(raw);
 
     // Migrate server-relevant keys via RPC
     const serverPatch = buildLegacyServerSettingsMigrationPatch(old);
@@ -247,7 +313,7 @@ export function migrateLocalSettingsToServer(): void {
     const clientPatch = buildLegacyClientSettingsMigrationPatch(old);
     if (Object.keys(clientPatch).length > 0) {
       const existing = localStorage.getItem(CLIENT_SETTINGS_STORAGE_KEY);
-      const current = existing ? (JSON.parse(existing) as Record<string, unknown>) : {};
+      const current = existing ? decodeJsonObject(existing) : {};
       localStorage.setItem(
         CLIENT_SETTINGS_STORAGE_KEY,
         JSON.stringify({ ...current, ...clientPatch }),

@@ -1,4 +1,7 @@
-import { type ThreadId } from "@t3tools/contracts";
+import { type ThreadId } from "@ace/contracts";
+
+import { LRUCache } from "./lruCache";
+import { registerMemoryPressureHandler, shouldBypassNonEssentialCaching } from "./memoryPressure";
 
 export interface TerminalContextSelection {
   terminalId: string;
@@ -35,6 +38,21 @@ export interface ParsedTerminalContextEntry {
 }
 
 export const INLINE_TERMINAL_CONTEXT_PLACEHOLDER = "\uFFFC";
+
+const DISPLAYED_USER_MESSAGE_STATE_CACHE_MAX_ENTRIES = 500;
+const DISPLAYED_USER_MESSAGE_STATE_CACHE_MAX_MEMORY_BYTES = 4 * 1024 * 1024;
+const displayedUserMessageStateCache = new LRUCache<DisplayedUserMessageState>(
+  DISPLAYED_USER_MESSAGE_STATE_CACHE_MAX_ENTRIES,
+  DISPLAYED_USER_MESSAGE_STATE_CACHE_MAX_MEMORY_BYTES,
+);
+
+registerMemoryPressureHandler({
+  id: "displayed-user-message-state-cache",
+  minLevel: "high",
+  release: () => {
+    displayedUserMessageStateCache.clear();
+  },
+});
 
 const TRAILING_TERMINAL_CONTEXT_BLOCK_PATTERN =
   /\n*<terminal_context>\n([\s\S]*?)\n<\/terminal_context>\s*$/;
@@ -235,14 +253,37 @@ export function extractTrailingTerminalContexts(prompt: string): ExtractedTermin
 }
 
 export function deriveDisplayedUserMessageState(prompt: string): DisplayedUserMessageState {
+  if (!shouldBypassNonEssentialCaching()) {
+    const cached = displayedUserMessageStateCache.get(prompt);
+    if (cached) {
+      return cached;
+    }
+  }
+
   const extractedContexts = extractTrailingTerminalContexts(prompt);
-  return {
+  const displayedState = {
     visibleText: extractedContexts.promptText,
     copyText: prompt,
     contextCount: extractedContexts.contextCount,
     previewTitle: extractedContexts.previewTitle,
     contexts: extractedContexts.contexts,
   };
+  if (!shouldBypassNonEssentialCaching()) {
+    displayedUserMessageStateCache.set(
+      prompt,
+      displayedState,
+      Math.max(
+        256,
+        prompt.length * 2 +
+          displayedState.visibleText.length * 2 +
+          displayedState.contexts.reduce(
+            (total, context) => total + (context.header.length + context.body.length) * 2,
+            0,
+          ),
+      ),
+    );
+  }
+  return displayedState;
 }
 
 function parseTerminalContextEntries(block: string): ParsedTerminalContextEntry[] {
@@ -353,4 +394,24 @@ export function removeInlineTerminalContextPlaceholder(
   }
 
   return { prompt, cursor: prompt.length };
+}
+
+export function syncTerminalContextsByIds(
+  contexts: ReadonlyArray<TerminalContextDraft>,
+  ids: ReadonlyArray<string>,
+): TerminalContextDraft[] {
+  const contextsById = new Map(contexts.map((context) => [context.id, context]));
+  return ids.flatMap((id) => {
+    const context = contextsById.get(id);
+    return context ? [context] : [];
+  });
+}
+
+export function terminalContextIdListsEqual(
+  contexts: ReadonlyArray<TerminalContextDraft>,
+  ids: ReadonlyArray<string>,
+): boolean {
+  return (
+    contexts.length === ids.length && contexts.every((context, index) => context.id === ids[index])
+  );
 }

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX, isScrollContainerNearBottom } from "./chat-scroll";
+import {
+  AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
+  clampScrollTop,
+  isScrollContainerNearBottom,
+  resolveThreadOpenScrollBehavior,
+} from "./chat-scroll";
 
 describe("isScrollContainerNearBottom", () => {
   it("returns true when already at bottom", () => {
@@ -58,5 +63,42 @@ describe("isScrollContainerNearBottom", () => {
       ),
     ).toBe(true);
     expect(AUTO_SCROLL_BOTTOM_THRESHOLD_PX).toBe(64);
+  });
+});
+
+describe("clampScrollTop", () => {
+  it("keeps scrollTop within the visible scroll range", () => {
+    expect(clampScrollTop(120, { clientHeight: 400, scrollHeight: 1_000 })).toBe(120);
+    expect(clampScrollTop(800, { clientHeight: 400, scrollHeight: 1_000 })).toBe(600);
+    expect(clampScrollTop(-10, { clientHeight: 400, scrollHeight: 1_000 })).toBe(0);
+  });
+});
+
+describe("resolveThreadOpenScrollBehavior", () => {
+  it("restores saved scroll for threads opened earlier in this session", () => {
+    expect(
+      resolveThreadOpenScrollBehavior({
+        hasSavedScrollSnapshot: true,
+        hasOpenedAnyThreadInSession: true,
+      }),
+    ).toBe("restore-saved");
+  });
+
+  it("preserves current position for the first thread opened after app start", () => {
+    expect(
+      resolveThreadOpenScrollBehavior({
+        hasSavedScrollSnapshot: false,
+        hasOpenedAnyThreadInSession: false,
+      }),
+    ).toBe("preserve-current");
+  });
+
+  it("sticks to bottom for newly opened threads after the session is already warm", () => {
+    expect(
+      resolveThreadOpenScrollBehavior({
+        hasSavedScrollSnapshot: false,
+        hasOpenedAnyThreadInSession: true,
+      }),
+    ).toBe("stick-to-bottom");
   });
 });

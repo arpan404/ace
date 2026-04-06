@@ -21,7 +21,7 @@ import {
   ThreadId,
   TurnId,
   ProviderSendTurnInput,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect, FileSystem, Layer, Queue, Schema, ServiceMap, Stream } from "effect";
 
 import {
@@ -32,6 +32,13 @@ import {
   ProviderAdapterValidationError,
   type ProviderAdapterError,
 } from "../Errors.ts";
+import {
+  asFiniteNumber as asNumber,
+  asObject,
+  asReadonlyArray as asArray,
+  asString,
+} from "../unknown.ts";
+import { meaningfulErrorMessage } from "../errorCause.ts";
 import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import {
   CodexAppServerManager,
@@ -51,12 +58,7 @@ export interface CodexAdapterLiveOptions {
   readonly nativeEventLogger?: EventNdjsonLogger;
 }
 
-function toMessage(cause: unknown, fallback: string): string {
-  if (cause instanceof Error && cause.message.length > 0) {
-    return cause.message;
-  }
-  return fallback;
-}
+const toMessage = meaningfulErrorMessage;
 
 function toSessionError(
   threadId: ThreadId,
@@ -91,25 +93,6 @@ function toRequestError(threadId: ThreadId, method: string, cause: unknown): Pro
     detail: toMessage(cause, `${method} failed`),
     cause,
   });
-}
-
-function asObject(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-  return value as Record<string, unknown>;
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function asArray(value: unknown): unknown[] | undefined {
-  return Array.isArray(value) ? value : undefined;
-}
-
-function asNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 const FATAL_CODEX_STDERR_SNIPPETS = ["failed to connect to websocket"];
@@ -377,12 +360,22 @@ function toUserInputQuestions(payload: Record<string, unknown> | undefined) {
       if (!id || !header || !prompt || !options || options.length === 0) {
         return undefined;
       }
-      return {
+      const parsedQuestion: {
+        id: string;
+        header: string;
+        question: string;
+        options: Array<{ label: string; description: string }>;
+        multiSelect?: true;
+      } = {
         id,
         header,
         question: prompt,
         options,
       };
+      if (question.multiSelect === true) {
+        parsedQuestion.multiSelect = true;
+      }
+      return parsedQuestion;
     })
     .filter(
       (
@@ -392,6 +385,7 @@ function toUserInputQuestions(payload: Record<string, unknown> | undefined) {
         header: string;
         question: string;
         options: Array<{ label: string; description: string }>;
+        multiSelect?: true;
       } => question !== undefined,
     );
 

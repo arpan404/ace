@@ -1,13 +1,18 @@
-import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@ace/contracts";
+import {
+  appendCompactedThreadActivity,
+  DEFAULT_MAX_THREAD_ACTIVITIES,
+} from "@ace/shared/orchestrationThreadActivities";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
+  OrchestrationProposedPlanSummary,
   OrchestrationSession,
   OrchestrationThread,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect, Schema } from "effect";
 
-import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
+import { OrchestrationProjectorDecodeError, toProjectorDecodeError } from "./Errors.ts";
 import {
   MessageSentPayloadSchema,
   ProjectCreatedPayload,
@@ -46,14 +51,21 @@ function updateThread(
 }
 
 function decodeForEvent<A>(
-  schema: Schema.Schema<A>,
+  schema: Schema.Decoder<A>,
   value: unknown,
   eventType: OrchestrationEvent["type"],
   field: string,
 ): Effect.Effect<A, OrchestrationProjectorDecodeError> {
-  return Effect.try({
-    try: () => Schema.decodeUnknownSync(schema as any)(value),
-    catch: (error) => toProjectorDecodeError(`${eventType}:${field}`)(error as Schema.SchemaError),
+  return Effect.try<A, OrchestrationProjectorDecodeError>({
+    try: () => Schema.decodeUnknownSync(schema)(value),
+    catch: (error) =>
+      Schema.isSchemaError(error)
+        ? toProjectorDecodeError(`${eventType}:${field}`)(error)
+        : new OrchestrationProjectorDecodeError({
+            eventType: `${eventType}:${field}`,
+            issue: String(error),
+            cause: error,
+          }),
   });
 }
 
@@ -85,10 +97,7 @@ function retainThreadMessagesAfterRevert(
           !retainedMessageIds.has(message.id) &&
           (message.turnId === null || retainedTurnIds.has(message.turnId)),
       )
-      .toSorted(
-        (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-      )
+      .toSorted(compareThreadMessages)
       .slice(0, missingUserCount);
     for (const message of fallbackUserMessages) {
       retainedMessageIds.add(message.id);
@@ -107,10 +116,7 @@ function retainThreadMessagesAfterRevert(
           !retainedMessageIds.has(message.id) &&
           (message.turnId === null || retainedTurnIds.has(message.turnId)),
       )
-      .toSorted(
-        (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-      )
+      .toSorted(compareThreadMessages)
       .slice(0, missingAssistantCount);
     for (const message of fallbackAssistantMessages) {
       retainedMessageIds.add(message.id);
@@ -138,21 +144,59 @@ function retainThreadProposedPlansAfterRevert(
   );
 }
 
-function compareThreadActivities(
-  left: OrchestrationThread["activities"][number],
-  right: OrchestrationThread["activities"][number],
-): number {
-  if (left.sequence !== undefined && right.sequence !== undefined) {
-    if (left.sequence !== right.sequence) {
-      return left.sequence - right.sequence;
-    }
-  } else if (left.sequence !== undefined) {
-    return 1;
-  } else if (right.sequence !== undefined) {
-    return -1;
-  }
+function toLatestProposedPlanSummary(
+  proposedPlan: OrchestrationThread["proposedPlans"][number],
+): OrchestrationThread["latestProposedPlanSummary"] {
+  return Schema.decodeUnknownSync(OrchestrationProposedPlanSummary)({
+    id: proposedPlan.id,
+    turnId: proposedPlan.turnId,
+    implementedAt: proposedPlan.implementedAt,
+    implementationThreadId: proposedPlan.implementationThreadId,
+    createdAt: proposedPlan.createdAt,
+    updatedAt: proposedPlan.updatedAt,
+  });
+}
 
-  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+function findLatestProposedPlanSummary(
+  proposedPlans: ReadonlyArray<OrchestrationThread["proposedPlans"][number]>,
+): OrchestrationThread["latestProposedPlanSummary"] {
+  const latestPlan = [...proposedPlans]
+    .toSorted(
+      (left, right) =>
+        left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
+    )
+    .at(-1);
+  return latestPlan ? toLatestProposedPlanSummary(latestPlan) : null;
+}
+
+function compareThreadMessages(
+  left: Pick<OrchestrationMessage, "createdAt" | "id" | "sequence">,
+  right: Pick<OrchestrationMessage, "createdAt" | "id" | "sequence">,
+): number {
+  return (
+    left.createdAt.localeCompare(right.createdAt) ||
+    compareCompatibleMessageSequence(left.sequence, right.sequence) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function compareCompatibleMessageSequence(
+  left: number | undefined,
+  right: number | undefined,
+): number {
+  if (
+    left === undefined ||
+    right === undefined ||
+    left === right ||
+    isTimestampDerivedSequence(left) !== isTimestampDerivedSequence(right)
+  ) {
+    return 0;
+  }
+  return left - right;
+}
+
+function isTimestampDerivedSequence(sequence: number): boolean {
+  return sequence >= 1_000_000_000_000;
 }
 
 export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
@@ -265,7 +309,11 @@ export function projectEvent(
             archivedAt: null,
             deletedAt: null,
             messages: [],
+            proposedPlans: [],
+            latestProposedPlanSummary: null,
             activities: [],
+            queuedComposerMessages: [],
+            queuedSteerRequest: null,
             checkpoints: [],
             session: null,
           },
@@ -325,6 +373,12 @@ export function projectEvent(
               : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
+            ...(payload.queuedComposerMessages !== undefined
+              ? { queuedComposerMessages: payload.queuedComposerMessages }
+              : {}),
+            ...(payload.queuedSteerRequest !== undefined
+              ? { queuedSteerRequest: payload.queuedSteerRequest }
+              : {}),
             updatedAt: payload.updatedAt,
           }),
         })),
@@ -379,6 +433,7 @@ export function projectEvent(
             ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
+            sequence: payload.sequence ?? event.sequence,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
           },
@@ -398,6 +453,9 @@ export function projectEvent(
                         ? message.text
                         : entry.text,
                     streaming: message.streaming,
+                    ...(entry.sequence !== undefined || message.sequence !== undefined
+                      ? { sequence: entry.sequence ?? message.sequence }
+                      : {}),
                     updatedAt: message.updatedAt,
                     turnId: message.turnId,
                     ...(message.attachments !== undefined
@@ -494,6 +552,7 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             proposedPlans,
+            latestProposedPlanSummary: toLatestProposedPlanSummary(payload.proposedPlan),
             updatedAt: event.occurredAt,
           }),
         };
@@ -610,6 +669,7 @@ export function projectEvent(
               checkpoints,
               messages,
               proposedPlans,
+              latestProposedPlanSummary: findLatestProposedPlanSummary(proposedPlans),
               activities,
               latestTurn,
               updatedAt: event.occurredAt,
@@ -631,12 +691,9 @@ export function projectEvent(
             return nextBase;
           }
 
-          const activities = [
-            ...thread.activities.filter((entry) => entry.id !== payload.activity.id),
-            payload.activity,
-          ]
-            .toSorted(compareThreadActivities)
-            .slice(-500);
+          const activities = appendCompactedThreadActivity(thread.activities, payload.activity, {
+            maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
+          });
 
           return {
             ...nextBase,

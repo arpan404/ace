@@ -2,7 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { ModelSelection, ProviderRuntimeEvent, ProviderSession } from "@t3tools/contracts";
+import type {
+  ModelSelection,
+  ProviderRuntimeEvent,
+  ProviderSession,
+  ServerSettings,
+} from "@ace/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -12,12 +17,12 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
-import { TextGenerationError } from "@t3tools/contracts";
+import { TextGenerationError } from "@ace/contracts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
@@ -95,11 +100,12 @@ describe("ProviderCommandReactor", () => {
 
   async function createHarness(input?: {
     readonly baseDir?: string;
+    readonly serverSettings?: Partial<ServerSettings>;
     readonly threadModelSelection?: ModelSelection;
-    readonly sessionModelSwitch?: "unsupported" | "in-session";
+    readonly sessionModelSwitch?: "unsupported" | "in-session" | "restart-session";
   }) {
     const now = new Date().toISOString();
-    const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "t3code-reactor-"));
+    const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "ace-reactor-"));
     createdBaseDirs.add(baseDir);
     const { stateDir } = deriveServerPathsSync(baseDir, undefined);
     createdStateDirs.add(stateDir);
@@ -228,7 +234,7 @@ describe("ProviderCommandReactor", () => {
           generateThreadTitle,
         }),
       ),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(ServerSettingsService.layerTest(input?.serverSettings ?? {})),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
       Layer.provideMerge(NodeServices.layer),
     );
@@ -275,6 +281,7 @@ describe("ProviderCommandReactor", () => {
       respondToRequest,
       respondToUserInput,
       stopSession,
+      runtimeSessions,
       renameBranch,
       generateBranchName,
       generateThreadTitle,
@@ -322,6 +329,85 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
 
+  it("surfaces overlapping turn starts without re-entering the provider adapter", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-busy-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-busy-1"),
+          role: "user",
+          text: "start the first turn",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    const activeSession = harness.runtimeSessions[0];
+    expect(activeSession).toBeDefined();
+    if (!activeSession) {
+      return;
+    }
+    harness.runtimeSessions[0] = {
+      ...activeSession,
+      status: "running",
+      activeTurnId: asTurnId("provider-turn-busy"),
+      updatedAt: now,
+    };
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-busy-2"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-busy-2"),
+          role: "user",
+          text: "try to overlap the turn",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return (
+        thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ??
+        false
+      );
+    });
+
+    expect(harness.sendTurn.mock.calls.length).toBe(1);
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const failureActivity = thread?.activities.find(
+      (activity) => activity.kind === "provider.turn.start.failed",
+    );
+    expect(failureActivity).toMatchObject({
+      payload: {
+        detail:
+          "Provider adapter request failed (codex) for thread.turn.start: Provider session is already running turn 'provider-turn-busy'. Wait for it to finish or interrupt it before starting another turn.",
+      },
+    });
+  });
+
   it("generates a thread title on the first turn", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -358,6 +444,10 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
     expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
       message: "Please investigate reconnect failures after restarting the session.",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
     });
 
     await waitFor(async () => {
@@ -463,6 +553,51 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.title).toBe("Reconnect spinner resume bug");
   });
 
+  it("uses the thread model for first-turn title generation without downgrading the provider", async () => {
+    const harness = await createHarness({
+      threadModelSelection: { provider: "githubCopilot", model: "gpt-5" },
+    });
+    const now = new Date().toISOString();
+    const seededTitle = "hi";
+    harness.generateThreadTitle.mockReturnValue(Effect.succeed({ title: "Copilot title" }));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-title-seed-copilot"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        title: seededTitle,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-title-copilot"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-title-copilot"),
+          role: "user",
+          text: seededTitle,
+          attachments: [],
+        },
+        titleSeed: seededTitle,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
+      message: "hi",
+      modelSelection: {
+        provider: "githubCopilot",
+        model: "gpt-5",
+      },
+    });
+  });
+
   it("generates a worktree branch name for the first turn", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -472,7 +607,7 @@ describe("ProviderCommandReactor", () => {
         type: "thread.meta.update",
         commandId: CommandId.makeUnsafe("cmd-thread-branch"),
         threadId: ThreadId.makeUnsafe("thread-1"),
-        branch: "t3code/1234abcd",
+        branch: "ace/1234abcd",
         worktreePath: "/tmp/provider-project-worktree",
       }),
     );
@@ -512,6 +647,62 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.generateBranchName.mock.calls.length === 1);
     expect(harness.generateBranchName.mock.calls[0]?.[0]).toMatchObject({
       message: "Add a safer reconnect backoff.",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+    });
+  });
+
+  it("prefers explicit text generation settings over the thread model for branch generation", async () => {
+    const harness = await createHarness({
+      serverSettings: {
+        textGenerationModelSelection: {
+          provider: "claudeAgent",
+          model: "claude-sonnet-4-6",
+        },
+      },
+      threadModelSelection: {
+        provider: "githubCopilot",
+        model: "gpt-5",
+      },
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-branch-settings"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        branch: "ace/87654321",
+        worktreePath: "/tmp/provider-project-worktree",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-branch-settings"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-branch-settings"),
+          role: "user",
+          text: "Rename the branch from settings.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateBranchName.mock.calls.length === 1);
+    expect(harness.generateBranchName.mock.calls[0]?.[0]).toMatchObject({
+      message: "Rename the branch from settings.",
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-sonnet-4-6",
+      },
     });
   });
 
@@ -767,6 +958,71 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("unwraps nested Effect.tryPromise failures into the provider error detail shown to the user", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const nestedEffectFailure = Effect.fail(
+      new Error("An error occurred in Effect.tryPromise", {
+        cause: new ProviderAdapterRequestError({
+          provider: "gemini",
+          method: "session/prompt",
+          detail: "Gemini session closed before the reserved turn could start.",
+        }),
+      }),
+    ) as unknown as ReturnType<ProviderServiceShape["sendTurn"]>;
+    harness.sendTurn.mockImplementation(((_input: unknown) => nestedEffectFailure) as never);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-unwrap-effect-failure"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-unwrap-effect-failure"),
+          role: "user",
+          text: "continue after revert",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return (
+        thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ??
+        false
+      );
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const failureActivity = thread?.activities.find(
+      (activity) => activity.kind === "provider.turn.start.failed",
+    );
+
+    expect(failureActivity).toBeDefined();
+    expect(failureActivity?.payload).toMatchObject({
+      detail: expect.stringContaining(
+        "Provider adapter request failed (gemini) for session/prompt: Gemini session closed before the reserved turn could start.",
+      ),
+    });
+    expect(
+      typeof failureActivity?.payload === "object" &&
+        failureActivity.payload !== null &&
+        "detail" in failureActivity.payload
+        ? String((failureActivity.payload as { detail: string }).detail).includes(
+            "An error occurred in Effect.tryPromise",
+          )
+        : false,
+    ).toBe(false);
+  });
+
   it("preserves the active session model when in-session model switching is unsupported", async () => {
     const harness = await createHarness({ sessionModelSwitch: "unsupported" });
     const now = new Date().toISOString();
@@ -935,6 +1191,80 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("restarts cursor sessions when cursor effort changes", async () => {
+    const harness = await createHarness({
+      threadModelSelection: { provider: "cursor", model: "gpt-5.4-mini" },
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-cursor-effort-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-cursor-effort-1"),
+          role: "user",
+          text: "first cursor turn",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "cursor",
+          model: "gpt-5.4-mini",
+          options: {
+            reasoningEffort: "medium",
+            fastMode: false,
+          },
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-cursor-effort-2"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-cursor-effort-2"),
+          role: "user",
+          text: "second cursor turn",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "cursor",
+          model: "gpt-5.4-mini",
+          options: {
+            reasoningEffort: "xhigh",
+            fastMode: true,
+          },
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 2);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+      resumeCursor: { opaque: "resume-1" },
+      modelSelection: {
+        provider: "cursor",
+        model: "gpt-5.4-mini",
+        options: {
+          reasoningEffort: "xhigh",
+          fastMode: true,
+        },
+      },
+    });
+  });
+
   it("restarts the provider session when runtime mode is updated on the thread", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -1020,6 +1350,74 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("restarts restart-session providers before a follow-up turn on an idle thread", async () => {
+    const harness = await createHarness({
+      threadModelSelection: { provider: "githubCopilot", model: "gpt-4.1" },
+      sessionModelSwitch: "restart-session",
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-copilot-idle-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-copilot-idle-1"),
+          role: "user",
+          text: "first copilot turn",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "githubCopilot",
+          model: "gpt-4.1",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-copilot-idle-2"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-copilot-idle-2"),
+          role: "user",
+          text: "second copilot turn",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "githubCopilot",
+          model: "gpt-4.1",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 2);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+
+    expect(harness.stopSession.mock.calls.length).toBe(0);
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      provider: "githubCopilot",
+      resumeCursor: { opaque: "resume-1" },
+      modelSelection: {
+        provider: "githubCopilot",
+        model: "gpt-4.1",
+      },
+      runtimeMode: "approval-required",
+    });
   });
 
   it("does not inject derived model options when restarting claude on runtime mode changes", async () => {

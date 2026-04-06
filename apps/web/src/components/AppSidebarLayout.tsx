@@ -33,6 +33,13 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         side="left"
         collapsible="offcanvas"
         className="border-r border-border bg-card text-foreground"
+        onClickCapture={(event) => {
+          const target = event.target instanceof HTMLElement ? event.target : null;
+          if (!target?.closest("button,a,[role='button'],[data-slot='sidebar-menu-button']")) {
+            return;
+          }
+          window.dispatchEvent(new CustomEvent("ace:sidebar-interaction"));
+        }}
         resizable={{
           minWidth: THREAD_SIDEBAR_MIN_WIDTH,
           shouldAcceptWidth: ({ nextWidth, wrapper }) =>

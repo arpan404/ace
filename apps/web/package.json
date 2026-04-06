@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/web",
+  "name": "@ace/web",
   "version": "0.0.15",
   "private": true,
   "type": "module",
@@ -14,6 +14,8 @@
     "test:browser:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
+    "@ace/contracts": "workspace:*",
+    "@ace/shared": "workspace:*",
     "@base-ui/react": "^1.2.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/modifiers": "^9.0.0",
@@ -22,9 +24,8 @@
     "@effect/atom-react": "catalog:",
     "@formkit/auto-animate": "^0.9.0",
     "@lexical/react": "^0.41.0",
+    "@monaco-editor/react": "^4.7.0",
     "@pierre/diffs": "^1.1.0-beta.16",
-    "@t3tools/contracts": "workspace:*",
-    "@t3tools/shared": "workspace:*",
     "@tanstack/react-pacer": "^0.19.4",
     "@tanstack/react-query": "^5.90.0",
     "@tanstack/react-router": "^1.160.2",
@@ -35,9 +36,12 @@
     "effect": "catalog:",
     "lexical": "^0.41.0",
     "lucide-react": "^0.564.0",
+    "monaco-editor": "^0.55.1",
+    "monaco-vim": "^0.4.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
+    "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.4.0",
     "zustand": "^5.0.11"

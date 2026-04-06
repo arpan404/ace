@@ -1,4 +1,4 @@
-import { DEFAULT_SERVER_SETTINGS, WS_METHODS } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, WS_METHODS } from "@ace/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AsyncResult, AtomRegistry } from "effect/unstable/reactivity";
 
@@ -126,6 +126,7 @@ describe("WsRpcAtomClient", () => {
         model: "gpt-5.4",
       },
       providers: {
+        ...DEFAULT_SERVER_SETTINGS.providers,
         codex: {
           ...DEFAULT_SERVER_SETTINGS.providers.codex,
           homePath: "/tmp/codex-home",
@@ -176,6 +177,7 @@ describe("WsRpcAtomClient", () => {
         model: "gpt-5.4",
       },
       providers: {
+        ...DEFAULT_SERVER_SETTINGS.providers,
         codex: {
           ...DEFAULT_SERVER_SETTINGS.providers.codex,
           homePath: "/tmp/codex-home",

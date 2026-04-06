@@ -13,7 +13,6 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { cn } from "~/lib/utils";
-import { Badge } from "../ui/badge";
 import {
   Dialog,
   DialogDescription,
@@ -114,15 +113,29 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   };
 
   return (
-    <div className="rounded-[24px] border border-border/80 bg-card/70 p-4 sm:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Badge variant="secondary">Plan</Badge>
-          <p className="truncate text-sm font-medium text-foreground">{title}</p>
+    <div className="border-border/35 border-l pl-4 pr-1 py-1" data-proposed-plan-thread="true">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.18em] text-emerald-500/70 uppercase">
+            <span className="relative flex size-1.5">
+              <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500/70" />
+            </span>
+            Plan
+          </p>
+          <p className="mt-1.5 truncate text-[13px] font-medium tracking-tight text-foreground">
+            {title}
+          </p>
         </div>
         <Menu>
           <MenuTrigger
-            render={<Button aria-label="Plan actions" size="icon-xs" variant="outline" />}
+            render={
+              <Button
+                aria-label="Plan actions"
+                size="icon-xs"
+                variant="outline"
+                className="border-border/40 shadow-xs"
+              />
+            }
           >
             <EllipsisIcon aria-hidden="true" className="size-4" />
           </MenuTrigger>
@@ -134,7 +147,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
           </MenuPopup>
         </Menu>
       </div>
-      <div className="mt-4">
+      <div className="mt-3">
         <div className={cn("relative", canCollapse && !expanded && "max-h-104 overflow-hidden")}>
           {canCollapse && !expanded ? (
             <ChatMarkdown text={collapsedPreview ?? ""} cwd={cwd} isStreaming={false} />
@@ -142,11 +155,11 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
             <ChatMarkdown text={displayedPlanMarkdown} cwd={cwd} isStreaming={false} />
           )}
           {canCollapse && !expanded ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-card/95 via-card/80 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-background via-background/90 to-transparent" />
           ) : null}
         </div>
         {canCollapse ? (
-          <div className="mt-4 flex justify-center">
+          <div className="mt-3 flex justify-start">
             <Button
               size="sm"
               variant="outline"

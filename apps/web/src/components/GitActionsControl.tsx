@@ -4,11 +4,12 @@ import type {
   GitStackedAction,
   GitStatusResult,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
 import { GitHubIcon } from "./Icons";
+import { runAsyncTask } from "../lib/async";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
@@ -21,7 +22,7 @@ import {
   resolveLiveThreadBranchUpdate,
   resolveQuickAction,
   resolveThreadBranchUpdate,
-} from "./GitActionsControl.logic";
+} from "../lib/git/actions";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
@@ -247,15 +248,16 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       const worktreePath = activeServerThread.worktreePath;
       const api = readNativeApi();
       if (api) {
-        void api.orchestration
-          .dispatchCommand({
+        runAsyncTask(
+          api.orchestration.dispatchCommand({
             type: "thread.meta.update",
             commandId: newCommandId(),
             threadId: activeThreadId,
             branch,
             worktreePath,
-          })
-          .catch(() => undefined);
+          }),
+          "Failed to sync thread branch metadata after the git action.",
+        );
       }
 
       setThreadBranch(activeThreadId, branch, worktreePath);
@@ -549,6 +551,9 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
         ...(filePaths ? { filePaths } : {}),
+        ...(activeServerThread?.modelSelection
+          ? { modelSelection: activeServerThread.modelSelection }
+          : {}),
         onProgress: applyProgressEvent,
       });
 
@@ -678,7 +683,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
           data: threadToastData,
         }),
       });
-      void promise.catch(() => undefined);
+      runAsyncTask(promise, "Git quick action promise rejected after toast handling.");
       return;
     }
     if (quickAction.kind === "show_hint") {

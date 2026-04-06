@@ -2,6 +2,7 @@ import type {
   ModelSelection,
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
+  OrchestrationProposedPlanSummary,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
   ProjectScript as ContractProjectScript,
@@ -13,7 +14,7 @@ import type {
   CheckpointRef,
   ProviderInteractionMode,
   RuntimeMode,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
@@ -40,6 +41,38 @@ export interface ChatImageAttachment {
 
 export type ChatAttachment = ChatImageAttachment;
 
+export interface QueuedComposerImageAttachment extends ChatImageAttachment {
+  dataUrl: string;
+  previewUrl: string;
+  file?: File;
+}
+
+export interface QueuedTerminalContext {
+  id: string;
+  createdAt: string;
+  terminalId: string;
+  terminalLabel: string;
+  lineStart: number;
+  lineEnd: number;
+  text: string;
+}
+
+export interface QueuedComposerMessage {
+  id: MessageId;
+  prompt: string;
+  images: QueuedComposerImageAttachment[];
+  terminalContexts: QueuedTerminalContext[];
+  modelSelection: ModelSelection;
+  runtimeMode: RuntimeMode;
+  interactionMode: ProviderInteractionMode;
+}
+
+export interface QueuedSteerRequest {
+  messageId: MessageId;
+  baselineWorkLogEntryCount: number;
+  interruptRequested: boolean;
+}
+
 export interface ChatMessage {
   id: MessageId;
   role: "user" | "assistant" | "system";
@@ -47,6 +80,7 @@ export interface ChatMessage {
   attachments?: ChatAttachment[];
   turnId?: TurnId | null;
   createdAt: string;
+  sequence?: number | undefined;
   completedAt?: string | undefined;
   streaming: boolean;
 }
@@ -60,6 +94,8 @@ export interface ProposedPlan {
   createdAt: string;
   updatedAt: string;
 }
+
+export type ProposedPlanSummary = OrchestrationProposedPlanSummary;
 
 export interface TurnDiffFileChange {
   path: string;
@@ -107,6 +143,10 @@ export interface Thread {
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   branch: string | null;
   worktreePath: string | null;
+  historyLoaded?: boolean;
+  latestProposedPlanSummary: ProposedPlanSummary | null;
+  queuedComposerMessages: QueuedComposerMessage[];
+  queuedSteerRequest: QueuedSteerRequest | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }

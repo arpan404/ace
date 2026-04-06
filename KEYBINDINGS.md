@@ -1,15 +1,16 @@
 # Keybindings
 
-T3 Code reads keybindings from:
+ace reads keybindings from:
 
-- `~/.t3/keybindings.json`
+- `~/.ace/keybindings.json`
 
 The file must be a JSON array of rules:
 
 ```json
 [
   { "key": "mod+g", "command": "terminal.toggle" },
-  { "key": "mod+shift+g", "command": "terminal.new", "when": "terminalFocus" }
+  { "key": "mod+shift+g", "command": "terminal.new", "when": "terminalFocus" },
+  { "key": "mod+\\", "command": "editor.split", "when": "editorFocus" }
 ]
 ```
 
@@ -26,7 +27,14 @@ See the full schema for more details: [`packages/contracts/src/keybindings.ts`](
   { "key": "mod+n", "command": "chat.new", "when": "!terminalFocus" },
   { "key": "mod+shift+o", "command": "chat.new", "when": "!terminalFocus" },
   { "key": "mod+shift+n", "command": "chat.newLocal", "when": "!terminalFocus" },
-  { "key": "mod+o", "command": "editor.openFavorite" }
+  { "key": "mod+o", "command": "editor.openFavorite" },
+  { "key": "mod+\\", "command": "editor.split", "when": "editorFocus" },
+  { "key": "mod+alt+arrowleft", "command": "editor.focusPreviousWindow", "when": "editorFocus" },
+  { "key": "mod+alt+arrowright", "command": "editor.focusNextWindow", "when": "editorFocus" },
+  { "key": "alt+shift+arrowleft", "command": "editor.previousTab", "when": "editorFocus" },
+  { "key": "alt+shift+arrowright", "command": "editor.nextTab", "when": "editorFocus" },
+  { "key": "mod+alt+shift+arrowleft", "command": "editor.moveTabLeft", "when": "editorFocus" },
+  { "key": "mod+alt+shift+arrowright", "command": "editor.moveTabRight", "when": "editorFocus" }
 ]
 ```
 
@@ -53,6 +61,14 @@ Invalid rules are ignored. Invalid config files are ignored. Warnings are logged
 - `chat.new`: create a new chat thread preserving the active thread's branch/worktree state
 - `chat.newLocal`: create a new chat thread for the active project in a new environment (local/worktree determined by app settings (default `local`))
 - `editor.openFavorite`: open current project/worktree in the last-used editor
+- `editor.split`: split the focused workspace editor into a new window
+- `editor.closeWindow`: close the focused workspace editor window
+- `editor.focusPreviousWindow`: focus the previous workspace editor window
+- `editor.focusNextWindow`: focus the next workspace editor window
+- `editor.previousTab`: focus the previous tab in the active workspace editor window
+- `editor.nextTab`: focus the next tab in the active workspace editor window
+- `editor.moveTabLeft`: move the active workspace editor tab left
+- `editor.moveTabRight`: move the active workspace editor tab right
 - `script.{id}.run`: run a project script by id (for example `script.test.run`)
 
 ### Key Syntax
@@ -78,6 +94,8 @@ Currently available context keys:
 
 - `terminalFocus`
 - `terminalOpen`
+- `browserOpen`
+- `editorFocus`
 
 Supported operators:
 
@@ -90,6 +108,7 @@ Examples:
 
 - `"when": "terminalFocus"`
 - `"when": "terminalOpen && !terminalFocus"`
+- `"when": "editorFocus"`
 - `"when": "terminalFocus || terminalOpen"`
 
 Unknown condition keys evaluate to `false`.

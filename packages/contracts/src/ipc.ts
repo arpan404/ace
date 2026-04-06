@@ -17,13 +17,31 @@ import type {
   GitStatusResult,
 } from "./git";
 import type {
+  ProjectListTreeInput,
+  ProjectListTreeResult,
+  ProjectCreateEntryInput,
+  ProjectCreateEntryResult,
+  ProjectDeleteEntryInput,
+  ProjectDeleteEntryResult,
+  ProjectReadFileInput,
+  ProjectReadFileResult,
+  ProjectRenameEntryInput,
+  ProjectRenameEntryResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "./project";
 import type {
+  WorkspaceEditorCloseBufferInput,
+  WorkspaceEditorCloseBufferResult,
+  WorkspaceEditorSyncBufferInput,
+  WorkspaceEditorSyncBufferResult,
+} from "./workspaceEditor";
+import type {
   ServerConfig,
+  ServerSearchOpenCodeModelsInput,
+  ServerSearchOpenCodeModelsResult,
   ServerProviderUpdatedPayload,
   ServerUpsertKeybindingResult,
 } from "./server";
@@ -40,12 +58,15 @@ import type {
 import type { ServerUpsertKeybindingInput } from "./server";
 import type {
   ClientOrchestrationCommand,
+  OrchestrationGetSnapshotInput,
+  OrchestrationGetThreadInput,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
   OrchestrationGetTurnDiffResult,
   OrchestrationEvent,
   OrchestrationReadModel,
+  OrchestrationThread,
 } from "./orchestration";
 import { EditorId } from "./editor";
 import { ServerSettings, ServerSettingsPatch } from "./settings";
@@ -69,6 +90,28 @@ export type DesktopUpdateStatus =
 
 export type DesktopRuntimeArch = "arm64" | "x64" | "other";
 export type DesktopTheme = "light" | "dark" | "system";
+export type BrowserShortcutAction =
+  | "back"
+  | "close-tab"
+  | "devtools"
+  | "duplicate-tab"
+  | "focus-address-bar"
+  | "forward"
+  | "move-tab-left"
+  | "move-tab-right"
+  | "new-tab"
+  | "next-tab"
+  | "previous-tab"
+  | "reload"
+  | "select-tab-1"
+  | "select-tab-2"
+  | "select-tab-3"
+  | "select-tab-4"
+  | "select-tab-5"
+  | "select-tab-6"
+  | "select-tab-7"
+  | "select-tab-8"
+  | "select-tab-9";
 
 export interface DesktopRuntimeInfo {
   hostArch: DesktopRuntimeArch;
@@ -103,28 +146,45 @@ export interface DesktopUpdateCheckResult {
   state: DesktopUpdateState;
 }
 
+export interface DesktopNotificationInput {
+  id: string;
+  title: string;
+  body: string;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
+  getWindowShownAt?: () => number | null;
   pickFolder: () => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
+  repairBrowserStorage: () => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
   showContextMenu: <T extends string>(
     items: readonly ContextMenuItem<T>[],
     position?: { x: number; y: number },
   ) => Promise<T | null>;
   openExternal: (url: string) => Promise<boolean>;
+  showNotification: (input: DesktopNotificationInput) => Promise<boolean>;
+  closeNotification: (id: string) => Promise<boolean>;
+  onNotificationClick: (listener: (id: string) => void) => () => void;
   onMenuAction: (listener: (action: string) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
   checkForUpdate: () => Promise<DesktopUpdateCheckResult>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
+  onBrowserOpenUrl?: (listener: (url: string) => void) => () => void;
+  onBrowserContextMenuShown?: (listener: () => void) => () => void;
+  onBrowserShortcutAction?: (listener: (action: BrowserShortcutAction) => void) => () => void;
 }
 
 export interface NativeApi {
   dialogs: {
     pickFolder: () => Promise<string | null>;
     confirm: (message: string) => Promise<boolean>;
+  };
+  browser: {
+    repairStorage: () => Promise<boolean>;
   };
   terminal: {
     open: (input: typeof TerminalOpenInput.Encoded) => Promise<TerminalSessionSnapshot>;
@@ -137,7 +197,18 @@ export interface NativeApi {
   };
   projects: {
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
+    listTree: (input: ProjectListTreeInput) => Promise<ProjectListTreeResult>;
+    createEntry: (input: ProjectCreateEntryInput) => Promise<ProjectCreateEntryResult>;
+    deleteEntry: (input: ProjectDeleteEntryInput) => Promise<ProjectDeleteEntryResult>;
+    readFile: (input: ProjectReadFileInput) => Promise<ProjectReadFileResult>;
+    renameEntry: (input: ProjectRenameEntryInput) => Promise<ProjectRenameEntryResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+  };
+  workspaceEditor: {
+    syncBuffer: (input: WorkspaceEditorSyncBufferInput) => Promise<WorkspaceEditorSyncBufferResult>;
+    closeBuffer: (
+      input: WorkspaceEditorCloseBufferInput,
+    ) => Promise<WorkspaceEditorCloseBufferResult>;
   };
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;
@@ -168,12 +239,16 @@ export interface NativeApi {
   server: {
     getConfig: () => Promise<ServerConfig>;
     refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
+    searchOpenCodeModels: (
+      input: ServerSearchOpenCodeModelsInput,
+    ) => Promise<ServerSearchOpenCodeModelsResult>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
   };
   orchestration: {
-    getSnapshot: () => Promise<OrchestrationReadModel>;
+    getSnapshot: (input?: OrchestrationGetSnapshotInput) => Promise<OrchestrationReadModel>;
+    getThread: (input: OrchestrationGetThreadInput) => Promise<OrchestrationThread>;
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;
     getFullThreadDiff: (

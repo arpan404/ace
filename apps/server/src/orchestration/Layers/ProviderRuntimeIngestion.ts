@@ -12,9 +12,9 @@ import {
   TurnId,
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { makeDrainableWorker } from "@ace/shared/DrainableWorker";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
@@ -22,6 +22,7 @@ import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/Projectio
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderRuntimeIngestionService,
   type ProviderRuntimeIngestionShape,
@@ -39,7 +40,21 @@ const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL = Duration.minutes(120);
 const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
-const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
+const MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS = 640;
+const MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS_CURSOR = 96;
+const PROVIDER_RUNTIME_INGESTION_QUEUE_CAPACITY = Math.max(
+  256,
+  Number.parseInt(process.env.ACE_PROVIDER_RUNTIME_INGESTION_QUEUE_CAPACITY ?? "20000", 10) ||
+    20_000,
+);
+const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.ACE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
+
+function streamingAssistantDeltaBatchLimit(provider: ProviderRuntimeEvent["provider"]): number {
+  // Cursor ACP emits many token-sized chunks, so a smaller flush threshold keeps the UI live.
+  return provider === "cursor"
+    ? MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS_CURSOR
+    : MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS;
+}
 
 type TurnStartRequestedDomainEvent = Extract<
   OrchestrationEvent,
@@ -75,6 +90,10 @@ function truncateDetail(value: string, limit = 180): string {
   return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
 }
 
+function hasRenderableReasoningText(value: string | undefined): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {
   const trimmed = planMarkdown?.trim();
   if (!trimmed) {
@@ -98,6 +117,14 @@ function proposedPlanIdFromEvent(event: ProviderRuntimeEvent, threadId: ThreadId
   return `plan:${threadId}:event:${event.eventId}`;
 }
 
+function assistantStreamKey(
+  threadId: ThreadId,
+  turnId: TurnId | undefined,
+  itemId: ProviderRuntimeEvent["itemId"] | undefined,
+) {
+  return `${threadId}:${turnId ?? "no-turn"}:${itemId ?? "no-item"}`;
+}
+
 function buildContextWindowActivityPayload(
   event: ProviderRuntimeEvent,
 ): ThreadTokenUsageSnapshot | undefined {
@@ -105,6 +132,43 @@ function buildContextWindowActivityPayload(
     return undefined;
   }
   return event.payload.usage;
+}
+
+function activityFingerprint(activity: OrchestrationThreadActivity): string {
+  const payload = (() => {
+    try {
+      return JSON.stringify(activity.payload);
+    } catch {
+      return "[unserializable]";
+    }
+  })();
+  return `${activity.kind}|${activity.turnId ?? "none"}|${activity.summary}|${payload}`;
+}
+
+type ActivityStreamingSettings = {
+  readonly enableToolStreaming: boolean;
+  readonly enableThinkingStreaming: boolean;
+};
+
+function extractReasoningDetail(event: Extract<ProviderRuntimeEvent, { type: "item.completed" }>) {
+  if (hasRenderableReasoningText(event.payload.detail)) {
+    return event.payload.detail;
+  }
+
+  if (event.payload.data && typeof event.payload.data === "object") {
+    const payloadData = event.payload.data as Record<string, unknown>;
+    if (hasRenderableReasoningText(payloadData.content as string | undefined)) {
+      return payloadData.content as string;
+    }
+  }
+
+  return undefined;
+}
+
+function reasoningTaskIdFromEvent(
+  event: Pick<ProviderRuntimeEvent, "eventId" | "itemId" | "turnId">,
+) {
+  return `reasoning:${event.itemId ?? event.turnId ?? event.eventId}`;
 }
 
 function normalizeRuntimeTurnState(
@@ -160,13 +224,9 @@ function requestKindFromCanonicalRequestType(
 
 function runtimeEventToActivities(
   event: ProviderRuntimeEvent,
+  streamingSettings: ActivityStreamingSettings,
 ): ReadonlyArray<OrchestrationThreadActivity> {
-  const maybeSequence = (() => {
-    const eventWithSequence = event as ProviderRuntimeEvent & { sessionSequence?: number };
-    return eventWithSequence.sessionSequence !== undefined
-      ? { sequence: eventWithSequence.sessionSequence }
-      : {};
-  })();
+  const maybeSequence = providerMessageSequence(event);
   switch (event.type) {
     case "request.opened": {
       if (event.payload.requestType === "tool_user_input") {
@@ -259,6 +319,9 @@ function runtimeEventToActivities(
     }
 
     case "turn.plan.updated": {
+      if (!streamingSettings.enableThinkingStreaming) {
+        return [];
+      }
       return [
         {
           id: event.eventId,
@@ -315,6 +378,9 @@ function runtimeEventToActivities(
     }
 
     case "task.started": {
+      if (!streamingSettings.enableThinkingStreaming) {
+        return [];
+      }
       return [
         {
           id: event.eventId,
@@ -341,6 +407,17 @@ function runtimeEventToActivities(
     }
 
     case "task.progress": {
+      if (!streamingSettings.enableThinkingStreaming) {
+        return [];
+      }
+      const detail = hasRenderableReasoningText(event.payload.summary)
+        ? event.payload.summary
+        : hasRenderableReasoningText(event.payload.description)
+          ? event.payload.description
+          : undefined;
+      if (!detail) {
+        return [];
+      }
       return [
         {
           id: event.eventId,
@@ -350,8 +427,10 @@ function runtimeEventToActivities(
           summary: "Reasoning update",
           payload: {
             taskId: event.payload.taskId,
-            detail: truncateDetail(event.payload.summary ?? event.payload.description),
-            ...(event.payload.summary ? { summary: truncateDetail(event.payload.summary) } : {}),
+            detail,
+            ...(hasRenderableReasoningText(event.payload.summary)
+              ? { summary: event.payload.summary }
+              : {}),
             ...(event.payload.lastToolName ? { lastToolName: event.payload.lastToolName } : {}),
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
           },
@@ -362,6 +441,9 @@ function runtimeEventToActivities(
     }
 
     case "task.completed": {
+      if (!streamingSettings.enableThinkingStreaming) {
+        return [];
+      }
       return [
         {
           id: event.eventId,
@@ -428,7 +510,47 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "content.delta": {
+      if (!streamingSettings.enableThinkingStreaming) {
+        return [];
+      }
+      if (
+        event.payload.streamKind !== "reasoning_text" &&
+        event.payload.streamKind !== "reasoning_summary_text"
+      ) {
+        return [];
+      }
+
+      const detail = hasRenderableReasoningText(event.payload.delta)
+        ? event.payload.delta
+        : undefined;
+      if (!detail) {
+        return [];
+      }
+
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "task.progress",
+          summary: "Reasoning",
+          payload: {
+            taskId: reasoningTaskIdFromEvent(event),
+            description: detail,
+            detail,
+            streamKind: event.payload.streamKind,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "item.updated": {
+      if (!streamingSettings.enableToolStreaming) {
+        return [];
+      }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
@@ -438,9 +560,10 @@ function runtimeEventToActivities(
           createdAt: event.createdAt,
           tone: "tool",
           kind: "tool.updated",
-          summary: event.payload.title ?? "Tool updated",
+          summary: event.payload.title ?? "Tool",
           payload: {
             itemType: event.payload.itemType,
+            ...(event.payload.title ? { title: event.payload.title } : {}),
             ...(event.payload.status ? { status: event.payload.status } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
@@ -452,6 +575,32 @@ function runtimeEventToActivities(
     }
 
     case "item.completed": {
+      if (event.payload.itemType === "reasoning") {
+        if (!streamingSettings.enableThinkingStreaming) {
+          return [];
+        }
+        const detail = extractReasoningDetail(event);
+        return [
+          {
+            id: event.eventId,
+            createdAt: event.createdAt,
+            tone: "info",
+            kind: "reasoning.completed",
+            summary: event.payload.title ?? "Reasoning",
+            payload: {
+              taskId: reasoningTaskIdFromEvent(event),
+              itemType: event.payload.itemType,
+              ...(detail ? { detail } : {}),
+              ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+            },
+            turnId: toTurnId(event.turnId) ?? null,
+            ...maybeSequence,
+          },
+        ];
+      }
+      if (!streamingSettings.enableToolStreaming) {
+        return [];
+      }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
@@ -464,7 +613,9 @@ function runtimeEventToActivities(
           summary: event.payload.title ?? "Tool",
           payload: {
             itemType: event.payload.itemType,
+            ...(event.payload.title ? { title: event.payload.title } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -473,6 +624,9 @@ function runtimeEventToActivities(
     }
 
     case "item.started": {
+      if (!streamingSettings.enableToolStreaming) {
+        return [];
+      }
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
@@ -482,10 +636,13 @@ function runtimeEventToActivities(
           createdAt: event.createdAt,
           tone: "tool",
           kind: "tool.started",
-          summary: `${event.payload.title ?? "Tool"} started`,
+          summary: event.payload.title ?? "Tool",
           payload: {
             itemType: event.payload.itemType,
+            ...(event.payload.title ? { title: event.payload.title } : {}),
+            ...(event.payload.status ? { status: event.payload.status } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -500,9 +657,42 @@ function runtimeEventToActivities(
   return [];
 }
 
+function providerMessageSequence(event: ProviderRuntimeEvent): { sequence?: number | undefined } {
+  const eventWithSequence = event as ProviderRuntimeEvent & { sessionSequence?: number };
+  return eventWithSequence.sessionSequence !== undefined
+    ? { sequence: eventWithSequence.sessionSequence }
+    : {};
+}
+
+function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") {
+    return false;
+  }
+
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
+  return typeof payload?.detail === "string" && payload.detail.startsWith("ExitPlanMode:");
+}
+
+function isRenderableAssistantBoundaryActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind === "task.started" || activity.kind === "task.completed") {
+    return false;
+  }
+  if (activity.kind === "context-window.updated") {
+    return false;
+  }
+  if (activity.summary === "Checkpoint captured") {
+    return false;
+  }
+  return !isPlanBoundaryToolActivity(activity);
+}
+
 const make = Effect.fn("make")(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
 
@@ -517,6 +707,20 @@ const make = Effect.fn("make")(function* () {
     timeToLive: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL,
     lookup: () => Effect.succeed(""),
   });
+  const activeAssistantMessageIdByStreamKey = new Map<string, MessageId>();
+  const assistantOutputSeenByStreamKey = new Set<string>();
+  const pendingStreamingAssistantDeltasByStreamKey = new Map<
+    string,
+    {
+      readonly event: ProviderRuntimeEvent;
+      readonly threadId: ThreadId;
+      readonly messageId: MessageId;
+      readonly turnId?: TurnId;
+      readonly createdAt: string;
+      readonly delta: string;
+    }
+  >();
+  const lastActivityFingerprintByThread = new Map<ThreadId, string>();
 
   const bufferedProposedPlanById = yield* Cache.make<string, { text: string; createdAt: string }>({
     capacity: BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY,
@@ -644,6 +848,140 @@ const make = Effect.fn("make")(function* () {
   const clearAssistantMessageState = (messageId: MessageId) =>
     clearBufferedAssistantText(messageId);
 
+  const dispatchAssistantDeltaCommand = Effect.fn("dispatchAssistantDeltaCommand")(
+    function* (input: {
+      event: ProviderRuntimeEvent;
+      threadId: ThreadId;
+      messageId: MessageId;
+      delta: string;
+      turnId?: TurnId;
+      createdAt: string;
+      commandTag: string;
+    }) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.message.assistant.delta",
+        commandId: providerCommandId(input.event, input.commandTag),
+        threadId: input.threadId,
+        messageId: input.messageId,
+        delta: input.delta,
+        ...(input.turnId ? { turnId: input.turnId } : {}),
+        ...providerMessageSequence(input.event),
+        createdAt: input.createdAt,
+      });
+    },
+  );
+
+  const flushPendingStreamingAssistantDeltaByStreamKey = Effect.fn(
+    "flushPendingStreamingAssistantDeltaByStreamKey",
+  )(function* (streamKey: string) {
+    const pending = pendingStreamingAssistantDeltasByStreamKey.get(streamKey);
+    if (!pending) {
+      return;
+    }
+    pendingStreamingAssistantDeltasByStreamKey.delete(streamKey);
+    if (pending.delta.length === 0) {
+      return;
+    }
+    yield* dispatchAssistantDeltaCommand({
+      event: pending.event,
+      threadId: pending.threadId,
+      messageId: pending.messageId,
+      delta: pending.delta,
+      ...(pending.turnId ? { turnId: pending.turnId } : {}),
+      createdAt: pending.createdAt,
+      commandTag: "assistant-delta-coalesced",
+    });
+  });
+
+  const flushPendingStreamingAssistantDeltasForTurn = Effect.fn(
+    "flushPendingStreamingAssistantDeltasForTurn",
+  )(function* (threadId: ThreadId, turnId: TurnId) {
+    const prefix = `${threadId}:${turnId}:`;
+    for (const streamKey of pendingStreamingAssistantDeltasByStreamKey.keys()) {
+      if (!streamKey.startsWith(prefix)) {
+        continue;
+      }
+      yield* flushPendingStreamingAssistantDeltaByStreamKey(streamKey);
+    }
+  });
+
+  const clearPendingStreamingAssistantDeltasForThread = (threadId: ThreadId) => {
+    const prefix = `${threadId}:`;
+    for (const streamKey of pendingStreamingAssistantDeltasByStreamKey.keys()) {
+      if (streamKey.startsWith(prefix)) {
+        pendingStreamingAssistantDeltasByStreamKey.delete(streamKey);
+      }
+    }
+  };
+
+  const queueStreamingAssistantDelta = Effect.fn("queueStreamingAssistantDelta")(function* (input: {
+    event: ProviderRuntimeEvent;
+    threadId: ThreadId;
+    streamKey: string;
+    messageId: MessageId;
+    delta: string;
+    turnId?: TurnId;
+    createdAt: string;
+  }) {
+    const pending = pendingStreamingAssistantDeltasByStreamKey.get(input.streamKey);
+    if (pending && pending.messageId !== input.messageId) {
+      yield* flushPendingStreamingAssistantDeltaByStreamKey(input.streamKey);
+    }
+
+    const latest = pendingStreamingAssistantDeltasByStreamKey.get(input.streamKey);
+    if (!latest) {
+      // Emit the first chunk immediately to preserve live streaming UX,
+      // then coalesce any subsequent chunks for this stream key.
+      yield* dispatchAssistantDeltaCommand({
+        event: input.event,
+        threadId: input.threadId,
+        messageId: input.messageId,
+        delta: input.delta,
+        ...(input.turnId ? { turnId: input.turnId } : {}),
+        createdAt: input.createdAt,
+        commandTag: "assistant-delta",
+      });
+      pendingStreamingAssistantDeltasByStreamKey.set(input.streamKey, {
+        event: input.event,
+        threadId: input.threadId,
+        messageId: input.messageId,
+        ...(input.turnId ? { turnId: input.turnId } : {}),
+        createdAt: input.createdAt,
+        delta: "",
+      });
+      return;
+    }
+
+    pendingStreamingAssistantDeltasByStreamKey.set(input.streamKey, {
+      event: input.event,
+      threadId: input.threadId,
+      messageId: input.messageId,
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+      createdAt: input.createdAt,
+      delta: `${latest?.delta ?? ""}${input.delta}`,
+    });
+
+    const next = pendingStreamingAssistantDeltasByStreamKey.get(input.streamKey);
+    if (!next || next.delta.length < streamingAssistantDeltaBatchLimit(input.event.provider)) {
+      return;
+    }
+    yield* flushPendingStreamingAssistantDeltaByStreamKey(input.streamKey);
+  });
+
+  const activeAssistantStreamKeysForTurn = (threadId: ThreadId, turnId: TurnId) => {
+    const prefix = `${threadId}:${turnId}:`;
+    return [...activeAssistantMessageIdByStreamKey.keys()].filter((key) => key.startsWith(prefix));
+  };
+
+  const clearAssistantOutputSeenForTurn = (threadId: ThreadId, turnId: TurnId) => {
+    const prefix = `${threadId}:${turnId}:`;
+    for (const streamKey of assistantOutputSeenByStreamKey) {
+      if (streamKey.startsWith(prefix)) {
+        assistantOutputSeenByStreamKey.delete(streamKey);
+      }
+    }
+  };
+
   const finalizeAssistantMessage = Effect.fn("finalizeAssistantMessage")(function* (input: {
     event: ProviderRuntimeEvent;
     threadId: ThreadId;
@@ -680,9 +1018,73 @@ const make = Effect.fn("make")(function* () {
       threadId: input.threadId,
       messageId: input.messageId,
       ...(input.turnId ? { turnId: input.turnId } : {}),
+      ...providerMessageSequence(input.event),
       createdAt: input.createdAt,
     });
     yield* clearAssistantMessageState(input.messageId);
+  });
+
+  const finalizeAssistantMessageSegment = Effect.fn("finalizeAssistantMessageSegment")(
+    function* (input: {
+      event: ProviderRuntimeEvent;
+      threadId: ThreadId;
+      turnId?: TurnId;
+      streamKey: string;
+      messageId: MessageId;
+      createdAt: string;
+      commandTag: string;
+      finalDeltaCommandTag: string;
+      fallbackText?: string;
+    }) {
+      yield* flushPendingStreamingAssistantDeltaByStreamKey(input.streamKey);
+      yield* finalizeAssistantMessage({
+        event: input.event,
+        threadId: input.threadId,
+        messageId: input.messageId,
+        ...(input.turnId ? { turnId: input.turnId } : {}),
+        createdAt: input.createdAt,
+        commandTag: input.commandTag,
+        finalDeltaCommandTag: input.finalDeltaCommandTag,
+        ...(input.fallbackText !== undefined ? { fallbackText: input.fallbackText } : {}),
+      });
+      activeAssistantMessageIdByStreamKey.delete(input.streamKey);
+      if (input.turnId) {
+        yield* forgetAssistantMessageId(input.threadId, input.turnId, input.messageId);
+      }
+    },
+  );
+
+  const finalizeAssistantMessageSegmentsForTurn = Effect.fn(
+    "finalizeAssistantMessageSegmentsForTurn",
+  )(function* (input: {
+    event: ProviderRuntimeEvent;
+    threadId: ThreadId;
+    turnId: TurnId;
+    createdAt: string;
+    commandTag: string;
+    finalDeltaCommandTag: string;
+  }) {
+    const streamKeys = activeAssistantStreamKeysForTurn(input.threadId, input.turnId);
+    yield* Effect.forEach(
+      streamKeys,
+      (streamKey) => {
+        const messageId = activeAssistantMessageIdByStreamKey.get(streamKey);
+        if (!messageId) {
+          return Effect.void;
+        }
+        return finalizeAssistantMessageSegment({
+          event: input.event,
+          threadId: input.threadId,
+          turnId: input.turnId,
+          streamKey,
+          messageId,
+          createdAt: input.createdAt,
+          commandTag: input.commandTag,
+          finalDeltaCommandTag: input.finalDeltaCommandTag,
+        });
+      },
+      { concurrency: 1 },
+    ).pipe(Effect.asVoid);
   });
 
   const upsertProposedPlan = Effect.fn("upsertProposedPlan")(function* (input: {
@@ -824,6 +1226,13 @@ const make = Effect.fn("make")(function* () {
     return session?.activeTurnId;
   });
 
+  const getHydratedThread = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const snapshot = yield* projectionSnapshotQuery.getSnapshot({
+      hydrateThreadId: threadId,
+    });
+    return snapshot.threads.find((entry) => entry.id === threadId);
+  });
+
   const getSourceProposedPlanReferenceForAcceptedTurnStart = Effect.fnUntraced(function* (
     threadId: ThreadId,
     eventTurnId: TurnId | undefined,
@@ -847,8 +1256,12 @@ const make = Effect.fn("make")(function* () {
     implementedAt: string,
   ) {
     const readModel = yield* orchestrationEngine.getReadModel();
-    const sourceThread = readModel.threads.find((entry) => entry.id === sourceThreadId);
-    const sourcePlan = sourceThread?.proposedPlans.find((entry) => entry.id === sourcePlanId);
+    let sourceThread = readModel.threads.find((entry) => entry.id === sourceThreadId);
+    let sourcePlan = sourceThread?.proposedPlans.find((entry) => entry.id === sourcePlanId);
+    if (sourceThread && !sourcePlan && sourceThread.proposedPlans.length === 0) {
+      sourceThread = yield* getHydratedThread(sourceThreadId);
+      sourcePlan = sourceThread?.proposedPlans.find((entry) => entry.id === sourcePlanId);
+    }
     if (!sourceThread || !sourcePlan || sourcePlan.implementedAt !== null) {
       return;
     }
@@ -914,6 +1327,36 @@ const make = Effect.fn("make")(function* () {
       event.type === "turn.started" && shouldApplyThreadLifecycle
         ? yield* getSourceProposedPlanReferenceForAcceptedTurnStart(thread.id, eventTurnId)
         : null;
+    const serverSettings = yield* serverSettingsService.getSettings;
+    const activities = runtimeEventToActivities(event, {
+      enableToolStreaming: serverSettings.enableToolStreaming,
+      enableThinkingStreaming: serverSettings.enableThinkingStreaming,
+    });
+
+    const shouldBreakAssistantMessageSegments = (() => {
+      if (
+        !eventTurnId ||
+        !activities.some(isRenderableAssistantBoundaryActivity) ||
+        (STRICT_PROVIDER_LIFECYCLE_GUARD &&
+          activeTurnId !== null &&
+          !sameId(activeTurnId, eventTurnId))
+      ) {
+        return false;
+      }
+      return true;
+    })();
+
+    if (eventTurnId && shouldBreakAssistantMessageSegments) {
+      yield* flushPendingStreamingAssistantDeltasForTurn(thread.id, eventTurnId);
+      yield* finalizeAssistantMessageSegmentsForTurn({
+        event,
+        threadId: thread.id,
+        turnId: eventTurnId,
+        createdAt: now,
+        commandTag: "assistant-complete-boundary",
+        finalDeltaCommandTag: "assistant-delta-boundary",
+      });
+    }
 
     if (
       event.type === "session.started" ||
@@ -1000,36 +1443,46 @@ const make = Effect.fn("make")(function* () {
       event.type === "turn.proposed.delta" ? event.payload.delta : undefined;
 
     if (assistantDelta && assistantDelta.length > 0) {
-      const assistantMessageId = MessageId.makeUnsafe(
+      const turnId = toTurnId(event.turnId);
+      const streamKey = assistantStreamKey(thread.id, turnId, event.itemId);
+      const baseAssistantMessageId = MessageId.makeUnsafe(
         `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
       );
-      const turnId = toTurnId(event.turnId);
+      const assistantMessageId =
+        activeAssistantMessageIdByStreamKey.get(streamKey) ??
+        (assistantOutputSeenByStreamKey.has(streamKey)
+          ? MessageId.makeUnsafe(
+              `assistant:${event.itemId ?? event.turnId ?? event.eventId}:seg:${event.eventId}`,
+            )
+          : baseAssistantMessageId);
+      activeAssistantMessageIdByStreamKey.set(streamKey, assistantMessageId);
+      assistantOutputSeenByStreamKey.add(streamKey);
       if (turnId) {
         yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
       }
 
-      const assistantDeliveryMode: AssistantDeliveryMode = yield* Effect.map(
-        serverSettingsService.getSettings,
-        (settings) => (settings.enableAssistantStreaming ? "streaming" : "buffered"),
-      );
+      const assistantDeliveryMode: AssistantDeliveryMode = serverSettings.enableAssistantStreaming
+        ? "streaming"
+        : "buffered";
       if (assistantDeliveryMode === "buffered") {
+        yield* flushPendingStreamingAssistantDeltaByStreamKey(streamKey);
         const spillChunk = yield* appendBufferedAssistantText(assistantMessageId, assistantDelta);
         if (spillChunk.length > 0) {
-          yield* orchestrationEngine.dispatch({
-            type: "thread.message.assistant.delta",
-            commandId: providerCommandId(event, "assistant-delta-buffer-spill"),
+          yield* dispatchAssistantDeltaCommand({
+            event,
             threadId: thread.id,
             messageId: assistantMessageId,
             delta: spillChunk,
             ...(turnId ? { turnId } : {}),
             createdAt: now,
+            commandTag: "assistant-delta-buffer-spill",
           });
         }
       } else {
-        yield* orchestrationEngine.dispatch({
-          type: "thread.message.assistant.delta",
-          commandId: providerCommandId(event, "assistant-delta"),
+        yield* queueStreamingAssistantDelta({
+          event,
           threadId: thread.id,
+          streamKey,
           messageId: assistantMessageId,
           delta: assistantDelta,
           ...(turnId ? { turnId } : {}),
@@ -1062,33 +1515,41 @@ const make = Effect.fn("make")(function* () {
         : undefined;
 
     if (assistantCompletion) {
-      const assistantMessageId = assistantCompletion.messageId;
       const turnId = toTurnId(event.turnId);
-      const existingAssistantMessage = thread.messages.find(
-        (entry) => entry.id === assistantMessageId,
-      );
-      const shouldApplyFallbackCompletionText =
-        !existingAssistantMessage || existingAssistantMessage.text.length === 0;
-      if (turnId) {
-        yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
+      const streamKey = assistantStreamKey(thread.id, turnId, event.itemId);
+      yield* flushPendingStreamingAssistantDeltaByStreamKey(streamKey);
+      const activeAssistantMessageId = activeAssistantMessageIdByStreamKey.get(streamKey);
+      if (activeAssistantMessageId) {
+        yield* finalizeAssistantMessageSegment({
+          event,
+          threadId: thread.id,
+          ...(turnId ? { turnId } : {}),
+          streamKey,
+          messageId: activeAssistantMessageId,
+          createdAt: now,
+          commandTag: "assistant-complete",
+          finalDeltaCommandTag: "assistant-delta-finalize",
+        });
+      } else if (!assistantOutputSeenByStreamKey.has(streamKey)) {
+        const assistantMessageId = assistantCompletion.messageId;
+        if (turnId) {
+          yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
+        }
+        yield* finalizeAssistantMessageSegment({
+          event,
+          threadId: thread.id,
+          ...(turnId ? { turnId } : {}),
+          streamKey,
+          messageId: assistantMessageId,
+          createdAt: now,
+          commandTag: "assistant-complete",
+          finalDeltaCommandTag: "assistant-delta-finalize",
+          ...(assistantCompletion.fallbackText !== undefined
+            ? { fallbackText: assistantCompletion.fallbackText }
+            : {}),
+        });
       }
-
-      yield* finalizeAssistantMessage({
-        event,
-        threadId: thread.id,
-        messageId: assistantMessageId,
-        ...(turnId ? { turnId } : {}),
-        createdAt: now,
-        commandTag: "assistant-complete",
-        finalDeltaCommandTag: "assistant-delta-finalize",
-        ...(assistantCompletion.fallbackText !== undefined && shouldApplyFallbackCompletionText
-          ? { fallbackText: assistantCompletion.fallbackText }
-          : {}),
-      });
-
-      if (turnId) {
-        yield* forgetAssistantMessageId(thread.id, turnId, assistantMessageId);
-      }
+      assistantOutputSeenByStreamKey.delete(streamKey);
     }
 
     if (proposedPlanCompletion) {
@@ -1106,6 +1567,15 @@ const make = Effect.fn("make")(function* () {
     if (event.type === "turn.completed") {
       const turnId = toTurnId(event.turnId);
       if (turnId) {
+        yield* flushPendingStreamingAssistantDeltasForTurn(thread.id, turnId);
+        yield* finalizeAssistantMessageSegmentsForTurn({
+          event,
+          threadId: thread.id,
+          turnId,
+          createdAt: now,
+          commandTag: "assistant-complete-finalize",
+          finalDeltaCommandTag: "assistant-delta-finalize-fallback",
+        });
         const assistantMessageIds = yield* getAssistantMessageIdsForTurn(thread.id, turnId);
         yield* Effect.forEach(
           assistantMessageIds,
@@ -1122,6 +1592,7 @@ const make = Effect.fn("make")(function* () {
           { concurrency: 1 },
         ).pipe(Effect.asVoid);
         yield* clearAssistantMessageIdsForTurn(thread.id, turnId);
+        clearAssistantOutputSeenForTurn(thread.id, turnId);
 
         yield* finalizeBufferedProposedPlan({
           event,
@@ -1136,6 +1607,10 @@ const make = Effect.fn("make")(function* () {
 
     if (event.type === "session.exited") {
       yield* clearTurnStateForSession(thread.id);
+      activeAssistantMessageIdByStreamKey.clear();
+      assistantOutputSeenByStreamKey.clear();
+      clearPendingStreamingAssistantDeltasForThread(thread.id);
+      lastActivityFingerprintByThread.delete(thread.id);
     }
 
     if (event.type === "runtime.error") {
@@ -1207,15 +1682,24 @@ const make = Effect.fn("make")(function* () {
       }
     }
 
-    const activities = runtimeEventToActivities(event);
-    yield* Effect.forEach(activities, (activity) =>
-      orchestrationEngine.dispatch({
-        type: "thread.activity.append",
-        commandId: providerCommandId(event, "thread-activity-append"),
-        threadId: thread.id,
-        activity,
-        createdAt: activity.createdAt,
-      }),
+    yield* Effect.forEach(
+      activities,
+      (activity) =>
+        Effect.gen(function* () {
+          const fingerprint = activityFingerprint(activity);
+          if (lastActivityFingerprintByThread.get(thread.id) === fingerprint) {
+            return;
+          }
+          lastActivityFingerprintByThread.set(thread.id, fingerprint);
+          yield* orchestrationEngine.dispatch({
+            type: "thread.activity.append",
+            commandId: providerCommandId(event, "thread-activity-append"),
+            threadId: thread.id,
+            activity,
+            createdAt: activity.createdAt,
+          });
+        }),
+      { concurrency: 1 },
     ).pipe(Effect.asVoid);
   });
 
@@ -1239,7 +1723,9 @@ const make = Effect.fn("make")(function* () {
       }),
     );
 
-  const worker = yield* makeDrainableWorker(processInputSafely);
+  const worker = yield* makeDrainableWorker(processInputSafely, {
+    capacity: PROVIDER_RUNTIME_INGESTION_QUEUE_CAPACITY,
+  });
 
   const start: ProviderRuntimeIngestionShape["start"] = Effect.fn("start")(function* () {
     yield* Effect.forkScoped(

@@ -1,4 +1,4 @@
-import type { ServerProviderModel } from "@t3tools/contracts";
+import type { ServerProviderModel } from "@ace/contracts";
 
 export type CodexPlanType =
   | "free"
@@ -32,6 +32,20 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function isCodexPlanType(value: unknown): value is CodexPlanType {
+  return (
+    value === "free" ||
+    value === "go" ||
+    value === "plus" ||
+    value === "pro" ||
+    value === "team" ||
+    value === "business" ||
+    value === "enterprise" ||
+    value === "edu" ||
+    value === "unknown"
+  );
+}
+
 export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapshot {
   const record = asObject(response);
   const account = asObject(record?.account) ?? record;
@@ -46,7 +60,7 @@ export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapsho
   }
 
   if (accountType === "chatgpt") {
-    const planType = (account?.planType as CodexPlanType | null) ?? "unknown";
+    const planType = isCodexPlanType(account?.planType) ? account.planType : "unknown";
     return {
       type: "chatgpt",
       planType,

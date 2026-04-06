@@ -1,4 +1,4 @@
-import { DEFAULT_RUNTIME_MODE, type ProjectId, ThreadId } from "@t3tools/contracts";
+import { DEFAULT_RUNTIME_MODE, type ProjectId, ThreadId } from "@ace/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -8,7 +8,7 @@ import {
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { newThreadId } from "../lib/utils";
-import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
+import { orderItemsByPreferredIds } from "../lib/sidebar";
 import { useStore } from "../store";
 import { useThreadById } from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";

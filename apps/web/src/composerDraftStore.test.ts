@@ -3,8 +3,9 @@ import {
   ProjectId,
   ThreadId,
   type ModelSelection,
+  type ProviderKind,
   type ProviderModelOptions,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -80,7 +81,7 @@ function resetComposerDraftStore() {
 }
 
 function modelSelection(
-  provider: "codex" | "claudeAgent",
+  provider: ProviderKind,
   model: string,
   options?: ModelSelection["options"],
 ): ModelSelection {
@@ -935,6 +936,19 @@ describe("composerDraftStore setModelSelection", () => {
       useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.codex,
     ).toEqual(modelSelection("codex", "gpt-5.3-codex"));
   });
+
+  it.each([
+    ["gemini", "gemini-2.5-pro"],
+    ["opencode", "auto"],
+  ] as const)("stores %s selections in the draft", (provider, model) => {
+    const store = useComposerDraftStore.getState();
+
+    store.setModelSelection(threadId, modelSelection(provider, model));
+
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.modelSelectionByProvider[provider]).toEqual(modelSelection(provider, model));
+    expect(draft?.activeProvider).toBe(provider);
+  });
 });
 
 describe("composerDraftStore sticky composer settings", () => {
@@ -1010,6 +1024,81 @@ describe("composerDraftStore provider-scoped option updates", () => {
     );
     expect(draft?.modelSelectionByProvider.claudeAgent?.options).toEqual({ effort: "max" });
     expect(draft?.activeProvider).toBe("codex");
+  });
+
+  it("stores github copilot reasoning effort without changing the active selection", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(
+      threadId,
+      modelSelection("codex", "gpt-5.3-codex", {
+        reasoningEffort: "medium",
+      }),
+    );
+    store.setProviderModelOptions(threadId, "githubCopilot", { reasoningEffort: "high" });
+
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.modelSelectionByProvider.codex).toEqual(
+      modelSelection("codex", "gpt-5.3-codex", { reasoningEffort: "medium" }),
+    );
+    expect(draft?.modelSelectionByProvider.githubCopilot?.options).toEqual({
+      reasoningEffort: "high",
+    });
+    expect(draft?.activeProvider).toBe("codex");
+  });
+
+  it("stores cursor traits without changing the active selection", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(
+      threadId,
+      modelSelection("codex", "gpt-5.3-codex", {
+        reasoningEffort: "medium",
+      }),
+    );
+    store.setProviderModelOptions(threadId, "cursor", {
+      reasoningEffort: "xhigh",
+      fastMode: true,
+    });
+
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.modelSelectionByProvider.codex).toEqual(
+      modelSelection("codex", "gpt-5.3-codex", { reasoningEffort: "medium" }),
+    );
+    expect(draft?.modelSelectionByProvider.cursor).toEqual(
+      modelSelection("cursor", "auto", {
+        reasoningEffort: "xhigh",
+        fastMode: true,
+      }),
+    );
+    expect(draft?.activeProvider).toBe("codex");
+  });
+});
+
+describe("composerDraftStore cursor selections", () => {
+  const threadId = ThreadId.makeUnsafe("thread-cursor");
+
+  beforeEach(() => {
+    resetComposerDraftStore();
+  });
+
+  it("preserves cursor options on explicit model selections", () => {
+    const store = useComposerDraftStore.getState();
+
+    store.setModelSelection(
+      threadId,
+      modelSelection("cursor", "gpt-5.4-mini", {
+        reasoningEffort: "high",
+        fastMode: false,
+      }),
+    );
+
+    expect(
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.cursor,
+    ).toEqual(
+      modelSelection("cursor", "gpt-5.4-mini", {
+        reasoningEffort: "high",
+        fastMode: false,
+      }),
+    );
   });
 });
 

@@ -1,4 +1,4 @@
-import { type ApprovalRequestId } from "@t3tools/contracts";
+import { type ApprovalRequestId } from "@ace/contracts";
 import { memo, useCallback, useEffect, useRef } from "react";
 import { type PendingUserInput } from "../../session-logic";
 import {
@@ -73,6 +73,13 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   const selectOptionAndAutoAdvance = useCallback(
     (questionId: string, optionLabel: string) => {
       onSelectOption(questionId, optionLabel);
+      if (activeQuestion?.multiSelect === true) {
+        if (autoAdvanceTimerRef.current !== null) {
+          window.clearTimeout(autoAdvanceTimerRef.current);
+          autoAdvanceTimerRef.current = null;
+        }
+        return;
+      }
       if (autoAdvanceTimerRef.current !== null) {
         window.clearTimeout(autoAdvanceTimerRef.current);
       }
@@ -81,13 +88,11 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
         onAdvance();
       }, 200);
     },
-    [onSelectOption, onAdvance],
+    [activeQuestion?.multiSelect, onSelectOption, onAdvance],
   );
 
-  // Keyboard shortcut: number keys 1-9 select corresponding option and auto-advance.
-  // Works even when the Lexical composer (contenteditable) has focus — the composer
-  // doubles as a custom-answer field during user input, and when it's empty the digit
-  // keys should pick options instead of typing into the editor.
+  // Keyboard shortcut: number keys 1-9 pick the corresponding option. Single-select
+  // prompts auto-advance; multi-select prompts toggle the option in place.
   useEffect(() => {
     if (!activeQuestion || isResponding) return;
     const handler = (event: globalThis.KeyboardEvent) => {
@@ -124,55 +129,63 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
           {prompt.questions.length > 1 ? (
-            <span className="flex h-5 items-center rounded-md bg-muted/60 px-1.5 text-[10px] font-medium tabular-nums text-muted-foreground/60">
+            <span className="flex h-[18px] items-center rounded-full bg-primary/8 px-2 text-[10px] font-semibold tabular-nums text-primary/70">
               {questionIndex + 1}/{prompt.questions.length}
             </span>
           ) : null}
-          <span className="text-[11px] font-semibold tracking-widest text-muted-foreground/50 uppercase">
+          <span className="text-[10px] font-semibold tracking-[0.2em] text-muted-foreground/45 uppercase">
             {activeQuestion.header}
           </span>
         </div>
       </div>
-      <p className="mt-1.5 text-sm text-foreground/90">{activeQuestion.question}</p>
-      <div className="mt-3 space-y-1">
+      <p className="mt-2 text-[13px] leading-relaxed text-foreground/85">
+        {activeQuestion.question}
+      </p>
+      {activeQuestion.multiSelect ? (
+        <p className="mt-1 text-[11px] text-muted-foreground/50">
+          Select one or more options, then continue.
+        </p>
+      ) : null}
+      <div className="mt-3 space-y-1.5">
         {activeQuestion.options.map((option, index) => {
-          const isSelected = progress.selectedOptionLabel === option.label;
+          const isSelected = progress.selectedOptionLabels.includes(option.label);
           const shortcutKey = index < 9 ? index + 1 : null;
           return (
             <button
               key={`${activeQuestion.id}:${option.label}`}
               type="button"
               disabled={isResponding}
+              aria-pressed={isSelected}
               onClick={() => selectOptionAndAutoAdvance(activeQuestion.id, option.label)}
               className={cn(
-                "group flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all duration-150",
+                "group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-200",
                 isSelected
-                  ? "border-blue-500/40 bg-blue-500/8 text-foreground"
-                  : "border-transparent bg-muted/20 text-foreground/80 hover:bg-muted/40 hover:border-border/40",
+                  ? "border-primary/30 bg-primary/6 text-foreground shadow-[0_0_12px_-4px] shadow-primary/15"
+                  : "border-border/25 bg-muted/12 text-foreground/80 hover:border-border/45 hover:bg-muted/30",
                 isResponding && "opacity-50 cursor-not-allowed",
               )}
             >
               {shortcutKey !== null ? (
                 <kbd
                   className={cn(
-                    "flex size-5 shrink-0 items-center justify-center rounded text-[11px] font-medium tabular-nums transition-colors duration-150",
+                    "flex size-5 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold tabular-nums transition-all duration-200",
                     isSelected
-                      ? "bg-blue-500/20 text-blue-400"
-                      : "bg-muted/40 text-muted-foreground/50 group-hover:bg-muted/60 group-hover:text-muted-foreground/70",
+                      ? "bg-primary/15 text-primary shadow-sm shadow-primary/10"
+                      : "bg-muted/30 text-muted-foreground/40 group-hover:bg-muted/50 group-hover:text-muted-foreground/60",
                   )}
                 >
                   {shortcutKey}
                 </kbd>
               ) : null}
               <div className="min-w-0 flex-1">
-                <span className="text-sm font-medium">{option.label}</span>
+                <span className="text-[13px] font-medium">{option.label}</span>
                 {option.description && option.description !== option.label ? (
-                  <span className="ml-2 text-xs text-muted-foreground/50">
+                  <span className="ml-2 text-[11px] text-muted-foreground/45">
                     {option.description}
                   </span>
                 ) : null}
               </div>
-              {isSelected ? <CheckIcon className="size-3.5 shrink-0 text-blue-400" /> : null}
+              {isSelected ? <CheckIcon className="size-3.5 shrink-0 text-primary" /> : null}
             </button>
           );
         })}

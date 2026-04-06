@@ -18,19 +18,28 @@ import {
   ServerSettings,
   type ServerProvider,
   type ServerSettings as ContractServerSettings,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { deepMerge } from "@t3tools/shared/Struct";
+import { deepMerge } from "@ace/shared/Struct";
 
 import {
   checkCodexProviderStatus,
   hasCustomModelProvider,
-  parseAuthStatusFromOutput,
   readCodexConfigModelProvider,
 } from "./CodexProvider";
 import { checkClaudeProviderStatus, parseClaudeAuthStatusFromOutput } from "./ClaudeProvider";
-import { haveProvidersChanged, ProviderRegistryLive } from "./ProviderRegistry";
+import {
+  checkCursorProviderStatus,
+  parseCursorModelsOutput,
+  resolveCursorCliModelId,
+} from "./CursorProvider";
+import {
+  fallbackProviderSnapshot,
+  haveProvidersChanged,
+  loadProviderSnapshotSafely,
+  ProviderRegistryLive,
+} from "./ProviderRegistry";
 import { ServerSettingsService, type ServerSettingsShape } from "../../serverSettings";
 import { ProviderRegistry } from "../Services/ProviderRegistry";
 
@@ -128,7 +137,7 @@ function withTempCodexHome(configContent?: string) {
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const tmpDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-test-codex-" });
+    const tmpDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "ace-test-codex-" });
 
     yield* Effect.acquireRelease(
       Effect.sync(() => {
@@ -154,158 +163,61 @@ function withTempCodexHome(configContent?: string) {
   });
 }
 
+const CURSOR_MODELS_OUTPUT = `Loading models…
+Available models
+
+auto - Auto
+composer-2-fast - Composer 2 Fast  (default)
+claude-4-sonnet - Sonnet 4
+claude-4-sonnet-thinking - Sonnet 4 Thinking  (current)
+gpt-5.4-nano-xhigh \u001b[2m- GPT-5.4 Nano Extra High
+
+Tip: use --model <id> (or /model <id> in interactive mode) to switch.
+`;
+
+const CURSOR_VARIANT_MODELS_OUTPUT = `Available models
+
+gpt-5.3-codex-low - GPT-5.3 Codex Low
+gpt-5.3-codex-low-fast - GPT-5.3 Codex Low Fast
+gpt-5.3-codex-none - GPT-5.3 Codex None
+gpt-5.3-codex-none-fast - GPT-5.3 Codex None Fast
+gpt-5.3-codex-high - GPT-5.3 Codex High
+gpt-5.3-codex-high-fast - GPT-5.3 Codex High Fast
+gpt-5.3-codex-xhigh - GPT-5.3 Codex Extra High
+gpt-5.3-codex-xhigh-fast - GPT-5.3 Codex Extra High Fast
+`;
+
+const CURSOR_NONE_VARIANT_MODELS_OUTPUT = `Available models
+
+gpt-5.4-mini-none - GPT-5.4 Mini None
+gpt-5.4-mini-none-fast - GPT-5.4 Mini None Fast
+gpt-5.4-mini-high - GPT-5.4 Mini High
+gpt-5.4-mini-high-fast - GPT-5.4 Mini High Fast
+`;
+
 it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
   "ProviderRegistry",
   (it) => {
     // ── checkCodexProviderStatus tests ────────────────────────────────
     //
     // These tests control CODEX_HOME to ensure the custom-provider detection
-    // in hasCustomModelProvider() does not interfere with the auth-probe
+    // in hasCustomModelProvider() does not interfere with the startup probe
     // path being tested.
 
     describe("checkCodexProviderStatus", () => {
-      it.effect("returns ready when codex is installed and authenticated", () =>
+      it.effect("returns ready when codex is installed", () =>
         Effect.gen(function* () {
-          // Point CODEX_HOME at an empty tmp dir (no config.toml) so the
-          // default code path (OpenAI provider, auth probe runs) is exercised.
           yield* withTempCodexHome();
           const status = yield* checkCodexProviderStatus();
           assert.strictEqual(status.provider, "codex");
           assert.strictEqual(status.status, "ready");
           assert.strictEqual(status.installed, true);
-          assert.strictEqual(status.auth.status, "authenticated");
+          assert.strictEqual(status.auth.status, "unknown");
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
               const joined = args.join(" ");
               if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
-              if (joined === "login status") return { stdout: "Logged in\n", stderr: "", code: 0 };
-              throw new Error(`Unexpected args: ${joined}`);
-            }),
-          ),
-        ),
-      );
-
-      it.effect("returns the codex plan type in auth and keeps spark for supported plans", () =>
-        Effect.gen(function* () {
-          yield* withTempCodexHome();
-          const status = yield* checkCodexProviderStatus(() =>
-            Effect.succeed({
-              type: "chatgpt" as const,
-              planType: "pro" as const,
-              sparkEnabled: true,
-            }),
-          );
-
-          assert.strictEqual(status.provider, "codex");
-          assert.strictEqual(status.status, "ready");
-          assert.strictEqual(status.auth.status, "authenticated");
-          assert.strictEqual(status.auth.type, "pro");
-          assert.strictEqual(status.auth.label, "ChatGPT Pro Subscription");
-          assert.deepStrictEqual(
-            status.models.some((model) => model.slug === "gpt-5.3-codex-spark"),
-            true,
-          );
-        }).pipe(
-          Effect.provide(
-            mockSpawnerLayer((args) => {
-              const joined = args.join(" ");
-              if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
-              if (joined === "login status") return { stdout: "Logged in\n", stderr: "", code: 0 };
-              throw new Error(`Unexpected args: ${joined}`);
-            }),
-          ),
-        ),
-      );
-
-      it.effect("hides spark from codex models for unsupported chatgpt plans", () =>
-        Effect.gen(function* () {
-          yield* withTempCodexHome();
-          const status = yield* checkCodexProviderStatus(() =>
-            Effect.succeed({
-              type: "chatgpt" as const,
-              planType: "plus" as const,
-              sparkEnabled: false,
-            }),
-          );
-
-          assert.strictEqual(status.provider, "codex");
-          assert.strictEqual(status.status, "ready");
-          assert.strictEqual(status.auth.status, "authenticated");
-          assert.strictEqual(status.auth.type, "plus");
-          assert.strictEqual(status.auth.label, "ChatGPT Plus Subscription");
-          assert.deepStrictEqual(
-            status.models.some((model) => model.slug === "gpt-5.3-codex-spark"),
-            false,
-          );
-        }).pipe(
-          Effect.provide(
-            mockSpawnerLayer((args) => {
-              const joined = args.join(" ");
-              if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
-              if (joined === "login status") return { stdout: "Logged in\n", stderr: "", code: 0 };
-              throw new Error(`Unexpected args: ${joined}`);
-            }),
-          ),
-        ),
-      );
-
-      it.effect("hides spark from codex models for non-pro chatgpt subscriptions", () =>
-        Effect.gen(function* () {
-          yield* withTempCodexHome();
-          const status = yield* checkCodexProviderStatus(() =>
-            Effect.succeed({
-              type: "chatgpt" as const,
-              planType: "team" as const,
-              sparkEnabled: false,
-            }),
-          );
-
-          assert.strictEqual(status.provider, "codex");
-          assert.strictEqual(status.auth.type, "team");
-          assert.strictEqual(status.auth.label, "ChatGPT Team Subscription");
-          assert.deepStrictEqual(
-            status.models.some((model) => model.slug === "gpt-5.3-codex-spark"),
-            false,
-          );
-        }).pipe(
-          Effect.provide(
-            mockSpawnerLayer((args) => {
-              const joined = args.join(" ");
-              if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
-              if (joined === "login status") return { stdout: "Logged in\n", stderr: "", code: 0 };
-              throw new Error(`Unexpected args: ${joined}`);
-            }),
-          ),
-        ),
-      );
-
-      it.effect("returns an api key label for codex api key auth", () =>
-        Effect.gen(function* () {
-          yield* withTempCodexHome();
-          const status = yield* checkCodexProviderStatus(() =>
-            Effect.succeed({
-              type: "apiKey" as const,
-              planType: null,
-              sparkEnabled: false,
-            }),
-          );
-
-          assert.strictEqual(status.provider, "codex");
-          assert.strictEqual(status.status, "ready");
-          assert.strictEqual(status.auth.status, "authenticated");
-          assert.strictEqual(status.auth.type, "apiKey");
-          assert.strictEqual(status.auth.label, "OpenAI API Key");
-          assert.deepStrictEqual(
-            status.models.some((model) => model.slug === "gpt-5.3-codex-spark"),
-            false,
-          );
-        }).pipe(
-          Effect.provide(
-            mockSpawnerLayer((args) => {
-              const joined = args.join(" ");
-              if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
-              if (joined === "login status") return { stdout: "Logged in\n", stderr: "", code: 0 };
               throw new Error(`Unexpected args: ${joined}`);
             }),
           ),
@@ -319,7 +231,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             const fileSystem = yield* FileSystem.FileSystem;
             const path = yield* Path.Path;
             const binDir = yield* fileSystem.makeTempDirectoryScoped({
-              prefix: "t3-test-codex-bin-",
+              prefix: "ace-test-codex-bin-",
             });
             const codexPath = path.join(binDir, "codex");
             yield* fileSystem.writeFileString(
@@ -330,10 +242,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
                 '  echo "codex-cli 1.0.0"',
                 "  exit 0",
                 "fi",
-                'if [ "$1" = "login" ] && [ "$2" = "status" ]; then',
-                '  echo "Logged in using ChatGPT"',
-                "  exit 0",
-                "fi",
                 'echo "unexpected args: $*" >&2',
                 "exit 1",
                 "",
@@ -341,7 +249,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             );
             yield* fileSystem.chmod(codexPath, 0o755);
             const customCodexHome = yield* fileSystem.makeTempDirectoryScoped({
-              prefix: "t3-test-codex-home-",
+              prefix: "ace-test-codex-home-",
             });
             const previousPath = process.env.PATH;
             process.env.PATH = binDir;
@@ -361,7 +269,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               assert.strictEqual(status.provider, "codex");
               assert.strictEqual(status.installed, true);
               assert.strictEqual(status.status, "ready");
-              assert.strictEqual(status.auth.status, "authenticated");
+              assert.strictEqual(status.auth.status, "unknown");
             } finally {
               process.env.PATH = previousPath;
             }
@@ -393,7 +301,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           assert.strictEqual(status.auth.status, "unknown");
           assert.strictEqual(
             status.message,
-            "Codex CLI v0.36.0 is too old for T3 Code. Upgrade to v0.37.0 or newer and restart T3 Code.",
+            "Codex CLI v0.36.0 is too old for ace. Upgrade to v0.37.0 or newer and restart ace.",
           );
         }).pipe(
           Effect.provide(
@@ -406,77 +314,19 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
         ),
       );
 
-      it.effect("returns unauthenticated when auth probe reports login required", () =>
+      it.effect("does not run login status during the startup probe", () =>
         Effect.gen(function* () {
           yield* withTempCodexHome();
           const status = yield* checkCodexProviderStatus();
           assert.strictEqual(status.provider, "codex");
-          assert.strictEqual(status.status, "error");
-          assert.strictEqual(status.installed, true);
-          assert.strictEqual(status.auth.status, "unauthenticated");
-          assert.strictEqual(
-            status.message,
-            "Codex CLI is not authenticated. Run `codex login` and try again.",
-          );
-        }).pipe(
-          Effect.provide(
-            mockSpawnerLayer((args) => {
-              const joined = args.join(" ");
-              if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
-              if (joined === "login status") {
-                return { stdout: "", stderr: "Not logged in. Run codex login.", code: 1 };
-              }
-              throw new Error(`Unexpected args: ${joined}`);
-            }),
-          ),
-        ),
-      );
-
-      it.effect("returns unauthenticated when login status output includes 'not logged in'", () =>
-        Effect.gen(function* () {
-          yield* withTempCodexHome();
-          const status = yield* checkCodexProviderStatus();
-          assert.strictEqual(status.provider, "codex");
-          assert.strictEqual(status.status, "error");
-          assert.strictEqual(status.installed, true);
-          assert.strictEqual(status.auth.status, "unauthenticated");
-          assert.strictEqual(
-            status.message,
-            "Codex CLI is not authenticated. Run `codex login` and try again.",
-          );
-        }).pipe(
-          Effect.provide(
-            mockSpawnerLayer((args) => {
-              const joined = args.join(" ");
-              if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
-              if (joined === "login status")
-                return { stdout: "Not logged in\n", stderr: "", code: 1 };
-              throw new Error(`Unexpected args: ${joined}`);
-            }),
-          ),
-        ),
-      );
-
-      it.effect("returns warning when login status command is unsupported", () =>
-        Effect.gen(function* () {
-          yield* withTempCodexHome();
-          const status = yield* checkCodexProviderStatus();
-          assert.strictEqual(status.provider, "codex");
-          assert.strictEqual(status.status, "warning");
+          assert.strictEqual(status.status, "ready");
           assert.strictEqual(status.installed, true);
           assert.strictEqual(status.auth.status, "unknown");
-          assert.strictEqual(
-            status.message,
-            "Codex CLI authentication status command is unavailable in this Codex version.",
-          );
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
               const joined = args.join(" ");
               if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
-              if (joined === "login status") {
-                return { stdout: "", stderr: "error: unknown command 'login'", code: 2 };
-              }
               throw new Error(`Unexpected args: ${joined}`);
             }),
           ),
@@ -512,6 +362,40 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
         assert.strictEqual(haveProvidersChanged(providers, [...providers]), false);
       });
 
+      it.effect("keeps the previous provider snapshot when a refresh defects", () =>
+        Effect.gen(function* () {
+          const previous = {
+            provider: "codex",
+            status: "ready",
+            enabled: true,
+            installed: true,
+            auth: { status: "authenticated" as const },
+            checkedAt: "2026-03-25T00:00:00.000Z",
+            version: "1.0.0",
+            models: [
+              {
+                slug: "gpt-5.4",
+                name: "GPT-5.4",
+                isCustom: false,
+                capabilities: null,
+              },
+            ],
+          } satisfies ServerProvider;
+
+          const snapshot = yield* loadProviderSnapshotSafely("codex", Effect.die("boom"), previous);
+
+          assert.deepStrictEqual(snapshot, previous);
+        }),
+      );
+
+      it("builds an empty fallback snapshot when no previous provider exists", () => {
+        const snapshot = fallbackProviderSnapshot("opencode", undefined);
+
+        assert.strictEqual(snapshot.provider, "opencode");
+        assert.strictEqual(snapshot.status, "error");
+        assert.deepStrictEqual(snapshot.models, []);
+      });
+
       it.effect("reruns codex health when codex provider settings change", () =>
         Effect.gen(function* () {
           const serverSettings = yield* makeMutableServerSettingsService();
@@ -528,8 +412,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
                   }
                   return { stdout: "", stderr: "spawn ENOENT", code: 1 };
                 }
-                if (joined === "login status") {
-                  return { stdout: "Logged in\n", stderr: "", code: 0 };
+                if (command === "cursor-agent") {
+                  return { stdout: "", stderr: "spawn ENOENT", code: 1 };
                 }
                 throw new Error(`Unexpected args: ${joined}`);
               }),
@@ -546,10 +430,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             const registry = yield* ProviderRegistry;
 
             const initial = yield* registry.getProviders;
-            assert.strictEqual(
-              initial.find((status) => status.provider === "codex")?.status,
-              "ready",
-            );
+            assert.ok(initial.some((status) => status.provider === "codex"));
 
             yield* serverSettings.updateSettings({
               providers: {
@@ -595,7 +476,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           assert.strictEqual(status.enabled, false);
           assert.strictEqual(status.status, "disabled");
           assert.strictEqual(status.installed, false);
-          assert.strictEqual(status.message, "Codex is disabled in T3 Code settings.");
+          assert.strictEqual(status.message, "Codex is disabled in ace settings.");
         }),
       );
     });
@@ -603,39 +484,32 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
     // ── Custom model provider: checkCodexProviderStatus integration ───
 
     describe("checkCodexProviderStatus with custom model provider", () => {
-      it.effect(
-        "skips auth probe and returns ready when a custom model provider is configured",
-        () =>
-          Effect.gen(function* () {
-            yield* withTempCodexHome(
-              [
-                'model_provider = "portkey"',
-                "",
-                "[model_providers.portkey]",
-                'base_url = "https://api.portkey.ai/v1"',
-                'env_key = "PORTKEY_API_KEY"',
-              ].join("\n"),
-            );
-            const status = yield* checkCodexProviderStatus();
-            assert.strictEqual(status.provider, "codex");
-            assert.strictEqual(status.status, "ready");
-            assert.strictEqual(status.installed, true);
-            assert.strictEqual(status.auth.status, "unknown");
-            assert.strictEqual(
-              status.message,
-              "Using a custom Codex model provider; OpenAI login check skipped.",
-            );
-          }).pipe(
-            Effect.provide(
-              // The spawner only handles --version; if the test attempts
-              // "login status" the throw proves the auth probe was NOT skipped.
-              mockSpawnerLayer((args) => {
-                const joined = args.join(" ");
-                if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
-                throw new Error(`Auth probe should have been skipped but got args: ${joined}`);
-              }),
-            ),
+      it.effect("returns ready when a custom model provider is configured", () =>
+        Effect.gen(function* () {
+          yield* withTempCodexHome(
+            [
+              'model_provider = "portkey"',
+              "",
+              "[model_providers.portkey]",
+              'base_url = "https://api.portkey.ai/v1"',
+              'env_key = "PORTKEY_API_KEY"',
+            ].join("\n"),
+          );
+          const status = yield* checkCodexProviderStatus();
+          assert.strictEqual(status.provider, "codex");
+          assert.strictEqual(status.status, "ready");
+          assert.strictEqual(status.installed, true);
+          assert.strictEqual(status.auth.status, "unknown");
+          assert.strictEqual(status.message, "Using a custom Codex model provider.");
+        }).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
           ),
+        ),
       );
 
       it.effect("still reports error when codex CLI is missing even with custom provider", () =>
@@ -657,55 +531,22 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
     });
 
     describe("checkCodexProviderStatus with openai model provider", () => {
-      it.effect("still runs auth probe when model_provider is openai", () =>
+      it.effect("does not run auth probe when model_provider is openai", () =>
         Effect.gen(function* () {
           yield* withTempCodexHome('model_provider = "openai"\n');
           const status = yield* checkCodexProviderStatus();
-          // The auth probe runs and sees "not logged in" → error
-          assert.strictEqual(status.status, "error");
-          assert.strictEqual(status.auth.status, "unauthenticated");
+          assert.strictEqual(status.status, "ready");
+          assert.strictEqual(status.auth.status, "unknown");
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
               const joined = args.join(" ");
               if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
-              if (joined === "login status")
-                return { stdout: "Not logged in\n", stderr: "", code: 1 };
               throw new Error(`Unexpected args: ${joined}`);
             }),
           ),
         ),
       );
-    });
-
-    // ── parseAuthStatusFromOutput pure tests ──────────────────────────
-
-    describe("parseAuthStatusFromOutput", () => {
-      it("exit code 0 with no auth markers is ready", () => {
-        const parsed = parseAuthStatusFromOutput({ stdout: "OK\n", stderr: "", code: 0 });
-        assert.strictEqual(parsed.status, "ready");
-        assert.strictEqual(parsed.auth.status, "authenticated");
-      });
-
-      it("JSON with authenticated=false is unauthenticated", () => {
-        const parsed = parseAuthStatusFromOutput({
-          stdout: '[{"authenticated":false}]\n',
-          stderr: "",
-          code: 0,
-        });
-        assert.strictEqual(parsed.status, "error");
-        assert.strictEqual(parsed.auth.status, "unauthenticated");
-      });
-
-      it("JSON without auth marker is warning", () => {
-        const parsed = parseAuthStatusFromOutput({
-          stdout: '[{"ok":true}]\n',
-          stderr: "",
-          code: 0,
-        });
-        assert.strictEqual(parsed.status, "warning");
-        assert.strictEqual(parsed.auth.status, "unknown");
-      });
     });
 
     // ── readCodexConfigModelProvider tests ─────────────────────────────
@@ -1052,6 +893,237 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
         assert.strictEqual(parsed.status, "warning");
         assert.strictEqual(parsed.auth.status, "unknown");
       });
+    });
+
+    describe("parseCursorModelsOutput", () => {
+      it("keeps exact Cursor model slugs and annotates them with family metadata", () => {
+        const models = parseCursorModelsOutput(CURSOR_MODELS_OUTPUT);
+        assert.deepStrictEqual(
+          models.map(({ slug, name, capabilities, cursorMetadata }) => ({
+            slug,
+            name,
+            capabilities,
+            cursorMetadata,
+          })),
+          [
+            {
+              slug: "auto",
+              name: "Auto",
+              capabilities: null,
+              cursorMetadata: {
+                familySlug: "auto",
+                familyName: "Auto",
+                fastMode: false,
+                thinking: false,
+                maxMode: false,
+              },
+            },
+            {
+              slug: "composer-2-fast",
+              name: "Composer 2 Fast",
+              capabilities: null,
+              cursorMetadata: {
+                familySlug: "composer-2",
+                familyName: "Composer 2",
+                fastMode: true,
+                thinking: false,
+                maxMode: false,
+              },
+            },
+            {
+              slug: "claude-4-sonnet",
+              name: "Sonnet 4",
+              capabilities: {
+                reasoningEffortLevels: [],
+                supportsFastMode: false,
+                supportsThinkingToggle: true,
+                contextWindowOptions: [],
+                promptInjectedEffortLevels: [],
+              },
+              cursorMetadata: {
+                familySlug: "claude-4-sonnet",
+                familyName: "Sonnet 4",
+                fastMode: false,
+                thinking: false,
+                maxMode: false,
+              },
+            },
+            {
+              slug: "claude-4-sonnet-thinking",
+              name: "Sonnet 4 Thinking",
+              capabilities: {
+                reasoningEffortLevels: [],
+                supportsFastMode: false,
+                supportsThinkingToggle: true,
+                contextWindowOptions: [],
+                promptInjectedEffortLevels: [],
+              },
+              cursorMetadata: {
+                familySlug: "claude-4-sonnet",
+                familyName: "Sonnet 4",
+                fastMode: false,
+                thinking: true,
+                maxMode: false,
+              },
+            },
+            {
+              slug: "gpt-5.4-nano-xhigh",
+              name: "GPT-5.4 Nano Extra High",
+              capabilities: {
+                reasoningEffortLevels: [{ value: "xhigh", label: "Extra High", isDefault: true }],
+                supportsFastMode: false,
+                supportsThinkingToggle: false,
+                contextWindowOptions: [],
+                promptInjectedEffortLevels: [],
+              },
+              cursorMetadata: {
+                familySlug: "gpt-5.4-nano",
+                familyName: "GPT-5.4 Nano",
+                reasoningEffort: "xhigh",
+                fastMode: false,
+                thinking: false,
+                maxMode: false,
+              },
+            },
+          ],
+        );
+      });
+
+      it("keeps exact Cursor reasoning variants while sharing family capabilities", () => {
+        const models = parseCursorModelsOutput(CURSOR_VARIANT_MODELS_OUTPUT);
+        assert.strictEqual(models.length, 8);
+        assert.deepStrictEqual(
+          models.every((model) => model.cursorMetadata?.familySlug === "gpt-5.3-codex"),
+          true,
+        );
+        assert.deepStrictEqual(models[0]?.slug, "gpt-5.3-codex-low");
+        assert.deepStrictEqual(models[0]?.cursorMetadata?.reasoningEffort, "low");
+        assert.deepStrictEqual(models[1]?.cursorMetadata?.fastMode, true);
+        assert.deepStrictEqual(models[2]?.cursorMetadata?.reasoningEffort, "medium");
+        assert.deepStrictEqual(models[0]?.capabilities, {
+          reasoningEffortLevels: [
+            { value: "xhigh", label: "Extra High", isDefault: false },
+            { value: "high", label: "High", isDefault: false },
+            { value: "medium", label: "Medium", isDefault: true },
+            { value: "low", label: "Low", isDefault: false },
+          ],
+          supportsFastMode: true,
+          supportsThinkingToggle: false,
+          contextWindowOptions: [],
+          promptInjectedEffortLevels: [],
+        });
+      });
+
+      it("treats Cursor none variants as medium-effort exact models", () => {
+        const models = parseCursorModelsOutput(CURSOR_NONE_VARIANT_MODELS_OUTPUT);
+        assert.deepStrictEqual(
+          models.map((model) => ({
+            slug: model.slug,
+            reasoningEffort: model.cursorMetadata?.reasoningEffort,
+            fastMode: model.cursorMetadata?.fastMode,
+          })),
+          [
+            { slug: "gpt-5.4-mini-none", reasoningEffort: "medium", fastMode: false },
+            { slug: "gpt-5.4-mini-none-fast", reasoningEffort: "medium", fastMode: true },
+            { slug: "gpt-5.4-mini-high", reasoningEffort: "high", fastMode: false },
+            { slug: "gpt-5.4-mini-high-fast", reasoningEffort: "high", fastMode: true },
+          ],
+        );
+      });
+
+      it("rebuilds the concrete Cursor CLI slug from normalized picker options", () => {
+        assert.strictEqual(
+          resolveCursorCliModelId({
+            model: "gpt-5.3-codex",
+            options: {
+              reasoningEffort: "xhigh",
+              fastMode: true,
+            },
+          }),
+          "gpt-5.3-codex-xhigh-fast",
+        );
+        assert.strictEqual(
+          resolveCursorCliModelId({
+            model: "gpt-5.3-codex",
+            options: {
+              reasoningEffort: "medium",
+            },
+          }),
+          "gpt-5.3-codex",
+        );
+      });
+
+      it("rebuilds the concrete Cursor CLI slug for reasoning-only synthetic base models", () => {
+        assert.strictEqual(
+          resolveCursorCliModelId({
+            model: "gpt-5.4-nano",
+            options: {
+              reasoningEffort: "xhigh",
+            },
+          }),
+          "gpt-5.4-nano-xhigh",
+        );
+      });
+
+      it("normalizes legacy Cursor none slugs before applying traits", () => {
+        assert.strictEqual(
+          resolveCursorCliModelId({
+            model: "gpt-5.4-mini-none",
+            options: {
+              reasoningEffort: "high",
+              fastMode: true,
+            },
+          }),
+          "gpt-5.4-mini-high-fast",
+        );
+      });
+    });
+
+    describe("checkCursorProviderStatus", () => {
+      it.effect("uses discovered Cursor models instead of the fallback placeholder list", () =>
+        Effect.gen(function* () {
+          const status = yield* checkCursorProviderStatus();
+          assert.strictEqual(status.provider, "cursor");
+          assert.strictEqual(status.status, "ready");
+          assert.strictEqual(status.installed, true);
+          assert.strictEqual(status.auth.status, "authenticated");
+          assert.strictEqual(
+            status.models.some((model) => model.slug === "composer-2-fast"),
+            true,
+          );
+          assert.strictEqual(
+            status.models.some((model) => model.slug === "gpt-5.4-nano-xhigh"),
+            true,
+          );
+          assert.strictEqual(
+            status.models.some((model) => model.slug === "gpt-5"),
+            false,
+          );
+        }).pipe(
+          Effect.provide(
+            mockCommandSpawnerLayer((command, args) => {
+              const joined = args.join(" ");
+              if (command !== "cursor-agent") {
+                throw new Error(`Unexpected command: ${command}`);
+              }
+              if (joined === "--version") {
+                return { stdout: "cursor-agent 1.0.0\n", stderr: "", code: 0 };
+              }
+              if (joined === "models") {
+                return { stdout: CURSOR_MODELS_OUTPUT, stderr: "", code: 0 };
+              }
+              if (joined === "about") {
+                return {
+                  stdout: "Cursor Agent\nUser Email cursor@example.com\n",
+                  stderr: "",
+                  code: 0,
+                };
+              }
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
+        ),
+      );
     });
   },
 );

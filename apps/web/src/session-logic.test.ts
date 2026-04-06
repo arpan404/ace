@@ -4,13 +4,14 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationThreadActivity,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
   deriveCompletionDividerBeforeEntryId,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveVisibleWorkTurnId,
   PROVIDER_OPTIONS,
   derivePendingApprovals,
   derivePendingUserInputs,
@@ -300,6 +301,64 @@ describe("derivePendingUserInputs", () => {
     ];
 
     expect(derivePendingUserInputs(activities)).toEqual([]);
+  });
+
+  it("preserves multi-select question metadata for open prompts", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "user-input-open-multi",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: {
+          requestId: "req-user-input-multi",
+          questions: [
+            {
+              id: "tools",
+              header: "Tools",
+              question: "Which tools should run?",
+              multiSelect: true,
+              options: [
+                {
+                  label: "Search",
+                  description: "Run search",
+                },
+                {
+                  label: "Edit",
+                  description: "Run edits",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ];
+
+    expect(derivePendingUserInputs(activities)).toEqual([
+      {
+        requestId: "req-user-input-multi",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        questions: [
+          {
+            id: "tools",
+            header: "Tools",
+            question: "Which tools should run?",
+            multiSelect: true,
+            options: [
+              {
+                label: "Search",
+                description: "Run search",
+              },
+              {
+                label: "Edit",
+                description: "Run edits",
+              },
+            ],
+          },
+        ],
+      },
+    ]);
   });
 });
 
@@ -609,6 +668,47 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["turn-2"]);
   });
 
+  it("does not merge identical tool lifecycles from different turns", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "t1-start",
+        turnId: "turn-1",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.started",
+        summary: "Read file",
+        payload: { itemType: "file_change", title: "Read file" },
+      }),
+      makeActivity({
+        id: "t1-done",
+        turnId: "turn-1",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.completed",
+        summary: "Read file",
+        payload: { itemType: "file_change", title: "Read file" },
+      }),
+      makeActivity({
+        id: "t2-start",
+        turnId: "turn-2",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "tool.started",
+        summary: "Read file",
+        payload: { itemType: "file_change", title: "Read file" },
+      }),
+      makeActivity({
+        id: "t2-done",
+        turnId: "turn-2",
+        createdAt: "2026-02-23T00:00:04.000Z",
+        kind: "tool.completed",
+        summary: "Read file",
+        payload: { itemType: "file_change", title: "Read file" },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities);
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.id)).toEqual(["t1-done", "t2-done"]);
+  });
+
   it("omits checkpoint captured info entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -742,6 +842,196 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("maps reasoning-style activities to thinking tone", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "reasoning-progress",
+        kind: "task.progress",
+        summary: "Reasoning update",
+        tone: "info",
+        payload: {
+          detail: "Inspecting project structure",
+        },
+      }),
+      makeActivity({
+        id: "reasoning-complete",
+        kind: "reasoning.completed",
+        summary: "Reasoning",
+        tone: "info",
+        payload: {
+          itemType: "reasoning",
+          detail: "Ready to patch the adapter",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]?.tone).toBe("thinking");
+    expect(entries[1]?.tone).toBe("thinking");
+  });
+
+  it("collapses streamed reasoning updates for the same reasoning task", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "reasoning-progress-1",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "task.progress",
+        summary: "Reasoning",
+        tone: "info",
+        payload: {
+          taskId: "reasoning:item-1",
+          detail: "Inspecting package scripts.",
+        },
+      }),
+      makeActivity({
+        id: "reasoning-progress-2",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "task.progress",
+        summary: "Reasoning",
+        tone: "info",
+        payload: {
+          taskId: "reasoning:item-1",
+          detail: "Running format and lint checks.",
+        },
+      }),
+      makeActivity({
+        id: "reasoning-complete",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "reasoning.completed",
+        summary: "Reasoning",
+        tone: "info",
+        payload: {
+          taskId: "reasoning:item-1",
+          itemType: "reasoning",
+          detail: "Checks finished; ready to patch the timeline.",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      createdAt: "2026-02-23T00:00:01.000Z",
+      tone: "thinking",
+      detail:
+        "Inspecting package scripts. Running format and lint checks. Checks finished; ready to patch the timeline.",
+    });
+  });
+
+  it("accumulates token-like streamed reasoning fragments into readable text", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "reasoning-token-1",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "task.progress",
+        summary: "Reasoning",
+        tone: "info",
+        payload: {
+          taskId: "reasoning:item-tokenized",
+          detail: "Inspecting",
+        },
+      }),
+      makeActivity({
+        id: "reasoning-token-2",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "task.progress",
+        summary: "Reasoning",
+        tone: "info",
+        payload: {
+          taskId: "reasoning:item-tokenized",
+          detail: "package.json",
+        },
+      }),
+      makeActivity({
+        id: "reasoning-token-3",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "task.progress",
+        summary: "Reasoning",
+        tone: "info",
+        payload: {
+          taskId: "reasoning:item-tokenized",
+          detail: "before patching.",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.detail).toBe("Inspecting package.json before patching.");
+  });
+
+  it("keeps tool starts visible and collapses them into the final tool entry", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "tool-started",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.started",
+        summary: "Running format & checks",
+        tone: "tool",
+        payload: {
+          itemType: "command_execution",
+          title: "Running format & checks",
+          detail: "Running format & checks",
+        },
+      }),
+      makeActivity({
+        id: "tool-completed",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.completed",
+        summary: "Running format & checks",
+        tone: "tool",
+        payload: {
+          itemType: "command_execution",
+          title: "Running format & checks",
+          detail: "Formatting and checks completed successfully.",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      createdAt: "2026-02-23T00:00:01.000Z",
+      toolTitle: "Running format & checks",
+      detail: "Formatting and checks completed successfully.",
+    });
+  });
+
+  it("extracts embedded intent text from tool metadata carried on the same work entry", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "tool-intent-combined",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.completed",
+        summary: "Running format & checks",
+        tone: "tool",
+        payload: {
+          itemType: "command_execution",
+          title: "Running format & checks",
+          detail: "Formatting and checks completed successfully.",
+          data: {
+            toolName: "run_in_terminal",
+            toolTitle:
+              'Report Intent - {"intent":"Running format & checks"} Running format & checks',
+            arguments: {
+              intent: "Running format & checks",
+              command: "bun fmt && bun lint && bun typecheck",
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry).toMatchObject({
+      toolTitle: "Running format & checks",
+      detail: "Formatting and checks completed successfully.",
+      intentText: "Running format & checks",
+    });
+  });
+
   it("extracts changed file paths for file-change tool activities", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -816,7 +1106,7 @@ describe("deriveWorkLogEntries", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
       id: "tool-complete",
-      createdAt: "2026-02-23T00:00:03.000Z",
+      createdAt: "2026-02-23T00:00:01.000Z",
       label: "Tool call completed",
       detail: 'Read: {"file_path":"/tmp/app.ts"}',
       command: "sed -n 1,40p /tmp/app.ts",
@@ -962,6 +1252,390 @@ describe("deriveTimelineEntries", () => {
         planMarkdown: "# Ship it",
         implementedAt: null,
         implementationThreadId: null,
+      },
+    });
+  });
+
+  it("keeps work entries in activity sequence order when timestamps drift", () => {
+    const entries = deriveTimelineEntries(
+      [],
+      [],
+      [
+        {
+          id: "work-2",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 2,
+          label: "Run command",
+          tone: "tool",
+        },
+        {
+          id: "work-1",
+          createdAt: "2026-02-23T00:00:04.000Z",
+          sequence: 1,
+          label: "Read file",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual(["work-1", "work-2"]);
+  });
+
+  it("orders assistant messages and work entries by sequence when timestamps match", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("assistant-before"),
+          role: "assistant",
+          text: "Before tool",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 1,
+          streaming: false,
+        },
+        {
+          id: MessageId.makeUnsafe("assistant-after"),
+          role: "assistant",
+          text: "After tool",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 3,
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "work-2",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 2,
+          label: "Read file",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "assistant-before",
+      "work-2",
+      "assistant-after",
+    ]);
+  });
+
+  it("orders mixed message and work rows by createdAt when their sequence domains differ", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("assistant-later"),
+          role: "assistant",
+          text: "Final reply",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 42,
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "work-earlier",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          sequence: 1_706_255_202_000_001,
+          label: "Read file",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual(["work-earlier", "assistant-later"]);
+  });
+
+  it("lifts report_intent out of the work log and attaches it to the next tool entry", () => {
+    const entries = deriveTimelineEntries(
+      [],
+      [],
+      [
+        {
+          id: "work-intent",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          label: "Report Intent",
+          toolTitle: "Report Intent",
+          detail: "Running format and checks",
+          tone: "tool",
+        },
+        {
+          id: "work-tool",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          label: "Run command",
+          toolTitle: "Run command",
+          detail: "bun fmt && bun lint",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      kind: "intent",
+      text: "Running format and checks",
+    });
+    expect(entries[1]).toMatchObject({
+      kind: "work",
+      entry: {
+        intentText: "Running format and checks",
+      },
+    });
+  });
+
+  it("creates an intent row when a tool entry already carries embedded intent metadata", () => {
+    const entries = deriveTimelineEntries(
+      [],
+      [],
+      [
+        {
+          id: "work-tool-with-embedded-intent",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          label: "Running format & checks",
+          toolTitle: "Running format & checks",
+          detail: "Formatting and checks completed successfully.",
+          tone: "tool",
+          intentText: "Running format & checks",
+        },
+      ],
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      kind: "intent",
+      text: "Running format & checks",
+    });
+    expect(entries[1]).toMatchObject({
+      kind: "work",
+      entry: {
+        toolTitle: "Running format & checks",
+        intentText: "Running format & checks",
+      },
+    });
+  });
+
+  it("collapses repeated near-identical report_intent entries into a single timeline intent row", () => {
+    const entries = deriveTimelineEntries(
+      [],
+      [],
+      [
+        {
+          id: "work-intent-1",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          label: "Report Intent",
+          toolTitle: "Report Intent",
+          detail: "Running format and checks",
+          tone: "tool",
+        },
+        {
+          id: "work-intent-2",
+          createdAt: "2026-02-23T00:00:01.100Z",
+          label: "Report Intent",
+          toolTitle: "Report Intent",
+          detail: "Running format and checks.",
+          tone: "tool",
+        },
+        {
+          id: "work-tool",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          label: "Run command",
+          toolTitle: "Run command",
+          detail: "bun fmt && bun lint",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      kind: "intent",
+      text: "Running format and checks",
+    });
+    expect(entries[1]).toMatchObject({
+      kind: "work",
+      entry: {
+        intentText: "Running format and checks.",
+      },
+    });
+  });
+
+  it("normalizes duplicated report_intent text before rendering it in the timeline", () => {
+    const entries = deriveTimelineEntries(
+      [],
+      [],
+      [
+        {
+          id: "work-intent-duplicate-text",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          label: "Report Intent",
+          toolTitle: "Report Intent",
+          detail: "Exploring codebase Exploring codebase",
+          tone: "tool",
+        },
+        {
+          id: "work-tool-after-duplicate-text",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          label: "Read file",
+          toolTitle: "Read file",
+          detail: "src/main.ts",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries[0]).toMatchObject({
+      kind: "intent",
+      text: "Exploring codebase",
+    });
+    expect(entries[1]).toMatchObject({
+      kind: "work",
+      entry: {
+        intentText: "Exploring codebase",
+      },
+    });
+  });
+
+  it("keeps short consecutive intent rows separate from the following assistant message", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("assistant-final"),
+          role: "assistant",
+          text: "I found the root cause in the timeline renderer.",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "work-intent-1",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          label: "Report Intent",
+          toolTitle: "Report Intent",
+          detail: "Exploring codebase",
+          tone: "tool",
+        },
+        {
+          id: "work-intent-2",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          label: "Report Intent",
+          toolTitle: "Report Intent",
+          detail: "Tracing timeline state",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries).toHaveLength(3);
+    expect(entries[0]).toMatchObject({
+      kind: "intent",
+      text: "Exploring codebase",
+    });
+    expect(entries[1]).toMatchObject({
+      kind: "intent",
+      text: "Tracing timeline state",
+    });
+    expect(entries[2]).toMatchObject({
+      kind: "message",
+      message: {
+        text: "I found the root cause in the timeline renderer.",
+      },
+    });
+  });
+
+  it("keeps longer intent rows separate from assistant messages", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("assistant-after-long-intent"),
+          role: "assistant",
+          text: "I can now summarize the migration plan.",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "work-intent-long",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          label: "Report Intent",
+          toolTitle: "Report Intent",
+          detail:
+            "Inspecting all server orchestration boundaries before rewriting the ingestion and projection path.",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      kind: "intent",
+      text: "Inspecting all server orchestration boundaries before rewriting the ingestion and projection path.",
+    });
+    expect(entries[1]).toMatchObject({
+      kind: "message",
+      message: {
+        text: "I can now summarize the migration plan.",
+      },
+    });
+  });
+
+  it("does not attach intent text to thinking rows before the next tool call", () => {
+    const entries = deriveTimelineEntries(
+      [],
+      [],
+      [
+        {
+          id: "work-intent",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          label: "Report Intent",
+          toolTitle: "Report Intent",
+          detail: "Counting files",
+          tone: "tool",
+        },
+        {
+          id: "work-thinking",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          label: "Reasoning",
+          detail: "Checking tracked files first.",
+          tone: "thinking",
+        },
+        {
+          id: "work-tool",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          label: "Run command",
+          toolTitle: "Run command",
+          detail: "git ls-files",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries).toHaveLength(3);
+    expect(entries[0]).toMatchObject({
+      kind: "intent",
+      text: "Counting files",
+    });
+    expect(entries[1]).toMatchObject({
+      kind: "work",
+      entry: {
+        tone: "thinking",
+      },
+    });
+    expect(entries[1]).not.toMatchObject({
+      kind: "work",
+      entry: {
+        intentText: "Counting files",
+      },
+    });
+    expect(entries[2]).toMatchObject({
+      kind: "work",
+      entry: {
+        tone: "tool",
+        intentText: "Counting files",
       },
     });
   });
@@ -1160,14 +1834,110 @@ describe("deriveActiveWorkStartedAt", () => {
   });
 });
 
+describe("deriveVisibleWorkTurnId", () => {
+  const runningSession = {
+    orchestrationStatus: "running" as const,
+    activeTurnId: TurnId.makeUnsafe("turn-2"),
+  };
+
+  it("prefers the latest renderable work activity during running turn churn", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "turn-1-tool",
+        createdAt: "2026-02-27T21:10:01.000Z",
+        kind: "tool.completed",
+        summary: "Ran tool",
+        tone: "tool",
+        turnId: "turn-1",
+      }),
+      makeActivity({
+        id: "turn-2-task-started",
+        createdAt: "2026-02-27T21:10:02.000Z",
+        kind: "task.started",
+        summary: "Task started",
+        tone: "info",
+        turnId: "turn-2",
+      }),
+    ];
+
+    const visibleTurnId = deriveVisibleWorkTurnId(
+      {
+        turnId: TurnId.makeUnsafe("turn-2"),
+        startedAt: "2026-02-27T21:10:02.000Z",
+        completedAt: null,
+      },
+      runningSession,
+      activities,
+    );
+
+    expect(visibleTurnId).toBe(TurnId.makeUnsafe("turn-1"));
+    expect(deriveWorkLogEntries(activities, visibleTurnId).map((entry) => entry.id)).toEqual([
+      "turn-1-tool",
+    ]);
+  });
+
+  it("falls back to the active session turn when no renderable work activity exists yet", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "turn-2-task-started",
+        createdAt: "2026-02-27T21:10:02.000Z",
+        kind: "task.started",
+        summary: "Task started",
+        tone: "info",
+        turnId: "turn-2",
+      }),
+    ];
+
+    expect(
+      deriveVisibleWorkTurnId(
+        {
+          turnId: TurnId.makeUnsafe("turn-2"),
+          startedAt: "2026-02-27T21:10:02.000Z",
+          completedAt: null,
+        },
+        runningSession,
+        activities,
+      ),
+    ).toBe(TurnId.makeUnsafe("turn-2"));
+  });
+
+  it("uses the settled latest turn once the session is no longer running", () => {
+    expect(
+      deriveVisibleWorkTurnId(
+        {
+          turnId: TurnId.makeUnsafe("turn-2"),
+          startedAt: "2026-02-27T21:10:02.000Z",
+          completedAt: "2026-02-27T21:10:06.000Z",
+        },
+        {
+          orchestrationStatus: "ready",
+          activeTurnId: undefined,
+        },
+        [
+          makeActivity({
+            id: "turn-1-tool",
+            turnId: "turn-1",
+            kind: "tool.completed",
+            tone: "tool",
+          }),
+        ],
+      ),
+    ).toBe(TurnId.makeUnsafe("turn-2"));
+  });
+});
+
 describe("PROVIDER_OPTIONS", () => {
-  it("advertises Claude as available while keeping Cursor as a placeholder", () => {
+  it("advertises OpenCode alongside the other available providers", () => {
     const claude = PROVIDER_OPTIONS.find((option) => option.value === "claudeAgent");
     const cursor = PROVIDER_OPTIONS.find((option) => option.value === "cursor");
+    const opencode = PROVIDER_OPTIONS.find((option) => option.value === "opencode");
     expect(PROVIDER_OPTIONS).toEqual([
       { value: "codex", label: "Codex", available: true },
       { value: "claudeAgent", label: "Claude", available: true },
-      { value: "cursor", label: "Cursor", available: false },
+      { value: "githubCopilot", label: "Copilot", available: true },
+      { value: "cursor", label: "Cursor", available: true },
+      { value: "gemini", label: "Gemini", available: true },
+      { value: "opencode", label: "OpenCode", available: true },
     ]);
     expect(claude).toEqual({
       value: "claudeAgent",
@@ -1177,7 +1947,12 @@ describe("PROVIDER_OPTIONS", () => {
     expect(cursor).toEqual({
       value: "cursor",
       label: "Cursor",
-      available: false,
+      available: true,
+    });
+    expect(opencode).toEqual({
+      value: "opencode",
+      label: "OpenCode",
+      available: true,
     });
   });
 });

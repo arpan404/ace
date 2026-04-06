@@ -1,4 +1,4 @@
-import type { GitBranch } from "@t3tools/contracts";
+import type { GitBranch } from "@ace/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDownIcon } from "lucide-react";
@@ -20,6 +20,7 @@ import {
   gitStatusQueryOptions,
   invalidateGitQueries,
 } from "../lib/gitReactQuery";
+import { reportBackgroundError } from "../lib/async";
 import { readNativeApi } from "../nativeApi";
 import { parsePullRequestReference } from "../pullRequestReference";
 import {
@@ -29,7 +30,7 @@ import {
   resolveBranchSelectionTarget,
   resolveBranchToolbarValue,
   shouldIncludeBranchPickerItem,
-} from "./BranchToolbar.logic";
+} from "../lib/git/branchToolbar";
 import { Button } from "./ui/button";
 import {
   Combobox,
@@ -159,8 +160,12 @@ export function BranchToolbarBranchSelector({
 
   const runBranchAction = (action: () => Promise<void>) => {
     startBranchActionTransition(async () => {
-      await action().catch(() => undefined);
-      await invalidateGitQueries(queryClient).catch(() => undefined);
+      await action().catch((error) => {
+        reportBackgroundError("Failed to run the selected branch action.", error);
+      });
+      await invalidateGitQueries(queryClient).catch((error) => {
+        reportBackgroundError("Failed to refresh git queries after the branch action.", error);
+      });
     });
   };
 
@@ -200,7 +205,10 @@ export function BranchToolbarBranchSelector({
     runBranchAction(async () => {
       setOptimisticBranch(selectedBranchName);
       try {
-        await api.git.checkout({ cwd: selectionTarget.checkoutCwd, branch: branch.name });
+        await api.git.checkout({
+          cwd: selectionTarget.checkoutCwd,
+          branch: branch.name,
+        });
         await invalidateGitQueries(queryClient);
       } catch (error) {
         toastManager.add({
@@ -416,7 +424,9 @@ export function BranchToolbarBranchSelector({
       virtualized={shouldVirtualizeBranchList}
       onItemHighlighted={(_value, eventDetails) => {
         if (!isBranchMenuOpen || eventDetails.index < 0) return;
-        branchListVirtualizer.scrollToIndex(eventDetails.index, { align: "auto" });
+        branchListVirtualizer.scrollToIndex(eventDetails.index, {
+          align: "auto",
+        });
       }}
       onOpenChange={handleOpenChange}
       open={isBranchMenuOpen}

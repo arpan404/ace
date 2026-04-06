@@ -1,25 +1,35 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { resolveWebSocketAuthConnection } from "@ace/shared/wsAuth";
 import {
   CommandId,
+  CheckpointRef,
   DEFAULT_SERVER_SETTINGS,
+  EventId,
   GitCommandError,
   KeybindingRule,
+  MessageId,
   OpenError,
   TerminalNotRunningError,
   type OrchestrationEvent,
+  type OrchestrationReadModel,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ResolvedKeybindingRule,
   ThreadId,
+  TurnId,
+  type WorkspaceEditorCloseBufferInput,
+  type WorkspaceEditorCloseBufferResult,
+  type WorkspaceEditorSyncBufferInput,
+  type WorkspaceEditorSyncBufferResult,
   WS_METHODS,
   WsRpcGroup,
   EditorId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { assert, it } from "@effect/vitest";
 import { assertFailure, assertInclude, assertTrue } from "@effect/vitest/utils";
-import { Effect, FileSystem, Layer, Path, Stream } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import { HttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 
@@ -43,7 +53,6 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
-import { PersistenceSqlError } from "./persistence/Errors.ts";
 import {
   ProviderRegistry,
   type ProviderRegistryShape,
@@ -56,6 +65,10 @@ import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResol
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
+import {
+  WorkspaceEditor,
+  type WorkspaceEditorShape,
+} from "./workspace/Services/WorkspaceEditor.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -64,7 +77,7 @@ const defaultModelSelection = {
   model: "gpt-5-codex",
 } as const;
 
-const makeDefaultOrchestrationReadModel = () => {
+const makeDefaultOrchestrationReadModel = (): OrchestrationReadModel => {
   const now = new Date().toISOString();
   return {
     snapshotSequence: 0,
@@ -99,6 +112,9 @@ const makeDefaultOrchestrationReadModel = () => {
         session: null,
         activities: [],
         proposedPlans: [],
+        latestProposedPlanSummary: null,
+        queuedComposerMessages: [],
+        queuedSteerRequest: null,
         checkpoints: [],
         deletedAt: null,
       },
@@ -131,11 +147,12 @@ const buildAppUnderTest = (options?: {
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
+    workspaceEditor?: Partial<WorkspaceEditorShape>;
   };
 }) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
-    const tempBaseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-router-test-" });
+    const tempBaseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "ace-router-test-" });
     const baseDir = options?.config?.baseDir ?? tempBaseDir;
     const devUrl = options?.config?.devUrl;
     const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
@@ -217,6 +234,7 @@ const buildAppUnderTest = (options?: {
       Layer.provide(
         Layer.mock(ProjectionSnapshotQuery)({
           getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
+          getThread: () => Effect.succeed(Option.none()),
           ...options?.layers?.projectionSnapshotQuery,
         }),
       ),
@@ -255,6 +273,20 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.serverRuntimeStartup,
         }),
       ),
+      Layer.provide(
+        Layer.mock(WorkspaceEditor)({
+          closeBuffer: (input: WorkspaceEditorCloseBufferInput) =>
+            Effect.succeed({
+              relativePath: input.relativePath,
+            } satisfies WorkspaceEditorCloseBufferResult),
+          syncBuffer: (input: WorkspaceEditorSyncBufferInput) =>
+            Effect.succeed({
+              diagnostics: [],
+              relativePath: input.relativePath,
+            } satisfies WorkspaceEditorSyncBufferResult),
+          ...options?.layers?.workspaceEditor,
+        }),
+      ),
       Layer.provide(workspaceAndProjectServicesLayer),
       Layer.provide(layerConfig),
     );
@@ -263,11 +295,14 @@ const buildAppUnderTest = (options?: {
     return config;
   });
 
-const wsRpcProtocolLayer = (wsUrl: string) =>
-  RpcClient.layerProtocolSocket().pipe(
-    Layer.provide(NodeSocket.layerWebSocket(wsUrl)),
+const wsRpcProtocolLayer = (wsUrl: string) => {
+  const connection = resolveWebSocketAuthConnection(wsUrl);
+  const socketOptions = connection.protocols ? { protocols: [...connection.protocols] } : undefined;
+  return RpcClient.layerProtocolSocket().pipe(
+    Layer.provide(NodeSocket.layerWebSocket(connection.url, socketOptions)),
     Layer.provide(RpcSerialization.layerJson),
   );
+};
 
 const makeWsRpcClient = RpcClient.make(WsRpcGroup);
 type WsRpcClient =
@@ -297,7 +332,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const staticDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-router-static-" });
+      const staticDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "ace-router-static-" });
       const indexPath = path.join(staticDir, "index.html");
       yield* fileSystem.writeFileString(indexPath, "<html>router-static-ok</html>");
 
@@ -328,7 +363,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const projectDir = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-router-project-favicon-",
+        prefix: "ace-router-project-favicon-",
       });
       yield* fileSystem.writeFileString(
         path.join(projectDir, "favicon.svg"),
@@ -352,7 +387,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const projectDir = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-router-project-favicon-fallback-",
+        prefix: "ace-router-project-favicon-fallback-",
       });
 
       yield* buildAppUnderTest({
@@ -464,7 +499,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-auth-required-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-ws-auth-required-" });
       yield* fs.writeFileString(
         path.join(workspaceDir, "needle-file.ts"),
         "export const needle = 1;",
@@ -496,7 +531,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-auth-ok-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-ws-auth-ok-" });
       yield* fs.writeFileString(
         path.join(workspaceDir, "needle-file.ts"),
         "export const needle = 1;",
@@ -661,7 +696,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-project-search-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-ws-project-search-" });
       yield* fs.writeFileString(
         path.join(workspaceDir, "needle-file.ts"),
         "export const needle = 1;",
@@ -714,7 +749,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-project-write-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-ws-project-write-" });
 
       yield* buildAppUnderTest();
 
@@ -738,7 +773,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("routes websocket rpc projects.writeFile errors", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-project-write-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-ws-project-write-" });
 
       yield* buildAppUnderTest();
 
@@ -759,6 +794,93 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         result.failure.message,
         "Workspace file path must stay within the project root.",
       );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc workspaceEditor sync and close operations", () =>
+    Effect.gen(function* () {
+      let syncInput: WorkspaceEditorSyncBufferInput | null = null;
+      let closeInput: WorkspaceEditorCloseBufferInput | null = null;
+
+      yield* buildAppUnderTest({
+        layers: {
+          workspaceEditor: {
+            syncBuffer: (input) =>
+              Effect.sync(() => {
+                syncInput = input;
+                return {
+                  diagnostics: [
+                    {
+                      code: "TEST001",
+                      endColumn: 5,
+                      endLine: 0,
+                      message: "Example diagnostic",
+                      severity: "error",
+                      source: "ace-test",
+                      startColumn: 0,
+                      startLine: 0,
+                    },
+                  ],
+                  relativePath: input.relativePath,
+                } satisfies WorkspaceEditorSyncBufferResult;
+              }),
+            closeBuffer: (input) =>
+              Effect.sync(() => {
+                closeInput = input;
+                return {
+                  relativePath: input.relativePath,
+                } satisfies WorkspaceEditorCloseBufferResult;
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const syncResponse = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.workspaceEditorSyncBuffer]({
+            cwd: "/tmp/project",
+            relativePath: "src/example.ts",
+            contents: "ERROR();\n",
+          }),
+        ),
+      );
+      const closeResponse = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.workspaceEditorCloseBuffer]({
+            cwd: "/tmp/project",
+            relativePath: "src/example.ts",
+          }),
+        ),
+      );
+
+      assert.deepEqual(syncInput, {
+        cwd: "/tmp/project",
+        relativePath: "src/example.ts",
+        contents: "ERROR();\n",
+      });
+      assert.deepEqual(syncResponse, {
+        diagnostics: [
+          {
+            code: "TEST001",
+            endColumn: 5,
+            endLine: 0,
+            message: "Example diagnostic",
+            severity: "error",
+            source: "ace-test",
+            startColumn: 0,
+            startLine: 0,
+          },
+        ],
+        relativePath: "src/example.ts",
+      });
+      assert.deepEqual(closeInput, {
+        cwd: "/tmp/project",
+        relativePath: "src/example.ts",
+      });
+      assert.deepEqual(closeResponse, {
+        relativePath: "src/example.ts",
+      });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -1104,6 +1226,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             session: null,
             activities: [],
             proposedPlans: [],
+            latestProposedPlanSummary: null,
+            queuedComposerMessages: [],
+            queuedSteerRequest: null,
             checkpoints: [],
             deletedAt: null,
           },
@@ -1112,12 +1237,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       yield* buildAppUnderTest({
         layers: {
-          projectionSnapshotQuery: {
-            getSnapshot: () => Effect.succeed(snapshot),
-          },
           orchestrationEngine: {
+            getReadModel: () => Effect.succeed(snapshot),
             dispatch: () => Effect.succeed({ sequence: 7 }),
             readEvents: () => Stream.empty,
+          },
+          projectionSnapshotQuery: {
+            getSnapshot: () => Effect.succeed(snapshot),
           },
           checkpointDiffQuery: {
             getTurnDiff: () =>
@@ -1248,33 +1374,180 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("routes websocket rpc orchestration.getSnapshot errors", () =>
-    Effect.gen(function* () {
-      yield* buildAppUnderTest({
-        layers: {
-          projectionSnapshotQuery: {
-            getSnapshot: () =>
-              Effect.fail(
-                new PersistenceSqlError({
-                  operation: "ProjectionSnapshotQuery.getSnapshot",
-                  detail: "projection unavailable",
-                }),
-              ),
+  it.effect(
+    "routes websocket rpc orchestration.getSnapshot and getThread with lean and hydrated views",
+    () =>
+      Effect.gen(function* () {
+        const now = new Date().toISOString();
+        const threadId = ThreadId.makeUnsafe("thread-1");
+        const snapshot: OrchestrationReadModel = {
+          snapshotSequence: 3,
+          updatedAt: now,
+          projects: [
+            {
+              id: defaultProjectId,
+              title: "Default Project",
+              workspaceRoot: "/tmp/default-project",
+              defaultModelSelection,
+              scripts: [],
+              createdAt: now,
+              updatedAt: now,
+              deletedAt: null,
+            },
+          ],
+          threads: [
+            {
+              id: threadId,
+              projectId: defaultProjectId,
+              title: "Hydrated Thread",
+              modelSelection: defaultModelSelection,
+              interactionMode: "default" as const,
+              runtimeMode: "full-access" as const,
+              branch: null,
+              worktreePath: null,
+              createdAt: now,
+              updatedAt: now,
+              archivedAt: null,
+              latestTurn: null,
+              messages: [
+                {
+                  id: MessageId.makeUnsafe("message-user"),
+                  role: "user",
+                  text: "Hello",
+                  turnId: TurnId.makeUnsafe("turn-1"),
+                  streaming: false,
+                  createdAt: now,
+                  updatedAt: now,
+                },
+                {
+                  id: MessageId.makeUnsafe("message-assistant"),
+                  role: "assistant",
+                  text: "Hi",
+                  turnId: TurnId.makeUnsafe("turn-1"),
+                  streaming: false,
+                  createdAt: now,
+                  updatedAt: now,
+                },
+              ],
+              session: null,
+              activities: [
+                {
+                  id: EventId.makeUnsafe("activity-approval"),
+                  tone: "approval",
+                  kind: "approval.requested",
+                  summary: "Approve",
+                  payload: {},
+                  turnId: TurnId.makeUnsafe("turn-1"),
+                  createdAt: now,
+                },
+                {
+                  id: EventId.makeUnsafe("activity-tool"),
+                  tone: "info",
+                  kind: "tool.progress",
+                  summary: "Progress",
+                  payload: {},
+                  turnId: TurnId.makeUnsafe("turn-1"),
+                  createdAt: now,
+                },
+              ],
+              proposedPlans: [],
+              latestProposedPlanSummary: null,
+              queuedComposerMessages: [],
+              queuedSteerRequest: null,
+              checkpoints: [
+                {
+                  turnId: TurnId.makeUnsafe("turn-1"),
+                  checkpointTurnCount: 1,
+                  checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
+                  status: "ready",
+                  files: [],
+                  assistantMessageId: MessageId.makeUnsafe("message-assistant"),
+                  completedAt: now,
+                },
+              ],
+              deletedAt: null,
+            },
+          ],
+        };
+        const leanSnapshotFixture: OrchestrationReadModel = {
+          ...snapshot,
+          threads: [
+            {
+              ...snapshot.threads[0]!,
+              messages: [snapshot.threads[0]!.messages[0]!],
+              activities: [snapshot.threads[0]!.activities[0]!],
+              checkpoints: [],
+            },
+          ],
+        };
+
+        yield* buildAppUnderTest({
+          layers: {
+            projectionSnapshotQuery: {
+              getSnapshot: (input) =>
+                Effect.succeed(input?.hydrateThreadId === null ? leanSnapshotFixture : snapshot),
+              getThread: (requestedThreadId) =>
+                Effect.succeed(
+                  requestedThreadId === threadId
+                    ? Option.some(snapshot.threads[0]!)
+                    : Option.none(),
+                ),
+            },
           },
-        },
-      });
+        });
 
-      const wsUrl = yield* getWsServerUrl("/ws");
-      const result = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[ORCHESTRATION_WS_METHODS.getSnapshot]({})).pipe(
-          Effect.result,
-        ),
-      );
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const leanSnapshot = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[ORCHESTRATION_WS_METHODS.getSnapshot]({
+              hydrateThreadId: null,
+            }),
+          ),
+        );
+        const hydratedSnapshot = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[ORCHESTRATION_WS_METHODS.getSnapshot]({
+              hydrateThreadId: threadId,
+            }),
+          ),
+        );
+        const targetedThread = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[ORCHESTRATION_WS_METHODS.getThread]({
+              threadId,
+            }),
+          ),
+        );
 
-      assertTrue(result._tag === "Failure");
-      assertTrue(result.failure._tag === "OrchestrationGetSnapshotError");
-      assertInclude(result.failure.message, "Failed to load orchestration snapshot");
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+        assert.deepEqual(
+          leanSnapshot.threads[0]?.messages.map((message) => message.role),
+          ["user"],
+        );
+        assert.deepEqual(
+          leanSnapshot.threads[0]?.activities.map((activity) => activity.kind),
+          ["approval.requested"],
+        );
+        assert.equal(leanSnapshot.threads[0]?.checkpoints.length, 0);
+
+        assert.deepEqual(
+          hydratedSnapshot.threads[0]?.messages.map((message) => message.role),
+          ["user", "assistant"],
+        );
+        assert.deepEqual(
+          hydratedSnapshot.threads[0]?.activities.map((activity) => activity.kind),
+          ["approval.requested", "tool.progress"],
+        );
+        assert.equal(hydratedSnapshot.threads[0]?.checkpoints.length, 1);
+        assert.deepEqual(
+          targetedThread.messages.map((message) => message.role),
+          ["user", "assistant"],
+        );
+        assert.deepEqual(
+          targetedThread.activities.map((activity) => activity.kind),
+          ["approval.requested", "tool.progress"],
+        );
+        assert.equal(targetedThread.checkpoints.length, 1);
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("routes websocket rpc terminal methods", () =>
@@ -1283,6 +1556,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         threadId: "thread-1",
         terminalId: "default",
         cwd: "/tmp/project",
+        title: null,
         status: "running" as const,
         pid: 1234,
         history: "",

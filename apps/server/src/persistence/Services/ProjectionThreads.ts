@@ -10,11 +10,13 @@ import {
   IsoDateTime,
   ModelSelection,
   ProjectId,
+  QueuedComposerMessage,
+  QueuedSteerRequest,
   ProviderInteractionMode,
   RuntimeMode,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -29,6 +31,8 @@ export const ProjectionThread = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  queuedComposerMessages: Schema.Array(QueuedComposerMessage),
+  queuedSteerRequest: Schema.NullOr(QueuedSteerRequest),
   latestTurnId: Schema.NullOr(TurnId),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -93,4 +97,4 @@ export interface ProjectionThreadRepositoryShape {
 export class ProjectionThreadRepository extends ServiceMap.Service<
   ProjectionThreadRepository,
   ProjectionThreadRepositoryShape
->()("t3/persistence/Services/ProjectionThreads/ProjectionThreadRepository") {}
+>()("ace/persistence/Services/ProjectionThreads/ProjectionThreadRepository") {}

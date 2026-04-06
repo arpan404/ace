@@ -1,8 +1,4 @@
-import {
-  ApprovalRequestId,
-  type ChatAttachment,
-  type OrchestrationEvent,
-} from "@t3tools/contracts";
+import { ApprovalRequestId, type ChatAttachment, type OrchestrationEvent } from "@ace/contracts";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -76,6 +72,13 @@ interface AttachmentSideEffects {
   readonly prunedThreadRelativePaths: Map<string, Set<string>>;
 }
 
+function createAttachmentSideEffects(): AttachmentSideEffects {
+  return {
+    deletedThreadIds: new Set<string>(),
+    prunedThreadRelativePaths: new Map<string, Set<string>>(),
+  };
+}
+
 const materializeAttachmentsForProjection = Effect.fn("materializeAttachmentsForProjection")(
   (input: { readonly attachments: ReadonlyArray<ChatAttachment> }) =>
     Effect.succeed(input.attachments.length === 0 ? [] : input.attachments),
@@ -138,7 +141,7 @@ function retainProjectionMessagesAfterRevert(
       )
       .toSorted(
         (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) ||
+          compareProjectionMessageOrder(left, right) ||
           left.messageId.localeCompare(right.messageId),
       )
       .slice(0, missingUserCount);
@@ -161,7 +164,7 @@ function retainProjectionMessagesAfterRevert(
       )
       .toSorted(
         (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) ||
+          compareProjectionMessageOrder(left, right) ||
           left.messageId.localeCompare(right.messageId),
       )
       .slice(0, missingAssistantCount);
@@ -171,6 +174,20 @@ function retainProjectionMessagesAfterRevert(
   }
 
   return messages.filter((message) => retainedMessageIds.has(message.messageId));
+}
+
+function compareProjectionMessageOrder(
+  left: Pick<ProjectionThreadMessage, "createdAt" | "sequence">,
+  right: Pick<ProjectionThreadMessage, "createdAt" | "sequence">,
+): number {
+  if (
+    left.sequence !== undefined &&
+    right.sequence !== undefined &&
+    left.sequence !== right.sequence
+  ) {
+    return left.sequence - right.sequence;
+  }
+  return left.createdAt.localeCompare(right.createdAt);
 }
 
 function retainProjectionActivitiesAfterRevert(
@@ -446,6 +463,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             interactionMode: event.payload.interactionMode,
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
+            queuedComposerMessages: [],
+            queuedSteerRequest: null,
             latestTurnId: null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -500,6 +519,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
+              : {}),
+            ...(event.payload.queuedComposerMessages !== undefined
+              ? { queuedComposerMessages: event.payload.queuedComposerMessages }
+              : {}),
+            ...(event.payload.queuedSteerRequest !== undefined
+              ? { queuedSteerRequest: event.payload.queuedSteerRequest }
               : {}),
             updatedAt: event.payload.updatedAt,
           });
@@ -653,6 +678,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             text: nextText,
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
             isStreaming: event.payload.streaming,
+            sequence: previousMessage?.sequence ?? event.payload.sequence ?? event.sequence,
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
           });
@@ -1202,31 +1228,37 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       },
     ];
 
-    const runProjectorForEvent = Effect.fn("runProjectorForEvent")(function* (
-      projector: ProjectorDefinition,
+    const runProjectorsForEvent = Effect.fn("runProjectorsForEvent")(function* (
       event: OrchestrationEvent,
+      projectorsToRun: ReadonlyArray<ProjectorDefinition>,
     ) {
-      const attachmentSideEffects: AttachmentSideEffects = {
-        deletedThreadIds: new Set<string>(),
-        prunedThreadRelativePaths: new Map<string, Set<string>>(),
-      };
+      if (projectorsToRun.length === 0) {
+        return;
+      }
+
+      const attachmentSideEffects = createAttachmentSideEffects();
 
       yield* sql.withTransaction(
-        projector.apply(event, attachmentSideEffects).pipe(
-          Effect.flatMap(() =>
-            projectionStateRepository.upsert({
-              projector: projector.name,
-              lastAppliedSequence: event.sequence,
-              updatedAt: event.occurredAt,
-            }),
-          ),
+        Effect.forEach(
+          projectorsToRun,
+          (projector) =>
+            projector.apply(event, attachmentSideEffects).pipe(
+              Effect.flatMap(() =>
+                projectionStateRepository.upsert({
+                  projector: projector.name,
+                  lastAppliedSequence: event.sequence,
+                  updatedAt: event.occurredAt,
+                }),
+              ),
+            ),
+          { concurrency: 1 },
         ),
       );
 
       yield* runAttachmentSideEffects(attachmentSideEffects).pipe(
         Effect.catch((cause) =>
           Effect.logWarning("failed to apply projected attachment side-effects", {
-            projector: projector.name,
+            projectors: projectorsToRun.map((projector) => projector.name),
             sequence: event.sequence,
             eventType: event.type,
             cause,
@@ -1235,26 +1267,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       );
     });
 
-    const bootstrapProjector = (projector: ProjectorDefinition) =>
-      projectionStateRepository
-        .getByProjector({
-          projector: projector.name,
-        })
-        .pipe(
-          Effect.flatMap((stateRow) =>
-            Stream.runForEach(
-              eventStore.readFromSequence(
-                Option.isSome(stateRow) ? stateRow.value.lastAppliedSequence : 0,
-              ),
-              (event) => runProjectorForEvent(projector, event),
-            ),
-          ),
-        );
-
     const projectEvent: OrchestrationProjectionPipelineShape["projectEvent"] = (event) =>
-      Effect.forEach(projectors, (projector) => runProjectorForEvent(projector, event), {
-        concurrency: 1,
-      }).pipe(
+      runProjectorsForEvent(event, projectors).pipe(
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(Path.Path, path),
         Effect.provideService(ServerConfig, serverConfig),
@@ -1264,11 +1278,44 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         ),
       );
 
-    const bootstrap: OrchestrationProjectionPipelineShape["bootstrap"] = Effect.forEach(
-      projectors,
-      bootstrapProjector,
-      { concurrency: 1 },
-    ).pipe(
+    const bootstrap: OrchestrationProjectionPipelineShape["bootstrap"] = Effect.gen(function* () {
+      const stateRows = yield* projectionStateRepository.listAll();
+      const projectorSequenceByName = new Map<string, number>();
+
+      for (const projector of projectors) {
+        projectorSequenceByName.set(projector.name, 0);
+      }
+      for (const stateRow of stateRows) {
+        if (!projectorSequenceByName.has(stateRow.projector)) {
+          continue;
+        }
+        projectorSequenceByName.set(stateRow.projector, stateRow.lastAppliedSequence);
+      }
+
+      const fromSequenceExclusive =
+        stateRows.length < projectors.length
+          ? 0
+          : projectors.reduce(
+              (lowestSequence, projector) =>
+                Math.min(lowestSequence, projectorSequenceByName.get(projector.name) ?? 0),
+              Number.MAX_SAFE_INTEGER,
+            );
+
+      yield* Stream.runForEach(eventStore.readFromSequence(fromSequenceExclusive), (event) => {
+        const laggingProjectors = projectors.filter(
+          (projector) => (projectorSequenceByName.get(projector.name) ?? 0) < event.sequence,
+        );
+        return runProjectorsForEvent(event, laggingProjectors).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              for (const projector of laggingProjectors) {
+                projectorSequenceByName.set(projector.name, event.sequence);
+              }
+            }),
+          ),
+        );
+      });
+    }).pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
       Effect.provideService(ServerConfig, serverConfig),

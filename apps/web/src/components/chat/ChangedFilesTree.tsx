@@ -1,4 +1,4 @@
-import { type TurnId } from "@t3tools/contracts";
+import { type TurnId } from "@ace/contracts";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { type TurnDiffFileChange } from "../../types";
 import { buildTurnDiffTree, type TurnDiffTreeNode } from "../../lib/turnDiffTree";
@@ -13,8 +13,10 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
   allDirectoriesExpanded: boolean;
   resolvedTheme: "light" | "dark";
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  onLayoutChange?: () => void;
 }) {
-  const { files, allDirectoriesExpanded, onOpenTurnDiff, resolvedTheme, turnId } = props;
+  const { files, allDirectoriesExpanded, onLayoutChange, onOpenTurnDiff, resolvedTheme, turnId } =
+    props;
   const treeNodes = useMemo(() => buildTurnDiffTree(files), [files]);
   const directoryPathsKey = useMemo(
     () => collectDirectoryPaths(treeNodes).join("\u0000"),
@@ -34,6 +36,9 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
   useEffect(() => {
     setExpandedDirectories(allDirectoryExpansionState);
   }, [allDirectoryExpansionState]);
+  useEffect(() => {
+    onLayoutChange?.();
+  }, [expandedDirectories, onLayoutChange]);
 
   const toggleDirectory = useCallback((pathValue: string, fallbackExpanded: boolean) => {
     setExpandedDirectories((current) => ({

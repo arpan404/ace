@@ -1,4 +1,4 @@
-import { PROVIDER_DISPLAY_NAMES, type ServerProvider } from "@t3tools/contracts";
+import { PROVIDER_DISPLAY_NAMES, type ServerProvider } from "@ace/contracts";
 import { memo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { CircleAlertIcon } from "lucide-react";
@@ -24,7 +24,10 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
       <Alert variant={status.status === "error" ? "error" : "warning"}>
         <CircleAlertIcon />
         <AlertTitle>{title}</AlertTitle>
-        <AlertDescription className="line-clamp-3" title={status.message ?? defaultMessage}>
+        <AlertDescription
+          className="line-clamp-3 text-[12px] leading-relaxed"
+          title={status.message ?? defaultMessage}
+        >
           {status.message ?? defaultMessage}
         </AlertDescription>
       </Alert>

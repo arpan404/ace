@@ -2,7 +2,7 @@ import type {
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -259,6 +259,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.branch !== undefined ? { branch: command.branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          ...(command.queuedComposerMessages !== undefined
+            ? { queuedComposerMessages: command.queuedComposerMessages }
+            : {}),
+          ...(command.queuedSteerRequest !== undefined
+            ? { queuedSteerRequest: command.queuedSteerRequest }
+            : {}),
           updatedAt: occurredAt,
         },
       };
@@ -545,6 +551,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           text: command.delta,
           turnId: command.turnId ?? null,
           streaming: true,
+          ...(command.sequence !== undefined ? { sequence: command.sequence } : {}),
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -572,6 +579,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           text: "",
           turnId: command.turnId ?? null,
           streaming: false,
+          ...(command.sequence !== undefined ? { sequence: command.sequence } : {}),
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },

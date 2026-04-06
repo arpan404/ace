@@ -8,7 +8,7 @@ import {
 } from "./baseSchemas";
 import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
 import { EditorId } from "./editor";
-import { ModelCapabilities } from "./model";
+import { CursorModelMetadata, ModelCapabilities } from "./model";
 import { ProviderKind } from "./orchestration";
 import { ServerSettings } from "./settings";
 
@@ -53,6 +53,7 @@ export const ServerProviderModel = Schema.Struct({
   name: TrimmedNonEmptyString,
   isCustom: Schema.Boolean,
   capabilities: Schema.NullOr(ModelCapabilities),
+  cursorMetadata: Schema.optional(CursorModelMetadata),
 });
 export type ServerProviderModel = typeof ServerProviderModel.Type;
 
@@ -193,3 +194,18 @@ export const ServerProviderUpdatedPayload = Schema.Struct({
   providers: ServerProviders,
 });
 export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.Type;
+
+export const ServerSearchOpenCodeModelsInput = Schema.Struct({
+  query: Schema.String,
+  limit: NonNegativeInt,
+  offset: NonNegativeInt,
+});
+export type ServerSearchOpenCodeModelsInput = typeof ServerSearchOpenCodeModelsInput.Type;
+
+export const ServerSearchOpenCodeModelsResult = Schema.Struct({
+  models: Schema.Array(ServerProviderModel),
+  totalModels: NonNegativeInt,
+  nextOffset: Schema.NullOr(NonNegativeInt),
+  hasMore: Schema.Boolean,
+});
+export type ServerSearchOpenCodeModelsResult = typeof ServerSearchOpenCodeModelsResult.Type;

@@ -3,10 +3,10 @@ import type {
   ServerProviderAuth,
   ServerProviderModel,
   ServerProviderState,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
-import { normalizeModelSlug } from "@t3tools/shared/model";
+import { normalizeModelSlug } from "@ace/shared/model";
 import { isWindowsCommandNotFound } from "../processRunner";
 
 export const DEFAULT_TIMEOUT_MS = 4_000;
@@ -142,6 +142,28 @@ export function buildServerProvider(input: {
     ...(input.probe.message ? { message: input.probe.message } : {}),
     models: input.models,
   };
+}
+
+export function buildPendingServerProvider(input: {
+  provider: ServerProvider["provider"];
+  enabled: boolean;
+  models: ReadonlyArray<ServerProviderModel>;
+  message: string;
+  checkedAt?: string;
+}): ServerProvider {
+  return buildServerProvider({
+    provider: input.provider,
+    enabled: input.enabled,
+    checkedAt: input.checkedAt ?? new Date().toISOString(),
+    models: input.models,
+    probe: {
+      installed: false,
+      version: null,
+      status: "warning",
+      auth: { status: "unknown" },
+      message: input.message,
+    },
+  });
 }
 
 export const collectStreamAsString = <E>(

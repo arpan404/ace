@@ -7,6 +7,7 @@ import { fixPath } from "./os-jank";
 import { websocketRpcRouteLayer } from "./ws";
 import { OpenLive } from "./open";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite";
+import { ProjectionThreadMessageRepositoryLive } from "./persistence/Layers/ProjectionThreadMessages";
 import { ServerLifecycleEventsLive } from "./serverLifecycleEvents";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
 import { makeEventNdjsonLogger } from "./provider/Layers/EventNdjsonLogger";
@@ -14,6 +15,10 @@ import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionD
 import { ProviderSessionRuntimeRepositoryLive } from "./persistence/Layers/ProviderSessionRuntime";
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
 import { makeClaudeAdapterLive } from "./provider/Layers/ClaudeAdapter";
+import { CursorAdapterLive } from "./provider/Layers/CursorAdapter";
+import { GeminiAdapterLive } from "./provider/Layers/GeminiAdapter";
+import { makeGitHubCopilotAdapterLive } from "./provider/Layers/GitHubCopilotAdapter";
+import { OpenCodeAdapterLive } from "./provider/Layers/OpenCodeAdapter";
 import { ProviderAdapterRegistryLive } from "./provider/Layers/ProviderAdapterRegistry";
 import { makeProviderServiceLive } from "./provider/Layers/ProviderService";
 import { OrchestrationEngineLive } from "./orchestration/Layers/OrchestrationEngine";
@@ -31,6 +36,7 @@ import { GitManagerLive } from "./git/Layers/GitManager";
 import { KeybindingsLive } from "./keybindings";
 import { ServerLoggerLive } from "./serverLogger";
 import { ServerRuntimeStartup, ServerRuntimeStartupLive } from "./serverRuntimeStartup";
+import { logStartupEvent, withStartupTiming } from "./startupDiagnostics";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
 import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
@@ -40,55 +46,68 @@ import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
 import { ServerSettingsLive } from "./serverSettings";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries";
+import { WorkspaceEditorLive } from "./workspace/Layers/WorkspaceEditor";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 
 const PtyAdapterLive = Layer.unwrap(
-  Effect.gen(function* () {
-    if (typeof Bun !== "undefined") {
-      const BunPTY = yield* Effect.promise(() => import("./terminal/Layers/BunPTY"));
-      return BunPTY.layer;
-    } else {
-      const NodePTY = yield* Effect.promise(() => import("./terminal/Layers/NodePTY"));
-      return NodePTY.layer;
-    }
-  }),
+  withStartupTiming(
+    "server",
+    "Initializing PTY adapter layer",
+    Effect.gen(function* () {
+      if (typeof Bun !== "undefined") {
+        const BunPTY = yield* Effect.promise(() => import("./terminal/Layers/BunPTY"));
+        return BunPTY.layer;
+      } else {
+        const NodePTY = yield* Effect.promise(() => import("./terminal/Layers/NodePTY"));
+        return NodePTY.layer;
+      }
+    }),
+  ),
 );
 
 const HttpServerLive = Layer.unwrap(
-  Effect.gen(function* () {
-    const config = yield* ServerConfig;
-    if (typeof Bun !== "undefined") {
-      const BunHttpServer = yield* Effect.promise(
-        () => import("@effect/platform-bun/BunHttpServer"),
-      );
-      return BunHttpServer.layer({
-        port: config.port,
-        ...(config.host ? { hostname: config.host } : {}),
-      });
-    } else {
-      const [NodeHttpServer, NodeHttp] = yield* Effect.all([
-        Effect.promise(() => import("@effect/platform-node/NodeHttpServer")),
-        Effect.promise(() => import("node:http")),
-      ]);
-      return NodeHttpServer.layer(NodeHttp.createServer, {
-        host: config.host,
-        port: config.port,
-      });
-    }
-  }),
+  withStartupTiming(
+    "server",
+    "Initializing HTTP server layer",
+    Effect.gen(function* () {
+      const config = yield* ServerConfig;
+      if (typeof Bun !== "undefined") {
+        const BunHttpServer = yield* Effect.promise(
+          () => import("@effect/platform-bun/BunHttpServer"),
+        );
+        return BunHttpServer.layer({
+          port: config.port,
+          ...(config.host ? { hostname: config.host } : {}),
+        });
+      } else {
+        const [NodeHttpServer, NodeHttp] = yield* Effect.all([
+          Effect.promise(() => import("@effect/platform-node/NodeHttpServer")),
+          Effect.promise(() => import("node:http")),
+        ]);
+        return NodeHttpServer.layer(NodeHttp.createServer, {
+          host: config.host,
+          port: config.port,
+        });
+      }
+    }),
+  ),
 );
 
 const PlatformServicesLive = Layer.unwrap(
-  Effect.gen(function* () {
-    if (typeof Bun !== "undefined") {
-      const { layer } = yield* Effect.promise(() => import("@effect/platform-bun/BunServices"));
-      return layer;
-    } else {
-      const { layer } = yield* Effect.promise(() => import("@effect/platform-node/NodeServices"));
-      return layer;
-    }
-  }),
+  withStartupTiming(
+    "server",
+    "Initializing platform services layer",
+    Effect.gen(function* () {
+      if (typeof Bun !== "undefined") {
+        const { layer } = yield* Effect.promise(() => import("@effect/platform-bun/BunServices"));
+        return layer;
+      } else {
+        const { layer } = yield* Effect.promise(() => import("@effect/platform-node/NodeServices"));
+        return layer;
+      }
+    }),
+  ),
 );
 
 const ReactorLayerLive = Layer.empty.pipe(
@@ -125,32 +144,67 @@ const CheckpointingLayerLive = Layer.empty.pipe(
 );
 
 const ProviderLayerLive = Layer.unwrap(
-  Effect.gen(function* () {
-    const { providerEventLogPath } = yield* ServerConfig;
-    const nativeEventLogger = yield* makeEventNdjsonLogger(providerEventLogPath, {
-      stream: "native",
-    });
-    const canonicalEventLogger = yield* makeEventNdjsonLogger(providerEventLogPath, {
-      stream: "canonical",
-    });
-    const providerSessionDirectoryLayer = ProviderSessionDirectoryLive.pipe(
-      Layer.provide(ProviderSessionRuntimeRepositoryLive),
-    );
-    const codexAdapterLayer = makeCodexAdapterLive(
-      nativeEventLogger ? { nativeEventLogger } : undefined,
-    );
-    const claudeAdapterLayer = makeClaudeAdapterLive(
-      nativeEventLogger ? { nativeEventLogger } : undefined,
-    );
-    const adapterRegistryLayer = ProviderAdapterRegistryLive.pipe(
-      Layer.provide(codexAdapterLayer),
-      Layer.provide(claudeAdapterLayer),
-      Layer.provideMerge(providerSessionDirectoryLayer),
-    );
-    return makeProviderServiceLive(
-      canonicalEventLogger ? { canonicalEventLogger } : undefined,
-    ).pipe(Layer.provide(adapterRegistryLayer), Layer.provide(providerSessionDirectoryLayer));
-  }),
+  withStartupTiming(
+    "providers",
+    "Initializing provider layer",
+    Effect.gen(function* () {
+      const { providerEventLogPath } = yield* ServerConfig;
+      const nativeEventLogger = yield* withStartupTiming(
+        "providers",
+        "Initializing native provider event logger",
+        makeEventNdjsonLogger(providerEventLogPath, {
+          stream: "native",
+        }),
+      );
+      const canonicalEventLogger = yield* withStartupTiming(
+        "providers",
+        "Initializing canonical provider event logger",
+        makeEventNdjsonLogger(providerEventLogPath, {
+          stream: "canonical",
+        }),
+      );
+      const providerSessionDirectoryLayer = ProviderSessionDirectoryLive.pipe(
+        Layer.provide(ProviderSessionRuntimeRepositoryLive),
+      );
+      yield* logStartupEvent({
+        phase: "providers",
+        message: "Prepared provider session directory layer",
+      });
+      const codexAdapterLayer = makeCodexAdapterLive(
+        nativeEventLogger ? { nativeEventLogger } : undefined,
+      );
+      const claudeAdapterLayer = makeClaudeAdapterLive(
+        nativeEventLogger ? { nativeEventLogger } : undefined,
+      );
+      const gitHubCopilotAdapterLayer = makeGitHubCopilotAdapterLive(
+        nativeEventLogger ? { nativeEventLogger } : undefined,
+      );
+      yield* logStartupEvent({
+        phase: "providers",
+        message: "Prepared provider adapter layers",
+      });
+      const adapterRegistryLayer = ProviderAdapterRegistryLive.pipe(
+        Layer.provide(codexAdapterLayer),
+        Layer.provide(claudeAdapterLayer),
+        Layer.provide(gitHubCopilotAdapterLayer),
+        Layer.provide(CursorAdapterLive),
+        Layer.provide(GeminiAdapterLive),
+        Layer.provide(OpenCodeAdapterLive),
+        Layer.provideMerge(providerSessionDirectoryLayer),
+      );
+      yield* logStartupEvent({
+        phase: "providers",
+        message: "Prepared provider adapter registry layer",
+      });
+      return makeProviderServiceLive(
+        canonicalEventLogger ? { canonicalEventLogger } : undefined,
+      ).pipe(
+        Layer.provide(adapterRegistryLayer),
+        Layer.provide(providerSessionDirectoryLayer),
+        Layer.provide(ProjectionThreadMessageRepositoryLive),
+      );
+    }),
+  ),
 );
 
 const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
@@ -171,6 +225,7 @@ const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive)
 const WorkspaceLayerLive = Layer.mergeAll(
   WorkspacePathsLive,
   WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive)),
+  WorkspaceEditorLive.pipe(Layer.provide(WorkspacePathsLive)),
   WorkspaceFileSystemLive.pipe(
     Layer.provide(WorkspacePathsLive),
     Layer.provide(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
@@ -211,11 +266,25 @@ export const makeServerLayer = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig;
 
+    yield* logStartupEvent({
+      phase: "server",
+      message: "Building server layer",
+      detail: {
+        port: config.port,
+        host: config.host ?? null,
+        devUrl: config.devUrl?.toString() ?? null,
+      },
+    });
+
     fixPath();
 
     const httpListeningLayer = Layer.effectDiscard(
       Effect.gen(function* () {
         yield* HttpServer.HttpServer;
+        yield* logStartupEvent({
+          phase: "server",
+          message: "HTTP server acquired",
+        });
         const startup = yield* ServerRuntimeStartup;
         yield* startup.markHttpListening;
       }),
@@ -228,13 +297,20 @@ export const makeServerLayer = Layer.unwrap(
       httpListeningLayer,
     );
 
-    return serverApplicationLayer.pipe(
+    const serverLayer = serverApplicationLayer.pipe(
       Layer.provideMerge(RuntimeServicesLive),
       Layer.provideMerge(HttpServerLive),
       Layer.provide(ServerLoggerLive),
       Layer.provideMerge(FetchHttpClient.layer),
       Layer.provideMerge(PlatformServicesLive),
     );
+
+    yield* logStartupEvent({
+      phase: "server",
+      message: "Server layer assembled",
+    });
+
+    return serverLayer;
   }),
 );
 

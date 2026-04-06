@@ -1,39 +1,37 @@
-import { describe, expect, it, vi } from "vitest";
+import os from "node:os";
+import path from "node:path";
 
-import { fixPath } from "./os-jank";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { expect, it } from "@effect/vitest";
+import { Effect } from "effect";
+import { afterEach, vi } from "vitest";
 
-describe("fixPath", () => {
-  it("hydrates PATH on linux using the resolved login shell", () => {
-    const env: NodeJS.ProcessEnv = {
-      SHELL: "/bin/zsh",
-      PATH: "/usr/bin",
-    };
-    const readPath = vi.fn(() => "/opt/homebrew/bin:/usr/bin");
+import { resolveBaseDir } from "./os-jank";
 
-    fixPath({
-      env,
-      platform: "linux",
-      readPath,
-    });
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
-    expect(readPath).toHaveBeenCalledWith("/bin/zsh");
-    expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin");
-  });
+it.layer(NodeServices.layer)("resolveBaseDir", (it) => {
+  it.effect("uses the default .ace base dir when unset", () =>
+    Effect.gen(function* () {
+      const fakeHome = path.join(os.tmpdir(), "ace-os-jank-home");
 
-  it("does nothing outside macOS and linux even when SHELL is set", () => {
-    const env: NodeJS.ProcessEnv = {
-      SHELL: "C:/Program Files/Git/bin/bash.exe",
-      PATH: "C:\\Windows\\System32",
-    };
-    const readPath = vi.fn(() => "/usr/local/bin:/usr/bin");
+      vi.spyOn(os, "homedir").mockReturnValue(fakeHome);
 
-    fixPath({
-      env,
-      platform: "win32",
-      readPath,
-    });
+      const resolved = yield* resolveBaseDir(undefined);
+      expect(resolved).toBe(path.join(fakeHome, ".ace"));
+    }),
+  );
 
-    expect(readPath).not.toHaveBeenCalled();
-    expect(env.PATH).toBe("C:\\Windows\\System32");
-  });
+  it.effect("expands home-relative overrides", () =>
+    Effect.gen(function* () {
+      const fakeHome = path.join(os.tmpdir(), "ace-os-jank-home");
+
+      vi.spyOn(os, "homedir").mockReturnValue(fakeHome);
+
+      const resolved = yield* resolveBaseDir("~/custom-state");
+      expect(resolved).toBe(path.join(fakeHome, "custom-state"));
+    }),
+  );
 });

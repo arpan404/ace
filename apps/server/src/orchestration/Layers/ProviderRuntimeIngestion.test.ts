@@ -2,11 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type {
-  OrchestrationReadModel,
-  ProviderRuntimeEvent,
-  ProviderSession,
-} from "@t3tools/contracts";
+import type { OrchestrationReadModel, ProviderRuntimeEvent, ProviderSession } from "@ace/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -18,7 +14,7 @@ import {
   type ServerSettings,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -194,7 +190,7 @@ describe("ProviderRuntimeIngestion", () => {
   });
 
   async function createHarness(options?: { serverSettings?: Partial<ServerSettings> }) {
-    const workspaceRoot = makeTempDir("t3-provider-project-");
+    const workspaceRoot = makeTempDir("ace-provider-project-");
     fs.mkdirSync(path.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
     const orchestrationLayer = OrchestrationEngineLive.pipe(
@@ -206,6 +202,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
     const layer = ProviderRuntimeIngestionLive.pipe(
       Layer.provideMerge(orchestrationLayer),
+      Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
@@ -693,6 +690,504 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
+  it("splits assistant messages when tool activity interrupts the same assistant item", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-segment-delta-1"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-segmented"),
+      itemId: asItemId("item-segmented"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "First answer chunk.",
+      },
+    });
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-segment-tool-started"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-segmented"),
+      itemId: asItemId("tool-segmented"),
+      payload: {
+        itemType: "command_execution",
+        status: "inProgress",
+        title: "bash",
+        detail: "bun run lint",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-segment-delta-2"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-segmented"),
+      itemId: asItemId("item-segmented"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "Follow-up after tool.",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-segment-complete"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-segmented"),
+      itemId: asItemId("item-segmented"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const assistantMessages = entry.messages.filter(
+        (message: ProviderRuntimeTestMessage) =>
+          message.turnId === "turn-segmented" && message.role === "assistant" && !message.streaming,
+      );
+      return assistantMessages.length >= 2;
+    });
+
+    const assistantMessages = thread.messages.filter(
+      (message: ProviderRuntimeTestMessage) =>
+        message.turnId === "turn-segmented" && message.role === "assistant",
+    );
+    expect(assistantMessages.map((message) => message.text)).toEqual([
+      "First answer chunk.",
+      "Follow-up after tool.",
+    ]);
+
+    const toolActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-segment-tool-started",
+    );
+    expect(toolActivity?.kind).toBe("tool.started");
+  });
+
+  it("keeps assistant output merged when tool activity streaming is disabled", async () => {
+    const harness = await createHarness({ serverSettings: { enableToolStreaming: false } });
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-tool-disabled-delta-1"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-tool-disabled"),
+      itemId: asItemId("item-tool-disabled"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "Before tool. ",
+      },
+    });
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-tool-disabled-started"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-tool-disabled"),
+      itemId: asItemId("tool-tool-disabled"),
+      payload: {
+        itemType: "command_execution",
+        status: "inProgress",
+        title: "bash",
+        detail: "bun run lint",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-tool-disabled-delta-2"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-tool-disabled"),
+      itemId: asItemId("item-tool-disabled"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "After tool.",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-tool-disabled-complete"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-tool-disabled"),
+      itemId: asItemId("item-tool-disabled"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.turnId === "turn-tool-disabled" &&
+          message.role === "assistant" &&
+          !message.streaming,
+      ),
+    );
+
+    const assistantMessages = thread.messages.filter(
+      (message: ProviderRuntimeTestMessage) =>
+        message.turnId === "turn-tool-disabled" && message.role === "assistant",
+    );
+    expect(assistantMessages.map((message) => message.text)).toEqual(["Before tool. After tool."]);
+    expect(
+      thread.activities.find(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-tool-disabled-started",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("splits assistant messages when reasoning activity interrupts the same assistant item", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-reasoning-segment-delta-1"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-reasoning-segmented"),
+      itemId: asItemId("item-reasoning-segmented"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "Before reasoning.",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-reasoning-segment-thinking"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-reasoning-segmented"),
+      itemId: asItemId("reasoning-reasoning-segmented"),
+      payload: {
+        streamKind: "reasoning_text",
+        delta: "Thinking through the next tool call.",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-reasoning-segment-delta-2"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-reasoning-segmented"),
+      itemId: asItemId("item-reasoning-segmented"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "After reasoning.",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-reasoning-segment-complete"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-reasoning-segmented"),
+      itemId: asItemId("item-reasoning-segmented"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const assistantMessages = entry.messages.filter(
+        (message: ProviderRuntimeTestMessage) =>
+          message.turnId === "turn-reasoning-segmented" &&
+          message.role === "assistant" &&
+          !message.streaming,
+      );
+      return assistantMessages.length >= 2;
+    });
+
+    const assistantMessages = thread.messages.filter(
+      (message: ProviderRuntimeTestMessage) =>
+        message.turnId === "turn-reasoning-segmented" && message.role === "assistant",
+    );
+    expect(assistantMessages.map((message) => message.text)).toEqual([
+      "Before reasoning.",
+      "After reasoning.",
+    ]);
+
+    const reasoningActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-reasoning-segment-thinking",
+    );
+    expect(reasoningActivity?.kind).toBe("task.progress");
+  });
+
+  it("keeps assistant output merged when thinking activity streaming is disabled", async () => {
+    const harness = await createHarness({ serverSettings: { enableThinkingStreaming: false } });
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-thinking-disabled-delta-1"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-thinking-disabled"),
+      itemId: asItemId("item-thinking-disabled"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "Before thinking. ",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-thinking-disabled-reasoning"),
+      provider: "githubCopilot",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-thinking-disabled"),
+      itemId: asItemId("reasoning-thinking-disabled"),
+      payload: {
+        streamKind: "reasoning_text",
+        delta: "Inspecting package scripts before running checks.",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-thinking-disabled-delta-2"),
+      provider: "githubCopilot",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-thinking-disabled"),
+      itemId: asItemId("item-thinking-disabled"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "After thinking.",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-thinking-disabled-complete"),
+      provider: "githubCopilot",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-thinking-disabled"),
+      itemId: asItemId("item-thinking-disabled"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.turnId === "turn-thinking-disabled" &&
+          message.role === "assistant" &&
+          !message.streaming,
+      ),
+    );
+
+    const assistantMessages = thread.messages.filter(
+      (message: ProviderRuntimeTestMessage) =>
+        message.turnId === "turn-thinking-disabled" && message.role === "assistant",
+    );
+    expect(assistantMessages.map((message) => message.text)).toEqual([
+      "Before thinking. After thinking.",
+    ]);
+    expect(
+      thread.activities.find(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-thinking-disabled-reasoning",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("splits assistant messages when task progress interrupts the same turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-task-progress-segment-delta-1"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-task-progress-segmented"),
+      itemId: asItemId("item-task-progress-segmented"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "Before task progress.",
+      },
+    });
+    harness.emit({
+      type: "task.progress",
+      eventId: asEventId("evt-task-progress-segment-thinking"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-task-progress-segmented"),
+      payload: {
+        taskId: "task-progress-segment",
+        description: "Thinking through the next tool call.",
+        summary: "Thinking through the next tool call.",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-task-progress-segment-delta-2"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-task-progress-segmented"),
+      itemId: asItemId("item-task-progress-segmented"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "After task progress.",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-task-progress-segment-complete"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-task-progress-segmented"),
+      itemId: asItemId("item-task-progress-segmented"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const assistantMessages = entry.messages.filter(
+        (message: ProviderRuntimeTestMessage) =>
+          message.turnId === "turn-task-progress-segmented" &&
+          message.role === "assistant" &&
+          !message.streaming,
+      );
+      return assistantMessages.length >= 2;
+    });
+
+    const assistantMessages = thread.messages.filter(
+      (message: ProviderRuntimeTestMessage) =>
+        message.turnId === "turn-task-progress-segmented" && message.role === "assistant",
+    );
+    expect(assistantMessages.map((message) => message.text)).toEqual([
+      "Before task progress.",
+      "After task progress.",
+    ]);
+
+    const taskProgressActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.id === "evt-task-progress-segment-thinking",
+    );
+    expect(taskProgressActivity?.kind).toBe("task.progress");
+  });
+
+  it("preserves provider sessionSequence on segmented assistant messages", async () => {
+    const harness = await createHarness();
+    const baseSequence = 1_706_255_202_000_000;
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-provider-sequence-delta-1"),
+      provider: "githubCopilot",
+      createdAt: "2026-02-23T10:00:01.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-provider-sequence"),
+      itemId: asItemId("item-provider-sequence"),
+      sessionSequence: baseSequence + 1,
+      payload: {
+        streamKind: "assistant_text",
+        delta: "Before tool.",
+      },
+    });
+    harness.emit({
+      type: "task.progress",
+      eventId: asEventId("evt-provider-sequence-thinking"),
+      provider: "githubCopilot",
+      createdAt: "2026-02-23T10:00:02.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-provider-sequence"),
+      sessionSequence: baseSequence + 2,
+      payload: {
+        taskId: "task-provider-sequence",
+        description: "Inspecting files before the next step.",
+        summary: "Inspecting files before the next step.",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-provider-sequence-delta-2"),
+      provider: "githubCopilot",
+      createdAt: "2026-02-23T10:00:03.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-provider-sequence"),
+      itemId: asItemId("item-provider-sequence"),
+      sessionSequence: baseSequence + 3,
+      payload: {
+        streamKind: "assistant_text",
+        delta: "After tool.",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-provider-sequence-complete"),
+      provider: "githubCopilot",
+      createdAt: "2026-02-23T10:00:04.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-provider-sequence"),
+      itemId: asItemId("item-provider-sequence"),
+      sessionSequence: baseSequence + 4,
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const assistantMessages = entry.messages.filter(
+        (message: ProviderRuntimeTestMessage) =>
+          message.turnId === "turn-provider-sequence" &&
+          message.role === "assistant" &&
+          !message.streaming,
+      );
+      return assistantMessages.length >= 2;
+    });
+
+    const assistantMessages = thread.messages.filter(
+      (message: ProviderRuntimeTestMessage) =>
+        message.turnId === "turn-provider-sequence" && message.role === "assistant",
+    );
+    expect(assistantMessages.map((message) => message.text)).toEqual([
+      "Before tool.",
+      "After tool.",
+    ]);
+    expect(assistantMessages.map((message) => message.sequence)).toEqual([
+      baseSequence + 1,
+      baseSequence + 3,
+    ]);
+
+    const reasoningActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-provider-sequence-thinking",
+    );
+    expect(reasoningActivity?.sequence).toBe(baseSequence + 2);
+  });
+
   it("uses assistant item completion detail when no assistant deltas were streamed", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -723,6 +1218,116 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(message?.text).toBe("assistant-only final text");
     expect(message?.streaming).toBe(false);
+  });
+
+  it("projects reasoning item completions into timeline activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-reasoning-complete"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-reasoning"),
+      itemId: asItemId("reasoning-1"),
+      payload: {
+        itemType: "reasoning",
+        status: "completed",
+        title: "Reasoning",
+        data: {
+          content: "Need to inspect the workspace and then patch the adapter.",
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-reasoning-complete",
+      ),
+    );
+    const reasoningActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-reasoning-complete",
+    );
+
+    expect(reasoningActivity?.kind).toBe("reasoning.completed");
+    expect(reasoningActivity?.summary).toBe("Reasoning");
+    expect(reasoningActivity?.payload).toMatchObject({
+      itemType: "reasoning",
+      detail: "Need to inspect the workspace and then patch the adapter.",
+    });
+  });
+
+  it("projects reasoning deltas into streamed progress activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-reasoning-delta"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-reasoning-stream"),
+      itemId: asItemId("reasoning-stream-1"),
+      payload: {
+        streamKind: "reasoning_text",
+        delta: "Inspecting package scripts before running checks.",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-reasoning-delta",
+      ),
+    );
+    const progressActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-reasoning-delta",
+    );
+
+    expect(progressActivity?.kind).toBe("task.progress");
+    expect(progressActivity?.summary).toBe("Reasoning");
+    expect(progressActivity?.payload).toMatchObject({
+      taskId: "reasoning:reasoning-stream-1",
+      detail: "Inspecting package scripts before running checks.",
+    });
+  });
+
+  it("does not truncate long Copilot reasoning deltas", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const longReasoning =
+      "Clarifying development tasks and preserving the user intent while checking the development server path, command plan, and session state before choosing the next tool call in the current turn.";
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-reasoning-delta-long"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-reasoning-stream-long"),
+      itemId: asItemId("reasoning-stream-long-1"),
+      payload: {
+        streamKind: "reasoning_text",
+        delta: longReasoning,
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-reasoning-delta-long",
+      ),
+    );
+    const progressActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-reasoning-delta-long",
+    );
+
+    expect(progressActivity?.kind).toBe("task.progress");
+    expect(progressActivity?.payload).toMatchObject({
+      taskId: "reasoning:reasoning-stream-long-1",
+      detail: longReasoning,
+    });
   });
 
   it("projects completed plan items into first-class proposed plans", async () => {
@@ -1326,8 +1931,8 @@ describe("ProviderRuntimeIngestion", () => {
     expect(proposedPlan?.planMarkdown).toBe("## Buffered plan\n\n- first\n- second");
   });
 
-  it("buffers assistant deltas by default until completion", async () => {
-    const harness = await createHarness();
+  it("buffers assistant deltas until completion when assistant streaming is disabled", async () => {
+    const harness = await createHarness({ serverSettings: { enableAssistantStreaming: false } });
     const now = new Date().toISOString();
 
     harness.emit({
@@ -1486,6 +2091,104 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(finalMessage?.text).toBe("hello live");
     expect(finalMessage?.streaming).toBe(false);
+  });
+
+  it("flushes small cursor assistant delta batches before turn completion", async () => {
+    const harness = await createHarness({ serverSettings: { enableAssistantStreaming: true } });
+    const now = new Date().toISOString();
+    const followUpDelta = "x".repeat(120);
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-cursor-streaming"),
+      provider: "cursor",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cursor-streaming"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-cursor-streaming",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-cursor-streaming-1"),
+      provider: "cursor",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cursor-streaming"),
+      itemId: asItemId("item-cursor-streaming"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "hello ",
+      },
+    });
+
+    await waitForThread(harness.engine, (thread) =>
+      thread.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-cursor-streaming" &&
+          message.streaming &&
+          message.text === "hello ",
+      ),
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-cursor-streaming-2"),
+      provider: "cursor",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cursor-streaming"),
+      itemId: asItemId("item-cursor-streaming"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: followUpDelta,
+      },
+    });
+
+    const liveThread = await waitForThread(harness.engine, (thread) =>
+      thread.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-cursor-streaming" &&
+          message.streaming &&
+          message.text === `hello ${followUpDelta}`,
+      ),
+    );
+    const liveMessage = liveThread.messages.find(
+      (message: ProviderRuntimeTestMessage) => message.id === "assistant:item-cursor-streaming",
+    );
+    expect(liveMessage?.streaming).toBe(true);
+    expect(liveMessage?.text).toBe(`hello ${followUpDelta}`);
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-cursor-streaming"),
+      provider: "cursor",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cursor-streaming"),
+      itemId: asItemId("item-cursor-streaming"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const finalThread = await waitForThread(harness.engine, (thread) =>
+      thread.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-cursor-streaming" && !message.streaming,
+      ),
+    );
+    const finalMessage = finalThread.messages.find(
+      (message: ProviderRuntimeTestMessage) => message.id === "assistant:item-cursor-streaming",
+    );
+    expect(finalMessage?.streaming).toBe(false);
+    expect(finalMessage?.text).toBe(`hello ${followUpDelta}`);
   });
 
   it("spills oversized buffered deltas and still finalizes full assistant text", async () => {

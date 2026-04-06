@@ -1,21 +1,21 @@
 # Remote Access Setup
 
-Use this when you want to open T3 Code from another device (phone, tablet, another laptop).
+Use this when you want to open ace from another device (phone, tablet, another laptop).
 
 ## CLI ↔ Env option map
 
-The T3 Code CLI accepts the following configuration options, available either as CLI flags or environment variables:
+The ace CLI accepts the following configuration options, available either as CLI flags or environment variables:
 
 | CLI flag                | Env var               | Notes                                                                                |
 | ----------------------- | --------------------- | ------------------------------------------------------------------------------------ |
-| `--mode <web\|desktop>` | `T3CODE_MODE`         | Runtime mode.                                                                        |
-| `--port <number>`       | `T3CODE_PORT`         | HTTP/WebSocket port.                                                                 |
-| `--host <address>`      | `T3CODE_HOST`         | Bind interface/address.                                                              |
-| `--base-dir <path>`     | `T3CODE_HOME`         | Base directory.                                                                      |
+| `--mode <web\|desktop>` | `ACE_MODE`            | Runtime mode.                                                                        |
+| `--port <number>`       | `ACE_PORT`            | HTTP/WebSocket port.                                                                 |
+| `--host <address>`      | `ACE_HOST`            | Bind interface/address.                                                              |
+| `--base-dir <path>`     | `ACE_HOME`            | Base directory.                                                                      |
 | `--dev-url <url>`       | `VITE_DEV_SERVER_URL` | Dev web URL redirect/proxy target.                                                   |
-| `--no-browser`          | `T3CODE_NO_BROWSER`   | Disable auto-open browser.                                                           |
-| `--auth-token <token>`  | `T3CODE_AUTH_TOKEN`   | WebSocket auth token. Use this for standard CLI and remote-server flows.             |
-| `--bootstrap-fd <fd>`   | `T3CODE_BOOTSTRAP_FD` | Read a one-shot bootstrap envelope from an inherited file descriptor during startup. |
+| `--no-browser`          | `ACE_NO_BROWSER`      | Disable auto-open browser.                                                           |
+| `--auth-token <token>`  | `ACE_AUTH_TOKEN`      | WebSocket auth token. Use this for standard CLI and remote-server flows.             |
+| `--bootstrap-fd <fd>`   | `ACE_BOOTSTRAP_FD`    | Read a one-shot bootstrap envelope from an inherited file descriptor during startup. |
 
 > TIP: Use the `--help` flag to see all available options and their descriptions.
 

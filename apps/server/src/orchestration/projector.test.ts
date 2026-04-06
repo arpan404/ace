@@ -1,10 +1,4 @@
-import {
-  CommandId,
-  EventId,
-  ProjectId,
-  ThreadId,
-  type OrchestrationEvent,
-} from "@t3tools/contracts";
+import { CommandId, EventId, ProjectId, ThreadId, type OrchestrationEvent } from "@ace/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -91,8 +85,11 @@ describe("orchestration projector", () => {
         deletedAt: null,
         messages: [],
         proposedPlans: [],
+        latestProposedPlanSummary: null,
         activities: [],
         checkpoints: [],
+        queuedComposerMessages: [],
+        queuedSteerRequest: null,
         session: null,
       },
     ]);
@@ -444,6 +441,67 @@ describe("orchestration projector", () => {
     expect(message?.updatedAt).toBe(completeAt);
   });
 
+  it("preserves payload sequence on assistant messages when provided", async () => {
+    const createdAt = "2026-02-23T09:30:00.000Z";
+    const model = createEmptyReadModel(createdAt);
+
+    const afterCreate = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: createdAt,
+          commandId: "cmd-create",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "demo",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.3-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      ),
+    );
+
+    const payloadSequence = 1_706_255_202_000_001;
+    const afterMessage = await Effect.runPromise(
+      projectEvent(
+        afterCreate,
+        makeEvent({
+          sequence: 2,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: "2026-02-23T09:30:01.000Z",
+          commandId: "cmd-assistant",
+          payload: {
+            threadId: "thread-1",
+            messageId: "assistant-sequenced",
+            role: "assistant",
+            text: "sequenced",
+            turnId: "turn-1",
+            streaming: false,
+            sequence: payloadSequence,
+            createdAt: "2026-02-23T09:30:01.000Z",
+            updatedAt: "2026-02-23T09:30:01.000Z",
+          },
+        }),
+      ),
+    );
+
+    expect(afterMessage.threads[0]?.messages[0]?.sequence).toBe(payloadSequence);
+  });
+
   it("prunes reverted turn messages from in-memory thread snapshot", async () => {
     const createdAt = "2026-02-23T10:00:00.000Z";
     const model = createEmptyReadModel(createdAt);
@@ -524,7 +582,7 @@ describe("orchestration projector", () => {
           threadId: "thread-1",
           turnId: "turn-1",
           checkpointTurnCount: 1,
-          checkpointRef: "refs/t3/checkpoints/thread-1/turn/1",
+          checkpointRef: "refs/ace/checkpoints/thread-1/turn/1",
           status: "ready",
           files: [],
           assistantMessageId: "assistant-msg-1",
@@ -598,7 +656,7 @@ describe("orchestration projector", () => {
           threadId: "thread-1",
           turnId: "turn-2",
           checkpointTurnCount: 2,
-          checkpointRef: "refs/t3/checkpoints/thread-1/turn/2",
+          checkpointRef: "refs/ace/checkpoints/thread-1/turn/2",
           status: "ready",
           files: [],
           assistantMessageId: "assistant-msg-2",
@@ -703,7 +761,7 @@ describe("orchestration projector", () => {
           threadId: "thread-revert",
           turnId: "turn-1",
           checkpointTurnCount: 1,
-          checkpointRef: "refs/t3/checkpoints/thread-revert/turn/1",
+          checkpointRef: "refs/ace/checkpoints/thread-revert/turn/1",
           status: "ready",
           files: [],
           assistantMessageId: "assistant-keep",
@@ -739,7 +797,7 @@ describe("orchestration projector", () => {
           threadId: "thread-revert",
           turnId: "turn-2",
           checkpointTurnCount: 2,
-          checkpointRef: "refs/t3/checkpoints/thread-revert/turn/2",
+          checkpointRef: "refs/ace/checkpoints/thread-revert/turn/2",
           status: "ready",
           files: [],
           assistantMessageId: "assistant-remove",
@@ -888,7 +946,7 @@ describe("orchestration projector", () => {
             threadId: "thread-capped",
             turnId: `turn-${index}`,
             checkpointTurnCount: index + 1,
-            checkpointRef: `refs/t3/checkpoints/thread-capped/turn/${index + 1}`,
+            checkpointRef: `refs/ace/checkpoints/thread-capped/turn/${index + 1}`,
             status: "ready",
             files: [],
             assistantMessageId: `msg-${index}`,
@@ -911,5 +969,109 @@ describe("orchestration projector", () => {
     expect(thread?.checkpoints).toHaveLength(500);
     expect(thread?.checkpoints[0]?.turnId).toBe("turn-100");
     expect(thread?.checkpoints.at(-1)?.turnId).toBe("turn-599");
+  });
+
+  it("compacts repeated reasoning activity so verbose turns do not evict earlier tool history", async () => {
+    const createdAt = "2026-03-05T10:00:00.000Z";
+    const model = createEmptyReadModel(createdAt);
+
+    const afterCreate = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-reasoning",
+          occurredAt: createdAt,
+          commandId: "cmd-create-reasoning",
+          payload: {
+            threadId: "thread-reasoning",
+            projectId: "project-1",
+            title: "reasoning",
+            modelSelection: {
+              provider: "githubCopilot",
+              model: "gpt-5.4",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      ),
+    );
+
+    let nextModel = await Effect.runPromise(
+      projectEvent(
+        afterCreate,
+        makeEvent({
+          sequence: 2,
+          type: "thread.activity-appended",
+          aggregateKind: "thread",
+          aggregateId: "thread-reasoning",
+          occurredAt: "2026-03-05T10:00:00.500Z",
+          commandId: "cmd-tool",
+          payload: {
+            threadId: "thread-reasoning",
+            activity: {
+              id: "tool-history",
+              tone: "tool",
+              kind: "tool.completed",
+              summary: "Read file",
+              payload: { detail: "packages/contracts/src/model.ts" },
+              turnId: "turn-1",
+              createdAt: "2026-03-05T10:00:00.500Z",
+            },
+          },
+        }),
+      ),
+    );
+
+    for (let index = 0; index < 750; index += 1) {
+      const fraction = String(index).padStart(3, "0");
+      nextModel = await Effect.runPromise(
+        projectEvent(
+          nextModel,
+          makeEvent({
+            sequence: 3 + index,
+            type: "thread.activity-appended",
+            aggregateKind: "thread",
+            aggregateId: "thread-reasoning",
+            occurredAt: `2026-03-05T10:00:${String((index % 60) + 1).padStart(2, "0")}.000Z`,
+            commandId: `cmd-reasoning-${fraction}`,
+            payload: {
+              threadId: "thread-reasoning",
+              activity: {
+                id: `reasoning-${fraction}`,
+                tone: "info",
+                kind: index === 749 ? "reasoning.completed" : "task.progress",
+                summary: "Reasoning",
+                payload: {
+                  taskId: "copilot-task-1",
+                  detail: `thought-${fraction}`,
+                },
+                turnId: "turn-1",
+                sequence: index + 1,
+                createdAt: `2026-03-05T10:00:${String((index % 60) + 1).padStart(2, "0")}.000Z`,
+              },
+            },
+          }),
+        ),
+      );
+    }
+
+    const thread = nextModel.threads.find((entry) => entry.id === "thread-reasoning");
+    expect(thread?.activities.map((activity) => activity.id)).toEqual([
+      "tool-history",
+      "reasoning-749",
+    ]);
+    expect((thread?.activities[1]?.payload as { detail?: string } | undefined)?.detail).toContain(
+      "thought-000",
+    );
+    expect((thread?.activities[1]?.payload as { detail?: string } | undefined)?.detail).toContain(
+      "thought-749",
+    );
   });
 });

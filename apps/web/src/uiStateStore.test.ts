@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId } from "@t3tools/contracts";
+import { ProjectId, ThreadId } from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

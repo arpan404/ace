@@ -3,7 +3,7 @@
 import { Toast } from "@base-ui/react/toast";
 import { useEffect, type CSSProperties } from "react";
 import { useParams } from "@tanstack/react-router";
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId } from "@ace/contracts";
 import {
   CheckIcon,
   CircleAlertIcon,
@@ -17,7 +17,7 @@ import {
 import { cn } from "~/lib/utils";
 import { buttonVariants } from "~/components/ui/button";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { buildVisibleToastLayout, shouldHideCollapsedToastContent } from "./toast.logic";
+import { buildVisibleToastLayout, shouldHideCollapsedToastContent } from "~/lib/ui/toast";
 
 type ThreadToastData = {
   threadId?: ThreadId | null;

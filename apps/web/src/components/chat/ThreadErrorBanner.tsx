@@ -14,7 +14,7 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
     <div className="pt-3 mx-auto max-w-3xl">
       <Alert variant="error">
         <CircleAlertIcon />
-        <AlertDescription className="line-clamp-3" title={error}>
+        <AlertDescription className="line-clamp-3 text-[12px] leading-relaxed" title={error}>
           {error}
         </AlertDescription>
         {onDismiss && (
@@ -22,7 +22,7 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
             <button
               type="button"
               aria-label="Dismiss error"
-              className="inline-flex size-6 items-center justify-center rounded-md text-destructive/60 transition-colors hover:text-destructive"
+              className="inline-flex size-6 items-center justify-center rounded-lg text-destructive/50 transition-all duration-200 hover:bg-destructive/10 hover:text-destructive"
               onClick={onDismiss}
             >
               <XIcon className="size-3.5" />

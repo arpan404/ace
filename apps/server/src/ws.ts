@@ -6,15 +6,28 @@ import {
   type OrchestrationEvent,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
+  OrchestrationGetThreadError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
+  ProjectCreateEntryError,
+  ProjectDeleteEntryError,
   ProjectSearchEntriesError,
+  ProjectListTreeError,
+  ProjectReadFileError,
+  ProjectRenameEntryError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   type TerminalEvent,
+  WorkspaceEditorCloseBufferError,
+  WorkspaceEditorSyncBufferError,
   WS_METHODS,
   WsRpcGroup,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
+import {
+  extractWebSocketAuthTokenFromProtocolHeader,
+  extractWebSocketClientSessionIdFromProtocolHeader,
+  extractWebSocketConnectionIdFromProtocolHeader,
+} from "@ace/shared/wsAuth";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
@@ -29,23 +42,130 @@ import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
+import { startOpenCodeServer } from "./provider/opencodeRuntime";
+import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./provider/opencodeSdk";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
+import { WorkspaceEditor } from "./workspace/Services/WorkspaceEditor";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
-import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
+import {
+  WorkspacePathOutsideRootError,
+  WorkspaceRootNotDirectoryError,
+  WorkspaceRootNotExistsError,
+} from "./workspace/Services/WorkspacePaths";
+
+const WS_UPGRADE_RATE_LIMIT_WINDOW_MS = 60_000;
+const WS_UPGRADE_RATE_LIMIT_MAX_ATTEMPTS = 30;
+const WS_CLIENT_SESSION_TTL_MS = 15 * 60_000;
+const WS_CLIENT_SESSION_PRUNE_INTERVAL_MS = 60_000;
+
+type WsClientSessionRecord = {
+  readonly connectionId: string;
+  readonly generation: number;
+  readonly updatedAt: number;
+};
+
+const wsClientSessions = new Map<string, WsClientSessionRecord>();
+let nextWsClientSessionPruneAt = 0;
+
+function pruneWsClientSessions(now = Date.now()): void {
+  for (const [clientSessionId, record] of wsClientSessions.entries()) {
+    if (record.updatedAt + WS_CLIENT_SESSION_TTL_MS <= now) {
+      wsClientSessions.delete(clientSessionId);
+    }
+  }
+}
+
+function pruneWsClientSessionsIfNeeded(now = Date.now()): void {
+  if (now < nextWsClientSessionPruneAt) {
+    return;
+  }
+  pruneWsClientSessions(now);
+  nextWsClientSessionPruneAt = now + WS_CLIENT_SESSION_PRUNE_INTERVAL_MS;
+}
+
+function registerWsClientSession(
+  clientSessionId: string,
+  connectionId: string,
+  now = Date.now(),
+): WsClientSessionRecord {
+  pruneWsClientSessionsIfNeeded(now);
+  const existing = wsClientSessions.get(clientSessionId);
+  const nextRecord: WsClientSessionRecord =
+    existing && existing.connectionId === connectionId
+      ? {
+          ...existing,
+          updatedAt: now,
+        }
+      : {
+          connectionId,
+          generation: (existing?.generation ?? 0) + 1,
+          updatedAt: now,
+        };
+  wsClientSessions.set(clientSessionId, nextRecord);
+  return nextRecord;
+}
+
+function isCurrentWsClientSession(clientSessionId?: string, connectionId?: string): boolean {
+  if (!clientSessionId || !connectionId) {
+    return true;
+  }
+  const current = wsClientSessions.get(clientSessionId);
+  return current?.connectionId === connectionId;
+}
+
+function disconnectWsClientSession(clientSessionId: string, connectionId: string): void {
+  const current = wsClientSessions.get(clientSessionId);
+  if (current?.connectionId === connectionId) {
+    wsClientSessions.delete(clientSessionId);
+  }
+}
+
+function normalizeStreamIdentity(input: {
+  readonly clientSessionId?: string | undefined;
+  readonly connectionId?: string | undefined;
+}): {
+  readonly clientSessionId: string | undefined;
+  readonly connectionId: string | undefined;
+} {
+  return {
+    clientSessionId: input.clientSessionId,
+    connectionId: input.connectionId,
+  };
+}
+
+function resolveWsRateLimitKey(headers: Record<string, string | undefined>): string {
+  const clientSessionId = extractWebSocketClientSessionIdFromProtocolHeader(
+    headers["sec-websocket-protocol"],
+  );
+  if (clientSessionId) {
+    return `ws-client:${clientSessionId}`;
+  }
+  const forwardedFor = headers["x-forwarded-for"]?.split(",")[0]?.trim();
+  if (forwardedFor) {
+    return forwardedFor;
+  }
+
+  const realIp = headers["x-real-ip"]?.trim();
+  if (realIp) {
+    return realIp;
+  }
+
+  return headers["user-agent"]?.trim() || "ws-upgrade:unknown";
+}
 
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const checkpointDiffQuery = yield* CheckpointDiffQuery;
     const keybindings = yield* Keybindings;
     const open = yield* Open;
     const gitManager = yield* GitManager;
     const git = yield* GitCore;
+    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const terminalManager = yield* TerminalManager;
     const providerRegistry = yield* ProviderRegistry;
     const config = yield* ServerConfig;
@@ -53,6 +173,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const serverSettings = yield* ServerSettingsService;
     const startup = yield* ServerRuntimeStartup;
     const workspaceEntries = yield* WorkspaceEntries;
+    const workspaceEditor = yield* WorkspaceEditor;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
 
     const loadServerConfig = Effect.gen(function* () {
@@ -71,15 +192,48 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       };
     });
 
+    const filterCurrentClientStream = <TValue, TError, TContext>(
+      input: {
+        readonly clientSessionId: string | undefined;
+        readonly connectionId: string | undefined;
+      },
+      stream: Stream.Stream<TValue, TError, TContext>,
+    ): Stream.Stream<TValue, TError, TContext> =>
+      stream.pipe(
+        Stream.filter(() => isCurrentWsClientSession(input.clientSessionId, input.connectionId)),
+      );
+
     return WsRpcGroup.of({
-      [ORCHESTRATION_WS_METHODS.getSnapshot]: (_input) =>
-        projectionSnapshotQuery.getSnapshot().pipe(
+      [ORCHESTRATION_WS_METHODS.getSnapshot]: (input) =>
+        projectionSnapshotQuery.getSnapshot(input).pipe(
           Effect.mapError(
             (cause) =>
               new OrchestrationGetSnapshotError({
                 message: "Failed to load orchestration snapshot",
                 cause,
               }),
+          ),
+        ),
+      [ORCHESTRATION_WS_METHODS.getThread]: (input) =>
+        projectionSnapshotQuery.getThread(input.threadId).pipe(
+          Effect.flatMap((thread) =>
+            Option.match(thread, {
+              onNone: () =>
+                Effect.fail(
+                  new OrchestrationGetThreadError({
+                    message: `Thread '${input.threadId}' was not found.`,
+                  }),
+                ),
+              onSome: Effect.succeed,
+            }),
+          ),
+          Effect.mapError((cause) =>
+            Schema.is(OrchestrationGetThreadError)(cause)
+              ? cause
+              : new OrchestrationGetThreadError({
+                  message: "Failed to load orchestration thread",
+                  cause,
+                }),
           ),
         ),
       [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
@@ -131,7 +285,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               }),
           ),
         ),
-      [WS_METHODS.subscribeOrchestrationDomainEvents]: (_input) =>
+      [WS_METHODS.subscribeOrchestrationDomainEvents]: (input) =>
         Stream.unwrap(
           Effect.gen(function* () {
             const snapshot = yield* orchestrationEngine.getReadModel();
@@ -153,44 +307,75 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               pendingBySequence: new Map<number, OrchestrationEvent>(),
             });
 
-            return source.pipe(
-              Stream.mapEffect((event) =>
-                Ref.modify(
-                  state,
-                  ({
-                    nextSequence,
-                    pendingBySequence,
-                  }): [Array<OrchestrationEvent>, SequenceState] => {
-                    if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
-                      return [[], { nextSequence, pendingBySequence }];
-                    }
-
-                    const updatedPending = new Map(pendingBySequence);
-                    updatedPending.set(event.sequence, event);
-
-                    const emit: Array<OrchestrationEvent> = [];
-                    let expected = nextSequence;
-                    for (;;) {
-                      const expectedEvent = updatedPending.get(expected);
-                      if (!expectedEvent) {
-                        break;
+            return filterCurrentClientStream(
+              normalizeStreamIdentity(input),
+              source.pipe(
+                Stream.mapEffect((event) =>
+                  Ref.modify(
+                    state,
+                    ({
+                      nextSequence,
+                      pendingBySequence,
+                    }): [Array<OrchestrationEvent>, SequenceState] => {
+                      if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
+                        return [[], { nextSequence, pendingBySequence }];
                       }
-                      emit.push(expectedEvent);
-                      updatedPending.delete(expected);
-                      expected += 1;
-                    }
 
-                    return [emit, { nextSequence: expected, pendingBySequence: updatedPending }];
-                  },
+                      const updatedPending = new Map(pendingBySequence);
+                      updatedPending.set(event.sequence, event);
+
+                      const emit: Array<OrchestrationEvent> = [];
+                      let expected = nextSequence;
+                      for (;;) {
+                        const expectedEvent = updatedPending.get(expected);
+                        if (!expectedEvent) {
+                          break;
+                        }
+                        emit.push(expectedEvent);
+                        updatedPending.delete(expected);
+                        expected += 1;
+                      }
+
+                      return [emit, { nextSequence: expected, pendingBySequence: updatedPending }];
+                    },
+                  ),
                 ),
+                Stream.flatMap((events) => Stream.fromIterable(events)),
               ),
-              Stream.flatMap((events) => Stream.fromIterable(events)),
             );
           }),
         ),
       [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig,
       [WS_METHODS.serverRefreshProviders]: (_input) =>
         providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
+      [WS_METHODS.serverSearchOpenCodeModels]: (input) =>
+        Effect.gen(function* () {
+          const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
+          if (!settings.providers.opencode.enabled) {
+            return {
+              models: [],
+              totalModels: 0,
+              nextOffset: null,
+              hasMore: false,
+            };
+          }
+
+          return yield* Effect.promise(async () => {
+            const server = await startOpenCodeServer(settings.providers.opencode.binaryPath);
+            try {
+              return await searchOpenCodeModels(server.url, {
+                query: input.query,
+                limit: clamp(input.limit, {
+                  minimum: 1,
+                  maximum: OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT,
+                }),
+                offset: clamp(input.offset, { minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
+              });
+            } finally {
+              await server.close();
+            }
+          }).pipe(Effect.orDie);
+        }),
       [WS_METHODS.serverUpsertKeybinding]: (rule) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.upsertKeybindingRule(rule);
@@ -198,6 +383,11 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         }),
       [WS_METHODS.serverGetSettings]: (_input) => serverSettings.getSettings,
       [WS_METHODS.serverUpdateSettings]: ({ patch }) => serverSettings.updateSettings(patch),
+      [WS_METHODS.serverDisconnect]: (input) =>
+        Effect.sync(() => {
+          disconnectWsClientSession(input.clientSessionId, input.connectionId);
+          return {};
+        }),
       [WS_METHODS.projectsSearchEntries]: (input) =>
         workspaceEntries.search(input).pipe(
           Effect.mapError(
@@ -208,6 +398,64 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               }),
           ),
         ),
+      [WS_METHODS.projectsListTree]: (input) =>
+        workspaceEntries.listTree(input.cwd).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProjectListTreeError({
+                message: `Failed to load workspace tree: ${cause.detail}`,
+                cause,
+              }),
+          ),
+        ),
+      [WS_METHODS.projectsCreateEntry]: (input) =>
+        workspaceFileSystem.createEntry(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : cause.detail;
+            return new ProjectCreateEntryError({
+              message,
+              cause,
+            });
+          }),
+        ),
+      [WS_METHODS.projectsDeleteEntry]: (input) =>
+        workspaceFileSystem.deleteEntry(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : cause.detail;
+            return new ProjectDeleteEntryError({
+              message,
+              cause,
+            });
+          }),
+        ),
+      [WS_METHODS.projectsReadFile]: (input) =>
+        workspaceFileSystem.readFile(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : cause.detail;
+            return new ProjectReadFileError({
+              message,
+              cause,
+            });
+          }),
+        ),
+      [WS_METHODS.projectsRenameEntry]: (input) =>
+        workspaceFileSystem.renameEntry(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : cause.detail;
+            return new ProjectRenameEntryError({
+              message,
+              cause,
+            });
+          }),
+        ),
       [WS_METHODS.projectsWriteFile]: (input) =>
         workspaceFileSystem.writeFile(input).pipe(
           Effect.mapError((cause) => {
@@ -215,6 +463,36 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               ? "Workspace file path must stay within the project root."
               : "Failed to write workspace file";
             return new ProjectWriteFileError({
+              message,
+              cause,
+            });
+          }),
+        ),
+      [WS_METHODS.workspaceEditorSyncBuffer]: (input) =>
+        workspaceEditor.syncBuffer(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : Schema.is(WorkspaceRootNotExistsError)(cause) ||
+                  Schema.is(WorkspaceRootNotDirectoryError)(cause)
+                ? cause.message
+                : "Failed to sync workspace diagnostics through Neovim.";
+            return new WorkspaceEditorSyncBufferError({
+              message,
+              cause,
+            });
+          }),
+        ),
+      [WS_METHODS.workspaceEditorCloseBuffer]: (input) =>
+        workspaceEditor.closeBuffer(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : Schema.is(WorkspaceRootNotExistsError)(cause) ||
+                  Schema.is(WorkspaceRootNotDirectoryError)(cause)
+                ? cause.message
+                : "Failed to close the Neovim workspace buffer.";
+            return new WorkspaceEditorCloseBufferError({
               message,
               cause,
             });
@@ -254,14 +532,17 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.terminalClear]: (input) => terminalManager.clear(input),
       [WS_METHODS.terminalRestart]: (input) => terminalManager.restart(input),
       [WS_METHODS.terminalClose]: (input) => terminalManager.close(input),
-      [WS_METHODS.subscribeTerminalEvents]: (_input) =>
-        Stream.callback<TerminalEvent>((queue) =>
-          Effect.acquireRelease(
-            terminalManager.subscribe((event) => Queue.offer(queue, event)),
-            (unsubscribe) => Effect.sync(unsubscribe),
+      [WS_METHODS.subscribeTerminalEvents]: (input) =>
+        filterCurrentClientStream(
+          normalizeStreamIdentity(input),
+          Stream.callback<TerminalEvent>((queue) =>
+            Effect.acquireRelease(
+              terminalManager.subscribe((event) => Queue.offer(queue, event)),
+              (unsubscribe) => Effect.sync(unsubscribe),
+            ),
           ),
         ),
-      [WS_METHODS.subscribeServerConfig]: (_input) =>
+      [WS_METHODS.subscribeServerConfig]: (input) =>
         Stream.unwrap(
           Effect.gen(function* () {
             const keybindingsUpdates = keybindings.streamChanges.pipe(
@@ -288,17 +569,20 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               })),
             );
 
-            return Stream.concat(
-              Stream.make({
-                version: 1 as const,
-                type: "snapshot" as const,
-                config: yield* loadServerConfig,
-              }),
-              Stream.merge(keybindingsUpdates, Stream.merge(providerStatuses, settingsUpdates)),
+            return filterCurrentClientStream(
+              normalizeStreamIdentity(input),
+              Stream.concat(
+                Stream.make({
+                  version: 1 as const,
+                  type: "snapshot" as const,
+                  config: yield* loadServerConfig,
+                }),
+                Stream.merge(keybindingsUpdates, Stream.merge(providerStatuses, settingsUpdates)),
+              ),
             );
           }),
         ),
-      [WS_METHODS.subscribeServerLifecycle]: (_input) =>
+      [WS_METHODS.subscribeServerLifecycle]: (input) =>
         Stream.unwrap(
           Effect.gen(function* () {
             const snapshot = yield* lifecycleEvents.snapshot;
@@ -308,7 +592,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             const liveEvents = lifecycleEvents.stream.pipe(
               Stream.filter((event) => event.sequence > snapshot.sequence),
             );
-            return Stream.concat(Stream.fromIterable(snapshotEvents), liveEvents);
+            return filterCurrentClientStream(
+              normalizeStreamIdentity(input),
+              Stream.concat(Stream.fromIterable(snapshotEvents), liveEvents),
+            );
           }),
         ),
     });
@@ -320,21 +607,76 @@ export const websocketRpcRouteLayer = Layer.unwrap(
     const rpcWebSocketHttpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup).pipe(
       Effect.provide(Layer.mergeAll(WsRpcLayer, RpcSerialization.layerJson)),
     );
+    const wsUpgradeAttempts = new Map<string, { count: number; resetAt: number }>();
+
+    const takeWsUpgradeBudget = (clientKey: string, now = Date.now()) => {
+      for (const [key, value] of wsUpgradeAttempts.entries()) {
+        if (value.resetAt <= now) {
+          wsUpgradeAttempts.delete(key);
+        }
+      }
+
+      const current = wsUpgradeAttempts.get(clientKey);
+      if (!current || current.resetAt <= now) {
+        wsUpgradeAttempts.set(clientKey, {
+          count: 1,
+          resetAt: now + WS_UPGRADE_RATE_LIMIT_WINDOW_MS,
+        });
+        return {
+          allowed: true,
+          retryAfterSeconds: Math.ceil(WS_UPGRADE_RATE_LIMIT_WINDOW_MS / 1_000),
+        } as const;
+      }
+
+      if (current.count >= WS_UPGRADE_RATE_LIMIT_MAX_ATTEMPTS) {
+        return {
+          allowed: false,
+          retryAfterSeconds: Math.max(1, Math.ceil((current.resetAt - now) / 1_000)),
+        } as const;
+      }
+
+      current.count += 1;
+      return {
+        allowed: true,
+        retryAfterSeconds: Math.max(1, Math.ceil((current.resetAt - now) / 1_000)),
+      } as const;
+    };
+
     return HttpRouter.add(
       "GET",
       "/ws",
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const config = yield* ServerConfig;
+        const rateLimit = takeWsUpgradeBudget(resolveWsRateLimitKey(request.headers));
+        if (!rateLimit.allowed) {
+          return HttpServerResponse.text("Too many WebSocket upgrade attempts", {
+            status: 429,
+            headers: {
+              "Retry-After": String(rateLimit.retryAfterSeconds),
+            },
+          });
+        }
+
         if (config.authToken) {
-          const url = HttpServerRequest.toURL(request);
-          if (Option.isNone(url)) {
-            return HttpServerResponse.text("Invalid WebSocket URL", { status: 400 });
-          }
-          const token = url.value.searchParams.get("token");
+          const token = extractWebSocketAuthTokenFromProtocolHeader(
+            request.headers["sec-websocket-protocol"],
+          );
           if (token !== config.authToken) {
             return HttpServerResponse.text("Unauthorized WebSocket connection", { status: 401 });
           }
+        }
+        const clientSessionId = extractWebSocketClientSessionIdFromProtocolHeader(
+          request.headers["sec-websocket-protocol"],
+        );
+        const connectionId = extractWebSocketConnectionIdFromProtocolHeader(
+          request.headers["sec-websocket-protocol"],
+        );
+        if ((clientSessionId && !connectionId) || (!clientSessionId && connectionId)) {
+          return HttpServerResponse.text("Invalid WebSocket client identity", { status: 400 });
+        }
+        if (clientSessionId && connectionId) {
+          registerWsClientSession(clientSessionId, connectionId);
         }
         return yield* rpcWebSocketHttpEffect;
       }),

@@ -1,7 +1,8 @@
-import type { ThreadId } from "@t3tools/contracts";
+import type { ThreadId } from "@ace/contracts";
 import { FolderIcon, GitForkIcon } from "lucide-react";
 import { useCallback } from "react";
 
+import { runAsyncTask } from "../lib/async";
 import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -10,7 +11,7 @@ import {
   EnvMode,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
-} from "./BranchToolbar.logic";
+} from "../lib/git/branchToolbar";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 
@@ -61,14 +62,15 @@ export default function BranchToolbar({
       // If the effective cwd is about to change, stop the running session so the
       // next message creates a new one with the correct cwd.
       if (serverThread?.session && worktreePath !== activeWorktreePath && api) {
-        void api.orchestration
-          .dispatchCommand({
+        runAsyncTask(
+          api.orchestration.dispatchCommand({
             type: "thread.session.stop",
             commandId: newCommandId(),
             threadId: activeThreadId,
             createdAt: new Date().toISOString(),
-          })
-          .catch(() => undefined);
+          }),
+          "Failed to stop the previous session after switching thread environment mode.",
+        );
       }
       if (api && hasServerThread) {
         void api.orchestration.dispatchCommand({
@@ -109,9 +111,9 @@ export default function BranchToolbar({
   if (!activeThreadId || !activeProject) return null;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-3 pt-1">
+    <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-2.5 pt-1">
       {envLocked || activeWorktreePath ? (
-        <span className="inline-flex items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
+        <span className="inline-flex items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/55 sm:text-xs">
           {activeWorktreePath ? (
             <>
               <GitForkIcon className="size-3" />

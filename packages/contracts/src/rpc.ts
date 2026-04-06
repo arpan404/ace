@@ -35,6 +35,8 @@ import {
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetSnapshotError,
   OrchestrationGetSnapshotInput,
+  OrchestrationGetThreadError,
+  OrchestrationGetThreadInput,
   OrchestrationGetTurnDiffError,
   OrchestrationGetTurnDiffInput,
   OrchestrationReplayEventsError,
@@ -42,6 +44,21 @@ import {
   OrchestrationRpcSchemas,
 } from "./orchestration";
 import {
+  ProjectCreateEntryError,
+  ProjectCreateEntryInput,
+  ProjectCreateEntryResult,
+  ProjectDeleteEntryError,
+  ProjectDeleteEntryInput,
+  ProjectDeleteEntryResult,
+  ProjectListTreeError,
+  ProjectListTreeInput,
+  ProjectListTreeResult,
+  ProjectReadFileError,
+  ProjectReadFileInput,
+  ProjectReadFileResult,
+  ProjectRenameEntryError,
+  ProjectRenameEntryInput,
+  ProjectRenameEntryResult,
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
@@ -49,6 +66,14 @@ import {
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "./project";
+import {
+  WorkspaceEditorCloseBufferError,
+  WorkspaceEditorCloseBufferInput,
+  WorkspaceEditorCloseBufferResult,
+  WorkspaceEditorSyncBufferError,
+  WorkspaceEditorSyncBufferInput,
+  WorkspaceEditorSyncBufferResult,
+} from "./workspaceEditor";
 import {
   TerminalClearInput,
   TerminalCloseInput,
@@ -63,6 +88,8 @@ import {
 import {
   ServerConfigStreamEvent,
   ServerConfig,
+  ServerSearchOpenCodeModelsInput,
+  ServerSearchOpenCodeModelsResult,
   ServerLifecycleStreamEvent,
   ServerProviderUpdatedPayload,
   ServerUpsertKeybindingInput,
@@ -76,7 +103,14 @@ export const WS_METHODS = {
   projectsAdd: "projects.add",
   projectsRemove: "projects.remove",
   projectsSearchEntries: "projects.searchEntries",
+  projectsListTree: "projects.listTree",
+  projectsCreateEntry: "projects.createEntry",
+  projectsDeleteEntry: "projects.deleteEntry",
+  projectsReadFile: "projects.readFile",
+  projectsRenameEntry: "projects.renameEntry",
   projectsWriteFile: "projects.writeFile",
+  workspaceEditorSyncBuffer: "workspaceEditor.syncBuffer",
+  workspaceEditorCloseBuffer: "workspaceEditor.closeBuffer",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -105,9 +139,11 @@ export const WS_METHODS = {
   // Server meta
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
+  serverSearchOpenCodeModels: "server.searchOpenCodeModels",
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
+  serverDisconnect: "server.disconnect",
 
   // Streaming subscriptions
   subscribeOrchestrationDomainEvents: "subscribeOrchestrationDomainEvents",
@@ -115,6 +151,16 @@ export const WS_METHODS = {
   subscribeServerConfig: "subscribeServerConfig",
   subscribeServerLifecycle: "subscribeServerLifecycle",
 } as const;
+
+const WsClientStreamIdentity = Schema.Struct({
+  clientSessionId: Schema.optional(Schema.String),
+  connectionId: Schema.optional(Schema.String),
+});
+
+const WsClientDisconnectInput = Schema.Struct({
+  clientSessionId: Schema.String,
+  connectionId: Schema.String,
+});
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
   payload: ServerUpsertKeybindingInput,
@@ -133,6 +179,11 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
   success: ServerProviderUpdatedPayload,
 });
 
+export const WsServerSearchOpenCodeModelsRpc = Rpc.make(WS_METHODS.serverSearchOpenCodeModels, {
+  payload: ServerSearchOpenCodeModelsInput,
+  success: ServerSearchOpenCodeModelsResult,
+});
+
 export const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   payload: Schema.Struct({}),
   success: ServerSettings,
@@ -145,16 +196,63 @@ export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSetting
   error: ServerSettingsError,
 });
 
+export const WsServerDisconnectRpc = Rpc.make(WS_METHODS.serverDisconnect, {
+  payload: WsClientDisconnectInput,
+  success: Schema.Struct({}),
+});
+
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
   payload: ProjectSearchEntriesInput,
   success: ProjectSearchEntriesResult,
   error: ProjectSearchEntriesError,
 });
 
+export const WsProjectsListTreeRpc = Rpc.make(WS_METHODS.projectsListTree, {
+  payload: ProjectListTreeInput,
+  success: ProjectListTreeResult,
+  error: ProjectListTreeError,
+});
+
+export const WsProjectsCreateEntryRpc = Rpc.make(WS_METHODS.projectsCreateEntry, {
+  payload: ProjectCreateEntryInput,
+  success: ProjectCreateEntryResult,
+  error: ProjectCreateEntryError,
+});
+
+export const WsProjectsDeleteEntryRpc = Rpc.make(WS_METHODS.projectsDeleteEntry, {
+  payload: ProjectDeleteEntryInput,
+  success: ProjectDeleteEntryResult,
+  error: ProjectDeleteEntryError,
+});
+
+export const WsProjectsReadFileRpc = Rpc.make(WS_METHODS.projectsReadFile, {
+  payload: ProjectReadFileInput,
+  success: ProjectReadFileResult,
+  error: ProjectReadFileError,
+});
+
+export const WsProjectsRenameEntryRpc = Rpc.make(WS_METHODS.projectsRenameEntry, {
+  payload: ProjectRenameEntryInput,
+  success: ProjectRenameEntryResult,
+  error: ProjectRenameEntryError,
+});
+
 export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   payload: ProjectWriteFileInput,
   success: ProjectWriteFileResult,
   error: ProjectWriteFileError,
+});
+
+export const WsWorkspaceEditorSyncBufferRpc = Rpc.make(WS_METHODS.workspaceEditorSyncBuffer, {
+  payload: WorkspaceEditorSyncBufferInput,
+  success: WorkspaceEditorSyncBufferResult,
+  error: WorkspaceEditorSyncBufferError,
+});
+
+export const WsWorkspaceEditorCloseBufferRpc = Rpc.make(WS_METHODS.workspaceEditorCloseBuffer, {
+  payload: WorkspaceEditorCloseBufferInput,
+  success: WorkspaceEditorCloseBufferResult,
+  error: WorkspaceEditorCloseBufferError,
 });
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
@@ -263,6 +361,12 @@ export const WsOrchestrationGetSnapshotRpc = Rpc.make(ORCHESTRATION_WS_METHODS.g
   error: OrchestrationGetSnapshotError,
 });
 
+export const WsOrchestrationGetThreadRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getThread, {
+  payload: OrchestrationGetThreadInput,
+  success: OrchestrationRpcSchemas.getThread.output,
+  error: OrchestrationGetThreadError,
+});
+
 export const WsOrchestrationDispatchCommandRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.dispatchCommand,
   {
@@ -296,27 +400,27 @@ export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.
 export const WsSubscribeOrchestrationDomainEventsRpc = Rpc.make(
   WS_METHODS.subscribeOrchestrationDomainEvents,
   {
-    payload: Schema.Struct({}),
+    payload: WsClientStreamIdentity,
     success: OrchestrationEvent,
     stream: true,
   },
 );
 
 export const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTerminalEvents, {
-  payload: Schema.Struct({}),
+  payload: WsClientStreamIdentity,
   success: TerminalEvent,
   stream: true,
 });
 
 export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerConfig, {
-  payload: Schema.Struct({}),
+  payload: WsClientStreamIdentity,
   success: ServerConfigStreamEvent,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError]),
   stream: true,
 });
 
 export const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecycle, {
-  payload: Schema.Struct({}),
+  payload: WsClientStreamIdentity,
   success: ServerLifecycleStreamEvent,
   stream: true,
 });
@@ -324,11 +428,20 @@ export const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServer
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
+  WsServerSearchOpenCodeModelsRpc,
   WsServerUpsertKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
+  WsServerDisconnectRpc,
   WsProjectsSearchEntriesRpc,
+  WsProjectsListTreeRpc,
+  WsProjectsCreateEntryRpc,
+  WsProjectsDeleteEntryRpc,
+  WsProjectsReadFileRpc,
+  WsProjectsRenameEntryRpc,
   WsProjectsWriteFileRpc,
+  WsWorkspaceEditorSyncBufferRpc,
+  WsWorkspaceEditorCloseBufferRpc,
   WsShellOpenInEditorRpc,
   WsGitStatusRpc,
   WsGitPullRpc,
@@ -352,6 +465,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeServerConfigRpc,
   WsSubscribeServerLifecycleRpc,
   WsOrchestrationGetSnapshotRpc,
+  WsOrchestrationGetThreadRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,

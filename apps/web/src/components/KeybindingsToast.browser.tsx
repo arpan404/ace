@@ -9,7 +9,7 @@ import {
   type ServerLifecycleWelcomePayload,
   type ThreadId,
   WS_METHODS,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { ws, http, HttpResponse } from "msw";
 import { setupWorker } from "msw/browser";
@@ -40,7 +40,7 @@ const wsLink = ws.link(/ws(s)?:\/\/.*/);
 function createBaseServerConfig(): ServerConfig {
   return {
     cwd: "/repo/project",
-    keybindingsConfigPath: "/repo/project/.t3code-keybindings.json",
+    keybindingsConfigPath: "/repo/project/.ace-keybindings.json",
     keybindings: [],
     issues: [],
     providers: [
@@ -58,11 +58,25 @@ function createBaseServerConfig(): ServerConfig {
     availableEditors: [],
     settings: {
       enableAssistantStreaming: false,
+      enableToolStreaming: true,
+      enableThinkingStreaming: true,
       defaultThreadEnvMode: "local" as const,
-      textGenerationModelSelection: { provider: "codex" as const, model: "gpt-5.4-mini" },
+      textGenerationModelSelection: {
+        provider: "codex" as const,
+        model: "gpt-5.4-mini",
+      },
       providers: {
-        codex: { enabled: true, binaryPath: "", homePath: "", customModels: [] },
+        codex: {
+          enabled: true,
+          binaryPath: "",
+          homePath: "",
+          customModels: [],
+        },
         claudeAgent: { enabled: true, binaryPath: "", customModels: [] },
+        githubCopilot: { enabled: true, binaryPath: "", cliUrl: "", customModels: [] },
+        cursor: { enabled: true, binaryPath: "", customModels: [] },
+        gemini: { enabled: true, binaryPath: "", customModels: [] },
+        opencode: { enabled: true, binaryPath: "", customModels: [] },
       },
     },
   };
@@ -117,6 +131,9 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         ],
         activities: [],
         proposedPlans: [],
+        latestProposedPlanSummary: null,
+        queuedComposerMessages: [],
+        queuedSteerRequest: null,
         checkpoints: [],
         session: {
           threadId: THREAD_ID,
@@ -150,6 +167,9 @@ function resolveWsRpc(tag: string): unknown {
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
   }
+  if (tag === ORCHESTRATION_WS_METHODS.getThread) {
+    return fixture.snapshot.threads[0];
+  }
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
@@ -173,6 +193,12 @@ function resolveWsRpc(tag: string): unknown {
   }
   if (tag === WS_METHODS.projectsSearchEntries) {
     return { entries: [], truncated: false };
+  }
+  if (tag === WS_METHODS.projectsListTree) {
+    return { entries: [], truncated: false };
+  }
+  if (tag === WS_METHODS.projectsReadFile) {
+    return { relativePath: "README.md", contents: "", sizeBytes: 0 };
   }
   return {};
 }
@@ -257,7 +283,9 @@ async function mountApp(): Promise<{ cleanup: () => Promise<void> }> {
 
   const router = getRouter(createMemoryHistory({ initialEntries: [`/${THREAD_ID}`] }));
 
-  const screen = await render(<RouterProvider router={router} />, { container: host });
+  const screen = await render(<RouterProvider router={router} />, {
+    container: host,
+  });
   await waitForComposerEditor();
 
   return {
@@ -348,7 +376,10 @@ describe("Keybindings update toast", () => {
 
     try {
       sendServerConfigUpdatedPush([
-        { kind: "keybindings.malformed-config", message: "Expected JSON array" },
+        {
+          kind: "keybindings.malformed-config",
+          message: "Expected JSON array",
+        },
       ]);
       await waitForToast("Invalid keybindings configuration");
     } finally {
@@ -380,7 +411,11 @@ describe("Keybindings update toast", () => {
 
       await remounted.cleanup();
     } catch (error) {
-      await mounted.cleanup().catch(() => {});
+      try {
+        await mounted.cleanup();
+      } catch (cleanupError) {
+        console.warn("Failed to clean up the mounted keybindings toast app.", cleanupError);
+      }
       throw error;
     }
   });

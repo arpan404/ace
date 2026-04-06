@@ -5,7 +5,7 @@ import {
   type KeybindingShortcut,
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import {
   formatShortcutLabel,
   isChatNewShortcut,
@@ -101,9 +101,135 @@ const DEFAULT_BINDINGS = compile([
     command: "diff.toggle",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
+  {
+    shortcut: modShortcut("b"),
+    command: "browser.toggle",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
+    shortcut: modShortcut("["),
+    command: "browser.back",
+    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
+  {
+    shortcut: modShortcut("]"),
+    command: "browser.forward",
+    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
+  {
+    shortcut: modShortcut("r"),
+    command: "browser.reload",
+    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
+  {
+    shortcut: modShortcut("i", { shiftKey: true }),
+    command: "browser.devtools",
+    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
+  {
+    shortcut: modShortcut("d", { shiftKey: true }),
+    command: "browser.duplicateTab",
+    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
+  {
+    shortcut: modShortcut("[", { altKey: true }),
+    command: "browser.moveTabLeft",
+    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
+  {
+    shortcut: modShortcut("]", { altKey: true }),
+    command: "browser.moveTabRight",
+    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
   { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
+  { shortcut: modShortcut("n", { altKey: true }), command: "editor.newFile" },
+  { shortcut: modShortcut("n", { altKey: true, shiftKey: true }), command: "editor.newFolder" },
+  {
+    shortcut: {
+      key: "f2",
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      modKey: false,
+    },
+    command: "editor.rename",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  { shortcut: modShortcut("\\"), command: "editor.split", whenAst: whenIdentifier("editorFocus") },
+  {
+    shortcut: modShortcut("\\", { shiftKey: true }),
+    command: "editor.splitDown",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
+    shortcut: {
+      key: "z",
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: true,
+      modKey: false,
+    },
+    command: "editor.toggleWordWrap",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
+    shortcut: modShortcut("w"),
+    command: "editor.closeTab",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
+    shortcut: modShortcut("t", { shiftKey: true }),
+    command: "editor.reopenClosedTab",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
+    shortcut: modShortcut("arrowleft", { altKey: true }),
+    command: "editor.focusPreviousWindow",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
+    shortcut: modShortcut("arrowright", { altKey: true }),
+    command: "editor.focusNextWindow",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
+    shortcut: {
+      key: "arrowleft",
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: true,
+      altKey: true,
+      modKey: false,
+    },
+    command: "editor.previousTab",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
+    shortcut: {
+      key: "arrowright",
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: true,
+      altKey: true,
+      modKey: false,
+    },
+    command: "editor.nextTab",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
+    shortcut: modShortcut("arrowleft", { altKey: true, shiftKey: true }),
+    command: "editor.moveTabLeft",
+    whenAst: whenIdentifier("editorFocus"),
+  },
+  {
+    shortcut: modShortcut("arrowright", { altKey: true, shiftKey: true }),
+    command: "editor.moveTabRight",
+    whenAst: whenIdentifier("editorFocus"),
+  },
   { shortcut: modShortcut("[", { shiftKey: true }), command: "thread.previous" },
   { shortcut: modShortcut("]", { shiftKey: true }), command: "thread.next" },
   { shortcut: modShortcut("1"), command: "thread.jump.1" },
@@ -223,6 +349,48 @@ describe("split/new/close terminal shortcuts", () => {
   });
 });
 
+describe("editor workspace shortcuts", () => {
+  it("resolves alt+z to word wrap toggle", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "z", altKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { editorFocus: true },
+      }),
+      "editor.toggleWordWrap",
+    );
+  });
+
+  it("resolves F2 to rename when editor focus is active", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "F2" }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { editorFocus: true },
+      }),
+      "editor.rename",
+    );
+  });
+
+  it("resolves Cmd+W to close the active editor tab", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "w", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { editorFocus: true },
+      }),
+      "editor.closeTab",
+    );
+  });
+
+  it("resolves Cmd+Shift+T to reopen the last closed editor tab", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "t", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { editorFocus: true },
+      }),
+      "editor.reopenClosedTab",
+    );
+  });
+});
+
 describe("shortcutLabelForCommand", () => {
   it("returns the effective binding label", () => {
     const bindings = compile([
@@ -250,8 +418,68 @@ describe("shortcutLabelForCommand", () => {
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.new", "MacIntel"), "⇧⌘O");
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
     assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.toggle", "Linux"),
+      "Ctrl+B",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.devtools", {
+        platform: "MacIntel",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "⇧⌘I",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.duplicateTab", {
+        platform: "MacIntel",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "⇧⌘D",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.moveTabLeft", {
+        platform: "MacIntel",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "⌥⌘[",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.moveTabRight", {
+        platform: "MacIntel",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "⌥⌘]",
+    );
+    assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFavorite", "Linux"),
       "Ctrl+O",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.split", {
+        platform: "Linux",
+        context: { editorFocus: true },
+      }),
+      "Ctrl+\\",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.splitDown", {
+        platform: "Linux",
+        context: { editorFocus: true },
+      }),
+      "Ctrl+Shift+\\",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.focusNextWindow", {
+        platform: "MacIntel",
+        context: { editorFocus: true },
+      }),
+      "⌥⌘Right",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.nextTab", {
+        platform: "Linux",
+        context: { editorFocus: true },
+      }),
+      "Alt+Shift+Right",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.jump.3", "MacIntel"),
@@ -393,6 +621,114 @@ describe("chat/editor shortcuts", () => {
       isDiffToggleShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
         context: { terminalFocus: true },
+      }),
+    );
+  });
+
+  it("resolves browser shortcuts with browserOpen context", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "b", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: false, terminalFocus: false },
+      }),
+      "browser.toggle",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "[", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "browser.back",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "]", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "browser.forward",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "r", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "browser.reload",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "i", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "browser.devtools",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "d", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "browser.duplicateTab",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "[", ctrlKey: true, altKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "browser.moveTabLeft",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "]", ctrlKey: true, altKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "browser.moveTabRight",
+    );
+  });
+
+  it("resolves editor shortcuts only with editorFocus context", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "\\", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { editorFocus: true },
+      }),
+      "editor.split",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "\\", ctrlKey: true, shiftKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "Linux",
+          context: { editorFocus: true },
+        },
+      ),
+      "editor.splitDown",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "ArrowRight", ctrlKey: true, altKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "Linux",
+          context: { editorFocus: true },
+        },
+      ),
+      "editor.focusNextWindow",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "ArrowLeft", altKey: true, shiftKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "Linux",
+          context: { editorFocus: true },
+        },
+      ),
+      "editor.previousTab",
+    );
+    assert.isNull(
+      resolveShortcutCommand(event({ key: "\\", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { editorFocus: false },
       }),
     );
   });

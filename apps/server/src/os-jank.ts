@@ -1,6 +1,6 @@
 import * as OS from "node:os";
 import { Effect, Path } from "effect";
-import { readPathFromLoginShell, resolveLoginShell } from "@t3tools/shared/shell";
+import { readPathFromLoginShell, resolveLoginShell } from "@ace/shared/shell";
 
 export function fixPath(
   options: {
@@ -39,8 +39,12 @@ export const expandHomePath = Effect.fn(function* (input: string) {
 
 export const resolveBaseDir = Effect.fn(function* (raw: string | undefined) {
   const { join, resolve } = yield* Path.Path;
+  const homeDir = OS.homedir();
+  const defaultBaseDir = join(homeDir, ".ace");
+
   if (!raw || raw.trim().length === 0) {
-    return join(OS.homedir(), ".t3");
+    return defaultBaseDir;
   }
+
   return resolve(yield* expandHomePath(raw.trim()));
 });

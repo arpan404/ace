@@ -18,7 +18,7 @@ import {
   ResolvedKeybindingsConfig,
   THREAD_JUMP_KEYBINDING_COMMANDS,
   type ServerConfigIssue,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Mutable } from "effect/Types";
 import {
   Array,
@@ -45,7 +45,7 @@ import {
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
-import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import { fromLenientJson } from "@ace/shared/schemaJson";
 
 type WhenToken =
   | { type: "identifier"; value: string }
@@ -61,10 +61,33 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
   { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
   { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
+  { key: "mod+b", command: "browser.toggle", when: "!terminalFocus" },
+  { key: "mod+[", command: "browser.back", when: "browserOpen && !terminalFocus" },
+  { key: "mod+]", command: "browser.forward", when: "browserOpen && !terminalFocus" },
+  { key: "mod+r", command: "browser.reload", when: "browserOpen && !terminalFocus" },
+  { key: "mod+shift+i", command: "browser.devtools", when: "browserOpen && !terminalFocus" },
+  { key: "mod+shift+d", command: "browser.duplicateTab", when: "browserOpen && !terminalFocus" },
+  { key: "mod+alt+[", command: "browser.moveTabLeft", when: "browserOpen && !terminalFocus" },
+  { key: "mod+alt+]", command: "browser.moveTabRight", when: "browserOpen && !terminalFocus" },
   { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+  { key: "mod+shift+p", command: "chat.togglePlanMode", when: "!terminalFocus" },
   { key: "mod+o", command: "editor.openFavorite" },
+  { key: "mod+alt+n", command: "editor.newFile", when: "editorFocus" },
+  { key: "mod+alt+shift+n", command: "editor.newFolder", when: "editorFocus" },
+  { key: "f2", command: "editor.rename", when: "editorFocus" },
+  { key: "mod+\\", command: "editor.split", when: "editorFocus" },
+  { key: "mod+shift+\\", command: "editor.splitDown", when: "editorFocus" },
+  { key: "alt+z", command: "editor.toggleWordWrap", when: "editorFocus" },
+  { key: "mod+w", command: "editor.closeTab", when: "editorFocus" },
+  { key: "mod+shift+t", command: "editor.reopenClosedTab", when: "editorFocus" },
+  { key: "mod+alt+arrowleft", command: "editor.focusPreviousWindow", when: "editorFocus" },
+  { key: "mod+alt+arrowright", command: "editor.focusNextWindow", when: "editorFocus" },
+  { key: "alt+shift+arrowleft", command: "editor.previousTab", when: "editorFocus" },
+  { key: "alt+shift+arrowright", command: "editor.nextTab", when: "editorFocus" },
+  { key: "mod+alt+shift+arrowleft", command: "editor.moveTabLeft", when: "editorFocus" },
+  { key: "mod+alt+shift+arrowright", command: "editor.moveTabRight", when: "editorFocus" },
   { key: "mod+shift+[", command: "thread.previous" },
   { key: "mod+shift+]", command: "thread.next" },
   ...THREAD_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
@@ -522,7 +545,7 @@ export interface KeybindingsShape {
  * Keybindings - Service tag for keybinding configuration operations.
  */
 export class Keybindings extends ServiceMap.Service<Keybindings, KeybindingsShape>()(
-  "t3/keybindings",
+  "ace/keybindings",
 ) {}
 
 const makeKeybindings = Effect.gen(function* () {

@@ -9,10 +9,10 @@ import {
   type ServerProvider,
   type TerminalEvent,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ContextMenuItem } from "@t3tools/contracts";
+import type { ContextMenuItem } from "@ace/contracts";
 
 const showContextMenuFallbackMock =
   vi.fn<
@@ -34,6 +34,7 @@ const orchestrationEventListeners = new Set<(event: OrchestrationEvent) => void>
 
 const rpcClientMock = {
   dispose: vi.fn(),
+  subscribeConnectionState: vi.fn(() => () => undefined),
   terminal: {
     open: vi.fn(),
     write: vi.fn(),
@@ -46,8 +47,17 @@ const rpcClientMock = {
     ),
   },
   projects: {
+    createEntry: vi.fn(),
+    deleteEntry: vi.fn(),
+    listTree: vi.fn(),
+    readFile: vi.fn(),
+    renameEntry: vi.fn(),
     searchEntries: vi.fn(),
     writeFile: vi.fn(),
+  },
+  workspaceEditor: {
+    syncBuffer: vi.fn(),
+    closeBuffer: vi.fn(),
   },
   shell: {
     openInEditor: vi.fn(),
@@ -76,6 +86,7 @@ const rpcClientMock = {
   },
   orchestration: {
     getSnapshot: vi.fn(),
+    getThread: vi.fn(),
     dispatchCommand: vi.fn(),
     getTurnDiff: vi.fn(),
     getFullThreadDiff: vi.fn(),
@@ -118,9 +129,13 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     getWsUrl: () => null,
     pickFolder: async () => null,
     confirm: async () => true,
+    repairBrowserStorage: async () => true,
     setTheme: async () => undefined,
     showContextMenu: async () => null,
     openExternal: async () => true,
+    showNotification: async () => true,
+    closeNotification: async () => true,
+    onNotificationClick: () => () => undefined,
     onMenuAction: () => () => undefined,
     getUpdateState: async () => {
       throw new Error("getUpdateState not implemented in test");
@@ -237,6 +252,79 @@ describe("wsNativeApi", () => {
     expect(onDomainEvent).toHaveBeenCalledWith(orchestrationEvent);
   });
 
+  it("defaults orchestration snapshot requests to an empty rpc payload", async () => {
+    rpcClientMock.orchestration.getSnapshot.mockResolvedValue({
+      snapshotSequence: 1,
+      updatedAt: "2026-02-24T00:00:00.000Z",
+      projects: [],
+      threads: [],
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.orchestration.getSnapshot();
+
+    expect(rpcClientMock.orchestration.getSnapshot).toHaveBeenCalledWith(undefined);
+  });
+
+  it("forwards snapshot hydration input to the orchestration rpc", async () => {
+    rpcClientMock.orchestration.getSnapshot.mockResolvedValue({
+      snapshotSequence: 1,
+      updatedAt: "2026-02-24T00:00:00.000Z",
+      projects: [],
+      threads: [],
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.orchestration.getSnapshot({
+      hydrateThreadId: ThreadId.makeUnsafe("thread-1"),
+    });
+
+    expect(rpcClientMock.orchestration.getSnapshot).toHaveBeenCalledWith({
+      hydrateThreadId: "thread-1",
+    });
+  });
+
+  it("forwards thread hydration requests to the orchestration rpc", async () => {
+    rpcClientMock.orchestration.getThread.mockResolvedValue({
+      id: ThreadId.makeUnsafe("thread-1"),
+      projectId: ProjectId.makeUnsafe("project-1"),
+      title: "Thread",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+      interactionMode: "default",
+      runtimeMode: "full-access",
+      branch: null,
+      worktreePath: null,
+      latestTurn: null,
+      createdAt: "2026-02-24T00:00:00.000Z",
+      updatedAt: "2026-02-24T00:00:00.000Z",
+      archivedAt: null,
+      deletedAt: null,
+      messages: [],
+      proposedPlans: [],
+      latestProposedPlanSummary: null,
+      queuedComposerMessages: [],
+      queuedSteerRequest: null,
+      activities: [],
+      checkpoints: [],
+      session: null,
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.orchestration.getThread({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+    });
+
+    expect(rpcClientMock.orchestration.getThread).toHaveBeenCalledWith({
+      threadId: "thread-1",
+    });
+  });
+
   it("sends orchestration dispatch commands as the direct RPC payload", async () => {
     rpcClientMock.orchestration.dispatchCommand.mockResolvedValue({ sequence: 1 });
     const { createWsNativeApi } = await import("./wsNativeApi");
@@ -274,6 +362,27 @@ describe("wsNativeApi", () => {
       cwd: "/tmp/project",
       relativePath: "plan.md",
       contents: "# Plan\n",
+    });
+  });
+
+  it("forwards workspace entry rename requests to the project RPC", async () => {
+    rpcClientMock.projects.renameEntry.mockResolvedValue({
+      previousRelativePath: "plan.md",
+      relativePath: "docs/plan.md",
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.projects.renameEntry({
+      cwd: "/tmp/project",
+      relativePath: "plan.md",
+      nextRelativePath: "docs/plan.md",
+    });
+
+    expect(rpcClientMock.projects.renameEntry).toHaveBeenCalledWith({
+      cwd: "/tmp/project",
+      relativePath: "plan.md",
+      nextRelativePath: "docs/plan.md",
     });
   });
 
@@ -337,6 +446,17 @@ describe("wsNativeApi", () => {
 
     await expect(api.contextMenu.show(items)).resolves.toBe("delete");
     expect(showContextMenu).toHaveBeenCalledWith(items, undefined);
+  });
+
+  it("forwards browser storage repair requests to the desktop bridge", async () => {
+    const repairBrowserStorage = vi.fn().mockResolvedValue(true);
+    getWindowForTest().desktopBridge = makeDesktopBridge({ repairBrowserStorage });
+
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+
+    await expect(api.browser.repairStorage()).resolves.toBe(true);
+    expect(repairBrowserStorage).toHaveBeenCalledWith();
   });
 
   it("falls back to the browser context menu helper when the desktop bridge is missing", async () => {

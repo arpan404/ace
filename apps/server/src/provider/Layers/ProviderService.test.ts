@@ -8,15 +8,16 @@ import type {
   ProviderSendTurnInput,
   ProviderSession,
   ProviderTurnStartResult,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import {
   ApprovalRequestId,
   EventId,
+  MessageId,
   type ProviderKind,
   ProviderSessionStartInput,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { it, assert, vi } from "@effect/vitest";
 import { assertFailure } from "@effect/vitest/utils";
 
@@ -37,7 +38,9 @@ import { makeProviderServiceLive } from "./ProviderService.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderSessionRuntimeRepositoryLive } from "../../persistence/Layers/ProviderSessionRuntime.ts";
+import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
 import { ProviderSessionRuntimeRepository } from "../../persistence/Services/ProviderSessionRuntime.ts";
+import { ProjectionThreadMessageRepository } from "../../persistence/Services/ProjectionThreadMessages.ts";
 import {
   makeSqlitePersistenceLive,
   SqlitePersistenceMemory,
@@ -49,6 +52,7 @@ const defaultServerSettingsLayer = ServerSettingsService.layerTest();
 
 const asRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
+const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 
@@ -65,7 +69,10 @@ type LegacyProviderRuntimeEvent = {
   readonly [key: string]: unknown;
 };
 
-function makeFakeCodexAdapter(provider: ProviderKind = "codex") {
+function makeFakeCodexAdapter(
+  provider: ProviderKind = "codex",
+  sessionModelSwitch: "in-session" | "restart-session" = "in-session",
+) {
   const sessions = new Map<ThreadId, ProviderSession>();
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
 
@@ -178,7 +185,7 @@ function makeFakeCodexAdapter(provider: ProviderKind = "codex") {
   const adapter: ProviderAdapterShape<ProviderAdapterError> = {
     provider,
     capabilities: {
-      sessionModelSwitch: "in-session",
+      sessionModelSwitch,
     },
     startSession,
     sendTurn,
@@ -233,18 +240,24 @@ const sleep = (ms: number) =>
 function makeProviderServiceLayer() {
   const codex = makeFakeCodexAdapter();
   const claude = makeFakeCodexAdapter("claudeAgent");
+  const cursor = makeFakeCodexAdapter("cursor", "restart-session");
   const registry: typeof ProviderAdapterRegistry.Service = {
     getByProvider: (provider) =>
       provider === "codex"
         ? Effect.succeed(codex.adapter)
         : provider === "claudeAgent"
           ? Effect.succeed(claude.adapter)
-          : Effect.fail(new ProviderUnsupportedError({ provider })),
-    listProviders: () => Effect.succeed(["codex", "claudeAgent"]),
+          : provider === "cursor"
+            ? Effect.succeed(cursor.adapter)
+            : Effect.fail(new ProviderUnsupportedError({ provider })),
+    listProviders: () => Effect.succeed(["codex", "claudeAgent", "cursor"]),
   };
 
   const providerAdapterLayer = Layer.succeed(ProviderAdapterRegistry, registry);
   const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+    Layer.provide(SqlitePersistenceMemory),
+  );
+  const projectionMessageRepositoryLayer = ProjectionThreadMessageRepositoryLive.pipe(
     Layer.provide(SqlitePersistenceMemory),
   );
   const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
@@ -254,10 +267,12 @@ function makeProviderServiceLayer() {
       makeProviderServiceLive().pipe(
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
+        Layer.provide(projectionMessageRepositoryLayer),
         Layer.provide(defaultServerSettingsLayer),
         Layer.provideMerge(AnalyticsService.layerTest),
       ),
       directoryLayer,
+      projectionMessageRepositoryLayer,
 
       runtimeRepositoryLayer,
       NodeServices.layer,
@@ -267,6 +282,7 @@ function makeProviderServiceLayer() {
   return {
     codex,
     claude,
+    cursor,
     layer,
   };
 }
@@ -295,10 +311,14 @@ it.effect("ProviderServiceLive rejects new sessions for disabled providers", () 
     const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
       Layer.provide(SqlitePersistenceMemory),
     );
+    const projectionMessageRepositoryLayer = ProjectionThreadMessageRepositoryLive.pipe(
+      Layer.provide(SqlitePersistenceMemory),
+    );
     const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
     const providerLayer = makeProviderServiceLive().pipe(
       Layer.provide(providerAdapterLayer),
       Layer.provide(directoryLayer),
+      Layer.provide(projectionMessageRepositoryLayer),
       Layer.provide(serverSettingsLayer),
       Layer.provide(AnalyticsService.layerTest),
     );
@@ -315,7 +335,7 @@ it.effect("ProviderServiceLive rejects new sessions for disabled providers", () 
     );
 
     assert.instanceOf(failure, ProviderValidationError);
-    assert.include(failure.issue, "Provider 'claudeAgent' is disabled in T3 Code settings.");
+    assert.include(failure.issue, "Provider 'claudeAgent' is disabled in ace settings.");
     assert.equal(claude.startSession.mock.calls.length, 0);
   }).pipe(Effect.provide(NodeServices.layer)),
 );
@@ -323,7 +343,7 @@ it.effect("ProviderServiceLive rejects new sessions for disabled providers", () 
 const routing = makeProviderServiceLayer();
 it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", () =>
   Effect.gen(function* () {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "t3-provider-service-"));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ace-provider-service-"));
     const dbPath = path.join(tempDir, "orchestration.sqlite");
 
     const codex = makeFakeCodexAdapter();
@@ -339,6 +359,9 @@ it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", (
     const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
       Layer.provide(persistenceLayer),
     );
+    const projectionMessageRepositoryLayer = ProjectionThreadMessageRepositoryLive.pipe(
+      Layer.provide(persistenceLayer),
+    );
     const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
 
     yield* Effect.gen(function* () {
@@ -352,6 +375,7 @@ it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", (
     const providerLayer = makeProviderServiceLive().pipe(
       Layer.provide(Layer.succeed(ProviderAdapterRegistry, registry)),
       Layer.provide(directoryLayer),
+      Layer.provide(projectionMessageRepositoryLayer),
       Layer.provide(defaultServerSettingsLayer),
       Layer.provide(AnalyticsService.layerTest),
     );
@@ -390,10 +414,13 @@ it.effect(
   "ProviderServiceLive restores rollback routing after restart using persisted thread mapping",
   () =>
     Effect.gen(function* () {
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "t3-provider-service-restart-"));
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ace-provider-service-restart-"));
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const persistenceLayer = makeSqlitePersistenceLive(dbPath);
       const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+        Layer.provide(persistenceLayer),
+      );
+      const projectionMessageRepositoryLayer = ProjectionThreadMessageRepositoryLive.pipe(
         Layer.provide(persistenceLayer),
       );
 
@@ -412,6 +439,7 @@ it.effect(
       const firstProviderLayer = makeProviderServiceLive().pipe(
         Layer.provide(Layer.succeed(ProviderAdapterRegistry, firstRegistry)),
         Layer.provide(firstDirectoryLayer),
+        Layer.provide(projectionMessageRepositoryLayer),
         Layer.provide(defaultServerSettingsLayer),
         Layer.provide(AnalyticsService.layerTest),
       );
@@ -464,6 +492,7 @@ it.effect(
       const secondProviderLayer = makeProviderServiceLive().pipe(
         Layer.provide(Layer.succeed(ProviderAdapterRegistry, secondRegistry)),
         Layer.provide(secondDirectoryLayer),
+        Layer.provide(projectionMessageRepositoryLayer),
         Layer.provide(defaultServerSettingsLayer),
         Layer.provide(AnalyticsService.layerTest),
       );
@@ -504,6 +533,27 @@ it.effect(
 );
 
 routing.layer("ProviderServiceLive routing", (it) => {
+  it.effect("infers Cursor from modelSelection when provider is omitted", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-cursor-default");
+
+      const session = yield* provider.startSession(threadId, {
+        threadId,
+        runtimeMode: "full-access",
+        modelSelection: {
+          provider: "cursor",
+          model: "auto",
+        },
+      });
+
+      assert.equal(session.provider, "cursor");
+      assert.equal(routing.cursor.startSession.mock.calls.length, 1);
+      assert.equal(routing.codex.startSession.mock.calls.length, 0);
+      yield* provider.stopSession({ threadId });
+    }),
+  );
+
   it.effect("routes provider operations and rollback conversation", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
@@ -681,6 +731,92 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
+  it.effect(
+    "rebuilds restart-session providers from projected transcript when recovery has no resume cursor",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const messages = yield* ProjectionThreadMessageRepository;
+        const threadId = asThreadId("thread-cursor-local-recover");
+        const createdAt = "2026-04-05T12:00:00.000Z";
+
+        yield* directory.upsert({
+          provider: "cursor",
+          threadId,
+          runtimeMode: "full-access",
+          status: "stopped",
+          runtimePayload: {
+            cwd: "/tmp/project-cursor-recover",
+            modelSelection: {
+              provider: "cursor",
+              model: "gpt-5-mini",
+            },
+          },
+        });
+        yield* messages.upsert({
+          messageId: asMessageId("user-cursor-recover-1"),
+          threadId,
+          turnId: asTurnId("turn-cursor-recover-1"),
+          role: "user",
+          text: "Original prompt",
+          attachments: [],
+          isStreaming: false,
+          sequence: 1,
+          createdAt,
+          updatedAt: createdAt,
+        });
+        yield* messages.upsert({
+          messageId: asMessageId("assistant-cursor-recover-1"),
+          threadId,
+          turnId: asTurnId("turn-cursor-recover-1"),
+          role: "assistant",
+          text: "Original answer",
+          isStreaming: false,
+          sequence: 2,
+          createdAt,
+          updatedAt: createdAt,
+        });
+
+        routing.cursor.startSession.mockClear();
+        routing.cursor.sendTurn.mockClear();
+
+        yield* provider.sendTurn({
+          threadId,
+          input: "Continue",
+          attachments: [],
+        });
+
+        assert.equal(routing.cursor.startSession.mock.calls.length, 1);
+        const startPayload = routing.cursor.startSession.mock.calls[0]?.[0] as
+          | {
+              provider?: string;
+              cwd?: string;
+              modelSelection?: unknown;
+              resumeCursor?: unknown;
+              replayTurns?: unknown;
+            }
+          | undefined;
+        assert.equal(startPayload?.provider, "cursor");
+        assert.equal(startPayload?.cwd, "/tmp/project-cursor-recover");
+        assert.equal(startPayload?.resumeCursor, undefined);
+        assert.deepEqual(startPayload?.modelSelection, {
+          provider: "cursor",
+          model: "gpt-5-mini",
+        });
+        assert.deepEqual(startPayload?.replayTurns, [
+          {
+            prompt: "Original prompt",
+            attachmentNames: [],
+            assistantResponse: "Original answer",
+          },
+        ]);
+        assert.equal(routing.cursor.sendTurn.mock.calls.length, 1);
+
+        yield* provider.stopSession({ threadId });
+      }),
+  );
+
   it.effect("recovers stale claudeAgent sessions for sendTurn using persisted cwd", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
@@ -804,10 +940,13 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
   it.effect("reuses persisted resume cursor when startSession is called after a restart", () =>
     Effect.gen(function* () {
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "t3-provider-service-start-"));
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ace-provider-service-start-"));
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const persistenceLayer = makeSqlitePersistenceLive(dbPath);
       const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+        Layer.provide(persistenceLayer),
+      );
+      const projectionMessageRepositoryLayer = ProjectionThreadMessageRepositoryLive.pipe(
         Layer.provide(persistenceLayer),
       );
 
@@ -825,6 +964,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const firstProviderLayer = makeProviderServiceLive().pipe(
         Layer.provide(Layer.succeed(ProviderAdapterRegistry, firstRegistry)),
         Layer.provide(firstDirectoryLayer),
+        Layer.provide(projectionMessageRepositoryLayer),
         Layer.provide(defaultServerSettingsLayer),
         Layer.provide(AnalyticsService.layerTest),
       );
@@ -858,6 +998,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const secondProviderLayer = makeProviderServiceLive().pipe(
         Layer.provide(Layer.succeed(ProviderAdapterRegistry, secondRegistry)),
         Layer.provide(secondDirectoryLayer),
+        Layer.provide(projectionMessageRepositoryLayer),
         Layer.provide(defaultServerSettingsLayer),
         Layer.provide(AnalyticsService.layerTest),
       );
@@ -892,6 +1033,82 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
       fs.rmSync(tempDir, { recursive: true, force: true });
     }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect(
+    "prefers projected transcript over persisted resume cursor when reopening restart-session providers",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const messages = yield* ProjectionThreadMessageRepository;
+        const threadId = asThreadId("thread-cursor-reopen");
+        const createdAt = "2026-04-05T12:00:01.000Z";
+
+        yield* directory.upsert({
+          provider: "cursor",
+          threadId,
+          runtimeMode: "full-access",
+          status: "stopped",
+          resumeCursor: { sessionId: "cursor-remote-session-stale" },
+          runtimePayload: {
+            cwd: "/tmp/project-cursor-reopen",
+            modelSelection: {
+              provider: "cursor",
+              model: "gpt-5-mini",
+            },
+          },
+        });
+        yield* messages.upsert({
+          messageId: asMessageId("user-cursor-reopen-1"),
+          threadId,
+          turnId: asTurnId("turn-cursor-reopen-1"),
+          role: "user",
+          text: "Earlier prompt",
+          isStreaming: false,
+          sequence: 1,
+          createdAt,
+          updatedAt: createdAt,
+        });
+        yield* messages.upsert({
+          messageId: asMessageId("assistant-cursor-reopen-1"),
+          threadId,
+          turnId: asTurnId("turn-cursor-reopen-1"),
+          role: "assistant",
+          text: "Earlier answer",
+          isStreaming: false,
+          sequence: 2,
+          createdAt,
+          updatedAt: createdAt,
+        });
+
+        routing.cursor.startSession.mockClear();
+
+        yield* provider.startSession(threadId, {
+          provider: "cursor",
+          threadId,
+          cwd: "/tmp/project-cursor-reopen",
+          runtimeMode: "full-access",
+        });
+
+        assert.equal(routing.cursor.startSession.mock.calls.length, 1);
+        const startPayload = routing.cursor.startSession.mock.calls[0]?.[0] as
+          | {
+              resumeCursor?: unknown;
+              replayTurns?: unknown;
+            }
+          | undefined;
+        assert.equal(startPayload?.resumeCursor, undefined);
+        assert.deepEqual(startPayload?.replayTurns, [
+          {
+            prompt: "Earlier prompt",
+            attachmentNames: [],
+            assistantResponse: "Earlier answer",
+          },
+        ]);
+
+        yield* provider.stopSession({ threadId });
+      }),
   );
 });
 

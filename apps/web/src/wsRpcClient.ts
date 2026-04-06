@@ -6,11 +6,11 @@ import {
   ORCHESTRATION_WS_METHODS,
   type ServerSettingsPatch,
   WS_METHODS,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { Effect, Stream } from "effect";
 
 import { type WsRpcProtocolClient } from "./rpc/protocol";
-import { WsTransport } from "./wsTransport";
+import { type WsTransportConnectionState, WsTransport } from "./wsTransport";
 
 type RpcTag = keyof WsRpcProtocolClient & string;
 type RpcMethod<TTag extends RpcTag> = WsRpcProtocolClient[TTag];
@@ -37,6 +37,9 @@ interface GitRunStackedActionOptions {
 
 export interface WsRpcClient {
   readonly dispose: () => Promise<void>;
+  readonly subscribeConnectionState: (
+    listener: (state: WsTransportConnectionState) => void,
+  ) => () => void;
   readonly terminal: {
     readonly open: RpcUnaryMethod<typeof WS_METHODS.terminalOpen>;
     readonly write: RpcUnaryMethod<typeof WS_METHODS.terminalWrite>;
@@ -48,7 +51,16 @@ export interface WsRpcClient {
   };
   readonly projects: {
     readonly searchEntries: RpcUnaryMethod<typeof WS_METHODS.projectsSearchEntries>;
+    readonly listTree: RpcUnaryMethod<typeof WS_METHODS.projectsListTree>;
+    readonly createEntry: RpcUnaryMethod<typeof WS_METHODS.projectsCreateEntry>;
+    readonly deleteEntry: RpcUnaryMethod<typeof WS_METHODS.projectsDeleteEntry>;
+    readonly readFile: RpcUnaryMethod<typeof WS_METHODS.projectsReadFile>;
+    readonly renameEntry: RpcUnaryMethod<typeof WS_METHODS.projectsRenameEntry>;
     readonly writeFile: RpcUnaryMethod<typeof WS_METHODS.projectsWriteFile>;
+  };
+  readonly workspaceEditor: {
+    readonly syncBuffer: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorSyncBuffer>;
+    readonly closeBuffer: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorCloseBuffer>;
   };
   readonly shell: {
     readonly openInEditor: (input: {
@@ -77,6 +89,7 @@ export interface WsRpcClient {
   readonly server: {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
     readonly refreshProviders: RpcUnaryNoArgMethod<typeof WS_METHODS.serverRefreshProviders>;
+    readonly searchOpenCodeModels: RpcUnaryMethod<typeof WS_METHODS.serverSearchOpenCodeModels>;
     readonly upsertKeybinding: RpcUnaryMethod<typeof WS_METHODS.serverUpsertKeybinding>;
     readonly getSettings: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetSettings>;
     readonly updateSettings: (
@@ -86,7 +99,10 @@ export interface WsRpcClient {
     readonly subscribeLifecycle: RpcStreamMethod<typeof WS_METHODS.subscribeServerLifecycle>;
   };
   readonly orchestration: {
-    readonly getSnapshot: RpcUnaryNoArgMethod<typeof ORCHESTRATION_WS_METHODS.getSnapshot>;
+    readonly getSnapshot: (
+      input?: Parameters<NativeApi["orchestration"]["getSnapshot"]>[0],
+    ) => ReturnType<NativeApi["orchestration"]["getSnapshot"]>;
+    readonly getThread: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getThread>;
     readonly dispatchCommand: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.dispatchCommand>;
     readonly getTurnDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getTurnDiff>;
     readonly getFullThreadDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getFullThreadDiff>;
@@ -111,8 +127,10 @@ export async function __resetWsRpcClientForTests() {
 }
 
 export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
+  const streamIdentity = transport.getConnectionIdentity();
   return {
     dispose: () => transport.dispose(),
+    subscribeConnectionState: (listener) => transport.onConnectionStateChange(listener),
     terminal: {
       open: (input) => transport.request((client) => client[WS_METHODS.terminalOpen](input)),
       write: (input) => transport.request((client) => client[WS_METHODS.terminalWrite](input)),
@@ -121,13 +139,32 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
       restart: (input) => transport.request((client) => client[WS_METHODS.terminalRestart](input)),
       close: (input) => transport.request((client) => client[WS_METHODS.terminalClose](input)),
       onEvent: (listener) =>
-        transport.subscribe((client) => client[WS_METHODS.subscribeTerminalEvents]({}), listener),
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribeTerminalEvents](streamIdentity),
+          listener,
+        ),
     },
     projects: {
       searchEntries: (input) =>
         transport.request((client) => client[WS_METHODS.projectsSearchEntries](input)),
+      listTree: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsListTree](input)),
+      createEntry: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsCreateEntry](input)),
+      deleteEntry: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsDeleteEntry](input)),
+      readFile: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsReadFile](input)),
+      renameEntry: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsRenameEntry](input)),
       writeFile: (input) =>
         transport.request((client) => client[WS_METHODS.projectsWriteFile](input)),
+    },
+    workspaceEditor: {
+      syncBuffer: (input) =>
+        transport.request((client) => client[WS_METHODS.workspaceEditorSyncBuffer](input)),
+      closeBuffer: (input) =>
+        transport.request((client) => client[WS_METHODS.workspaceEditorCloseBuffer](input)),
     },
     shell: {
       openInEditor: (input) =>
@@ -174,19 +211,29 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
       getConfig: () => transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
       refreshProviders: () =>
         transport.request((client) => client[WS_METHODS.serverRefreshProviders]({})),
+      searchOpenCodeModels: (input) =>
+        transport.request((client) => client[WS_METHODS.serverSearchOpenCodeModels](input)),
       upsertKeybinding: (input) =>
         transport.request((client) => client[WS_METHODS.serverUpsertKeybinding](input)),
       getSettings: () => transport.request((client) => client[WS_METHODS.serverGetSettings]({})),
       updateSettings: (patch) =>
         transport.request((client) => client[WS_METHODS.serverUpdateSettings]({ patch })),
       subscribeConfig: (listener) =>
-        transport.subscribe((client) => client[WS_METHODS.subscribeServerConfig]({}), listener),
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribeServerConfig](streamIdentity),
+          listener,
+        ),
       subscribeLifecycle: (listener) =>
-        transport.subscribe((client) => client[WS_METHODS.subscribeServerLifecycle]({}), listener),
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribeServerLifecycle](streamIdentity),
+          listener,
+        ),
     },
     orchestration: {
-      getSnapshot: () =>
-        transport.request((client) => client[ORCHESTRATION_WS_METHODS.getSnapshot]({})),
+      getSnapshot: (input) =>
+        transport.request((client) => client[ORCHESTRATION_WS_METHODS.getSnapshot](input ?? {})),
+      getThread: (input) =>
+        transport.request((client) => client[ORCHESTRATION_WS_METHODS.getThread](input)),
       dispatchCommand: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.dispatchCommand](input)),
       getTurnDiff: (input) =>
@@ -199,7 +246,7 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
           .then((events) => [...events]),
       onDomainEvent: (listener) =>
         transport.subscribe(
-          (client) => client[WS_METHODS.subscribeOrchestrationDomainEvents]({}),
+          (client) => client[WS_METHODS.subscribeOrchestrationDomainEvents](streamIdentity),
           listener,
         ),
     },

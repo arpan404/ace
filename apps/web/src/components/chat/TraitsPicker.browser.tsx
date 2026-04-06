@@ -4,12 +4,13 @@ import {
   type ModelSelection,
   ClaudeModelOptions,
   CodexModelOptions,
+  CursorModelOptions,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
   ProjectId,
   type ServerProvider,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@ace/contracts";
 import { page } from "vitest/browser";
 import { useCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,11 +24,12 @@ import {
   useComposerThreadDraft,
   useEffectiveComposerModelState,
 } from "../../composerDraftStore";
-import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
+import { DEFAULT_CLIENT_SETTINGS } from "@ace/contracts/settings";
 
 // ── Claude TraitsPicker tests ─────────────────────────────────────────
 
 const CLAUDE_THREAD_ID = ThreadId.makeUnsafe("thread-claude-traits");
+const CURSOR_THREAD_ID = ThreadId.makeUnsafe("thread-cursor-traits");
 const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
   {
     provider: "codex",
@@ -107,6 +109,34 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
           reasoningEffortLevels: [],
           supportsFastMode: false,
           supportsThinkingToggle: true,
+          contextWindowOptions: [],
+          promptInjectedEffortLevels: [],
+        },
+      },
+    ],
+  },
+  {
+    provider: "cursor",
+    enabled: true,
+    installed: true,
+    version: "0.1.0",
+    status: "ready",
+    auth: { status: "authenticated" },
+    checkedAt: "2026-01-01T00:00:00.000Z",
+    models: [
+      {
+        slug: "gpt-5.4-mini",
+        name: "GPT-5.4 Mini",
+        isCustom: false,
+        capabilities: {
+          reasoningEffortLevels: [
+            { value: "xhigh", label: "Extra High" },
+            { value: "high", label: "High" },
+            { value: "medium", label: "Medium", isDefault: true },
+            { value: "low", label: "Low" },
+          ],
+          supportsFastMode: true,
+          supportsThinkingToggle: false,
           contextWindowOptions: [],
           promptInjectedEffortLevels: [],
         },
@@ -424,6 +454,102 @@ async function mountCodexPicker(props: { model?: string; options?: CodexModelOpt
   };
 }
 
+function CursorTraitsPickerHarness(props: {
+  model: string;
+  fallbackModelSelection: ModelSelection | null;
+}) {
+  const prompt = useComposerThreadDraft(CURSOR_THREAD_ID).prompt;
+  const setPrompt = useComposerDraftStore((store) => store.setPrompt);
+  const { modelOptions, selectedModel } = useEffectiveComposerModelState({
+    threadId: CURSOR_THREAD_ID,
+    providers: TEST_PROVIDERS,
+    selectedProvider: "cursor",
+    threadModelSelection: props.fallbackModelSelection,
+    projectModelSelection: null,
+    settings: {
+      ...DEFAULT_SERVER_SETTINGS,
+      ...DEFAULT_CLIENT_SETTINGS,
+    },
+  });
+  const handlePromptChange = useCallback(
+    (nextPrompt: string) => {
+      setPrompt(CURSOR_THREAD_ID, nextPrompt);
+    },
+    [setPrompt],
+  );
+
+  return (
+    <TraitsPicker
+      provider="cursor"
+      models={TEST_PROVIDERS.find((provider) => provider.provider === "cursor")!.models}
+      threadId={CURSOR_THREAD_ID}
+      model={selectedModel ?? props.model}
+      prompt={prompt}
+      modelOptions={modelOptions?.cursor}
+      onPromptChange={handlePromptChange}
+    />
+  );
+}
+
+async function mountCursorPicker(props?: {
+  model?: string;
+  prompt?: string;
+  options?: CursorModelOptions;
+  fallbackModelOptions?: CursorModelOptions | null;
+}) {
+  const model = props?.model ?? "gpt-5.4-mini";
+  const cursorOptions = props?.options;
+  const draftsByThreadId: Record<ThreadId, ComposerThreadDraftState> = {
+    [CURSOR_THREAD_ID]: {
+      prompt: props?.prompt ?? "",
+      images: [],
+      nonPersistedImageIds: [],
+      persistedAttachments: [],
+      terminalContexts: [],
+      modelSelectionByProvider: {
+        cursor: {
+          provider: "cursor",
+          model,
+          ...(cursorOptions ? { options: cursorOptions } : {}),
+        },
+      },
+      activeProvider: "cursor",
+      runtimeMode: null,
+      interactionMode: null,
+    },
+  };
+
+  useComposerDraftStore.setState({
+    draftsByThreadId,
+    draftThreadsByThreadId: {},
+    projectDraftThreadIdByProjectId: {},
+  });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const fallbackModelSelection =
+    props?.fallbackModelOptions !== undefined
+      ? ({
+          provider: "cursor",
+          model,
+          ...(props.fallbackModelOptions ? { options: props.fallbackModelOptions } : {}),
+        } satisfies ModelSelection)
+      : null;
+  const screen = await render(
+    <CursorTraitsPickerHarness model={model} fallbackModelSelection={fallbackModelSelection} />,
+    { container: host },
+  );
+
+  const cleanup = async () => {
+    await screen.unmount();
+    host.remove();
+  };
+
+  return {
+    [Symbol.asyncDispose]: cleanup,
+    cleanup,
+  };
+}
+
 describe("TraitsPicker (Codex)", () => {
   afterEach(() => {
     document.body.innerHTML = "";
@@ -488,6 +614,50 @@ describe("TraitsPicker (Codex)", () => {
     expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toMatchObject({
       provider: "codex",
       options: { fastMode: true },
+    });
+  });
+});
+
+describe("TraitsPicker (Cursor)", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+    localStorage.removeItem(COMPOSER_DRAFT_STORAGE_KEY);
+    useComposerDraftStore.setState({
+      draftsByThreadId: {},
+      draftThreadsByThreadId: {},
+      projectDraftThreadIdByProjectId: {},
+      stickyModelSelectionByProvider: {},
+      stickyActiveProvider: null,
+    });
+  });
+
+  it("persists and re-renders cursor traits when they change", async () => {
+    await using _ = await mountCursorPicker({
+      options: { reasoningEffort: "medium", fastMode: false },
+    });
+
+    await page.getByRole("button").click();
+    await page.getByRole("menuitemradio", { name: "Extra High" }).click();
+
+    await vi.waitFor(() => {
+      expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.cursor).toMatchObject({
+        provider: "cursor",
+        model: "gpt-5.4-mini",
+        options: { reasoningEffort: "xhigh" },
+      });
+      expect(document.querySelector("button")?.textContent ?? "").toContain("Extra High");
+    });
+
+    await page.getByRole("button").click();
+    await page.getByRole("menuitemradio", { name: "on" }).click();
+
+    await vi.waitFor(() => {
+      expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.cursor).toMatchObject({
+        provider: "cursor",
+        model: "gpt-5.4-mini",
+        options: { reasoningEffort: "xhigh", fastMode: true },
+      });
+      expect(document.querySelector("button")?.textContent ?? "").toContain("Fast");
     });
   });
 });

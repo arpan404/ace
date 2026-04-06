@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ServerProviderModel } from "@t3tools/contracts";
-import { getComposerProviderState } from "./composerProviderRegistry";
+import { ThreadId, type ServerProviderModel } from "@ace/contracts";
+import { getComposerProviderState, renderProviderTraitsPicker } from "./composerProviderRegistry";
 
 const CODEX_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
@@ -102,6 +102,90 @@ const CLAUDE_MODELS_WITH_CONTEXT_WINDOW: ReadonlyArray<ServerProviderModel> = [
       supportsThinkingToggle: true,
       contextWindowOptions: [],
       promptInjectedEffortLevels: [],
+    },
+  },
+];
+
+const GITHUB_COPILOT_MODELS: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "gpt-5",
+    name: "GPT-5",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [
+        { value: "medium", label: "Medium" },
+        { value: "high", label: "High", isDefault: true },
+        { value: "xhigh", label: "Extra High" },
+      ],
+      supportsFastMode: false,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
+    },
+  },
+  {
+    slug: "gpt-4.1",
+    name: "GPT-4.1",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [],
+      supportsFastMode: false,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
+    },
+  },
+];
+
+const CURSOR_MODELS: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "gpt-5.3-codex-low",
+    name: "GPT-5.3 Codex Low",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [
+        { value: "xhigh", label: "Extra High" },
+        { value: "high", label: "High" },
+        { value: "medium", label: "Medium", isDefault: true },
+        { value: "low", label: "Low" },
+      ],
+      supportsFastMode: true,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
+    },
+    cursorMetadata: {
+      familySlug: "gpt-5.3-codex",
+      familyName: "GPT-5.3 Codex",
+      reasoningEffort: "low",
+      fastMode: false,
+      thinking: false,
+      maxMode: false,
+    },
+  },
+  {
+    slug: "gpt-5.3-codex-low-fast",
+    name: "GPT-5.3 Codex Low Fast",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [
+        { value: "xhigh", label: "Extra High" },
+        { value: "high", label: "High" },
+        { value: "medium", label: "Medium", isDefault: true },
+        { value: "low", label: "Low" },
+      ],
+      supportsFastMode: true,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
+    },
+    cursorMetadata: {
+      familySlug: "gpt-5.3-codex",
+      familyName: "GPT-5.3 Codex",
+      reasoningEffort: "low",
+      fastMode: true,
+      thinking: false,
+      maxMode: false,
     },
   },
 ];
@@ -415,5 +499,94 @@ describe("getComposerProviderState", () => {
     });
 
     expect(state.modelOptionsForDispatch).not.toHaveProperty("fastMode");
+  });
+
+  it("returns Copilot defaults for reasoning-capable models", () => {
+    const state = getComposerProviderState({
+      provider: "githubCopilot",
+      model: "gpt-5",
+      models: GITHUB_COPILOT_MODELS,
+      prompt: "",
+      modelOptions: undefined,
+    });
+
+    expect(state).toEqual({
+      provider: "githubCopilot",
+      promptEffort: "high",
+      modelOptionsForDispatch: {
+        reasoningEffort: "high",
+      },
+    });
+  });
+
+  it("drops Copilot reasoning effort for models without reasoning controls", () => {
+    const state = getComposerProviderState({
+      provider: "githubCopilot",
+      model: "gpt-4.1",
+      models: GITHUB_COPILOT_MODELS,
+      prompt: "",
+      modelOptions: {
+        githubCopilot: {
+          reasoningEffort: "high",
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "githubCopilot",
+      promptEffort: null,
+      modelOptionsForDispatch: undefined,
+    });
+  });
+
+  it("dispatches exact Cursor model slugs without a Cursor options bag", () => {
+    const state = getComposerProviderState({
+      provider: "cursor",
+      model: "gpt-5.3-codex-low-fast",
+      models: CURSOR_MODELS,
+      prompt: "",
+      modelOptions: {
+        cursor: {
+          reasoningEffort: "low",
+          fastMode: true,
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "cursor",
+      promptEffort: null,
+      modelOptionsForDispatch: undefined,
+    });
+  });
+});
+
+describe("renderProviderTraitsPicker", () => {
+  it("returns null when the selected provider model exposes no visible traits", () => {
+    const picker = renderProviderTraitsPicker({
+      provider: "githubCopilot",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      model: "gpt-4.1",
+      models: GITHUB_COPILOT_MODELS,
+      modelOptions: undefined,
+      prompt: "",
+      onPromptChange: () => undefined,
+    });
+
+    expect(picker).toBeNull();
+  });
+
+  it("renders Cursor traits picker when the selected family exposes variant controls", () => {
+    const picker = renderProviderTraitsPicker({
+      provider: "cursor",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      model: "gpt-5.3-codex-low-fast",
+      models: CURSOR_MODELS,
+      modelOptions: undefined,
+      prompt: "",
+      onPromptChange: () => undefined,
+    });
+
+    expect(picker).not.toBeNull();
   });
 });
