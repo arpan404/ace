@@ -3,6 +3,7 @@ import { Cache, Duration, Effect, Equal, Layer, Result, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
+  buildPendingServerProvider,
   buildServerProvider,
   isCommandMissingCause,
   nonEmptyTrimmed,
@@ -180,6 +181,17 @@ export const GeminiProviderLive = Layer.effect(
     );
 
     return yield* makeManagedServerProvider<GeminiSettings>({
+      label: "Gemini",
+      cacheKey: PROVIDER,
+      initialSnapshot: (settings) =>
+        buildPendingServerProvider({
+          provider: PROVIDER,
+          enabled: settings.enabled,
+          models: providerModelsFromSettings(FALLBACK_MODELS, PROVIDER, settings.customModels),
+          message: settings.enabled
+            ? "Checking Gemini availability..."
+            : "Gemini CLI is disabled in ace settings.",
+        }),
       getSettings: Cache.get(settingsCache, "settings" as const).pipe(Effect.orDie),
       streamSettings: settingsService.streamChanges.pipe(
         Stream.map((settings) => settings.providers.gemini),

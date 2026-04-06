@@ -102,6 +102,7 @@ export interface WsRpcClient {
     readonly getSnapshot: (
       input?: Parameters<NativeApi["orchestration"]["getSnapshot"]>[0],
     ) => ReturnType<NativeApi["orchestration"]["getSnapshot"]>;
+    readonly getThread: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getThread>;
     readonly dispatchCommand: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.dispatchCommand>;
     readonly getTurnDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getTurnDiff>;
     readonly getFullThreadDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getFullThreadDiff>;
@@ -231,6 +232,8 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     orchestration: {
       getSnapshot: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.getSnapshot](input ?? {})),
+      getThread: (input) =>
+        transport.request((client) => client[ORCHESTRATION_WS_METHODS.getThread](input)),
       dispatchCommand: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.dispatchCommand](input)),
       getTurnDiff: (input) =>

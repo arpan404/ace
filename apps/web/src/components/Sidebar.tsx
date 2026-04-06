@@ -14,6 +14,7 @@ import { ProjectFavicon } from "./ProjectFavicon";
 import { autoAnimate } from "@formkit/auto-animate";
 import {
   memo,
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -268,6 +269,7 @@ interface SidebarThreadRowProps {
     orderedProjectThreadIds: readonly ThreadId[],
   ) => void;
   navigateToThread: (threadId: ThreadId) => void;
+  prefetchThreadHistory: (threadId: ThreadId) => void;
   handleMultiSelectContextMenu: (position: { x: number; y: number }) => Promise<void>;
   handleThreadContextMenu: (
     threadId: ThreadId,
@@ -316,9 +318,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     if (thread.id === props.routeThreadId) {
       return;
     }
-    prefetchHydratedThread(thread.id, {
-      expectedUpdatedAt: thread.updatedAt ?? null,
-    });
+    props.prefetchThreadHistory(thread.id);
   };
 
   return (
@@ -1131,16 +1131,6 @@ export default function Sidebar() {
 
   const handleThreadClick = useCallback(
     (event: MouseEvent, threadId: ThreadId, orderedProjectThreadIds: readonly ThreadId[]) => {
-      const hydrateThreadFromCacheIfReady = () => {
-        const thread = sidebarThreadsById[threadId];
-        if (!thread?.updatedAt) {
-          return;
-        }
-        const cached = readCachedHydratedThread(threadId, thread.updatedAt ?? null);
-        if (cached) {
-          useStore.getState().hydrateThreadFromReadModel(cached);
-        }
-      };
       const isMac = isMacPlatform(navigator.platform);
       const isModClick = isMac ? event.metaKey : event.ctrlKey;
       const isShiftClick = event.shiftKey;
@@ -1162,10 +1152,22 @@ export default function Sidebar() {
         clearSelection();
       }
       setSelectionAnchor(threadId);
-      hydrateThreadFromCacheIfReady();
-      void navigate({
-        to: "/$threadId",
-        params: { threadId },
+      const thread = sidebarThreadsById[threadId];
+      const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
+      if (cached) {
+        startTransition(() => {
+          useStore.getState().hydrateThreadFromReadModel(cached);
+        });
+      } else {
+        prefetchHydratedThread(threadId, {
+          expectedUpdatedAt: thread?.updatedAt ?? null,
+        });
+      }
+      startTransition(() => {
+        void navigate({
+          to: "/$threadId",
+          params: { threadId },
+        });
       });
     },
     [
@@ -1179,25 +1181,53 @@ export default function Sidebar() {
     ],
   );
 
+  const prefetchThreadHistory = useCallback(
+    (threadId: ThreadId) => {
+      const thread = sidebarThreadsById[threadId];
+      if (!thread) {
+        return;
+      }
+      const cached = readCachedHydratedThread(threadId, thread.updatedAt ?? null);
+      if (cached) {
+        return;
+      }
+      prefetchHydratedThread(threadId, {
+        expectedUpdatedAt: thread.updatedAt ?? null,
+      });
+    },
+    [sidebarThreadsById],
+  );
+
   const navigateToThread = useCallback(
     (threadId: ThreadId) => {
       const thread = sidebarThreadsById[threadId];
-      if (thread?.updatedAt) {
-        const cached = readCachedHydratedThread(threadId, thread.updatedAt ?? null);
-        if (cached) {
+      const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
+      if (cached) {
+        startTransition(() => {
           useStore.getState().hydrateThreadFromReadModel(cached);
-        }
+        });
+      } else {
+        prefetchThreadHistory(threadId);
       }
       if (selectedThreadIds.size > 0) {
         clearSelection();
       }
       setSelectionAnchor(threadId);
-      void navigate({
-        to: "/$threadId",
-        params: { threadId },
+      startTransition(() => {
+        void navigate({
+          to: "/$threadId",
+          params: { threadId },
+        });
       });
     },
-    [clearSelection, navigate, selectedThreadIds.size, setSelectionAnchor, sidebarThreadsById],
+    [
+      clearSelection,
+      navigate,
+      prefetchThreadHistory,
+      selectedThreadIds.size,
+      setSelectionAnchor,
+      sidebarThreadsById,
+    ],
   );
 
   const handleProjectContextMenu = useCallback(
@@ -1553,6 +1583,32 @@ export default function Sidebar() {
   const orderedSidebarThreadIds = visibleSidebarThreadIds;
 
   useEffect(() => {
+    if (!routeThreadId) {
+      return;
+    }
+
+    const adjacentThreadIds = [
+      resolveAdjacentThreadId({
+        threadIds: orderedSidebarThreadIds,
+        currentThreadId: routeThreadId,
+        direction: "previous",
+      }),
+      resolveAdjacentThreadId({
+        threadIds: orderedSidebarThreadIds,
+        currentThreadId: routeThreadId,
+        direction: "next",
+      }),
+    ];
+
+    for (const adjacentThreadId of adjacentThreadIds) {
+      if (!adjacentThreadId) {
+        continue;
+      }
+      prefetchThreadHistory(adjacentThreadId);
+    }
+  }, [orderedSidebarThreadIds, prefetchThreadHistory, routeThreadId]);
+
+  useEffect(() => {
     const getShortcutContext = () => ({
       terminalFocus: isTerminalFocused(),
       terminalOpen: routeTerminalOpen,
@@ -1793,6 +1849,7 @@ export default function Sidebar() {
                 confirmArchiveButtonRefs={confirmArchiveButtonRefs}
                 handleThreadClick={handleThreadClick}
                 navigateToThread={navigateToThread}
+                prefetchThreadHistory={prefetchThreadHistory}
                 handleMultiSelectContextMenu={handleMultiSelectContextMenu}
                 handleThreadContextMenu={handleThreadContextMenu}
                 clearSelection={clearSelection}

@@ -11,6 +11,7 @@ import type {
   OrchestrationGetSnapshotInput,
   OrchestrationProject,
   OrchestrationReadModel,
+  OrchestrationThread,
   ProjectId,
   ThreadId,
 } from "@ace/contracts";
@@ -46,6 +47,13 @@ export interface ProjectionSnapshotQueryShape {
   readonly getSnapshot: (
     input?: OrchestrationGetSnapshotInput,
   ) => Effect.Effect<OrchestrationReadModel, ProjectionRepositoryError>;
+
+  /**
+   * Read a single fully hydrated active thread.
+   */
+  readonly getThread: (
+    threadId: ThreadId,
+  ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
 
   /**
    * Read aggregate projection counts without hydrating the full read model.

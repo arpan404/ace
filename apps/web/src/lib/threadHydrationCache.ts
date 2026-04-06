@@ -41,17 +41,6 @@ function estimateHydratedThreadSize(thread: HydratedReadModelThread): number {
   );
 }
 
-function findReadModelThread(
-  snapshot: OrchestrationReadModel,
-  threadId: ThreadId,
-): HydratedReadModelThread {
-  const thread = snapshot.threads.find((candidate) => candidate.id === threadId);
-  if (!thread || thread.deletedAt !== null) {
-    throw new Error(`Thread ${threadId} is unavailable.`);
-  }
-  return thread;
-}
-
 function resolveThreadHydrationCacheConfig(
   config?: ThreadHydrationCacheConfig,
 ): ResolvedThreadHydrationCacheConfig {
@@ -173,12 +162,10 @@ export function createThreadHydrationCache(
 function createSharedThreadHydrationCache(
   config?: ThreadHydrationCacheConfig,
 ): ThreadHydrationCache {
-  return createThreadHydrationCache(async (threadId) => {
-    const snapshot = await ensureNativeApi().orchestration.getSnapshot({
-      hydrateThreadId: threadId,
-    });
-    return findReadModelThread(snapshot, threadId);
-  }, config);
+  return createThreadHydrationCache(
+    (threadId) => ensureNativeApi().orchestration.getThread({ threadId }),
+    config,
+  );
 }
 
 let sharedThreadHydrationCacheConfig = resolveThreadHydrationCacheConfig();

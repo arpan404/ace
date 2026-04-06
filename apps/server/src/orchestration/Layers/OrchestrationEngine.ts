@@ -12,6 +12,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { toPersistenceSqlError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
+import { withStartupTiming } from "../../startupDiagnostics.ts";
 import {
   OrchestrationCommandInvariantError,
   OrchestrationCommandPreviouslyRejectedError,
@@ -279,8 +280,23 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     );
   };
 
-  yield* projectionPipeline.bootstrap;
-  readModel = yield* projectionSnapshotQuery.getSnapshot({ hydrateThreadId: null });
+  yield* withStartupTiming(
+    "orchestration",
+    "Bootstrapping projection pipeline",
+    projectionPipeline.bootstrap,
+  );
+  readModel = yield* withStartupTiming(
+    "orchestration",
+    "Loading orchestration snapshot",
+    projectionSnapshotQuery.getSnapshot({ hydrateThreadId: null }),
+    {
+      endDetail: (snapshot) => ({
+        snapshotSequence: snapshot.snapshotSequence,
+        projectCount: snapshot.projects.length,
+        threadCount: snapshot.threads.length,
+      }),
+    },
+  );
 
   const fanoutWorker = Effect.forever(
     Queue.take(commandQueue).pipe(

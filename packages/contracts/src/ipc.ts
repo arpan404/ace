@@ -59,12 +59,14 @@ import type { ServerUpsertKeybindingInput } from "./server";
 import type {
   ClientOrchestrationCommand,
   OrchestrationGetSnapshotInput,
+  OrchestrationGetThreadInput,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
   OrchestrationGetTurnDiffResult,
   OrchestrationEvent,
   OrchestrationReadModel,
+  OrchestrationThread,
 } from "./orchestration";
 import { EditorId } from "./editor";
 import { ServerSettings, ServerSettingsPatch } from "./settings";
@@ -146,6 +148,7 @@ export interface DesktopUpdateCheckResult {
 
 export interface DesktopBridge {
   getWsUrl: () => string | null;
+  getWindowShownAt?: () => number | null;
   pickFolder: () => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   repairBrowserStorage: () => Promise<boolean>;
@@ -236,6 +239,7 @@ export interface NativeApi {
   };
   orchestration: {
     getSnapshot: (input?: OrchestrationGetSnapshotInput) => Promise<OrchestrationReadModel>;
+    getThread: (input: OrchestrationGetThreadInput) => Promise<OrchestrationThread>;
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;
     getFullThreadDiff: (

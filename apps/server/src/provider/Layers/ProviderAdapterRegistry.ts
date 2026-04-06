@@ -21,6 +21,7 @@ import { CursorAdapter } from "../Services/CursorAdapter.ts";
 import { GeminiAdapter } from "../Services/GeminiAdapter.ts";
 import { GitHubCopilotAdapter } from "../Services/GitHubCopilotAdapter.ts";
 import { OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
+import { withStartupTiming } from "../../startupDiagnostics.ts";
 
 export interface ProviderAdapterRegistryLiveOptions {
   readonly adapters?: ReadonlyArray<ProviderAdapterShape<ProviderAdapterError>>;
@@ -33,12 +34,36 @@ const makeProviderAdapterRegistry = Effect.fn("makeProviderAdapterRegistry")(fun
     options?.adapters !== undefined
       ? options.adapters
       : [
-          yield* CodexAdapter,
-          yield* ClaudeAdapter,
-          yield* GitHubCopilotAdapter,
-          yield* CursorAdapter,
-          yield* GeminiAdapter,
-          yield* OpenCodeAdapter,
+          yield* withStartupTiming(
+            "providers",
+            "Initializing Codex adapter",
+            Effect.service(CodexAdapter),
+          ),
+          yield* withStartupTiming(
+            "providers",
+            "Initializing Claude adapter",
+            Effect.service(ClaudeAdapter),
+          ),
+          yield* withStartupTiming(
+            "providers",
+            "Initializing GitHub Copilot adapter",
+            Effect.service(GitHubCopilotAdapter),
+          ),
+          yield* withStartupTiming(
+            "providers",
+            "Initializing Cursor adapter",
+            Effect.service(CursorAdapter),
+          ),
+          yield* withStartupTiming(
+            "providers",
+            "Initializing Gemini adapter",
+            Effect.service(GeminiAdapter),
+          ),
+          yield* withStartupTiming(
+            "providers",
+            "Initializing OpenCode adapter",
+            Effect.service(OpenCodeAdapter),
+          ),
         ];
   const byProvider = new Map(adapters.map((adapter) => [adapter.provider, adapter]));
 
@@ -61,5 +86,9 @@ const makeProviderAdapterRegistry = Effect.fn("makeProviderAdapterRegistry")(fun
 
 export const ProviderAdapterRegistryLive = Layer.effect(
   ProviderAdapterRegistry,
-  makeProviderAdapterRegistry(),
+  withStartupTiming(
+    "providers",
+    "Initializing provider adapter registry",
+    makeProviderAdapterRegistry(),
+  ),
 );

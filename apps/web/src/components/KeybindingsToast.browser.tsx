@@ -167,6 +167,9 @@ function resolveWsRpc(tag: string): unknown {
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
   }
+  if (tag === ORCHESTRATION_WS_METHODS.getThread) {
+    return fixture.snapshot.threads[0];
+  }
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }

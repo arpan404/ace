@@ -12,10 +12,12 @@ import { Throttler } from "@tanstack/react-pacer";
 
 import { APP_DISPLAY_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
+import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { runAsyncTask } from "../lib/async";
+import { beginLoadPhase, logLoadDiagnostic } from "../loadDiagnostics";
 import { readNativeApi } from "../nativeApi";
 import {
   type ServerConfigUpdateSource,
@@ -54,19 +56,23 @@ export const Route = createRootRouteWithContext<{
 function RootRouteView() {
   if (!readNativeApi()) {
     return (
-      <div className="flex h-screen flex-col bg-background text-foreground">
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-muted-foreground">
-            Connecting to {APP_DISPLAY_NAME} server...
-          </p>
+      <>
+        <div className="flex h-screen flex-col bg-background text-foreground">
+          <div className="flex flex-1 items-center justify-center">
+            <p className="text-sm text-muted-foreground">
+              Connecting to {APP_DISPLAY_NAME} server...
+            </p>
+          </div>
         </div>
-      </div>
+        <LoadDiagnosticsConsole />
+      </>
     );
   }
 
   return (
     <>
       <ServerStateBootstrap />
+      <LoadDiagnosticsConsole />
       <ToastProvider>
         <AnchoredToastProvider>
           <EventRouter />
@@ -203,6 +209,7 @@ function coalesceOrchestrationUiEvents(
 
 function EventRouter() {
   const applyOrchestrationEvents = useStore((store) => store.applyOrchestrationEvents);
+  const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
   const syncProjects = useUiStateStore((store) => store.syncProjects);
@@ -218,13 +225,39 @@ function EventRouter() {
   const pathnameRef = useRef(pathname);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
   const handledConfigReplayRef = useRef(false);
+  const loggedBootstrapCompleteRef = useRef(false);
   const disposedRef = useRef(false);
   const bootstrapFromSnapshotRef = useRef<() => Promise<void>>(async () => undefined);
   const serverConfig = useServerConfig();
 
   pathnameRef.current = pathname;
 
+  useEffect(() => {
+    if (bootstrapComplete && !loggedBootstrapCompleteRef.current) {
+      loggedBootstrapCompleteRef.current = true;
+      const store = useStore.getState();
+      logLoadDiagnostic({
+        phase: "bootstrap",
+        level: "success",
+        message: "Bootstrap marked complete",
+        detail: {
+          projectCount: store.projects.length,
+          threadCount: store.threads.length,
+          pathname,
+        },
+      });
+    }
+  }, [bootstrapComplete, pathname]);
+
   const handleWelcome = useEffectEvent((payload: ServerLifecycleWelcomePayload) => {
+    logLoadDiagnostic({
+      phase: "bootstrap",
+      message: "Processing welcome payload",
+      detail: {
+        bootstrapProjectId: payload.bootstrapProjectId,
+        bootstrapThreadId: payload.bootstrapThreadId,
+      },
+    });
     migrateLocalSettingsToServer();
     runAsyncTask(
       (async () => {
@@ -316,6 +349,7 @@ function EventRouter() {
   useEffect(() => {
     const api = readNativeApi();
     if (!api) return;
+    logLoadDiagnostic({ phase: "bootstrap", message: "Event router mounted" });
     let disposed = false;
     disposedRef.current = false;
     const recovery = createOrchestrationRecoveryCoordinator();
@@ -436,13 +470,20 @@ function EventRouter() {
       if (!recovery.beginReplayRecovery(reason)) {
         return;
       }
+      const phase = beginLoadPhase("replay", `Recovering from replay (${reason})`);
 
       try {
         const events = await api.orchestration.replayEvents(recovery.getState().latestSequence);
         if (!disposed) {
           applyEventBatch(events);
+          phase.success("Replay recovery applied", {
+            reason,
+            eventCount: events.length,
+            latestSequence: recovery.getState().latestSequence,
+          });
         }
       } catch {
+        phase.error("Replay recovery failed", { reason });
         recovery.failReplayRecovery();
         void fallbackToSnapshotRecovery();
         return;
@@ -457,21 +498,32 @@ function EventRouter() {
       if (!recovery.beginSnapshotRecovery(reason)) {
         return;
       }
+      const hydrateThreadId = routeThreadIdFromPathname(pathnameRef.current);
+      const phase = beginLoadPhase("snapshot", `Running snapshot recovery (${reason})`, {
+        hydrateThreadId,
+      });
 
       try {
         const snapshot = await api.orchestration.getSnapshot({
-          hydrateThreadId: routeThreadIdFromPathname(pathnameRef.current),
+          hydrateThreadId,
         });
         if (!disposed) {
           syncServerReadModel(snapshot, {
-            hydrateThreadId: routeThreadIdFromPathname(pathnameRef.current),
+            hydrateThreadId,
           });
           reconcileSnapshotDerivedState();
+          phase.success("Snapshot recovery applied", {
+            reason,
+            snapshotSequence: snapshot.snapshotSequence,
+            projectCount: snapshot.projects.length,
+            threadCount: snapshot.threads.length,
+          });
           if (recovery.completeSnapshotRecovery(snapshot.snapshotSequence)) {
             void recoverFromReplay("sequence-gap");
           }
         }
       } catch {
+        phase.error("Snapshot recovery failed", { reason });
         // Keep prior state and wait for welcome or a later replay attempt.
         recovery.failSnapshotRecovery();
       }
@@ -489,6 +541,12 @@ function EventRouter() {
       if (disposed) {
         return;
       }
+      logLoadDiagnostic({
+        phase: "ws",
+        level: state.kind === "disconnected" ? "warning" : "success",
+        message: `Connection state changed: ${state.kind}`,
+        detail: state.error,
+      });
       if (state.kind === "disconnected") {
         reconnectRecoveryRequested = true;
         pendingDomainEvents.length = 0;
@@ -510,6 +568,12 @@ function EventRouter() {
         return;
       }
       if (action === "recover") {
+        logLoadDiagnostic({
+          phase: "replay",
+          level: "warning",
+          message: "Detected sequence gap while applying domain event",
+          detail: { sequence: event.sequence, type: event.type },
+        });
         flushPendingDomainEvents();
         void recoverFromReplay("sequence-gap");
       }
@@ -530,6 +594,7 @@ function EventRouter() {
     return () => {
       disposed = true;
       disposedRef.current = true;
+      logLoadDiagnostic({ phase: "bootstrap", message: "Event router disposed" });
       needsProviderInvalidation = false;
       flushPendingDomainEventsScheduled = false;
       pendingDomainEvents.length = 0;

@@ -8,6 +8,7 @@ import {
   type WsRpcProtocolClient,
 } from "./rpc/protocol";
 import { reportBackgroundError } from "./lib/async";
+import { logLoadDiagnostic } from "./loadDiagnostics";
 import { RpcClient } from "effect/unstable/rpc";
 
 interface SubscribeOptions {
@@ -65,6 +66,15 @@ export class WsTransport {
       clientSessionId: resolveClientSessionId(),
       connectionId: createConnectionId(),
     };
+    logLoadDiagnostic({
+      phase: "ws",
+      message: "Creating WebSocket transport",
+      detail: {
+        clientSessionId: this.identity.clientSessionId,
+        connectionId: this.identity.connectionId,
+        hasCustomUrl: url !== undefined,
+      },
+    });
     this.runtime = ManagedRuntime.make(createWsRpcProtocolLayer(url, this.identity));
     this.clientScope = this.runtime.runSync(Scope.make());
     this.clientPromise = this.runtime.runPromise(
@@ -97,12 +107,22 @@ export class WsTransport {
     if (!this.hasConnected) {
       this.hasConnected = true;
       this.disconnected = false;
+      logLoadDiagnostic({
+        phase: "ws",
+        level: "success",
+        message: "WebSocket transport connected",
+      });
       return;
     }
     if (!this.disconnected) {
       return;
     }
     this.disconnected = false;
+    logLoadDiagnostic({
+      phase: "ws",
+      level: "success",
+      message: "WebSocket transport reconnected",
+    });
     this.emitConnectionState({ kind: "reconnected" });
   }
 
@@ -111,6 +131,12 @@ export class WsTransport {
       return;
     }
     this.disconnected = true;
+    logLoadDiagnostic({
+      phase: "ws",
+      level: "warning",
+      message: "WebSocket transport disconnected",
+      detail: formatErrorMessage(error),
+    });
     this.emitConnectionState({
       kind: "disconnected",
       error: formatErrorMessage(error),

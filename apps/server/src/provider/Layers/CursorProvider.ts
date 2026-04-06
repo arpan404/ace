@@ -11,6 +11,7 @@ import { Cache, Duration, Effect, Equal, Layer, Result, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
+  buildPendingServerProvider,
   buildServerProvider,
   isCommandMissingCause,
   nonEmptyTrimmed,
@@ -159,6 +160,10 @@ type ParsedCursorVariant = {
   readonly maxMode: boolean;
 };
 
+function shouldTreatCursorMaxAsFamily(familySlug: string, familyName: string): boolean {
+  return /-codex-max$/i.test(familySlug) && /\bcodex max\b/i.test(familyName);
+}
+
 function parseRawCursorModelsOutput(output: string): ReadonlyArray<ServerProviderModel> {
   const seen = new Set<string>();
   const models: ServerProviderModel[] = [];
@@ -228,7 +233,7 @@ function parseCursorVariant(model: ServerProviderModel): ParsedCursorVariant {
     break;
   }
 
-  if (familySlug.endsWith("-max")) {
+  if (familySlug.endsWith("-max") && !shouldTreatCursorMaxAsFamily(familySlug, familyName)) {
     maxMode = true;
     familySlug = familySlug.slice(0, -"-max".length);
     familyName = familyName.replace(/\s+max$/i, "").trim();
@@ -271,7 +276,8 @@ function buildCursorFamilyCapabilities(
 
   const defaultReasoningEffort = supportsBaseEffort
     ? ("medium" as const)
-    : (CURSOR_REASONING_ORDER.find((value) => discoveredEffortLevels.has(value)) ?? null);
+    : (CURSOR_REASONING_ORDER.toReversed().find((value) => discoveredEffortLevels.has(value)) ??
+      null);
 
   return {
     ...EMPTY_CURSOR_CAPABILITIES,
@@ -506,6 +512,17 @@ export const CursorProviderLive = Layer.effect(
     );
 
     return yield* makeManagedServerProvider<CursorSettings>({
+      label: "Cursor",
+      cacheKey: PROVIDER,
+      initialSnapshot: (settings) =>
+        buildPendingServerProvider({
+          provider: PROVIDER,
+          enabled: settings.enabled,
+          models: providerModelsFromSettings(FALLBACK_MODELS, PROVIDER, settings.customModels),
+          message: settings.enabled
+            ? "Checking Cursor availability..."
+            : "Cursor Agent is disabled in ace settings.",
+        }),
       getSettings: Cache.get(settingsCache, "settings" as const).pipe(Effect.orDie),
       streamSettings: settingsService.streamChanges.pipe(
         Stream.map((settings) => settings.providers.cursor),

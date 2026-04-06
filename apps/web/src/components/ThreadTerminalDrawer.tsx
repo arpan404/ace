@@ -70,13 +70,16 @@ import {
   type TerminalColorName,
   type TerminalIconName,
 } from "~/lib/terminalAppearance";
+import {
+  normalizeTerminalGroups,
+  normalizeTerminalIdList,
+  normalizeTerminalSidebarWidth as clampTerminalSidebarWidth,
+} from "~/lib/terminalStateNormalization";
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
 const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
 const TERMINAL_FONT_LOAD_TIMEOUT_MS = 140;
-const MIN_TERMINAL_SIDEBAR_WIDTH = 180;
-const MAX_TERMINAL_SIDEBAR_WIDTH = 360;
 
 function maxDrawerHeight(): number {
   if (typeof window === "undefined") return DEFAULT_THREAD_TERMINAL_HEIGHT;
@@ -87,14 +90,6 @@ function clampDrawerHeight(height: number): number {
   const safeHeight = Number.isFinite(height) ? height : DEFAULT_THREAD_TERMINAL_HEIGHT;
   const maxHeight = maxDrawerHeight();
   return Math.min(Math.max(Math.round(safeHeight), MIN_DRAWER_HEIGHT), maxHeight);
-}
-
-function clampTerminalSidebarWidth(width: number): number {
-  const safeWidth = Number.isFinite(width) ? width : 236;
-  return Math.min(
-    MAX_TERMINAL_SIDEBAR_WIDTH,
-    Math.max(MIN_TERMINAL_SIDEBAR_WIDTH, Math.round(safeWidth)),
-  );
 }
 
 function writeSystemMessage(terminal: Terminal, message: string): void {
@@ -1089,8 +1084,7 @@ export default function ThreadTerminalDrawer({
   const didResizeSidebarDuringDragRef = useRef(false);
 
   const normalizedTerminalIds = useMemo(() => {
-    const cleaned = [...new Set(terminalIds.map((id) => id.trim()).filter((id) => id.length > 0))];
-    return cleaned.length > 0 ? cleaned : [DEFAULT_THREAD_TERMINAL_ID];
+    return normalizeTerminalIdList(terminalIds);
   }, [terminalIds]);
 
   const resolvedActiveTerminalId = normalizedTerminalIds.includes(activeTerminalId)
@@ -1098,68 +1092,8 @@ export default function ThreadTerminalDrawer({
     : (normalizedTerminalIds[0] ?? DEFAULT_THREAD_TERMINAL_ID);
 
   const resolvedTerminalGroups = useMemo(() => {
-    const validTerminalIdSet = new Set(normalizedTerminalIds);
-    const assignedTerminalIds = new Set<string>();
-    const usedGroupIds = new Set<string>();
-    const nextGroups: ThreadTerminalGroup[] = [];
-
-    const assignUniqueGroupId = (groupId: string): string => {
-      if (!usedGroupIds.has(groupId)) {
-        usedGroupIds.add(groupId);
-        return groupId;
-      }
-      let suffix = 2;
-      while (usedGroupIds.has(`${groupId}-${suffix}`)) {
-        suffix += 1;
-      }
-      const uniqueGroupId = `${groupId}-${suffix}`;
-      usedGroupIds.add(uniqueGroupId);
-      return uniqueGroupId;
-    };
-
-    for (const terminalGroup of terminalGroups) {
-      const nextTerminalIds = [
-        ...new Set(terminalGroup.terminalIds.map((id) => id.trim()).filter((id) => id.length > 0)),
-      ].filter((terminalId) => {
-        if (!validTerminalIdSet.has(terminalId)) return false;
-        if (assignedTerminalIds.has(terminalId)) return false;
-        return true;
-      });
-      if (nextTerminalIds.length === 0) continue;
-
-      for (const terminalId of nextTerminalIds) {
-        assignedTerminalIds.add(terminalId);
-      }
-
-      const baseGroupId =
-        terminalGroup.id.trim().length > 0
-          ? terminalGroup.id.trim()
-          : `group-${nextTerminalIds[0] ?? DEFAULT_THREAD_TERMINAL_ID}`;
-      nextGroups.push({
-        id: assignUniqueGroupId(baseGroupId),
-        terminalIds: nextTerminalIds,
-      });
-    }
-
-    for (const terminalId of normalizedTerminalIds) {
-      if (assignedTerminalIds.has(terminalId)) continue;
-      nextGroups.push({
-        id: assignUniqueGroupId(`group-${terminalId}`),
-        terminalIds: [terminalId],
-      });
-    }
-
-    if (nextGroups.length > 0) {
-      return nextGroups;
-    }
-
-    return [
-      {
-        id: `group-${resolvedActiveTerminalId}`,
-        terminalIds: [resolvedActiveTerminalId],
-      },
-    ];
-  }, [normalizedTerminalIds, resolvedActiveTerminalId, terminalGroups]);
+    return normalizeTerminalGroups(terminalGroups, normalizedTerminalIds);
+  }, [normalizedTerminalIds, terminalGroups]);
 
   const resolvedActiveGroupIndex = useMemo(() => {
     const indexById = resolvedTerminalGroups.findIndex(

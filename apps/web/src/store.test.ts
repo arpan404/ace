@@ -9,7 +9,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationReadModel,
 } from "@ace/contracts";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   applyOrchestrationEvent,
@@ -18,7 +18,15 @@ import {
   syncServerReadModel,
   type AppState,
 } from "./store";
+import {
+  __resetThreadHydrationCacheForTests,
+  readCachedHydratedThread,
+} from "./lib/threadHydrationCache";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
+
+beforeEach(() => {
+  __resetThreadHydrationCacheForTests();
+});
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
@@ -476,6 +484,55 @@ describe("store read model sync", () => {
       MessageId.makeUnsafe("message-1"),
       MessageId.makeUnsafe("message-2"),
     ]);
+    expect(
+      readCachedHydratedThread(targetThreadId, "2026-02-27T00:00:00.000Z")?.messages,
+    ).toHaveLength(2);
+  });
+
+  it("primes the shared hydration cache only for fully loaded snapshot threads", () => {
+    const firstThreadId = ThreadId.makeUnsafe("thread-1");
+    const secondThreadId = ThreadId.makeUnsafe("thread-2");
+    const readModel = makeReadModelFromThreads([
+      makeReadModelThread({
+        id: firstThreadId,
+        updatedAt: "2026-02-27T00:00:00.000Z",
+        messages: [
+          {
+            id: MessageId.makeUnsafe("message-1"),
+            role: "user",
+            text: "Loaded",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-02-27T00:00:00.000Z",
+            updatedAt: "2026-02-27T00:00:00.000Z",
+          },
+        ],
+      }),
+      makeReadModelThread({
+        id: secondThreadId,
+        updatedAt: "2026-02-27T00:01:00.000Z",
+        messages: [
+          {
+            id: MessageId.makeUnsafe("message-2"),
+            role: "user",
+            text: "Lean only",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-02-27T00:01:00.000Z",
+            updatedAt: "2026-02-27T00:01:00.000Z",
+          },
+        ],
+      }),
+    ]);
+
+    syncServerReadModel(makeState(makeThread({ id: firstThreadId })), readModel, {
+      hydrateThreadId: firstThreadId,
+    });
+
+    expect(
+      readCachedHydratedThread(firstThreadId, "2026-02-27T00:00:00.000Z")?.messages,
+    ).toHaveLength(1);
+    expect(readCachedHydratedThread(secondThreadId, "2026-02-27T00:01:00.000Z")).toBeNull();
   });
 
   it("derives sidebar proposed-plan state from latestProposedPlanSummary for lean threads", () => {

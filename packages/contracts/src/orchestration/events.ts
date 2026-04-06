@@ -34,6 +34,7 @@ import {
   OrchestrationProposedPlan,
   OrchestrationReadModel,
   OrchestrationSession,
+  OrchestrationThread,
   OrchestrationThreadActivity,
   OrchestrationMessageRole,
   ProjectScript,
@@ -402,6 +403,14 @@ export type OrchestrationGetSnapshotInput = typeof OrchestrationGetSnapshotInput
 export const OrchestrationGetSnapshotResult = OrchestrationReadModel;
 export type OrchestrationGetSnapshotResult = typeof OrchestrationGetSnapshotResult.Type;
 
+export const OrchestrationGetThreadInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type OrchestrationGetThreadInput = typeof OrchestrationGetThreadInput.Type;
+
+export const OrchestrationGetThreadResult = OrchestrationThread;
+export type OrchestrationGetThreadResult = typeof OrchestrationGetThreadResult.Type;
+
 export const OrchestrationGetTurnDiffInput = TurnCountRange.mapFields(
   Struct.assign({ threadId: ThreadId }),
   { unsafePreserveChecks: true },
@@ -433,6 +442,10 @@ export const OrchestrationRpcSchemas = {
     input: OrchestrationGetSnapshotInput,
     output: OrchestrationGetSnapshotResult,
   },
+  getThread: {
+    input: OrchestrationGetThreadInput,
+    output: OrchestrationGetThreadResult,
+  },
   dispatchCommand: {
     input: ClientOrchestrationCommand,
     output: DispatchResult,
@@ -453,6 +466,14 @@ export const OrchestrationRpcSchemas = {
 
 export class OrchestrationGetSnapshotError extends Schema.TaggedErrorClass<OrchestrationGetSnapshotError>()(
   "OrchestrationGetSnapshotError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export class OrchestrationGetThreadError extends Schema.TaggedErrorClass<OrchestrationGetThreadError>()(
+  "OrchestrationGetThreadError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect),

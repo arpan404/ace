@@ -1,4 +1,4 @@
-import { Effect, Layer, Queue, Ref, Schema, Stream } from "effect";
+import { Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
 import {
   type GitActionProgressEvent,
   type GitManagerServiceError,
@@ -6,6 +6,7 @@ import {
   type OrchestrationEvent,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
+  OrchestrationGetThreadError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
   ProjectCreateEntryError,
@@ -59,6 +60,7 @@ import {
 const WS_UPGRADE_RATE_LIMIT_WINDOW_MS = 60_000;
 const WS_UPGRADE_RATE_LIMIT_MAX_ATTEMPTS = 30;
 const WS_CLIENT_SESSION_TTL_MS = 15 * 60_000;
+const WS_CLIENT_SESSION_PRUNE_INTERVAL_MS = 60_000;
 
 type WsClientSessionRecord = {
   readonly connectionId: string;
@@ -67,6 +69,7 @@ type WsClientSessionRecord = {
 };
 
 const wsClientSessions = new Map<string, WsClientSessionRecord>();
+let nextWsClientSessionPruneAt = 0;
 
 function pruneWsClientSessions(now = Date.now()): void {
   for (const [clientSessionId, record] of wsClientSessions.entries()) {
@@ -76,12 +79,20 @@ function pruneWsClientSessions(now = Date.now()): void {
   }
 }
 
+function pruneWsClientSessionsIfNeeded(now = Date.now()): void {
+  if (now < nextWsClientSessionPruneAt) {
+    return;
+  }
+  pruneWsClientSessions(now);
+  nextWsClientSessionPruneAt = now + WS_CLIENT_SESSION_PRUNE_INTERVAL_MS;
+}
+
 function registerWsClientSession(
   clientSessionId: string,
   connectionId: string,
   now = Date.now(),
 ): WsClientSessionRecord {
-  pruneWsClientSessions(now);
+  pruneWsClientSessionsIfNeeded(now);
   const existing = wsClientSessions.get(clientSessionId);
   const nextRecord: WsClientSessionRecord =
     existing && existing.connectionId === connectionId
@@ -201,6 +212,28 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 message: "Failed to load orchestration snapshot",
                 cause,
               }),
+          ),
+        ),
+      [ORCHESTRATION_WS_METHODS.getThread]: (input) =>
+        projectionSnapshotQuery.getThread(input.threadId).pipe(
+          Effect.flatMap((thread) =>
+            Option.match(thread, {
+              onNone: () =>
+                Effect.fail(
+                  new OrchestrationGetThreadError({
+                    message: `Thread '${input.threadId}' was not found.`,
+                  }),
+                ),
+              onSome: Effect.succeed,
+            }),
+          ),
+          Effect.mapError((cause) =>
+            Schema.is(OrchestrationGetThreadError)(cause)
+              ? cause
+              : new OrchestrationGetThreadError({
+                  message: "Failed to load orchestration thread",
+                  cause,
+                }),
           ),
         ),
       [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>

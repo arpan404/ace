@@ -3,6 +3,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
 import { ServerConfig } from "../../config.ts";
+import { withStartupTiming } from "../../startupDiagnostics.ts";
 
 type RuntimeSqliteLayerConfig = {
   readonly filename: string;
@@ -26,12 +27,16 @@ const makeRuntimeSqliteLayer = Effect.fn("makeRuntimeSqliteLayer")(function* (
 }, Layer.unwrap);
 
 const setup = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql`PRAGMA journal_mode = WAL;`;
-    yield* sql`PRAGMA foreign_keys = ON;`;
-    yield* runMigrations();
-  }),
+  withStartupTiming(
+    "persistence",
+    "Initializing SQLite persistence",
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`PRAGMA journal_mode = WAL;`;
+      yield* sql`PRAGMA foreign_keys = ON;`;
+      yield* runMigrations();
+    }),
+  ),
 );
 
 export const makeSqlitePersistenceLive = Effect.fn("makeSqlitePersistenceLive")(function* (
