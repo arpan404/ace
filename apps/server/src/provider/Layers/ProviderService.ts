@@ -36,6 +36,7 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProjectionThreadMessageRepository } from "../../persistence/Services/ProjectionThreadMessages.ts";
+import { withStartupTiming } from "../../startupDiagnostics.ts";
 import { projectionMessagesToReplayTurns } from "../providerReplayTurns.ts";
 
 export interface ProviderServiceLiveOptions {
@@ -148,8 +149,16 @@ function readPersistedCwd(
 const makeProviderService = Effect.fn("makeProviderService")(function* (
   options?: ProviderServiceLiveOptions,
 ) {
-  const analytics = yield* Effect.service(AnalyticsService);
-  const serverSettings = yield* ServerSettingsService;
+  const analytics = yield* withStartupTiming(
+    "providers",
+    "Resolving analytics service for provider service",
+    Effect.service(AnalyticsService),
+  );
+  const serverSettings = yield* withStartupTiming(
+    "providers",
+    "Resolving server settings for provider service",
+    Effect.service(ServerSettingsService),
+  );
   const canonicalEventLogger =
     options?.canonicalEventLogger ??
     (options?.canonicalEventLogPath !== undefined
@@ -158,11 +167,31 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         })
       : undefined);
 
-  const registry = yield* ProviderAdapterRegistry;
-  const directory = yield* ProviderSessionDirectory;
-  const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
-  const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
-  const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+  const registry = yield* withStartupTiming(
+    "providers",
+    "Resolving provider adapter registry",
+    Effect.service(ProviderAdapterRegistry),
+  );
+  const directory = yield* withStartupTiming(
+    "providers",
+    "Resolving provider session directory",
+    Effect.service(ProviderSessionDirectory),
+  );
+  const projectionThreadMessageRepository = yield* withStartupTiming(
+    "providers",
+    "Resolving projection thread message repository",
+    Effect.service(ProjectionThreadMessageRepository),
+  );
+  const runtimeEventQueue = yield* withStartupTiming(
+    "providers",
+    "Allocating provider runtime event queue",
+    Queue.unbounded<ProviderRuntimeEvent>(),
+  );
+  const runtimeEventPubSub = yield* withStartupTiming(
+    "providers",
+    "Allocating provider runtime event pubsub",
+    PubSub.unbounded<ProviderRuntimeEvent>(),
+  );
 
   const publishRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
     Effect.succeed(event).pipe(
@@ -191,21 +220,48 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       runtimePayload: toRuntimePayloadFromSession(session, extra),
     });
 
-  const providers = yield* registry.listProviders();
-  const adapters = yield* Effect.forEach(providers, (provider) => registry.getByProvider(provider));
+  const providers = yield* withStartupTiming(
+    "providers",
+    "Listing provider adapters",
+    registry.listProviders(),
+    {
+      endDetail: (providerKinds) => ({
+        providerCount: providerKinds.length,
+        providers: providerKinds,
+      }),
+    },
+  );
+  const adapters = yield* withStartupTiming(
+    "providers",
+    "Resolving provider adapters",
+    Effect.forEach(providers, (provider) => registry.getByProvider(provider)),
+    {
+      endDetail: (resolvedAdapters) => ({
+        adapterCount: resolvedAdapters.length,
+      }),
+    },
+  );
   const processRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
     publishRuntimeEvent(event);
 
   const worker = Effect.forever(
     Queue.take(runtimeEventQueue).pipe(Effect.flatMap(processRuntimeEvent)),
   );
-  yield* Effect.forkScoped(worker);
+  yield* withStartupTiming(
+    "providers",
+    "Starting provider runtime event worker",
+    Effect.forkScoped(worker),
+  );
 
-  yield* Effect.forEach(adapters, (adapter) =>
-    Stream.runForEach(adapter.streamEvents, (event) =>
-      Queue.offer(runtimeEventQueue, event).pipe(Effect.asVoid),
-    ).pipe(Effect.forkScoped),
-  ).pipe(Effect.asVoid);
+  yield* withStartupTiming(
+    "providers",
+    "Subscribing provider adapter event streams",
+    Effect.forEach(adapters, (adapter) =>
+      Stream.runForEach(adapter.streamEvents, (event) =>
+        Queue.offer(runtimeEventQueue, event).pipe(Effect.asVoid),
+      ).pipe(Effect.forkScoped),
+    ).pipe(Effect.asVoid),
+  );
 
   const recoverSessionForThread = Effect.fn("recoverSessionForThread")(function* (input: {
     readonly binding: ProviderRuntimeBinding;

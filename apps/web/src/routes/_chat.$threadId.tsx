@@ -1,6 +1,14 @@
 import { ThreadId } from "@ace/contracts";
 import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
-import { Suspense, lazy, type ReactNode, useCallback, useEffect, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  startTransition,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 
 import ChatView from "../components/ChatView";
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
@@ -72,14 +80,6 @@ const LazyDiffPanel = (props: { mode: DiffPanelMode }) => {
     </DiffWorkerPoolProvider>
   );
 };
-
-const ThreadRouteLoadingState = () => (
-  <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      Loading thread...
-    </div>
-  </SidebarInset>
-);
 
 const DiffPanelInlineSidebar = (props: {
   diffOpen: boolean;
@@ -246,7 +246,9 @@ function ChatThreadRouteView() {
     }
 
     if (cachedHydratedThread) {
-      hydrateThreadFromReadModel(cachedHydratedThread);
+      startTransition(() => {
+        hydrateThreadFromReadModel(cachedHydratedThread);
+      });
       return;
     }
 
@@ -260,7 +262,9 @@ function ChatThreadRouteView() {
         if (canceled) {
           return;
         }
-        hydrateThreadFromReadModel(readModelThread);
+        startTransition(() => {
+          hydrateThreadFromReadModel(readModelThread);
+        });
       } catch {
         if (!canceled) {
           setThreadHydrationFailed(true);
@@ -287,12 +291,6 @@ function ChatThreadRouteView() {
 
   if (!bootstrapComplete || !routeThreadExists) {
     return null;
-  }
-
-  const shouldBlockOnThreadHydration =
-    serverThread !== undefined && serverThread.historyLoaded === false && !threadHydrationFailed;
-  if (shouldBlockOnThreadHydration) {
-    return <ThreadRouteLoadingState />;
   }
 
   const shouldRenderDiffContent = diffOpen || hasOpenedDiff;

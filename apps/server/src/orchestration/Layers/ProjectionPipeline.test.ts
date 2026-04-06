@@ -162,9 +162,13 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         FROM projection_state
         ORDER BY projector ASC
       `;
+      const maxSequenceRows = yield* sql<{ readonly maxSequence: number }>`
+        SELECT MAX(sequence) AS "maxSequence" FROM orchestration_events
+      `;
+      const maxSequence = maxSequenceRows[0]?.maxSequence ?? 0;
       assert.equal(stateRows.length, Object.keys(ORCHESTRATION_PROJECTOR_NAMES).length);
       for (const row of stateRows) {
-        assert.equal(row.lastAppliedSequence, 3);
+        assert.equal(row.lastAppliedSequence, maxSequence);
       }
     }),
   );
@@ -705,6 +709,21 @@ it.layer(
       const { attachmentsDir } = yield* ServerConfig;
       const attachmentPath = path.join(attachmentsDir, "thread-rollback-att-1.png");
       assert.isFalse(yield* exists(attachmentPath));
+
+      const stateRows = yield* sql<{
+        readonly projector: string;
+        readonly lastAppliedSequence: number;
+      }>`
+        SELECT
+          projector,
+          last_applied_sequence AS "lastAppliedSequence"
+        FROM projection_state
+        ORDER BY projector ASC
+      `;
+      for (const row of stateRows) {
+        assert.equal(row.lastAppliedSequence, 2);
+      }
+
       yield* sql`DROP TRIGGER IF EXISTS fail_thread_messages_projection_state_update`;
     }),
   );
@@ -1216,6 +1235,118 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         SELECT MAX(sequence) AS "maxSequence" FROM orchestration_events
       `;
       const maxSequence = maxSequenceRows[0]?.maxSequence ?? 0;
+      for (const row of stateRows) {
+        assert.equal(row.lastAppliedSequence, maxSequence);
+      }
+    }),
+  );
+
+  it.effect("replays only lagging projector state during bootstrap recovery", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const now = new Date().toISOString();
+
+      yield* eventStore.append({
+        type: "project.created",
+        eventId: EventId.makeUnsafe("evt-bootstrap-recover-1"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.makeUnsafe("project-bootstrap-recover"),
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-bootstrap-recover-1"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-bootstrap-recover-1"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.makeUnsafe("project-bootstrap-recover"),
+          title: "Project Bootstrap Recover",
+          workspaceRoot: "/tmp/project-bootstrap-recover",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.makeUnsafe("evt-bootstrap-recover-2"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-bootstrap-recover"),
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-bootstrap-recover-2"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-bootstrap-recover-2"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-bootstrap-recover"),
+          projectId: ProjectId.makeUnsafe("project-bootstrap-recover"),
+          title: "Thread Bootstrap Recover",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      yield* eventStore.append({
+        type: "thread.message-sent",
+        eventId: EventId.makeUnsafe("evt-bootstrap-recover-3"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-bootstrap-recover"),
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-bootstrap-recover-3"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-bootstrap-recover-3"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-bootstrap-recover"),
+          messageId: MessageId.makeUnsafe("message-bootstrap-recover"),
+          role: "assistant",
+          text: "hello",
+          turnId: null,
+          streaming: false,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+      yield* sql`
+        DELETE FROM projection_state
+        WHERE projector = 'projection.thread-messages'
+      `;
+
+      yield* projectionPipeline.bootstrap;
+
+      const messageRows = yield* sql<{ readonly text: string }>`
+        SELECT text
+        FROM projection_thread_messages
+        WHERE message_id = 'message-bootstrap-recover'
+      `;
+      assert.deepEqual(messageRows, [{ text: "hello" }]);
+
+      const stateRows = yield* sql<{
+        readonly projector: string;
+        readonly lastAppliedSequence: number;
+      }>`
+        SELECT
+          projector,
+          last_applied_sequence AS "lastAppliedSequence"
+        FROM projection_state
+        ORDER BY projector ASC
+      `;
+      const maxSequenceRows = yield* sql<{ readonly maxSequence: number }>`
+        SELECT MAX(sequence) AS "maxSequence" FROM orchestration_events
+      `;
+      const maxSequence = maxSequenceRows[0]?.maxSequence ?? 0;
+      assert.equal(stateRows.length, Object.keys(ORCHESTRATION_PROJECTOR_NAMES).length);
       for (const row of stateRows) {
         assert.equal(row.lastAppliedSequence, maxSequence);
       }

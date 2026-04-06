@@ -29,7 +29,7 @@ import {
 } from "@ace/contracts";
 import { assert, it } from "@effect/vitest";
 import { assertFailure, assertInclude, assertTrue } from "@effect/vitest/utils";
-import { Effect, FileSystem, Layer, Path, Stream } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import { HttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 
@@ -234,6 +234,7 @@ const buildAppUnderTest = (options?: {
       Layer.provide(
         Layer.mock(ProjectionSnapshotQuery)({
           getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
+          getThread: () => Effect.succeed(Option.none()),
           ...options?.layers?.projectionSnapshotQuery,
         }),
       ),
@@ -1373,156 +1374,180 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("routes websocket rpc orchestration.getSnapshot with lean and hydrated views", () =>
-    Effect.gen(function* () {
-      const now = new Date().toISOString();
-      const threadId = ThreadId.makeUnsafe("thread-1");
-      const snapshot: OrchestrationReadModel = {
-        snapshotSequence: 3,
-        updatedAt: now,
-        projects: [
-          {
-            id: defaultProjectId,
-            title: "Default Project",
-            workspaceRoot: "/tmp/default-project",
-            defaultModelSelection,
-            scripts: [],
-            createdAt: now,
-            updatedAt: now,
-            deletedAt: null,
-          },
-        ],
-        threads: [
-          {
-            id: threadId,
-            projectId: defaultProjectId,
-            title: "Hydrated Thread",
-            modelSelection: defaultModelSelection,
-            interactionMode: "default" as const,
-            runtimeMode: "full-access" as const,
-            branch: null,
-            worktreePath: null,
-            createdAt: now,
-            updatedAt: now,
-            archivedAt: null,
-            latestTurn: null,
-            messages: [
-              {
-                id: MessageId.makeUnsafe("message-user"),
-                role: "user",
-                text: "Hello",
-                turnId: TurnId.makeUnsafe("turn-1"),
-                streaming: false,
-                createdAt: now,
-                updatedAt: now,
-              },
-              {
-                id: MessageId.makeUnsafe("message-assistant"),
-                role: "assistant",
-                text: "Hi",
-                turnId: TurnId.makeUnsafe("turn-1"),
-                streaming: false,
-                createdAt: now,
-                updatedAt: now,
-              },
-            ],
-            session: null,
-            activities: [
-              {
-                id: EventId.makeUnsafe("activity-approval"),
-                tone: "approval",
-                kind: "approval.requested",
-                summary: "Approve",
-                payload: {},
-                turnId: TurnId.makeUnsafe("turn-1"),
-                createdAt: now,
-              },
-              {
-                id: EventId.makeUnsafe("activity-tool"),
-                tone: "info",
-                kind: "tool.progress",
-                summary: "Progress",
-                payload: {},
-                turnId: TurnId.makeUnsafe("turn-1"),
-                createdAt: now,
-              },
-            ],
-            proposedPlans: [],
-            latestProposedPlanSummary: null,
-            queuedComposerMessages: [],
-            queuedSteerRequest: null,
-            checkpoints: [
-              {
-                turnId: TurnId.makeUnsafe("turn-1"),
-                checkpointTurnCount: 1,
-                checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
-                status: "ready",
-                files: [],
-                assistantMessageId: MessageId.makeUnsafe("message-assistant"),
-                completedAt: now,
-              },
-            ],
-            deletedAt: null,
-          },
-        ],
-      };
-      const leanSnapshotFixture: OrchestrationReadModel = {
-        ...snapshot,
-        threads: [
-          {
-            ...snapshot.threads[0]!,
-            messages: [snapshot.threads[0]!.messages[0]!],
-            activities: [snapshot.threads[0]!.activities[0]!],
-            checkpoints: [],
-          },
-        ],
-      };
+  it.effect(
+    "routes websocket rpc orchestration.getSnapshot and getThread with lean and hydrated views",
+    () =>
+      Effect.gen(function* () {
+        const now = new Date().toISOString();
+        const threadId = ThreadId.makeUnsafe("thread-1");
+        const snapshot: OrchestrationReadModel = {
+          snapshotSequence: 3,
+          updatedAt: now,
+          projects: [
+            {
+              id: defaultProjectId,
+              title: "Default Project",
+              workspaceRoot: "/tmp/default-project",
+              defaultModelSelection,
+              scripts: [],
+              createdAt: now,
+              updatedAt: now,
+              deletedAt: null,
+            },
+          ],
+          threads: [
+            {
+              id: threadId,
+              projectId: defaultProjectId,
+              title: "Hydrated Thread",
+              modelSelection: defaultModelSelection,
+              interactionMode: "default" as const,
+              runtimeMode: "full-access" as const,
+              branch: null,
+              worktreePath: null,
+              createdAt: now,
+              updatedAt: now,
+              archivedAt: null,
+              latestTurn: null,
+              messages: [
+                {
+                  id: MessageId.makeUnsafe("message-user"),
+                  role: "user",
+                  text: "Hello",
+                  turnId: TurnId.makeUnsafe("turn-1"),
+                  streaming: false,
+                  createdAt: now,
+                  updatedAt: now,
+                },
+                {
+                  id: MessageId.makeUnsafe("message-assistant"),
+                  role: "assistant",
+                  text: "Hi",
+                  turnId: TurnId.makeUnsafe("turn-1"),
+                  streaming: false,
+                  createdAt: now,
+                  updatedAt: now,
+                },
+              ],
+              session: null,
+              activities: [
+                {
+                  id: EventId.makeUnsafe("activity-approval"),
+                  tone: "approval",
+                  kind: "approval.requested",
+                  summary: "Approve",
+                  payload: {},
+                  turnId: TurnId.makeUnsafe("turn-1"),
+                  createdAt: now,
+                },
+                {
+                  id: EventId.makeUnsafe("activity-tool"),
+                  tone: "info",
+                  kind: "tool.progress",
+                  summary: "Progress",
+                  payload: {},
+                  turnId: TurnId.makeUnsafe("turn-1"),
+                  createdAt: now,
+                },
+              ],
+              proposedPlans: [],
+              latestProposedPlanSummary: null,
+              queuedComposerMessages: [],
+              queuedSteerRequest: null,
+              checkpoints: [
+                {
+                  turnId: TurnId.makeUnsafe("turn-1"),
+                  checkpointTurnCount: 1,
+                  checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
+                  status: "ready",
+                  files: [],
+                  assistantMessageId: MessageId.makeUnsafe("message-assistant"),
+                  completedAt: now,
+                },
+              ],
+              deletedAt: null,
+            },
+          ],
+        };
+        const leanSnapshotFixture: OrchestrationReadModel = {
+          ...snapshot,
+          threads: [
+            {
+              ...snapshot.threads[0]!,
+              messages: [snapshot.threads[0]!.messages[0]!],
+              activities: [snapshot.threads[0]!.activities[0]!],
+              checkpoints: [],
+            },
+          ],
+        };
 
-      yield* buildAppUnderTest({
-        layers: {
-          projectionSnapshotQuery: {
-            getSnapshot: (input) =>
-              Effect.succeed(input?.hydrateThreadId === null ? leanSnapshotFixture : snapshot),
+        yield* buildAppUnderTest({
+          layers: {
+            projectionSnapshotQuery: {
+              getSnapshot: (input) =>
+                Effect.succeed(input?.hydrateThreadId === null ? leanSnapshotFixture : snapshot),
+              getThread: (requestedThreadId) =>
+                Effect.succeed(
+                  requestedThreadId === threadId
+                    ? Option.some(snapshot.threads[0]!)
+                    : Option.none(),
+                ),
+            },
           },
-        },
-      });
+        });
 
-      const wsUrl = yield* getWsServerUrl("/ws");
-      const leanSnapshot = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) =>
-          client[ORCHESTRATION_WS_METHODS.getSnapshot]({
-            hydrateThreadId: null,
-          }),
-        ),
-      );
-      const hydratedSnapshot = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) =>
-          client[ORCHESTRATION_WS_METHODS.getSnapshot]({
-            hydrateThreadId: threadId,
-          }),
-        ),
-      );
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const leanSnapshot = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[ORCHESTRATION_WS_METHODS.getSnapshot]({
+              hydrateThreadId: null,
+            }),
+          ),
+        );
+        const hydratedSnapshot = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[ORCHESTRATION_WS_METHODS.getSnapshot]({
+              hydrateThreadId: threadId,
+            }),
+          ),
+        );
+        const targetedThread = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[ORCHESTRATION_WS_METHODS.getThread]({
+              threadId,
+            }),
+          ),
+        );
 
-      assert.deepEqual(
-        leanSnapshot.threads[0]?.messages.map((message) => message.role),
-        ["user"],
-      );
-      assert.deepEqual(
-        leanSnapshot.threads[0]?.activities.map((activity) => activity.kind),
-        ["approval.requested"],
-      );
-      assert.equal(leanSnapshot.threads[0]?.checkpoints.length, 0);
+        assert.deepEqual(
+          leanSnapshot.threads[0]?.messages.map((message) => message.role),
+          ["user"],
+        );
+        assert.deepEqual(
+          leanSnapshot.threads[0]?.activities.map((activity) => activity.kind),
+          ["approval.requested"],
+        );
+        assert.equal(leanSnapshot.threads[0]?.checkpoints.length, 0);
 
-      assert.deepEqual(
-        hydratedSnapshot.threads[0]?.messages.map((message) => message.role),
-        ["user", "assistant"],
-      );
-      assert.deepEqual(
-        hydratedSnapshot.threads[0]?.activities.map((activity) => activity.kind),
-        ["approval.requested", "tool.progress"],
-      );
-      assert.equal(hydratedSnapshot.threads[0]?.checkpoints.length, 1);
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+        assert.deepEqual(
+          hydratedSnapshot.threads[0]?.messages.map((message) => message.role),
+          ["user", "assistant"],
+        );
+        assert.deepEqual(
+          hydratedSnapshot.threads[0]?.activities.map((activity) => activity.kind),
+          ["approval.requested", "tool.progress"],
+        );
+        assert.equal(hydratedSnapshot.threads[0]?.checkpoints.length, 1);
+        assert.deepEqual(
+          targetedThread.messages.map((message) => message.role),
+          ["user", "assistant"],
+        );
+        assert.deepEqual(
+          targetedThread.activities.map((activity) => activity.kind),
+          ["approval.requested", "tool.progress"],
+        );
+        assert.equal(targetedThread.checkpoints.length, 1);
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("routes websocket rpc terminal methods", () =>

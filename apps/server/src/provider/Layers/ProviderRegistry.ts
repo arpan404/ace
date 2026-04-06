@@ -25,6 +25,7 @@ import { GitHubCopilotProvider } from "../Services/GitHubCopilotProvider";
 import type { OpenCodeProviderShape } from "../Services/OpenCodeProvider";
 import { OpenCodeProvider } from "../Services/OpenCodeProvider";
 import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry";
+import { withStartupTiming } from "../../startupDiagnostics";
 
 const PROVIDER_LABEL_BY_KIND: Record<ProviderKind, string> = {
   codex: "Codex",
@@ -130,24 +131,84 @@ export const haveProvidersChanged = (
 export const ProviderRegistryLive = Layer.effect(
   ProviderRegistry,
   Effect.gen(function* () {
-    const codexProvider = yield* CodexProvider;
-    const claudeProvider = yield* ClaudeProvider;
-    const gitHubCopilotProvider = yield* GitHubCopilotProvider;
-    const cursorProvider = yield* CursorProvider;
-    const geminiProvider = yield* GeminiProvider;
-    const openCodeProvider = yield* OpenCodeProvider;
+    const [
+      codexProvider,
+      claudeProvider,
+      gitHubCopilotProvider,
+      cursorProvider,
+      geminiProvider,
+      openCodeProvider,
+    ] = yield* withStartupTiming(
+      "providers",
+      "Initializing provider services",
+      Effect.all(
+        [
+          withStartupTiming(
+            "providers",
+            "Initializing Codex provider service",
+            Effect.service(CodexProvider),
+          ),
+          withStartupTiming(
+            "providers",
+            "Initializing Claude provider service",
+            Effect.service(ClaudeProvider),
+          ),
+          withStartupTiming(
+            "providers",
+            "Initializing GitHub Copilot provider service",
+            Effect.service(GitHubCopilotProvider),
+          ),
+          withStartupTiming(
+            "providers",
+            "Initializing Cursor provider service",
+            Effect.service(CursorProvider),
+          ),
+          withStartupTiming(
+            "providers",
+            "Initializing Gemini provider service",
+            Effect.service(GeminiProvider),
+          ),
+          withStartupTiming(
+            "providers",
+            "Initializing OpenCode provider service",
+            Effect.service(OpenCodeProvider),
+          ),
+        ] as const,
+        {
+          concurrency: "unbounded",
+        },
+      ),
+      {
+        endDetail: (providers) => ({
+          providerServiceCount: providers.length,
+        }),
+      },
+    );
     const changesPubSub = yield* Effect.acquireRelease(
       PubSub.unbounded<ReadonlyArray<ServerProvider>>(),
       PubSub.shutdown,
     );
     const providersRef = yield* Ref.make<ReadonlyArray<ServerProvider>>(
-      yield* loadProviders(
-        codexProvider,
-        claudeProvider,
-        gitHubCopilotProvider,
-        cursorProvider,
-        geminiProvider,
-        openCodeProvider,
+      yield* withStartupTiming(
+        "providers",
+        "Loading provider snapshots",
+        loadProviders(
+          codexProvider,
+          claudeProvider,
+          gitHubCopilotProvider,
+          cursorProvider,
+          geminiProvider,
+          openCodeProvider,
+        ),
+        {
+          endDetail: (providers) => ({
+            providerCount: providers.length,
+            readyCount: providers.filter((provider) => provider.status === "ready").length,
+            warningCount: providers.filter((provider) => provider.status === "warning").length,
+            errorCount: providers.filter((provider) => provider.status === "error").length,
+            disabledCount: providers.filter((provider) => provider.status === "disabled").length,
+          }),
+        },
       ),
     );
 

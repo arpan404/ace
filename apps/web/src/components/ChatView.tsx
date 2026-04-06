@@ -26,6 +26,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   Suspense,
   lazy,
+  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -111,6 +112,7 @@ import {
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
+import { Spinner } from "./ui/spinner";
 import { cn, randomUUID } from "~/lib/utils";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -521,6 +523,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     composerDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
+  const isThreadHistoryLoading = isServerThread && activeThread?.historyLoaded === false;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const workspaceMode = rawSearch.mode === "editor" ? "editor" : "chat";
   const diffOpen = rawSearch.diff === "1";
@@ -557,7 +560,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
         ? null
         : readCachedHydratedThread(sourceProposedPlanThreadId, sourcePlanThread.updatedAt);
     if (cachedHydratedThread) {
-      hydrateThreadFromReadModel(cachedHydratedThread);
+      startTransition(() => {
+        hydrateThreadFromReadModel(cachedHydratedThread);
+      });
       return;
     }
 
@@ -575,7 +580,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
         if (canceled) {
           return;
         }
-        hydrateThreadFromReadModel(readModelThread);
+        startTransition(() => {
+          hydrateThreadFromReadModel(readModelThread);
+        });
       } catch (error) {
         if (!canceled) {
           console.error("Failed to hydrate source proposed-plan thread", error);
@@ -4730,7 +4737,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }
 
   const messagesTimelineProps = {
-    hasMessages: timelineEntries.length > 0,
+    hasMessages: timelineEntries.length > 0 || isThreadHistoryLoading,
     isWorking,
     activeTurnInProgress: isWorking || !latestTurnSettled,
     activeTurnStartedAt: activeWorkStartedAt,
@@ -4960,6 +4967,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
               <ChatMessagesPane
                 messagesContainerRef={setMessagesScrollContainerRef}
                 messagesTimelineProps={messagesTimelineProps}
+                loadingNotice={
+                  isThreadHistoryLoading ? (
+                    <div className="sticky top-0 z-10 mb-3 flex justify-center">
+                      <div className="inline-flex items-center gap-2 rounded-full border border-border/45 bg-background/88 px-3 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm">
+                        <Spinner className="size-3" />
+                        <span>Loading full history...</span>
+                      </div>
+                    </div>
+                  ) : null
+                }
                 onMessagesClickCapture={onMessagesClickCapture}
                 onMessagesPointerCancel={onMessagesPointerCancel}
                 onMessagesPointerDown={onMessagesPointerDown}

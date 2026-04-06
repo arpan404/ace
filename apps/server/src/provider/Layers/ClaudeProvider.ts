@@ -12,6 +12,7 @@ import { decodeJsonResult } from "@ace/shared/schemaJson";
 import { query as claudeQuery } from "@anthropic-ai/claude-agent-sdk";
 
 import {
+  buildPendingServerProvider,
   buildServerProvider,
   DEFAULT_TIMEOUT_MS,
   detailFromResult,
@@ -636,6 +637,17 @@ export const ClaudeProviderLive = Layer.effect(
     );
 
     return yield* makeManagedServerProvider<ClaudeSettings>({
+      label: "Claude",
+      cacheKey: PROVIDER,
+      initialSnapshot: (settings) =>
+        buildPendingServerProvider({
+          provider: PROVIDER,
+          enabled: settings.enabled,
+          models: providerModelsFromSettings(BUILT_IN_MODELS, PROVIDER, settings.customModels),
+          message: settings.enabled
+            ? "Checking Claude availability..."
+            : "Claude is disabled in ace settings.",
+        }),
       getSettings: serverSettings.getSettings.pipe(
         Effect.map((settings) => settings.providers.claudeAgent),
         Effect.orDie,

@@ -25,6 +25,7 @@ import {
   DEFAULT_MAX_THREAD_ACTIVITIES,
 } from "@ace/shared/orchestrationThreadActivities";
 import { compareSequenceThenCreatedAt } from "./lib/activityOrder";
+import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
 
 // ── State ────────────────────────────────────────────────────────────
@@ -1206,7 +1207,13 @@ export function syncServerReadModel(
     .map(mapProject);
   const threads = readModel.threads
     .filter((thread) => thread.deletedAt === null)
-    .map((thread) => mapThread(thread, options));
+    .map((thread) => {
+      const nextThread = mapThread(thread, options);
+      if (options !== undefined && nextThread.historyLoaded !== false) {
+        primeHydratedThreadCache(thread);
+      }
+      return nextThread;
+    });
   const sidebarThreadsById = buildSidebarThreadsById(threads);
   const threadIdsByProjectId = buildThreadIdsByProjectId(threads);
   return {
@@ -1227,6 +1234,7 @@ export function hydrateThreadFromReadModel(
     return state;
   }
 
+  primeHydratedThreadCache(readModelThread);
   const nextThread = mapThread(readModelThread, { hydrateThreadId: readModelThread.id });
   const existingThread = state.threads.find((thread) => thread.id === nextThread.id);
   const threads = existingThread

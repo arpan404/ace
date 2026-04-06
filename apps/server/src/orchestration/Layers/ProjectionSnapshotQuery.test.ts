@@ -1,6 +1,6 @@
 import { CheckpointRef, EventId, MessageId, ProjectId, ThreadId, TurnId } from "@ace/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
@@ -711,6 +711,39 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.deepEqual(hydratedThread2?.checkpoints, []);
         assert.deepEqual(hydratedThread2?.proposedPlans, []);
         assert.equal(hydratedThread2?.latestProposedPlanSummary?.id, "plan-1");
+
+        const targetedThread = yield* snapshotQuery.getThread(ThreadId.makeUnsafe("thread-1"));
+        const missingThread = yield* snapshotQuery.getThread(ThreadId.makeUnsafe("thread-missing"));
+
+        assert.equal(Option.isSome(targetedThread), true);
+        assert.equal(Option.isNone(missingThread), true);
+        assert.deepEqual(
+          targetedThread.pipe(
+            Option.match({
+              onNone: () => [],
+              onSome: (thread) => thread.messages.map((message) => message.id),
+            }),
+          ),
+          [asMessageId("thread-1-user"), asMessageId("thread-1-assistant")],
+        );
+        assert.deepEqual(
+          targetedThread.pipe(
+            Option.match({
+              onNone: () => [],
+              onSome: (thread) => thread.activities.map((activity) => activity.id),
+            }),
+          ),
+          [asEventId("thread-1-approval"), asEventId("thread-1-runtime-note")],
+        );
+        assert.equal(
+          targetedThread.pipe(
+            Option.match({
+              onNone: () => 0,
+              onSome: (thread) => thread.checkpoints.length,
+            }),
+          ),
+          1,
+        );
       }),
   );
 

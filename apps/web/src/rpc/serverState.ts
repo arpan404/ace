@@ -13,6 +13,7 @@ import {
 import { Atom } from "effect/unstable/reactivity";
 
 import { reportBackgroundError } from "../lib/async";
+import { beginLoadPhase, logLoadDiagnostic } from "../loadDiagnostics";
 import type { WsRpcClient } from "../wsRpcClient";
 import { appAtomRegistry, resetAppAtomRegistryForTests } from "./atomRegistry";
 
@@ -162,33 +163,67 @@ export function onProvidersUpdated(
 
 export function startServerStateSync(client: ServerStateClient): () => void {
   let disposed = false;
+  logLoadDiagnostic({
+    phase: "server-state",
+    message: "Subscribing to server lifecycle/config streams",
+  });
   const cleanups = [
     client.subscribeLifecycle((event) => {
       if (event.type === "welcome") {
+        logLoadDiagnostic({
+          phase: "server-state",
+          message: "Received welcome lifecycle event",
+          detail: {
+            bootstrapProjectId: event.payload.bootstrapProjectId,
+            bootstrapThreadId: event.payload.bootstrapThreadId,
+          },
+        });
         emitWelcome(event.payload);
       }
     }),
     client.subscribeConfig((event) => {
+      logLoadDiagnostic({
+        phase: "server-state",
+        message: `Received server config event: ${event.type}`,
+        detail:
+          event.type === "snapshot"
+            ? {
+                providerCount: event.config.providers.length,
+                issueCount: event.config.issues.length,
+              }
+            : undefined,
+      });
       applyServerConfigEvent(event);
     }),
   ];
 
   if (getServerConfig() === null) {
+    const phase = beginLoadPhase("server-state", "Fetching initial server config");
     void client
       .getConfig()
       .then((config) => {
         if (disposed || getServerConfig() !== null) {
+          phase.warning("Initial server config fetch became stale before apply");
           return;
         }
         setServerConfigSnapshot(config);
+        phase.success("Initial server config fetched", {
+          providerCount: config.providers.length,
+          issueCount: config.issues.length,
+        });
       })
       .catch((error) => {
+        phase.error("Initial server config fetch failed", error);
         reportBackgroundError("Failed to read the initial server config snapshot.", error);
       });
   }
 
   return () => {
     disposed = true;
+    logLoadDiagnostic({
+      phase: "server-state",
+      message: "Unsubscribing server lifecycle/config streams",
+    });
     for (const cleanup of cleanups) {
       cleanup();
     }

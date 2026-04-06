@@ -65,6 +65,7 @@ const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
+const GET_WINDOW_SHOWN_AT_CHANNEL = "desktop:get-window-shown-at";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
 const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
@@ -100,6 +101,7 @@ let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 let backendAuthToken = "";
 let backendWsUrl = "";
+let mainWindowShownAtMs: number | null = null;
 let restartAttempt = 0;
 let restartTimer: ReturnType<typeof setTimeout> | null = null;
 let isQuitting = false;
@@ -1233,6 +1235,11 @@ function registerIpcHandlers(): void {
     event.returnValue = backendWsUrl;
   });
 
+  ipcMain.removeAllListeners(GET_WINDOW_SHOWN_AT_CHANNEL);
+  ipcMain.on(GET_WINDOW_SHOWN_AT_CHANNEL, (event) => {
+    event.returnValue = mainWindowShownAtMs;
+  });
+
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
   ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
@@ -1525,6 +1532,7 @@ function createWindow(): BrowserWindow {
     emitUpdateState();
   });
   window.once("ready-to-show", () => {
+    mainWindowShownAtMs = Date.now();
     window.show();
   });
 
@@ -1566,10 +1574,10 @@ async function bootstrap(): Promise<void> {
 
   registerIpcHandlers();
   writeDesktopLogHeader("bootstrap ipc handlers registered");
-  startBackend();
-  writeDesktopLogHeader("bootstrap backend start requested");
   mainWindow = createWindow();
   writeDesktopLogHeader("bootstrap main window created");
+  startBackend();
+  writeDesktopLogHeader("bootstrap backend start requested");
 }
 
 app.on("before-quit", () => {

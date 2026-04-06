@@ -144,6 +144,28 @@ export function buildServerProvider(input: {
   };
 }
 
+export function buildPendingServerProvider(input: {
+  provider: ServerProvider["provider"];
+  enabled: boolean;
+  models: ReadonlyArray<ServerProviderModel>;
+  message: string;
+  checkedAt?: string;
+}): ServerProvider {
+  return buildServerProvider({
+    provider: input.provider,
+    enabled: input.enabled,
+    checkedAt: input.checkedAt ?? new Date().toISOString(),
+    models: input.models,
+    probe: {
+      installed: false,
+      version: null,
+      status: "warning",
+      auth: { status: "unknown" },
+      message: input.message,
+    },
+  });
+}
+
 export const collectStreamAsString = <E>(
   stream: Stream.Stream<Uint8Array, E>,
 ): Effect.Effect<string, E> =>

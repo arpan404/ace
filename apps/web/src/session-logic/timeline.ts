@@ -85,45 +85,81 @@ function compareTimelineEntriesByOrder(
   );
 }
 
+type TimelineSortEntry = {
+  timelineEntry: TimelineEntry;
+  sourceIndex: number;
+  sequence?: number | undefined;
+};
+
+function buildSortedTimelineEntries(
+  messages: ReadonlyArray<ChatMessage>,
+  proposedPlans: ReadonlyArray<ProposedPlan>,
+  workEntries: ReadonlyArray<WorkLogEntry>,
+): Array<TimelineSortEntry> {
+  const rawEntries: Array<TimelineSortEntry> = [];
+  let sourceIndex = 0;
+
+  for (const message of messages) {
+    rawEntries.push({
+      timelineEntry: {
+        id: message.id,
+        kind: "message",
+        createdAt: message.createdAt,
+        message,
+      },
+      sourceIndex,
+      sequence: message.sequence,
+    });
+    sourceIndex += 1;
+  }
+
+  for (const proposedPlan of proposedPlans) {
+    rawEntries.push({
+      timelineEntry: {
+        id: proposedPlan.id,
+        kind: "proposed-plan",
+        createdAt: proposedPlan.createdAt,
+        proposedPlan,
+      },
+      sourceIndex,
+    });
+    sourceIndex += 1;
+  }
+
+  for (const entry of workEntries) {
+    rawEntries.push({
+      timelineEntry: {
+        id: entry.id,
+        kind: "work",
+        createdAt: entry.createdAt,
+        entry,
+      },
+      sourceIndex,
+      sequence: entry.sequence,
+    });
+    sourceIndex += 1;
+  }
+
+  if (rawEntries.length > 1) {
+    rawEntries.sort(compareTimelineEntriesByOrder);
+  }
+
+  return rawEntries;
+}
+
 export function deriveTimelineEntries(
   messages: ChatMessage[],
   proposedPlans: ProposedPlan[],
   workEntries: WorkLogEntry[],
 ): TimelineEntry[] {
-  const rawEntriesBase = [
-    ...messages.map((message) => ({
-      timelineEntry: {
-        id: message.id,
-        kind: "message" as const,
-        createdAt: message.createdAt,
-        message,
-      },
-      sequence: message.sequence,
-    })),
-    ...proposedPlans.map((proposedPlan) => ({
-      timelineEntry: {
-        id: proposedPlan.id,
-        kind: "proposed-plan" as const,
-        createdAt: proposedPlan.createdAt,
-        proposedPlan,
-      },
-    })),
-    ...workEntries.map((entry) => ({
-      timelineEntry: {
-        id: entry.id,
-        kind: "work" as const,
-        createdAt: entry.createdAt,
-        entry,
-      },
-      sequence: entry.sequence,
-    })),
-  ];
-  const rawEntries = rawEntriesBase
-    .map((entry, sourceIndex) => Object.assign(entry, { sourceIndex }))
-    .toSorted(compareTimelineEntriesByOrder);
+  const rawEntries = buildSortedTimelineEntries(messages, proposedPlans, workEntries);
+  if (rawEntries.length === 0) {
+    return [];
+  }
 
   const normalizedEntries: TimelineEntry[] = [];
   let pendingIntentText: string | null = null;
+  let pendingIntentFingerprint: string | null = null;
   let previousIntentFingerprint: string | null = null;
 
   for (const { timelineEntry: entry } of rawEntries) {
@@ -140,6 +176,7 @@ export function deriveTimelineEntries(
           });
         }
         pendingIntentText = intentText;
+        pendingIntentFingerprint = nextIntentFingerprint;
         previousIntentFingerprint = nextIntentFingerprint;
       }
       continue;
@@ -147,16 +184,18 @@ export function deriveTimelineEntries(
 
     if (entry.kind === "work" && pendingIntentText) {
       if (entry.entry.tone === "tool") {
-        const attachedIntentText = normalizeIntentDisplayText(pendingIntentText);
+        const attachedIntentFingerprint =
+          pendingIntentFingerprint ?? normalizeIntentComparisonText(pendingIntentText);
         normalizedEntries.push({
           ...entry,
           entry: {
             ...entry.entry,
-            intentText: attachedIntentText,
+            intentText: pendingIntentText,
           },
         });
         pendingIntentText = null;
-        previousIntentFingerprint = normalizeIntentComparisonText(attachedIntentText);
+        previousIntentFingerprint = attachedIntentFingerprint;
+        pendingIntentFingerprint = null;
         continue;
       }
 

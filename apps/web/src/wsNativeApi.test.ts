@@ -86,6 +86,7 @@ const rpcClientMock = {
   },
   orchestration: {
     getSnapshot: vi.fn(),
+    getThread: vi.fn(),
     dispatchCommand: vi.fn(),
     getTurnDiff: vi.fn(),
     getFullThreadDiff: vi.fn(),
@@ -279,6 +280,45 @@ describe("wsNativeApi", () => {
 
     expect(rpcClientMock.orchestration.getSnapshot).toHaveBeenCalledWith({
       hydrateThreadId: "thread-1",
+    });
+  });
+
+  it("forwards thread hydration requests to the orchestration rpc", async () => {
+    rpcClientMock.orchestration.getThread.mockResolvedValue({
+      id: ThreadId.makeUnsafe("thread-1"),
+      projectId: ProjectId.makeUnsafe("project-1"),
+      title: "Thread",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+      interactionMode: "default",
+      runtimeMode: "full-access",
+      branch: null,
+      worktreePath: null,
+      latestTurn: null,
+      createdAt: "2026-02-24T00:00:00.000Z",
+      updatedAt: "2026-02-24T00:00:00.000Z",
+      archivedAt: null,
+      deletedAt: null,
+      messages: [],
+      proposedPlans: [],
+      latestProposedPlanSummary: null,
+      queuedComposerMessages: [],
+      queuedSteerRequest: null,
+      activities: [],
+      checkpoints: [],
+      session: null,
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.orchestration.getThread({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+    });
+
+    expect(rpcClientMock.orchestration.getThread).toHaveBeenCalledWith({
+      threadId: "thread-1",
     });
   });
 

@@ -1,7 +1,11 @@
 import type { OpenCodeSettings, ServerProvider } from "@ace/contracts";
 import { Cache, Cause, Duration, Effect, Equal, Layer, Result, Stream } from "effect";
 
-import { buildServerProvider, providerModelsFromSettings } from "../providerSnapshot";
+import {
+  buildPendingServerProvider,
+  buildServerProvider,
+  providerModelsFromSettings,
+} from "../providerSnapshot";
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import { OpenCodeProvider } from "../Services/OpenCodeProvider";
 import { ServerSettingsService } from "../../serverSettings";
@@ -140,6 +144,17 @@ export const OpenCodeProviderLive = Layer.effect(
     );
 
     return yield* makeManagedServerProvider<OpenCodeSettings>({
+      label: "OpenCode",
+      cacheKey: PROVIDER,
+      initialSnapshot: (settings) =>
+        buildPendingServerProvider({
+          provider: PROVIDER,
+          enabled: settings.enabled,
+          models: providerModelsFromSettings([], PROVIDER, settings.customModels),
+          message: settings.enabled
+            ? "Checking OpenCode availability..."
+            : "OpenCode is disabled in ace settings.",
+        }),
       getSettings: Cache.get(settingsCache, "settings" as const).pipe(Effect.orDie),
       streamSettings: settingsService.streamChanges.pipe(
         Stream.map((settings) => settings.providers.opencode),

@@ -21,6 +21,15 @@ import {
   MAX_TERMINALS_PER_GROUP,
   type ThreadTerminalGroup,
 } from "./types";
+import {
+  assignUniqueTerminalGroupId as assignUniqueGroupId,
+  DEFAULT_TERMINAL_SIDEBAR_WIDTH,
+  fallbackTerminalGroupId as fallbackGroupId,
+  normalizeOptionalTerminalIdList,
+  normalizeTerminalGroups,
+  normalizeTerminalIdList as normalizeTerminalIds,
+  normalizeTerminalSidebarWidth,
+} from "./lib/terminalStateNormalization";
 
 interface ThreadTerminalState {
   terminalOpen: boolean;
@@ -40,26 +49,9 @@ interface ThreadTerminalState {
 }
 
 const TERMINAL_STATE_STORAGE_KEY = "ace:terminal-state:v1";
-const DEFAULT_TERMINAL_SIDEBAR_WIDTH = 236;
-const MIN_TERMINAL_SIDEBAR_WIDTH = 180;
-const MAX_TERMINAL_SIDEBAR_WIDTH = 360;
 
 function createTerminalStateStorage() {
   return resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined);
-}
-
-function normalizeTerminalIds(terminalIds: string[]): string[] {
-  const ids = [...new Set(terminalIds.map((id) => id.trim()).filter((id) => id.length > 0))];
-  return ids.length > 0 ? ids : [DEFAULT_THREAD_TERMINAL_ID];
-}
-
-function normalizeTerminalSidebarWidth(width: number | null | undefined): number {
-  const safeWidth =
-    typeof width === "number" && Number.isFinite(width) ? width : DEFAULT_TERMINAL_SIDEBAR_WIDTH;
-  return Math.min(
-    MAX_TERMINAL_SIDEBAR_WIDTH,
-    Math.max(MIN_TERMINAL_SIDEBAR_WIDTH, Math.round(safeWidth)),
-  );
 }
 
 function normalizeTerminalSidebarDensity(
@@ -73,10 +65,7 @@ function normalizeRunningTerminalIds(
   terminalIds: string[],
 ): string[] {
   if (runningTerminalIds.length === 0) return [];
-  const validTerminalIdSet = new Set(terminalIds);
-  return [...new Set(runningTerminalIds)]
-    .map((id) => id.trim())
-    .filter((id) => id.length > 0 && validTerminalIdSet.has(id));
+  return normalizeOptionalTerminalIdList(runningTerminalIds, new Set(terminalIds));
 }
 
 function normalizeTerminalTitle(title: string | null | undefined): string | null {
@@ -123,30 +112,11 @@ function normalizeTerminalMetadataMap<T extends string>(
   return Object.fromEntries(normalizedEntries);
 }
 
-function fallbackGroupId(terminalId: string): string {
-  return `group-${terminalId}`;
-}
-
-function assignUniqueGroupId(baseId: string, usedGroupIds: Set<string>): string {
-  let candidate = baseId;
-  let index = 2;
-  while (usedGroupIds.has(candidate)) {
-    candidate = `${baseId}-${index}`;
-    index += 1;
-  }
-  usedGroupIds.add(candidate);
-  return candidate;
-}
-
 function findGroupIndexByTerminalId(
   terminalGroups: ThreadTerminalGroup[],
   terminalId: string,
 ): number {
   return terminalGroups.findIndex((group) => group.terminalIds.includes(terminalId));
-}
-
-function normalizeTerminalGroupIds(terminalIds: string[]): string[] {
-  return [...new Set(terminalIds.map((id) => id.trim()).filter((id) => id.length > 0))];
 }
 
 function createEqualSplitRatios(count: number): number[] {
@@ -166,55 +136,6 @@ function normalizeSplitRatios(ratios: number[] | null | undefined, count: number
     return createEqualSplitRatios(count);
   }
   return sanitized.map((value) => value / total);
-}
-
-function normalizeTerminalGroups(
-  terminalGroups: ThreadTerminalGroup[],
-  terminalIds: string[],
-): ThreadTerminalGroup[] {
-  const validTerminalIdSet = new Set(terminalIds);
-  const assignedTerminalIds = new Set<string>();
-  const nextGroups: ThreadTerminalGroup[] = [];
-  const usedGroupIds = new Set<string>();
-
-  for (const group of terminalGroups) {
-    const groupTerminalIds = normalizeTerminalGroupIds(group.terminalIds).filter((terminalId) => {
-      if (!validTerminalIdSet.has(terminalId)) return false;
-      if (assignedTerminalIds.has(terminalId)) return false;
-      return true;
-    });
-    if (groupTerminalIds.length === 0) continue;
-    for (const terminalId of groupTerminalIds) {
-      assignedTerminalIds.add(terminalId);
-    }
-    const baseGroupId =
-      group.id.trim().length > 0
-        ? group.id.trim()
-        : fallbackGroupId(groupTerminalIds[0] ?? DEFAULT_THREAD_TERMINAL_ID);
-    nextGroups.push({
-      id: assignUniqueGroupId(baseGroupId, usedGroupIds),
-      terminalIds: groupTerminalIds,
-    });
-  }
-
-  for (const terminalId of terminalIds) {
-    if (assignedTerminalIds.has(terminalId)) continue;
-    nextGroups.push({
-      id: assignUniqueGroupId(fallbackGroupId(terminalId), usedGroupIds),
-      terminalIds: [terminalId],
-    });
-  }
-
-  if (nextGroups.length === 0) {
-    return [
-      {
-        id: fallbackGroupId(DEFAULT_THREAD_TERMINAL_ID),
-        terminalIds: [DEFAULT_THREAD_TERMINAL_ID],
-      },
-    ];
-  }
-
-  return nextGroups;
 }
 
 function normalizeSplitRatiosByGroupId(

@@ -9,16 +9,37 @@ import "./index.css";
 import { isElectron } from "./env";
 import { getRouter } from "./router";
 import { APP_DISPLAY_NAME } from "./branding";
+import { beginLoadPhase, initLoadDiagnostics, logLoadDiagnostic } from "./loadDiagnostics";
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
-const history = isElectron ? createHashHistory() : createBrowserHistory();
+initLoadDiagnostics();
+logLoadDiagnostic({
+  phase: "main",
+  message: "Evaluating application entrypoint",
+  detail: { mode: isElectron ? "electron" : "browser" },
+});
 
+const history = isElectron ? createHashHistory() : createBrowserHistory();
+const routerPhase = beginLoadPhase("main", "Creating router");
 const router = getRouter(history);
+routerPhase.success("Router created");
 
 document.title = APP_DISPLAY_NAME;
+logLoadDiagnostic({ phase: "main", message: "Document title updated", detail: APP_DISPLAY_NAME });
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+const rootElement = document.getElementById("root") as HTMLElement;
+const renderPhase = beginLoadPhase("main", "Rendering React root");
+ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <RouterProvider router={router} />
   </React.StrictMode>,
 );
+renderPhase.success("React root render scheduled");
+
+queueMicrotask(() => {
+  logLoadDiagnostic({ phase: "main", message: "Initial microtask queue drained" });
+});
+
+requestAnimationFrame(() => {
+  logLoadDiagnostic({ phase: "paint", message: "First animation frame after root render" });
+});

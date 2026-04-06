@@ -717,6 +717,13 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
   }
+  if (tag === ORCHESTRATION_WS_METHODS.getThread) {
+    const requestedThreadId = typeof body.threadId === "string" ? body.threadId : null;
+    return (
+      fixture.snapshot.threads.find((thread) => thread.id === requestedThreadId) ??
+      fixture.snapshot.threads[0]
+    );
+  }
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }

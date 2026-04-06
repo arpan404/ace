@@ -1,7 +1,11 @@
 import type { GitHubCopilotSettings, ServerProvider } from "@ace/contracts";
 import { Cache, Duration, Effect, Equal, Layer, Result, Stream } from "effect";
 
-import { buildServerProvider, providerModelsFromSettings } from "../providerSnapshot";
+import {
+  buildPendingServerProvider,
+  buildServerProvider,
+  providerModelsFromSettings,
+} from "../providerSnapshot";
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import { GitHubCopilotProvider } from "../Services/GitHubCopilotProvider";
 import { isGitHubCopilotCliMissingError, probeGitHubCopilotSdk } from "../githubCopilotSdk";
@@ -136,6 +140,17 @@ export const GitHubCopilotProviderLive = Layer.effect(
     );
 
     return yield* makeManagedServerProvider<GitHubCopilotSettings>({
+      label: "GitHub Copilot",
+      cacheKey: PROVIDER,
+      initialSnapshot: (settings) =>
+        buildPendingServerProvider({
+          provider: PROVIDER,
+          enabled: settings.enabled,
+          models: providerModelsFromSettings([], PROVIDER, settings.customModels),
+          message: settings.enabled
+            ? "Checking GitHub Copilot availability..."
+            : "GitHub Copilot is disabled in ace settings.",
+        }),
       getSettings: Cache.get(settingsCache, "settings" as const).pipe(Effect.orDie),
       streamSettings: settingsService.streamChanges.pipe(
         Stream.map((settings) => settings.providers.githubCopilot),
