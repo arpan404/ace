@@ -208,19 +208,19 @@ export const ChatHeader = memo(function ChatHeader({
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
-      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
         <SidebarTrigger className="size-7 shrink-0 md:hidden" />
         {workspaceMode === "editor" ? (
           <span
-            className="min-w-0 truncate text-[13px] leading-none font-medium tracking-tight text-foreground/70"
+            className="min-w-0 truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80"
             title={workspaceName ?? activeProjectName}
           >
             {workspaceName ?? activeProjectName ?? "Workspace"}
           </span>
         ) : (
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2.5">
             <h2
-              className="min-w-0 shrink truncate text-[13px] leading-none font-medium tracking-tight text-foreground/70"
+              className="min-w-0 shrink truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80"
               title={activeThreadTitle}
             >
               {activeThreadTitle}
@@ -237,7 +237,7 @@ export const ChatHeader = memo(function ChatHeader({
                   <Badge
                     variant="outline"
                     size="sm"
-                    className="min-w-0 max-w-48 shrink overflow-hidden border-border/20 bg-muted/20 text-muted-foreground/50"
+                    className="min-w-0 max-w-48 shrink overflow-hidden border-border/15 bg-muted/15 text-muted-foreground/45"
                   >
                     <span className="min-w-0 truncate">{activeProjectName}</span>
                   </Badge>
@@ -253,7 +253,7 @@ export const ChatHeader = memo(function ChatHeader({
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="flex shrink-0 items-center gap-1">
         <WorkspaceModeToggle mode={workspaceMode} onModeChange={onWorkspaceModeChange} />
         {workspaceActionNodes.length > 0 ? (
           <TopBarCluster>{workspaceActionNodes}</TopBarCluster>

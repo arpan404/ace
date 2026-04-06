@@ -117,18 +117,18 @@ export default function BranchToolbar({
   if (!activeThreadId || !activeProject) return null;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-2.5 pt-1">
-      <div className="flex items-center gap-1">
+    <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-2 pt-0.5">
+      <div className="flex items-center gap-0.5">
         {envLocked || activeWorktreePath ? (
-          <span className="inline-flex items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/55 sm:text-xs">
+          <span className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium tracking-wide text-muted-foreground/50 uppercase">
             {activeWorktreePath ? (
               <>
-                <GitForkIcon className="size-3" />
+                <GitForkIcon className="size-3 opacity-60" />
                 Worktree
               </>
             ) : (
               <>
-                <FolderIcon className="size-3" />
+                <FolderIcon className="size-3 opacity-60" />
                 Local
               </>
             )}
@@ -139,11 +139,15 @@ export default function BranchToolbar({
             onValueChange={(value) => onEnvModeChange(value as EnvMode)}
             items={envModeItems}
           >
-            <SelectTrigger variant="ghost" size="xs" className="font-medium">
+            <SelectTrigger
+              variant="ghost"
+              size="xs"
+              className="gap-1.5 rounded-md text-[11px] font-medium tracking-wide text-muted-foreground/50 uppercase transition-colors duration-150 hover:text-muted-foreground/70"
+            >
               {effectiveEnvMode === "worktree" ? (
-                <GitForkIcon className="size-3" />
+                <GitForkIcon className="size-3 opacity-60" />
               ) : (
-                <FolderIcon className="size-3" />
+                <FolderIcon className="size-3 opacity-60" />
               )}
               <SelectValue />
             </SelectTrigger>
@@ -164,30 +168,31 @@ export default function BranchToolbar({
           </Select>
         )}
         {runtimeMode && onRuntimeModeChange ? (
-          <Button
-            variant="ghost"
-            size="xs"
-            className="gap-1 font-medium text-muted-foreground/55 hover:text-foreground/70"
-            onClick={() =>
-              onRuntimeModeChange(
-                runtimeMode === "full-access" ? "approval-required" : "full-access",
-              )
-            }
-            title={
-              runtimeMode === "full-access"
-                ? "Full access — click to require approvals"
-                : "Approval required — click for full access"
-            }
-          >
-            {runtimeMode === "full-access" ? (
-              <LockOpenIcon className="size-3" />
-            ) : (
-              <LockIcon className="size-3" />
-            )}
-            <span className="text-xs">
+          <>
+            <span className="mx-0.5 h-3 w-px bg-border/15" />
+            <Button
+              variant="ghost"
+              size="xs"
+              className="gap-1.5 rounded-md text-[11px] font-medium tracking-wide text-muted-foreground/50 uppercase transition-colors duration-150 hover:text-muted-foreground/70"
+              onClick={() =>
+                onRuntimeModeChange(
+                  runtimeMode === "full-access" ? "approval-required" : "full-access",
+                )
+              }
+              title={
+                runtimeMode === "full-access"
+                  ? "Full access — click to require approvals"
+                  : "Approval required — click for full access"
+              }
+            >
+              {runtimeMode === "full-access" ? (
+                <LockOpenIcon className="size-3 opacity-60" />
+              ) : (
+                <LockIcon className="size-3 opacity-60" />
+              )}
               {runtimeMode === "full-access" ? "Full access" : "Supervised"}
-            </span>
-          </Button>
+            </Button>
+          </>
         ) : null}
       </div>
 
