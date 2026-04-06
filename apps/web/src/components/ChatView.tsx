@@ -68,7 +68,11 @@ import {
   isLatestTurnSettled,
   formatElapsed,
 } from "../session-logic";
-import { isScrollContainerNearBottom } from "../chat-scroll";
+import {
+  clampScrollTop,
+  isScrollContainerNearBottom,
+  resolveThreadOpenScrollBehavior,
+} from "../chat-scroll";
 import {
   buildPendingUserInputAnswers,
   derivePendingUserInputProgress,
@@ -237,6 +241,15 @@ const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
+const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
+
+interface ThreadScrollSnapshot {
+  readonly scrollTop: number;
+  readonly shouldAutoScroll: boolean;
+}
+
+const sessionThreadScrollSnapshots = new Map<ThreadId, ThreadScrollSnapshot>();
+const sessionOpenedThreadIds = new Set<ThreadId>();
 
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
@@ -2694,12 +2707,25 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   // Auto-scroll on new messages
   const messageCount = timelineMessages.length;
+  const saveThreadScrollSnapshot = useCallback((threadId: ThreadId) => {
+    const scrollContainer = messagesScrollRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+
+    sessionThreadScrollSnapshots.set(threadId, {
+      scrollTop: scrollContainer.scrollTop,
+      shouldAutoScroll: shouldAutoScrollRef.current || isScrollContainerNearBottom(scrollContainer),
+    });
+    sessionOpenedThreadIds.add(threadId);
+  }, []);
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
     scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior });
     lastKnownScrollTopRef.current = scrollContainer.scrollTop;
     shouldAutoScrollRef.current = true;
+    setShowScrollToBottom(false);
   }, []);
   const cancelPendingStickToBottom = useCallback(() => {
     const pendingFrame = pendingAutoScrollFrameRef.current;
@@ -2830,18 +2856,64 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [cancelPendingInteractionAnchorAdjustment, cancelPendingStickToBottom]);
   useLayoutEffect(() => {
     if (!activeThread?.id) return;
-    shouldAutoScrollRef.current = true;
-    scheduleStickToBottom();
-    const timeout = window.setTimeout(() => {
-      const scrollContainer = messagesScrollRef.current;
-      if (!scrollContainer) return;
-      if (isScrollContainerNearBottom(scrollContainer)) return;
-      scheduleStickToBottom();
-    }, 96);
+    cancelPendingStickToBottom();
+    const scrollContainer = messagesScrollRef.current;
+    const savedSnapshot = sessionThreadScrollSnapshots.get(activeThread.id);
+    const scrollBehavior = resolveThreadOpenScrollBehavior({
+      hasSavedScrollSnapshot: savedSnapshot !== undefined,
+      hasOpenedAnyThreadInSession: sessionOpenedThreadIds.size > 0,
+    });
+    let timeout: number | null = null;
+
+    if (scrollContainer) {
+      if (scrollBehavior === "restore-saved" && savedSnapshot) {
+        if (savedSnapshot.shouldAutoScroll) {
+          scrollMessagesToBottom();
+          timeout = window.setTimeout(() => {
+            const activeScrollContainer = messagesScrollRef.current;
+            if (!activeScrollContainer) return;
+            if (isScrollContainerNearBottom(activeScrollContainer)) return;
+            scheduleStickToBottom();
+          }, THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS);
+        } else {
+          const nextScrollTop = clampScrollTop(savedSnapshot.scrollTop, scrollContainer);
+          scrollContainer.scrollTop = nextScrollTop;
+          lastKnownScrollTopRef.current = nextScrollTop;
+          shouldAutoScrollRef.current = false;
+          setShowScrollToBottom(!isScrollContainerNearBottom(scrollContainer));
+        }
+      } else if (scrollBehavior === "preserve-current") {
+        const isNearBottom = isScrollContainerNearBottom(scrollContainer);
+        lastKnownScrollTopRef.current = scrollContainer.scrollTop;
+        shouldAutoScrollRef.current = isNearBottom;
+        setShowScrollToBottom(!isNearBottom);
+      } else {
+        shouldAutoScrollRef.current = true;
+        setShowScrollToBottom(false);
+        scheduleStickToBottom();
+        timeout = window.setTimeout(() => {
+          const activeScrollContainer = messagesScrollRef.current;
+          if (!activeScrollContainer) return;
+          if (isScrollContainerNearBottom(activeScrollContainer)) return;
+          scheduleStickToBottom();
+        }, THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS);
+      }
+    }
+
+    sessionOpenedThreadIds.add(activeThread.id);
     return () => {
-      window.clearTimeout(timeout);
+      if (timeout !== null) {
+        window.clearTimeout(timeout);
+      }
+      saveThreadScrollSnapshot(activeThread.id);
     };
-  }, [activeThread?.id, scheduleStickToBottom]);
+  }, [
+    activeThread?.id,
+    cancelPendingStickToBottom,
+    saveThreadScrollSnapshot,
+    scheduleStickToBottom,
+    scrollMessagesToBottom,
+  ]);
   useLayoutEffect(() => {
     const composerForm = composerFormRef.current;
     if (!composerForm) return;
