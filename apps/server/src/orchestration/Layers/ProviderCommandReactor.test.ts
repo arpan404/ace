@@ -1420,6 +1420,107 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("rebuilds failed Copilot chats from prior transcript without replaying the new retry message", async () => {
+    const harness = await createHarness({
+      threadModelSelection: { provider: "githubCopilot", model: "gpt-4.1" },
+      sessionModelSwitch: "restart-session",
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-copilot-failed-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-copilot-failed-1"),
+          role: "user",
+          text: "first failed copilot turn",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "githubCopilot",
+          model: "gpt-4.1",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    harness.startSession.mockClear();
+    harness.sendTurn.mockClear();
+    harness.runtimeSessions.splice(0, harness.runtimeSessions.length);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-copilot-failed-retry"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "stopped",
+          providerName: "githubCopilot",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: "GitHub Copilot stopped producing runtime events. Recovering the session.",
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-copilot-failed-2"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-copilot-failed-2"),
+          role: "user",
+          text: "continue",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "githubCopilot",
+          model: "gpt-4.1",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      provider: "githubCopilot",
+      modelSelection: {
+        provider: "githubCopilot",
+        model: "gpt-4.1",
+      },
+      runtimeMode: "approval-required",
+      replayTurns: [
+        {
+          prompt: "first failed copilot turn",
+          attachmentNames: [],
+        },
+      ],
+    });
+    expect(harness.startSession.mock.calls[0]?.[1]).not.toMatchObject({
+      replayTurns: [
+        {
+          prompt: "continue",
+        },
+      ],
+    });
+  });
+
   it("does not inject derived model options when restarting claude on runtime mode changes", async () => {
     const harness = await createHarness({
       threadModelSelection: { provider: "claudeAgent", model: "claude-opus-4-6" },

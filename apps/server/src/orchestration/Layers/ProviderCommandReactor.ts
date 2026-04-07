@@ -4,6 +4,7 @@ import {
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
+  type ProviderReplayTurn,
   ProviderKind,
   type OrchestrationSession,
   ThreadId,
@@ -18,6 +19,7 @@ import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { meaningfulErrorMessage } from "../../provider/errorCause.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
+import { sourceMessagesToReplayTurns } from "../../provider/providerReplayTurns.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -268,6 +270,7 @@ const make = Effect.gen(function* () {
     options?: {
       readonly modelSelection?: ModelSelection;
       readonly preferFreshSession?: boolean;
+      readonly replayTurns?: ReadonlyArray<ProviderReplayTurn>;
     },
   ) {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -309,6 +312,7 @@ const make = Effect.gen(function* () {
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
+      readonly replayTurns?: ReadonlyArray<ProviderReplayTurn>;
     }) =>
       providerService.startSession(threadId, {
         threadId,
@@ -316,6 +320,7 @@ const make = Effect.gen(function* () {
         ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
         modelSelection: desiredModelSelection,
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+        ...(input?.replayTurns !== undefined ? { replayTurns: input.replayTurns } : {}),
         runtimeMode: desiredRuntimeMode,
       });
 
@@ -360,19 +365,22 @@ const make = Effect.gen(function* () {
         options?.preferFreshSession === true &&
         sessionModelSwitch === "restart-session" &&
         thread.session?.activeTurnId === null;
+      const shouldRestartMissingLiveSession =
+        options?.preferFreshSession === true && activeSession === undefined;
 
       if (
         !runtimeModeChanged &&
         !providerChanged &&
         !shouldRestartForModelChange &&
         !shouldRestartForModelSelectionChange &&
-        !shouldRestartReadySessionForTurn
+        !shouldRestartReadySessionForTurn &&
+        !shouldRestartMissingLiveSession
       ) {
         return existingSessionThreadId;
       }
 
       const resumeCursor =
-        providerChanged || shouldRestartForModelChange
+        providerChanged || shouldRestartForModelChange || shouldRestartMissingLiveSession
           ? undefined
           : (activeSession?.resumeCursor ?? undefined);
       yield* Effect.logInfo("provider command reactor restarting provider session", {
@@ -388,11 +396,15 @@ const make = Effect.gen(function* () {
         shouldRestartForModelChange,
         shouldRestartForModelSelectionChange,
         shouldRestartReadySessionForTurn,
+        shouldRestartMissingLiveSession,
         hasResumeCursor: resumeCursor !== undefined,
       });
-      const restartedSession = yield* startProviderSession(
-        resumeCursor !== undefined ? { resumeCursor } : undefined,
-      );
+      const restartedSession = yield* startProviderSession({
+        ...(resumeCursor !== undefined ? { resumeCursor } : {}),
+        ...(shouldRestartMissingLiveSession && options?.replayTurns !== undefined
+          ? { replayTurns: options.replayTurns }
+          : {}),
+      });
       yield* Effect.logInfo("provider command reactor restarted provider session", {
         threadId,
         previousSessionId: existingSessionThreadId,
@@ -404,7 +416,9 @@ const make = Effect.gen(function* () {
       return restartedSession.threadId;
     }
 
-    const startedSession = yield* startProviderSession(undefined);
+    const startedSession = yield* startProviderSession(
+      options?.replayTurns !== undefined ? { replayTurns: options.replayTurns } : undefined,
+    );
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
   });
@@ -415,6 +429,7 @@ const make = Effect.gen(function* () {
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
     readonly interactionMode?: "default" | "plan";
+    readonly replayTurns?: ReadonlyArray<ProviderReplayTurn>;
     readonly createdAt: string;
   }) {
     const thread = yield* resolveThread(input.threadId);
@@ -424,6 +439,7 @@ const make = Effect.gen(function* () {
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
       preferFreshSession: true,
+      ...(input.replayTurns !== undefined ? { replayTurns: input.replayTurns } : {}),
     });
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
@@ -634,6 +650,12 @@ const make = Effect.gen(function* () {
         ? { modelSelection: event.payload.modelSelection }
         : {}),
       interactionMode: event.payload.interactionMode,
+      replayTurns: sourceMessagesToReplayTurns(
+        thread.messages.slice(
+          0,
+          thread.messages.findIndex((entry) => entry.id === message.id),
+        ),
+      ),
       createdAt: event.payload.createdAt,
     }).pipe(
       Effect.catchCause((cause) =>

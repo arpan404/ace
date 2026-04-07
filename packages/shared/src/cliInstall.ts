@@ -89,7 +89,7 @@ function prependPathEntry(pathValue: string, entry: string, platform: NodeJS.Pla
 }
 
 function quotePosixShell(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
 function quotePowerShell(value: string): string {

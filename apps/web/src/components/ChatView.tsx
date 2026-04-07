@@ -2709,6 +2709,39 @@ export default function ChatView({ threadId }: ChatViewProps) {
       runtimeMode === "full-access" ? "approval-required" : "full-access",
     );
   }, [handleRuntimeModeChange, runtimeMode]);
+  useEffect(() => {
+    if (!isElectron) return;
+    return window.desktopBridge?.onMenuAction((action) => {
+      if (!activeThreadId) {
+        return;
+      }
+
+      if (action === "toggle-terminal") {
+        toggleTerminalVisibility();
+        return;
+      }
+
+      if (action === "toggle-browser") {
+        toggleBrowserVisibility();
+        return;
+      }
+
+      if (action === "toggle-diff") {
+        onToggleDiff();
+        return;
+      }
+
+      if (action === "toggle-plan-mode") {
+        toggleInteractionMode();
+      }
+    });
+  }, [
+    activeThreadId,
+    onToggleDiff,
+    toggleBrowserVisibility,
+    toggleInteractionMode,
+    toggleTerminalVisibility,
+  ]);
   const togglePlanSidebar = useCallback(() => {
     setPlanSidebarOpen((open) => {
       if (open) {
@@ -2791,17 +2824,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
     (behavior: ScrollBehavior = "auto") => {
       const scrollContainer = messagesScrollRef.current;
       if (!scrollContainer) return;
-      scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior });
+      scrollContainerToBottom(scrollContainer, behavior);
       markMessagesAtBottom(scrollContainer);
     },
     [markMessagesAtBottom],
   );
   const jumpMessagesToBottom = useCallback(() => {
-    const scrollContainer = messagesScrollRef.current;
-    if (!scrollContainer) return;
-    scrollContainerToBottom(scrollContainer);
-    markMessagesAtBottom(scrollContainer);
-  }, [markMessagesAtBottom]);
+    scrollMessagesToBottom();
+  }, [scrollMessagesToBottom]);
   const cancelPendingStickToBottom = useCallback(() => {
     const pendingFrame = pendingAutoScrollFrameRef.current;
     if (pendingFrame === null) return;

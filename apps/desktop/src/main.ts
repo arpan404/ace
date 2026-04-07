@@ -24,6 +24,7 @@ import type {
   BrowserShortcutAction,
   DesktopCliInstallActionResult,
   DesktopCliInstallState,
+  DesktopMenuAction,
   DesktopNotificationInput,
   DesktopTheme,
   DesktopUpdateActionResult,
@@ -65,6 +66,7 @@ import {
 } from "./updateMachine";
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
 import { buildWebContentsContextMenuTemplate } from "./webContentsContextMenu";
+import { buildApplicationMenuTemplate } from "./applicationMenu";
 
 syncShellEnvironment();
 
@@ -768,7 +770,7 @@ function registerDesktopProtocol(): void {
   desktopProtocolRegistered = true;
 }
 
-function dispatchMenuAction(action: string): void {
+function dispatchMenuAction(action: DesktopMenuAction): void {
   withReadyPrimaryWindow((window) => {
     window.webContents.send(MENU_ACTION_CHANNEL, action);
   });
@@ -822,80 +824,12 @@ async function checkForUpdatesFromMenu(): Promise<void> {
 }
 
 function configureApplicationMenu(): void {
-  const template: MenuItemConstructorOptions[] = [];
-
-  if (process.platform === "darwin") {
-    template.push({
-      label: app.name,
-      submenu: [
-        { role: "about" },
-        {
-          label: "Check for Updates...",
-          click: () => handleCheckForUpdatesMenuClick(),
-        },
-        { type: "separator" },
-        {
-          label: "Settings...",
-          accelerator: "CmdOrCtrl+,",
-          click: () => dispatchMenuAction("open-settings"),
-        },
-        { type: "separator" },
-        { role: "services" },
-        { type: "separator" },
-        { role: "hide" },
-        { role: "hideOthers" },
-        { role: "unhide" },
-        { type: "separator" },
-        { role: "quit" },
-      ],
-    });
-  }
-
-  template.push(
-    {
-      label: "File",
-      submenu: [
-        ...(process.platform === "darwin"
-          ? []
-          : [
-              {
-                label: "Settings...",
-                accelerator: "CmdOrCtrl+,",
-                click: () => dispatchMenuAction("open-settings"),
-              },
-              { type: "separator" as const },
-            ]),
-        { role: process.platform === "darwin" ? "close" : "quit" },
-      ],
-    },
-    { role: "editMenu" },
-    {
-      label: "View",
-      submenu: [
-        { role: "reload" },
-        { role: "forceReload" },
-        { role: "toggleDevTools" },
-        { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn", accelerator: "CmdOrCtrl+=" },
-        { role: "zoomIn", accelerator: "CmdOrCtrl+Plus", visible: false },
-        { role: "zoomOut" },
-        { type: "separator" },
-        { role: "togglefullscreen" },
-      ],
-    },
-    { role: "windowMenu" },
-    {
-      role: "help",
-      submenu: [
-        {
-          label: "Check for Updates...",
-          click: () => handleCheckForUpdatesMenuClick(),
-        },
-      ],
-    },
-  );
-
+  const template: MenuItemConstructorOptions[] = buildApplicationMenuTemplate({
+    appName: APP_DISPLAY_NAME,
+    platform: process.platform,
+    onCheckForUpdates: handleCheckForUpdatesMenuClick,
+    onMenuAction: dispatchMenuAction,
+  });
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
@@ -942,13 +876,11 @@ function configureMacDockIcon(): void {
 /**
  * Resolve the Electron userData directory path.
  *
- * Electron derives the default userData path from `productName` in
- * package.json, which currently produces directories with spaces and
- * parentheses. This is
- * unfriendly for shell usage and violates Linux naming conventions.
+ * Electron derives the default userData path from the runtime app name,
+ * which can vary between development and packaged builds.
  *
- * We override it to a clean lowercase name (`ace`) so shell-facing
- * profile directories stay predictable across platforms.
+ * We override it to stable filesystem-friendly names (`ace` / `ace-dev`)
+ * so shell-facing profile directories stay predictable across platforms.
  */
 function resolveUserDataPath(): string {
   return resolveDesktopUserDataPath({

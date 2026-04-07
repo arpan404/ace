@@ -63,6 +63,7 @@ interface ChatMarkdownProps {
   cwd: string | undefined;
   isStreaming?: boolean;
   streamingTextState?: ChatMessageStreamingTextState;
+  onLayoutChange?: () => void;
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
@@ -319,7 +320,7 @@ function PreviewTextPanel({
       className="max-h-96 overflow-auto rounded-md border border-border/35 bg-background/35 px-3 py-2"
       {...(dataAttribute ? { [dataAttribute]: "true" } : {})}
     >
-      <div className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80 [content-visibility:auto]">
+      <div className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
         {text}
       </div>
     </div>
@@ -401,12 +402,19 @@ function CompletedMarkdownPreview({ text }: { text: string }) {
   return <PreviewTextPanel text={text} dataAttribute="data-deferred-markdown" />;
 }
 
-function ChatMarkdown({ text, cwd, isStreaming = false, streamingTextState }: ChatMarkdownProps) {
+function ChatMarkdown({
+  text,
+  cwd,
+  isStreaming = false,
+  streamingTextState,
+  onLayoutChange,
+}: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const [renderPreference, setRenderPreference] = useState<"auto" | "markdown">("auto");
   const [deferredMarkdownReady, setDeferredMarkdownReady] = useState(() => !isStreaming);
   const previousStreamingRef = useRef(isStreaming);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [isMarkdownTransitionPending, startMarkdownTransition] = useTransition();
   const useLargePreview =
     !isStreaming &&
@@ -490,12 +498,52 @@ function ChatMarkdown({ text, cwd, isStreaming = false, streamingTextState }: Ch
     });
   }, [isStreaming, startMarkdownTransition, useLargePreview]);
 
-  if (isStreaming) {
-    return <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
-  }
+  useEffect(() => {
+    onLayoutChange?.();
+  }, [deferredMarkdownReady, isStreaming, onLayoutChange, renderPreference, text, useLargePreview]);
 
-  if (useLargePreview) {
-    return (
+  useEffect(() => {
+    if (!onLayoutChange || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const rootElement = rootRef.current;
+    if (!rootElement) {
+      return;
+    }
+
+    let frameId: number | null = null;
+    const notifyLayoutChange = () => {
+      if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+        onLayoutChange();
+        return;
+      }
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        onLayoutChange();
+      });
+    };
+
+    const observer = new ResizeObserver(() => {
+      notifyLayoutChange();
+    });
+    observer.observe(rootElement);
+
+    return () => {
+      observer.disconnect();
+      if (frameId !== null && typeof window !== "undefined") {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [onLayoutChange]);
+
+  let content: ReactNode;
+  if (isStreaming) {
+    content = <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
+  } else if (useLargePreview) {
+    content = (
       <LargeMarkdownPreview
         text={text}
         isTransitionPending={isMarkdownTransitionPending}
@@ -506,17 +554,21 @@ function ChatMarkdown({ text, cwd, isStreaming = false, streamingTextState }: Ch
         }}
       />
     );
-  }
-
-  if (!deferredMarkdownReady) {
-    return <CompletedMarkdownPreview text={text} />;
+  } else if (!deferredMarkdownReady) {
+    content = <CompletedMarkdownPreview text={text} />;
+  } else {
+    content = (
+      <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80">
+        <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
+          {text}
+        </ReactMarkdown>
+      </div>
+    );
   }
 
   return (
-    <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80 [content-visibility:auto]">
-      <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
-        {text}
-      </ReactMarkdown>
+    <div ref={rootRef} className="w-full min-w-0">
+      {content}
     </div>
   );
 }

@@ -42,6 +42,10 @@ import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 import { deriveOrchestrationBatchEffects } from "../orchestrationEventEffects";
+import {
+  coalesceOrchestrationUiEvents,
+  resolveOrchestrationUiEventFlushPriority,
+} from "../orchestrationUiEvents";
 import { createOrchestrationRecoveryCoordinator } from "../orchestrationRecovery";
 import { getWsRpcClient } from "../wsRpcClient";
 
@@ -54,17 +58,6 @@ export const Route = createRootRouteWithContext<{
     meta: [{ name: "title", content: APP_DISPLAY_NAME }],
   }),
 });
-
-function shouldFlushDomainEventAsStreaming(event: OrchestrationEvent): boolean {
-  switch (event.type) {
-    case "thread.message-sent":
-      return event.payload.streaming;
-    case "thread.activity-appended":
-      return true;
-    default:
-      return false;
-  }
-}
 
 function RootRouteView() {
   if (!readNativeApi()) {
@@ -169,43 +162,6 @@ function errorDetails(error: unknown): string {
   } catch {
     return "No additional error details are available.";
   }
-}
-
-function coalesceOrchestrationUiEvents(
-  events: ReadonlyArray<OrchestrationEvent>,
-): OrchestrationEvent[] {
-  if (events.length < 2) {
-    return [...events];
-  }
-
-  const coalesced: OrchestrationEvent[] = [];
-  for (const event of events) {
-    const previous = coalesced.at(-1);
-    if (
-      previous?.type === "thread.message-sent" &&
-      event.type === "thread.message-sent" &&
-      previous.payload.threadId === event.payload.threadId &&
-      previous.payload.messageId === event.payload.messageId
-    ) {
-      coalesced[coalesced.length - 1] = {
-        ...event,
-        payload: {
-          ...event.payload,
-          attachments: event.payload.attachments ?? previous.payload.attachments,
-          createdAt: previous.payload.createdAt,
-          text:
-            !event.payload.streaming && event.payload.text.length > 0
-              ? event.payload.text
-              : previous.payload.text + event.payload.text,
-        },
-      };
-      continue;
-    }
-
-    coalesced.push(event);
-  }
-
-  return coalesced;
 }
 
 function EventRouter() {
@@ -628,9 +584,7 @@ function EventRouter() {
       const action = recovery.classifyDomainEvent(event.sequence);
       if (action === "apply") {
         pendingDomainEvents.push(event);
-        schedulePendingDomainEventFlush(
-          shouldFlushDomainEventAsStreaming(event) ? "microtask" : "animation-frame",
-        );
+        schedulePendingDomainEventFlush(resolveOrchestrationUiEventFlushPriority(event));
         return;
       }
       if (action === "recover") {

@@ -7,7 +7,6 @@ import {
 } from "@ace/contracts";
 import { Data, Effect, Layer, Option } from "effect";
 
-import { ServerConfig } from "./config";
 import {
   deriveProjectTitleFromWorkspaceRoot,
   normalizeCliWorkspaceRoot,

@@ -1,6 +1,11 @@
 import { useEffect, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 
+import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useSettings } from "../hooks/useSettings";
+import { resolveDesktopMenuSettingsRoute } from "../lib/desktopMenu";
+import { resolveSidebarNewThreadEnvMode } from "../lib/sidebar";
+import { resolveThreadCreationOptions } from "../lib/threadCreation";
 import ThreadSidebar from "./Sidebar";
 import { Sidebar, SidebarProvider, SidebarRail } from "./ui/sidebar";
 
@@ -10,6 +15,9 @@ const THREAD_MAIN_CONTENT_MIN_WIDTH = 40 * 16;
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const { activeDraftThread, activeThread, defaultProjectId, handleNewThread } =
+    useHandleNewThread();
+  const appSettings = useSettings();
 
   useEffect(() => {
     const onMenuAction = window.desktopBridge?.onMenuAction;
@@ -18,14 +26,55 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     }
 
     const unsubscribe = onMenuAction((action) => {
-      if (action !== "open-settings") return;
-      void navigate({ to: "/settings" });
+      const settingsRoute = resolveDesktopMenuSettingsRoute(action);
+      if (settingsRoute) {
+        void navigate({ to: settingsRoute });
+        return;
+      }
+
+      if (action !== "new-thread" && action !== "new-local-thread") {
+        return;
+      }
+
+      const projectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? defaultProjectId;
+      if (!projectId) {
+        return;
+      }
+
+      void handleNewThread(
+        projectId,
+        resolveThreadCreationOptions(action, {
+          activeDraftThread: activeDraftThread
+            ? {
+                branch: activeDraftThread.branch,
+                envMode: activeDraftThread.envMode,
+                worktreePath: activeDraftThread.worktreePath,
+              }
+            : null,
+          activeThread: activeThread
+            ? {
+                branch: activeThread.branch,
+                worktreePath: activeThread.worktreePath,
+              }
+            : null,
+          defaultNewThreadEnvMode: resolveSidebarNewThreadEnvMode({
+            defaultEnvMode: appSettings.defaultThreadEnvMode,
+          }),
+        }),
+      );
     });
 
     return () => {
       unsubscribe?.();
     };
-  }, [navigate]);
+  }, [
+    activeDraftThread,
+    activeThread,
+    appSettings.defaultThreadEnvMode,
+    defaultProjectId,
+    handleNewThread,
+    navigate,
+  ]);
 
   return (
     <SidebarProvider defaultOpen>

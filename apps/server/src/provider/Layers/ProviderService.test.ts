@@ -1110,6 +1110,66 @@ routing.layer("ProviderServiceLive routing", (it) => {
         yield* provider.stopSession({ threadId });
       }),
   );
+
+  it.effect(
+    "honors explicit replay turns over persisted transcript and resume cursors when starting restart-session providers",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const messages = yield* ProjectionThreadMessageRepository;
+        const threadId = asThreadId("thread-cursor-explicit-replay");
+        const createdAt = "2026-04-05T12:00:02.000Z";
+
+        yield* directory.upsert({
+          provider: "cursor",
+          threadId,
+          runtimeMode: "full-access",
+          status: "stopped",
+          resumeCursor: { sessionId: "cursor-stale-resume" },
+          runtimePayload: {
+            cwd: "/tmp/project-cursor-explicit-replay",
+            modelSelection: {
+              provider: "cursor",
+              model: "gpt-5-mini",
+            },
+          },
+        });
+        yield* messages.upsert({
+          messageId: asMessageId("user-cursor-explicit-replay-1"),
+          threadId,
+          turnId: asTurnId("turn-cursor-explicit-replay-1"),
+          role: "user",
+          text: "Earlier prompt that should not be auto-included",
+          isStreaming: false,
+          sequence: 1,
+          createdAt,
+          updatedAt: createdAt,
+        });
+
+        routing.cursor.startSession.mockClear();
+
+        yield* provider.startSession(threadId, {
+          provider: "cursor",
+          threadId,
+          cwd: "/tmp/project-cursor-explicit-replay",
+          runtimeMode: "full-access",
+          replayTurns: [],
+        });
+
+        assert.equal(routing.cursor.startSession.mock.calls.length, 1);
+        const startPayload = routing.cursor.startSession.mock.calls[0]?.[0] as
+          | {
+              resumeCursor?: unknown;
+              replayTurns?: unknown;
+            }
+          | undefined;
+        assert.equal(startPayload?.resumeCursor, undefined);
+        assert.deepEqual(startPayload?.replayTurns, []);
+
+        yield* provider.stopSession({ threadId });
+      }),
+  );
 });
 
 const fanout = makeProviderServiceLayer();

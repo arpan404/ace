@@ -43,7 +43,7 @@ describe("startOpenCodeServer", () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
     const restoreDependencies = setOpenCodeRuntimeDependencies({
       spawn: spawnMock as unknown as typeof import("node:child_process").spawn,
-      fetch: fetchMock,
+      fetch: fetchMock as unknown as typeof globalThis.fetch,
     });
     const killSpy = vi.spyOn(process, "kill").mockImplementation(((targetPid, signal) => {
       if (targetPid === -pid) {
@@ -81,7 +81,7 @@ describe("startOpenCodeServer", () => {
     });
     const restoreDependencies = setOpenCodeRuntimeDependencies({
       spawn: spawnMock as unknown as typeof import("node:child_process").spawn,
-      fetch: fetchMock,
+      fetch: fetchMock as unknown as typeof globalThis.fetch,
     });
     const killSpy = vi.spyOn(process, "kill").mockImplementation(((targetPid, signal) => {
       if (targetPid === -pid) {

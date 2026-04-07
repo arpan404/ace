@@ -30,7 +30,8 @@ async function createCliProjectSystem() {
   );
 
   return {
-    run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
+    run: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      runtime.runPromise(effect as Effect.Effect<A, E, never>),
     dispose: () => runtime.dispose(),
   };
 }

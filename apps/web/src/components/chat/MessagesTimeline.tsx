@@ -237,6 +237,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     getScrollElement: () => scrollContainer,
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
   });
+  const handleAssistantMessageLayoutChange = useCallback(() => {
+    rowVirtualizer.measure();
+  }, [rowVirtualizer]);
 
   useEffect(() => {
     if (virtualizedRows.length === 0) {
@@ -391,6 +394,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 completionSummary={row.completionSummary}
                 markdownCwd={markdownCwd}
                 message={row.message}
+                onLayoutChange={handleAssistantMessageLayoutChange}
                 onOpenTurnDiff={onOpenTurnDiff}
                 onToggleAllDirectories={onToggleAllDirectories}
                 resolvedTheme={resolvedTheme}
@@ -1409,6 +1413,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   completionSummary: string | null;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
+  onLayoutChange: () => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleAllDirectories: (turnId: TurnId) => void;
   resolvedTheme: "light" | "dark";
@@ -1428,6 +1433,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         text={messageText}
         cwd={props.markdownCwd}
         isStreaming={Boolean(props.message.streaming)}
+        onLayoutChange={props.onLayoutChange}
         {...(props.message.streamingTextState
           ? { streamingTextState: props.message.streamingTextState }
           : {})}

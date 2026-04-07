@@ -55,6 +55,7 @@ function makeFakeClient(input: {
       (options: MessageOptions, timeout?: number) => Promise<AssistantMessageEvent | undefined>
     >
   >;
+  forceStop?: ReturnType<typeof vi.fn<() => Promise<void>>>;
 }): GitHubCopilotClientLike & {
   readonly createSession: ReturnType<
     typeof vi.fn<(config: FakeCreateSessionConfig) => Promise<GitHubCopilotSessionClient>>
@@ -63,6 +64,7 @@ function makeFakeClient(input: {
   const disconnect = vi.fn(async () => undefined);
   const sendAndWait =
     input.sendAndWait ?? vi.fn(async () => makeAssistantMessage(input.response ?? ""));
+  const forceStop = input.forceStop ?? vi.fn(async () => undefined);
   const createSession = vi.fn(
     async (config: FakeCreateSessionConfig): Promise<GitHubCopilotSessionClient> => ({
       disconnect,
@@ -84,6 +86,7 @@ function makeFakeClient(input: {
     getStatus: vi.fn(async () => ({ version: "test", protocolVersion: 1 })),
     getAuthStatus: vi.fn(async () => ({ isAuthenticated: true, statusMessage: "ok" })),
     stop: vi.fn(async () => []),
+    forceStop,
   };
 }
 

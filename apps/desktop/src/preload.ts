@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopBridge } from "@ace/contracts";
+import { DESKTOP_MENU_ACTIONS, type DesktopBridge, type DesktopMenuAction } from "@ace/contracts";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
@@ -62,7 +62,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   onMenuAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
       if (typeof action !== "string") return;
-      listener(action);
+      if (!DESKTOP_MENU_ACTIONS.includes(action as DesktopMenuAction)) return;
+      listener(action as DesktopMenuAction);
     };
 
     ipcRenderer.on(MENU_ACTION_CHANNEL, wrappedListener);

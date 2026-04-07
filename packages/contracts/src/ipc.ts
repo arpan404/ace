@@ -113,6 +113,26 @@ export type BrowserShortcutAction =
   | "select-tab-8"
   | "select-tab-9";
 
+export const DESKTOP_MENU_ACTIONS = [
+  "new-thread",
+  "new-local-thread",
+  "toggle-plan-mode",
+  "toggle-terminal",
+  "toggle-browser",
+  "toggle-diff",
+  "open-settings",
+  "open-settings-chat",
+  "open-settings-editor",
+  "open-settings-browser",
+  "open-settings-models",
+  "open-settings-providers",
+  "open-settings-advanced",
+  "open-settings-about",
+  "open-settings-archived",
+] as const;
+
+export type DesktopMenuAction = (typeof DESKTOP_MENU_ACTIONS)[number];
+
 export interface DesktopRuntimeInfo {
   hostArch: DesktopRuntimeArch;
   appArch: DesktopRuntimeArch;
@@ -191,7 +211,7 @@ export interface DesktopBridge {
   showNotification: (input: DesktopNotificationInput) => Promise<boolean>;
   closeNotification: (id: string) => Promise<boolean>;
   onNotificationClick: (listener: (id: string) => void) => () => void;
-  onMenuAction: (listener: (action: string) => void) => () => void;
+  onMenuAction: (listener: (action: DesktopMenuAction) => void) => () => void;
   getCliInstallState: () => Promise<DesktopCliInstallState>;
   installCli: () => Promise<DesktopCliInstallActionResult>;
   onCliInstallState: (listener: (state: DesktopCliInstallState) => void) => () => void;
