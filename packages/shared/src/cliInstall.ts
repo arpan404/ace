@@ -343,19 +343,23 @@ export function inspectAceCliInstall(options: AceCliInstallOptions): AceCliInsta
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
   const binDir = resolveAceCliBinDir({
-    baseDir: options.baseDir,
-    homeDir: options.homeDir,
+    ...(options.baseDir !== undefined ? { baseDir: options.baseDir } : {}),
+    ...(options.homeDir !== undefined ? { homeDir: options.homeDir } : {}),
   });
   const commandPath = resolveAceCliCommandPath(binDir, platform);
   const shell = options.shell ?? resolveLoginShell(platform, env.SHELL);
   const pathTargets = resolveAceCliPathTargets({
-    baseDir: options.baseDir,
     platform,
     env,
-    homeDir: options.homeDir,
-    shell,
-    readWindowsUserPath: options.readWindowsUserPath,
-    writeWindowsUserPath: options.writeWindowsUserPath,
+    ...(options.baseDir !== undefined ? { baseDir: options.baseDir } : {}),
+    ...(options.homeDir !== undefined ? { homeDir: options.homeDir } : {}),
+    ...(shell !== undefined ? { shell } : {}),
+    ...(options.readWindowsUserPath !== undefined
+      ? { readWindowsUserPath: options.readWindowsUserPath }
+      : {}),
+    ...(options.writeWindowsUserPath !== undefined
+      ? { writeWindowsUserPath: options.writeWindowsUserPath }
+      : {}),
   });
   const pathInCurrentProcess = pathHasEntry(resolvePathValue(env), binDir, platform);
   const pathPersisted =

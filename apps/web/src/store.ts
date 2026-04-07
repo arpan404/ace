@@ -323,8 +323,10 @@ function mapProject(project: OrchestrationReadModel["projects"][number]): Projec
     defaultModelSelection: project.defaultModelSelection
       ? normalizeModelSelection(project.defaultModelSelection)
       : null,
+    icon: project.icon ?? null,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
+    archivedAt: project.archivedAt ?? null,
     scripts: mapProjectScripts(project.scripts),
   };
 }
@@ -777,9 +779,11 @@ function applyProjectEvent(state: AppState, event: OrchestrationEvent): AppState
         title: event.payload.title,
         workspaceRoot: event.payload.workspaceRoot,
         defaultModelSelection: event.payload.defaultModelSelection,
+        icon: event.payload.icon ?? null,
         scripts: event.payload.scripts,
         createdAt: event.payload.createdAt,
         updatedAt: event.payload.updatedAt,
+        archivedAt: event.payload.archivedAt ?? null,
         deletedAt: null,
       });
       const projects =
@@ -803,6 +807,8 @@ function applyProjectEvent(state: AppState, event: OrchestrationEvent): AppState
                 : null,
             }
           : {}),
+        ...(event.payload.icon !== undefined ? { icon: event.payload.icon } : {}),
+        ...(event.payload.archivedAt !== undefined ? { archivedAt: event.payload.archivedAt } : {}),
         ...(event.payload.scripts !== undefined
           ? { scripts: mapProjectScripts(event.payload.scripts) }
           : {}),

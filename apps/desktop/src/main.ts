@@ -22,17 +22,31 @@ import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
 import type {
   BrowserShortcutAction,
+  DesktopCliInstallActionResult,
+  DesktopCliInstallState,
   DesktopNotificationInput,
   DesktopTheme,
   DesktopUpdateActionResult,
   DesktopUpdateCheckResult,
   DesktopUpdateState,
 } from "@ace/contracts";
+import {
+  ensureAceCliInstalled,
+  inspectAceCliInstall,
+  type AceCliInstallOptions,
+  type AceCliInstallResult,
+} from "@ace/shared/cliInstall";
 import { autoUpdater } from "electron-updater";
 
 import type { ContextMenuItem } from "@ace/contracts";
 import { NetService } from "@ace/shared/Net";
 import { RotatingFileSink } from "@ace/shared/logging";
+import {
+  createDesktopCliInstallStateFromInspect,
+  createDesktopCliInstallStateFromResult,
+  createPendingDesktopCliInstallState,
+  createUnsupportedDesktopCliInstallState,
+} from "./desktopCliInstall";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import { resolveDesktopBaseDir, resolveDesktopUserDataPath } from "./stateMigration";
 import { syncShellEnvironment } from "./syncShellEnvironment";
@@ -64,6 +78,9 @@ const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
 const CLOSE_NOTIFICATION_CHANNEL = "desktop:close-notification";
 const NOTIFICATION_CLICK_CHANNEL = "desktop:notification-click";
 const MENU_ACTION_CHANNEL = "desktop:menu-action";
+const CLI_STATE_CHANNEL = "desktop:cli-state";
+const CLI_GET_STATE_CHANNEL = "desktop:cli-get-state";
+const CLI_INSTALL_CHANNEL = "desktop:cli-install";
 const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
@@ -125,6 +142,17 @@ const desktopRuntimeInfo = resolveDesktopRuntimeInfo({
 });
 const initialUpdateState = (): DesktopUpdateState =>
   createInitialDesktopUpdateState(app.getVersion(), desktopRuntimeInfo);
+
+function desktopCliMetadataOptions() {
+  const shell = process.env.SHELL;
+  return {
+    baseDir: BASE_DIR,
+    platform: process.platform,
+    env: process.env,
+    homeDir: OS.homedir(),
+    ...(shell !== undefined ? { shell } : {}),
+  };
+}
 
 function logTimestamp(): string {
   return new Date().toISOString();
@@ -459,6 +487,17 @@ let updateDownloadInFlight = false;
 let updateInstallInFlight = false;
 let updaterConfigured = false;
 let updateState: DesktopUpdateState = initialUpdateState();
+let cliInstallInFlight = false;
+let cliInstallState: DesktopCliInstallState = app.isPackaged
+  ? createPendingDesktopCliInstallState({
+      ...desktopCliMetadataOptions(),
+      status: "checking",
+      message: "Checking the ace CLI installation.",
+    })
+  : createUnsupportedDesktopCliInstallState({
+      ...desktopCliMetadataOptions(),
+      message: "CLI install is only available in packaged desktop builds.",
+    });
 
 function resolveUpdaterErrorContext(): DesktopUpdateErrorContext {
   if (updateInstallInFlight) return "install";
@@ -570,6 +609,53 @@ function resolveAboutCommitHash(): string | null {
 
 function resolveBackendEntry(): string {
   return Path.join(resolveAppRoot(), "apps/server/dist/bin.mjs");
+}
+
+function getDesktopCliUnavailableMessage(): string {
+  if (!app.isPackaged) {
+    return "CLI install is only available in packaged desktop builds.";
+  }
+
+  if (!FS.existsSync(process.execPath)) {
+    return "The packaged app launcher could not be found.";
+  }
+
+  if (!FS.existsSync(resolveBackendEntry())) {
+    return "Bundled CLI files are missing from this desktop build.";
+  }
+
+  return "CLI installation is unavailable in this build.";
+}
+
+function createUnsupportedCliInstallState(checkedAt: string | null = null): DesktopCliInstallState {
+  return createUnsupportedDesktopCliInstallState({
+    ...desktopCliMetadataOptions(),
+    checkedAt,
+    message: getDesktopCliUnavailableMessage(),
+  });
+}
+
+function resolveDesktopCliInstallOptions(): AceCliInstallOptions | null {
+  if (!app.isPackaged) {
+    return null;
+  }
+
+  const launchCommand = process.execPath;
+  const cliEntry = resolveBackendEntry();
+  if (!FS.existsSync(launchCommand) || !FS.existsSync(cliEntry)) {
+    return null;
+  }
+
+  return {
+    ...desktopCliMetadataOptions(),
+    target: {
+      launchCommand,
+      cliEntry,
+      environment: {
+        ELECTRON_RUN_AS_NODE: "1",
+      },
+    },
+  };
 }
 
 function resolveBackendCwd(): string {
@@ -943,6 +1029,105 @@ function emitUpdateState(): void {
 function setUpdateState(patch: Partial<DesktopUpdateState>): void {
   updateState = { ...updateState, ...patch };
   emitUpdateState();
+}
+
+function emitCliInstallState(): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) continue;
+    window.webContents.send(CLI_STATE_CHANNEL, cliInstallState);
+  }
+}
+
+function setCliInstallState(state: DesktopCliInstallState): void {
+  cliInstallState = state;
+  emitCliInstallState();
+}
+
+function getDesktopCliReadyMessage(result: AceCliInstallResult): string {
+  if (!result.ready) {
+    return "The `ace` command is still unavailable after installation.";
+  }
+  if (!result.changed) {
+    return "The `ace` command is already ready to use.";
+  }
+  if (result.restartRequired) {
+    return "CLI installed. Open a new terminal window to use `ace`.";
+  }
+  return "The `ace` command is ready to use.";
+}
+
+async function installDesktopCli(
+  reason: "startup" | "settings",
+): Promise<DesktopCliInstallActionResult> {
+  if (cliInstallInFlight) {
+    return {
+      accepted: false,
+      completed: false,
+      state: cliInstallState,
+    } satisfies DesktopCliInstallActionResult;
+  }
+
+  const options = resolveDesktopCliInstallOptions();
+  const checkedAt = new Date().toISOString();
+  if (!options) {
+    const state = createUnsupportedCliInstallState(checkedAt);
+    setCliInstallState(state);
+    writeDesktopLogHeader(
+      `cli install unavailable reason=${sanitizeLogValue(state.message ?? "")}`,
+    );
+    return {
+      accepted: false,
+      completed: false,
+      state,
+    } satisfies DesktopCliInstallActionResult;
+  }
+
+  cliInstallInFlight = true;
+  setCliInstallState(
+    createPendingDesktopCliInstallState({
+      ...desktopCliMetadataOptions(),
+      status: "installing",
+      checkedAt,
+      message: "Installing the `ace` CLI.",
+    }),
+  );
+  writeDesktopLogHeader(`cli install start reason=${reason}`);
+
+  try {
+    const result = ensureAceCliInstalled(options);
+    const nextState = createDesktopCliInstallStateFromResult(result, {
+      checkedAt: new Date().toISOString(),
+      message: getDesktopCliReadyMessage(result),
+    });
+    setCliInstallState(nextState);
+    writeDesktopLogHeader(
+      `cli install complete reason=${reason} ready=${String(nextState.status === "ready")} restartRequired=${String(result.restartRequired)}`,
+    );
+    return {
+      accepted: true,
+      completed: nextState.status === "ready",
+      state: nextState,
+    } satisfies DesktopCliInstallActionResult;
+  } catch (error) {
+    const message = formatErrorMessage(error);
+    const inspectedState = inspectAceCliInstall(options);
+    const nextState = createDesktopCliInstallStateFromInspect(inspectedState, {
+      checkedAt: new Date().toISOString(),
+      status: "error",
+      message,
+    });
+    setCliInstallState(nextState);
+    writeDesktopLogHeader(
+      `cli install failed reason=${reason} message=${sanitizeLogValue(message)}`,
+    );
+    return {
+      accepted: true,
+      completed: false,
+      state: nextState,
+    } satisfies DesktopCliInstallActionResult;
+  } finally {
+    cliInstallInFlight = false;
+  }
 }
 
 function shouldEnableAutoUpdates(): boolean {
@@ -1471,6 +1656,12 @@ function registerIpcHandlers(): void {
     return closeDesktopNotification(id);
   });
 
+  ipcMain.removeHandler(CLI_GET_STATE_CHANNEL);
+  ipcMain.handle(CLI_GET_STATE_CHANNEL, async () => cliInstallState);
+
+  ipcMain.removeHandler(CLI_INSTALL_CHANNEL);
+  ipcMain.handle(CLI_INSTALL_CHANNEL, async () => installDesktopCli("settings"));
+
   ipcMain.removeHandler(UPDATE_GET_STATE_CHANNEL);
   ipcMain.handle(UPDATE_GET_STATE_CHANNEL, async () => updateState);
 
@@ -1716,6 +1907,9 @@ app
     configureApplicationMenu();
     registerDesktopProtocol();
     configureAutoUpdater();
+    if (app.isPackaged) {
+      void installDesktopCli("startup");
+    }
     void bootstrap().catch((error) => {
       handleFatalStartupError("bootstrap", error);
     });

@@ -137,6 +137,13 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     closeNotification: async () => true,
     onNotificationClick: () => () => undefined,
     onMenuAction: () => () => undefined,
+    getCliInstallState: async () => {
+      throw new Error("getCliInstallState not implemented in test");
+    },
+    installCli: async () => {
+      throw new Error("installCli not implemented in test");
+    },
+    onCliInstallState: () => () => undefined,
     getUpdateState: async () => {
       throw new Error("getUpdateState not implemented in test");
     },

@@ -83,7 +83,7 @@ const layer = it.layer(
 );
 
 layer("OpenCodeAdapterLive session lifecycle", (it) => {
-  it.effect("creates and stops a dedicated OpenCode server per T3 session", () =>
+  it.effect("acquires and releases an OpenCode server handle per T3 session", () =>
     Effect.gen(function* () {
       const firstServerClose = vi.fn(async () => undefined);
       const secondServerClose = vi.fn(async () => undefined);

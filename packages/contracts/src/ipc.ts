@@ -146,6 +146,30 @@ export interface DesktopUpdateCheckResult {
   state: DesktopUpdateState;
 }
 
+export type DesktopCliInstallStatus =
+  | "unsupported"
+  | "checking"
+  | "missing"
+  | "installing"
+  | "ready"
+  | "error";
+
+export interface DesktopCliInstallState {
+  status: DesktopCliInstallStatus;
+  binDir: string | null;
+  commandPath: string | null;
+  pathTargets: ReadonlyArray<string>;
+  checkedAt: string | null;
+  restartRequired: boolean;
+  message: string | null;
+}
+
+export interface DesktopCliInstallActionResult {
+  accepted: boolean;
+  completed: boolean;
+  state: DesktopCliInstallState;
+}
+
 export interface DesktopNotificationInput {
   id: string;
   title: string;
@@ -168,6 +192,9 @@ export interface DesktopBridge {
   closeNotification: (id: string) => Promise<boolean>;
   onNotificationClick: (listener: (id: string) => void) => () => void;
   onMenuAction: (listener: (action: string) => void) => () => void;
+  getCliInstallState: () => Promise<DesktopCliInstallState>;
+  installCli: () => Promise<DesktopCliInstallActionResult>;
+  onCliInstallState: (listener: (state: DesktopCliInstallState) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
   checkForUpdate: () => Promise<DesktopUpdateCheckResult>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;

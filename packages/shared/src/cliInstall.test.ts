@@ -15,7 +15,7 @@ describe("pathHasEntry", () => {
     expect(
       pathHasEntry(
         String.raw`C:\Windows\System32;C:\Users\Test\.ace\bin`,
-        String.raw`c:\users\test\.ace\bin\`,
+        String.raw`c:\users\test\.ace\bin\\`,
         "win32",
       ),
     ).toBe(true);
@@ -60,12 +60,8 @@ describe("ensureAceCliInstalled", () => {
     expect(env.PATH?.startsWith(`${Path.join(baseDir, "bin")}:`)).toBe(true);
     expect(FS.readFileSync(commandPath, "utf8")).toContain("ELECTRON_RUN_AS_NODE");
     expect(FS.readFileSync(commandPath, "utf8")).toContain(cliEntry);
-    expect(FS.readFileSync(Path.join(homeDir, ".zprofile"), "utf8")).toContain(
-      "# >>> ace cli >>>",
-    );
-    expect(FS.readFileSync(Path.join(homeDir, ".zshrc"), "utf8")).toContain(
-      "ACE_CLI_BIN_DIR",
-    );
+    expect(FS.readFileSync(Path.join(homeDir, ".zprofile"), "utf8")).toContain("# >>> ace cli >>>");
+    expect(FS.readFileSync(Path.join(homeDir, ".zshrc"), "utf8")).toContain("ACE_CLI_BIN_DIR");
 
     const second = ensureAceCliInstalled({
       baseDir,

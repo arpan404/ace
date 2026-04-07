@@ -43,6 +43,31 @@ type SharedOpenCodeServerEntry = {
 
 const sharedOpenCodeServers = new Map<string, SharedOpenCodeServerEntry>();
 
+type OpenCodeRuntimeDependencies = {
+  readonly spawn: typeof spawn;
+  readonly fetch: typeof globalThis.fetch;
+};
+
+const DEFAULT_OPEN_CODE_RUNTIME_DEPENDENCIES: OpenCodeRuntimeDependencies = {
+  spawn,
+  fetch: globalThis.fetch.bind(globalThis),
+};
+
+let openCodeRuntimeDependencies = DEFAULT_OPEN_CODE_RUNTIME_DEPENDENCIES;
+
+export function setOpenCodeRuntimeDependencies(
+  overrides: Partial<OpenCodeRuntimeDependencies>,
+): () => void {
+  const previous = openCodeRuntimeDependencies;
+  openCodeRuntimeDependencies = {
+    ...openCodeRuntimeDependencies,
+    ...overrides,
+  };
+  return () => {
+    openCodeRuntimeDependencies = previous;
+  };
+}
+
 export async function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const s = createServer();
@@ -191,7 +216,7 @@ async function disposeOpenCodeServerGracefully(url: string): Promise<void> {
   }, DISPOSE_TIMEOUT_MS);
 
   try {
-    const response = await fetch(new URL("/global/dispose", url), {
+    const response = await openCodeRuntimeDependencies.fetch(new URL("/global/dispose", url), {
       method: "POST",
       signal: controller.signal,
     });
@@ -202,7 +227,12 @@ async function disposeOpenCodeServerGracefully(url: string): Promise<void> {
     }
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === "AbortError") {
-      throw new Error(`Timed out disposing OpenCode server after ${String(DISPOSE_TIMEOUT_MS)}ms.`);
+      throw new Error(
+        `Timed out disposing OpenCode server after ${String(DISPOSE_TIMEOUT_MS)}ms.`,
+        {
+          cause,
+        },
+      );
     }
     throw toError(cause, "Failed to dispose OpenCode server");
   } finally {
@@ -224,15 +254,21 @@ async function closeSpawnedOpenCodeServer(input: {
     disposeError = toError(cause, "Failed to dispose OpenCode server");
   }
 
+  let stopError: Error | undefined;
   try {
     await stopProcess(input.child, input.processOptions);
   } catch (cause) {
-    const stopError = toError(cause, "Failed to stop OpenCode server");
+    stopError = toError(cause, "Failed to stop OpenCode server");
+  }
+
+  if (stopError) {
     if (disposeError) {
-      throw new AggregateError(
-        [disposeError, stopError],
-        "Failed to fully stop OpenCode server.",
-      );
+      throw new Error("Failed to fully stop OpenCode server.", {
+        cause: new AggregateError(
+          [disposeError, stopError],
+          "OpenCode server cleanup encountered multiple failures.",
+        ),
+      });
     }
     throw stopError;
   }
@@ -242,7 +278,7 @@ async function spawnOpenCodeServer(binaryPath: string): Promise<OpenCodeSpawnedS
   const port = await getFreePort();
   const args = ["serve", `--hostname=${DEFAULT_HOST}`, `--port=${String(port)}`];
   const processOptions = { processGroup: process.platform !== "win32" } as const;
-  const child = spawn(binaryPath, args, {
+  const child = openCodeRuntimeDependencies.spawn(binaryPath, args, {
     detached: processOptions.processGroup,
     env: { ...process.env },
     stdio: ["ignore", "pipe", "pipe"],

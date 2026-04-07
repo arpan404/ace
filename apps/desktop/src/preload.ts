@@ -11,6 +11,9 @@ const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
 const CLOSE_NOTIFICATION_CHANNEL = "desktop:close-notification";
 const NOTIFICATION_CLICK_CHANNEL = "desktop:notification-click";
 const MENU_ACTION_CHANNEL = "desktop:menu-action";
+const CLI_STATE_CHANNEL = "desktop:cli-state";
+const CLI_GET_STATE_CHANNEL = "desktop:cli-get-state";
+const CLI_INSTALL_CHANNEL = "desktop:cli-install";
 const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
@@ -65,6 +68,19 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(MENU_ACTION_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(MENU_ACTION_CHANNEL, wrappedListener);
+    };
+  },
+  getCliInstallState: () => ipcRenderer.invoke(CLI_GET_STATE_CHANNEL),
+  installCli: () => ipcRenderer.invoke(CLI_INSTALL_CHANNEL),
+  onCliInstallState: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
+      if (typeof state !== "object" || state === null) return;
+      listener(state as Parameters<typeof listener>[0]);
+    };
+
+    ipcRenderer.on(CLI_STATE_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(CLI_STATE_CHANNEL, wrappedListener);
     };
   },
   getUpdateState: () => ipcRenderer.invoke(UPDATE_GET_STATE_CHANNEL),

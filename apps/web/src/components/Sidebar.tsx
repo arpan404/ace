@@ -10,7 +10,6 @@ import {
   TerminalIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { ProjectFavicon } from "./ProjectFavicon";
 import {
   memo,
   startTransition,
@@ -75,6 +74,12 @@ import { useComposerDraftStore } from "../composerDraftStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 
 import { useThreadActions } from "../hooks/useThreadActions";
+import {
+  ProjectAvatar,
+  ProjectGlyphIcon,
+  PROJECT_ICON_COLOR_OPTIONS,
+  PROJECT_ICON_OPTIONS,
+} from "./ProjectAvatar";
 import { toastManager } from "./ui/toast";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
@@ -89,6 +94,16 @@ import {
 } from "../lib/desktopUpdate";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
 import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -131,7 +146,7 @@ import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
 import { useSidebarThreadSummaryById } from "../storeSelectors";
 import type { Project, SidebarThreadSummary } from "../types";
-const THREAD_PREVIEW_LIMIT = 6;
+const THREAD_REVEAL_STEP = 5;
 const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
 const sortedSidebarThreadsCache = new WeakMap<
   ReadonlyArray<SidebarThreadSummary>,
@@ -244,12 +259,11 @@ function getCachedProjectStatus(
 
 function getCachedHiddenThreadStatus(input: {
   activeThreadId: ThreadId | undefined;
-  isThreadListExpanded: boolean;
-  previewLimit: number;
+  visibleCount: number;
   threadLastVisitedAtById: Record<string, string>;
   threads: ReadonlyArray<SidebarThreadSummary>;
 }): ReturnType<typeof resolveProjectStatusIndicator> {
-  if (input.isThreadListExpanded || input.threads.length <= input.previewLimit) {
+  if (input.threads.length <= input.visibleCount) {
     return null;
   }
 
@@ -265,7 +279,7 @@ function getCachedHiddenThreadStatus(input: {
     cacheByThreads.set(input.threads, cacheByKey);
   }
 
-  const cacheKey = `${input.activeThreadId ?? ""}:${input.previewLimit}`;
+  const cacheKey = `${input.activeThreadId ?? ""}:${input.visibleCount}`;
   if (cacheByKey.has(cacheKey)) {
     return cacheByKey.get(cacheKey) ?? null;
   }
@@ -273,8 +287,7 @@ function getCachedHiddenThreadStatus(input: {
   const { hiddenThreads } = getVisibleThreadsForProject({
     threads: input.threads,
     activeThreadId: input.activeThreadId,
-    isThreadListExpanded: input.isThreadListExpanded,
-    previewLimit: input.previewLimit,
+    visibleCount: input.visibleCount,
   });
   const status = resolveProjectStatusIndicator(
     hiddenThreads.map((thread) =>
@@ -779,6 +792,16 @@ function SortableProjectItem({
   );
 }
 
+function projectIconsEqual(left: Project["icon"], right: Project["icon"]): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left === null || right === null) {
+    return false;
+  }
+  return left.glyph === right.glyph && left.color === right.color;
+}
+
 export default function Sidebar() {
   const projects = useStore((store) => store.projects);
   const sidebarThreadsById = useStore((store) => store.sidebarThreadsById);
@@ -822,9 +845,13 @@ export default function Sidebar() {
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [confirmingArchiveThreadId, setConfirmingArchiveThreadId] = useState<ThreadId | null>(null);
-  const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
-    ReadonlySet<ProjectId>
-  >(() => new Set());
+  const [threadRevealCountByProject, setThreadRevealCountByProject] = useState<
+    Partial<Record<ProjectId, number>>
+  >({});
+  const [projectEditorOpen, setProjectEditorOpen] = useState(false);
+  const [editingProjectId, setEditingProjectId] = useState<ProjectId | null>(null);
+  const [editingProjectName, setEditingProjectName] = useState("");
+  const [editingProjectIcon, setEditingProjectIcon] = useState<Project["icon"]>(null);
   const { showThreadJumpHints, updateThreadJumpHintsVisibility } = useThreadJumpHintVisibility();
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
@@ -843,16 +870,27 @@ export default function Sidebar() {
   const platform = navigator.platform;
   const shouldBrowseForProjectImmediately = isElectron && !isLinuxDesktop;
   const shouldShowProjectPathEntry = addingProject && !shouldBrowseForProjectImmediately;
+  const activeProjects = useMemo(
+    () => projects.filter((project) => project.archivedAt === null),
+    [projects],
+  );
   const orderedProjects = useMemo(() => {
     return orderItemsByPreferredIds({
-      items: projects,
+      items: activeProjects,
       preferredIds: projectOrder,
       getId: (project) => project.id,
     });
-  }, [projectOrder, projects]);
+  }, [activeProjects, projectOrder]);
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
+  );
+  const editingProject = useMemo(
+    () =>
+      editingProjectId
+        ? (projects.find((project) => project.id === editingProjectId) ?? null)
+        : null,
+    [editingProjectId, projects],
   );
   const routeTerminalOpen = routeThreadId
     ? selectThreadTerminalState(terminalStateByThreadId, routeThreadId).terminalOpen
@@ -941,8 +979,25 @@ export default function Sidebar() {
 
       const existing = projects.find((project) => project.cwd === cwd);
       if (existing) {
-        focusMostRecentThreadForProject(existing.id);
-        finishAddingProject();
+        try {
+          if (existing.archivedAt !== null) {
+            await api.orchestration.dispatchCommand({
+              type: "project.meta.update",
+              commandId: newCommandId(),
+              projectId: existing.id,
+              archivedAt: null,
+            });
+          }
+          focusMostRecentThreadForProject(existing.id);
+          finishAddingProject();
+        } catch (error) {
+          setIsAddingProject(false);
+          toastManager.add({
+            type: "error",
+            title: `Failed to restore "${existing.name}"`,
+            description: error instanceof Error ? error.message : "An error occurred.",
+          });
+        }
         return;
       }
 
@@ -1347,13 +1402,44 @@ export default function Sidebar() {
 
       const clicked = await api.contextMenu.show(
         [
+          { id: "edit", label: "Edit project" },
           { id: "copy-path", label: "Copy Project Path" },
+          { id: "archive", label: "Archive project" },
           { id: "delete", label: "Remove project", destructive: true },
         ],
         position,
       );
+      if (clicked === "edit") {
+        setEditingProjectId(project.id);
+        setEditingProjectName(project.name);
+        setEditingProjectIcon(project.icon);
+        setProjectEditorOpen(true);
+        return;
+      }
       if (clicked === "copy-path") {
         copyPathToClipboard(project.cwd, { path: project.cwd });
+        return;
+      }
+      if (clicked === "archive") {
+        const confirmed = await api.dialogs.confirm(`Archive project "${project.name}"?`);
+        if (!confirmed) return;
+
+        try {
+          await api.orchestration.dispatchCommand({
+            type: "project.meta.update",
+            commandId: newCommandId(),
+            projectId,
+            archivedAt: new Date().toISOString(),
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Unknown error archiving project.";
+          toastManager.add({
+            type: "error",
+            title: `Failed to archive "${project.name}"`,
+            description: message,
+          });
+        }
         return;
       }
       if (clicked !== "delete") return;
@@ -1398,8 +1484,70 @@ export default function Sidebar() {
       copyPathToClipboard,
       getDraftThreadByProjectId,
       projects,
+      setEditingProjectIcon,
+      setEditingProjectId,
+      setEditingProjectName,
+      setProjectEditorOpen,
       threadIdsByProjectId,
     ],
+  );
+
+  const closeProjectEditor = useCallback(() => {
+    setProjectEditorOpen(false);
+    setEditingProjectId(null);
+    setEditingProjectName("");
+    setEditingProjectIcon(null);
+  }, []);
+
+  const saveProjectEdits = useCallback(
+    async (event?: { preventDefault: () => void }) => {
+      event?.preventDefault();
+      if (!editingProject) {
+        closeProjectEditor();
+        return;
+      }
+
+      const trimmedName = editingProjectName.trim();
+      if (trimmedName.length === 0) {
+        toastManager.add({
+          type: "warning",
+          title: "Project name cannot be empty",
+        });
+        return;
+      }
+
+      if (
+        trimmedName === editingProject.name &&
+        projectIconsEqual(editingProject.icon, editingProjectIcon)
+      ) {
+        closeProjectEditor();
+        return;
+      }
+
+      const api = readNativeApi();
+      if (!api) {
+        closeProjectEditor();
+        return;
+      }
+
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "project.meta.update",
+          commandId: newCommandId(),
+          projectId: editingProject.id,
+          title: trimmedName,
+          icon: editingProjectIcon,
+        });
+        closeProjectEditor();
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: `Failed to update "${editingProject.name}"`,
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+    },
+    [closeProjectEditor, editingProject, editingProjectIcon, editingProjectName],
   );
 
   const projectDnDSensors = useSensors(
@@ -1470,7 +1618,7 @@ export default function Sidebar() {
   const activeThreadId = routeThreadId ?? undefined;
   const visibleProjectThreadsByProjectId = useMemo(() => {
     const next = new Map<ProjectId, SidebarThreadSummary[]>();
-    for (const project of projects) {
+    for (const project of activeProjects) {
       next.set(project.id, []);
     }
     for (const [projectId, threadIds] of Object.entries(threadIdsByProjectId)) {
@@ -1485,7 +1633,7 @@ export default function Sidebar() {
       next.set(ProjectId.makeUnsafe(projectId), projectThreads);
     }
     return next;
-  }, [projects, sidebarThreadsById, threadIdsByProjectId]);
+  }, [activeProjects, sidebarThreadsById, threadIdsByProjectId]);
   const sortedProjects = useMemo(() => {
     if (appSettings.sidebarProjectSortOrder === "manual") {
       return orderedProjects;
@@ -1522,7 +1670,7 @@ export default function Sidebar() {
           unsortedProjectThreads,
           threadLastVisitedAtById,
         );
-        const isThreadListExpanded = expandedThreadListsByProject.has(project.id);
+        const visibleThreadCount = threadRevealCountByProject[project.id] ?? THREAD_REVEAL_STEP;
         const shouldShowThreadPanel =
           projectExpanded ||
           (activeThreadId !== undefined &&
@@ -1537,12 +1685,15 @@ export default function Sidebar() {
           !projectExpanded && activeThreadId
             ? (projectThreads.find((thread) => thread.id === activeThreadId) ?? null)
             : null;
-        const { hasHiddenThreads, visibleThreads: visibleProjectThreads } = shouldShowThreadPanel
+        const {
+          hasHiddenThreads,
+          hiddenThreads,
+          visibleThreads: visibleProjectThreads,
+        } = shouldShowThreadPanel
           ? getVisibleThreadsForProject({
               threads: projectThreads,
               activeThreadId,
-              isThreadListExpanded,
-              previewLimit: THREAD_PREVIEW_LIMIT,
+              visibleCount: visibleThreadCount,
             })
           : {
               hasHiddenThreads: false,
@@ -1553,8 +1704,7 @@ export default function Sidebar() {
           projectExpanded && hasHiddenThreads
             ? getCachedHiddenThreadStatus({
                 activeThreadId,
-                isThreadListExpanded,
-                previewLimit: THREAD_PREVIEW_LIMIT,
+                visibleCount: visibleThreadCount,
                 threadLastVisitedAtById,
                 threads: projectThreads,
               })
@@ -1567,6 +1717,7 @@ export default function Sidebar() {
 
         return {
           hasHiddenThreads,
+          hiddenThreadCount: hiddenThreads.length,
           hiddenThreadStatus,
           projectExpanded,
           orderedProjectThreadIds,
@@ -1575,12 +1726,12 @@ export default function Sidebar() {
           renderedThreadIds,
           showEmptyThreadState,
           shouldShowThreadPanel,
-          isThreadListExpanded,
+          canCollapseThreadList: visibleThreadCount > THREAD_REVEAL_STEP,
         };
       }),
     [
       appSettings.sidebarThreadSortOrder,
-      expandedThreadListsByProject,
+      threadRevealCountByProject,
       projectExpandedById,
       sortedProjects,
       activeThreadId,
@@ -1794,6 +1945,7 @@ export default function Sidebar() {
   ) {
     const {
       hasHiddenThreads,
+      hiddenThreadCount,
       hiddenThreadStatus,
       projectExpanded,
       orderedProjectThreadIds,
@@ -1802,7 +1954,7 @@ export default function Sidebar() {
       renderedThreadIds,
       showEmptyThreadState,
       shouldShowThreadPanel,
-      isThreadListExpanded,
+      canCollapseThreadList,
     } = renderedProject;
     return (
       <>
@@ -1849,7 +2001,7 @@ export default function Sidebar() {
                 }`}
               />
             )}
-            <ProjectFavicon cwd={project.cwd} />
+            <ProjectAvatar project={project} />
             <span className="flex-1 truncate text-xs font-medium text-foreground/90">
               {project.name}
             </span>
@@ -1952,7 +2104,7 @@ export default function Sidebar() {
               />
             ))}
 
-          {projectExpanded && hasHiddenThreads && !isThreadListExpanded && (
+          {projectExpanded && hasHiddenThreads && (
             <SidebarMenuSubItem className="w-full">
               <SidebarMenuSubButton
                 render={<button type="button" />}
@@ -1965,12 +2117,12 @@ export default function Sidebar() {
               >
                 <span className="flex min-w-0 flex-1 items-center gap-2">
                   {hiddenThreadStatus && <ThreadStatusLabel status={hiddenThreadStatus} compact />}
-                  <span>Show more</span>
+                  <span>Show {Math.min(THREAD_REVEAL_STEP, hiddenThreadCount)} more</span>
                 </span>
               </SidebarMenuSubButton>
             </SidebarMenuSubItem>
           )}
-          {projectExpanded && hasHiddenThreads && isThreadListExpanded && (
+          {projectExpanded && canCollapseThreadList && (
             <SidebarMenuSubItem className="w-full">
               <SidebarMenuSubButton
                 render={<button type="button" />}
@@ -2161,21 +2313,22 @@ export default function Sidebar() {
 
   const expandThreadListForProject = useCallback((projectId: ProjectId) => {
     startTransition(() => {
-      setExpandedThreadListsByProject((current) => {
-        if (current.has(projectId)) return current;
-        const next = new Set(current);
-        next.add(projectId);
-        return next;
+      setThreadRevealCountByProject((current) => {
+        const nextCount = (current[projectId] ?? THREAD_REVEAL_STEP) + THREAD_REVEAL_STEP;
+        return {
+          ...current,
+          [projectId]: nextCount,
+        };
       });
     });
   }, []);
 
   const collapseThreadListForProject = useCallback((projectId: ProjectId) => {
     startTransition(() => {
-      setExpandedThreadListsByProject((current) => {
-        if (!current.has(projectId)) return current;
-        const next = new Set(current);
-        next.delete(projectId);
+      setThreadRevealCountByProject((current) => {
+        if (current[projectId] === undefined) return current;
+        const next = { ...current };
+        delete next[projectId];
         return next;
       });
     });
@@ -2203,6 +2356,124 @@ export default function Sidebar() {
 
   return (
     <>
+      <Dialog
+        open={projectEditorOpen && editingProject !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeProjectEditor();
+          }
+        }}
+      >
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>Edit project</DialogTitle>
+            <DialogDescription>
+              Rename the project and choose a favicon or custom icon.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            {editingProject ? (
+              <form
+                id="sidebar-project-editor-form"
+                className="space-y-4"
+                onSubmit={(event) => void saveProjectEdits(event)}
+              >
+                <div className="space-y-1.5">
+                  <p className="text-sm font-medium">Name</p>
+                  <Input
+                    autoFocus
+                    value={editingProjectName}
+                    onChange={(event) => setEditingProjectName(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Icon</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      className={`flex flex-col items-center gap-2 rounded-md border px-2 py-3 text-xs ${
+                        editingProjectIcon === null
+                          ? "border-primary/70 bg-primary/10"
+                          : "border-border/70 hover:bg-accent/60"
+                      }`}
+                      onClick={() => setEditingProjectIcon(null)}
+                    >
+                      <ProjectAvatar
+                        project={{
+                          cwd: editingProject.cwd,
+                          icon: null,
+                        }}
+                        className="size-5"
+                      />
+                      <span>Favicon</span>
+                    </button>
+                    {PROJECT_ICON_OPTIONS.map((option) => {
+                      const previewIcon = {
+                        glyph: option.glyph,
+                        color: editingProjectIcon?.color ?? "blue",
+                      } as const;
+                      const isSelected = editingProjectIcon?.glyph === option.glyph;
+                      return (
+                        <button
+                          key={option.glyph}
+                          type="button"
+                          className={`flex flex-col items-center gap-2 rounded-md border px-2 py-3 text-xs ${
+                            isSelected
+                              ? "border-primary/70 bg-primary/10"
+                              : "border-border/70 hover:bg-accent/60"
+                          }`}
+                          onClick={() => setEditingProjectIcon(previewIcon)}
+                        >
+                          <ProjectGlyphIcon icon={previewIcon} className="size-5" />
+                          <span>{option.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {editingProjectIcon !== null ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Color</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {PROJECT_ICON_COLOR_OPTIONS.map((option) => {
+                        const isSelected = editingProjectIcon.color === option.color;
+                        return (
+                          <button
+                            key={option.color}
+                            type="button"
+                            className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs ${
+                              isSelected
+                                ? "border-primary/70 bg-primary/10"
+                                : "border-border/70 hover:bg-accent/60"
+                            }`}
+                            onClick={() =>
+                              setEditingProjectIcon((current) =>
+                                current === null ? current : { ...current, color: option.color },
+                              )
+                            }
+                          >
+                            <span className={`size-3 rounded-full ${option.swatchClassName}`} />
+                            <span>{option.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </form>
+            ) : null}
+          </DialogPanel>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={closeProjectEditor}>
+              Cancel
+            </Button>
+            <Button form="sidebar-project-editor-form" type="submit">
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
       {isElectron ? (
         <SidebarHeader className="drag-region h-[52px] flex-row items-center gap-2 px-4 py-0 pl-[90px]">
           {wordmark}

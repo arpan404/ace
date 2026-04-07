@@ -14,23 +14,27 @@ import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
 
 export function NewThreadLanding() {
   const projects = useStore((store) => store.projects);
+  const activeProjects = useMemo(
+    () => projects.filter((project) => project.archivedAt === null),
+    [projects],
+  );
   const { defaultProjectId, handleNewThread } = useHandleNewThread();
   const settings = useSettings();
   const [selectedProjectId, setSelectedProjectId] = useState<ProjectId | null>(defaultProjectId);
   const activeProjectId = useMemo(() => {
     if (
       selectedProjectId !== null &&
-      projects.some((project) => project.id === selectedProjectId)
+      activeProjects.some((project) => project.id === selectedProjectId)
     ) {
       return selectedProjectId;
     }
     return defaultProjectId;
-  }, [defaultProjectId, projects, selectedProjectId]);
+  }, [activeProjects, defaultProjectId, selectedProjectId]);
   const activeProject = useMemo(
-    () => projects.find((project) => project.id === activeProjectId) ?? null,
-    [activeProjectId, projects],
+    () => activeProjects.find((project) => project.id === activeProjectId) ?? null,
+    [activeProjectId, activeProjects],
   );
-  const hasProjects = projects.length > 0;
+  const hasProjects = activeProjects.length > 0;
   const startNewThread = useCallback(() => {
     if (activeProjectId === null) {
       return;
@@ -105,7 +109,8 @@ export function NewThreadLanding() {
                   <ArrowRightIcon className="size-4.5" />
                 </Button>
                 <div className="rounded-full border border-border/40 bg-card/40 px-3.5 py-1.5 text-xs text-muted-foreground/50 shadow-xs/5 backdrop-blur-sm">
-                  {projects.length} {projects.length === 1 ? "project" : "projects"} in sidebar
+                  {activeProjects.length} {activeProjects.length === 1 ? "project" : "projects"} in
+                  {" sidebar"}
                 </div>
               </div>
             </>
