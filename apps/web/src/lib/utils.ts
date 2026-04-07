@@ -68,7 +68,7 @@ function readDesktopBridgeWsUrl(): string | undefined {
     const value = window.desktopBridge.getWsUrl();
     return isNonEmptyString(value) ? value : undefined;
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = error instanceof Error ? error.message : globalThis.String(error);
     console.warn("Failed to read desktop WebSocket URL from bridge.", detail);
     return undefined;
   }
