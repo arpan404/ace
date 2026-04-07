@@ -114,8 +114,8 @@ describe("appendCompactedThreadActivity", () => {
       kind: "task.progress",
       payload: {
         taskId: "copilot-task-1",
-        detail: "Inspecting package scripts before patching.",
-        description: "Inspecting package scripts before patching.",
+        detail: "Inspecting package scripts. Inspecting package scripts before patching.",
+        description: "Inspecting package scripts. Inspecting package scripts before patching.",
       },
     });
   });

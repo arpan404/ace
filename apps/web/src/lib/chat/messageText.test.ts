@@ -4,6 +4,7 @@ import {
   appendChatMessageStreamingTextState,
   buildLargeMarkdownPreviewText,
   createChatMessageStreamingTextState,
+  finalizeChatMessageText,
   getChatMessageFullText,
   resolveAssistantMessageRenderHint,
 } from "./messageText";
@@ -48,6 +49,21 @@ describe("messageText", () => {
     expect(state.truncatedLineCount).toBeGreaterThan(0);
     expect(state.previewLineCount).toBeLessThan(state.totalLineCount);
     expect(state.previewText).toContain("line 2500");
+  });
+
+  it("keeps streamed text when completion payload only contains trailing content", () => {
+    let state = createChatMessageStreamingTextState("hello");
+    state = appendChatMessageStreamingTextState(state, " world");
+
+    expect(
+      finalizeChatMessageText(
+        {
+          text: "",
+          streamingTextState: state,
+        },
+        "!",
+      ),
+    ).toBe("hello world!");
   });
 
   it("builds a collapsed preview for very large completed markdown", () => {

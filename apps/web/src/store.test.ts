@@ -1003,6 +1003,59 @@ describe("incremental orchestration updates", () => {
     expect(next.threads[1]).toBe(thread2);
   });
 
+  it("preserves streamed assistant content when completion carries only trailing text", () => {
+    const threadId = ThreadId.makeUnsafe("thread-streamed-completion");
+    const messageId = MessageId.makeUnsafe("message-streamed-completion");
+    const turnId = TurnId.makeUnsafe("turn-streamed-completion");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        messages: [
+          {
+            id: messageId,
+            role: "assistant",
+            text: "hello",
+            turnId,
+            createdAt: "2026-02-27T00:00:00.000Z",
+            completedAt: "2026-02-27T00:00:00.000Z",
+            streaming: false,
+          },
+        ],
+      }),
+    );
+
+    const streaming = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.message-sent", {
+        threadId,
+        messageId,
+        role: "assistant",
+        text: " world",
+        turnId,
+        streaming: true,
+        createdAt: "2026-02-27T00:00:01.000Z",
+        updatedAt: "2026-02-27T00:00:01.000Z",
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      streaming,
+      makeEvent("thread.message-sent", {
+        threadId,
+        messageId,
+        role: "assistant",
+        text: "!",
+        turnId,
+        streaming: false,
+        createdAt: "2026-02-27T00:00:02.000Z",
+        updatedAt: "2026-02-27T00:00:02.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.messages[0]?.text).toBe("hello world!");
+    expect(next.threads[0]?.messages[0]?.streaming).toBe(false);
+  });
+
   it("prefers payload sequence for assistant messages when provided", () => {
     const thread = makeThread();
     const state = makeState(thread);

@@ -197,14 +197,32 @@ export function getChatMessageFullText(
   return message.streamingTextState.chunks.join("");
 }
 
+function mergeCompletionTextWithStreamedText(streamedText: string, completionText: string): string {
+  if (completionText.length === 0) {
+    return streamedText;
+  }
+  if (streamedText.length === 0) {
+    return completionText;
+  }
+  if (
+    completionText === streamedText ||
+    completionText.startsWith(streamedText) ||
+    streamedText.endsWith(completionText)
+  ) {
+    return completionText.length >= streamedText.length ? completionText : streamedText;
+  }
+  // Coalesced UI batches can surface only the trailing completion chunk.
+  return `${streamedText}${completionText}`;
+}
+
 export function finalizeChatMessageText(
   message: Pick<ChatMessage, "text" | "streamingTextState">,
   finalText: string,
 ): string {
-  if (finalText.length > 0) {
-    return finalText;
+  if (!message.streamingTextState) {
+    return finalText.length > 0 ? finalText : message.text;
   }
-  return getChatMessageFullText(message);
+  return mergeCompletionTextWithStreamedText(getChatMessageFullText(message), finalText);
 }
 
 export function shouldUseLargeMarkdownPreview(text: string, lineCount?: number): boolean {

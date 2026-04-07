@@ -1342,10 +1342,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
 
   return (
     <div className="flex justify-end">
-      <div
-        className="group relative max-w-[80%] rounded-2xl rounded-br-md border border-border/20 bg-secondary/30 px-4 py-3"
-        data-user-message-bubble="true"
-      >
+      <div className="group relative max-w-[80%] px-0 py-0" data-user-message-bubble="true">
         {userImages.length > 0 && (
           <div className="mb-2 grid max-w-105 grid-cols-2 gap-1.5">
             {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (

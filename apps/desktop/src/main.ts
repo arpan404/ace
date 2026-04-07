@@ -90,6 +90,7 @@ const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
+const GET_IS_DEVELOPMENT_BUILD_CHANNEL = "desktop:get-is-development-build";
 const GET_WINDOW_SHOWN_AT_CHANNEL = "desktop:get-window-shown-at";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
@@ -99,6 +100,8 @@ const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "ace";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+const isSourceCheckoutRun = process.env.ACE_LOCAL_DESKTOP_RUN === "1";
+const isDevelopmentBuild = isDevelopment || isSourceCheckoutRun || !app.isPackaged;
 const APP_DISPLAY_NAME = "ace";
 const APP_USER_MODEL_ID = "com.ace.ace";
 const LINUX_DESKTOP_ENTRY_NAME = isDevelopment ? "ace-dev.desktop" : "ace.desktop";
@@ -1443,6 +1446,11 @@ function registerIpcHandlers(): void {
     event.returnValue = backendWsUrl;
   });
 
+  ipcMain.removeAllListeners(GET_IS_DEVELOPMENT_BUILD_CHANNEL);
+  ipcMain.on(GET_IS_DEVELOPMENT_BUILD_CHANNEL, (event) => {
+    event.returnValue = isDevelopmentBuild;
+  });
+
   ipcMain.removeAllListeners(GET_WINDOW_SHOWN_AT_CHANNEL);
   ipcMain.on(GET_WINDOW_SHOWN_AT_CHANNEL, (event) => {
     event.returnValue = mainWindowShownAtMs;
@@ -1776,12 +1784,20 @@ function createWindow(): BrowserWindow {
 
   if (isDevelopment) {
     void window.loadURL(
-      appendDesktopBootstrapWsUrl(process.env.VITE_DEV_SERVER_URL as string, backendWsUrl),
+      appendDesktopBootstrapWsUrl(
+        process.env.VITE_DEV_SERVER_URL as string,
+        backendWsUrl,
+        isDevelopmentBuild,
+      ),
     );
     window.webContents.openDevTools({ mode: "detach" });
   } else {
     void window.loadURL(
-      appendDesktopBootstrapWsUrl(`${DESKTOP_SCHEME}://app/index.html`, backendWsUrl),
+      appendDesktopBootstrapWsUrl(
+        `${DESKTOP_SCHEME}://app/index.html`,
+        backendWsUrl,
+        isDevelopmentBuild,
+      ),
     );
   }
 

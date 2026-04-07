@@ -319,7 +319,7 @@ function PreviewTextPanel({
 }) {
   return (
     <div
-      className="max-h-96 overflow-auto rounded-md border border-border/35 bg-background/35 px-3 py-2"
+      className="max-h-96 overflow-auto px-0 py-0"
       {...(dataAttribute ? { [dataAttribute]: "true" } : {})}
     >
       <div className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">

@@ -71,7 +71,10 @@ function RootRouteView() {
   if (startupState === "connecting") {
     return (
       <>
-        <AppStartupScreen message={resolveAppStartupMessage(startupState, APP_DISPLAY_NAME)} />
+        <AppStartupScreen
+          state={startupState}
+          message={resolveAppStartupMessage(startupState, APP_DISPLAY_NAME)}
+        />
         <LoadDiagnosticsConsole />
       </>
     );
@@ -93,7 +96,10 @@ function RootRouteView() {
               </AppSidebarLayout>
             </>
           ) : (
-            <AppStartupScreen message={resolveAppStartupMessage(startupState, APP_DISPLAY_NAME)} />
+            <AppStartupScreen
+              state={startupState}
+              message={resolveAppStartupMessage(startupState, APP_DISPLAY_NAME)}
+            />
           )}
         </AnchoredToastProvider>
       </ToastProvider>
@@ -350,7 +356,10 @@ function EventRouter() {
         useComposerDraftStore.getState().draftThreadsByThreadId,
       ) as ThreadId[];
       const activeThreadIds = collectActiveTerminalThreadIds({
-        snapshotThreads: threads.map((thread) => ({ id: thread.id, deletedAt: null })),
+        snapshotThreads: threads.map((thread) => ({
+          id: thread.id,
+          deletedAt: null,
+        })),
         draftThreadIds,
       });
       removeOrphanedTerminalStates(activeThreadIds);
@@ -622,7 +631,10 @@ function EventRouter() {
     return () => {
       disposed = true;
       disposedRef.current = true;
-      logLoadDiagnostic({ phase: "bootstrap", message: "Event router disposed" });
+      logLoadDiagnostic({
+        phase: "bootstrap",
+        message: "Event router disposed",
+      });
       needsProviderInvalidation = false;
       cancelPendingDomainEventFlush();
       pendingDomainEvents.length = 0;

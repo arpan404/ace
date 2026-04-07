@@ -5,7 +5,7 @@ import { ConfigProvider, Effect, FileSystem, Layer, Option, Path } from "effect"
 
 import { NetService } from "@ace/shared/Net";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { deriveServerPaths } from "./config";
+import { deriveServerPaths, resolveStaticDir } from "./config";
 import { resolveServerConfig } from "./cli";
 
 it.layer(NodeServices.layer)("cli config resolution", (it) => {
@@ -321,6 +321,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       const fs = yield* FileSystem.FileSystem;
       const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-cli-config-no-bootstrap-" });
       const derivedPaths = yield* deriveServerPaths(baseDir, undefined);
+      const staticDir = yield* resolveStaticDir();
 
       const resolved = yield* resolveServerConfig(
         {
@@ -353,7 +354,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         baseDir,
         ...derivedPaths,
         host: undefined,
-        staticDir: undefined,
+        staticDir,
         devUrl: undefined,
         noBrowser: false,
         authToken: undefined,
@@ -375,6 +376,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           prefix: "ace-cli-config-launch-base-",
         });
         const derivedPaths = yield* deriveServerPaths(baseDir, undefined);
+        const staticDir = yield* resolveStaticDir();
 
         const resolved = yield* resolveServerConfig(
           {
@@ -408,7 +410,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           baseDir,
           ...derivedPaths,
           host: undefined,
-          staticDir: undefined,
+          staticDir,
           devUrl: undefined,
           noBrowser: false,
           authToken: undefined,

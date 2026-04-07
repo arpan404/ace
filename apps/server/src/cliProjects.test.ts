@@ -42,7 +42,7 @@ describe("cliProjects", () => {
     const workspaceRoot = await system.run(
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
-        return yield* fs.makeTempDirectoryScoped({ prefix: "ace-cli-project-workspace-" });
+        return yield* fs.makeTempDirectory({ prefix: "ace-cli-project-workspace-" });
       }),
     );
 
@@ -72,7 +72,7 @@ describe("cliProjects", () => {
     const workspaceRoot = await system.run(
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
-        return yield* fs.makeTempDirectoryScoped({ prefix: "ace-cli-project-remove-" });
+        return yield* fs.makeTempDirectory({ prefix: "ace-cli-project-remove-" });
       }),
     );
 
@@ -96,7 +96,7 @@ describe("cliProjects", () => {
     const workspaceRoot = await system.run(
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
-        return yield* fs.makeTempDirectoryScoped({ prefix: "ace-cli-project-force-" });
+        return yield* fs.makeTempDirectory({ prefix: "ace-cli-project-force-" });
       }),
     );
 

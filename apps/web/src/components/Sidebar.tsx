@@ -53,7 +53,7 @@ import { useQueries } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { type SidebarProjectSortOrder, type SidebarThreadSortOrder } from "@ace/contracts/settings";
 import { isElectron } from "../env";
-import { APP_BASE_NAME, APP_VERSION } from "../branding";
+import { APP_BASE_NAME, APP_VERSION, IS_DEV_BUILD } from "../branding";
 import { reportBackgroundError } from "../lib/async";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
@@ -93,6 +93,7 @@ import {
   shouldToastDesktopUpdateActionResult,
 } from "../lib/desktopUpdate";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -2346,6 +2347,15 @@ export default function Sidebar() {
               <span className="truncate text-sm font-semibold tracking-tight text-foreground/90">
                 {APP_BASE_NAME}
               </span>
+              {IS_DEV_BUILD ? (
+                <Badge
+                  variant="info"
+                  size="sm"
+                  className="h-5 shrink-0 rounded-full border border-info/20 bg-info/10 px-1.5 text-[9px] font-semibold tracking-[0.16em] uppercase shadow-none"
+                >
+                  DEV
+                </Badge>
+              ) : null}
             </div>
           }
         />

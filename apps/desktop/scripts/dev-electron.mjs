@@ -28,6 +28,7 @@ await waitForResources({
 
 const childEnv = { ...process.env };
 delete childEnv.ELECTRON_RUN_AS_NODE;
+childEnv.ACE_LOCAL_DESKTOP_RUN = "1";
 
 let shuttingDown = false;
 let restartTimer = null;

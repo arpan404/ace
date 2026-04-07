@@ -20,6 +20,7 @@ const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
+const GET_IS_DEVELOPMENT_BUILD_CHANNEL = "desktop:get-is-development-build";
 const GET_WINDOW_SHOWN_AT_CHANNEL = "desktop:get-window-shown-at";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
@@ -30,6 +31,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     const result = ipcRenderer.sendSync(GET_WS_URL_CHANNEL);
     return typeof result === "string" ? result : null;
   },
+  getIsDevelopmentBuild: () => ipcRenderer.sendSync(GET_IS_DEVELOPMENT_BUILD_CHANNEL) === true,
   getWindowShownAt: () => {
     const result = ipcRenderer.sendSync(GET_WINDOW_SHOWN_AT_CHANNEL);
     return typeof result === "number" && Number.isFinite(result) ? result : null;

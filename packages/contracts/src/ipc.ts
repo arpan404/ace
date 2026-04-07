@@ -132,6 +132,7 @@ export const DESKTOP_MENU_ACTIONS = [
 ] as const;
 
 export const DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM = "aceWsUrl";
+export const DESKTOP_BOOTSTRAP_DEV_BUILD_QUERY_PARAM = "aceDevBuild";
 
 export type DesktopMenuAction = (typeof DESKTOP_MENU_ACTIONS)[number];
 
@@ -200,6 +201,7 @@ export interface DesktopNotificationInput {
 
 export interface DesktopBridge {
   getWsUrl: () => string | null;
+  getIsDevelopmentBuild?: () => boolean;
   getWindowShownAt?: () => number | null;
   pickFolder: () => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;

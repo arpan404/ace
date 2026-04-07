@@ -132,6 +132,20 @@ function activeTurnAlreadyRunningDetail(activeTurnId: TurnId | undefined): strin
     : "Provider session is already running a turn. Wait for it to finish or interrupt it before starting another turn.";
 }
 
+function isStaleTurnStartReplay(input: {
+  readonly latestTurn: { readonly state: "running" | "interrupted" | "completed" | "error" } | null;
+  readonly latestTurnRequestedAt: string | null;
+  readonly requestedAt: string;
+}): boolean {
+  if (input.latestTurn === null || input.latestTurnRequestedAt === null) {
+    return false;
+  }
+  if (input.latestTurn.state === "running") {
+    return false;
+  }
+  return input.latestTurnRequestedAt >= input.requestedAt;
+}
+
 function isTemporaryWorktreeBranch(branch: string): boolean {
   return TEMP_WORKTREE_BRANCH_PATTERN.test(branch.trim().toLowerCase());
 }
@@ -594,6 +608,22 @@ const make = Effect.gen(function* () {
 
     const thread = yield* resolveThread(event.payload.threadId);
     if (!thread) {
+      return;
+    }
+    if (
+      isStaleTurnStartReplay({
+        latestTurn: thread.latestTurn,
+        latestTurnRequestedAt: thread.latestTurn?.requestedAt ?? null,
+        requestedAt: event.payload.createdAt,
+      })
+    ) {
+      yield* Effect.logDebug("provider command reactor ignored stale turn-start replay", {
+        threadId: event.payload.threadId,
+        messageId: event.payload.messageId,
+        requestedAt: event.payload.createdAt,
+        latestTurnRequestedAt: thread.latestTurn?.requestedAt ?? null,
+        latestTurnState: thread.latestTurn?.state ?? null,
+      });
       return;
     }
 
