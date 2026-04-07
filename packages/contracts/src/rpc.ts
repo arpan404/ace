@@ -138,6 +138,7 @@ export const WS_METHODS = {
 
   // Server meta
   serverGetConfig: "server.getConfig",
+  serverPickFolder: "server.pickFolder",
   serverRefreshProviders: "server.refreshProviders",
   serverSearchOpenCodeModels: "server.searchOpenCodeModels",
   serverUpsertKeybinding: "server.upsertKeybinding",
@@ -172,6 +173,12 @@ export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
   payload: Schema.Struct({}),
   success: ServerConfig,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError]),
+});
+
+export const WsServerPickFolderRpc = Rpc.make(WS_METHODS.serverPickFolder, {
+  payload: Schema.Struct({}),
+  success: Schema.NullOr(Schema.String),
+  error: OpenError,
 });
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
@@ -427,6 +434,7 @@ export const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServer
 
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
+  WsServerPickFolderRpc,
   WsServerRefreshProvidersRpc,
   WsServerSearchOpenCodeModelsRpc,
   WsServerUpsertKeybindingRpc,

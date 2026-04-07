@@ -77,6 +77,7 @@ const rpcClientMock = {
   },
   server: {
     getConfig: vi.fn(),
+    pickFolder: vi.fn(),
     refreshProviders: vi.fn(),
     upsertKeybinding: vi.fn(),
     getSettings: vi.fn(),
@@ -198,6 +199,30 @@ afterEach(() => {
 });
 
 describe("wsNativeApi", () => {
+  it("uses the desktop bridge folder picker when available", async () => {
+    const desktopPickFolder = vi.fn().mockResolvedValue("/desktop/project");
+    getWindowForTest().desktopBridge = makeDesktopBridge({
+      pickFolder: desktopPickFolder,
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+
+    await expect(api.dialogs.pickFolder()).resolves.toBe("/desktop/project");
+    expect(desktopPickFolder).toHaveBeenCalledWith();
+    expect(rpcClientMock.server.pickFolder).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the websocket server folder picker in the browser build", async () => {
+    rpcClientMock.server.pickFolder.mockResolvedValue("/server/project");
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+
+    await expect(api.dialogs.pickFolder()).resolves.toBe("/server/project");
+    expect(rpcClientMock.server.pickFolder).toHaveBeenCalledWith();
+  });
+
   it("forwards server config fetches directly to the RPC client", async () => {
     rpcClientMock.server.getConfig.mockResolvedValue(baseServerConfig);
     const { createWsNativeApi } = await import("./wsNativeApi");

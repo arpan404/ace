@@ -1503,7 +1503,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     },
   );
 
-  it("keeps assistant diff summaries from overlapping the next turn", async () => {
+  it("hides assistant diff summaries after the user starts the next turn", async () => {
     const targetUserMessageId = "msg-user-after-diff-summary" as MessageId;
     const assistantMessageId = "msg-assistant-2" as MessageId;
     const mounted = await mountChatView({
@@ -1533,12 +1533,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(assistantRow, "Unable to locate assistant row with diff summary.").toBeTruthy();
           expect(nextUserRow, "Unable to locate next user row after diff summary.").toBeTruthy();
           expect(assistantRow!.closest("[data-index]")).toBeInstanceOf(HTMLElement);
-          expect(assistantRow!.querySelector('[data-turn-diff-card="true"]')).toBeTruthy();
+          expect(assistantRow!.querySelector('[data-turn-diff-summary="true"]')).toBeFalsy();
 
           const assistantRect = assistantRow!.getBoundingClientRect();
           const nextUserRect = nextUserRow!.getBoundingClientRect();
 
-          expect(assistantRect.height).toBeGreaterThan(180);
           expect(nextUserRect.top).toBeGreaterThanOrEqual(assistantRect.bottom - 1);
         },
         {

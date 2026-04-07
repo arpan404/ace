@@ -406,6 +406,43 @@ label:has(> select#reasoning-effort) select {
   opacity: 0.8;
 }
 
+.chat-markdown .chat-markdown-link-open-browser {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.3rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--muted-foreground) 78%, transparent);
+  opacity: 0.5;
+  cursor: pointer;
+  vertical-align: text-bottom;
+  transition:
+    opacity 120ms ease,
+    color 120ms ease,
+    transform 120ms ease;
+}
+
+.chat-markdown .chat-markdown-link-shell:hover .chat-markdown-link-open-browser,
+.chat-markdown .chat-markdown-link-shell:focus-within .chat-markdown-link-open-browser {
+  opacity: 0.9;
+  color: color-mix(in srgb, var(--info-foreground) 78%, var(--foreground));
+}
+
+.chat-markdown .chat-markdown-link-open-browser:hover,
+.chat-markdown .chat-markdown-link-open-browser:focus-visible {
+  opacity: 1;
+  color: var(--foreground);
+  transform: translateY(-1px);
+}
+
+.chat-markdown .chat-markdown-link-open-browser:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ring) 65%, transparent);
+  outline-offset: 2px;
+}
+
 .chat-markdown blockquote {
   border-left: 2px solid var(--border);
   padding-left: 0.8rem;

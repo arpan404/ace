@@ -1430,7 +1430,7 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
 
 fastTimeoutLayer("GitHubCopilotAdapterLive recovery", (it) => {
   it.effect(
-    "recovers hung Copilot turns and force stops the CLI when runtime events go silent",
+    "recovers Copilot turns that never produce runtime activity and force stops the CLI",
     () =>
       Effect.gen(function* () {
         const forceStop = vi.fn(async () => undefined);
@@ -1490,7 +1490,7 @@ fastTimeoutLayer("GitHubCopilotAdapterLive recovery", (it) => {
           return;
         }
 
-        assert.match(runtimeError.payload.message, /stopped producing runtime events/i);
+        assert.match(runtimeError.payload.message, /did not produce runtime activity/i);
         assert.equal(turnCompleted.payload.state, "failed");
         assert.match(turnCompleted.payload.errorMessage ?? "", /recovering the session/i);
         assert.equal(sessionExited.payload.exitKind, "error");

@@ -402,6 +402,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           }),
         ),
       [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig,
+      [WS_METHODS.serverPickFolder]: (_input) => open.pickFolder(),
       [WS_METHODS.serverRefreshProviders]: (_input) =>
         providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
       [WS_METHODS.serverSearchOpenCodeModels]: (input) =>

@@ -13,6 +13,8 @@ import { extname, join } from "node:path";
 import { EDITORS, OpenError, type EditorId } from "@ace/contracts";
 import { ServiceMap, Effect, Layer } from "effect";
 
+import { runProcess, type ProcessRunResult } from "./processRunner";
+
 // ==============================
 // Definitions
 // ==============================
@@ -27,6 +29,12 @@ export interface OpenInEditorInput {
 interface EditorLaunch {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
+}
+
+interface FolderPickerLaunch {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly isCancelled: (result: ProcessRunResult) => boolean;
 }
 
 interface CommandAvailabilityOptions {
@@ -124,6 +132,38 @@ function resolvePathDelimiter(platform: NodeJS.Platform): string {
   return platform === "win32" ? ";" : ":";
 }
 
+function normalizePickedFolderPath(stdout: string): string | null {
+  const path = stdout.replace(/[\r\n]+$/g, "");
+  return path.length > 0 ? path : null;
+}
+
+function resolveLinuxFolderPickerLaunch(env: NodeJS.ProcessEnv): FolderPickerLaunch | null {
+  if (isCommandAvailable("zenity", { platform: "linux", env })) {
+    return {
+      command: "zenity",
+      args: ["--file-selection", "--directory", "--title=Select a project folder"],
+      isCancelled: (result) => result.code === 1 && result.stderr.trim().length === 0,
+    };
+  }
+
+  if (isCommandAvailable("kdialog", { platform: "linux", env })) {
+    return {
+      command: "kdialog",
+      args: ["--getexistingdirectory", ".", "--title", "Select a project folder"],
+      isCancelled: (result) => result.code === 1 && result.stderr.trim().length === 0,
+    };
+  }
+
+  return null;
+}
+
+function resolveFolderPickerUnavailableMessage(platform: NodeJS.Platform): string {
+  if (platform === "linux") {
+    return "Folder picker is unavailable. Install zenity or kdialog, or enter the path manually.";
+  }
+  return "Folder picker is unavailable on this system. Enter the path manually.";
+}
+
 export function isCommandAvailable(
   command: string,
   options: CommandAvailabilityOptions = {},
@@ -172,6 +212,103 @@ export function resolveAvailableEditors(
   return available;
 }
 
+export const resolveFolderPickerLaunch = Effect.fnUntraced(function* (
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): Effect.fn.Return<FolderPickerLaunch, OpenError> {
+  switch (platform) {
+    case "darwin":
+      if (!isCommandAvailable("osascript", { platform, env })) {
+        return yield* new OpenError({
+          message: resolveFolderPickerUnavailableMessage(platform),
+        });
+      }
+      return {
+        command: "osascript",
+        args: [
+          "-e",
+          "try",
+          "-e",
+          'POSIX path of (choose folder with prompt "Select a project folder")',
+          "-e",
+          "on error number -128",
+          "-e",
+          'return ""',
+          "-e",
+          "end try",
+        ],
+        isCancelled: () => false,
+      };
+    case "win32":
+      if (!isCommandAvailable("powershell.exe", { platform, env })) {
+        return yield* new OpenError({
+          message: resolveFolderPickerUnavailableMessage(platform),
+        });
+      }
+      return {
+        command: "powershell.exe",
+        args: [
+          "-NoProfile",
+          "-NonInteractive",
+          "-STA",
+          "-Command",
+          [
+            "Add-Type -AssemblyName System.Windows.Forms | Out-Null",
+            "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
+            '$dialog.Description = "Select a project folder"',
+            "$dialog.ShowNewFolderButton = $true",
+            "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($dialog.SelectedPath) }",
+          ].join("; "),
+        ],
+        isCancelled: () => false,
+      };
+    default: {
+      const launch = resolveLinuxFolderPickerLaunch(env);
+      if (launch) {
+        return launch;
+      }
+      return yield* new OpenError({
+        message: resolveFolderPickerUnavailableMessage(platform),
+      });
+    }
+  }
+});
+
+export const pickFolder = (
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  runner: typeof runProcess = runProcess,
+) =>
+  Effect.gen(function* () {
+    const launch = yield* resolveFolderPickerLaunch(platform, env);
+    const result = yield* Effect.tryPromise({
+      try: () =>
+        runner(launch.command, launch.args, {
+          allowNonZeroExit: true,
+          maxBufferBytes: 64 * 1024,
+          outputMode: "truncate",
+          timeoutMs: 5 * 60 * 1000,
+        }),
+      catch: (cause) => new OpenError({ message: "Failed to open folder picker.", cause }),
+    });
+
+    if (launch.isCancelled(result)) {
+      return null;
+    }
+
+    if (result.code !== null && result.code !== 0) {
+      const detail = result.stderr.trim();
+      return yield* new OpenError({
+        message:
+          detail.length > 0
+            ? `Failed to open folder picker: ${detail}`
+            : "Failed to open folder picker.",
+      });
+    }
+
+    return normalizePickedFolderPath(result.stdout);
+  });
+
 /**
  * OpenShape - Service API for browser and editor launch actions.
  */
@@ -180,6 +317,11 @@ export interface OpenShape {
    * Open a URL target in the default browser.
    */
   readonly openBrowser: (target: string) => Effect.Effect<void, OpenError>;
+
+  /**
+   * Open a native folder picker and return the selected path.
+   */
+  readonly pickFolder: () => Effect.Effect<string | null, OpenError>;
 
   /**
    * Open a workspace path in a selected editor integration.
@@ -264,6 +406,7 @@ const make = Effect.gen(function* () {
         try: () => open.default(target),
         catch: (cause) => new OpenError({ message: "Browser auto-open failed", cause }),
       }),
+    pickFolder: () => pickFolder(),
     openInEditor: (input) => Effect.flatMap(resolveEditorLaunch(input), launchDetached),
   } satisfies OpenShape;
 });

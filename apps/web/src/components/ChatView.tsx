@@ -60,9 +60,11 @@ import {
   deriveActiveWorkStartedAt,
   deriveVisibleWorkTurnId,
   deriveActivePlanState,
+  deriveVisibleTurnDiffSummaryByAssistantMessageId,
   findSidebarProposedPlan,
   findLatestProposedPlan,
   deriveWorkLogEntries,
+  hasLiveTurn,
   hasActionableProposedPlan,
   hasToolActivityForTurn,
   isLatestTurnSettled,
@@ -730,6 +732,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [activeThread?.activities],
   );
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
+  const liveTurnInProgress = hasLiveTurn(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = useProjectById(activeThread?.projectId);
   const handleActiveProjectChange = useCallback(
     (projectId: ProjectId) => {
@@ -1018,7 +1021,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activePendingUserInput: activePendingUserInput?.requestId ?? null,
     threadError: activeThread?.error,
   });
-  const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  const isWorking = liveTurnInProgress || isSendBusy || isConnecting || isRevertingCheckpoint;
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -1034,7 +1037,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (activePendingProgress) {
       return `pending:${activePendingProgress.questionIndex}:${activePendingProgress.isLastQuestion}:${activePendingIsResponding}`;
     }
-    if (phase === "running") {
+    if (liveTurnInProgress) {
       return "running";
     }
     if (showPlanFollowUpPrompt) {
@@ -1048,7 +1051,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     isConnecting,
     isPreparingWorktree,
     isSendBusy,
-    phase,
+    liveTurnInProgress,
     prompt,
     showPlanFollowUpPrompt,
   ]);
@@ -1225,6 +1228,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     return byMessageId;
   }, [turnDiffSummaries]);
+  const visibleTurnDiffSummaryByAssistantMessageId = useMemo(
+    () => deriveVisibleTurnDiffSummaryByAssistantMessageId(timelineMessages, turnDiffSummaries),
+    [timelineMessages, turnDiffSummaries],
+  );
   const revertTurnCountByUserMessageId = useMemo(() => {
     const byUserMessageId = new Map<MessageId, number>();
     for (let index = 0; index < timelineEntries.length; index += 1) {
@@ -2059,6 +2066,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     controller.openUrl(url, options);
   }, []);
+  const openBrowserUrlInNewTab = useCallback(
+    (url: string) => {
+      openBrowserUrl(url, { newTab: true });
+    },
+    [openBrowserUrl],
+  );
 
   useEffect(() => {
     if (!isElectron) return;
@@ -3100,10 +3113,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
     scheduleStickToBottom();
   }, [messageCount, scheduleStickToBottom]);
   useEffect(() => {
-    if (phase !== "running") return;
+    if (!liveTurnInProgress) return;
     if (!shouldAutoScrollRef.current) return;
     scheduleStickToBottom();
-  }, [phase, scheduleStickToBottom, timelineEntries]);
+  }, [liveTurnInProgress, scheduleStickToBottom, timelineEntries]);
 
   useEffect(() => {
     setExpandedWorkGroups({});
@@ -3606,7 +3619,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       const api = readNativeApi();
       if (!api || !activeThread || isRevertingCheckpoint) return;
 
-      if (phase === "running" || isSendBusy || isConnecting) {
+      if (liveTurnInProgress || isSendBusy || isConnecting) {
         setThreadError(activeThread.id, "Interrupt the current turn before reverting checkpoints.");
         return;
       }
@@ -3637,7 +3650,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
       setIsRevertingCheckpoint(false);
     },
-    [activeThread, isConnecting, isRevertingCheckpoint, isSendBusy, phase, setThreadError],
+    [
+      activeThread,
+      isConnecting,
+      isRevertingCheckpoint,
+      isSendBusy,
+      liveTurnInProgress,
+      setThreadError,
+    ],
   );
 
   const dispatchComposerMessage = useCallback(
@@ -3954,7 +3974,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       onAdvanceActivePendingUserInput();
       return;
     }
-    if (phase === "running" || isSendBusy || isConnecting) {
+    if (liveTurnInProgress || isSendBusy || isConnecting) {
       await queueCurrentComposerMessage();
       return;
     }
@@ -4045,7 +4065,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
     if (
-      phase === "running" ||
+      liveTurnInProgress ||
       isSendBusy ||
       isConnecting ||
       sendInFlightRef.current ||
@@ -4106,7 +4126,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     dispatchComposerMessage,
     isConnecting,
     isSendBusy,
-    phase,
+    liveTurnInProgress,
     persistQueuedComposerState,
     queuedSteerRequest,
     queuedComposerMessages,
@@ -4126,7 +4146,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       );
       return;
     }
-    if (phase !== "running" || isConnecting || queuedSteerRequest.interruptRequested) {
+    if (!liveTurnInProgress || isConnecting || queuedSteerRequest.interruptRequested) {
       return;
     }
     if (workLogEntries.length <= queuedSteerRequest.baselineWorkLogEntryCount) {
@@ -4163,7 +4183,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activeInterruptTurnId,
     activeThread,
     isConnecting,
-    phase,
+    liveTurnInProgress,
     persistQueuedComposerState,
     queuedComposerMessages,
     queuedSteerRequest,
@@ -4969,7 +4989,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     timelineEntries,
     completionDividerBeforeEntryId,
     completionSummary,
-    turnDiffSummaryByAssistantMessageId,
+    turnDiffSummaryByAssistantMessageId: visibleTurnDiffSummaryByAssistantMessageId,
     expandedWorkGroups,
     onToggleWorkGroup,
     onOpenTurnDiff,
@@ -4979,6 +4999,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     isRevertingCheckpoint,
     onImageExpand: onExpandTimelineImage,
     markdownCwd: gitCwd ?? undefined,
+    onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
     resolvedTheme,
     timestampFormat,
     workspaceRoot: activeProject?.cwd ?? undefined,
@@ -5015,6 +5036,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activePlan,
           activeProposedPlan: sidebarProposedPlan,
           markdownCwd: gitCwd ?? undefined,
+          onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
           workspaceRoot: activeProject?.cwd ?? undefined,
           timestampFormat,
           onClose: () => {
@@ -5564,7 +5586,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                     }
                                   : null
                               }
-                              isRunning={phase === "running"}
+                              isRunning={liveTurnInProgress}
                               showPlanFollowUpPrompt={
                                 pendingUserInputs.length === 0 && showPlanFollowUpPrompt
                               }
@@ -5578,7 +5600,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               onInterrupt={() => void onInterrupt()}
                               onImplementPlanInNewThread={() => void onImplementPlanInNewThread()}
                               onQueueMessage={() =>
-                                queueCurrentComposerMessage(phase === "running" ? "steer" : "queue")
+                                queueCurrentComposerMessage(liveTurnInProgress ? "steer" : "queue")
                               }
                             />
                           </div>

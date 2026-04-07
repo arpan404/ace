@@ -109,6 +109,7 @@ interface TurnState {
   readonly startedAt: string;
   readonly inputText: string;
   readonly attachmentNames: ReadonlyArray<string>;
+  awaitingRuntimeActivity: boolean;
   assistantText: string;
   readonly items: Array<unknown>;
   readonly assistantItemIdsByMessageId: Map<string, string>;
@@ -175,6 +176,15 @@ function clearTurnWatchdog(context: GitHubCopilotSessionContext) {
   }
   clearTimeout(context.turnWatchdog);
   context.turnWatchdog = undefined;
+}
+
+function markTurnRuntimeActivity(context: GitHubCopilotSessionContext) {
+  const turnState = context.turnState;
+  if (!turnState || !turnState.awaitingRuntimeActivity) {
+    return;
+  }
+  turnState.awaitingRuntimeActivity = false;
+  clearTurnWatchdog(context);
 }
 
 function summarizePermissionRequest(request: PermissionRequest): string | undefined {
@@ -1216,7 +1226,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
     const turnState = context.turnState;
     const data = getSessionEventData(event);
     if (turnState) {
-      scheduleTurnWatchdog(context);
+      markTurnRuntimeActivity(context);
     }
     switch (event.type) {
       case "session.error": {
@@ -1816,7 +1826,12 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
 
   const scheduleTurnWatchdog = (context: GitHubCopilotSessionContext): void => {
     clearTurnWatchdog(context);
-    if (context.stopped || !context.turnState || timeouts.inactivityMs <= 0) {
+    if (
+      context.stopped ||
+      !context.turnState ||
+      !context.turnState.awaitingRuntimeActivity ||
+      timeouts.inactivityMs <= 0
+    ) {
       return;
     }
 
@@ -1828,7 +1843,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       }
 
       void recoverSession(context, {
-        reason: `GitHub Copilot stopped producing runtime events for ${String(timeouts.inactivityMs)}ms. Recovering the session.`,
+        reason: `GitHub Copilot accepted the turn but did not produce runtime activity within ${String(timeouts.inactivityMs)}ms. Recovering the session.`,
         errorClass: "transport_error",
         turnState: activeTurn.abortRequested ? "interrupted" : "failed",
       });
@@ -1886,6 +1901,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           return { kind: "approved" };
         }
 
+        markTurnRuntimeActivity(context);
         const requestId = randomUUID();
         const deferred = makeDeferredDecision<ProviderApprovalDecision>();
         const detail = summarizePermissionRequest(request);
@@ -1941,6 +1957,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         if (!context) {
           return { answer: "", wasFreeform: true };
         }
+        markTurnRuntimeActivity(context);
         const requestId = randomUUID();
         const deferred = makeDeferredDecision<ProviderUserInputAnswers>();
         const questionId = "response";
@@ -2158,6 +2175,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         startedAt: createdAt,
         inputText: input.input ?? "",
         attachmentNames,
+        awaitingRuntimeActivity: true,
         assistantText: "",
         items: [],
         assistantItemIdsByMessageId: new Map(),

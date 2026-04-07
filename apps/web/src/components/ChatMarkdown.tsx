@@ -1,5 +1,5 @@
 import { DiffsHighlighter, getSharedHighlighter, SupportedLanguages } from "@pierre/diffs";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, GlobeIcon } from "lucide-react";
 import React, {
   Children,
   Suspense,
@@ -33,6 +33,7 @@ import {
   buildLargeMarkdownPreviewText,
   shouldUseLargeMarkdownPreview,
 } from "../lib/chat/messageText";
+import { normalizeBrowserHttpUrl } from "../lib/browser/url";
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
 import type { ChatMessageStreamingTextState } from "../types";
@@ -64,6 +65,7 @@ interface ChatMarkdownProps {
   isStreaming?: boolean;
   streamingTextState?: ChatMessageStreamingTextState;
   onLayoutChange?: () => void;
+  onOpenBrowserUrl?: ((url: string) => void) | null;
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
@@ -408,6 +410,7 @@ function ChatMarkdown({
   isStreaming = false,
   streamingTextState,
   onLayoutChange,
+  onOpenBrowserUrl = null,
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
@@ -425,7 +428,29 @@ function ChatMarkdown({
       a({ node: _node, href, ...props }) {
         const targetPath = resolveMarkdownFileLinkTarget(href, cwd);
         if (!targetPath) {
-          return <a {...props} href={href} target="_blank" rel="noopener noreferrer" />;
+          const browserUrl = href ? normalizeBrowserHttpUrl(href) : null;
+          if (!browserUrl || !onOpenBrowserUrl) {
+            return <a {...props} href={href} target="_blank" rel="noopener noreferrer" />;
+          }
+
+          return (
+            <span className="chat-markdown-link-shell">
+              <a {...props} href={href} target="_blank" rel="noopener noreferrer" />
+              <button
+                type="button"
+                className="chat-markdown-link-open-browser"
+                aria-label="Open link in the in-app browser"
+                title="Open in in-app browser"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onOpenBrowserUrl(browserUrl);
+                }}
+              >
+                <GlobeIcon className="size-3" />
+              </button>
+            </span>
+          );
         }
 
         return (
@@ -467,7 +492,7 @@ function ChatMarkdown({
         );
       },
     }),
-    [cwd, diffThemeName, isStreaming],
+    [cwd, diffThemeName, isStreaming, onOpenBrowserUrl],
   );
 
   useEffect(() => {

@@ -35,6 +35,31 @@ describe("ChatMarkdown", () => {
     expect(markup).not.toContain('data-streaming-markdown="true"');
   });
 
+  it("renders an in-app browser action for external links when available", () => {
+    const markup = renderToStaticMarkup(
+      <ChatMarkdown
+        text="[Docs](https://example.com/docs)"
+        cwd={undefined}
+        onOpenBrowserUrl={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain("chat-markdown-link-open-browser");
+    expect(markup).toContain("Open link in the in-app browser");
+  });
+
+  it("does not render an in-app browser action for workspace file links", () => {
+    const markup = renderToStaticMarkup(
+      <ChatMarkdown
+        text="[README](./README.md)"
+        cwd="/repo/project"
+        onOpenBrowserUrl={() => undefined}
+      />,
+    );
+
+    expect(markup).not.toContain("chat-markdown-link-open-browser");
+  });
+
   it("caps very large streaming responses to a preview window", () => {
     const fullText = Array.from({ length: 2_500 }, (_, index) => `line ${index + 1}`).join("\n");
     const streamingTextState = createChatMessageStreamingTextState(fullText);

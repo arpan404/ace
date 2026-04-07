@@ -88,6 +88,7 @@ export interface WsRpcClient {
   };
   readonly server: {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
+    readonly pickFolder: RpcUnaryNoArgMethod<typeof WS_METHODS.serverPickFolder>;
     readonly refreshProviders: RpcUnaryNoArgMethod<typeof WS_METHODS.serverRefreshProviders>;
     readonly searchOpenCodeModels: RpcUnaryMethod<typeof WS_METHODS.serverSearchOpenCodeModels>;
     readonly upsertKeybinding: RpcUnaryMethod<typeof WS_METHODS.serverUpsertKeybinding>;
@@ -209,6 +210,7 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     },
     server: {
       getConfig: () => transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
+      pickFolder: () => transport.request((client) => client[WS_METHODS.serverPickFolder]({})),
       refreshProviders: () =>
         transport.request((client) => client[WS_METHODS.serverRefreshProviders]({})),
       searchOpenCodeModels: (input) =>

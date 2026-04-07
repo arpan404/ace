@@ -40,8 +40,10 @@ export function createWsNativeApi(): NativeApi {
   const api: NativeApi = {
     dialogs: {
       pickFolder: async () => {
-        if (!window.desktopBridge) return null;
-        return window.desktopBridge.pickFolder();
+        if (window.desktopBridge) {
+          return window.desktopBridge.pickFolder();
+        }
+        return rpcClient.server.pickFolder();
       },
       confirm: async (message) => {
         if (window.desktopBridge) {

@@ -102,6 +102,7 @@ interface MessagesTimelineProps {
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   markdownCwd: string | undefined;
+  onOpenBrowserUrl?: ((url: string) => void) | null;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
@@ -126,6 +127,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isRevertingCheckpoint,
   onImageExpand,
   markdownCwd,
+  onOpenBrowserUrl = null,
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
@@ -159,7 +161,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const onToggleAllDirectories = useCallback((turnId: TurnId) => {
     setAllDirectoriesExpandedByTurnId((current) => ({
       ...current,
-      [turnId]: !(current[turnId] ?? true),
+      [turnId]: !(current[turnId] ?? false),
     }));
   }, []);
 
@@ -389,12 +391,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             return (
               <AssistantMessageTimelineRow
                 allDirectoriesExpanded={
-                  turnSummary ? (allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? true) : true
+                  turnSummary
+                    ? (allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? false)
+                    : false
                 }
                 completionSummary={row.completionSummary}
                 markdownCwd={markdownCwd}
                 message={row.message}
                 onLayoutChange={handleAssistantMessageLayoutChange}
+                onOpenBrowserUrl={onOpenBrowserUrl}
                 onOpenTurnDiff={onOpenTurnDiff}
                 onToggleAllDirectories={onToggleAllDirectories}
                 resolvedTheme={resolvedTheme}
@@ -406,6 +411,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         {row.kind === "proposed-plan" && (
           <ProposedPlanTimelineRow
             cwd={markdownCwd}
+            onOpenBrowserUrl={onOpenBrowserUrl}
             proposedPlan={row.proposedPlan}
             workspaceRoot={workspaceRoot}
           />
@@ -1414,11 +1420,13 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
   onLayoutChange: () => void;
+  onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onToggleAllDirectories: (turnId: TurnId) => void;
   resolvedTheme: "light" | "dark";
   turnSummary: TurnDiffSummary | undefined;
 }) {
+  const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   const renderedMessageText = getChatMessageRenderableText(props.message);
   const messageText =
     renderedMessageText.trim().length > 0
@@ -1434,6 +1442,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         cwd={props.markdownCwd}
         isStreaming={Boolean(props.message.streaming)}
         onLayoutChange={props.onLayoutChange}
+        onOpenBrowserUrl={onOpenBrowserUrl}
         {...(props.message.streamingTextState
           ? { streamingTextState: props.message.streamingTextState }
           : {})}
@@ -1519,14 +1528,17 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
 
 const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
   cwd: string | undefined;
+  onOpenBrowserUrl?: ((url: string) => void) | null;
   proposedPlan: TimelineProposedPlan;
   workspaceRoot: string | undefined;
 }) {
+  const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   return (
     <div className="min-w-0 border-emerald-500/18 border-l py-0.5 pr-1 pl-4">
       <ProposedPlanCard
         planMarkdown={props.proposedPlan.planMarkdown}
         cwd={props.cwd}
+        onOpenBrowserUrl={onOpenBrowserUrl}
         workspaceRoot={props.workspaceRoot}
       />
     </div>

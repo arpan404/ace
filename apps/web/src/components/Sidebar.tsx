@@ -56,7 +56,7 @@ import { isElectron } from "../env";
 import { APP_BASE_NAME, APP_VERSION } from "../branding";
 import { reportBackgroundError } from "../lib/async";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
+import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
@@ -866,10 +866,8 @@ export default function Sidebar() {
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
-  const isLinuxDesktop = isElectron && isLinuxPlatform(navigator.platform);
   const platform = navigator.platform;
-  const shouldBrowseForProjectImmediately = isElectron && !isLinuxDesktop;
-  const shouldShowProjectPathEntry = addingProject && !shouldBrowseForProjectImmediately;
+  const shouldShowProjectPathEntry = addingProject;
   const activeProjects = useMemo(
     () => projects.filter((project) => project.archivedAt === null),
     [projects],
@@ -963,7 +961,7 @@ export default function Sidebar() {
   );
 
   const addProjectFromPath = useCallback(
-    async (rawCwd: string) => {
+    async (rawCwd: string, options?: { revealOnError?: boolean }) => {
       const cwd = rawCwd.trim();
       if (!cwd || isAddingProject) return;
       const api = readNativeApi();
@@ -1026,15 +1024,11 @@ export default function Sidebar() {
         const description =
           error instanceof Error ? error.message : "An error occurred while adding the project.";
         setIsAddingProject(false);
-        if (shouldBrowseForProjectImmediately) {
-          toastManager.add({
-            type: "error",
-            title: "Failed to add project",
-            description,
-          });
-        } else {
-          setAddProjectError(description);
+        setNewCwd(cwd);
+        if (options?.revealOnError) {
+          setAddingProject(true);
         }
+        setAddProjectError(description);
         return;
       }
       finishAddingProject();
@@ -1044,7 +1038,6 @@ export default function Sidebar() {
       handleNewThread,
       isAddingProject,
       projects,
-      shouldBrowseForProjectImmediately,
       appSettings.defaultThreadEnvMode,
     ],
   );
@@ -1055,31 +1048,40 @@ export default function Sidebar() {
 
   const canAddProject = newCwd.trim().length > 0 && !isAddingProject;
 
-  const handlePickFolder = async () => {
+  const handlePickFolder = async (options?: { revealOnCancel?: boolean }) => {
     const api = readNativeApi();
     if (!api || isPickingFolder) return;
+    setAddProjectError(null);
     setIsPickingFolder(true);
-    let pickedPath: string | null = null;
     try {
-      pickedPath = await api.dialogs.pickFolder();
-    } catch {
-      // Ignore picker failures and leave the current thread selection unchanged.
-    }
-    if (pickedPath) {
-      await addProjectFromPath(pickedPath);
-    } else if (!shouldBrowseForProjectImmediately) {
+      const pickedPath = await api.dialogs.pickFolder();
+      if (pickedPath) {
+        setNewCwd(pickedPath);
+        await addProjectFromPath(pickedPath, { revealOnError: true });
+        return;
+      }
+      if (options?.revealOnCancel) {
+        setAddingProject(true);
+      }
       addProjectInputRef.current?.focus();
+    } catch (error) {
+      setAddingProject(true);
+      setAddProjectError(
+        error instanceof Error ? error.message : "Unable to open the folder picker.",
+      );
+      addProjectInputRef.current?.focus();
+    } finally {
+      setIsPickingFolder(false);
     }
-    setIsPickingFolder(false);
   };
 
   const handleStartAddProject = () => {
     setAddProjectError(null);
-    if (shouldBrowseForProjectImmediately) {
-      void handlePickFolder();
+    if (shouldShowProjectPathEntry) {
+      setAddingProject(false);
       return;
     }
-    setAddingProject((prev) => !prev);
+    void handlePickFolder({ revealOnCancel: true });
   };
 
   const cancelRename = useCallback(() => {
@@ -2556,17 +2558,15 @@ export default function Sidebar() {
               </div>
               {shouldShowProjectPathEntry && (
                 <div className="mb-2 px-1">
-                  {isElectron && (
-                    <button
-                      type="button"
-                      className="mb-1.5 flex w-full items-center justify-center gap-2 rounded-md border border-border bg-secondary py-1.5 text-xs text-foreground/80 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                      onClick={() => void handlePickFolder()}
-                      disabled={isPickingFolder || isAddingProject}
-                    >
-                      <FolderIcon className="size-3.5" />
-                      {isPickingFolder ? "Picking folder..." : "Browse for folder"}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="mb-1.5 flex w-full items-center justify-center gap-2 rounded-md border border-border bg-secondary py-1.5 text-xs text-foreground/80 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => void handlePickFolder()}
+                    disabled={isPickingFolder || isAddingProject}
+                  >
+                    <FolderIcon className="size-3.5" />
+                    {isPickingFolder ? "Picking folder..." : "Browse for folder"}
+                  </button>
                   <div className="flex gap-1.5">
                     <input
                       ref={addProjectInputRef}

@@ -125,11 +125,12 @@ export const ChatHeader = memo(function ChatHeader({
               className={utilityToggleClassName}
               pressed={browserOpen}
               onPressedChange={(pressed) => {
-                if (!pressed) {
-                  onCloseBrowser();
+                if (pressed) {
+                  onOpenBrowser();
+                  return;
                 }
+                onCloseBrowser();
               }}
-              onDoubleClick={onOpenBrowser}
               aria-label={browserOpen ? "Close in-app browser" : "Open in-app browser"}
               variant="default"
               size="xs"
@@ -153,8 +154,8 @@ export const ChatHeader = memo(function ChatHeader({
                 ? "Close in-app browser · DevTools open"
                 : "Close in-app browser"
             : browserToggleShortcutLabel
-              ? `Double-click to open in-app browser (${browserToggleShortcutLabel})`
-              : "Double-click to open in-app browser"}
+              ? `Open in-app browser (${browserToggleShortcutLabel})`
+              : "Open in-app browser"}
         </TooltipPopup>
       </Tooltip>
     ) : null,

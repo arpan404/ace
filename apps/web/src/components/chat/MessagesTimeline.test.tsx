@@ -1161,6 +1161,8 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain('data-turn-diff-summary="true"');
     expect(markup).toContain("Changed files (2)");
+    expect(markup).toContain("Expand all");
+    expect(markup).not.toContain("Collapse all");
     expect(markup.indexOf("bun lint")).toBeLessThan(
       markup.indexOf("Updated the timeline rendering."),
     );

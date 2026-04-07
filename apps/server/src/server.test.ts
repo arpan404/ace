@@ -912,6 +912,47 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("routes websocket rpc server.pickFolder", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          open: {
+            pickFolder: () => Effect.succeed("/tmp/project"),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.serverPickFolder]({})),
+      );
+
+      assert.equal(response, "/tmp/project");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc server.pickFolder errors", () =>
+    Effect.gen(function* () {
+      const openError = new OpenError({ message: "Folder picker is unavailable." });
+      yield* buildAppUnderTest({
+        layers: {
+          open: {
+            pickFolder: () => Effect.fail(openError),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.serverPickFolder]({})).pipe(
+          Effect.result,
+        ),
+      );
+
+      assertFailure(result, openError);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("routes websocket rpc shell.openInEditor errors", () =>
     Effect.gen(function* () {
       const openError = new OpenError({ message: "Editor command not found: cursor" });
