@@ -131,6 +131,8 @@ export const DESKTOP_MENU_ACTIONS = [
   "open-settings-archived",
 ] as const;
 
+export const DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM = "aceWsUrl";
+
 export type DesktopMenuAction = (typeof DESKTOP_MENU_ACTIONS)[number];
 
 export interface DesktopRuntimeInfo {

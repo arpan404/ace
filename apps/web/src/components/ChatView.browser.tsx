@@ -1590,6 +1590,34 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("jumps back to the bottom when the scroll-to-bottom button is clicked", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-scroll-button" as MessageId,
+        targetText: "scroll button behavior test",
+      }),
+    });
+
+    try {
+      const scrollContainer = await waitForMessagesScrollContainer();
+      await expectMessagesScrollNearBottom(scrollContainer);
+
+      scrollContainer.scrollTop = 0;
+      scrollContainer.dispatchEvent(new Event("scroll"));
+      await expectMessagesScrollAwayFromBottom(scrollContainer);
+
+      const scrollButton = page.getByText("Scroll to bottom");
+      await expect.element(scrollButton).toBeInTheDocument();
+      await scrollButton.click();
+
+      await expectMessagesScrollNearBottom(scrollContainer);
+      await expect.element(scrollButton).not.toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("resets to the bottom whenever the active thread changes", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,

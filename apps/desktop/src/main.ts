@@ -65,6 +65,7 @@ import {
   reduceDesktopUpdateStateOnUpdateAvailable,
 } from "./updateMachine";
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
+import { appendDesktopBootstrapWsUrl } from "./rendererBootstrapUrl";
 import { buildWebContentsContextMenuTemplate } from "./webContentsContextMenu";
 import { buildApplicationMenuTemplate } from "./applicationMenu";
 
@@ -1774,10 +1775,14 @@ function createWindow(): BrowserWindow {
   });
 
   if (isDevelopment) {
-    void window.loadURL(process.env.VITE_DEV_SERVER_URL as string);
+    void window.loadURL(
+      appendDesktopBootstrapWsUrl(process.env.VITE_DEV_SERVER_URL as string, backendWsUrl),
+    );
     window.webContents.openDevTools({ mode: "detach" });
   } else {
-    void window.loadURL(`${DESKTOP_SCHEME}://app/index.html`);
+    void window.loadURL(
+      appendDesktopBootstrapWsUrl(`${DESKTOP_SCHEME}://app/index.html`, backendWsUrl),
+    );
   }
 
   window.on("closed", () => {

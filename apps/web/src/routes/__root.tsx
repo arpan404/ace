@@ -10,6 +10,7 @@ import { useEffect, useEffectEvent, useRef } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 
+import { resolveAppStartupMessage, resolveAppStartupState } from "../appStartup";
 import { LEAN_SNAPSHOT_RECOVERY_INPUT, resolveWelcomeBootstrapPlan } from "../bootstrapRecovery";
 import { APP_DISPLAY_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
@@ -60,16 +61,16 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootRouteView() {
-  if (!readNativeApi()) {
+  const bootstrapComplete = useStore((store) => store.bootstrapComplete);
+  const startupState = resolveAppStartupState({
+    bootstrapComplete,
+    hasNativeApi: readNativeApi() !== undefined,
+  });
+
+  if (startupState === "connecting") {
     return (
       <>
-        <div className="flex h-screen flex-col bg-background text-foreground">
-          <div className="flex flex-1 items-center justify-center">
-            <p className="text-sm text-muted-foreground">
-              Connecting to {APP_DISPLAY_NAME} server...
-            </p>
-          </div>
-        </div>
+        <AppStartupScreen message={resolveAppStartupMessage(startupState, APP_DISPLAY_NAME)} />
         <LoadDiagnosticsConsole />
       </>
     );
@@ -83,13 +84,29 @@ function RootRouteView() {
         <AnchoredToastProvider>
           <EventRouter />
           <AgentAttentionNotificationBridge />
-          <DesktopProjectBootstrap />
-          <AppSidebarLayout>
-            <Outlet />
-          </AppSidebarLayout>
+          {startupState === "ready" ? (
+            <>
+              <DesktopProjectBootstrap />
+              <AppSidebarLayout>
+                <Outlet />
+              </AppSidebarLayout>
+            </>
+          ) : (
+            <AppStartupScreen message={resolveAppStartupMessage(startupState, APP_DISPLAY_NAME)} />
+          )}
         </AnchoredToastProvider>
       </ToastProvider>
     </>
+  );
+}
+
+function AppStartupScreen({ message }: { message: string }) {
+  return (
+    <div className="flex h-screen flex-col bg-background text-foreground">
+      <div className="flex flex-1 items-center justify-center">
+        <p className="text-sm text-muted-foreground">{message}</p>
+      </div>
+    </div>
   );
 }
 
