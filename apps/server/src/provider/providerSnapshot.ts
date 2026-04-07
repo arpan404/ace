@@ -1,10 +1,12 @@
+import { spawnSync } from "node:child_process";
+
 import type {
   ServerProvider,
   ServerProviderAuth,
   ServerProviderModel,
   ServerProviderState,
 } from "@ace/contracts";
-import { Effect, Stream } from "effect";
+import { Effect, Option, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { normalizeModelSlug } from "@ace/shared/model";
 import { isWindowsCommandNotFound } from "../processRunner";
@@ -37,10 +39,60 @@ export function isCommandMissingCause(error: unknown): boolean {
   return lower.includes("enoent") || lower.includes("notfound");
 }
 
+const PROVIDER_PROBE_STOP_TIMEOUT = "1 second" as const;
+
+function killProviderProbeProcess(pid: number, signal: NodeJS.Signals = "SIGTERM"): void {
+  if (process.platform === "win32") {
+    try {
+      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+      return;
+    } catch {
+      // Fall back to direct process signals when taskkill is unavailable.
+    }
+  }
+
+  try {
+    process.kill(pid, signal);
+  } catch {
+    // The process may have already exited between the liveness check and kill.
+  }
+}
+
+const stopSpawnedProbe = (child: ChildProcessSpawner.ChildProcessHandle) =>
+  Effect.uninterruptible(
+    Effect.gen(function* () {
+      const isRunning = yield* child.isRunning.pipe(Effect.orElseSucceed(() => false));
+      if (!isRunning) {
+        return;
+      }
+
+      const pid = Number(child.pid);
+      const terminate = (signal: NodeJS.Signals) =>
+        Number.isFinite(pid) && pid > 0
+          ? Effect.sync(() => {
+              killProviderProbeProcess(pid, signal);
+            })
+          : child.kill({ killSignal: signal }).pipe(Effect.orElseSucceed(() => undefined));
+      const waitForExit = child.exitCode.pipe(
+        Effect.timeoutOption(PROVIDER_PROBE_STOP_TIMEOUT),
+        Effect.orElseSucceed(() => Option.none()),
+      );
+
+      yield* terminate("SIGTERM");
+      const exitedAfterTerm = yield* waitForExit;
+      if (Option.isSome(exitedAfterTerm)) {
+        return;
+      }
+
+      yield* terminate("SIGKILL");
+      yield* waitForExit;
+    }),
+  );
+
 export const spawnAndCollect = (binaryPath: string, command: ChildProcess.Command) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const child = yield* spawner.spawn(command);
+    const child = yield* Effect.acquireRelease(spawner.spawn(command), stopSpawnedProbe);
     const [stdout, stderr, exitCode] = yield* Effect.all(
       [
         collectStreamAsString(child.stdout),

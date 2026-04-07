@@ -15,6 +15,7 @@ import { LEAN_SNAPSHOT_RECOVERY_INPUT, resolveWelcomeBootstrapPlan } from "../bo
 import { APP_DISPLAY_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
+import { AppStartupScreen } from "../components/AppStartupScreen";
 import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
@@ -97,16 +98,6 @@ function RootRouteView() {
         </AnchoredToastProvider>
       </ToastProvider>
     </>
-  );
-}
-
-function AppStartupScreen({ message }: { message: string }) {
-  return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
-      <div className="flex flex-1 items-center justify-center">
-        <p className="text-sm text-muted-foreground">{message}</p>
-      </div>
-    </div>
   );
 }
 

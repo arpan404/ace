@@ -214,6 +214,10 @@ import {
   DEFAULT_BROWSER_SPLIT_WIDTH,
   clampBrowserSplitWidth,
 } from "~/lib/chat/browserSplit";
+import {
+  subscribeToBrowserLaunchRequests,
+  takePendingBrowserLaunchRequest,
+} from "~/lib/browser/launcher";
 import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
@@ -2073,6 +2077,39 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [openBrowserUrl],
   );
 
+  const handleBrowserLaunchRequest = useCallback(() => {
+    if (!isElectron) {
+      return;
+    }
+
+    const request = takePendingBrowserLaunchRequest();
+    if (!request) {
+      return;
+    }
+
+    if (request.action === "toggle" && !request.url && request.mode !== "split") {
+      toggleBrowserVisibility();
+      return;
+    }
+
+    if (request.url) {
+      openBrowserUrl(
+        request.url,
+        request.newTab === undefined ? undefined : { newTab: request.newTab },
+      );
+      if (request.mode === "split") {
+        openSplitBrowser();
+      }
+      return;
+    }
+
+    if (request.mode === "split") {
+      openSplitBrowser();
+    } else {
+      openBrowser();
+    }
+  }, [openBrowser, openBrowserUrl, openSplitBrowser, toggleBrowserVisibility]);
+
   useEffect(() => {
     if (!isElectron) return;
     return window.desktopBridge?.onBrowserOpenUrl?.((url) => {
@@ -2080,6 +2117,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
       openBrowserUrl(url, { newTab: true });
     });
   }, [openBrowserUrl]);
+
+  useEffect(() => {
+    if (!isElectron) {
+      return;
+    }
+
+    handleBrowserLaunchRequest();
+    return subscribeToBrowserLaunchRequests(handleBrowserLaunchRequest);
+  }, [handleBrowserLaunchRequest]);
 
   useEffect(() => {
     if (!isElectron) return;
@@ -2734,11 +2780,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return;
       }
 
-      if (action === "toggle-browser") {
-        toggleBrowserVisibility();
-        return;
-      }
-
       if (action === "toggle-diff") {
         onToggleDiff();
         return;
@@ -2748,13 +2789,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         toggleInteractionMode();
       }
     });
-  }, [
-    activeThreadId,
-    onToggleDiff,
-    toggleBrowserVisibility,
-    toggleInteractionMode,
-    toggleTerminalVisibility,
-  ]);
+  }, [activeThreadId, onToggleDiff, toggleInteractionMode, toggleTerminalVisibility]);
   const togglePlanSidebar = useCallback(() => {
     setPlanSidebarOpen((open) => {
       if (open) {

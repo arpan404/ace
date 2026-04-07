@@ -13,6 +13,7 @@ import { ServerConfig } from "../../config.ts";
 import {
   createGitHubCopilotClient,
   normalizeGitHubCopilotModelOptionsForModel,
+  stopGitHubCopilotClient,
 } from "../../provider/githubCopilotSdk.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
@@ -176,7 +177,7 @@ const makeGitHubCopilotTextGeneration = Effect.gen(function* () {
           return await sendRequest([]);
         }
       } finally {
-        await client.stop();
+        await stopGitHubCopilotClient(client).catch(() => undefined);
       }
     }).pipe(
       Effect.flatMap((rawJson) =>

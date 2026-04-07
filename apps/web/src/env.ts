@@ -1,8 +1,27 @@
-/**
- * True when running inside the Electron preload bridge, false in a regular browser.
- * The preload script sets window.nativeApi via contextBridge before any web-app
- * code executes, so this is reliable at module load time.
- */
-export const isElectron =
-  typeof window !== "undefined" &&
-  (window.desktopBridge !== undefined || window.nativeApi !== undefined);
+interface ElectronEnvironmentLike {
+  readonly desktopBridge?: unknown;
+  readonly location?: {
+    readonly protocol?: string;
+  };
+  readonly navigator?: {
+    readonly userAgent?: string;
+  };
+}
+
+export function detectElectronEnvironment(environment: ElectronEnvironmentLike | null): boolean {
+  if (!environment) {
+    return false;
+  }
+
+  if (environment.desktopBridge !== undefined) {
+    return true;
+  }
+
+  if (environment.location?.protocol === "ace:") {
+    return true;
+  }
+
+  return (environment.navigator?.userAgent ?? "").includes("Electron/");
+}
+
+export const isElectron = detectElectronEnvironment(typeof window !== "undefined" ? window : null);

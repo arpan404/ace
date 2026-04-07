@@ -2337,12 +2337,12 @@ export default function Sidebar() {
   }, []);
 
   const wordmark = (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 items-center gap-2">
       <SidebarTrigger className="shrink-0 md:hidden" />
       <Tooltip>
         <TooltipTrigger
           render={
-            <div className="flex min-w-0 flex-1 items-center gap-1 ml-1 cursor-pointer">
+            <div className="ml-1 flex min-w-0 flex-1 items-center gap-1 cursor-pointer">
               <span className="truncate text-sm font-semibold tracking-tight text-foreground/90">
                 {APP_BASE_NAME}
               </span>
