@@ -79,11 +79,7 @@ function splitPathValue(pathValue: string, platform: NodeJS.Platform): ReadonlyA
     .filter((entry) => entry.length > 0);
 }
 
-function prependPathEntry(
-  pathValue: string,
-  entry: string,
-  platform: NodeJS.Platform,
-): string {
+function prependPathEntry(pathValue: string, entry: string, platform: NodeJS.Platform): string {
   if (pathHasEntry(pathValue, entry, platform)) {
     return pathValue;
   }
@@ -182,8 +178,7 @@ function readFileIfExists(filePath: string): string | undefined {
 function hasManagedPathBlock(filePath: string): boolean {
   const content = readFileIfExists(filePath);
   return (
-    content?.includes(MANAGED_PATH_BLOCK_START) === true &&
-    content.includes(MANAGED_PATH_BLOCK_END)
+    content?.includes(MANAGED_PATH_BLOCK_START) === true && content.includes(MANAGED_PATH_BLOCK_END)
   );
 }
 
@@ -195,8 +190,7 @@ function fileIncludesPathReference(filePath: string, binDir: string): boolean {
 function upsertManagedPathBlock(existingContent: string | undefined, block: string): string {
   const existing = existingContent ?? "";
   const startIndex = existing.indexOf(MANAGED_PATH_BLOCK_START);
-  const endIndex =
-    startIndex === -1 ? -1 : existing.indexOf(MANAGED_PATH_BLOCK_END, startIndex);
+  const endIndex = startIndex === -1 ? -1 : existing.indexOf(MANAGED_PATH_BLOCK_END, startIndex);
   const normalizedBlock = block.trimEnd();
 
   if (startIndex !== -1 && endIndex !== -1) {
@@ -275,9 +269,7 @@ function defaultReadWindowsUserPath(): string | undefined {
 }
 
 function defaultWriteWindowsUserPath(value: string): void {
-  runPowerShell(
-    `[Environment]::SetEnvironmentVariable('Path', ${quotePowerShell(value)}, 'User')`,
-  );
+  runPowerShell(`[Environment]::SetEnvironmentVariable('Path', ${quotePowerShell(value)}, 'User')`);
 }
 
 function resolveUnixPathTargets(options: {
@@ -289,24 +281,20 @@ function resolveUnixPathTargets(options: {
     case "fish":
       return [Path.join(options.homeDir, ".config", "fish", "config.fish")];
     case "zsh":
-      return [
-        Path.join(options.homeDir, ".zprofile"),
-        Path.join(options.homeDir, ".zshrc"),
-      ];
+      return [Path.join(options.homeDir, ".zprofile"), Path.join(options.homeDir, ".zshrc")];
     case "bash":
-      return [
-        Path.join(options.homeDir, ".bash_profile"),
-        Path.join(options.homeDir, ".bashrc"),
-      ];
+      return [Path.join(options.homeDir, ".bash_profile"), Path.join(options.homeDir, ".bashrc")];
     default:
       return [Path.join(options.homeDir, ".profile")];
   }
 }
 
-export function resolveAceCliBinDir(options: {
-  readonly baseDir?: string;
-  readonly homeDir?: string;
-} = {}): string {
+export function resolveAceCliBinDir(
+  options: {
+    readonly baseDir?: string;
+    readonly homeDir?: string;
+  } = {},
+): string {
   const baseDir = options.baseDir?.trim();
   if (baseDir && baseDir.length > 0) {
     return Path.join(baseDir, "bin");

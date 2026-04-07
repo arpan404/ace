@@ -126,8 +126,8 @@ const LIGHT_TERMINAL_THEME = {
 } satisfies ITheme;
 
 const DARK_TERMINAL_THEME = {
-  background: "rgb(10, 13, 18)",
-  foreground: "rgb(220, 227, 235)",
+  background: "rgb(12, 14, 17)",
+  foreground: "rgb(224, 229, 236)",
   cursor: "rgb(139, 190, 255)",
   selectionBackground: "rgba(116, 166, 245, 0.24)",
   scrollbarSliderBackground: "rgba(255, 255, 255, 0.12)",

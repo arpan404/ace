@@ -7,11 +7,11 @@ export function TopBarCluster({ className, children, ...props }: ComponentProps<
   return (
     <div
       className={cn(
-        "flex min-w-0 items-center gap-px rounded-lg",
-        "[&_[data-slot=button]]:border-transparent [&_[data-slot=button]]:bg-transparent [&_[data-slot=button]]:shadow-none [&_[data-slot=button]]:before:shadow-none",
-        "[&_[data-slot=button]]:hover:bg-foreground/[0.05] [&_[data-slot=button]]:active:bg-foreground/[0.08] [&_[data-slot=button]:disabled]:hover:bg-transparent [&_[data-slot=button][aria-disabled='true']]:hover:bg-transparent",
-        "[&_[data-slot=button]]:rounded-md [&_[data-slot=button]]:transition-colors [&_[data-slot=button]]:duration-150 [&_[data-slot=button]]:ease-out",
-        "[&_[data-slot=group]]:shrink-0",
+        "flex min-w-0 items-center gap-px rounded-full border border-border/30 bg-background/70 p-1 shadow-sm shadow-black/5 supports-[backdrop-filter]:bg-background/50 supports-[backdrop-filter]:backdrop-blur-xl dark:shadow-black/20",
+        "[&_[data-slot=toggle]]:rounded-full [&_[data-slot=toggle]]:bg-transparent [&_[data-slot=toggle]]:shadow-none [&_[data-slot=toggle]]:before:shadow-none",
+        "[&_[data-slot=toggle]]:transition-[background-color,color,transform] [&_[data-slot=toggle]]:duration-150 [&_[data-slot=toggle]]:ease-out",
+        "[&_[data-slot=toggle]]:hover:bg-foreground/[0.05] [&_[data-slot=toggle]]:active:bg-foreground/[0.08] [&_[data-slot=toggle][data-pressed]]:bg-background [&_[data-slot=toggle][data-pressed]]:shadow-sm",
+        "[&_[data-slot=toggle]:disabled]:hover:bg-transparent [&_[data-slot=toggle][aria-disabled='true']]:hover:bg-transparent",
         className,
       )}
       {...props}
@@ -28,7 +28,7 @@ export function TopBarClusterDivider({
   return (
     <Separator
       orientation="vertical"
-      className={cn("mx-1 h-3 bg-border/15", className)}
+      className={cn("mx-0.5 h-3.5 bg-border/20", className)}
       {...props}
     />
   );

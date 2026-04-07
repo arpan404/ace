@@ -1294,13 +1294,9 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           thread.historyLoaded !== false || shouldRetainLeanThreadActivity(event.payload.activity);
         const activities = !shouldRetainActivity
           ? thread.activities
-          : appendCompactedThreadActivity(
-              thread.activities,
-              event.payload.activity,
-              {
-                maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
-              },
-            );
+          : appendCompactedThreadActivity(thread.activities, event.payload.activity, {
+              maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
+            });
         return {
           ...thread,
           activities,

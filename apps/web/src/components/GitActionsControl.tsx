@@ -796,7 +796,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
                 }
               >
                 <GitQuickActionIcon quickAction={quickAction} />
-                <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+                <span className="sr-only @lg/header-actions:not-sr-only @lg/header-actions:ml-0.5">
                   {quickAction.label}
                 </span>
               </PopoverTrigger>
@@ -812,12 +812,12 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
               onClick={runQuickAction}
             >
               <GitQuickActionIcon quickAction={quickAction} />
-              <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+              <span className="sr-only @lg/header-actions:not-sr-only @lg/header-actions:ml-0.5">
                 {quickAction.label}
               </span>
             </Button>
           )}
-          <GroupSeparator className="hidden @3xl/header-actions:block" />
+          <GroupSeparator className="hidden @lg/header-actions:block" />
           <Menu
             onOpenChange={(open) => {
               if (open) void invalidateGitStatusQuery(queryClient, gitCwd);

@@ -108,8 +108,7 @@ function trimStreamingPreviewWindow(
   }
 
   const previewText = text.slice(previewStart);
-  const resolvedPreviewLineCount =
-    previewText.length === 0 ? 0 : Math.max(nextPreviewLineCount, 1);
+  const resolvedPreviewLineCount = previewText.length === 0 ? 0 : Math.max(nextPreviewLineCount, 1);
   return {
     previewText,
     previewLineCount: resolvedPreviewLineCount,

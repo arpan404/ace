@@ -273,11 +273,11 @@ export default function ProjectScriptsControl({
             title={`Run ${primaryScript.name}`}
           >
             <ScriptIcon icon={primaryScript.icon} />
-            <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+            <span className="sr-only @lg/header-actions:not-sr-only @lg/header-actions:ml-0.5">
               {primaryScript.name}
             </span>
           </Button>
-          <GroupSeparator className="hidden @3xl/header-actions:block" />
+          <GroupSeparator className="hidden @lg/header-actions:block" />
           <Menu highlightItemOnHover={false}>
             <MenuTrigger
               render={<Button size="icon-xs" variant="outline" aria-label="Script actions" />}
@@ -338,7 +338,7 @@ export default function ProjectScriptsControl({
       ) : (
         <Button size="xs" variant="outline" onClick={openAddDialog} title="Add action">
           <PlusIcon className="size-3.5" />
-          <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+          <span className="sr-only @lg/header-actions:not-sr-only @lg/header-actions:ml-0.5">
             Add action
           </span>
         </Button>

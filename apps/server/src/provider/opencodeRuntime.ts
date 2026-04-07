@@ -1,5 +1,10 @@
 /**
- * Spawns a dedicated local OpenCode HTTP server (`opencode serve`) for SDK access.
+ * Manages local OpenCode HTTP servers (`opencode serve`) for SDK access.
+ *
+ * The runtime reuses a shared OpenCode server process per configured binary
+ * path and hands callers ref-counted leases. When the final lease is released
+ * we first ask OpenCode to dispose its internal state, then fall back to
+ * process termination if needed.
  *
  * @module opencodeRuntime
  */
@@ -8,6 +13,7 @@ import { createServer } from "node:net";
 
 const DEFAULT_HOST = "127.0.0.1";
 const START_TIMEOUT_MS = 12_000;
+const DISPOSE_TIMEOUT_MS = 1_000;
 const STOP_TIMEOUT_MS = 2_000;
 const PARENT_CLEANUP_EVENTS = [
   "beforeExit",
@@ -25,6 +31,17 @@ export type OpenCodeServerHandle = {
   readonly close: () => Promise<void>;
   readonly binaryPath: string;
 };
+
+type OpenCodeSpawnedServerHandle = OpenCodeServerHandle & {
+  readonly closeProcess: () => Promise<void>;
+};
+
+type SharedOpenCodeServerEntry = {
+  refCount: number;
+  readonly serverPromise: Promise<OpenCodeSpawnedServerHandle>;
+};
+
+const sharedOpenCodeServers = new Map<string, SharedOpenCodeServerEntry>();
 
 export async function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -163,10 +180,65 @@ async function stopProcess(
   });
 }
 
-/**
- * Start `opencode serve` and wait until the server prints its listening URL (same contract as `@opencode-ai/sdk` server bootstrap).
- */
-export async function startOpenCodeServer(binaryPath: string): Promise<OpenCodeServerHandle> {
+function toError(cause: unknown, fallback: string): Error {
+  return cause instanceof Error ? cause : new Error(`${fallback}: ${String(cause)}`);
+}
+
+async function disposeOpenCodeServerGracefully(url: string): Promise<void> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, DISPOSE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(new URL("/global/dispose", url), {
+      method: "POST",
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `OpenCode server dispose failed with status ${String(response.status)} ${response.statusText}.`,
+      );
+    }
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === "AbortError") {
+      throw new Error(`Timed out disposing OpenCode server after ${String(DISPOSE_TIMEOUT_MS)}ms.`);
+    }
+    throw toError(cause, "Failed to dispose OpenCode server");
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function closeSpawnedOpenCodeServer(input: {
+  readonly child: ReturnType<typeof spawn>;
+  readonly url: string;
+  readonly unregisterParentCleanup: () => void;
+  readonly processOptions?: OpenCodeProcessOptions;
+}): Promise<void> {
+  input.unregisterParentCleanup();
+  let disposeError: Error | undefined;
+  try {
+    await disposeOpenCodeServerGracefully(input.url);
+  } catch (cause) {
+    disposeError = toError(cause, "Failed to dispose OpenCode server");
+  }
+
+  try {
+    await stopProcess(input.child, input.processOptions);
+  } catch (cause) {
+    const stopError = toError(cause, "Failed to stop OpenCode server");
+    if (disposeError) {
+      throw new AggregateError(
+        [disposeError, stopError],
+        "Failed to fully stop OpenCode server.",
+      );
+    }
+    throw stopError;
+  }
+}
+
+async function spawnOpenCodeServer(binaryPath: string): Promise<OpenCodeSpawnedServerHandle> {
   const port = await getFreePort();
   const args = ["serve", `--hostname=${DEFAULT_HOST}`, `--port=${String(port)}`];
   const processOptions = { processGroup: process.platform !== "win32" } as const;
@@ -179,7 +251,7 @@ export async function startOpenCodeServer(binaryPath: string): Promise<OpenCodeS
 
   const url = await new Promise<string>((resolve, reject) => {
     const id = setTimeout(() => {
-      void stopProcess(child, processOptions);
+      void stopProcess(child, processOptions).catch(() => undefined);
       reject(
         new Error(
           `Timeout waiting for OpenCode server to start after ${String(START_TIMEOUT_MS)}ms`,
@@ -210,6 +282,7 @@ export async function startOpenCodeServer(binaryPath: string): Promise<OpenCodeS
         if (line.startsWith("opencode server listening")) {
           const match = line.match(/on\s+(https?:\/\/[^\s]+)/);
           if (!match) {
+            void stopProcess(child, processOptions).catch(() => undefined);
             finalizeReject(new Error(`Failed to parse OpenCode server url from: ${line}`));
             return;
           }
@@ -235,9 +308,82 @@ export async function startOpenCodeServer(binaryPath: string): Promise<OpenCodeS
   return {
     url,
     binaryPath,
-    close: async () => {
-      unregisterParentCleanup();
-      await stopProcess(child, processOptions);
-    },
+    close: () =>
+      closeSpawnedOpenCodeServer({
+        child,
+        url,
+        unregisterParentCleanup,
+        processOptions,
+      }),
+    closeProcess: () =>
+      closeSpawnedOpenCodeServer({
+        child,
+        url,
+        unregisterParentCleanup,
+        processOptions,
+      }),
   };
+}
+
+function getOrCreateSharedOpenCodeServer(binaryPath: string): SharedOpenCodeServerEntry {
+  const existing = sharedOpenCodeServers.get(binaryPath);
+  if (existing) {
+    existing.refCount += 1;
+    return existing;
+  }
+
+  const entry: SharedOpenCodeServerEntry = {
+    refCount: 1,
+    serverPromise: spawnOpenCodeServer(binaryPath),
+  };
+  sharedOpenCodeServers.set(binaryPath, entry);
+  return entry;
+}
+
+async function releaseSharedOpenCodeServer(
+  binaryPath: string,
+  entry: SharedOpenCodeServerEntry,
+): Promise<void> {
+  const latest = sharedOpenCodeServers.get(binaryPath);
+  if (!latest || latest !== entry) {
+    return;
+  }
+
+  latest.refCount = Math.max(0, latest.refCount - 1);
+  if (latest.refCount > 0) {
+    return;
+  }
+
+  sharedOpenCodeServers.delete(binaryPath);
+  const server = await latest.serverPromise.catch(() => undefined);
+  await server?.closeProcess();
+}
+
+/**
+ * Start `opencode serve` and wait until the server prints its listening URL.
+ * Callers receive a ref-counted lease backed by a shared server per binary path.
+ */
+export async function startOpenCodeServer(binaryPath: string): Promise<OpenCodeServerHandle> {
+  const entry = getOrCreateSharedOpenCodeServer(binaryPath);
+  try {
+    const server = await entry.serverPromise;
+    let closed = false;
+    return {
+      url: server.url,
+      binaryPath: server.binaryPath,
+      close: async () => {
+        if (closed) {
+          return;
+        }
+        closed = true;
+        await releaseSharedOpenCodeServer(binaryPath, entry);
+      },
+    };
+  } catch (cause) {
+    const latest = sharedOpenCodeServers.get(binaryPath);
+    if (latest === entry) {
+      sharedOpenCodeServers.delete(binaryPath);
+    }
+    throw cause;
+  }
 }

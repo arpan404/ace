@@ -146,8 +146,8 @@
     --success-foreground: var(--color-emerald-400);
     --warning: var(--color-amber-500);
     --warning-foreground: var(--color-amber-400);
-    --terminal-surface: rgb(10, 13, 18);
-    --terminal-surface-elevated: rgb(14, 18, 24);
+    --terminal-surface: rgb(12, 14, 17);
+    --terminal-surface-elevated: rgb(18, 21, 25);
     --terminal-foreground: rgb(220, 227, 235);
     --terminal-cursor: rgb(139, 190, 255);
     --terminal-selection-background: rgba(116, 166, 245, 0.24);
@@ -295,28 +295,22 @@ label {
 
 .thread-terminal-drawer {
   background-color: var(--terminal-surface);
-  background-image:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--terminal-surface-elevated) 94%, transparent),
-      transparent 32%
-    ),
-    radial-gradient(
-      circle at top,
-      color-mix(in srgb, var(--primary) 5%, transparent),
-      transparent 46%
-    );
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--terminal-surface-elevated) 97%, transparent),
+    transparent 38%
+  );
 }
 
 .thread-terminal-drawer .terminal-viewport {
   background: linear-gradient(
     180deg,
     var(--terminal-surface-elevated),
-    color-mix(in srgb, var(--terminal-surface) 94%, var(--color-black))
+    color-mix(in srgb, var(--terminal-surface) 97%, var(--color-black))
   );
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--color-white) 5%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--terminal-foreground) 14%, transparent);
+    inset 0 1px 0 color-mix(in srgb, var(--color-white) 4%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--terminal-foreground) 10%, transparent);
 }
 
 .thread-terminal-drawer .xterm,
