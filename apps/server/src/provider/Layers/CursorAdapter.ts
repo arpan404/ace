@@ -7,6 +7,7 @@ import {
   type CanonicalRequestType,
   type CursorModelOptions,
   EventId,
+  isFullAccessRuntimeMode,
   type ProviderRuntimeEvent,
   type ProviderSendTurnInput,
   RuntimeItemId,
@@ -168,8 +169,60 @@ type CursorToolState = {
   readonly data: Record<string, unknown>;
 };
 
+type CursorCreatePlanOutcome =
+  | {
+      readonly outcome: "accepted";
+    }
+  | {
+      readonly outcome: "rejected";
+      readonly reason: string;
+    }
+  | {
+      readonly outcome: "cancelled";
+    };
+
 function isoNow(): string {
   return new Date().toISOString();
+}
+
+function firstUserInputAnswer(value: unknown): string | undefined {
+  const direct = asString(value);
+  if (direct) {
+    return direct;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const normalized = asString(entry);
+      if (normalized) {
+        return normalized;
+      }
+    }
+  }
+  return undefined;
+}
+
+function resolveCursorCreatePlanOutcome(answerValue: unknown): CursorCreatePlanOutcome {
+  const answer = firstUserInputAnswer(answerValue);
+  if (!answer) {
+    return { outcome: "cancelled" };
+  }
+  if (/^accept(?:ed)?\b/i.test(answer)) {
+    return { outcome: "accepted" };
+  }
+  if (/^cancel(?:led)?\b/i.test(answer)) {
+    return { outcome: "cancelled" };
+  }
+  const rejectMatch = /^reject(?:ed)?\b[:\-\s]*(.*)$/i.exec(answer);
+  if (rejectMatch) {
+    return {
+      outcome: "rejected",
+      reason: asString(rejectMatch[1]) ?? "Rejected in ace",
+    };
+  }
+  return {
+    outcome: "rejected",
+    reason: answer,
+  };
 }
 
 function readResumeSessionId(value: unknown): string | undefined {
@@ -409,6 +462,20 @@ function resolveCursorModelConfigValue(input: {
   return best?.value;
 }
 
+function mapCursorPlanStepStatus(status: unknown): "pending" | "inProgress" | "completed" {
+  switch (asString(status)?.toLowerCase()) {
+    case "completed":
+    case "cancelled":
+    case "canceled":
+      return "completed";
+    case "in_progress":
+    case "inprogress":
+      return "inProgress";
+    default:
+      return "pending";
+  }
+}
+
 function planStepsFromTodos(
   todos: unknown,
 ): Array<{ step: string; status: "pending" | "inProgress" | "completed" }> {
@@ -419,13 +486,23 @@ function planStepsFromTodos(
     .map((todo) => asObject(todo))
     .filter((todo): todo is Record<string, unknown> => todo !== undefined)
     .map((todo) => ({
-      step: asString(todo.content) ?? "Todo",
-      status:
-        todo.status === "completed"
-          ? "completed"
-          : todo.status === "in_progress"
-            ? "inProgress"
-            : "pending",
+      step: asString(todo.content) ?? asString(todo.title) ?? "Todo",
+      status: mapCursorPlanStepStatus(todo.status),
+    }));
+}
+
+function planStepsFromEntries(
+  entries: unknown,
+): Array<{ step: string; status: "pending" | "inProgress" | "completed" }> {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  return entries
+    .map((entry) => asObject(entry))
+    .filter((entry): entry is Record<string, unknown> => entry !== undefined)
+    .map((entry) => ({
+      step: asString(entry.content) ?? asString(entry.step) ?? asString(entry.title) ?? "Todo",
+      status: mapCursorPlanStepStatus(entry.status),
     }));
 }
 
@@ -1137,8 +1214,12 @@ export const CursorAdapterLive = Layer.effect(
       }
 
       if (updateKind === "current_mode_update") {
+        const currentModeId = asString(update.currentModeId) ?? asString(update.modeId);
+        if (!currentModeId) {
+          return;
+        }
         updateMetadata(context, {
-          currentModeId: asString(update.currentModeId),
+          currentModeId,
         });
         emitSessionConfigured(context, {
           rawMethod: "session/update",
@@ -1221,12 +1302,32 @@ export const CursorAdapterLive = Layer.effect(
         return;
       }
 
+      const isPlanUpdate = updateKind.toLowerCase().includes("plan");
+      if (isPlanUpdate) {
+        const plan = planStepsFromEntries(update.entries);
+        if (plan.length > 0) {
+          const explanation = asString(update.overview) ?? asString(update.explanation);
+          completeActiveContentItems(context, turnId, {
+            rawMethod: "session/update",
+            rawPayload: params,
+          });
+          emit({
+            ...baseEvent(context, { turnId, rawMethod: "session/update", rawPayload: params }),
+            type: "turn.plan.updated",
+            payload: {
+              ...(explanation ? { explanation } : {}),
+              plan,
+            },
+          });
+        }
+      }
+
       const text = extractCursorStreamText(update);
       if (!text) {
         return;
       }
 
-      if (updateKind.toLowerCase().includes("plan")) {
+      if (isPlanUpdate) {
         completeActiveContentItems(context, turnId, {
           rawMethod: "session/update",
           rawPayload: params,
@@ -1318,7 +1419,7 @@ export const CursorAdapterLive = Layer.effect(
           }),
         );
         const permissionOptions = parseCursorPermissionOptions(params?.options);
-        if (context.session.runtimeMode === "full-access") {
+        if (isFullAccessRuntimeMode(context.session.runtimeMode)) {
           const resolution = permissionOptionKindForRuntimeMode(context.session.runtimeMode);
           const selectedOption = selectCursorPermissionOption(
             permissionOptions,
@@ -1415,6 +1516,9 @@ export const CursorAdapterLive = Layer.effect(
                   description: label,
                 };
               });
+            if (normalizedOptions.length === 0) {
+              return null;
+            }
             optionIdsByQuestionAndLabel.set(questionId, labelMap);
             const normalizedQuestion: {
               id: string;
@@ -1432,7 +1536,40 @@ export const CursorAdapterLive = Layer.effect(
               normalizedQuestion.multiSelect = true;
             }
             return normalizedQuestion;
+          })
+          .filter(
+            (
+              question,
+            ): question is {
+              id: string;
+              header: string;
+              question: string;
+              options: Array<{ label: string; description: string }>;
+              multiSelect?: true;
+            } => question !== null,
+          );
+        if (normalizedQuestions.length === 0) {
+          context.client.respondError(
+            request.id,
+            -32600,
+            "cursor/ask_question must include at least one valid question.",
+          );
+          emit({
+            ...baseEvent(context, {
+              ...(turnId ? { turnId } : {}),
+              rawMethod: request.method,
+              ...(request.params !== undefined ? { rawPayload: request.params } : {}),
+              rawSource: "cursor.acp.request",
+            }),
+            type: "runtime.error",
+            payload: {
+              message: "Ignoring cursor/ask_question request without valid questions.",
+              class: "validation_error",
+              ...(request.params !== undefined ? { detail: request.params } : {}),
+            },
           });
+          return;
+        }
         const requestId = ApprovalRequestId.makeUnsafe(`cursor-question:${randomUUID()}`);
         context.pendingUserInputs.set(requestId, {
           requestId,
@@ -2198,15 +2335,13 @@ export const CursorAdapterLive = Layer.effect(
               },
             });
           } else {
-            const answer =
-              typeof answers.plan_decision === "string" ? answers.plan_decision : "Cancel";
+            const planDecisionQuestionId = pending.questions[0]?.id;
+            const planDecisionAnswer =
+              planDecisionQuestionId !== undefined
+                ? answers[planDecisionQuestionId]
+                : answers.plan_decision;
             context.client.respond(pending.jsonRpcId, {
-              outcome:
-                answer === "Accept"
-                  ? { outcome: "accepted" }
-                  : answer === "Reject"
-                    ? { outcome: "rejected", reason: "Rejected in ace" }
-                    : { outcome: "cancelled" },
+              outcome: resolveCursorCreatePlanOutcome(planDecisionAnswer),
             });
           }
 

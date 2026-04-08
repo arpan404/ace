@@ -6,6 +6,7 @@ import type {
   RuntimeContentStreamKind,
   RuntimeItemStatus,
 } from "@ace/contracts";
+import { isFullAccessRuntimeMode } from "@ace/contracts";
 
 import {
   asObject,
@@ -397,7 +398,7 @@ export function permissionOptionKindForRuntimeMode(runtimeMode: ProviderSession[
   readonly fallback: CursorPermissionOptionKind;
   readonly decision: ProviderApprovalDecision;
 } {
-  if (runtimeMode === "full-access") {
+  if (isFullAccessRuntimeMode(runtimeMode)) {
     return {
       primary: "allow_always",
       fallback: "allow_once",
@@ -470,7 +471,7 @@ export function cursorPermissionKindsForDecision(
 export function cursorPermissionKindsForRuntimeMode(
   runtimeMode: ProviderSession["runtimeMode"],
 ): ReadonlyArray<CursorPermissionOptionKind> {
-  return runtimeMode === "full-access"
+  return isFullAccessRuntimeMode(runtimeMode)
     ? ["allow_always", "allow_once"]
     : ["allow_once", "allow_always"];
 }

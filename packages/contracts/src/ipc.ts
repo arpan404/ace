@@ -197,6 +197,21 @@ export interface DesktopNotificationInput {
   id: string;
   title: string;
   body: string;
+  deepLink?: string;
+  reply?: {
+    placeholder?: string;
+  };
+}
+
+export interface DesktopNotificationClickEvent {
+  id: string;
+  deepLink?: string;
+}
+
+export interface DesktopNotificationReplyEvent {
+  id: string;
+  response: string;
+  deepLink?: string;
 }
 
 export interface DesktopBridge {
@@ -214,7 +229,8 @@ export interface DesktopBridge {
   openExternal: (url: string) => Promise<boolean>;
   showNotification: (input: DesktopNotificationInput) => Promise<boolean>;
   closeNotification: (id: string) => Promise<boolean>;
-  onNotificationClick: (listener: (id: string) => void) => () => void;
+  onNotificationClick: (listener: (event: DesktopNotificationClickEvent) => void) => () => void;
+  onNotificationReply: (listener: (event: DesktopNotificationReplyEvent) => void) => () => void;
   onMenuAction: (listener: (action: DesktopMenuAction) => void) => () => void;
   getCliInstallState: () => Promise<DesktopCliInstallState>;
   installCli: () => Promise<DesktopCliInstallActionResult>;

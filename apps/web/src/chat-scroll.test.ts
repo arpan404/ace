@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
   isScrollContainerNearBottom,
+  resolveAutoScrollOnScroll,
   scrollContainerToBottom,
 } from "./chat-scroll";
 
@@ -94,5 +95,79 @@ describe("scrollContainerToBottom", () => {
 
     expect(scrollContainer.scrollTop).toBe(0);
     expect(scrollTo).toHaveBeenCalledWith({ top: 600, behavior: "smooth" });
+  });
+});
+
+describe("resolveAutoScrollOnScroll", () => {
+  it("re-enables auto-scroll once the user returns near bottom", () => {
+    expect(
+      resolveAutoScrollOnScroll({
+        shouldAutoScroll: false,
+        isNearBottom: true,
+        currentScrollTop: 540,
+        previousScrollTop: 560,
+        hasPendingUserScrollUpIntent: true,
+        isPointerScrollActive: false,
+      }),
+    ).toEqual({
+      shouldAutoScroll: true,
+      clearPendingUserScrollUpIntent: true,
+      cancelPendingStickToBottom: false,
+      scheduleStickToBottom: false,
+    });
+  });
+
+  it("disables auto-scroll when explicit user scroll-up intent moves upward", () => {
+    expect(
+      resolveAutoScrollOnScroll({
+        shouldAutoScroll: true,
+        isNearBottom: false,
+        currentScrollTop: 500,
+        previousScrollTop: 540,
+        hasPendingUserScrollUpIntent: true,
+        isPointerScrollActive: false,
+      }),
+    ).toEqual({
+      shouldAutoScroll: false,
+      clearPendingUserScrollUpIntent: true,
+      cancelPendingStickToBottom: true,
+      scheduleStickToBottom: false,
+    });
+  });
+
+  it("keeps auto-scroll active for layout drift without explicit user intent", () => {
+    expect(
+      resolveAutoScrollOnScroll({
+        shouldAutoScroll: true,
+        isNearBottom: false,
+        currentScrollTop: 520,
+        previousScrollTop: 540,
+        hasPendingUserScrollUpIntent: false,
+        isPointerScrollActive: false,
+      }),
+    ).toEqual({
+      shouldAutoScroll: true,
+      clearPendingUserScrollUpIntent: true,
+      cancelPendingStickToBottom: false,
+      scheduleStickToBottom: true,
+    });
+  });
+
+  it("does not force stick-to-bottom while pointer scrolling is active", () => {
+    expect(
+      resolveAutoScrollOnScroll({
+        shouldAutoScroll: true,
+        isNearBottom: false,
+        currentScrollTop: 540,
+        previousScrollTop: 540,
+        hasPendingUserScrollUpIntent: false,
+        isPointerScrollActive: true,
+      }),
+    ).toEqual({
+      shouldAutoScroll: true,
+      clearPendingUserScrollUpIntent: true,
+      cancelPendingStickToBottom: false,
+      scheduleStickToBottom: false,
+    });
   });
 });

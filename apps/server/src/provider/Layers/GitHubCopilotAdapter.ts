@@ -9,6 +9,7 @@ import {
   type CanonicalItemType,
   type CanonicalRequestType,
   EventId,
+  isFullAccessRuntimeMode,
   ProviderItemId,
   type ProviderApprovalDecision,
   type ProviderRuntimeEvent,
@@ -1892,7 +1893,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         if (!context) {
           return { kind: "denied-no-approval-rule-and-could-not-request-from-user" };
         }
-        if (input.runtimeMode === "full-access") {
+        if (isFullAccessRuntimeMode(input.runtimeMode)) {
           return { kind: "approved" };
         }
 

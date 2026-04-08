@@ -10,6 +10,7 @@ const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
 const CLOSE_NOTIFICATION_CHANNEL = "desktop:close-notification";
 const NOTIFICATION_CLICK_CHANNEL = "desktop:notification-click";
+const NOTIFICATION_REPLY_CHANNEL = "desktop:notification-reply";
 const MENU_ACTION_CHANNEL = "desktop:menu-action";
 const CLI_STATE_CHANNEL = "desktop:cli-state";
 const CLI_GET_STATE_CHANNEL = "desktop:cli-get-state";
@@ -51,14 +52,41 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     return result === true;
   },
   onNotificationClick: (listener) => {
-    const wrappedListener = (_event: Electron.IpcRendererEvent, id: unknown) => {
-      if (typeof id !== "string" || id.length === 0) return;
-      listener(id);
+    const wrappedListener = (_event: Electron.IpcRendererEvent, event: unknown) => {
+      if (typeof event !== "object" || event === null) return;
+      const payload = event as { id?: unknown; deepLink?: unknown };
+      if (typeof payload.id !== "string" || payload.id.length === 0) return;
+      listener({
+        id: payload.id,
+        ...(typeof payload.deepLink === "string" && payload.deepLink.length > 0
+          ? { deepLink: payload.deepLink }
+          : {}),
+      });
     };
 
     ipcRenderer.on(NOTIFICATION_CLICK_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(NOTIFICATION_CLICK_CHANNEL, wrappedListener);
+    };
+  },
+  onNotificationReply: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, event: unknown) => {
+      if (typeof event !== "object" || event === null) return;
+      const payload = event as { id?: unknown; response?: unknown; deepLink?: unknown };
+      if (typeof payload.id !== "string" || payload.id.length === 0) return;
+      if (typeof payload.response !== "string") return;
+      listener({
+        id: payload.id,
+        response: payload.response,
+        ...(typeof payload.deepLink === "string" && payload.deepLink.length > 0
+          ? { deepLink: payload.deepLink }
+          : {}),
+      });
+    };
+
+    ipcRenderer.on(NOTIFICATION_REPLY_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(NOTIFICATION_REPLY_CHANNEL, wrappedListener);
     };
   },
   onMenuAction: (listener) => {

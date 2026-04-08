@@ -70,7 +70,11 @@ import {
   isLatestTurnSettled,
   formatElapsed,
 } from "../session-logic";
-import { isScrollContainerNearBottom, scrollContainerToBottom } from "../chat-scroll";
+import {
+  isScrollContainerNearBottom,
+  resolveAutoScrollOnScroll,
+  scrollContainerToBottom,
+} from "../chat-scroll";
 import {
   buildPendingUserInputAnswers,
   derivePendingUserInputProgress,
@@ -2763,11 +2767,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const toggleInteractionMode = useCallback(() => {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
-  const toggleRuntimeMode = useCallback(() => {
-    void handleRuntimeModeChange(
-      runtimeMode === "full-access" ? "approval-required" : "full-access",
-    );
-  }, [handleRuntimeModeChange, runtimeMode]);
   useEffect(() => {
     if (!isElectron) return;
     return window.desktopBridge?.onMenuAction((action) => {
@@ -2956,40 +2955,30 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (!scrollContainer) return;
     const currentScrollTop = scrollContainer.scrollTop;
     const isNearBottom = isScrollContainerNearBottom(scrollContainer);
-    let autoScrollDisabled = false;
+    const autoScrollDecision = resolveAutoScrollOnScroll({
+      shouldAutoScroll: shouldAutoScrollRef.current,
+      isNearBottom,
+      currentScrollTop,
+      previousScrollTop: lastKnownScrollTopRef.current,
+      hasPendingUserScrollUpIntent: pendingUserScrollUpIntentRef.current,
+      isPointerScrollActive: isPointerScrollActiveRef.current,
+    });
+    shouldAutoScrollRef.current = autoScrollDecision.shouldAutoScroll;
 
-    if (!shouldAutoScrollRef.current && isNearBottom) {
-      shouldAutoScrollRef.current = true;
+    if (autoScrollDecision.clearPendingUserScrollUpIntent) {
       pendingUserScrollUpIntentRef.current = false;
-    } else if (shouldAutoScrollRef.current && pendingUserScrollUpIntentRef.current) {
-      const scrolledUp = currentScrollTop < lastKnownScrollTopRef.current - 1;
-      if (scrolledUp) {
-        shouldAutoScrollRef.current = false;
-        autoScrollDisabled = true;
-      }
-      pendingUserScrollUpIntentRef.current = false;
-    } else if (shouldAutoScrollRef.current && isPointerScrollActiveRef.current) {
-      const scrolledUp = currentScrollTop < lastKnownScrollTopRef.current - 1;
-      if (scrolledUp) {
-        shouldAutoScrollRef.current = false;
-        autoScrollDisabled = true;
-      }
-    } else if (shouldAutoScrollRef.current && !isNearBottom) {
-      // Catch-all for keyboard/assistive scroll interactions.
-      const scrolledUp = currentScrollTop < lastKnownScrollTopRef.current - 1;
-      if (scrolledUp) {
-        shouldAutoScrollRef.current = false;
-        autoScrollDisabled = true;
-      }
     }
-
-    if (autoScrollDisabled) {
+    if (autoScrollDecision.cancelPendingStickToBottom) {
       cancelPendingStickToBottom();
+    }
+    if (autoScrollDecision.scheduleStickToBottom) {
+      // Keep following output when layout shifts move the viewport slightly off-bottom.
+      scheduleStickToBottom();
     }
 
     setShowScrollToBottom(!shouldAutoScrollRef.current);
     lastKnownScrollTopRef.current = currentScrollTop;
-  }, [cancelPendingStickToBottom]);
+  }, [cancelPendingStickToBottom, scheduleStickToBottom]);
   const onMessagesWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       if (event.deltaY < 0) {
@@ -5520,7 +5509,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                 traitsMenuContent={providerTraitsMenuContent}
                                 onToggleInteractionMode={toggleInteractionMode}
                                 onTogglePlanSidebar={togglePlanSidebar}
-                                onToggleRuntimeMode={toggleRuntimeMode}
+                                onRuntimeModeChange={handleRuntimeModeChange}
                               />
                             ) : (
                               <>
@@ -5557,7 +5546,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                     <BotIcon className="size-4" />
                                   )}
                                   <span className="sr-only sm:not-sr-only">
-                                    {interactionMode === "plan" ? "Plan" : "Chat"}
+                                    {interactionMode === "plan" ? "Plan mode" : "Chat mode"}
                                   </span>
                                 </Button>
 
@@ -5583,7 +5572,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                       }
                                     >
                                       <ListTodoIcon />
-                                      <span className="sr-only sm:not-sr-only">Plan</span>
+                                      <span className="sr-only sm:not-sr-only">Plan panel</span>
                                     </Button>
                                   </>
                                 ) : null}

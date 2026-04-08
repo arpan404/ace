@@ -1,4 +1,5 @@
 export const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 64;
+const AUTO_SCROLL_DISABLE_UP_DELTA_PX = 1;
 
 interface ScrollPosition {
   scrollTop: number;
@@ -38,4 +39,61 @@ export function isScrollContainerNearBottom(
 
   const distanceFromBottom = scrollHeight - clientHeight - scrollTop;
   return distanceFromBottom <= threshold;
+}
+
+export interface AutoScrollOnScrollInput {
+  shouldAutoScroll: boolean;
+  isNearBottom: boolean;
+  currentScrollTop: number;
+  previousScrollTop: number;
+  hasPendingUserScrollUpIntent: boolean;
+  isPointerScrollActive: boolean;
+}
+
+export interface AutoScrollOnScrollDecision {
+  shouldAutoScroll: boolean;
+  clearPendingUserScrollUpIntent: boolean;
+  cancelPendingStickToBottom: boolean;
+  scheduleStickToBottom: boolean;
+}
+
+export function resolveAutoScrollOnScroll(
+  input: AutoScrollOnScrollInput,
+): AutoScrollOnScrollDecision {
+  if (!input.shouldAutoScroll) {
+    if (input.isNearBottom) {
+      return {
+        shouldAutoScroll: true,
+        clearPendingUserScrollUpIntent: true,
+        cancelPendingStickToBottom: false,
+        scheduleStickToBottom: false,
+      };
+    }
+    return {
+      shouldAutoScroll: false,
+      clearPendingUserScrollUpIntent: false,
+      cancelPendingStickToBottom: false,
+      scheduleStickToBottom: false,
+    };
+  }
+
+  const scrolledUp =
+    input.currentScrollTop < input.previousScrollTop - AUTO_SCROLL_DISABLE_UP_DELTA_PX;
+  const hasExplicitScrollUpIntent =
+    input.hasPendingUserScrollUpIntent || input.isPointerScrollActive;
+  if (hasExplicitScrollUpIntent && scrolledUp) {
+    return {
+      shouldAutoScroll: false,
+      clearPendingUserScrollUpIntent: true,
+      cancelPendingStickToBottom: true,
+      scheduleStickToBottom: false,
+    };
+  }
+
+  return {
+    shouldAutoScroll: true,
+    clearPendingUserScrollUpIntent: true,
+    cancelPendingStickToBottom: false,
+    scheduleStickToBottom: !input.isNearBottom && !hasExplicitScrollUpIntent,
+  };
 }

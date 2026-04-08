@@ -11,10 +11,13 @@ import {
   getAgentAttentionNotificationConstructor,
   isAppWindowFocused,
   readAgentAttentionNotificationPermission,
+  resolveAgentAttentionNotificationReply,
   requestAgentAttentionNotificationPermission,
   shouldOfferAgentAttentionNotificationPermission,
   type AgentAttentionNotificationPermission,
 } from "../lib/agentAttentionNotifications";
+import { newCommandId } from "../lib/utils";
+import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
 import { toastManager } from "./ui/toast";
 
@@ -53,6 +56,7 @@ export function AgentAttentionNotificationBridge() {
   const notifiedRequestKeysRef = useRef(new Set<string>());
   const attentionRequestByKeyRef = useRef(attentionRequestByKey);
   const hasPromptedForPermissionRef = useRef(false);
+  const notificationSessionStartedAtRef = useRef(new Date().toISOString());
 
   useEffect(() => {
     attentionRequestByKeyRef.current = attentionRequestByKey;
@@ -138,11 +142,11 @@ export function AgentAttentionNotificationBridge() {
       return;
     }
 
-    return desktopNotificationBridge.onNotificationClick((notificationId) => {
-      activeDesktopNotificationIdsRef.current.delete(notificationId);
+    return desktopNotificationBridge.onNotificationClick((event) => {
+      activeDesktopNotificationIdsRef.current.delete(event.id);
       window.focus();
 
-      const request = attentionRequestByKeyRef.current.get(notificationId);
+      const request = attentionRequestByKeyRef.current.get(event.id);
       if (!request) {
         return;
       }
@@ -159,10 +163,73 @@ export function AgentAttentionNotificationBridge() {
       return;
     }
 
+    return desktopNotificationBridge.onNotificationReply((event) => {
+      activeDesktopNotificationIdsRef.current.delete(event.id);
+      const request = attentionRequestByKeyRef.current.get(event.id);
+      if (!request) {
+        return;
+      }
+      if (request.kind !== "user-input") {
+        window.focus();
+        void navigate({
+          to: "/$threadId",
+          params: { threadId: request.threadId },
+        });
+        return;
+      }
+
+      const reply = resolveAgentAttentionNotificationReply(request, event.response);
+      if (!reply) {
+        window.focus();
+        void navigate({
+          to: "/$threadId",
+          params: { threadId: request.threadId },
+        });
+        return;
+      }
+
+      const api = readNativeApi();
+      if (!api) {
+        toastManager.add({
+          type: "error",
+          title: "Unable to submit notification reply",
+          description: "The orchestration API is unavailable in the current app session.",
+        });
+        return;
+      }
+
+      void api.orchestration
+        .dispatchCommand({
+          type: "thread.user-input.respond",
+          commandId: newCommandId(),
+          threadId: request.threadId,
+          requestId: request.requestId,
+          answers: reply.answers,
+          createdAt: new Date().toISOString(),
+        })
+        .catch((error: unknown) => {
+          toastManager.add({
+            type: "error",
+            title: "Unable to submit notification reply",
+            description: describeNotificationError(
+              error,
+              "Unknown error submitting notification reply.",
+            ),
+          });
+        });
+    });
+  }, [desktopNotificationBridge, navigate]);
+
+  useEffect(() => {
+    if (!desktopNotificationBridge) {
+      return;
+    }
+
     for (const request of collectAgentAttentionRequestsToNotify({
       requests: attentionRequests,
       notifiedRequestKeys: notifiedRequestKeysRef.current,
       isAppFocused,
+      notificationSessionStartedAt: notificationSessionStartedAtRef.current,
     })) {
       const notificationInput = buildAgentAttentionDesktopNotificationInput(request);
       void desktopNotificationBridge
@@ -212,6 +279,7 @@ export function AgentAttentionNotificationBridge() {
       requests: attentionRequests,
       notifiedRequestKeys: notifiedRequestKeysRef.current,
       isAppFocused,
+      notificationSessionStartedAt: notificationSessionStartedAtRef.current,
     })) {
       const { title, body, tag } = buildAgentAttentionNotificationCopy(request);
       const existingNotification = activeBrowserNotificationsRef.current.get(request.key);
@@ -287,7 +355,7 @@ export function AgentAttentionNotificationBridge() {
     toastManager.add({
       type: "info",
       title: "Enable agent notifications",
-      description: `${APP_DISPLAY_NAME} can alert you when an agent needs approval or answers while this window is in the background.`,
+      description: `${APP_DISPLAY_NAME} can alert you when agent work finishes or needs input while this window is in the background.`,
       actionProps: {
         children: "Enable notifications",
         onClick: () => {
@@ -298,7 +366,7 @@ export function AgentAttentionNotificationBridge() {
                 toastManager.add({
                   type: "success",
                   title: "Notifications enabled",
-                  description: `${APP_DISPLAY_NAME} will now alert you when agent input is required in the background.`,
+                  description: `${APP_DISPLAY_NAME} will now alert you when agent work finishes or needs input in the background.`,
                 });
                 return;
               }

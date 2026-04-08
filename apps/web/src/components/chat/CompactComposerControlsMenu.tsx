@@ -20,7 +20,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
   onTogglePlanSidebar: () => void;
-  onToggleRuntimeMode: () => void;
+  onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
   return (
     <Menu>
@@ -52,7 +52,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           }}
         >
           <MenuRadioItem value="default">Chat</MenuRadioItem>
-          <MenuRadioItem value="plan">Plan</MenuRadioItem>
+          <MenuRadioItem value="plan">Plan mode</MenuRadioItem>
         </MenuRadioGroup>
         <MenuDivider />
         <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Access</div>
@@ -60,11 +60,18 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           value={props.runtimeMode}
           onValueChange={(value) => {
             if (!value || value === props.runtimeMode) return;
-            props.onToggleRuntimeMode();
+            props.onRuntimeModeChange(value as RuntimeMode);
           }}
         >
-          <MenuRadioItem value="approval-required">Supervised</MenuRadioItem>
-          <MenuRadioItem value="full-access">Full access</MenuRadioItem>
+          <MenuRadioItem value="approval-required">
+            <span className="text-amber-600 dark:text-amber-400">Supervised</span>
+          </MenuRadioItem>
+          <MenuRadioItem value="full-access">
+            <span className="text-emerald-600 dark:text-emerald-400">Full access</span>
+          </MenuRadioItem>
+          <MenuRadioItem value="andy">
+            <span className="text-sky-600 dark:text-sky-400">Andy</span>
+          </MenuRadioItem>
         </MenuRadioGroup>
         {props.activePlan ? (
           <>

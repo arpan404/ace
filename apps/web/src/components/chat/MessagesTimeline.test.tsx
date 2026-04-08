@@ -164,6 +164,75 @@ describe("MessagesTimeline", () => {
     ).toBe(2);
   });
 
+  it("avoids the virtualized buffer while the active turn is in progress", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const timelineEntries = Array.from({ length: 24 }, (_, index) => ({
+      id: `entry-${index + 1}`,
+      kind: "message" as const,
+      createdAt: `2026-03-17T19:12:${20 + index}.000Z`,
+      message: {
+        id: MessageId.makeUnsafe(`message-${index + 1}`),
+        role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+        text: `Message ${index + 1}`,
+        createdAt: `2026-03-17T19:12:${20 + index}.000Z`,
+        streaming: false,
+      },
+    }));
+
+    const activeTurnMarkup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:31.000Z"
+        scrollContainer={{} as unknown as HTMLDivElement}
+        timelineEntries={timelineEntries}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    const idleTurnMarkup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={{} as unknown as HTMLDivElement}
+        timelineEntries={timelineEntries}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(activeTurnMarkup).not.toContain('data-virtualizer-buffer="true"');
+    expect(idleTurnMarkup).toContain('data-virtualizer-buffer="true"');
+  });
+
   it("renders inline terminal labels with the composer chip UI", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(

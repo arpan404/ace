@@ -80,6 +80,7 @@ const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
 const CLOSE_NOTIFICATION_CHANNEL = "desktop:close-notification";
 const NOTIFICATION_CLICK_CHANNEL = "desktop:notification-click";
+const NOTIFICATION_REPLY_CHANNEL = "desktop:notification-reply";
 const MENU_ACTION_CHANNEL = "desktop:menu-action";
 const CLI_STATE_CHANNEL = "desktop:cli-state";
 const CLI_GET_STATE_CHANNEL = "desktop:cli-get-state";
@@ -239,11 +240,28 @@ function getSafeDesktopNotificationInput(rawInput: unknown): DesktopNotification
   const id = typeof input.id === "string" ? input.id.trim() : "";
   const title = typeof input.title === "string" ? input.title.trim() : "";
   const body = typeof input.body === "string" ? input.body.trim() : "";
+  const deepLink = typeof input.deepLink === "string" ? input.deepLink.trim() : "";
+  const rawReply =
+    typeof input.reply === "object" && input.reply !== null
+      ? (input.reply as Record<string, unknown>)
+      : null;
+  const replyPlaceholder =
+    rawReply && typeof rawReply.placeholder === "string" ? rawReply.placeholder.trim() : "";
   if (id.length === 0 || title.length === 0 || body.length === 0) {
     return null;
   }
 
-  return { id, title, body };
+  return {
+    id,
+    title,
+    body,
+    ...(deepLink.length > 0 ? { deepLink } : {}),
+    ...(rawReply
+      ? {
+          reply: replyPlaceholder.length > 0 ? { placeholder: replyPlaceholder } : {},
+        }
+      : {}),
+  };
 }
 
 function getOrCreatePrimaryWindow(): BrowserWindow {
@@ -310,12 +328,31 @@ function showDesktopNotification(input: DesktopNotificationInput): boolean {
     const notification = new ElectronNotification({
       title: input.title,
       body: input.body,
+      ...(process.platform === "darwin" && input.reply
+        ? {
+            hasReply: true,
+            ...(input.reply.placeholder ? { replyPlaceholder: input.reply.placeholder } : {}),
+          }
+        : {}),
     });
 
     notification.on("click", () => {
       closeDesktopNotification(input.id);
       withReadyPrimaryWindow((window) => {
-        window.webContents.send(NOTIFICATION_CLICK_CHANNEL, input.id);
+        window.webContents.send(NOTIFICATION_CLICK_CHANNEL, {
+          id: input.id,
+          ...(input.deepLink ? { deepLink: input.deepLink } : {}),
+        });
+      });
+    });
+    notification.on("reply", (_event, response) => {
+      closeDesktopNotification(input.id);
+      withReadyPrimaryWindow((window) => {
+        window.webContents.send(NOTIFICATION_REPLY_CHANNEL, {
+          id: input.id,
+          response,
+          ...(input.deepLink ? { deepLink: input.deepLink } : {}),
+        });
       });
     });
     notification.on("close", () => {

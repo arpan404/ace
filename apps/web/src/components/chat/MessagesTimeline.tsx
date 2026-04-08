@@ -249,6 +249,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     rowVirtualizer.measure();
   }, [rowVirtualizer, virtualizedRows.length, virtualizedRowsMeasurementKey]);
+  const shouldUseVirtualizedBuffer =
+    scrollContainer !== null && virtualizedRows.length > 0 && !activeTurnInProgress;
 
   const renderRowContent = (row: TimelineRow, _rowIndex: number) => {
     return (
@@ -479,7 +481,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       data-timeline-root="true"
       className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
     >
-      {scrollContainer && virtualizedRows.length > 0 ? (
+      {shouldUseVirtualizedBuffer ? (
         <div
           data-virtualizer-buffer="true"
           className="relative"
