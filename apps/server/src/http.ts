@@ -10,8 +10,10 @@ import {
 import { resolveAttachmentPathById } from "./attachmentStore";
 import { ServerConfig } from "./config";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
+import { WorkspacePaths } from "./workspace/Services/WorkspacePaths";
 
 const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
+const WORKSPACE_FILE_PREVIEW_MAX_BYTES = 50 * 1024 * 1024;
 const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#6b728080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-fallback="project-favicon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>`;
 const SECURITY_HEADERS = {
   "Content-Security-Policy":
@@ -119,6 +121,83 @@ export const projectFaviconRouteLayer = HttpRouter.add(
       status: 200,
       headers: {
         "Cache-Control": PROJECT_FAVICON_CACHE_CONTROL,
+      },
+    }).pipe(
+      Effect.map(withSecurityHeaders),
+      Effect.catch(() =>
+        Effect.succeed(
+          withSecurityHeaders(HttpServerResponse.text("Internal Server Error", { status: 500 })),
+        ),
+      ),
+    );
+  }),
+);
+
+export const workspaceFileRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/workspace-file",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return withSecurityHeaders(HttpServerResponse.text("Bad Request", { status: 400 }));
+    }
+
+    const cwd = url.value.searchParams.get("cwd");
+    const relativePath = url.value.searchParams.get("relativePath");
+    if (!cwd || !relativePath) {
+      return withSecurityHeaders(
+        HttpServerResponse.text("Missing cwd or relativePath parameter", { status: 400 }),
+      );
+    }
+
+    const workspacePaths = yield* WorkspacePaths;
+    const normalizedRoot = yield* workspacePaths
+      .normalizeWorkspaceRoot(cwd)
+      .pipe(Effect.catch(() => Effect.succeed(null)));
+    if (!normalizedRoot) {
+      return withSecurityHeaders(
+        HttpServerResponse.text("Workspace root is unavailable.", { status: 400 }),
+      );
+    }
+
+    const resolvedPath = yield* workspacePaths
+      .resolveRelativePathWithinRoot({
+        workspaceRoot: normalizedRoot,
+        relativePath,
+      })
+      .pipe(Effect.catch(() => Effect.succeed(null)));
+    if (!resolvedPath) {
+      return withSecurityHeaders(
+        HttpServerResponse.text("Invalid workspace file path.", { status: 400 }),
+      );
+    }
+
+    const fileSystem = yield* FileSystem.FileSystem;
+    const fileInfo = yield* fileSystem
+      .stat(resolvedPath.absolutePath)
+      .pipe(Effect.catch(() => Effect.succeed(null)));
+    if (!fileInfo) {
+      return withSecurityHeaders(HttpServerResponse.text("Not Found", { status: 404 }));
+    }
+    if (fileInfo.type !== "File") {
+      return withSecurityHeaders(
+        HttpServerResponse.text("Only files can be previewed.", { status: 400 }),
+      );
+    }
+    if (fileInfo.size > WORKSPACE_FILE_PREVIEW_MAX_BYTES) {
+      return withSecurityHeaders(
+        HttpServerResponse.text(
+          `Files larger than ${Math.round(WORKSPACE_FILE_PREVIEW_MAX_BYTES / (1024 * 1024))}MB cannot be previewed.`,
+          { status: 413 },
+        ),
+      );
+    }
+
+    return yield* HttpServerResponse.file(resolvedPath.absolutePath, {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store",
       },
     }).pipe(
       Effect.map(withSecurityHeaders),

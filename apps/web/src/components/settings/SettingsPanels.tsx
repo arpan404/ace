@@ -1177,32 +1177,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
           <SettingsSection title="Workspace editor">
             <SettingsRow
-              title="Neovim mode"
-              description="Enable modal Vim-style editing in the workspace editor while keeping the current Monaco UI."
-              resetAction={
-                settings.editorNeovimMode !== DEFAULT_UNIFIED_SETTINGS.editorNeovimMode ? (
-                  <SettingResetButton
-                    label="neovim mode"
-                    onClick={() =>
-                      updateSettings({
-                        editorNeovimMode: DEFAULT_UNIFIED_SETTINGS.editorNeovimMode,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Switch
-                  checked={settings.editorNeovimMode}
-                  onCheckedChange={(checked) =>
-                    updateSettings({ editorNeovimMode: Boolean(checked) })
-                  }
-                  aria-label="Enable Neovim mode in the workspace editor"
-                />
-              }
-            />
-
-            <SettingsRow
               title="Editor suggestions"
               description="Keep Monaco completion helpers off by default to reduce noisy or unwanted code insertions."
               resetAction={

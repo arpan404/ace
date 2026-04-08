@@ -44,6 +44,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
 import { readExplorerEntryTransferPath, writeExplorerEntryTransfer } from "./dragTransfer";
+import { joinWorkspaceAbsolutePath, revealInFileManagerLabel } from "./workspaceFileUtils";
 import WorkspaceEditorPane from "./WorkspaceEditorPane";
 
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
@@ -446,7 +447,6 @@ export default function ThreadWorkspaceEditor(props: {
   const editorSettings = useSettings((settings) => ({
     lineNumbers: settings.editorLineNumbers,
     minimap: settings.editorMinimap,
-    neovimMode: settings.editorNeovimMode,
     renderWhitespace: settings.editorRenderWhitespace,
     stickyScroll: settings.editorStickyScroll,
     suggestions: settings.editorSuggestions,
@@ -517,6 +517,16 @@ export default function ThreadWorkspaceEditor(props: {
     () => panes.find((pane) => pane.id === activePaneId) ?? panes[0] ?? null,
     [activePaneId, panes],
   );
+  const revealEntryLabel = useMemo(() => revealInFileManagerLabel(), []);
+  const revealWorkspaceLabel = useMemo(() => {
+    if (revealEntryLabel === "Reveal in Finder") {
+      return "Reveal Workspace in Finder";
+    }
+    if (revealEntryLabel === "Reveal in Explorer") {
+      return "Reveal Workspace in Explorer";
+    }
+    return "Reveal Workspace in File Manager";
+  }, [revealEntryLabel]);
   const panesById = useMemo(() => new Map(panes.map((pane) => [pane.id, pane] as const)), [panes]);
   const openWorkspaceFilePaths = useMemo(
     () => Array.from(new Set(panes.flatMap((pane) => pane.openFilePaths))).sort(),
@@ -774,10 +784,12 @@ export default function ThreadWorkspaceEditor(props: {
     [panes],
   );
   const activeFilePathSet = useMemo(() => new Set(activeFilePaths), [activeFilePaths]);
-  const activeAncestorDirectories = useMemo(
-    () => Array.from(new Set(activeFilePaths.flatMap((path) => collectAncestorDirectories(path)))),
-    [activeFilePaths],
-  );
+  useEffect(() => {
+    if (!activePane?.activeFilePath) {
+      return;
+    }
+    expandDirectories(props.threadId, collectAncestorDirectories(activePane.activeFilePath));
+  }, [activePane?.activeFilePath, expandDirectories, props.threadId]);
 
   const visibleRows = useMemo(() => {
     if (deferredTreeSearch.length > 0) {
@@ -793,15 +805,12 @@ export default function ThreadWorkspaceEditor(props: {
         }));
     }
 
-    return buildTreeRows(
-      treeEntries,
-      new Set([...expandedDirectoryPaths, ...activeAncestorDirectories]),
-    );
-  }, [activeAncestorDirectories, deferredTreeSearch, expandedDirectoryPaths, treeEntries]);
+    return buildTreeRows(treeEntries, new Set(expandedDirectoryPaths));
+  }, [deferredTreeSearch, expandedDirectoryPaths, treeEntries]);
 
   const expandedDirectoryPathSet = useMemo(
-    () => new Set([...expandedDirectoryPaths, ...activeAncestorDirectories]),
-    [activeAncestorDirectories, expandedDirectoryPaths],
+    () => new Set(expandedDirectoryPaths),
+    [expandedDirectoryPaths],
   );
   const explorerRows = useMemo(
     () => buildExplorerRenderRows(visibleRows, inlineEntryState),
@@ -1005,6 +1014,20 @@ export default function ThreadWorkspaceEditor(props: {
     },
     [activePane?.id, handleSplitPane, openFile, panes.length, props.threadId],
   );
+  const handleOpenFileInPane = useCallback(
+    (paneId: string, filePath: string, targetIndex?: number) => {
+      openFile(props.threadId, filePath, paneId);
+      if (typeof targetIndex === "number" && Number.isFinite(targetIndex)) {
+        moveFile(props.threadId, {
+          filePath,
+          sourcePaneId: paneId,
+          targetPaneId: paneId,
+          targetIndex,
+        });
+      }
+    },
+    [moveFile, openFile, props.threadId],
+  );
   const handleRetryActiveFile = useCallback(() => {
     if (!activePane?.activeFilePath) {
       return;
@@ -1204,6 +1227,7 @@ export default function ThreadWorkspaceEditor(props: {
       const items = [
         { id: "new-file", label: "New File" },
         { id: "new-folder", label: "New Folder" },
+        { id: "reveal", label: entry ? revealEntryLabel : revealWorkspaceLabel },
         ...(entry
           ? [
               { id: "rename", label: "Rename" },
@@ -1222,6 +1246,30 @@ export default function ThreadWorkspaceEditor(props: {
         startInlineEntry({ kind: "create-folder", parentPath, value: "" });
         return;
       }
+      if (clicked === "reveal") {
+        if (!props.gitCwd) {
+          toastManager.add({
+            description: "This thread does not have an active workspace path.",
+            title: "Workspace unavailable",
+            type: "error",
+          });
+          return;
+        }
+        const targetPath = entry
+          ? joinWorkspaceAbsolutePath(props.gitCwd, entry.path)
+          : props.gitCwd;
+        try {
+          await api.shell.revealInFileManager(targetPath);
+        } catch (error) {
+          toastManager.add({
+            description:
+              error instanceof Error ? error.message : "Unable to open the file manager.",
+            title: "Could not reveal entry",
+            type: "error",
+          });
+        }
+        return;
+      }
       if (clicked === "rename" && entry) {
         startInlineEntry({
           kind: "rename",
@@ -1235,7 +1283,14 @@ export default function ThreadWorkspaceEditor(props: {
         await handleDeleteEntry(entry);
       }
     },
-    [api, handleDeleteEntry, startInlineEntry],
+    [
+      api,
+      handleDeleteEntry,
+      props.gitCwd,
+      revealEntryLabel,
+      revealWorkspaceLabel,
+      startInlineEntry,
+    ],
   );
 
   const submitInlineEntry = useCallback(() => {
@@ -1919,7 +1974,6 @@ export default function ThreadWorkspaceEditor(props: {
                             draftsByFilePath={draftsByFilePath}
                             editorOptions={editorOptions}
                             gitCwd={props.gitCwd}
-                            neovimModeEnabled={editorSettings.neovimMode}
                             onCloseFile={(paneId, filePath) =>
                               closeFile(props.threadId, filePath, paneId)
                             }
@@ -1934,6 +1988,7 @@ export default function ThreadWorkspaceEditor(props: {
                             onFocusPane={(paneId) => setActivePane(props.threadId, paneId)}
                             onHydrateFile={handleHydrateFile}
                             onMoveFile={(input) => moveFile(props.threadId, input)}
+                            onOpenFileInPane={handleOpenFileInPane}
                             onOpenFileToSide={handleOpenFileToSide}
                             onReopenClosedTab={handleReopenClosedTab}
                             onRetryActiveFile={handleRetryActiveFile}

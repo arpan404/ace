@@ -9,17 +9,18 @@ import {
   Rows2Icon,
   XIcon,
 } from "lucide-react";
-import { initVimMode, type VimAdapterInstance, VimMode } from "monaco-vim";
 import type { editor as MonacoEditor } from "monaco-editor";
 import {
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 
+import { openInPreferredEditor } from "~/editorPreferences";
 import type { ThreadEditorPaneState } from "~/editorStateStore";
 import { projectReadFileQueryOptions } from "~/lib/projectReactQuery";
 import { cn } from "~/lib/utils";
@@ -28,7 +29,18 @@ import { basenameOfPath } from "~/vscode-icons";
 
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Button } from "../ui/button";
-import { EDITOR_TAB_TRANSFER_TYPE, readEditorTabTransfer } from "./dragTransfer";
+import {
+  EDITOR_TAB_TRANSFER_TYPE,
+  readEditorTabTransfer,
+  readExplorerEntryTransfer,
+} from "./dragTransfer";
+import {
+  buildWorkspacePreviewUrl,
+  canOpenFileExternallyFromReadError,
+  detectWorkspacePreviewKind,
+  joinWorkspaceAbsolutePath,
+  type WorkspacePreviewKind,
+} from "./workspaceFileUtils";
 
 interface WorkspaceEditorPaneProps {
   active: boolean;
@@ -39,7 +51,6 @@ interface WorkspaceEditorPaneProps {
   draftsByFilePath: Record<string, { draftContents: string; savedContents: string }>;
   editorOptions: MonacoEditor.IStandaloneEditorConstructionOptions;
   gitCwd: string | null;
-  neovimModeEnabled: boolean;
   onCloseFile: (paneId: string, filePath: string) => void;
   onCloseOtherTabs: (paneId: string, filePath: string) => void;
   onClosePane: (paneId: string) => void;
@@ -53,6 +64,7 @@ interface WorkspaceEditorPaneProps {
     targetPaneId: string;
     targetIndex?: number;
   }) => void;
+  onOpenFileInPane: (paneId: string, filePath: string, targetIndex?: number) => void;
   onOpenFileToSide: (paneId: string, filePath: string) => void;
   onReopenClosedTab: (paneId: string) => void;
   onRetryActiveFile: () => void;
@@ -78,20 +90,8 @@ function formatFileSize(sizeBytes: number): string {
 }
 
 const WORKSPACE_EDITOR_MARKER_OWNER = "ace-workspace-editor";
-const MONACO_DIAGNOSTIC_OWNERS = [
-  WORKSPACE_EDITOR_MARKER_OWNER,
-  "css",
-  "scss",
-  "less",
-  "html",
-  "handlebars",
-  "razor",
-  "json",
-  "javascript",
-  "typescript",
-] as const;
+const MONACO_DIAGNOSTIC_OWNERS = [WORKSPACE_EDITOR_MARKER_OWNER] as const;
 const DIAGNOSTIC_SYNC_DEBOUNCE_MS = 250;
-const VIM_CLOSE_ACTION_KEY = "__aceClose";
 
 type MonacoApi = typeof import("monaco-editor");
 
@@ -99,14 +99,33 @@ function pluralize(count: number, singular: string): string {
   return count === 1 ? singular : `${singular}s`;
 }
 
-function formatDiagnosticSummary(diagnostics: readonly WorkspaceEditorDiagnostic[]): string | null {
+function toWorkspaceSeverity(
+  monacoInstance: MonacoApi,
+  severity: number,
+): WorkspaceEditorDiagnostic["severity"] {
+  if (severity === monacoInstance.MarkerSeverity.Warning) {
+    return "warning";
+  }
+  if (severity === monacoInstance.MarkerSeverity.Info) {
+    return "info";
+  }
+  if (severity === monacoInstance.MarkerSeverity.Hint) {
+    return "hint";
+  }
+  return "error";
+}
+
+function formatProblemSummary(
+  monacoInstance: MonacoApi,
+  markers: readonly MonacoEditor.IMarker[],
+): string | null {
   let errorCount = 0;
   let warningCount = 0;
   let infoCount = 0;
   let hintCount = 0;
 
-  for (const diagnostic of diagnostics) {
-    switch (diagnostic.severity) {
+  for (const marker of markers) {
+    switch (toWorkspaceSeverity(monacoInstance, marker.severity)) {
       case "error":
         errorCount += 1;
         break;
@@ -131,6 +150,19 @@ function formatDiagnosticSummary(diagnostics: readonly WorkspaceEditorDiagnostic
   ].filter((value): value is string => value !== null);
 
   return parts.length > 0 ? parts.join(", ") : null;
+}
+
+function severityFromMarkerValue(severity: number): WorkspaceEditorDiagnostic["severity"] {
+  if (severity >= 8) {
+    return "error";
+  }
+  if (severity >= 4) {
+    return "warning";
+  }
+  if (severity >= 2) {
+    return "info";
+  }
+  return "hint";
 }
 
 function toMonacoSeverity(
@@ -187,52 +219,6 @@ function clearModelMarkers(monacoInstance: MonacoApi, model: MonacoEditor.ITextM
   }
 }
 
-function ensureMonacoVimConfigured(): void {
-  const vimApi = Reflect.get(VimMode, "Vim");
-  if (!vimApi || typeof vimApi !== "object") {
-    return;
-  }
-  const defineEx = Reflect.get(vimApi, "defineEx");
-  if (typeof defineEx !== "function") {
-    return;
-  }
-
-  const registerExCommand = (name: string, prefix: string, handler: (adapter: object) => void) => {
-    try {
-      defineEx.call(vimApi, name, prefix, handler);
-    } catch {
-      // Ignore duplicate registrations during HMR or repeated mounts.
-    }
-  };
-
-  registerExCommand("quit", "q", (adapter) => {
-    const close = Reflect.get(adapter, VIM_CLOSE_ACTION_KEY);
-    if (typeof close === "function") {
-      close();
-    }
-  });
-  registerExCommand("writequit", "wq", (adapter) => {
-    const save = Reflect.get(adapter, "save");
-    if (typeof save === "function") {
-      save();
-    }
-    const close = Reflect.get(adapter, VIM_CLOSE_ACTION_KEY);
-    if (typeof close === "function") {
-      close();
-    }
-  });
-  registerExCommand("xit", "x", (adapter) => {
-    const save = Reflect.get(adapter, "save");
-    if (typeof save === "function") {
-      save();
-    }
-    const close = Reflect.get(adapter, VIM_CLOSE_ACTION_KEY);
-    if (typeof close === "function") {
-      close();
-    }
-  });
-}
-
 export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const api = readNativeApi();
   const pane = props.pane;
@@ -244,41 +230,56 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const onCloseOtherTabs = props.onCloseOtherTabs;
   const onCloseTabsToRight = props.onCloseTabsToRight;
   const onOpenFileToSide = props.onOpenFileToSide;
+  const onOpenFileInPane = props.onOpenFileInPane;
   const onReopenClosedTab = props.onReopenClosedTab;
   const onSaveFile = props.onSaveFile;
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [diagnosticSummary, setDiagnosticSummary] = useState<string | null>(null);
   const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [problemsOpen, setProblemsOpen] = useState(false);
+  const [problems, setProblems] = useState<readonly MonacoEditor.IMarker[]>([]);
   const [editorMountVersion, setEditorMountVersion] = useState(0);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<MonacoApi | null>(null);
-  const vimAdapterRef = useRef<VimAdapterInstance | null>(null);
-  const vimStatusNodeRef = useRef<HTMLDivElement | null>(null);
   const syncRequestIdRef = useRef(0);
+  const activePreviewKind = useMemo<WorkspacePreviewKind | null>(
+    () => (pane.activeFilePath ? detectWorkspacePreviewKind(pane.activeFilePath) : null),
+    [pane.activeFilePath],
+  );
+  const isPreviewMode =
+    activePreviewKind !== null && pane.activeFilePath !== null && props.gitCwd !== null;
   const activeFileQuery = useQuery(
     projectReadFileQueryOptions({
       cwd: props.gitCwd,
       relativePath: pane.activeFilePath,
-      enabled: pane.activeFilePath !== null && props.gitCwd !== null,
+      enabled: pane.activeFilePath !== null && props.gitCwd !== null && !isPreviewMode,
     }),
   );
 
   useEffect(() => {
-    if (!pane.activeFilePath || activeFileQuery.data?.contents === undefined) {
+    if (isPreviewMode || !pane.activeFilePath || activeFileQuery.data?.contents === undefined) {
       return;
     }
     onHydrateFile(pane.activeFilePath, activeFileQuery.data.contents);
-  }, [activeFileQuery.data?.contents, onHydrateFile, pane.activeFilePath]);
+  }, [activeFileQuery.data?.contents, isPreviewMode, onHydrateFile, pane.activeFilePath]);
 
-  const activeDraft = pane.activeFilePath
-    ? (props.draftsByFilePath[pane.activeFilePath] ?? null)
-    : null;
+  const activeDraft =
+    isPreviewMode || !pane.activeFilePath
+      ? null
+      : (props.draftsByFilePath[pane.activeFilePath] ?? null);
   const activeFileContents = activeDraft?.draftContents ?? activeFileQuery.data?.contents ?? "";
   const activeFileDirty = activeDraft
     ? activeDraft.draftContents !== activeDraft.savedContents
     : false;
-  const activeFileSizeBytes =
-    activeFileQuery.data?.sizeBytes ?? new Blob([activeFileContents]).size;
+  const activeFileSizeBytes = isPreviewMode
+    ? null
+    : (activeFileQuery.data?.sizeBytes ?? new Blob([activeFileContents]).size);
+  const previewUrl =
+    isPreviewMode && pane.activeFilePath && props.gitCwd
+      ? buildWorkspacePreviewUrl(props.gitCwd, pane.activeFilePath)
+      : null;
 
   const handleSave = useCallback(() => {
     if (!pane.activeFilePath || !activeDraft) {
@@ -286,43 +287,11 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     }
     onSaveFile(pane.activeFilePath, activeDraft.draftContents);
   }, [activeDraft, onSaveFile, pane.activeFilePath]);
-  const handleCloseActiveFile = useCallback(() => {
-    if (!pane.activeFilePath) {
-      return;
-    }
-    onCloseFile(pane.id, pane.activeFilePath);
-  }, [onCloseFile, pane.activeFilePath, pane.id]);
 
   const saveActionRef = useRef(handleSave);
   useEffect(() => {
     saveActionRef.current = handleSave;
   }, [handleSave]);
-
-  const closeActionRef = useRef(handleCloseActiveFile);
-  useEffect(() => {
-    closeActionRef.current = handleCloseActiveFile;
-  }, [handleCloseActiveFile]);
-
-  const disposeVimAdapter = useCallback(() => {
-    vimAdapterRef.current?.dispose();
-    vimAdapterRef.current = null;
-    if (vimStatusNodeRef.current) {
-      vimStatusNodeRef.current.replaceChildren();
-      vimStatusNodeRef.current.textContent = "";
-    }
-  }, []);
-
-  const bindVimAdapterActions = useCallback(() => {
-    if (!vimAdapterRef.current) {
-      return;
-    }
-    Reflect.set(vimAdapterRef.current, "save", () => {
-      saveActionRef.current();
-    });
-    Reflect.set(vimAdapterRef.current, VIM_CLOSE_ACTION_KEY, () => {
-      closeActionRef.current();
-    });
-  }, []);
 
   const clearEditorMarkers = useCallback(() => {
     const editor = editorRef.current;
@@ -334,9 +303,23 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     clearModelMarkers(monacoInstance, model);
   }, []);
 
+  const syncProblemState = useCallback(() => {
+    const editor = editorRef.current;
+    const monacoInstance = monacoRef.current;
+    const model = editor?.getModel();
+    if (!editor || !monacoInstance || !model) {
+      setProblems([]);
+      setDiagnosticSummary(null);
+      return;
+    }
+    const nextProblems = monacoInstance.editor.getModelMarkers({ resource: model.uri });
+    setProblems(nextProblems);
+    setDiagnosticSummary(formatProblemSummary(monacoInstance, nextProblems));
+  }, []);
+
   const activeFileReady =
     pane.activeFilePath !== null &&
-    (activeDraft !== null || activeFileQuery.data?.contents !== undefined);
+    (isPreviewMode || activeDraft !== null || activeFileQuery.data?.contents !== undefined);
 
   const handleEditorMount = useCallback<OnMount>(
     (editor, monacoInstance) => {
@@ -349,46 +332,27 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, () => {
         saveActionRef.current();
       });
+      editor.addCommand(
+        monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyM,
+        () => {
+          setProblemsOpen((open) => !open);
+        },
+      );
       editor.onDidDispose(() => {
-        disposeVimAdapter();
         editorRef.current = null;
         monacoRef.current = null;
       });
+      syncProblemState();
     },
-    [disposeVimAdapter, onFocusPane, pane.id],
+    [onFocusPane, pane.id, syncProblemState],
   );
-
-  useEffect(() => {
-    bindVimAdapterActions();
-  }, [bindVimAdapterActions]);
-
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) {
-      return;
-    }
-
-    if (!props.neovimModeEnabled) {
-      disposeVimAdapter();
-      return;
-    }
-
-    ensureMonacoVimConfigured();
-    if (!vimAdapterRef.current) {
-      vimAdapterRef.current = initVimMode(editor, vimStatusNodeRef.current);
-    }
-    bindVimAdapterActions();
-
-    return () => {
-      disposeVimAdapter();
-    };
-  }, [bindVimAdapterActions, disposeVimAdapter, editorMountVersion, props.neovimModeEnabled]);
 
   useEffect(() => {
     syncRequestIdRef.current += 1;
     const requestId = syncRequestIdRef.current;
 
     if (
+      isPreviewMode ||
       !api ||
       !props.gitCwd ||
       !pane.activeFilePath ||
@@ -398,7 +362,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     ) {
       clearEditorMarkers();
       setDiagnosticError(null);
-      setDiagnosticSummary(null);
+      syncProblemState();
       return;
     }
 
@@ -440,7 +404,9 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             toMonacoMarkers(liveMonaco, result.diagnostics),
           );
           setDiagnosticError(null);
-          setDiagnosticSummary(formatDiagnosticSummary(result.diagnostics));
+          const nextProblems = liveMonaco.editor.getModelMarkers({ resource: liveModel.uri });
+          setProblems(nextProblems);
+          setDiagnosticSummary(formatProblemSummary(liveMonaco, nextProblems));
         })
         .catch((error) => {
           if (syncRequestIdRef.current !== requestId) {
@@ -450,7 +416,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           const message =
             error instanceof Error ? error.message : "Failed to sync Neovim diagnostics.";
           setDiagnosticError(message);
-          setDiagnosticSummary(null);
+          syncProblemState();
           console.error("Failed to sync workspace editor diagnostics", {
             cwd: props.gitCwd,
             relativePath: activeFilePath,
@@ -468,51 +434,93 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     api,
     clearEditorMarkers,
     editorMountVersion,
+    isPreviewMode,
     pane.activeFilePath,
     props.gitCwd,
+    syncProblemState,
   ]);
+
+  useEffect(() => {
+    const monacoInstance = monacoRef.current;
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!monacoInstance || !editor || !model) {
+      setProblems([]);
+      setDiagnosticSummary(null);
+      return;
+    }
+
+    const modelUri = model.uri.toString();
+    syncProblemState();
+    const disposable = monacoInstance.editor.onDidChangeMarkers((uris) => {
+      if (!uris.some((uri) => uri.toString() === modelUri)) {
+        return;
+      }
+      syncProblemState();
+    });
+
+    return () => {
+      disposable.dispose();
+    };
+  }, [editorMountVersion, pane.activeFilePath, syncProblemState]);
 
   useEffect(
     () => () => {
       syncRequestIdRef.current += 1;
       clearEditorMarkers();
-      disposeVimAdapter();
     },
-    [clearEditorMarkers, disposeVimAdapter],
+    [clearEditorMarkers],
   );
 
   const readDraggedTab = useCallback((event: ReactDragEvent<HTMLElement>) => {
     return readEditorTabTransfer(event.dataTransfer);
   }, []);
+  const readDraggedExplorerEntry = useCallback((event: ReactDragEvent<HTMLElement>) => {
+    return readExplorerEntryTransfer(event.dataTransfer);
+  }, []);
 
   const handleTabDrop = useCallback(
     (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
       const draggedTab = readDraggedTab(event);
-      if (!draggedTab) {
+      if (draggedTab) {
+        event.preventDefault();
+        setDropTargetIndex(null);
+        onMoveFile({
+          ...draggedTab,
+          targetPaneId: pane.id,
+          ...(targetIndex === undefined ? {} : { targetIndex }),
+        });
+        return;
+      }
+      const draggedEntry = readDraggedExplorerEntry(event);
+      if (!draggedEntry || draggedEntry.kind !== "file") {
         return;
       }
       event.preventDefault();
       setDropTargetIndex(null);
-      onMoveFile({
-        ...draggedTab,
-        targetPaneId: pane.id,
-        ...(targetIndex === undefined ? {} : { targetIndex }),
-      });
+      onOpenFileInPane(pane.id, draggedEntry.path, targetIndex);
     },
-    [onMoveFile, pane.id, readDraggedTab],
+    [onMoveFile, onOpenFileInPane, pane.id, readDraggedExplorerEntry, readDraggedTab],
   );
 
   const handleTabDragOver = useCallback(
     (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
       const draggedTab = readDraggedTab(event);
-      if (!draggedTab) {
+      if (draggedTab) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
+        return;
+      }
+      const draggedEntry = readDraggedExplorerEntry(event);
+      if (!draggedEntry || draggedEntry.kind !== "file") {
         return;
       }
       event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
+      event.dataTransfer.dropEffect = "copy";
       setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
     },
-    [pane.openFilePaths.length, readDraggedTab],
+    [pane.openFilePaths.length, readDraggedExplorerEntry, readDraggedTab],
   );
 
   const clearDropTarget = useCallback(() => {
@@ -586,6 +594,64 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       pane.openFilePaths,
     ],
   );
+
+  const sortedProblems = useMemo(
+    () =>
+      problems.toSorted((left, right) => {
+        if (left.severity !== right.severity) {
+          return right.severity - left.severity;
+        }
+        if (left.startLineNumber !== right.startLineNumber) {
+          return left.startLineNumber - right.startLineNumber;
+        }
+        return left.startColumn - right.startColumn;
+      }),
+    [problems],
+  );
+
+  const handleProblemClick = useCallback((problem: MonacoEditor.IMarker) => {
+    const editor = editorRef.current;
+    if (!editor) {
+      return;
+    }
+    editor.focus();
+    editor.setPosition({
+      lineNumber: problem.startLineNumber,
+      column: problem.startColumn,
+    });
+    editor.revealPositionInCenter({
+      lineNumber: problem.startLineNumber,
+      column: problem.startColumn,
+    });
+  }, []);
+
+  const handleOpenInExternalEditor = useCallback(async () => {
+    if (!api || !props.gitCwd || !pane.activeFilePath) {
+      return;
+    }
+    try {
+      setActionError(null);
+      await openInPreferredEditor(
+        api,
+        joinWorkspaceAbsolutePath(props.gitCwd, pane.activeFilePath),
+      );
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to open file in editor.");
+    }
+  }, [api, pane.activeFilePath, props.gitCwd]);
+
+  useEffect(() => {
+    setActionError(null);
+    setPreviewError(null);
+    setProblemsOpen(false);
+  }, [pane.activeFilePath]);
+
+  const activeFileErrorMessage =
+    activeFileQuery.error instanceof Error
+      ? activeFileQuery.error.message
+      : "An unexpected error occurred.";
+  const canOpenAnyway =
+    activeFileQuery.isError && canOpenFileExternallyFromReadError(activeFileErrorMessage);
 
   return (
     <section
@@ -751,6 +817,38 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
               </p>
             </div>
           </div>
+        ) : isPreviewMode && previewUrl ? (
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="min-h-0 flex-1 overflow-auto p-4">
+              <div className="flex h-full min-h-[220px] items-center justify-center rounded-xl border border-border/50 bg-secondary/30">
+                {activePreviewKind === "image" ? (
+                  <img
+                    src={previewUrl}
+                    alt={props.pane.activeFilePath}
+                    className="max-h-full max-w-full object-contain"
+                    onError={() => {
+                      setPreviewError("Unable to preview this image in the embedded editor.");
+                    }}
+                  />
+                ) : (
+                  <video
+                    src={previewUrl}
+                    controls
+                    className="max-h-full max-w-full"
+                    onError={() => {
+                      setPreviewError("Unable to preview this video in the embedded editor.");
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t border-border/50 px-3 py-2 text-xs text-muted-foreground">
+              <span className="truncate">Preview mode</span>
+              <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
+                Open in Editor
+              </Button>
+            </div>
+          </div>
         ) : activeFileQuery.isPending && !activeDraft ? (
           <div className="space-y-4 px-6 py-6">
             <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
@@ -770,16 +868,21 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
               <p className="mt-3 text-sm font-medium text-foreground">
                 This file could not be opened.
               </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {activeFileQuery.error instanceof Error
-                  ? activeFileQuery.error.message
-                  : "An unexpected error occurred."}
-              </p>
+              <p className="mt-1 text-sm text-muted-foreground">{activeFileErrorMessage}</p>
               <div className="mt-4 flex items-center justify-center gap-2">
                 <Button size="sm" variant="outline" onClick={props.onRetryActiveFile}>
                   <RefreshCwIcon className="size-3.5" />
                   Retry
                 </Button>
+                {canOpenAnyway ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleOpenInExternalEditor()}
+                  >
+                    Open Anyway
+                  </Button>
+                ) : null}
               </div>
             </div>
           </div>
@@ -804,12 +907,61 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         )}
       </div>
 
+      {!isPreviewMode && problemsOpen ? (
+        <section className="shrink-0 border-t border-border/40 bg-secondary/50">
+          <header className="flex h-7 items-center justify-between px-2.5 text-[11px] text-muted-foreground">
+            <span className="font-medium">Problems</span>
+            <span>{sortedProblems.length}</span>
+          </header>
+          <div className="max-h-44 overflow-y-auto border-t border-border/30">
+            {sortedProblems.length > 0 ? (
+              <div className="py-1">
+                {sortedProblems.map((problem) => {
+                  const severity = severityFromMarkerValue(problem.severity);
+                  return (
+                    <button
+                      key={`${problem.owner}:${problem.startLineNumber}:${problem.startColumn}:${problem.message}`}
+                      type="button"
+                      className="flex w-full items-start gap-2 px-2.5 py-1.5 text-left text-[11px] hover:bg-foreground/5"
+                      onClick={() => handleProblemClick(problem)}
+                    >
+                      <span
+                        className={cn(
+                          "mt-0.5 inline-flex min-w-[3.6rem] rounded px-1 py-px text-[9px] font-semibold uppercase",
+                          severity === "error" && "bg-destructive/15 text-destructive",
+                          severity === "warning" && "bg-amber-500/15 text-amber-600",
+                          severity === "info" && "bg-sky-500/15 text-sky-600",
+                          severity === "hint" && "bg-foreground/10 text-muted-foreground",
+                        )}
+                      >
+                        {severity}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-foreground">{problem.message}</span>
+                        <span className="block truncate text-muted-foreground/80">
+                          {problem.source ?? problem.owner} · Ln {problem.startLineNumber}, Col{" "}
+                          {problem.startColumn}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="px-2.5 py-2 text-[11px] text-muted-foreground">No problems detected.</p>
+            )}
+          </div>
+        </section>
+      ) : null}
+
       <footer className="flex h-[22px] shrink-0 items-center justify-between gap-3 border-t border-border/30 bg-secondary/60 px-2.5 text-[11px] text-muted-foreground">
         <div className="flex min-w-0 items-center gap-2.5 overflow-hidden">
           {props.pane.activeFilePath ? (
             <>
               <span className="truncate">{props.pane.activeFilePath}</span>
-              <span className="shrink-0 opacity-60">{formatFileSize(activeFileSizeBytes)}</span>
+              {activeFileSizeBytes !== null ? (
+                <span className="shrink-0 opacity-60">{formatFileSize(activeFileSizeBytes)}</span>
+              ) : null}
               {activeFileDirty ? (
                 <span className="shrink-0 rounded-sm bg-primary/15 px-1 py-px text-[9px] font-semibold tracking-wider text-primary uppercase">
                   Modified
@@ -822,21 +974,36 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          {props.neovimModeEnabled ? (
-            <div
-              ref={vimStatusNodeRef}
-              aria-live="polite"
-              className="min-w-0 max-w-[16rem] truncate text-[10px] text-muted-foreground/80 [&_input]:h-4 [&_input]:w-24 [&_input]:rounded-sm [&_input]:border [&_input]:border-border/60 [&_input]:bg-background/80 [&_input]:px-1 [&_input]:py-0 [&_input]:text-[10px] [&_input]:text-foreground"
-            />
+          {actionError ? (
+            <span className="max-w-[18rem] truncate text-destructive/80" title={actionError}>
+              {actionError}
+            </span>
+          ) : null}
+          {previewError ? (
+            <span className="max-w-[18rem] truncate text-destructive/80" title={previewError}>
+              {previewError}
+            </span>
           ) : null}
           {diagnosticError ? (
             <span className="max-w-[18rem] truncate text-destructive/80" title={diagnosticError}>
               {diagnosticError}
             </span>
-          ) : diagnosticSummary ? (
-            <span className="opacity-70" title={diagnosticSummary}>
-              {diagnosticSummary}
-            </span>
+          ) : null}
+          {props.pane.activeFilePath && !isPreviewMode ? (
+            <button
+              type="button"
+              className="opacity-70 transition-opacity hover:opacity-100 hover:text-foreground"
+              onClick={() => {
+                setProblemsOpen((open) => !open);
+              }}
+              title={
+                diagnosticSummary
+                  ? `${diagnosticSummary}. ${problemsOpen ? "Hide" : "Show"} problems panel`
+                  : `${problemsOpen ? "Hide" : "Show"} problems panel`
+              }
+            >
+              {diagnosticSummary ?? "No problems"}
+            </button>
           ) : null}
           {props.pane.activeFilePath && activeFileDirty ? (
             <button

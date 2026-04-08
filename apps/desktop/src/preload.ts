@@ -1,5 +1,5 @@
+import type { DesktopBridge, DesktopMenuAction } from "@ace/contracts";
 import { contextBridge, ipcRenderer } from "electron";
-import { DESKTOP_MENU_ACTIONS, type DesktopBridge, type DesktopMenuAction } from "@ace/contracts";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
@@ -64,7 +64,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   onMenuAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
       if (typeof action !== "string") return;
-      if (!DESKTOP_MENU_ACTIONS.includes(action as DesktopMenuAction)) return;
+      // Keep preload free of non-Electron runtime imports so it works in sandboxed renderers.
       listener(action as DesktopMenuAction);
     };
 

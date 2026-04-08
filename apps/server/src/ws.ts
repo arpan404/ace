@@ -556,6 +556,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           }),
         ),
       [WS_METHODS.shellOpenInEditor]: (input) => open.openInEditor(input),
+      [WS_METHODS.shellRevealInFileManager]: (input) => open.revealInFileManager(input),
       [WS_METHODS.gitStatus]: (input) => gitManager.status(input),
       [WS_METHODS.gitPull]: (input) => git.pullCurrentBranch(input.cwd),
       [WS_METHODS.gitRunStackedAction]: (input) =>

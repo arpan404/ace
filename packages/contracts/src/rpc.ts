@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
-import { OpenError, OpenInEditorInput } from "./editor";
+import { OpenError, OpenInEditorInput, OpenRevealInFileManagerInput } from "./editor";
 import {
   GitActionProgressEvent,
   GitCheckoutInput,
@@ -114,6 +114,7 @@ export const WS_METHODS = {
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
+  shellRevealInFileManager: "shell.revealInFileManager",
 
   // Git methods
   gitPull: "git.pull",
@@ -264,6 +265,11 @@ export const WsWorkspaceEditorCloseBufferRpc = Rpc.make(WS_METHODS.workspaceEdit
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: OpenInEditorInput,
+  error: OpenError,
+});
+
+export const WsShellRevealInFileManagerRpc = Rpc.make(WS_METHODS.shellRevealInFileManager, {
+  payload: OpenRevealInFileManagerInput,
   error: OpenError,
 });
 
@@ -451,6 +457,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkspaceEditorSyncBufferRpc,
   WsWorkspaceEditorCloseBufferRpc,
   WsShellOpenInEditorRpc,
+  WsShellRevealInFileManagerRpc,
   WsGitStatusRpc,
   WsGitPullRpc,
   WsGitRunStackedActionRpc,

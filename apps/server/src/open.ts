@@ -8,7 +8,7 @@
  */
 import { spawn } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
-import { extname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
 
 import { EDITORS, OpenError, type EditorId } from "@ace/contracts";
 import { ServiceMap, Effect, Layer } from "effect";
@@ -24,6 +24,10 @@ export { OpenError };
 export interface OpenInEditorInput {
   readonly cwd: string;
   readonly editor: EditorId;
+}
+
+export interface RevealInFileManagerInput {
+  readonly path: string;
 }
 
 interface EditorLaunch {
@@ -329,6 +333,11 @@ export interface OpenShape {
    * Launches the editor as a detached process so server startup is not blocked.
    */
   readonly openInEditor: (input: OpenInEditorInput) => Effect.Effect<void, OpenError>;
+
+  /**
+   * Reveal a file or directory in the operating system file manager.
+   */
+  readonly revealInFileManager: (input: RevealInFileManagerInput) => Effect.Effect<void, OpenError>;
 }
 
 /**
@@ -360,6 +369,33 @@ export const resolveEditorLaunch = Effect.fnUntraced(function* (
   }
 
   return { command: fileManagerCommandForPlatform(platform), args: [input.cwd] };
+});
+
+export const resolveRevealInFileManagerLaunch = Effect.fnUntraced(function* (
+  input: RevealInFileManagerInput,
+  platform: NodeJS.Platform = process.platform,
+): Effect.fn.Return<EditorLaunch, OpenError> {
+  const targetPath = input.path.trim();
+  if (targetPath.length === 0) {
+    return yield* new OpenError({ message: "File manager path cannot be empty." });
+  }
+
+  switch (platform) {
+    case "darwin":
+      return { command: "open", args: ["-R", targetPath] };
+    case "win32":
+      return { command: "explorer", args: ["/select,", targetPath] };
+    default: {
+      const openPath = yield* Effect.sync(() => {
+        try {
+          return statSync(targetPath).isDirectory() ? targetPath : dirname(targetPath);
+        } catch {
+          return dirname(targetPath);
+        }
+      });
+      return { command: "xdg-open", args: [openPath] };
+    }
+  }
 });
 
 export const launchDetached = (launch: EditorLaunch) =>
@@ -408,6 +444,8 @@ const make = Effect.gen(function* () {
       }),
     pickFolder: () => pickFolder(),
     openInEditor: (input) => Effect.flatMap(resolveEditorLaunch(input), launchDetached),
+    revealInFileManager: (input) =>
+      Effect.flatMap(resolveRevealInFileManagerLaunch(input), launchDetached),
   } satisfies OpenShape;
 });
 

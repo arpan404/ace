@@ -403,6 +403,51 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("serves workspace file preview responses before dev redirect", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const projectDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "ace-router-workspace-file-",
+      });
+      yield* fileSystem.makeDirectory(path.join(projectDir, "assets"), { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(projectDir, "assets", "preview.txt"),
+        "preview-ok",
+      );
+
+      yield* buildAppUnderTest({
+        config: { devUrl: new URL("http://127.0.0.1:5173") },
+      });
+
+      const response = yield* HttpClient.get(
+        `/api/workspace-file?cwd=${encodeURIComponent(projectDir)}&relativePath=${encodeURIComponent("assets/preview.txt")}`,
+      );
+
+      assert.equal(response.status, 200);
+      assert.equal(yield* response.text, "preview-ok");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects workspace file preview path traversal", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const projectDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "ace-router-workspace-file-invalid-",
+      });
+
+      yield* buildAppUnderTest({
+        config: { devUrl: new URL("http://127.0.0.1:5173") },
+      });
+
+      const response = yield* HttpClient.get(
+        `/api/workspace-file?cwd=${encodeURIComponent(projectDir)}&relativePath=${encodeURIComponent("../escape.txt")}`,
+      );
+
+      assert.equal(response.status, 400);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("serves attachment files from state dir", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -912,6 +957,33 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("routes websocket rpc shell.revealInFileManager", () =>
+    Effect.gen(function* () {
+      let revealedPath: string | null = null;
+      yield* buildAppUnderTest({
+        layers: {
+          open: {
+            revealInFileManager: (input) =>
+              Effect.sync(() => {
+                revealedPath = input.path;
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.shellRevealInFileManager]({
+            path: "/tmp/project/src/example.ts",
+          }),
+        ),
+      );
+
+      assert.equal(revealedPath, "/tmp/project/src/example.ts");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("routes websocket rpc server.pickFolder", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest({
@@ -970,6 +1042,30 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           client[WS_METHODS.shellOpenInEditor]({
             cwd: "/tmp/project",
             editor: "cursor",
+          }),
+        ).pipe(Effect.result),
+      );
+
+      assertFailure(result, openError);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc shell.revealInFileManager errors", () =>
+    Effect.gen(function* () {
+      const openError = new OpenError({ message: "File manager command not found." });
+      yield* buildAppUnderTest({
+        layers: {
+          open: {
+            revealInFileManager: () => Effect.fail(openError),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.shellRevealInFileManager]({
+            path: "/tmp/project/src/example.ts",
           }),
         ).pipe(Effect.result),
       );

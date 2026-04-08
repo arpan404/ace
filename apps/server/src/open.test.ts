@@ -12,6 +12,7 @@ import {
   resolveAvailableEditors,
   resolveEditorLaunch,
   resolveFolderPickerLaunch,
+  resolveRevealInFileManagerLaunch,
 } from "./open";
 import type { ProcessRunResult } from "./processRunner";
 
@@ -189,6 +190,48 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
         command: "xdg-open",
         args: ["/tmp/workspace"],
       });
+    }),
+  );
+});
+
+it.layer(NodeServices.layer)("resolveRevealInFileManagerLaunch", (it) => {
+  it.effect("maps reveal commands by operating system", () =>
+    Effect.gen(function* () {
+      const macLaunch = yield* resolveRevealInFileManagerLaunch(
+        { path: "/tmp/workspace/src/app.ts" },
+        "darwin",
+      );
+      assert.deepEqual(macLaunch, {
+        command: "open",
+        args: ["-R", "/tmp/workspace/src/app.ts"],
+      });
+
+      const winLaunch = yield* resolveRevealInFileManagerLaunch(
+        { path: "C:\\workspace\\src\\app.ts" },
+        "win32",
+      );
+      assert.deepEqual(winLaunch, {
+        command: "explorer",
+        args: ["/select,", "C:\\workspace\\src\\app.ts"],
+      });
+
+      const linuxLaunch = yield* resolveRevealInFileManagerLaunch(
+        { path: "/tmp/workspace/src/app.ts" },
+        "linux",
+      );
+      assert.deepEqual(linuxLaunch, {
+        command: "xdg-open",
+        args: ["/tmp/workspace/src"],
+      });
+    }),
+  );
+
+  it.effect("rejects empty reveal paths", () =>
+    Effect.gen(function* () {
+      const result = yield* resolveRevealInFileManagerLaunch({ path: "   " }, "darwin").pipe(
+        Effect.result,
+      );
+      assert.equal(result._tag, "Failure");
     }),
   );
 });

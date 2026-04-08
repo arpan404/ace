@@ -67,6 +67,9 @@ export interface WsRpcClient {
       readonly cwd: Parameters<NativeApi["shell"]["openInEditor"]>[0];
       readonly editor: Parameters<NativeApi["shell"]["openInEditor"]>[1];
     }) => ReturnType<NativeApi["shell"]["openInEditor"]>;
+    readonly revealInFileManager: (input: {
+      readonly path: Parameters<NativeApi["shell"]["revealInFileManager"]>[0];
+    }) => ReturnType<NativeApi["shell"]["revealInFileManager"]>;
   };
   readonly git: {
     readonly pull: RpcUnaryMethod<typeof WS_METHODS.gitPull>;
@@ -170,6 +173,8 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     shell: {
       openInEditor: (input) =>
         transport.request((client) => client[WS_METHODS.shellOpenInEditor](input)),
+      revealInFileManager: (input) =>
+        transport.request((client) => client[WS_METHODS.shellRevealInFileManager](input)),
     },
     git: {
       pull: (input) => transport.request((client) => client[WS_METHODS.gitPull](input)),
