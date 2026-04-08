@@ -67,6 +67,9 @@ export interface WsRpcClient {
       readonly cwd: Parameters<NativeApi["shell"]["openInEditor"]>[0];
       readonly editor: Parameters<NativeApi["shell"]["openInEditor"]>[1];
     }) => ReturnType<NativeApi["shell"]["openInEditor"]>;
+    readonly revealInFileManager: (input: {
+      readonly path: Parameters<NativeApi["shell"]["revealInFileManager"]>[0];
+    }) => ReturnType<NativeApi["shell"]["revealInFileManager"]>;
   };
   readonly git: {
     readonly pull: RpcUnaryMethod<typeof WS_METHODS.gitPull>;
@@ -88,6 +91,7 @@ export interface WsRpcClient {
   };
   readonly server: {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
+    readonly pickFolder: RpcUnaryNoArgMethod<typeof WS_METHODS.serverPickFolder>;
     readonly refreshProviders: RpcUnaryNoArgMethod<typeof WS_METHODS.serverRefreshProviders>;
     readonly searchOpenCodeModels: RpcUnaryMethod<typeof WS_METHODS.serverSearchOpenCodeModels>;
     readonly upsertKeybinding: RpcUnaryMethod<typeof WS_METHODS.serverUpsertKeybinding>;
@@ -169,6 +173,8 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     shell: {
       openInEditor: (input) =>
         transport.request((client) => client[WS_METHODS.shellOpenInEditor](input)),
+      revealInFileManager: (input) =>
+        transport.request((client) => client[WS_METHODS.shellRevealInFileManager](input)),
     },
     git: {
       pull: (input) => transport.request((client) => client[WS_METHODS.gitPull](input)),
@@ -209,6 +215,7 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     },
     server: {
       getConfig: () => transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
+      pickFolder: () => transport.request((client) => client[WS_METHODS.serverPickFolder]({})),
       refreshProviders: () =>
         transport.request((client) => client[WS_METHODS.serverRefreshProviders]({})),
       searchOpenCodeModels: (input) =>

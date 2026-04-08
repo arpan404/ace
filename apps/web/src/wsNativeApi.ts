@@ -40,8 +40,10 @@ export function createWsNativeApi(): NativeApi {
   const api: NativeApi = {
     dialogs: {
       pickFolder: async () => {
-        if (!window.desktopBridge) return null;
-        return window.desktopBridge.pickFolder();
+        if (window.desktopBridge) {
+          return window.desktopBridge.pickFolder();
+        }
+        return rpcClient.server.pickFolder();
       },
       confirm: async (message) => {
         if (window.desktopBridge) {
@@ -82,6 +84,7 @@ export function createWsNativeApi(): NativeApi {
     },
     shell: {
       openInEditor: (cwd, editor) => rpcClient.shell.openInEditor({ cwd, editor }),
+      revealInFileManager: (path) => rpcClient.shell.revealInFileManager({ path }),
       openExternal: async (url) => {
         if (window.desktopBridge) {
           const opened = await window.desktopBridge.openExternal(url);

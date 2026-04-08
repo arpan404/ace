@@ -27,6 +27,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         projectId: ProjectId.makeUnsafe("project-null-options"),
         title: "Null options project",
         workspaceRoot: "/tmp/project-null-options",
+        icon: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5.4",
@@ -34,6 +35,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         scripts: [],
         createdAt: "2026-03-24T00:00:00.000Z",
         updatedAt: "2026-03-24T00:00:00.000Z",
+        archivedAt: null,
         deletedAt: null,
       });
 

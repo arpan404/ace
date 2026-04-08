@@ -5,6 +5,8 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 
 import {
+  BASE_SERVER_PORT,
+  BASE_WEB_PORT,
   createDevRunnerEnv,
   findFirstAvailableOffset,
   resolveModePortOffsets,
@@ -166,12 +168,12 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         const env = yield* createDevRunnerEnv({
           mode: "dev:desktop",
           baseEnv: {
-            ACE_PORT: "3773",
+            ACE_PORT: String(BASE_SERVER_PORT),
             ACE_AUTH_TOKEN: "stale-token",
             ACE_MODE: "web",
             ACE_NO_BROWSER: "0",
             ACE_HOST: "0.0.0.0",
-            VITE_WS_URL: "ws://localhost:3773",
+            VITE_WS_URL: `ws://localhost:${String(BASE_SERVER_PORT)}`,
           },
           serverOffset: 0,
           webOffset: 0,
@@ -186,9 +188,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         });
 
         assert.equal(env.ACE_HOME, resolve("/tmp/my-ace"));
-        assert.equal(env.PORT, "5733");
-        assert.equal(env.ELECTRON_RENDERER_PORT, "5733");
-        assert.equal(env.VITE_DEV_SERVER_URL, "http://localhost:5733");
+        assert.equal(env.PORT, String(BASE_WEB_PORT));
+        assert.equal(env.ELECTRON_RENDERER_PORT, String(BASE_WEB_PORT));
+        assert.equal(env.VITE_DEV_SERVER_URL, `http://localhost:${String(BASE_WEB_PORT)}`);
         assert.equal(env.ACE_PORT, undefined);
         assert.equal(env.ACE_AUTH_TOKEN, undefined);
         assert.equal(env.ACE_MODE, undefined);
@@ -215,7 +217,12 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
     it.effect("advances until all required ports are available", () =>
       Effect.gen(function* () {
-        const taken = new Set([3773, 5733, 3774, 5734]);
+        const taken = new Set([
+          BASE_SERVER_PORT,
+          BASE_WEB_PORT,
+          BASE_SERVER_PORT + 1,
+          BASE_WEB_PORT + 1,
+        ]);
         const offset = yield* findFirstAvailableOffset({
           startOffset: 0,
           requireServerPort: true,
@@ -244,7 +251,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   describe("resolveModePortOffsets", () => {
     it.effect("uses a shared fallback offset for dev mode", () =>
       Effect.gen(function* () {
-        const taken = new Set([3773, 5733]);
+        const taken = new Set([BASE_SERVER_PORT, BASE_WEB_PORT]);
         const offsets = yield* resolveModePortOffsets({
           mode: "dev",
           startOffset: 0,
@@ -259,7 +266,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
     it.effect("keeps server offset stable for dev:web and only shifts web offset", () =>
       Effect.gen(function* () {
-        const taken = new Set([5733]);
+        const taken = new Set([BASE_WEB_PORT]);
         const offsets = yield* resolveModePortOffsets({
           mode: "dev:web",
           startOffset: 0,
@@ -274,7 +281,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
     it.effect("shifts only server offset for dev:server", () =>
       Effect.gen(function* () {
-        const taken = new Set([3773]);
+        const taken = new Set([BASE_SERVER_PORT]);
         const offsets = yield* resolveModePortOffsets({
           mode: "dev:server",
           startOffset: 0,

@@ -4,6 +4,7 @@ import {
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
+  type ProviderReplayTurn,
   ProviderKind,
   type OrchestrationSession,
   ThreadId,
@@ -18,6 +19,7 @@ import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { meaningfulErrorMessage } from "../../provider/errorCause.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
+import { sourceMessagesToReplayTurns } from "../../provider/providerReplayTurns.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -130,6 +132,20 @@ function activeTurnAlreadyRunningDetail(activeTurnId: TurnId | undefined): strin
     : "Provider session is already running a turn. Wait for it to finish or interrupt it before starting another turn.";
 }
 
+function isStaleTurnStartReplay(input: {
+  readonly latestTurn: { readonly state: "running" | "interrupted" | "completed" | "error" } | null;
+  readonly latestTurnRequestedAt: string | null;
+  readonly requestedAt: string;
+}): boolean {
+  if (input.latestTurn === null || input.latestTurnRequestedAt === null) {
+    return false;
+  }
+  if (input.latestTurn.state === "running") {
+    return false;
+  }
+  return input.latestTurnRequestedAt >= input.requestedAt;
+}
+
 function isTemporaryWorktreeBranch(branch: string): boolean {
   return TEMP_WORKTREE_BRANCH_PATTERN.test(branch.trim().toLowerCase());
 }
@@ -224,6 +240,39 @@ const make = Effect.gen(function* () {
       createdAt: input.createdAt,
     });
 
+  const findLiveSession = (threadId: ThreadId) =>
+    providerService
+      .listSessions()
+      .pipe(Effect.map((sessions) => sessions.find((session) => session.threadId === threadId)));
+
+  const reconcileThreadSessionFromLiveRuntime = (input: {
+    readonly thread: {
+      readonly id: ThreadId;
+      readonly session: OrchestrationSession | null;
+    };
+    readonly liveSession: ProviderSession | undefined;
+    readonly createdAt: string;
+  }) =>
+    setThreadSession({
+      threadId: input.thread.id,
+      session: {
+        threadId: input.thread.id,
+        status:
+          input.liveSession !== undefined
+            ? mapProviderSessionStatusToOrchestrationStatus(input.liveSession.status)
+            : "stopped",
+        providerName: input.liveSession?.provider ?? input.thread.session?.providerName ?? null,
+        runtimeMode:
+          input.liveSession?.runtimeMode ??
+          input.thread.session?.runtimeMode ??
+          DEFAULT_RUNTIME_MODE,
+        activeTurnId: null,
+        lastError: input.liveSession?.lastError ?? input.thread.session?.lastError ?? null,
+        updatedAt: input.createdAt,
+      },
+      createdAt: input.createdAt,
+    });
+
   const resolveThread = Effect.fnUntraced(function* (threadId: ThreadId) {
     const readModel = yield* orchestrationEngine.getReadModel();
     return readModel.threads.find((entry) => entry.id === threadId);
@@ -235,6 +284,7 @@ const make = Effect.gen(function* () {
     options?: {
       readonly modelSelection?: ModelSelection;
       readonly preferFreshSession?: boolean;
+      readonly replayTurns?: ReadonlyArray<ProviderReplayTurn>;
     },
   ) {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -276,6 +326,7 @@ const make = Effect.gen(function* () {
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
+      readonly replayTurns?: ReadonlyArray<ProviderReplayTurn>;
     }) =>
       providerService.startSession(threadId, {
         threadId,
@@ -283,6 +334,7 @@ const make = Effect.gen(function* () {
         ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
         modelSelection: desiredModelSelection,
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+        ...(input?.replayTurns !== undefined ? { replayTurns: input.replayTurns } : {}),
         runtimeMode: desiredRuntimeMode,
       });
 
@@ -327,19 +379,22 @@ const make = Effect.gen(function* () {
         options?.preferFreshSession === true &&
         sessionModelSwitch === "restart-session" &&
         thread.session?.activeTurnId === null;
+      const shouldRestartMissingLiveSession =
+        options?.preferFreshSession === true && activeSession === undefined;
 
       if (
         !runtimeModeChanged &&
         !providerChanged &&
         !shouldRestartForModelChange &&
         !shouldRestartForModelSelectionChange &&
-        !shouldRestartReadySessionForTurn
+        !shouldRestartReadySessionForTurn &&
+        !shouldRestartMissingLiveSession
       ) {
         return existingSessionThreadId;
       }
 
       const resumeCursor =
-        providerChanged || shouldRestartForModelChange
+        providerChanged || shouldRestartForModelChange || shouldRestartMissingLiveSession
           ? undefined
           : (activeSession?.resumeCursor ?? undefined);
       yield* Effect.logInfo("provider command reactor restarting provider session", {
@@ -355,11 +410,15 @@ const make = Effect.gen(function* () {
         shouldRestartForModelChange,
         shouldRestartForModelSelectionChange,
         shouldRestartReadySessionForTurn,
+        shouldRestartMissingLiveSession,
         hasResumeCursor: resumeCursor !== undefined,
       });
-      const restartedSession = yield* startProviderSession(
-        resumeCursor !== undefined ? { resumeCursor } : undefined,
-      );
+      const restartedSession = yield* startProviderSession({
+        ...(resumeCursor !== undefined ? { resumeCursor } : {}),
+        ...(shouldRestartMissingLiveSession && options?.replayTurns !== undefined
+          ? { replayTurns: options.replayTurns }
+          : {}),
+      });
       yield* Effect.logInfo("provider command reactor restarted provider session", {
         threadId,
         previousSessionId: existingSessionThreadId,
@@ -371,7 +430,9 @@ const make = Effect.gen(function* () {
       return restartedSession.threadId;
     }
 
-    const startedSession = yield* startProviderSession(undefined);
+    const startedSession = yield* startProviderSession(
+      options?.replayTurns !== undefined ? { replayTurns: options.replayTurns } : undefined,
+    );
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
   });
@@ -382,6 +443,7 @@ const make = Effect.gen(function* () {
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
     readonly interactionMode?: "default" | "plan";
+    readonly replayTurns?: ReadonlyArray<ProviderReplayTurn>;
     readonly createdAt: string;
   }) {
     const thread = yield* resolveThread(input.threadId);
@@ -391,6 +453,7 @@ const make = Effect.gen(function* () {
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
       preferFreshSession: true,
+      ...(input.replayTurns !== undefined ? { replayTurns: input.replayTurns } : {}),
     });
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
@@ -547,6 +610,22 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
+    if (
+      isStaleTurnStartReplay({
+        latestTurn: thread.latestTurn,
+        latestTurnRequestedAt: thread.latestTurn?.requestedAt ?? null,
+        requestedAt: event.payload.createdAt,
+      })
+    ) {
+      yield* Effect.logDebug("provider command reactor ignored stale turn-start replay", {
+        threadId: event.payload.threadId,
+        messageId: event.payload.messageId,
+        requestedAt: event.payload.createdAt,
+        latestTurnRequestedAt: thread.latestTurn?.requestedAt ?? null,
+        latestTurnState: thread.latestTurn?.state ?? null,
+      });
+      return;
+    }
 
     const message = thread.messages.find((entry) => entry.id === event.payload.messageId);
     if (!message || message.role !== "user") {
@@ -601,6 +680,12 @@ const make = Effect.gen(function* () {
         ? { modelSelection: event.payload.modelSelection }
         : {}),
       interactionMode: event.payload.interactionMode,
+      replayTurns: sourceMessagesToReplayTurns(
+        thread.messages.slice(
+          0,
+          thread.messages.findIndex((entry) => entry.id === message.id),
+        ),
+      ),
       createdAt: event.payload.createdAt,
     }).pipe(
       Effect.catchCause((cause) =>
@@ -636,7 +721,29 @@ const make = Effect.gen(function* () {
     }
 
     // Orchestration turn ids are not provider turn ids, so interrupt by session.
-    yield* providerService.interruptTurn({ threadId: event.payload.threadId });
+    yield* providerService.interruptTurn({ threadId: event.payload.threadId }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.gen(function* () {
+          const liveSession = yield* findLiveSession(event.payload.threadId).pipe(
+            Effect.catchCause(() => Effect.failCause(cause)),
+          );
+
+          if (thread.session?.status !== "running") {
+            return yield* Effect.failCause(cause);
+          }
+
+          if (liveSession?.status === "running") {
+            return yield* Effect.failCause(cause);
+          }
+
+          yield* reconcileThreadSessionFromLiveRuntime({
+            thread,
+            liveSession,
+            createdAt: event.payload.createdAt,
+          });
+        }),
+      ),
+    );
   });
 
   const processApprovalResponseRequested = Effect.fnUntraced(function* (
@@ -739,7 +846,24 @@ const make = Effect.gen(function* () {
 
     const now = event.payload.createdAt;
     if (thread.session && thread.session.status !== "stopped") {
-      yield* providerService.stopSession({ threadId: thread.id });
+      yield* providerService.stopSession({ threadId: thread.id }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.gen(function* () {
+            const liveSession = yield* findLiveSession(thread.id).pipe(
+              Effect.catchCause(() => Effect.failCause(cause)),
+            );
+            if (liveSession !== undefined) {
+              return yield* Effect.failCause(cause);
+            }
+
+            yield* reconcileThreadSessionFromLiveRuntime({
+              thread,
+              liveSession,
+              createdAt: now,
+            });
+          }),
+        ),
+      );
     }
 
     yield* setThreadSession({

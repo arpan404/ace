@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
-import { OpenError, OpenInEditorInput } from "./editor";
+import { OpenError, OpenInEditorInput, OpenRevealInFileManagerInput } from "./editor";
 import {
   GitActionProgressEvent,
   GitCheckoutInput,
@@ -114,6 +114,7 @@ export const WS_METHODS = {
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
+  shellRevealInFileManager: "shell.revealInFileManager",
 
   // Git methods
   gitPull: "git.pull",
@@ -138,6 +139,7 @@ export const WS_METHODS = {
 
   // Server meta
   serverGetConfig: "server.getConfig",
+  serverPickFolder: "server.pickFolder",
   serverRefreshProviders: "server.refreshProviders",
   serverSearchOpenCodeModels: "server.searchOpenCodeModels",
   serverUpsertKeybinding: "server.upsertKeybinding",
@@ -172,6 +174,12 @@ export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
   payload: Schema.Struct({}),
   success: ServerConfig,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError]),
+});
+
+export const WsServerPickFolderRpc = Rpc.make(WS_METHODS.serverPickFolder, {
+  payload: Schema.Struct({}),
+  success: Schema.NullOr(Schema.String),
+  error: OpenError,
 });
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
@@ -257,6 +265,11 @@ export const WsWorkspaceEditorCloseBufferRpc = Rpc.make(WS_METHODS.workspaceEdit
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: OpenInEditorInput,
+  error: OpenError,
+});
+
+export const WsShellRevealInFileManagerRpc = Rpc.make(WS_METHODS.shellRevealInFileManager, {
+  payload: OpenRevealInFileManagerInput,
   error: OpenError,
 });
 
@@ -427,6 +440,7 @@ export const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServer
 
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
+  WsServerPickFolderRpc,
   WsServerRefreshProvidersRpc,
   WsServerSearchOpenCodeModelsRpc,
   WsServerUpsertKeybindingRpc,
@@ -443,6 +457,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkspaceEditorSyncBufferRpc,
   WsWorkspaceEditorCloseBufferRpc,
   WsShellOpenInEditorRpc,
+  WsShellRevealInFileManagerRpc,
   WsGitStatusRpc,
   WsGitPullRpc,
   WsGitRunStackedActionRpc,

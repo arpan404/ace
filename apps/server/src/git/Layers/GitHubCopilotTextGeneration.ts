@@ -13,6 +13,7 @@ import { ServerConfig } from "../../config.ts";
 import {
   createGitHubCopilotClient,
   normalizeGitHubCopilotModelOptionsForModel,
+  stopGitHubCopilotClient,
 } from "../../provider/githubCopilotSdk.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
@@ -38,6 +39,19 @@ function extractJsonText(raw: string): string {
     return fenced[1].trim();
   }
   return raw.trim();
+}
+
+function isGitHubCopilotPayloadTooLargeError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return (
+    (message.includes("413") && message.includes("parse request")) ||
+    message.includes("payload too large") ||
+    message.includes("request entity too large")
+  );
 }
 
 const makeGitHubCopilotTextGeneration = Effect.gen(function* () {
@@ -119,7 +133,7 @@ const makeGitHubCopilotTextGeneration = Effect.gen(function* () {
           availableModels.find((model) => model.id === modelSelection.model),
           modelSelection.options,
         );
-        const session = await client.createSession({
+        const sessionConfig = {
           model: modelSelection.model,
           ...(normalizedModelOptions?.reasoningEffort
             ? { reasoningEffort: normalizedModelOptions.reasoningEffort }
@@ -127,28 +141,43 @@ const makeGitHubCopilotTextGeneration = Effect.gen(function* () {
           onPermissionRequest: approveAll,
           workingDirectory: cwd,
           availableTools: [],
-        });
-        try {
-          const response = await session.sendAndWait(
-            {
-              prompt: jsonPrompt,
-              ...(imageAttachments.length > 0 ? { attachments: imageAttachments } : {}),
-            },
-            GITHUB_COPILOT_TIMEOUT_MS,
-          );
-          const content = response?.data.content;
-          if (typeof content !== "string" || content.trim().length === 0) {
-            throw new TextGenerationError({
-              operation,
-              detail: "GitHub Copilot returned an empty response.",
-            });
+        };
+
+        const sendRequest = async (
+          requestAttachments: typeof imageAttachments,
+        ): Promise<string> => {
+          const session = await client.createSession(sessionConfig);
+          try {
+            const response = await session.sendAndWait(
+              {
+                prompt: jsonPrompt,
+                ...(requestAttachments.length > 0 ? { attachments: requestAttachments } : {}),
+              },
+              GITHUB_COPILOT_TIMEOUT_MS,
+            );
+            const content = response?.data.content;
+            if (typeof content !== "string" || content.trim().length === 0) {
+              throw new TextGenerationError({
+                operation,
+                detail: "GitHub Copilot returned an empty response.",
+              });
+            }
+            return extractJsonText(content);
+          } finally {
+            await session.disconnect();
           }
-          return extractJsonText(content);
-        } finally {
-          await session.disconnect();
+        };
+
+        try {
+          return await sendRequest(imageAttachments);
+        } catch (error) {
+          if (imageAttachments.length === 0 || !isGitHubCopilotPayloadTooLargeError(error)) {
+            throw error;
+          }
+          return await sendRequest([]);
         }
       } finally {
-        await client.stop();
+        await stopGitHubCopilotClient(client).catch(() => undefined);
       }
     }).pipe(
       Effect.flatMap((rawJson) =>

@@ -1,7 +1,7 @@
 import { ArchiveIcon, ArchiveX } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
-import { type ProviderKind, ThreadId } from "@ace/contracts";
+import { type DesktopCliInstallState, type ProviderKind, ThreadId } from "@ace/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
 import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/model";
 import { Equal } from "effect";
@@ -26,6 +26,10 @@ import {
   useDesktopUpdateState,
 } from "../../lib/desktopUpdateReactQuery";
 import {
+  setDesktopCliInstallStateQueryData,
+  useDesktopCliInstallState,
+} from "../../lib/desktopCliInstallReactQuery";
+import {
   MAX_CUSTOM_MODEL_LENGTH,
   getCustomModelOptionsByProvider,
   resolveAppModelSelectionState,
@@ -34,6 +38,7 @@ import { ensureNativeApi, readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { BROWSER_SEARCH_ENGINE_OPTIONS } from "../../lib/browser/types";
+import { cn, newCommandId } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
@@ -41,7 +46,8 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { ProjectFavicon } from "../ProjectFavicon";
+import { ProjectAvatar } from "../ProjectAvatar";
+import type { Project } from "../../types";
 import { ProviderSettingsSection, type ProviderCard } from "./ProviderSettingsSection";
 import {
   SettingsPageContainer,
@@ -276,6 +282,158 @@ function AboutVersionSection() {
           />
           {buttonTooltip ? <TooltipPopup>{buttonTooltip}</TooltipPopup> : null}
         </Tooltip>
+      }
+    />
+  );
+}
+
+function AboutCliInstallTitle() {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span>Command line</span>
+      <code className="text-[11px] font-medium text-muted-foreground">ace</code>
+    </span>
+  );
+}
+
+function getCliInstallDescription(state: DesktopCliInstallState | null): string {
+  if (!state || state.status === "checking" || state.status === "installing") {
+    return "Preparing the packaged `ace` command for terminal use.";
+  }
+  if (state.status === "ready") {
+    return "Launch ace from any new terminal session with the `ace` command.";
+  }
+  if (state.status === "unsupported") {
+    return "This desktop build cannot install the packaged `ace` command.";
+  }
+  return "Install the packaged `ace` command so new terminal sessions can launch ace directly.";
+}
+
+function getCliInstallButtonLabel(
+  state: DesktopCliInstallState | null,
+  isInstalling: boolean,
+): string {
+  if (isInstalling || state?.status === "installing") {
+    return "Installing…";
+  }
+  if (!state || state.status === "checking") {
+    return "Checking…";
+  }
+  if (state.status === "unsupported") {
+    return "Unavailable";
+  }
+  if (state.status === "ready") {
+    return "Reinstall CLI";
+  }
+  return "Install CLI";
+}
+
+function AboutCliInstallSection() {
+  const queryClient = useQueryClient();
+  const cliInstallQuery = useDesktopCliInstallState();
+  const cliInstallState = cliInstallQuery.data ?? null;
+  const [isInstalling, setIsInstalling] = useState(false);
+  const cliInstallBridge = window.desktopBridge;
+
+  const handleInstallCli = useCallback(() => {
+    const bridge = window.desktopBridge;
+    if (!bridge || typeof bridge.installCli !== "function") {
+      return;
+    }
+
+    setIsInstalling(true);
+    void bridge
+      .installCli()
+      .then((result) => {
+        setDesktopCliInstallStateQueryData(queryClient, result.state);
+        if (result.accepted && result.completed) {
+          toastManager.add({
+            type: "success",
+            title: result.state.restartRequired ? "CLI installed" : "CLI ready",
+            description: result.state.message ?? "The `ace` command is ready to use.",
+          });
+          return;
+        }
+
+        if (!result.completed && result.state.message) {
+          toastManager.add({
+            type: "error",
+            title: "Could not install CLI",
+            description: result.state.message,
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not install CLI",
+          description: error instanceof Error ? error.message : "CLI installation failed.",
+        });
+      })
+      .finally(() => {
+        setIsInstalling(false);
+      });
+  }, [queryClient]);
+
+  const buttonDisabled =
+    isInstalling ||
+    !cliInstallBridge ||
+    typeof cliInstallBridge.installCli !== "function" ||
+    cliInstallState === null ||
+    cliInstallState?.status === "checking" ||
+    cliInstallState?.status === "installing" ||
+    cliInstallState?.status === "unsupported";
+
+  const status = cliInstallState ? (
+    <div className="space-y-2">
+      {cliInstallState.commandPath ? (
+        <div className="space-y-0.5">
+          <span className="block">Command shim</span>
+          <code className="block break-all font-mono text-[11px] text-foreground">
+            {cliInstallState.commandPath}
+          </code>
+        </div>
+      ) : null}
+      {cliInstallState.pathTargets.length > 0 ? (
+        <div className="space-y-0.5">
+          <span className="block">PATH targets</span>
+          {cliInstallState.pathTargets.map((target) => (
+            <code key={target} className="block break-all font-mono text-[11px] text-foreground">
+              {target}
+            </code>
+          ))}
+        </div>
+      ) : null}
+      {cliInstallState.message ? (
+        <span
+          className={cn(
+            "block",
+            cliInstallState.status === "error" && "text-destructive",
+            cliInstallState.status === "ready" && "text-foreground",
+          )}
+        >
+          {cliInstallState.message}
+        </span>
+      ) : null}
+    </div>
+  ) : (
+    "Checking CLI installation…"
+  );
+
+  return (
+    <SettingsRow
+      title={<AboutCliInstallTitle />}
+      description={getCliInstallDescription(cliInstallState)}
+      status={status}
+      control={
+        <Button
+          size="xs"
+          variant={cliInstallState?.status === "ready" ? "outline" : "default"}
+          disabled={buttonDisabled}
+          onClick={handleInstallCli}
+        >
+          {getCliInstallButtonLabel(cliInstallState, isInstalling)}
+        </Button>
       }
     />
   );
@@ -1019,32 +1177,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
           <SettingsSection title="Workspace editor">
             <SettingsRow
-              title="Neovim mode"
-              description="Enable modal Vim-style editing in the workspace editor while keeping the current Monaco UI."
-              resetAction={
-                settings.editorNeovimMode !== DEFAULT_UNIFIED_SETTINGS.editorNeovimMode ? (
-                  <SettingResetButton
-                    label="neovim mode"
-                    onClick={() =>
-                      updateSettings({
-                        editorNeovimMode: DEFAULT_UNIFIED_SETTINGS.editorNeovimMode,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Switch
-                  checked={settings.editorNeovimMode}
-                  onCheckedChange={(checked) =>
-                    updateSettings({ editorNeovimMode: Boolean(checked) })
-                  }
-                  aria-label="Enable Neovim mode in the workspace editor"
-                />
-              }
-            />
-
-            <SettingsRow
               title="Editor suggestions"
               description="Keep Monaco completion helpers off by default to reduce noisy or unwanted code insertions."
               resetAction={
@@ -1452,7 +1584,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       {isAboutPage ? (
         <SettingsSection title="Application">
           {isElectron ? (
-            <AboutVersionSection />
+            <>
+              <AboutVersionSection />
+              <AboutCliInstallSection />
+            </>
           ) : (
             <SettingsRow
               title={<AboutVersionTitle />}
@@ -1501,6 +1636,24 @@ export function ArchivedThreadsPanel() {
   const projects = useStore((store) => store.projects);
   const threads = useStore((store) => store.threads);
   const { unarchiveThread, confirmAndDeleteThread } = useThreadActions();
+  const archivedProjects = useMemo(
+    () =>
+      projects
+        .filter((project) => project.archivedAt !== null)
+        .toSorted((left, right) => {
+          const leftKey = left.archivedAt ?? left.updatedAt ?? left.createdAt ?? "";
+          const rightKey = right.archivedAt ?? right.updatedAt ?? right.createdAt ?? "";
+          return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
+        }),
+    [projects],
+  );
+  const threadCountByProjectId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const thread of threads) {
+      counts.set(thread.projectId, (counts.get(thread.projectId) ?? 0) + 1);
+    }
+    return counts;
+  }, [threads]);
   const archivedGroups = useMemo(() => {
     const projectById = new Map(projects.map((project) => [project.id, project] as const));
     return [...projectById.values()]
@@ -1548,70 +1701,134 @@ export function ArchivedThreadsPanel() {
     },
     [confirmAndDeleteThread, unarchiveThread],
   );
+  const restoreProject = useCallback(async (projectId: Project["id"]) => {
+    const api = readNativeApi();
+    if (!api) {
+      throw new Error("Project restore is unavailable.");
+    }
+    await api.orchestration.dispatchCommand({
+      type: "project.meta.update",
+      commandId: newCommandId(),
+      projectId,
+      archivedAt: null,
+    });
+  }, []);
+  const hasArchivedItems = archivedProjects.length > 0 || archivedGroups.length > 0;
 
   return (
     <SettingsPageContainer>
-      {archivedGroups.length === 0 ? (
+      {!hasArchivedItems ? (
         <SettingsSection title="Archived threads">
           <Empty className="min-h-88">
             <EmptyMedia variant="icon">
               <ArchiveIcon />
             </EmptyMedia>
             <EmptyHeader>
-              <EmptyTitle>No archived threads</EmptyTitle>
-              <EmptyDescription>Archived threads will appear here.</EmptyDescription>
+              <EmptyTitle>No archived items</EmptyTitle>
+              <EmptyDescription>Archived projects and threads will appear here.</EmptyDescription>
             </EmptyHeader>
           </Empty>
         </SettingsSection>
       ) : (
-        archivedGroups.map(({ project, threads: projectThreads }) => (
-          <SettingsSection
-            key={project.id}
-            title={project.name}
-            icon={<ProjectFavicon cwd={project.cwd} />}
-          >
-            {projectThreads.map((thread) => (
-              <div
-                key={thread.id}
-                className="flex items-center justify-between gap-3 border-t border-border px-4 py-3 first:border-t-0 sm:px-5"
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  void handleArchivedThreadContextMenu(thread.id, {
-                    x: event.clientX,
-                    y: event.clientY,
-                  });
-                }}
-              >
-                <div className="min-w-0 flex-1">
-                  <h3 className="truncate text-sm font-medium text-foreground">{thread.title}</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Archived {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)}
-                    {" \u00b7 Created "}
-                    {formatRelativeTimeLabel(thread.createdAt)}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
-                  onClick={() =>
-                    void unarchiveThread(thread.id).catch((error) => {
-                      toastManager.add({
-                        type: "error",
-                        title: "Failed to unarchive thread",
-                        description: error instanceof Error ? error.message : "An error occurred.",
-                      });
-                    })
-                  }
+        <>
+          {archivedProjects.length > 0 ? (
+            <SettingsSection title="Archived projects" icon={<ArchiveIcon />}>
+              {archivedProjects.map((project) => (
+                <div
+                  key={project.id}
+                  className="flex items-center justify-between gap-3 border-t border-border px-4 py-3 first:border-t-0 sm:px-5"
                 >
-                  <ArchiveX className="size-3.5" />
-                  <span>Unarchive</span>
-                </Button>
-              </div>
-            ))}
-          </SettingsSection>
-        ))
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <ProjectAvatar project={project} className="size-8 rounded-lg" />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate text-sm font-medium text-foreground">
+                        {project.name}
+                      </h3>
+                      <p className="truncate text-xs text-muted-foreground">
+                        Archived{" "}
+                        {formatRelativeTimeLabel(
+                          project.archivedAt ?? project.updatedAt ?? project.createdAt ?? "",
+                        )}
+                        {" \u00b7 "}
+                        {threadCountByProjectId.get(project.id) ?? 0}{" "}
+                        {(threadCountByProjectId.get(project.id) ?? 0) === 1 ? "thread" : "threads"}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
+                    onClick={() =>
+                      void restoreProject(project.id).catch((error) => {
+                        toastManager.add({
+                          type: "error",
+                          title: "Failed to restore project",
+                          description:
+                            error instanceof Error ? error.message : "An error occurred.",
+                        });
+                      })
+                    }
+                  >
+                    <ArchiveX className="size-3.5" />
+                    <span>Restore</span>
+                  </Button>
+                </div>
+              ))}
+            </SettingsSection>
+          ) : null}
+
+          {archivedGroups.map(({ project, threads: projectThreads }) => (
+            <SettingsSection
+              key={project.id}
+              title={project.name}
+              icon={<ProjectAvatar project={project} />}
+            >
+              {projectThreads.map((thread) => (
+                <div
+                  key={thread.id}
+                  className="flex items-center justify-between gap-3 border-t border-border px-4 py-3 first:border-t-0 sm:px-5"
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    void handleArchivedThreadContextMenu(thread.id, {
+                      x: event.clientX,
+                      y: event.clientY,
+                    });
+                  }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <h3 className="truncate text-sm font-medium text-foreground">{thread.title}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Archived {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)}
+                      {" \u00b7 Created "}
+                      {formatRelativeTimeLabel(thread.createdAt)}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
+                    onClick={() =>
+                      void unarchiveThread(thread.id).catch((error) => {
+                        toastManager.add({
+                          type: "error",
+                          title: "Failed to unarchive thread",
+                          description:
+                            error instanceof Error ? error.message : "An error occurred.",
+                        });
+                      })
+                    }
+                  >
+                    <ArchiveX className="size-3.5" />
+                    <span>Unarchive</span>
+                  </Button>
+                </div>
+              ))}
+            </SettingsSection>
+          ))}
+        </>
       )}
     </SettingsPageContainer>
   );

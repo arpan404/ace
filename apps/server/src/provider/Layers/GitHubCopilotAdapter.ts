@@ -9,6 +9,7 @@ import {
   type CanonicalItemType,
   type CanonicalRequestType,
   EventId,
+  isFullAccessRuntimeMode,
   ProviderItemId,
   type ProviderApprovalDecision,
   type ProviderRuntimeEvent,
@@ -39,6 +40,7 @@ import {
   type GitHubCopilotClientLike,
   type GitHubCopilotSessionClient,
   normalizeGitHubCopilotModelOptionsForModel,
+  stopGitHubCopilotClient,
 } from "../githubCopilotSdk";
 import {
   ProviderAdapterProcessError,
@@ -54,6 +56,10 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 
 const PROVIDER = "githubCopilot" as const;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
+const GITHUB_COPILOT_SEND_TIMEOUT_MS = 30_000;
+const GITHUB_COPILOT_TURN_INACTIVITY_TIMEOUT_MS = 5 * 60_000;
+const GITHUB_COPILOT_STOP_TIMEOUT_MS = 5_000;
+const GITHUB_COPILOT_ABORT_TIMEOUT_MS = 10_000;
 
 type UserInputRequest = {
   readonly question: string;
@@ -104,12 +110,14 @@ interface TurnState {
   readonly startedAt: string;
   readonly inputText: string;
   readonly attachmentNames: ReadonlyArray<string>;
+  awaitingRuntimeActivity: boolean;
   assistantText: string;
   readonly items: Array<unknown>;
   readonly assistantItemIdsByMessageId: Map<string, string>;
   readonly reasoningItemIdsByReasoningId: Map<string, string>;
   toolItems: Map<string, ToolItemState>;
   lastIntentText?: string;
+  streamingReasoningProviderContentId?: string | undefined;
   reasoningOutputSeen: boolean;
   abortRequested: boolean;
 }
@@ -131,11 +139,19 @@ interface GitHubCopilotSessionContext {
   lastKnownTokenUsage?: ThreadTokenUsageSnapshot;
   pendingBootstrapReset: boolean;
   stopped: boolean;
+  turnWatchdog: ReturnType<typeof setTimeout> | undefined;
+  recoveryPromise: Promise<void> | undefined;
 }
 
 export interface GitHubCopilotAdapterLiveOptions {
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
+  readonly timeouts?: {
+    readonly sendMs?: number;
+    readonly inactivityMs?: number;
+    readonly stopMs?: number;
+    readonly abortMs?: number;
+  };
 }
 
 function toMessage(cause: unknown, fallback: string): string {
@@ -153,6 +169,23 @@ function makeDeferredDecision<T>() {
     resolve = innerResolve;
   });
   return { promise, resolve };
+}
+
+function clearTurnWatchdog(context: GitHubCopilotSessionContext) {
+  if (!context.turnWatchdog) {
+    return;
+  }
+  clearTimeout(context.turnWatchdog);
+  context.turnWatchdog = undefined;
+}
+
+function markTurnRuntimeActivity(context: GitHubCopilotSessionContext) {
+  const turnState = context.turnState;
+  if (!turnState || !turnState.awaitingRuntimeActivity) {
+    return;
+  }
+  turnState.awaitingRuntimeActivity = false;
+  clearTurnWatchdog(context);
 }
 
 function summarizePermissionRequest(request: PermissionRequest): string | undefined {
@@ -610,8 +643,43 @@ function messageIdFromSessionEventData(data: object, fallbackEventId: string): s
   return stringValue(getObjectProperty(data, "messageId")) ?? `assistant:${fallbackEventId}`;
 }
 
-function reasoningIdFromSessionEventData(data: object, fallbackEventId: string): string {
-  return stringValue(getObjectProperty(data, "reasoningId")) ?? `reasoning:${fallbackEventId}`;
+function resolveReasoningProviderContentId(
+  turnState: TurnState | undefined,
+  data: object,
+  fallbackEventId: string,
+): { providerContentId: string; fallbackProviderContentId?: string } {
+  const explicitReasoningId = stringValue(getObjectProperty(data, "reasoningId"));
+  const activeReasoningId = turnState?.streamingReasoningProviderContentId;
+
+  if (explicitReasoningId) {
+    if (turnState && activeReasoningId && activeReasoningId !== explicitReasoningId) {
+      const existingItemId = turnState.reasoningItemIdsByReasoningId.get(activeReasoningId);
+      if (existingItemId && !turnState.reasoningItemIdsByReasoningId.has(explicitReasoningId)) {
+        turnState.reasoningItemIdsByReasoningId.set(explicitReasoningId, existingItemId);
+      }
+    }
+
+    if (turnState) {
+      turnState.streamingReasoningProviderContentId = explicitReasoningId;
+    }
+
+    return {
+      providerContentId: explicitReasoningId,
+      ...(activeReasoningId && activeReasoningId !== explicitReasoningId
+        ? { fallbackProviderContentId: activeReasoningId }
+        : {}),
+    };
+  }
+
+  if (activeReasoningId) {
+    return { providerContentId: activeReasoningId };
+  }
+
+  const fallbackReasoningId = `reasoning:${fallbackEventId}`;
+  if (turnState) {
+    turnState.streamingReasoningProviderContentId = fallbackReasoningId;
+  }
+  return { providerContentId: fallbackReasoningId };
 }
 
 function toolRequestsFromSessionEventData(data: object): ReadonlyArray<Record<string, unknown>> {
@@ -708,6 +776,38 @@ function getErrorMessage(value: unknown): string | undefined {
   return stringValue(value.message);
 }
 
+type TimedPromiseOutcome<T> =
+  | { readonly kind: "resolved"; readonly value: T }
+  | { readonly kind: "rejected"; readonly error: unknown }
+  | { readonly kind: "timeout" };
+
+function withTimeoutOutcome<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<TimedPromiseOutcome<T>> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (outcome: TimedPromiseOutcome<T>) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve(outcome);
+    };
+
+    const timeoutId = setTimeout(() => {
+      finish({ kind: "timeout" });
+    }, timeoutMs);
+    timeoutId.unref?.();
+
+    promise.then(
+      (value) => finish({ kind: "resolved", value }),
+      (error) => finish({ kind: "rejected", error }),
+    );
+  });
+}
+
 const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function* (
   options?: GitHubCopilotAdapterLiveOptions,
 ) {
@@ -724,6 +824,12 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         })
       : undefined);
   const sessions = new Map<ThreadId, GitHubCopilotSessionContext>();
+  const timeouts = {
+    sendMs: options?.timeouts?.sendMs ?? GITHUB_COPILOT_SEND_TIMEOUT_MS,
+    inactivityMs: options?.timeouts?.inactivityMs ?? GITHUB_COPILOT_TURN_INACTIVITY_TIMEOUT_MS,
+    stopMs: options?.timeouts?.stopMs ?? GITHUB_COPILOT_STOP_TIMEOUT_MS,
+    abortMs: options?.timeouts?.abortMs ?? GITHUB_COPILOT_ABORT_TIMEOUT_MS,
+  } as const;
 
   const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
@@ -800,6 +906,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
     if (!turnState) {
       return;
     }
+    clearTurnWatchdog(context);
     const completedAt = new Date().toISOString();
     if (state === "interrupted") {
       emitRuntimeEvent(
@@ -909,6 +1016,23 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
     providerContentId: string,
   ) => {
     contentItemRegistry(turnState, kind).delete(providerContentId);
+  };
+
+  const releaseReasoningContentItem = (
+    turnState: TurnState,
+    providerContentId: string,
+    fallbackProviderContentId?: string,
+  ) => {
+    releaseContentItem(turnState, "reasoning", providerContentId);
+    if (fallbackProviderContentId && fallbackProviderContentId !== providerContentId) {
+      releaseContentItem(turnState, "reasoning", fallbackProviderContentId);
+    }
+    if (
+      turnState.streamingReasoningProviderContentId === providerContentId ||
+      turnState.streamingReasoningProviderContentId === fallbackProviderContentId
+    ) {
+      turnState.streamingReasoningProviderContentId = undefined;
+    }
   };
 
   const syncAnnouncedToolRequest = (
@@ -1102,7 +1226,32 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
   const handleSessionEvent = (context: GitHubCopilotSessionContext, event: SessionEvent): void => {
     const turnState = context.turnState;
     const data = getSessionEventData(event);
+    if (turnState) {
+      markTurnRuntimeActivity(context);
+    }
     switch (event.type) {
+      case "session.error": {
+        const message =
+          stringValue(getObjectProperty(data, "message")) ?? "GitHub Copilot session error.";
+        emitRuntimeEvent(
+          makeBaseEvent(context, {
+            type: "runtime.error",
+            createdAt: getSessionEventTimestamp(event),
+            turnId: turnState?.turnId,
+            payload: {
+              message,
+              class: "provider_error",
+            },
+            rawMethod: event.type,
+            rawSource: "github-copilot.sdk.event",
+            rawPayload: event,
+          }),
+        );
+        if (turnState) {
+          completeTurn(context, turnState.abortRequested ? "interrupted" : "failed", message);
+        }
+        return;
+      }
       case "assistant.intent": {
         emitAssistantIntentAsReasoning(context, event, data);
         return;
@@ -1142,7 +1291,11 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       }
       case "assistant.reasoning_delta": {
         const delta = stringValue(getObjectProperty(data, "deltaContent"));
-        const reasoningId = reasoningIdFromSessionEventData(data, event.id);
+        const { providerContentId: reasoningId } = resolveReasoningProviderContentId(
+          turnState,
+          data,
+          event.id,
+        );
         const itemId = ensureContentItem(context, {
           kind: "reasoning",
           providerContentId: reasoningId,
@@ -1228,7 +1381,8 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       }
       case "assistant.reasoning": {
         const content = stringValue(getObjectProperty(data, "content"));
-        const reasoningId = reasoningIdFromSessionEventData(data, event.id);
+        const { providerContentId: reasoningId, fallbackProviderContentId } =
+          resolveReasoningProviderContentId(turnState, data, event.id);
         const hasStreamingItem = turnState?.reasoningItemIdsByReasoningId.has(reasoningId) ?? false;
         if (!content && !hasStreamingItem) {
           return;
@@ -1265,7 +1419,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         });
         turnState.items.push(runtimeEvent);
         emitRuntimeEvent(runtimeEvent);
-        releaseContentItem(turnState, "reasoning", reasoningId);
+        releaseReasoningContentItem(turnState, reasoningId, fallbackProviderContentId);
         return;
       }
       case "session.usage_info": {
@@ -1554,11 +1708,29 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
     }
   };
 
-  const stopContext = async (context: GitHubCopilotSessionContext): Promise<void> => {
+  const stopContext = async (
+    context: GitHubCopilotSessionContext,
+    options?: {
+      readonly reason?: string;
+      readonly exitKind?: "graceful" | "error";
+      readonly recoverable?: boolean;
+      readonly completeActiveTurnAs?: "interrupted" | "failed";
+    },
+  ): Promise<void> => {
     if (context.stopped) {
       return;
     }
+
+    clearTurnWatchdog(context);
     context.stopped = true;
+
+    const reason = options?.reason ?? "Session stopped.";
+    const exitKind = options?.exitKind ?? "graceful";
+
+    if (context.turnState) {
+      completeTurn(context, options?.completeActiveTurnAs ?? "interrupted", reason);
+    }
+
     for (const pending of context.pendingApprovals.values()) {
       pending.resolve("cancel");
     }
@@ -1571,46 +1743,113 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       unsubscribe();
     }
     context.unsubscribers.length = 0;
-    const shutdownErrors: Array<Error> = [];
-    try {
-      await context.sdkSession.disconnect();
-    } catch (cause) {
-      shutdownErrors.push(
-        cause instanceof Error
-          ? cause
-          : new Error(`Failed to disconnect GitHub Copilot session: ${String(cause)}`),
-      );
-    }
-    try {
-      const stopErrors = await context.sdkClient.stop();
-      shutdownErrors.push(...stopErrors);
-    } catch (cause) {
-      shutdownErrors.push(
-        cause instanceof Error
-          ? cause
-          : new Error(`Failed to stop GitHub Copilot client: ${String(cause)}`),
-      );
-    }
+
+    const shutdown = await stopGitHubCopilotClient(context.sdkClient, {
+      timeoutMs: timeouts.stopMs,
+    });
+    const updatedAt = new Date().toISOString();
+
     context.session = {
       ...withoutActiveTurn(context.session),
       status: "closed",
-      updatedAt: new Date().toISOString(),
+      updatedAt,
+      ...(exitKind === "error" ? { lastError: reason } : {}),
     };
     emitRuntimeEvent(
       makeBaseEvent(context, {
         type: "session.exited",
+        createdAt: updatedAt,
         payload: {
-          exitKind: "graceful",
-          reason: "Session stopped.",
+          exitKind,
+          reason,
+          ...(options?.recoverable !== undefined ? { recoverable: options.recoverable } : {}),
         },
         rawMethod: "session.exited",
         rawSource: "github-copilot.sdk.event",
-        rawPayload: { reason: "Session stopped." },
+        rawPayload: { reason, exitKind, recoverable: options?.recoverable },
       }),
     );
-    if (shutdownErrors.length > 0) {
-      throw new AggregateError(shutdownErrors, "Failed to fully stop GitHub Copilot session.");
+
+    if (!shutdown.stopped) {
+      throw new AggregateError(shutdown.errors, "Failed to fully stop GitHub Copilot session.");
     }
+  };
+
+  const recoverSession = async (
+    context: GitHubCopilotSessionContext,
+    input: {
+      readonly reason: string;
+      readonly errorClass?: "provider_error" | "transport_error";
+      readonly turnState?: "failed" | "interrupted";
+    },
+  ): Promise<void> => {
+    if (context.recoveryPromise) {
+      await context.recoveryPromise;
+      return;
+    }
+
+    const recoveryPromise = (async () => {
+      emitRuntimeEvent(
+        makeBaseEvent(context, {
+          type: "runtime.error",
+          createdAt: new Date().toISOString(),
+          turnId: context.turnState?.turnId,
+          payload: {
+            message: input.reason,
+            class: input.errorClass ?? "transport_error",
+          },
+          rawMethod: "runtime.error",
+          rawSource: "github-copilot.sdk.event",
+          rawPayload: { reason: input.reason },
+        }),
+      );
+
+      if (context.turnState && input.turnState) {
+        completeTurn(context, input.turnState, input.reason);
+      }
+
+      try {
+        await stopContext(context, {
+          reason: input.reason,
+          exitKind: "error",
+          recoverable: true,
+        });
+      } finally {
+        sessions.delete(context.session.threadId);
+      }
+    })().finally(() => {
+      context.recoveryPromise = undefined;
+    });
+
+    context.recoveryPromise = recoveryPromise;
+    await recoveryPromise;
+  };
+
+  const scheduleTurnWatchdog = (context: GitHubCopilotSessionContext): void => {
+    clearTurnWatchdog(context);
+    if (
+      context.stopped ||
+      !context.turnState ||
+      !context.turnState.awaitingRuntimeActivity ||
+      timeouts.inactivityMs <= 0
+    ) {
+      return;
+    }
+
+    const activeTurnId = context.turnState.turnId;
+    context.turnWatchdog = setTimeout(() => {
+      const activeTurn = context.turnState;
+      if (!activeTurn || context.stopped || activeTurn.turnId !== activeTurnId) {
+        return;
+      }
+
+      void recoverSession(context, {
+        reason: `GitHub Copilot accepted the turn but did not produce runtime activity within ${String(timeouts.inactivityMs)}ms. Recovering the session.`,
+        errorClass: "transport_error",
+        turnState: activeTurn.abortRequested ? "interrupted" : "failed",
+      });
+    }, timeouts.inactivityMs);
+    context.turnWatchdog.unref?.();
   };
 
   const startSession: GitHubCopilotAdapterShape["startSession"] = (input) =>
@@ -1654,7 +1893,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         if (!context) {
           return { kind: "denied-no-approval-rule-and-could-not-request-from-user" };
         }
-        if (input.runtimeMode === "full-access") {
+        if (isFullAccessRuntimeMode(input.runtimeMode)) {
           return { kind: "approved" };
         }
 
@@ -1663,6 +1902,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           return { kind: "approved" };
         }
 
+        markTurnRuntimeActivity(context);
         const requestId = randomUUID();
         const deferred = makeDeferredDecision<ProviderApprovalDecision>();
         const detail = summarizePermissionRequest(request);
@@ -1718,6 +1958,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         if (!context) {
           return { answer: "", wasFreeform: true };
         }
+        markTurnRuntimeActivity(context);
         const requestId = randomUUID();
         const deferred = makeDeferredDecision<ProviderUserInputAnswers>();
         const questionId = "response";
@@ -1830,6 +2071,8 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           turnState: undefined,
           pendingBootstrapReset: replayTurns.length > 0 && !resumedExistingSession,
           stopped: false,
+          turnWatchdog: undefined,
+          recoveryPromise: undefined,
         };
         context = createdContext;
         createdContext.unsubscribers.push(
@@ -1870,32 +2113,10 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
 
         return cloneSession(createdContext.session);
       } catch (cause) {
-        const cleanupErrors: Array<Error> = [];
-        if (sdkSession) {
-          try {
-            await sdkSession.disconnect();
-          } catch (disconnectCause) {
-            cleanupErrors.push(
-              disconnectCause instanceof Error
-                ? disconnectCause
-                : new Error(
-                    `Failed to disconnect GitHub Copilot session during startup cleanup: ${String(disconnectCause)}`,
-                  ),
-            );
-          }
-        }
-        try {
-          const stopErrors = await sdkClient.stop();
-          cleanupErrors.push(...stopErrors);
-        } catch (stopCause) {
-          cleanupErrors.push(
-            stopCause instanceof Error
-              ? stopCause
-              : new Error(
-                  `Failed to stop GitHub Copilot client during startup cleanup: ${String(stopCause)}`,
-                ),
-          );
-        }
+        const cleanup = await stopGitHubCopilotClient(sdkClient, {
+          timeoutMs: timeouts.stopMs,
+        });
+        const cleanupErrors = [...cleanup.errors];
         const detailSuffix =
           cleanupErrors.length === 0
             ? ""
@@ -1955,6 +2176,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         startedAt: createdAt,
         inputText: input.input ?? "",
         attachmentNames,
+        awaitingRuntimeActivity: true,
         assistantText: "",
         items: [],
         assistantItemIdsByMessageId: new Map(),
@@ -1969,6 +2191,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         activeTurnId: turnId,
         updatedAt: createdAt,
       };
+      scheduleTurnWatchdog(context);
 
       emitRuntimeEvent(
         makeBaseEvent(context, {
@@ -2014,19 +2237,32 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             attachment !== null,
         );
 
-      try {
-        await context.sdkSession.send({
+      const sendOutcome = await withTimeoutOutcome(
+        context.sdkSession.send({
           prompt: promptText,
           ...(attachments.length > 0 ? { attachments } : {}),
-        });
+        }),
+        timeouts.sendMs,
+      );
+
+      if (sendOutcome.kind === "resolved") {
         context.pendingBootstrapReset = false;
-      } catch (cause) {
-        completeTurn(context, "failed", toMessage(cause, "GitHub Copilot turn failed."));
+        scheduleTurnWatchdog(context);
+      } else {
+        const detail =
+          sendOutcome.kind === "timeout"
+            ? `GitHub Copilot did not accept the turn within ${String(timeouts.sendMs)}ms. Recovering the session.`
+            : toMessage(sendOutcome.error, "GitHub Copilot turn failed.");
+        await recoverSession(context, {
+          reason: detail,
+          errorClass: sendOutcome.kind === "timeout" ? "transport_error" : "provider_error",
+          turnState: context.turnState?.abortRequested ? "interrupted" : "failed",
+        });
         throw new ProviderAdapterRequestError({
           provider: PROVIDER,
           method: "sendTurn",
-          detail: toMessage(cause, "GitHub Copilot turn failed."),
-          cause,
+          detail,
+          ...(sendOutcome.kind === "rejected" ? { cause: sendOutcome.error } : {}),
         });
       }
 
@@ -2049,7 +2285,19 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       if (context.turnState) {
         context.turnState.abortRequested = true;
       }
-      await context.sdkSession.abort();
+      const abortOutcome = await withTimeoutOutcome(context.sdkSession.abort(), timeouts.abortMs);
+      if (abortOutcome.kind === "resolved") {
+        return;
+      }
+
+      await recoverSession(context, {
+        reason:
+          abortOutcome.kind === "timeout"
+            ? `GitHub Copilot did not acknowledge abort within ${String(timeouts.abortMs)}ms. Recovering the session.`
+            : toMessage(abortOutcome.error, "GitHub Copilot turn abort failed."),
+        errorClass: abortOutcome.kind === "timeout" ? "transport_error" : "provider_error",
+        turnState: "interrupted",
+      });
     });
 
   const respondToRequest: GitHubCopilotAdapterShape["respondToRequest"] = (

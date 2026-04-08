@@ -28,10 +28,12 @@ import { readNativeApi } from "~/nativeApi";
 export const ProposedPlanCard = memo(function ProposedPlanCard({
   planMarkdown,
   cwd,
+  onOpenBrowserUrl = null,
   workspaceRoot,
 }: {
   planMarkdown: string;
   cwd: string | undefined;
+  onOpenBrowserUrl?: ((url: string) => void) | null;
   workspaceRoot: string | undefined;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -150,9 +152,19 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
       <div className="mt-3">
         <div className={cn("relative", canCollapse && !expanded && "max-h-104 overflow-hidden")}>
           {canCollapse && !expanded ? (
-            <ChatMarkdown text={collapsedPreview ?? ""} cwd={cwd} isStreaming={false} />
+            <ChatMarkdown
+              text={collapsedPreview ?? ""}
+              cwd={cwd}
+              isStreaming={false}
+              onOpenBrowserUrl={onOpenBrowserUrl}
+            />
           ) : (
-            <ChatMarkdown text={displayedPlanMarkdown} cwd={cwd} isStreaming={false} />
+            <ChatMarkdown
+              text={displayedPlanMarkdown}
+              cwd={cwd}
+              isStreaming={false}
+              onOpenBrowserUrl={onOpenBrowserUrl}
+            />
           )}
           {canCollapse && !expanded ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-background via-background/90 to-transparent" />

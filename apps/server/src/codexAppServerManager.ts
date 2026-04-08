@@ -153,6 +153,9 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   "no such thread",
   "unknown thread",
   "does not exist",
+  "no rollout found",
+  "missing rollout",
+  "rollout not found",
 ];
 
 function messageFromUnknownError(cause: unknown): string {
@@ -450,6 +453,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
     try {
       const resolvedCwd = input.cwd ?? process.cwd();
+      this.replaceExistingSession(threadId);
 
       const session: ProviderSession = {
         provider: "codex",
@@ -929,6 +933,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   hasSession(threadId: ThreadId): boolean {
     return this.sessions.has(threadId);
+  }
+
+  private replaceExistingSession(threadId: ThreadId): void {
+    const existing = this.sessions.get(threadId);
+    if (!existing || existing.session.status === "closed") {
+      return;
+    }
+
+    this.stopSession(threadId);
   }
 
   stopAll(): void {

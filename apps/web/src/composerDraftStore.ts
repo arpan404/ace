@@ -885,6 +885,7 @@ function normalizePersistedDraftThreads(
             : new Date().toISOString(),
         runtimeMode:
           candidateDraftThread.runtimeMode === "approval-required" ||
+          candidateDraftThread.runtimeMode === "andy" ||
           candidateDraftThread.runtimeMode === "full-access"
             ? candidateDraftThread.runtimeMode
             : DEFAULT_RUNTIME_MODE,
@@ -970,6 +971,7 @@ function normalizePersistedDraftsByThreadId(
       : [];
     const runtimeMode =
       draftCandidate.runtimeMode === "approval-required" ||
+      draftCandidate.runtimeMode === "andy" ||
       draftCandidate.runtimeMode === "full-access"
         ? draftCandidate.runtimeMode
         : null;
@@ -1830,7 +1832,11 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           return;
         }
         const nextRuntimeMode =
-          runtimeMode === "approval-required" || runtimeMode === "full-access" ? runtimeMode : null;
+          runtimeMode === "approval-required" ||
+          runtimeMode === "full-access" ||
+          runtimeMode === "andy"
+            ? runtimeMode
+            : null;
         set((state) => {
           const existing = state.draftsByThreadId[threadId];
           if (!existing && nextRuntimeMode === null) {

@@ -99,6 +99,58 @@ function writeSystemMessage(terminal: Terminal, message: string): void {
 const DEFAULT_TERMINAL_FONT_FAMILY =
   '"JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono", "JetBrains Mono", "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace';
 
+const LIGHT_TERMINAL_THEME = {
+  background: "rgb(241, 236, 228)",
+  foreground: "rgb(29, 35, 42)",
+  cursor: "rgb(47, 84, 136)",
+  selectionBackground: "rgba(63, 97, 150, 0.18)",
+  scrollbarSliderBackground: "rgba(22, 28, 36, 0.18)",
+  scrollbarSliderHoverBackground: "rgba(22, 28, 36, 0.28)",
+  scrollbarSliderActiveBackground: "rgba(22, 28, 36, 0.36)",
+  black: "rgb(52, 60, 72)",
+  red: "rgb(165, 60, 79)",
+  green: "rgb(59, 112, 79)",
+  yellow: "rgb(145, 106, 33)",
+  blue: "rgb(53, 96, 158)",
+  magenta: "rgb(120, 78, 144)",
+  cyan: "rgb(46, 114, 128)",
+  white: "rgb(195, 200, 208)",
+  brightBlack: "rgb(116, 125, 138)",
+  brightRed: "rgb(192, 83, 104)",
+  brightGreen: "rgb(82, 136, 101)",
+  brightYellow: "rgb(170, 127, 48)",
+  brightBlue: "rgb(75, 120, 188)",
+  brightMagenta: "rgb(143, 104, 168)",
+  brightCyan: "rgb(67, 139, 153)",
+  brightWhite: "rgb(233, 237, 241)",
+} satisfies ITheme;
+
+const DARK_TERMINAL_THEME = {
+  background: "rgb(12, 14, 17)",
+  foreground: "rgb(224, 229, 236)",
+  cursor: "rgb(139, 190, 255)",
+  selectionBackground: "rgba(116, 166, 245, 0.24)",
+  scrollbarSliderBackground: "rgba(255, 255, 255, 0.12)",
+  scrollbarSliderHoverBackground: "rgba(255, 255, 255, 0.18)",
+  scrollbarSliderActiveBackground: "rgba(255, 255, 255, 0.24)",
+  black: "rgb(35, 41, 49)",
+  red: "rgb(220, 96, 120)",
+  green: "rgb(132, 191, 99)",
+  yellow: "rgb(198, 162, 70)",
+  blue: "rgb(92, 147, 219)",
+  magenta: "rgb(177, 128, 223)",
+  cyan: "rgb(78, 177, 188)",
+  white: "rgb(190, 199, 211)",
+  brightBlack: "rgb(102, 113, 128)",
+  brightRed: "rgb(240, 126, 148)",
+  brightGreen: "rgb(160, 214, 122)",
+  brightYellow: "rgb(224, 186, 92)",
+  brightBlue: "rgb(120, 176, 242)",
+  brightMagenta: "rgb(204, 156, 239)",
+  brightCyan: "rgb(111, 209, 219)",
+  brightWhite: "rgb(238, 242, 247)",
+} satisfies ITheme;
+
 function readTerminalFontFamily(): string {
   if (typeof window === "undefined") return DEFAULT_TERMINAL_FONT_FAMILY;
   const configuredFont = getComputedStyle(document.documentElement)
@@ -129,65 +181,91 @@ async function waitForTerminalFontReady(fontFamily: string, fontSize: number): P
   ]);
 }
 
-function terminalThemeFromApp(): ITheme {
+function readTerminalThemeToken(
+  styles: CSSStyleDeclaration,
+  propertyName: string,
+  fallback: string,
+): string {
+  const value = styles.getPropertyValue(propertyName).trim();
+  return value.length > 0 ? value : fallback;
+}
+
+function terminalThemeFromElement(element: HTMLElement | null): ITheme {
   const isDark = document.documentElement.classList.contains("dark");
-  const bodyStyles = getComputedStyle(document.body);
-  const background =
-    bodyStyles.backgroundColor || (isDark ? "rgb(14, 18, 24)" : "rgb(255, 255, 255)");
-  const foreground = bodyStyles.color || (isDark ? "rgb(237, 241, 247)" : "rgb(28, 33, 41)");
-
-  if (isDark) {
-    return {
-      background,
-      foreground,
-      cursor: "rgb(180, 203, 255)",
-      selectionBackground: "rgba(180, 203, 255, 0.25)",
-      scrollbarSliderBackground: "rgba(255, 255, 255, 0.1)",
-      scrollbarSliderHoverBackground: "rgba(255, 255, 255, 0.18)",
-      scrollbarSliderActiveBackground: "rgba(255, 255, 255, 0.22)",
-      black: "rgb(24, 30, 38)",
-      red: "rgb(255, 122, 142)",
-      green: "rgb(134, 231, 149)",
-      yellow: "rgb(244, 205, 114)",
-      blue: "rgb(137, 190, 255)",
-      magenta: "rgb(208, 176, 255)",
-      cyan: "rgb(124, 232, 237)",
-      white: "rgb(210, 218, 230)",
-      brightBlack: "rgb(110, 120, 136)",
-      brightRed: "rgb(255, 168, 180)",
-      brightGreen: "rgb(176, 245, 186)",
-      brightYellow: "rgb(255, 224, 149)",
-      brightBlue: "rgb(174, 210, 255)",
-      brightMagenta: "rgb(229, 203, 255)",
-      brightCyan: "rgb(167, 244, 247)",
-      brightWhite: "rgb(244, 247, 252)",
-    };
-  }
-
+  const fallbackTheme = isDark ? DARK_TERMINAL_THEME : LIGHT_TERMINAL_THEME;
+  const styles = getComputedStyle(element ?? document.documentElement);
   return {
-    background,
-    foreground,
-    cursor: "rgb(38, 56, 78)",
-    selectionBackground: "rgba(37, 63, 99, 0.2)",
-    scrollbarSliderBackground: "rgba(0, 0, 0, 0.15)",
-    scrollbarSliderHoverBackground: "rgba(0, 0, 0, 0.25)",
-    scrollbarSliderActiveBackground: "rgba(0, 0, 0, 0.3)",
-    black: "rgb(44, 53, 66)",
-    red: "rgb(191, 70, 87)",
-    green: "rgb(60, 126, 86)",
-    yellow: "rgb(146, 112, 35)",
-    blue: "rgb(72, 102, 163)",
-    magenta: "rgb(132, 86, 149)",
-    cyan: "rgb(53, 127, 141)",
-    white: "rgb(210, 215, 223)",
-    brightBlack: "rgb(112, 123, 140)",
-    brightRed: "rgb(212, 95, 112)",
-    brightGreen: "rgb(85, 148, 111)",
-    brightYellow: "rgb(173, 133, 45)",
-    brightBlue: "rgb(91, 124, 194)",
-    brightMagenta: "rgb(153, 107, 172)",
-    brightCyan: "rgb(70, 149, 164)",
-    brightWhite: "rgb(236, 240, 246)",
+    background: readTerminalThemeToken(styles, "--terminal-surface", fallbackTheme.background),
+    foreground: readTerminalThemeToken(styles, "--terminal-foreground", fallbackTheme.foreground),
+    cursor: readTerminalThemeToken(styles, "--terminal-cursor", fallbackTheme.cursor),
+    selectionBackground: readTerminalThemeToken(
+      styles,
+      "--terminal-selection-background",
+      fallbackTheme.selectionBackground,
+    ),
+    scrollbarSliderBackground: readTerminalThemeToken(
+      styles,
+      "--terminal-scrollbar-slider",
+      fallbackTheme.scrollbarSliderBackground,
+    ),
+    scrollbarSliderHoverBackground: readTerminalThemeToken(
+      styles,
+      "--terminal-scrollbar-slider-hover",
+      fallbackTheme.scrollbarSliderHoverBackground,
+    ),
+    scrollbarSliderActiveBackground: readTerminalThemeToken(
+      styles,
+      "--terminal-scrollbar-slider-active",
+      fallbackTheme.scrollbarSliderActiveBackground,
+    ),
+    black: readTerminalThemeToken(styles, "--terminal-ansi-black", fallbackTheme.black),
+    red: readTerminalThemeToken(styles, "--terminal-ansi-red", fallbackTheme.red),
+    green: readTerminalThemeToken(styles, "--terminal-ansi-green", fallbackTheme.green),
+    yellow: readTerminalThemeToken(styles, "--terminal-ansi-yellow", fallbackTheme.yellow),
+    blue: readTerminalThemeToken(styles, "--terminal-ansi-blue", fallbackTheme.blue),
+    magenta: readTerminalThemeToken(styles, "--terminal-ansi-magenta", fallbackTheme.magenta),
+    cyan: readTerminalThemeToken(styles, "--terminal-ansi-cyan", fallbackTheme.cyan),
+    white: readTerminalThemeToken(styles, "--terminal-ansi-white", fallbackTheme.white),
+    brightBlack: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-black",
+      fallbackTheme.brightBlack,
+    ),
+    brightRed: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-red",
+      fallbackTheme.brightRed,
+    ),
+    brightGreen: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-green",
+      fallbackTheme.brightGreen,
+    ),
+    brightYellow: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-yellow",
+      fallbackTheme.brightYellow,
+    ),
+    brightBlue: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-blue",
+      fallbackTheme.brightBlue,
+    ),
+    brightMagenta: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-magenta",
+      fallbackTheme.brightMagenta,
+    ),
+    brightCyan: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-cyan",
+      fallbackTheme.brightCyan,
+    ),
+    brightWhite: readTerminalThemeToken(
+      styles,
+      "--terminal-ansi-bright-white",
+      fallbackTheme.brightWhite,
+    ),
   };
 }
 
@@ -511,7 +589,7 @@ function TerminalViewport({
       letterSpacing: 0.2,
       scrollback: 5_000,
       fontFamily,
-      theme: terminalThemeFromApp(),
+      theme: terminalThemeFromElement(mount),
     });
     terminal.loadAddon(fitAddon);
 
@@ -732,7 +810,7 @@ function TerminalViewport({
     const themeObserver = new MutationObserver(() => {
       const activeTerminal = terminalRef.current;
       if (!activeTerminal) return;
-      activeTerminal.options.theme = terminalThemeFromApp();
+      activeTerminal.options.theme = terminalThemeFromElement(containerRef.current);
       activeTerminal.refresh(0, activeTerminal.rows - 1);
     });
     themeObserver.observe(document.documentElement, {
@@ -930,7 +1008,12 @@ function TerminalViewport({
       window.cancelAnimationFrame(frame);
     };
   }, [drawerHeight, resizeEpoch, terminalId, threadId]);
-  return <div ref={containerRef} className="relative h-full w-full overflow-hidden rounded-lg" />;
+  return (
+    <div
+      ref={containerRef}
+      className="terminal-viewport relative h-full w-full overflow-hidden rounded-lg"
+    />
+  );
 }
 
 interface ThreadTerminalDrawerProps {
@@ -1562,7 +1645,7 @@ export default function ThreadTerminalDrawer({
 
   return (
     <aside
-      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/50 bg-background"
+      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/20 bg-background"
       style={{ height: `${drawerHeight}px` }}
     >
       <div
@@ -1746,10 +1829,10 @@ export default function ThreadTerminalDrawer({
 
       {!hasTerminalSidebar && (
         <div className="pointer-events-none absolute right-2 top-2 z-20">
-          <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-lg border border-border/50 bg-card/50 shadow-sm backdrop-blur-md">
+          <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-lg border border-border/15 bg-card/30 backdrop-blur-md">
             <button
               type="button"
-              className="inline-flex max-w-44 items-center gap-1 truncate px-2 py-1 text-[11px] text-foreground/80 transition-all duration-200 hover:bg-accent/50"
+              className="inline-flex max-w-44 items-center gap-1.5 truncate px-2.5 py-1 text-[11px] text-foreground/60 transition-colors duration-150 hover:bg-accent/30"
               onContextMenu={(event) => {
                 event.preventDefault();
                 void handleTerminalContextMenu(resolvedActiveTerminalId, {
@@ -1766,29 +1849,29 @@ export default function ThreadTerminalDrawer({
               })}
               {terminalLabelById.get(resolvedActiveTerminalId) ?? "terminal"}
             </button>
-            <div className="h-3.5 w-px bg-border/40" />
+            <div className="h-3 w-px bg-border/12" />
             <TerminalActionButton
-              className={`p-1 text-foreground/90 transition-colors ${
+              className={`p-1.5 text-foreground/50 transition-colors duration-150 ${
                 hasReachedSplitLimit
-                  ? "cursor-not-allowed opacity-45 hover:bg-transparent"
-                  : "hover:bg-accent"
+                  ? "cursor-not-allowed opacity-40 hover:bg-transparent"
+                  : "hover:bg-accent/25"
               }`}
               onClick={onSplitTerminalAction}
               label={splitTerminalActionLabel}
             >
               <SquareSplitHorizontal className="size-3.25" />
             </TerminalActionButton>
-            <div className="h-3.5 w-px bg-border/40" />
+            <div className="h-3 w-px bg-border/12" />
             <TerminalActionButton
-              className="p-1 text-foreground/90 transition-colors hover:bg-accent"
+              className="p-1.5 text-foreground/50 transition-colors duration-150 hover:bg-accent/25"
               onClick={onNewTerminalAction}
               label={newTerminalActionLabel}
             >
               <Plus className="size-3.25" />
             </TerminalActionButton>
-            <div className="h-3.5 w-px bg-border/40" />
+            <div className="h-3 w-px bg-border/12" />
             <TerminalActionButton
-              className="p-1 text-foreground/90 transition-colors hover:bg-accent"
+              className="p-1.5 text-foreground/50 transition-colors duration-150 hover:bg-accent/25"
               onClick={(event) => {
                 handleTerminalSectionMenu(menuPositionFromElement(event.currentTarget));
               }}
@@ -1796,9 +1879,9 @@ export default function ThreadTerminalDrawer({
             >
               <EllipsisVertical className="size-3.25" />
             </TerminalActionButton>
-            <div className="h-3.5 w-px bg-border/40" />
+            <div className="h-3 w-px bg-border/12" />
             <TerminalActionButton
-              className="p-1 text-foreground/90 transition-colors hover:bg-accent"
+              className="p-1.5 text-foreground/50 transition-colors duration-150 hover:bg-accent/25"
               onClick={() => onCloseTerminal(resolvedActiveTerminalId)}
               label={closeTerminalActionLabel}
             >
@@ -1853,7 +1936,7 @@ export default function ThreadTerminalDrawer({
                         onPointerUp={handleSplitResizePointerEnd}
                         onPointerCancel={handleSplitResizePointerEnd}
                       >
-                        <div className="my-3 w-px rounded-full bg-border/35 transition-colors duration-200 group-hover:bg-primary/50" />
+                        <div className="my-3 w-px rounded-full bg-border/15 transition-colors duration-150 group-hover:bg-primary/30" />
                       </div>
                     ) : null}
                   </Fragment>
@@ -1892,34 +1975,34 @@ export default function ThreadTerminalDrawer({
                 onPointerCancel={handleSidebarResizePointerEnd}
                 aria-hidden="true"
               >
-                <div className="my-3 w-px rounded-full bg-border/40 transition-colors duration-200 group-hover:bg-primary/50" />
+                <div className="my-3 w-px rounded-full bg-border/15 transition-colors duration-150 group-hover:bg-primary/30" />
               </div>
 
               <aside
-                className="flex shrink-0 flex-col overflow-hidden border-l border-border/40 bg-muted/10"
+                className="flex shrink-0 flex-col overflow-hidden border-l border-border/15 bg-muted/5"
                 style={{ width: `${sidebarPanelWidth}px`, minWidth: `${sidebarPanelWidth}px` }}
               >
                 <div
-                  className="flex items-center justify-between gap-2 border-b border-border/40 bg-card/40 px-2.5 py-2 backdrop-blur-sm"
+                  className="flex items-center justify-between gap-2 border-b border-border/12 bg-card/20 px-2.5 py-1.5"
                   onContextMenu={(event) => {
                     event.preventDefault();
                     handleTerminalSectionMenu({ x: event.clientX, y: event.clientY });
                   }}
                 >
                   <div className="min-w-0">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/55">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/30">
                       terminals
                     </div>
-                    <div className="truncate text-[11px] text-foreground/80">
+                    <div className="truncate text-[11px] text-foreground/60">
                       {normalizedTerminalIds.length} open
                     </div>
                   </div>
-                  <div className="inline-flex items-center overflow-hidden rounded-lg border border-border/40 bg-card/50 backdrop-blur-sm">
+                  <div className="inline-flex items-center overflow-hidden rounded-lg border border-border/15 bg-card/25">
                     <TerminalActionButton
-                      className={`inline-flex h-7 items-center px-1.5 text-foreground/90 transition-colors ${
+                      className={`inline-flex h-7 items-center px-1.5 text-foreground/50 transition-colors duration-150 ${
                         hasReachedSplitLimit
-                          ? "cursor-not-allowed opacity-45 hover:bg-transparent"
-                          : "hover:bg-accent/70"
+                          ? "cursor-not-allowed opacity-40 hover:bg-transparent"
+                          : "hover:bg-accent/30"
                       }`}
                       onClick={onSplitTerminalAction}
                       label={splitTerminalActionLabel}
@@ -1927,14 +2010,14 @@ export default function ThreadTerminalDrawer({
                       <SquareSplitHorizontal className="size-3.25" />
                     </TerminalActionButton>
                     <TerminalActionButton
-                      className="inline-flex h-7 items-center border-l border-border/40 px-1.5 text-foreground/70 transition-all duration-200 hover:bg-accent/50 hover:text-foreground"
+                      className="inline-flex h-7 items-center border-l border-border/12 px-1.5 text-foreground/45 transition-all duration-150 hover:bg-accent/25 hover:text-foreground/65"
                       onClick={onNewTerminalAction}
                       label={newTerminalActionLabel}
                     >
                       <Plus className="size-3.25" />
                     </TerminalActionButton>
                     <TerminalActionButton
-                      className="inline-flex h-7 items-center border-l border-border/40 px-1.5 text-foreground/70 transition-all duration-200 hover:bg-accent/50 hover:text-foreground"
+                      className="inline-flex h-7 items-center border-l border-border/12 px-1.5 text-foreground/45 transition-all duration-150 hover:bg-accent/25 hover:text-foreground/65"
                       onClick={(event) => {
                         handleTerminalSectionMenu(menuPositionFromElement(event.currentTarget));
                       }}
@@ -1943,7 +2026,7 @@ export default function ThreadTerminalDrawer({
                       <EllipsisVertical className="size-3.25" />
                     </TerminalActionButton>
                     <TerminalActionButton
-                      className="inline-flex h-7 items-center border-l border-border/40 px-1.5 text-foreground/70 transition-all duration-200 hover:bg-accent/50 hover:text-foreground"
+                      className="inline-flex h-7 items-center border-l border-border/12 px-1.5 text-foreground/45 transition-all duration-150 hover:bg-accent/25 hover:text-foreground/65"
                       onClick={() => onCloseTerminal(resolvedActiveTerminalId)}
                       label={closeTerminalActionLabel}
                     >
@@ -1952,7 +2035,7 @@ export default function ThreadTerminalDrawer({
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1.5">
+                <div className="min-h-0 flex-1 overflow-y-auto px-1 py-0.5">
                   {resolvedTerminalGroups.map((terminalGroup, groupIndex) => {
                     const isGroupActive =
                       terminalGroup.terminalIds.includes(resolvedActiveTerminalId);
@@ -1971,10 +2054,10 @@ export default function ThreadTerminalDrawer({
                         {showGroupHeaders && (
                           <button
                             type="button"
-                            className={`mb-1 flex w-full items-center justify-between ${groupHeaderPaddingClass} text-left text-[10px] font-medium uppercase tracking-[0.12em] ${
+                            className={`mb-0.5 flex w-full items-center justify-between ${groupHeaderPaddingClass} text-left text-[10px] font-medium uppercase tracking-[0.1em] transition-colors duration-150 ${
                               isGroupActive
-                                ? "text-foreground"
-                                : "text-muted-foreground hover:text-foreground"
+                                ? "text-foreground/80"
+                                : "text-muted-foreground/45 hover:text-foreground/60"
                             }`}
                             onClick={() => onActiveTerminalChange(groupActiveTerminalId)}
                             onDragOver={(event) => {
@@ -1999,7 +2082,7 @@ export default function ThreadTerminalDrawer({
                             }}
                           >
                             <span>{groupTitle}</span>
-                            <span className="rounded-full bg-background/80 px-1.5 py-0.5 text-[9px] tracking-normal text-muted-foreground/90">
+                            <span className="rounded-full bg-background/50 px-1.5 py-0.5 text-[9px] tracking-normal text-muted-foreground/40">
                               {terminalGroup.terminalIds.length}
                             </span>
                           </button>
@@ -2008,8 +2091,8 @@ export default function ThreadTerminalDrawer({
                         <div
                           className={
                             showGroupHeaders
-                              ? "space-y-0.5 border-l border-border/40 pl-2"
-                              : "space-y-0.5"
+                              ? "space-y-px border-l border-border/12 pl-2"
+                              : "space-y-px"
                           }
                           onDragOver={(event) => {
                             if (!draggedTerminalId) return;
@@ -2055,8 +2138,8 @@ export default function ThreadTerminalDrawer({
                                 key={terminalId}
                                 className={`group flex items-center gap-2 border-l-2 ${rowPaddingClass} ${rowTextClass} transition-colors ${
                                   isActive
-                                    ? "border-primary/60 bg-accent/50 text-foreground"
-                                    : "border-transparent text-muted-foreground hover:bg-accent/35 hover:text-foreground"
+                                    ? "border-primary/40 bg-accent/25 text-foreground"
+                                    : "border-transparent text-muted-foreground/55 hover:bg-accent/15 hover:text-foreground/70"
                                 }`}
                                 draggable={!isEditing}
                                 onDragStart={(event) => {
@@ -2099,9 +2182,9 @@ export default function ThreadTerminalDrawer({
                                 }
                               >
                                 {showGroupHeaders && (
-                                  <span className="text-[10px] text-muted-foreground/45">└</span>
+                                  <span className="text-[10px] text-muted-foreground/30">└</span>
                                 )}
-                                <span className="inline-flex min-w-4 shrink-0 items-center justify-center text-[9px] leading-none text-muted-foreground/70">
+                                <span className="inline-flex min-w-4 shrink-0 items-center justify-center text-[9px] leading-none text-muted-foreground/50">
                                   {ordinal}
                                 </span>
                                 <span

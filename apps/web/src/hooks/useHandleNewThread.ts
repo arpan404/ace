@@ -14,7 +14,11 @@ import { useThreadById } from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";
 
 export function useHandleNewThread() {
-  const projectIds = useStore(useShallow((store) => store.projects.map((project) => project.id)));
+  const projectIds = useStore(
+    useShallow((store) =>
+      store.projects.filter((project) => project.archivedAt === null).map((project) => project.id),
+    ),
+  );
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const navigate = useNavigate();
   const routeThreadId = useParams({

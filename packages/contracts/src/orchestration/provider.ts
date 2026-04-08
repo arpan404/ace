@@ -105,9 +105,11 @@ export const ModelSelection = Schema.Union([
 ]);
 export type ModelSelection = typeof ModelSelection.Type;
 
-export const RuntimeMode = Schema.Literals(["approval-required", "full-access"]);
+export const RuntimeMode = Schema.Literals(["approval-required", "full-access", "andy"]);
 export type RuntimeMode = typeof RuntimeMode.Type;
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
+export const isFullAccessRuntimeMode = (runtimeMode: RuntimeMode): boolean =>
+  runtimeMode === "full-access" || runtimeMode === "andy";
 
 export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;

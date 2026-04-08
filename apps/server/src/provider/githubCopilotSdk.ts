@@ -22,9 +22,15 @@ import { Effect } from "effect";
 import { runProcess } from "../processRunner.ts";
 
 const GITHUB_COPILOT_CLI_LOOKUP_TIMEOUT_MS = 10_000;
+const GITHUB_COPILOT_CLI_START_TIMEOUT_MS = 10_000;
+const GITHUB_COPILOT_CLI_REQUEST_TIMEOUT_MS = 5_000;
+const GITHUB_COPILOT_CLI_STOP_TIMEOUT_MS = 5_000;
 
 export interface GitHubCopilotClientConfig {
   readonly cliUrl?: string;
+  readonly requestTimeoutMs?: number;
+  readonly startupTimeoutMs?: number;
+  readonly stopTimeoutMs?: number;
 }
 
 export interface GitHubCopilotSessionClient {
@@ -49,7 +55,19 @@ export interface GitHubCopilotClientLike {
     config: ResumeSessionConfig,
   ): Promise<GitHubCopilotSessionClient>;
   stop(): Promise<ReadonlyArray<Error>>;
+  forceStop(): Promise<void>;
 }
+
+export interface GitHubCopilotClientShutdownResult {
+  readonly stopped: boolean;
+  readonly forced: boolean;
+  readonly errors: ReadonlyArray<Error>;
+}
+
+type TimedPromiseOutcome<T> =
+  | { readonly kind: "resolved"; readonly value: T }
+  | { readonly kind: "rejected"; readonly error: unknown }
+  | { readonly kind: "timeout" };
 
 function isExplicitCliPath(binaryPath: string): boolean {
   return path.isAbsolute(binaryPath) || binaryPath.includes("/") || binaryPath.includes("\\");
@@ -121,8 +139,118 @@ export async function createGitHubCopilotClient(
     cliUrl && cliUrl.length > 0
       ? new CopilotClient({ cliUrl, useStdio: false })
       : new CopilotClient({ cliPath: await resolveGitHubCopilotCliPath(binaryPath) });
-  await client.start();
-  return client;
+  const startTimeoutMs = config?.startupTimeoutMs ?? GITHUB_COPILOT_CLI_START_TIMEOUT_MS;
+  const stopTimeoutMs = config?.stopTimeoutMs ?? GITHUB_COPILOT_CLI_STOP_TIMEOUT_MS;
+  const startOutcome = await withTimeoutOutcome(client.start(), startTimeoutMs);
+  if (startOutcome.kind === "resolved") {
+    return client;
+  }
+
+  const shutdown = await stopGitHubCopilotClient(client, {
+    timeoutMs: stopTimeoutMs,
+  }).catch((cause) => ({
+    stopped: false,
+    forced: false,
+    errors: [toError(cause, "Failed to stop GitHub Copilot client after startup failure")],
+  }));
+  const shutdownDetail =
+    shutdown.errors.length === 0
+      ? shutdown.stopped
+        ? ""
+        : " Cleanup did not complete cleanly."
+      : ` Cleanup also failed: ${shutdown.errors.map((error) => error.message).join("; ")}`;
+
+  if (startOutcome.kind === "rejected") {
+    throw new Error(
+      `Failed to start GitHub Copilot client: ${toError(startOutcome.error, "GitHub Copilot client startup failed").message}.${shutdownDetail}`,
+    );
+  }
+
+  throw new Error(
+    `Timed out starting GitHub Copilot client after ${String(startTimeoutMs)}ms.${shutdownDetail}`,
+  );
+}
+
+function toError(cause: unknown, fallback: string): Error {
+  return cause instanceof Error ? cause : new Error(`${fallback}: ${String(cause)}`);
+}
+
+function withTimeoutOutcome<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<TimedPromiseOutcome<T>> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (outcome: TimedPromiseOutcome<T>) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve(outcome);
+    };
+
+    const timeoutId = setTimeout(() => {
+      finish({ kind: "timeout" });
+    }, timeoutMs);
+    timeoutId.unref?.();
+
+    promise.then(
+      (value) => finish({ kind: "resolved", value }),
+      (error) => finish({ kind: "rejected", error }),
+    );
+  });
+}
+
+export async function stopGitHubCopilotClient(
+  client: GitHubCopilotClientLike,
+  options?: { readonly timeoutMs?: number },
+): Promise<GitHubCopilotClientShutdownResult> {
+  const timeoutMs = options?.timeoutMs ?? GITHUB_COPILOT_CLI_STOP_TIMEOUT_MS;
+  const errors: Error[] = [];
+  let forced = false;
+
+  const stopOutcome = await withTimeoutOutcome(client.stop(), timeoutMs);
+  if (stopOutcome.kind === "resolved") {
+    errors.push(...stopOutcome.value);
+    if (stopOutcome.value.length === 0) {
+      return {
+        stopped: true,
+        forced: false,
+        errors,
+      };
+    }
+    forced = true;
+  } else if (stopOutcome.kind === "rejected") {
+    forced = true;
+    errors.push(toError(stopOutcome.error, "Failed to stop GitHub Copilot client"));
+  } else {
+    forced = true;
+    errors.push(
+      new Error(`Timed out stopping GitHub Copilot client after ${String(timeoutMs)}ms.`),
+    );
+  }
+
+  const forceStopOutcome = await withTimeoutOutcome(client.forceStop(), timeoutMs);
+  if (forceStopOutcome.kind === "resolved") {
+    return {
+      stopped: true,
+      forced,
+      errors,
+    };
+  }
+
+  errors.push(
+    forceStopOutcome.kind === "rejected"
+      ? toError(forceStopOutcome.error, "Failed to force stop GitHub Copilot client")
+      : new Error(`Timed out force stopping GitHub Copilot client after ${String(timeoutMs)}ms.`),
+  );
+
+  return {
+    stopped: false,
+    forced,
+    errors,
+  };
 }
 
 export function getGitHubCopilotModelCapabilities(model: ModelInfo): ModelCapabilities {
@@ -175,10 +303,41 @@ export async function probeGitHubCopilotSdk(
 ): Promise<GitHubCopilotSdkProbe> {
   const client = await createGitHubCopilotClient(binaryPath, config);
   try {
+    const requestTimeoutMs = config?.requestTimeoutMs ?? GITHUB_COPILOT_CLI_REQUEST_TIMEOUT_MS;
     const [statusResult, authResult, modelsResult] = await Promise.allSettled([
-      client.getStatus(),
-      client.getAuthStatus(),
-      client.listModels(),
+      withTimeoutOutcome(client.getStatus(), requestTimeoutMs).then((outcome) => {
+        if (outcome.kind === "resolved") {
+          return outcome.value;
+        }
+        if (outcome.kind === "rejected") {
+          throw toError(outcome.error, "Failed to fetch GitHub Copilot status");
+        }
+        throw new Error(
+          `Timed out fetching GitHub Copilot status after ${String(requestTimeoutMs)}ms.`,
+        );
+      }),
+      withTimeoutOutcome(client.getAuthStatus(), requestTimeoutMs).then((outcome) => {
+        if (outcome.kind === "resolved") {
+          return outcome.value;
+        }
+        if (outcome.kind === "rejected") {
+          throw toError(outcome.error, "Failed to fetch GitHub Copilot auth status");
+        }
+        throw new Error(
+          `Timed out fetching GitHub Copilot auth status after ${String(requestTimeoutMs)}ms.`,
+        );
+      }),
+      withTimeoutOutcome(client.listModels(), requestTimeoutMs).then((outcome) => {
+        if (outcome.kind === "resolved") {
+          return outcome.value;
+        }
+        if (outcome.kind === "rejected") {
+          throw toError(outcome.error, "Failed to list GitHub Copilot models");
+        }
+        throw new Error(
+          `Timed out listing GitHub Copilot models after ${String(requestTimeoutMs)}ms.`,
+        );
+      }),
     ]);
 
     const issues: string[] = [];
@@ -212,12 +371,21 @@ export async function probeGitHubCopilotSdk(
       issues,
     };
   } finally {
-    await client.stop().catch((cause) =>
-      Effect.runPromise(
-        Effect.logWarning("Failed to stop GitHub Copilot client.", {
-          cause: cause instanceof Error ? cause.message : String(cause),
+    const shutdown = await stopGitHubCopilotClient(client, {
+      timeoutMs: config?.stopTimeoutMs ?? GITHUB_COPILOT_CLI_STOP_TIMEOUT_MS,
+    }).catch((cause) => ({
+      stopped: false,
+      forced: false,
+      errors: [toError(cause, "Failed to stop GitHub Copilot client")],
+    }));
+    if (!shutdown.stopped || shutdown.errors.length > 0) {
+      await Effect.runPromise(
+        Effect.logWarning("Failed to fully stop GitHub Copilot client.", {
+          stopped: shutdown.stopped,
+          forced: shutdown.forced,
+          errors: shutdown.errors.map((error) => error.message),
         }),
-      ),
-    );
+      );
+    }
   }
 }

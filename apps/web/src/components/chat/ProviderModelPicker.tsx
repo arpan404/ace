@@ -84,9 +84,11 @@ const OpenCodeModelMenuContent = memo(function OpenCodeModelMenuContent(props: {
     { wait: 150 },
     (state) => ({ isPending: state.isPending }),
   );
+  const hasActiveSearch = debouncedSearch.trim().length > 0;
   const query = useInfiniteQuery(
     searchOpenCodeModelsInfiniteQueryOptions({
       query: debouncedSearch,
+      enabled: hasActiveSearch,
       limit: OPENCODE_MODEL_PAGE_SIZE,
     }),
   );
@@ -102,13 +104,14 @@ const OpenCodeModelMenuContent = memo(function OpenCodeModelMenuContent(props: {
     [props.initialOptions, props.selectedModel],
   );
   const visibleOptions = useMemo(() => {
-    if (debouncedSearch.trim().length === 0) {
-      return mergeModelOptions(remoteOptions, props.initialOptions);
+    if (!hasActiveSearch) {
+      return props.initialOptions;
     }
     return mergeModelOptions(remoteOptions, selectedFallbackOption ? [selectedFallbackOption] : []);
-  }, [debouncedSearch, props.initialOptions, remoteOptions, selectedFallbackOption]);
+  }, [hasActiveSearch, props.initialOptions, remoteOptions, selectedFallbackOption]);
   const isLoadingInitialPage = query.isPending && remoteOptions.length === 0;
-  const isSearching = searchDebouncer.state.isPending || query.isFetching;
+  const isSearching =
+    searchDebouncer.state.isPending || (hasActiveSearch && (query.isFetching || query.isPending));
   const totalModels = query.data?.pages[0]?.totalModels ?? props.initialOptions.length;
 
   return (
@@ -159,7 +162,7 @@ const OpenCodeModelMenuContent = memo(function OpenCodeModelMenuContent(props: {
               ))}
             </MenuRadioGroup>
           </MenuGroup>
-          {query.hasNextPage ? (
+          {hasActiveSearch && query.hasNextPage ? (
             <div className="px-1 pt-2">
               <Button
                 className="w-full justify-center"

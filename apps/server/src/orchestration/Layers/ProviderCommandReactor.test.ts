@@ -10,6 +10,7 @@ import type {
 } from "@ace/contracts";
 import {
   ApprovalRequestId,
+  CheckpointRef,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
@@ -154,10 +155,10 @@ describe("ProviderCommandReactor", () => {
         turnId: asTurnId("turn-1"),
       }),
     );
-    const interruptTurn = vi.fn((_: unknown) => Effect.void);
+    const interruptTurn = vi.fn<ProviderServiceShape["interruptTurn"]>(() => Effect.void);
     const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
     const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
-    const stopSession = vi.fn((input: unknown) =>
+    const stopSession = vi.fn<ProviderServiceShape["stopSession"]>((input: unknown) =>
       Effect.sync(() => {
         const threadId =
           typeof input === "object" && input !== null && "threadId" in input
@@ -406,6 +407,91 @@ describe("ProviderCommandReactor", () => {
           "Provider adapter request failed (codex) for thread.turn.start: Provider session is already running turn 'provider-turn-busy'. Wait for it to finish or interrupt it before starting another turn.",
       },
     });
+  });
+
+  it("ignores stale turn-start replays after the latest turn has completed", async () => {
+    const harness = await createHarness();
+    const firstTurnAt = new Date("2026-01-01T00:00:00.000Z").toISOString();
+    const completedAt = new Date("2026-01-01T00:00:05.000Z").toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-stale-replay-base"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-stale-replay-base"),
+          role: "user",
+          text: "base turn",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: firstTurnAt,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-stale-replay-running"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-1"),
+          lastError: null,
+          updatedAt: firstTurnAt,
+        },
+        createdAt: firstTurnAt,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.makeUnsafe("cmd-turn-diff-complete-stale-replay"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        turnId: asTurnId("turn-1"),
+        completedAt,
+        checkpointRef: CheckpointRef.makeUnsafe("checkpoint-stale-replay"),
+        status: "ready",
+        files: [],
+        checkpointTurnCount: 1,
+        createdAt: completedAt,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return thread?.latestTurn?.state === "completed";
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-stale-replay-duplicate"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-stale-replay-duplicate"),
+          role: "user",
+          text: "replayed stale turn",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: firstTurnAt,
+      }),
+    );
+
+    await harness.drain();
+    expect(harness.sendTurn.mock.calls.length).toBe(1);
   });
 
   it("generates a thread title on the first turn", async () => {
@@ -1420,6 +1506,107 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("rebuilds failed Copilot chats from prior transcript without replaying the new retry message", async () => {
+    const harness = await createHarness({
+      threadModelSelection: { provider: "githubCopilot", model: "gpt-4.1" },
+      sessionModelSwitch: "restart-session",
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-copilot-failed-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-copilot-failed-1"),
+          role: "user",
+          text: "first failed copilot turn",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "githubCopilot",
+          model: "gpt-4.1",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    harness.startSession.mockClear();
+    harness.sendTurn.mockClear();
+    harness.runtimeSessions.splice(0, harness.runtimeSessions.length);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-copilot-failed-retry"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "stopped",
+          providerName: "githubCopilot",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: "GitHub Copilot stopped producing runtime events. Recovering the session.",
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-copilot-failed-2"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-copilot-failed-2"),
+          role: "user",
+          text: "continue",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "githubCopilot",
+          model: "gpt-4.1",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      provider: "githubCopilot",
+      modelSelection: {
+        provider: "githubCopilot",
+        model: "gpt-4.1",
+      },
+      runtimeMode: "approval-required",
+      replayTurns: [
+        {
+          prompt: "first failed copilot turn",
+          attachmentNames: [],
+        },
+      ],
+    });
+    expect(harness.startSession.mock.calls[0]?.[1]).not.toMatchObject({
+      replayTurns: [
+        {
+          prompt: "continue",
+        },
+      ],
+    });
+  });
+
   it("does not inject derived model options when restarting claude on runtime mode changes", async () => {
     const harness = await createHarness({
       threadModelSelection: { provider: "claudeAgent", model: "claude-opus-4-6" },
@@ -1642,6 +1829,60 @@ describe("ProviderCommandReactor", () => {
     expect(harness.interruptTurn.mock.calls[0]?.[0]).toEqual({
       threadId: "thread-1",
     });
+  });
+
+  it("clears stale running session state when interrupt cannot find a live provider session", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    harness.interruptTurn.mockImplementation(() =>
+      Effect.fail(
+        new ProviderAdapterRequestError({
+          provider: "codex",
+          method: "session/interrupt",
+          detail: "Provider session is no longer running.",
+        }),
+      ),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-for-stale-interrupt"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-stale"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-turn-interrupt-stale"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return thread?.session?.status === "stopped" && thread.session.activeTurnId === null;
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.session?.status).toBe("stopped");
+    expect(thread?.session?.activeTurnId).toBeNull();
   });
 
   it("reacts to thread.approval.respond by forwarding provider approval response", async () => {
@@ -1975,6 +2216,60 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session).not.toBeNull();
     expect(thread?.session?.status).toBe("stopped");
     expect(thread?.session?.threadId).toBe("thread-1");
+    expect(thread?.session?.activeTurnId).toBeNull();
+  });
+
+  it("clears stale running session state when stop cannot find a live provider session", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    harness.stopSession.mockImplementation(() =>
+      Effect.fail(
+        new ProviderAdapterRequestError({
+          provider: "codex",
+          method: "session/stop",
+          detail: "Provider session is no longer running.",
+        }),
+      ),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-for-stale-stop"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-stale-stop"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.stop",
+        commandId: CommandId.makeUnsafe("cmd-session-stop-stale"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return thread?.session?.status === "stopped" && thread.session.activeTurnId === null;
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.session?.status).toBe("stopped");
     expect(thread?.session?.activeTurnId).toBeNull();
   });
 });

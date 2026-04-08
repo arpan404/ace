@@ -1,4 +1,10 @@
-import { CommandId, MessageId, ProjectId, ThreadId } from "@ace/contracts";
+import {
+  CommandId,
+  DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM,
+  MessageId,
+  ProjectId,
+  ThreadId,
+} from "@ace/contracts";
 import { String, Predicate } from "effect";
 import { type CxOptions, cx } from "class-variance-authority";
 import { twMerge } from "tailwind-merge";
@@ -37,14 +43,36 @@ export const newThreadId = (): ThreadId => ThreadId.makeUnsafe(randomUUID());
 export const newMessageId = (): MessageId => MessageId.makeUnsafe(randomUUID());
 
 const isNonEmptyString = Predicate.compose(Predicate.isString, String.isNonEmpty);
-const firstNonEmptyString = (...values: unknown[]): string => {
-  for (const value of values) {
-    if (isNonEmptyString(value)) {
-      return value;
-    }
+
+function readRendererBootstrapWsUrl(): string | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
   }
-  throw new Error("No non-empty string provided");
-};
+
+  const value = new URLSearchParams(window.location.search).get(
+    DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM,
+  );
+  return isNonEmptyString(value) ? value : undefined;
+}
+
+function readDesktopBridgeWsUrl(): string | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  if (!window.desktopBridge?.getWsUrl) {
+    return undefined;
+  }
+
+  try {
+    const value = window.desktopBridge.getWsUrl();
+    return isNonEmptyString(value) ? value : undefined;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : globalThis.String(error);
+    console.warn("Failed to read desktop WebSocket URL from bridge.", detail);
+    return undefined;
+  }
+}
 
 export const resolveServerUrl = (options?: {
   url?: string | undefined;
@@ -52,12 +80,18 @@ export const resolveServerUrl = (options?: {
   pathname?: string | undefined;
   searchParams?: Record<string, string> | undefined;
 }): string => {
-  const rawUrl = firstNonEmptyString(
-    options?.url,
-    window.desktopBridge?.getWsUrl(),
-    import.meta.env.VITE_WS_URL,
-    window.location.origin,
-  );
+  const rawUrl =
+    (isNonEmptyString(options?.url) ? options.url : undefined) ??
+    readRendererBootstrapWsUrl() ??
+    readDesktopBridgeWsUrl() ??
+    (isNonEmptyString(import.meta.env.VITE_WS_URL) ? import.meta.env.VITE_WS_URL : undefined) ??
+    (typeof window !== "undefined" && isNonEmptyString(window.location.origin)
+      ? window.location.origin
+      : undefined);
+
+  if (!rawUrl) {
+    throw new Error("No non-empty server URL provided");
+  }
 
   const parsedUrl = new URL(rawUrl);
   if (options?.protocol) {

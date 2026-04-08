@@ -15,6 +15,7 @@ import {
 } from "@ace/contracts";
 import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
 import { makeDrainableWorker } from "@ace/shared/DrainableWorker";
+import { appendCompactedThreadActivity } from "@ace/shared/orchestrationThreadActivities";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
@@ -40,8 +41,10 @@ const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL = Duration.minutes(120);
 const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
-const MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS = 640;
+const MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS = 96;
 const MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS_CURSOR = 96;
+const MAX_STREAMING_THINKING_ACTIVITY_BATCH_CHARS = 96;
+const MAX_STREAMING_THINKING_ACTIVITY_BATCH_CHARS_CURSOR = 96;
 const PROVIDER_RUNTIME_INGESTION_QUEUE_CAPACITY = Math.max(
   256,
   Number.parseInt(process.env.ACE_PROVIDER_RUNTIME_INGESTION_QUEUE_CAPACITY ?? "20000", 10) ||
@@ -54,6 +57,12 @@ function streamingAssistantDeltaBatchLimit(provider: ProviderRuntimeEvent["provi
   return provider === "cursor"
     ? MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS_CURSOR
     : MAX_STREAMING_ASSISTANT_DELTA_BATCH_CHARS;
+}
+
+function streamingThinkingActivityBatchLimit(provider: ProviderRuntimeEvent["provider"]): number {
+  return provider === "cursor"
+    ? MAX_STREAMING_THINKING_ACTIVITY_BATCH_CHARS_CURSOR
+    : MAX_STREAMING_THINKING_ACTIVITY_BATCH_CHARS;
 }
 
 type TurnStartRequestedDomainEvent = Extract<
@@ -143,6 +152,66 @@ function activityFingerprint(activity: OrchestrationThreadActivity): string {
     }
   })();
   return `${activity.kind}|${activity.turnId ?? "none"}|${activity.summary}|${payload}`;
+}
+
+function asActivityPayloadRecord(
+  activity: Pick<OrchestrationThreadActivity, "payload">,
+): Record<string, unknown> | null {
+  return activity.payload &&
+    typeof activity.payload === "object" &&
+    !Array.isArray(activity.payload)
+    ? (activity.payload as Record<string, unknown>)
+    : null;
+}
+
+function thinkingTaskIdFromActivity(activity: OrchestrationThreadActivity): string | undefined {
+  const payload = asActivityPayloadRecord(activity);
+  return typeof payload?.taskId === "string" && payload.taskId.length > 0
+    ? payload.taskId
+    : undefined;
+}
+
+function thinkingActivityBufferKey(
+  threadId: ThreadId,
+  turnId: TurnId | null | undefined,
+  taskId: string,
+): string {
+  return `${threadId}:${turnId ?? "no-turn"}:${taskId}`;
+}
+
+function thinkingActivityBufferKeyFromActivity(
+  threadId: ThreadId,
+  activity: OrchestrationThreadActivity,
+): string | undefined {
+  const taskId = thinkingTaskIdFromActivity(activity);
+  return taskId ? thinkingActivityBufferKey(threadId, activity.turnId, taskId) : undefined;
+}
+
+function isBufferedThinkingActivity(activity: OrchestrationThreadActivity): boolean {
+  return activity.kind === "task.progress" && thinkingTaskIdFromActivity(activity) !== undefined;
+}
+
+function thinkingActivityDeltaLength(activity: OrchestrationThreadActivity): number {
+  const payload = asActivityPayloadRecord(activity);
+  const detail =
+    typeof payload?.detail === "string"
+      ? payload.detail
+      : typeof payload?.description === "string"
+        ? payload.description
+        : typeof payload?.summary === "string"
+          ? payload.summary
+          : "";
+  return detail.length;
+}
+
+interface BufferedThinkingActivity {
+  readonly threadId: ThreadId;
+  readonly turnId?: TurnId;
+  readonly taskId: string;
+  provider: ProviderRuntimeEvent["provider"];
+  activity: OrchestrationThreadActivity;
+  pendingCharsSinceFlush: number;
+  dirty: boolean;
 }
 
 type ActivityStreamingSettings = {
@@ -720,6 +789,7 @@ const make = Effect.fn("make")(function* () {
       readonly delta: string;
     }
   >();
+  const bufferedThinkingActivityByKey = new Map<string, BufferedThinkingActivity>();
   const lastActivityFingerprintByThread = new Map<ThreadId, string>();
 
   const bufferedProposedPlanById = yield* Cache.make<string, { text: string; createdAt: string }>({
@@ -848,6 +918,143 @@ const make = Effect.fn("make")(function* () {
   const clearAssistantMessageState = (messageId: MessageId) =>
     clearBufferedAssistantText(messageId);
 
+  const dispatchThreadActivity = Effect.fn("dispatchThreadActivity")(function* (input: {
+    threadId: ThreadId;
+    activity: OrchestrationThreadActivity;
+    commandId: CommandId;
+    createdAt: string;
+  }) {
+    const fingerprint = activityFingerprint(input.activity);
+    if (lastActivityFingerprintByThread.get(input.threadId) === fingerprint) {
+      return;
+    }
+    lastActivityFingerprintByThread.set(input.threadId, fingerprint);
+    yield* orchestrationEngine.dispatch({
+      type: "thread.activity.append",
+      commandId: input.commandId,
+      threadId: input.threadId,
+      activity: input.activity,
+      createdAt: input.createdAt,
+    });
+  });
+
+  const flushBufferedThinkingActivityByKey = Effect.fn("flushBufferedThinkingActivityByKey")(
+    function* (key: string, options?: { readonly discard?: boolean }) {
+      const buffered = bufferedThinkingActivityByKey.get(key);
+      if (!buffered) {
+        return;
+      }
+
+      if (buffered.dirty) {
+        yield* dispatchThreadActivity({
+          threadId: buffered.threadId,
+          activity: buffered.activity,
+          commandId: CommandId.makeUnsafe(
+            `provider:${buffered.activity.id}:thread-activity-buffer-flush:${crypto.randomUUID()}`,
+          ),
+          createdAt: buffered.activity.createdAt,
+        });
+        buffered.dirty = false;
+        buffered.pendingCharsSinceFlush = 0;
+      }
+
+      if (options?.discard) {
+        bufferedThinkingActivityByKey.delete(key);
+      }
+    },
+  );
+
+  const flushBufferedThinkingActivitiesForThread = Effect.fn(
+    "flushBufferedThinkingActivitiesForThread",
+  )(function* (input: { threadId: ThreadId; keepKeys?: ReadonlySet<string> }) {
+    for (const [key, buffered] of bufferedThinkingActivityByKey.entries()) {
+      if (buffered.threadId !== input.threadId) {
+        continue;
+      }
+      if (input.keepKeys?.has(key)) {
+        continue;
+      }
+      yield* flushBufferedThinkingActivityByKey(key, { discard: true });
+    }
+  });
+
+  const flushAllBufferedThinkingActivities = Effect.fn("flushAllBufferedThinkingActivities")(
+    function* () {
+      for (const key of Array.from(bufferedThinkingActivityByKey.keys())) {
+        yield* flushBufferedThinkingActivityByKey(key, { discard: true });
+      }
+    },
+  );
+
+  const bufferThinkingActivity = Effect.fn("bufferThinkingActivity")(function* (input: {
+    threadId: ThreadId;
+    provider: ProviderRuntimeEvent["provider"];
+    activity: OrchestrationThreadActivity;
+  }) {
+    const taskId = thinkingTaskIdFromActivity(input.activity);
+    const bufferKey = taskId
+      ? thinkingActivityBufferKey(input.threadId, input.activity.turnId, taskId)
+      : undefined;
+    if (!taskId || !bufferKey) {
+      yield* dispatchThreadActivity({
+        threadId: input.threadId,
+        activity: input.activity,
+        commandId: CommandId.makeUnsafe(
+          `provider:${input.activity.id}:thread-activity-append:${crypto.randomUUID()}`,
+        ),
+        createdAt: input.activity.createdAt,
+      });
+      return;
+    }
+
+    const existing = bufferedThinkingActivityByKey.get(bufferKey);
+    if (!existing) {
+      bufferedThinkingActivityByKey.set(bufferKey, {
+        threadId: input.threadId,
+        ...(input.activity.turnId ? { turnId: input.activity.turnId } : {}),
+        taskId,
+        provider: input.provider,
+        activity: input.activity,
+        pendingCharsSinceFlush: 0,
+        dirty: false,
+      });
+      yield* dispatchThreadActivity({
+        threadId: input.threadId,
+        activity: input.activity,
+        commandId: CommandId.makeUnsafe(
+          `provider:${input.activity.id}:thread-activity-append:${crypto.randomUUID()}`,
+        ),
+        createdAt: input.activity.createdAt,
+      });
+      return;
+    }
+
+    const compactedActivity = appendCompactedThreadActivity([existing.activity], input.activity, {
+      maxEntries: 1,
+    }).at(0);
+    const mergedActivity =
+      compactedActivity === undefined
+        ? undefined
+        : Object.assign({}, compactedActivity, { id: existing.activity.id });
+    if (
+      !mergedActivity ||
+      activityFingerprint(existing.activity) === activityFingerprint(mergedActivity)
+    ) {
+      return;
+    }
+
+    existing.provider = input.provider;
+    existing.activity = mergedActivity;
+    existing.pendingCharsSinceFlush += thinkingActivityDeltaLength(input.activity);
+    existing.dirty = true;
+
+    if (existing.pendingCharsSinceFlush < streamingThinkingActivityBatchLimit(input.provider)) {
+      return;
+    }
+
+    yield* flushBufferedThinkingActivityByKey(bufferKey);
+  });
+
   const dispatchAssistantDeltaCommand = Effect.fn("dispatchAssistantDeltaCommand")(
     function* (input: {
       event: ProviderRuntimeEvent;
@@ -873,15 +1080,24 @@ const make = Effect.fn("make")(function* () {
 
   const flushPendingStreamingAssistantDeltaByStreamKey = Effect.fn(
     "flushPendingStreamingAssistantDeltaByStreamKey",
-  )(function* (streamKey: string) {
+  )(function* (
+    streamKey: string,
+    options?: {
+      readonly preservePending?: boolean;
+    },
+  ) {
     const pending = pendingStreamingAssistantDeltasByStreamKey.get(streamKey);
     if (!pending) {
       return;
     }
-    pendingStreamingAssistantDeltasByStreamKey.delete(streamKey);
+
     if (pending.delta.length === 0) {
+      if (!options?.preservePending) {
+        pendingStreamingAssistantDeltasByStreamKey.delete(streamKey);
+      }
       return;
     }
+
     yield* dispatchAssistantDeltaCommand({
       event: pending.event,
       threadId: pending.threadId,
@@ -891,6 +1107,16 @@ const make = Effect.fn("make")(function* () {
       createdAt: pending.createdAt,
       commandTag: "assistant-delta-coalesced",
     });
+
+    if (options?.preservePending) {
+      pendingStreamingAssistantDeltasByStreamKey.set(streamKey, {
+        ...pending,
+        delta: "",
+      });
+      return;
+    }
+
+    pendingStreamingAssistantDeltasByStreamKey.delete(streamKey);
   });
 
   const flushPendingStreamingAssistantDeltasForTurn = Effect.fn(
@@ -901,6 +1127,26 @@ const make = Effect.fn("make")(function* () {
       if (!streamKey.startsWith(prefix)) {
         continue;
       }
+      yield* flushPendingStreamingAssistantDeltaByStreamKey(streamKey);
+    }
+  });
+
+  const flushPendingStreamingAssistantDeltasForThread = Effect.fn(
+    "flushPendingStreamingAssistantDeltasForThread",
+  )(function* (threadId: ThreadId) {
+    const prefix = `${threadId}:`;
+    for (const streamKey of Array.from(pendingStreamingAssistantDeltasByStreamKey.keys())) {
+      if (!streamKey.startsWith(prefix)) {
+        continue;
+      }
+      yield* flushPendingStreamingAssistantDeltaByStreamKey(streamKey);
+    }
+  });
+
+  const flushAllPendingStreamingAssistantDeltas = Effect.fn(
+    "flushAllPendingStreamingAssistantDeltas",
+  )(function* () {
+    for (const streamKey of Array.from(pendingStreamingAssistantDeltasByStreamKey.keys())) {
       yield* flushPendingStreamingAssistantDeltaByStreamKey(streamKey);
     }
   });
@@ -965,7 +1211,9 @@ const make = Effect.fn("make")(function* () {
     if (!next || next.delta.length < streamingAssistantDeltaBatchLimit(input.event.provider)) {
       return;
     }
-    yield* flushPendingStreamingAssistantDeltaByStreamKey(input.streamKey);
+    yield* flushPendingStreamingAssistantDeltaByStreamKey(input.streamKey, {
+      preservePending: true,
+    });
   });
 
   const activeAssistantStreamKeysForTurn = (threadId: ThreadId, turnId: TurnId) => {
@@ -1332,6 +1580,15 @@ const make = Effect.fn("make")(function* () {
       enableToolStreaming: serverSettings.enableToolStreaming,
       enableThinkingStreaming: serverSettings.enableThinkingStreaming,
     });
+    const bufferedThinkingKeysForEvent = new Set(
+      activities
+        .map((activity) => thinkingActivityBufferKeyFromActivity(thread.id, activity))
+        .filter((key): key is string => key !== undefined),
+    );
+    yield* flushBufferedThinkingActivitiesForThread({
+      threadId: thread.id,
+      ...(bufferedThinkingKeysForEvent.size > 0 ? { keepKeys: bufferedThinkingKeysForEvent } : {}),
+    });
 
     const shouldBreakAssistantMessageSegments = (() => {
       if (
@@ -1606,6 +1863,8 @@ const make = Effect.fn("make")(function* () {
     }
 
     if (event.type === "session.exited") {
+      yield* flushBufferedThinkingActivitiesForThread({ threadId: thread.id });
+      yield* flushPendingStreamingAssistantDeltasForThread(thread.id);
       yield* clearTurnStateForSession(thread.id);
       activeAssistantMessageIdByStreamKey.clear();
       assistantOutputSeenByStreamKey.clear();
@@ -1685,20 +1944,18 @@ const make = Effect.fn("make")(function* () {
     yield* Effect.forEach(
       activities,
       (activity) =>
-        Effect.gen(function* () {
-          const fingerprint = activityFingerprint(activity);
-          if (lastActivityFingerprintByThread.get(thread.id) === fingerprint) {
-            return;
-          }
-          lastActivityFingerprintByThread.set(thread.id, fingerprint);
-          yield* orchestrationEngine.dispatch({
-            type: "thread.activity.append",
-            commandId: providerCommandId(event, "thread-activity-append"),
-            threadId: thread.id,
-            activity,
-            createdAt: activity.createdAt,
-          });
-        }),
+        isBufferedThinkingActivity(activity)
+          ? bufferThinkingActivity({
+              threadId: thread.id,
+              provider: event.provider,
+              activity,
+            })
+          : dispatchThreadActivity({
+              threadId: thread.id,
+              activity,
+              commandId: providerCommandId(event, "thread-activity-append"),
+              createdAt: activity.createdAt,
+            }),
       { concurrency: 1 },
     ).pipe(Effect.asVoid);
   });
@@ -1727,7 +1984,30 @@ const make = Effect.fn("make")(function* () {
     capacity: PROVIDER_RUNTIME_INGESTION_QUEUE_CAPACITY,
   });
 
+  const flushBufferedThinkingActivitiesSafely = (phase: "drain" | "shutdown") =>
+    flushAllBufferedThinkingActivities().pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning(
+          "provider runtime ingestion failed to flush buffered thinking activities",
+          {
+            phase,
+            cause: Cause.pretty(cause),
+          },
+        ),
+      ),
+    );
+
+  const flushBufferedStateOnShutdownSafely = flushAllBufferedThinkingActivities().pipe(
+    Effect.flatMap(() => flushAllPendingStreamingAssistantDeltas()),
+    Effect.catchCause((cause) =>
+      Effect.logWarning("provider runtime ingestion failed to flush buffered updates", {
+        cause: Cause.pretty(cause),
+      }),
+    ),
+  );
+
   const start: ProviderRuntimeIngestionShape["start"] = Effect.fn("start")(function* () {
+    yield* Effect.addFinalizer(() => flushBufferedStateOnShutdownSafely);
     yield* Effect.forkScoped(
       Stream.runForEach(providerService.streamEvents, (event) =>
         worker.enqueue({ source: "runtime", event }),
@@ -1745,7 +2025,7 @@ const make = Effect.fn("make")(function* () {
 
   return {
     start,
-    drain: worker.drain,
+    drain: worker.drain.pipe(Effect.flatMap(() => flushBufferedThinkingActivitiesSafely("drain"))),
   } satisfies ProviderRuntimeIngestionShape;
 });
 

@@ -401,8 +401,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             workspaceRoot: event.payload.workspaceRoot,
             defaultModelSelection: event.payload.defaultModelSelection,
             scripts: event.payload.scripts,
+            icon: event.payload.icon ?? null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
+            archivedAt: event.payload.archivedAt ?? null,
             deletedAt: null,
           });
           return;
@@ -424,6 +426,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? { defaultModelSelection: event.payload.defaultModelSelection }
               : {}),
             ...(event.payload.scripts !== undefined ? { scripts: event.payload.scripts } : {}),
+            ...(event.payload.icon !== undefined ? { icon: event.payload.icon } : {}),
+            ...(event.payload.archivedAt !== undefined
+              ? { archivedAt: event.payload.archivedAt }
+              : {}),
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -648,38 +654,22 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     )(function* (event, attachmentSideEffects) {
       switch (event.type) {
         case "thread.message-sent": {
-          const existingMessage = yield* projectionThreadMessageRepository.getByMessageId({
-            messageId: event.payload.messageId,
-          });
-          const previousMessage = Option.getOrUndefined(existingMessage);
-          const nextText = Option.match(existingMessage, {
-            onNone: () => event.payload.text,
-            onSome: (message) => {
-              if (event.payload.streaming) {
-                return `${message.text}${event.payload.text}`;
-              }
-              if (event.payload.text.length === 0) {
-                return message.text;
-              }
-              return event.payload.text;
-            },
-          });
           const nextAttachments =
             event.payload.attachments !== undefined
               ? yield* materializeAttachmentsForProjection({
                   attachments: event.payload.attachments,
                 })
-              : previousMessage?.attachments;
+              : undefined;
           yield* projectionThreadMessageRepository.upsert({
             messageId: event.payload.messageId,
             threadId: event.payload.threadId,
             turnId: event.payload.turnId,
             role: event.payload.role,
-            text: nextText,
+            text: event.payload.text,
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
             isStreaming: event.payload.streaming,
-            sequence: previousMessage?.sequence ?? event.payload.sequence ?? event.sequence,
-            createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
+            sequence: event.payload.sequence ?? event.sequence,
+            createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
           });
           return;

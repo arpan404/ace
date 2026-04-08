@@ -1,6 +1,5 @@
 export const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 64;
-
-export type ThreadOpenScrollBehavior = "restore-saved" | "preserve-current" | "stick-to-bottom";
+const AUTO_SCROLL_DISABLE_UP_DELTA_PX = 1;
 
 interface ScrollPosition {
   scrollTop: number;
@@ -8,23 +7,21 @@ interface ScrollPosition {
   scrollHeight: number;
 }
 
-export function clampScrollTop(
-  scrollTop: number,
-  position: Pick<ScrollPosition, "clientHeight" | "scrollHeight">,
-): number {
-  const resolvedScrollTop = Number.isFinite(scrollTop) ? Math.max(0, scrollTop) : 0;
-  const maxScrollTop = Math.max(0, position.scrollHeight - position.clientHeight);
-  return Math.min(resolvedScrollTop, maxScrollTop);
+interface ScrollableContainer extends ScrollPosition {
+  scrollTo(options: ScrollToOptions): void;
 }
 
-export function resolveThreadOpenScrollBehavior(input: {
-  hasSavedScrollSnapshot: boolean;
-  hasOpenedAnyThreadInSession: boolean;
-}): ThreadOpenScrollBehavior {
-  if (input.hasSavedScrollSnapshot) {
-    return "restore-saved";
+export function scrollContainerToBottom(
+  scrollContainer: ScrollableContainer,
+  behavior: ScrollBehavior = "auto",
+): void {
+  const top = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+  if (behavior === "smooth") {
+    scrollContainer.scrollTo({ top, behavior });
+    return;
   }
-  return input.hasOpenedAnyThreadInSession ? "stick-to-bottom" : "preserve-current";
+
+  scrollContainer.scrollTop = top;
 }
 
 export function isScrollContainerNearBottom(
@@ -42,4 +39,61 @@ export function isScrollContainerNearBottom(
 
   const distanceFromBottom = scrollHeight - clientHeight - scrollTop;
   return distanceFromBottom <= threshold;
+}
+
+export interface AutoScrollOnScrollInput {
+  shouldAutoScroll: boolean;
+  isNearBottom: boolean;
+  currentScrollTop: number;
+  previousScrollTop: number;
+  hasPendingUserScrollUpIntent: boolean;
+  isPointerScrollActive: boolean;
+}
+
+export interface AutoScrollOnScrollDecision {
+  shouldAutoScroll: boolean;
+  clearPendingUserScrollUpIntent: boolean;
+  cancelPendingStickToBottom: boolean;
+  scheduleStickToBottom: boolean;
+}
+
+export function resolveAutoScrollOnScroll(
+  input: AutoScrollOnScrollInput,
+): AutoScrollOnScrollDecision {
+  if (!input.shouldAutoScroll) {
+    if (input.isNearBottom) {
+      return {
+        shouldAutoScroll: true,
+        clearPendingUserScrollUpIntent: true,
+        cancelPendingStickToBottom: false,
+        scheduleStickToBottom: false,
+      };
+    }
+    return {
+      shouldAutoScroll: false,
+      clearPendingUserScrollUpIntent: false,
+      cancelPendingStickToBottom: false,
+      scheduleStickToBottom: false,
+    };
+  }
+
+  const scrolledUp =
+    input.currentScrollTop < input.previousScrollTop - AUTO_SCROLL_DISABLE_UP_DELTA_PX;
+  const hasExplicitScrollUpIntent =
+    input.hasPendingUserScrollUpIntent || input.isPointerScrollActive;
+  if (hasExplicitScrollUpIntent && scrolledUp) {
+    return {
+      shouldAutoScroll: false,
+      clearPendingUserScrollUpIntent: true,
+      cancelPendingStickToBottom: true,
+      scheduleStickToBottom: false,
+    };
+  }
+
+  return {
+    shouldAutoScroll: true,
+    clearPendingUserScrollUpIntent: true,
+    cancelPendingStickToBottom: false,
+    scheduleStickToBottom: !input.isNearBottom && !hasExplicitScrollUpIntent,
+  };
 }

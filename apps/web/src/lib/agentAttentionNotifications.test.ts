@@ -1,4 +1,5 @@
 import {
+  MessageId,
   EventId,
   ProjectId,
   ThreadId,
@@ -16,6 +17,7 @@ import {
   getAgentAttentionDesktopNotificationBridge,
   isAppWindowFocused,
   readAgentAttentionNotificationPermission,
+  resolveAgentAttentionNotificationReply,
   requestAgentAttentionNotificationPermission,
   shouldOfferAgentAttentionNotificationPermission,
 } from "./agentAttentionNotifications";
@@ -47,6 +49,8 @@ function makeThread(input: {
   id: string;
   title: string;
   activities?: OrchestrationThreadActivity[];
+  latestTurn?: Thread["latestTurn"];
+  messages?: Thread["messages"];
 }): Thread {
   return {
     id: ThreadId.makeUnsafe(input.id),
@@ -60,12 +64,12 @@ function makeThread(input: {
     runtimeMode: "full-access",
     interactionMode: "default",
     session: null,
-    messages: [],
+    messages: input.messages ?? [],
     proposedPlans: [],
     error: null,
     createdAt: "2026-04-06T08:00:00.000Z",
     archivedAt: null,
-    latestTurn: null,
+    latestTurn: input.latestTurn ?? null,
     branch: null,
     worktreePath: null,
     latestProposedPlanSummary: null,
@@ -178,6 +182,41 @@ describe("deriveAgentAttentionRequests", () => {
 
     expect(request?.body).toBe("The agent is waiting for file read approval.");
   });
+
+  it("includes completed turns with a stable key and assistant preview", () => {
+    const [request] = deriveAgentAttentionRequests([
+      makeThread({
+        id: "thread-complete",
+        title: "Ship it",
+        latestTurn: {
+          turnId: TurnId.makeUnsafe("turn-1"),
+          state: "completed",
+          requestedAt: "2026-04-06T08:00:00.000Z",
+          startedAt: "2026-04-06T08:00:01.000Z",
+          completedAt: "2026-04-06T08:00:09.000Z",
+          assistantMessageId: MessageId.makeUnsafe("msg-1"),
+        },
+        messages: [
+          {
+            id: MessageId.makeUnsafe("msg-1"),
+            role: "assistant",
+            text: "Finished wiring the notification bridge and inline reply handling.",
+            turnId: TurnId.makeUnsafe("turn-1"),
+            createdAt: "2026-04-06T08:00:02.000Z",
+            completedAt: "2026-04-06T08:00:09.000Z",
+            streaming: false,
+          },
+        ],
+      }),
+    ]);
+
+    expect(request).toMatchObject({
+      key: "thread-complete:completion:2026-04-06T08:00:09.000Z",
+      kind: "completion",
+      body: "Finished wiring the notification bridge and inline reply handling.",
+      deepLink: "/thread-complete",
+    });
+  });
 });
 
 describe("buildAgentAttentionNotificationCopy", () => {
@@ -234,6 +273,54 @@ describe("buildAgentAttentionNotificationCopy", () => {
       id: "thread-approval:req-approval",
       title: "Approval needed: Build fixes",
       body: "bun run lint",
+      deepLink: "/thread-approval",
+    });
+  });
+
+  it("adds inline reply metadata for single-question user input notifications", () => {
+    const [request] = deriveAgentAttentionRequests([
+      makeThread({
+        id: "thread-input",
+        title: "Build fixes",
+        activities: [
+          makeActivity({
+            id: "input-open",
+            kind: "user-input.requested",
+            summary: "Structured input requested",
+            tone: "info",
+            payload: {
+              requestId: "req-input",
+              questions: [
+                {
+                  id: "scope",
+                  header: "Scope",
+                  question: "Which scope should the agent handle first?",
+                  options: [
+                    {
+                      label: "Server",
+                      description: "Start with the server",
+                    },
+                    {
+                      label: "Web",
+                      description: "Start with the web app",
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        ],
+      }),
+    ]);
+
+    expect(buildAgentAttentionDesktopNotificationInput(request!)).toEqual({
+      id: "thread-input:req-input",
+      title: "Input needed: Build fixes",
+      body: "Which scope should the agent handle first?",
+      deepLink: "/thread-input",
+      reply: {
+        placeholder: "Reply with Server, Web",
+      },
     });
   });
 });
@@ -299,6 +386,32 @@ describe("agent attention notification helpers", () => {
     ).toEqual([]);
   });
 
+  it("suppresses historical completion notifications from before the current notification session", () => {
+    const requests = deriveAgentAttentionRequests([
+      makeThread({
+        id: "thread-complete",
+        title: "Build fixes",
+        latestTurn: {
+          turnId: TurnId.makeUnsafe("turn-1"),
+          state: "completed",
+          requestedAt: "2026-04-06T08:00:00.000Z",
+          startedAt: "2026-04-06T08:00:01.000Z",
+          completedAt: "2026-04-06T08:00:02.000Z",
+          assistantMessageId: null,
+        },
+      }),
+    ]);
+
+    expect(
+      collectAgentAttentionRequestsToNotify({
+        requests,
+        notifiedRequestKeys: new Set<string>(),
+        isAppFocused: false,
+        notificationSessionStartedAt: "2026-04-06T08:00:03.000Z",
+      }),
+    ).toEqual([]);
+  });
+
   it("detects focus and permission prompt eligibility correctly", async () => {
     expect(
       isAppWindowFocused({
@@ -348,6 +461,7 @@ describe("agent attention notification helpers", () => {
       showNotification: async () => true,
       closeNotification: async () => true,
       onNotificationClick: () => () => undefined,
+      onNotificationReply: () => () => undefined,
     };
     const notificationBridge = getAgentAttentionDesktopNotificationBridge(desktopBridge);
 
@@ -355,6 +469,7 @@ describe("agent attention notification helpers", () => {
     expect(notificationBridge?.showNotification).toBe(desktopBridge.showNotification);
     expect(notificationBridge?.closeNotification).toBe(desktopBridge.closeNotification);
     expect(notificationBridge?.onNotificationClick).toBe(desktopBridge.onNotificationClick);
+    expect(notificationBridge?.onNotificationReply).toBe(desktopBridge.onNotificationReply);
     expect(getAgentAttentionDesktopNotificationBridge(null)).toBeNull();
     expect(
       getAgentAttentionDesktopNotificationBridge({
@@ -362,5 +477,44 @@ describe("agent attention notification helpers", () => {
         closeNotification: async () => true,
       }),
     ).toBeNull();
+  });
+
+  it("parses single-question notification replies into orchestration answers", () => {
+    const [request] = deriveAgentAttentionRequests([
+      makeThread({
+        id: "thread-input",
+        title: "Build fixes",
+        activities: [
+          makeActivity({
+            id: "input-open",
+            kind: "user-input.requested",
+            summary: "Structured input requested",
+            tone: "info",
+            payload: {
+              requestId: "req-input",
+              questions: [
+                {
+                  id: "scope",
+                  header: "Scope",
+                  question: "Which scope should the agent handle first?",
+                  options: [
+                    {
+                      label: "Server",
+                      description: "Start with the server",
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        ],
+      }),
+    ]);
+
+    expect(resolveAgentAttentionNotificationReply(request!, "Server")).toEqual({
+      answers: {
+        scope: "Server",
+      },
+    });
   });
 });
