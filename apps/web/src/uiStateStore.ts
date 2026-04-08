@@ -31,6 +31,8 @@ export interface UiProjectState {
 
 export interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
+  activeThreadId: ThreadId | null;
+  previousActiveThreadId: ThreadId | null;
 }
 
 export interface UiState extends UiProjectState, UiThreadState {}
@@ -49,6 +51,8 @@ const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
   threadLastVisitedAtById: {},
+  activeThreadId: null,
+  previousActiveThreadId: null,
 };
 
 const persistedExpandedProjectCwds = new Set<string>();
@@ -255,6 +259,14 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
       retainedThreadIds.has(threadId as ThreadId),
     ),
   );
+  const nextActiveThreadId =
+    state.activeThreadId && retainedThreadIds.has(state.activeThreadId)
+      ? state.activeThreadId
+      : null;
+  const nextPreviousActiveThreadId =
+    state.previousActiveThreadId && retainedThreadIds.has(state.previousActiveThreadId)
+      ? state.previousActiveThreadId
+      : null;
   for (const thread of threads) {
     if (
       nextThreadLastVisitedAtById[thread.id] === undefined &&
@@ -265,11 +277,32 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
     }
   }
   if (recordsEqual(state.threadLastVisitedAtById, nextThreadLastVisitedAtById)) {
-    return state;
+    return state.activeThreadId === nextActiveThreadId &&
+      state.previousActiveThreadId === nextPreviousActiveThreadId
+      ? state
+      : {
+          ...state,
+          activeThreadId: nextActiveThreadId,
+          previousActiveThreadId: nextPreviousActiveThreadId,
+        };
   }
   return {
     ...state,
     threadLastVisitedAtById: nextThreadLastVisitedAtById,
+    activeThreadId: nextActiveThreadId,
+    previousActiveThreadId: nextPreviousActiveThreadId,
+  };
+}
+
+export function trackActiveThread(state: UiState, threadId: ThreadId | null | undefined): UiState {
+  const nextActiveThreadId = threadId ?? null;
+  if (state.activeThreadId === nextActiveThreadId) {
+    return state;
+  }
+  return {
+    ...state,
+    activeThreadId: nextActiveThreadId,
+    previousActiveThreadId: state.activeThreadId,
   };
 }
 
@@ -320,7 +353,11 @@ export function markThreadUnread(
 }
 
 export function clearThreadUi(state: UiState, threadId: ThreadId): UiState {
-  if (!(threadId in state.threadLastVisitedAtById)) {
+  if (
+    !(threadId in state.threadLastVisitedAtById) &&
+    state.activeThreadId !== threadId &&
+    state.previousActiveThreadId !== threadId
+  ) {
     return state;
   }
   const nextThreadLastVisitedAtById = { ...state.threadLastVisitedAtById };
@@ -328,6 +365,9 @@ export function clearThreadUi(state: UiState, threadId: ThreadId): UiState {
   return {
     ...state,
     threadLastVisitedAtById: nextThreadLastVisitedAtById,
+    activeThreadId: state.activeThreadId === threadId ? null : state.activeThreadId,
+    previousActiveThreadId:
+      state.previousActiveThreadId === threadId ? null : state.previousActiveThreadId,
   };
 }
 
@@ -387,6 +427,7 @@ export function reorderProjects(
 interface UiStateStore extends UiState {
   syncProjects: (projects: readonly SyncProjectInput[]) => void;
   syncThreads: (threads: readonly SyncThreadInput[]) => void;
+  trackActiveThread: (threadId: ThreadId | null | undefined) => void;
   markThreadVisited: (threadId: ThreadId, visitedAt?: string) => void;
   markThreadUnread: (threadId: ThreadId, latestTurnCompletedAt: string | null | undefined) => void;
   clearThreadUi: (threadId: ThreadId) => void;
@@ -399,6 +440,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   ...readPersistedState(),
   syncProjects: (projects) => set((state) => syncProjects(state, projects)),
   syncThreads: (threads) => set((state) => syncThreads(state, threads)),
+  trackActiveThread: (threadId) => set((state) => trackActiveThread(state, threadId)),
   markThreadVisited: (threadId, visitedAt) =>
     set((state) => markThreadVisited(state, threadId, visitedAt)),
   markThreadUnread: (threadId, latestTurnCompletedAt) =>

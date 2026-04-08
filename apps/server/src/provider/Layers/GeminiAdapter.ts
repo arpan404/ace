@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   EventId,
+  isFullAccessRuntimeMode,
   type ProviderApprovalDecision,
   type ProviderRuntimeEvent,
   type ProviderSendTurnInput,
@@ -82,7 +83,7 @@ export function canGeminiSetSessionModel(metadata: Pick<GeminiSessionMetadata, "
 }
 
 function shouldAutoResolveGeminiPermission(runtimeMode: ProviderSession["runtimeMode"]): boolean {
-  return runtimeMode === "full-access";
+  return isFullAccessRuntimeMode(runtimeMode);
 }
 
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
@@ -813,7 +814,7 @@ function resolveDesiredModeId(
   if (interactionMode === "plan") {
     return planMode?.id;
   }
-  if (runtimeMode === "full-access") {
+  if (isFullAccessRuntimeMode(runtimeMode)) {
     return yoloMode?.id ?? permissiveMode?.id ?? fallbackMode?.id;
   }
   return defaultMode?.id ?? fallbackMode?.id ?? availableModes[0]?.id;

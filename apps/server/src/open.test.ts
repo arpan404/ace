@@ -1,14 +1,31 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { chmodSync } from "node:fs";
+import { OpenError } from "@ace/contracts";
 import { assert, it } from "@effect/vitest";
-import { assertSuccess } from "@effect/vitest/utils";
+import { assertFailure, assertSuccess } from "@effect/vitest/utils";
 import { FileSystem, Path, Effect } from "effect";
 
 import {
   isCommandAvailable,
   launchDetached,
+  pickFolder,
   resolveAvailableEditors,
   resolveEditorLaunch,
+  resolveFolderPickerLaunch,
+  resolveRevealInFileManagerLaunch,
 } from "./open";
+import type { ProcessRunResult } from "./processRunner";
+
+const makeResult = (overrides: Partial<ProcessRunResult> = {}): ProcessRunResult => ({
+  stdout: "",
+  stderr: "",
+  code: 0,
+  signal: null,
+  timedOut: false,
+  stdoutTruncated: false,
+  stderrTruncated: false,
+  ...overrides,
+});
 
 it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
   it.effect("returns commands for command-based editors", () =>
@@ -177,6 +194,48 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
   );
 });
 
+it.layer(NodeServices.layer)("resolveRevealInFileManagerLaunch", (it) => {
+  it.effect("maps reveal commands by operating system", () =>
+    Effect.gen(function* () {
+      const macLaunch = yield* resolveRevealInFileManagerLaunch(
+        { path: "/tmp/workspace/src/app.ts" },
+        "darwin",
+      );
+      assert.deepEqual(macLaunch, {
+        command: "open",
+        args: ["-R", "/tmp/workspace/src/app.ts"],
+      });
+
+      const winLaunch = yield* resolveRevealInFileManagerLaunch(
+        { path: "C:\\workspace\\src\\app.ts" },
+        "win32",
+      );
+      assert.deepEqual(winLaunch, {
+        command: "explorer",
+        args: ["/select,", "C:\\workspace\\src\\app.ts"],
+      });
+
+      const linuxLaunch = yield* resolveRevealInFileManagerLaunch(
+        { path: "/tmp/workspace/src/app.ts" },
+        "linux",
+      );
+      assert.deepEqual(linuxLaunch, {
+        command: "xdg-open",
+        args: ["/tmp/workspace/src"],
+      });
+    }),
+  );
+
+  it.effect("rejects empty reveal paths", () =>
+    Effect.gen(function* () {
+      const result = yield* resolveRevealInFileManagerLaunch({ path: "   " }, "darwin").pipe(
+        Effect.result,
+      );
+      assert.equal(result._tag, "Failure");
+    }),
+  );
+});
+
 it.layer(NodeServices.layer)("launchDetached", (it) => {
   it.effect("resolves when command can be spawned", () =>
     Effect.gen(function* () {
@@ -283,6 +342,100 @@ it.layer(NodeServices.layer)("resolveAvailableEditors", (it) => {
         PATHEXT: ".COM;.EXE;.BAT;.CMD",
       });
       assert.deepEqual(editors, ["trae", "vscode-insiders", "vscodium", "file-manager"]);
+    }),
+  );
+});
+
+it.layer(NodeServices.layer)("resolveFolderPickerLaunch", (it) => {
+  it.effect("prefers zenity on linux when available", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-picker-test-" });
+      const zenityPath = path.join(dir, "zenity");
+      yield* fs.writeFileString(zenityPath, "#!/bin/sh\nexit 0\n");
+      yield* Effect.sync(() => chmodSync(zenityPath, 0o755));
+
+      const launch = yield* resolveFolderPickerLaunch("linux", { PATH: dir });
+      assert.deepEqual(launch.command, "zenity");
+    }),
+  );
+
+  it.effect("falls back to kdialog on linux", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-picker-test-" });
+      const kdialogPath = path.join(dir, "kdialog");
+      yield* fs.writeFileString(kdialogPath, "#!/bin/sh\nexit 0\n");
+      yield* Effect.sync(() => chmodSync(kdialogPath, 0o755));
+
+      const launch = yield* resolveFolderPickerLaunch("linux", { PATH: dir });
+      assert.deepEqual(launch.command, "kdialog");
+    }),
+  );
+
+  it.effect("fails on linux when no supported picker is installed", () =>
+    Effect.gen(function* () {
+      const result = yield* resolveFolderPickerLaunch("linux", { PATH: "" }).pipe(Effect.result);
+      assertFailure(
+        result,
+        new OpenError({
+          message:
+            "Folder picker is unavailable. Install zenity or kdialog, or enter the path manually.",
+        }),
+      );
+    }),
+  );
+});
+
+it.layer(NodeServices.layer)("pickFolder", (it) => {
+  it.effect("returns the selected folder path", () =>
+    Effect.gen(function* () {
+      const selectedPath = yield* pickFolder("darwin", { PATH: "/usr/bin" }, async () =>
+        makeResult({ stdout: "/tmp/project\n" }),
+      );
+
+      assert.equal(selectedPath, "/tmp/project");
+    }),
+  );
+
+  it.effect("treats picker cancellations as null", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-picker-test-" });
+      const zenityPath = path.join(dir, "zenity");
+      yield* fs.writeFileString(zenityPath, "#!/bin/sh\nexit 0\n");
+      yield* Effect.sync(() => chmodSync(zenityPath, 0o755));
+
+      const selectedPath = yield* pickFolder("linux", { PATH: dir }, async () =>
+        makeResult({ code: 1 }),
+      );
+
+      assert.equal(selectedPath, null);
+    }),
+  );
+
+  it.effect("surfaces picker failures", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-picker-test-" });
+      const zenityPath = path.join(dir, "zenity");
+      yield* fs.writeFileString(zenityPath, "#!/bin/sh\nexit 0\n");
+      yield* Effect.sync(() => chmodSync(zenityPath, 0o755));
+
+      const result = yield* pickFolder("linux", { PATH: dir }, async () =>
+        makeResult({ code: 2, stderr: "boom" }),
+      ).pipe(Effect.result);
+
+      assertFailure(
+        result,
+        new OpenError({
+          message: "Failed to open folder picker: boom",
+        }),
+      );
     }),
   );
 });

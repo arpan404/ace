@@ -79,8 +79,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           workspaceRoot: command.workspaceRoot,
           defaultModelSelection: command.defaultModelSelection ?? null,
           scripts: [],
+          icon: null,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
+          archivedAt: null,
         },
       };
     }
@@ -108,6 +110,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
           ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
+          ...(command.icon !== undefined ? { icon: command.icon } : {}),
+          ...(command.archivedAt !== undefined ? { archivedAt: command.archivedAt } : {}),
           updatedAt: occurredAt,
         },
       };
@@ -392,11 +396,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.turn.interrupt": {
-      yield* requireThread({
+      const targetThread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      const turnId =
+        command.turnId ??
+        targetThread.session?.activeTurnId ??
+        (targetThread.latestTurn?.state === "running" ? targetThread.latestTurn.turnId : undefined);
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -407,7 +415,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.turn-interrupt-requested",
         payload: {
           threadId: command.threadId,
-          ...(command.turnId !== undefined ? { turnId: command.turnId } : {}),
+          ...(turnId !== undefined ? { turnId } : {}),
           createdAt: command.createdAt,
         },
       };

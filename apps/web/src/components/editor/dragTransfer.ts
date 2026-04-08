@@ -3,7 +3,7 @@ import type { ProjectEntry } from "@ace/contracts";
 export const EDITOR_TAB_TRANSFER_TYPE = "application/x-ace-editor-tab";
 export const EXPLORER_ENTRY_TRANSFER_TYPE = "application/x-ace-explorer-entry";
 
-interface ExplorerEntryTransferData {
+export interface ExplorerEntryTransferData {
   kind: ProjectEntry["kind"];
   path: string;
 }
@@ -45,8 +45,22 @@ export function writeExplorerEntryTransfer(
 }
 
 export function readExplorerEntryTransferPath(dataTransfer: DataTransfer): string | null {
+  return readExplorerEntryTransfer(dataTransfer)?.path ?? null;
+}
+
+export function readExplorerEntryTransfer(
+  dataTransfer: DataTransfer,
+): ExplorerEntryTransferData | null {
   const payload = parseTransferRecord(dataTransfer.getData(EXPLORER_ENTRY_TRANSFER_TYPE));
-  return payload ? readTrimmedString(payload, "path") : null;
+  if (!payload) {
+    return null;
+  }
+  const path = readTrimmedString(payload, "path");
+  const kind = payload["kind"];
+  if (!path || (kind !== "file" && kind !== "directory")) {
+    return null;
+  }
+  return { kind, path };
 }
 
 export function readEditorTabTransfer(dataTransfer: DataTransfer): EditorTabTransferData | null {

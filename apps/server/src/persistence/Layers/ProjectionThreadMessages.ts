@@ -83,7 +83,13 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           thread_id = excluded.thread_id,
           turn_id = excluded.turn_id,
           role = excluded.role,
-          text = excluded.text,
+          text = CASE
+            WHEN excluded.is_streaming = 1
+              THEN COALESCE(projection_thread_messages.text, '') || excluded.text
+            WHEN length(excluded.text) = 0
+              THEN projection_thread_messages.text
+            ELSE excluded.text
+          END,
           attachments_json = COALESCE(
             excluded.attachments_json,
             projection_thread_messages.attachments_json
@@ -93,7 +99,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
             projection_thread_messages.sequence,
             excluded.sequence
           ),
-          created_at = excluded.created_at,
+          created_at = projection_thread_messages.created_at,
           updated_at = excluded.updated_at
       `;
     },

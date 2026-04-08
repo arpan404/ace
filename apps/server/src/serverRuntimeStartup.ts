@@ -1,5 +1,6 @@
 import {
   CommandId,
+  DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   type ModelSelection,
   ProjectId,
@@ -170,7 +171,7 @@ const autoBootstrapWelcome = Effect.gen(function* () {
         const bootstrapProjectTitle = path.basename(serverConfig.cwd) || "project";
         nextProjectDefaultModelSelection = {
           provider: "codex",
-          model: "gpt-5-codex",
+          model: DEFAULT_MODEL_BY_PROVIDER.codex,
         };
         yield* orchestrationEngine.dispatch({
           type: "project.create",
@@ -185,7 +186,7 @@ const autoBootstrapWelcome = Effect.gen(function* () {
         nextProjectId = existingProject.value.id;
         nextProjectDefaultModelSelection = existingProject.value.defaultModelSelection ?? {
           provider: "codex",
-          model: "gpt-5-codex",
+          model: DEFAULT_MODEL_BY_PROVIDER.codex,
         };
       }
 

@@ -34,6 +34,7 @@ import Migration0018 from "./Migrations/018_ProjectionThreadsArchivedAtIndex.ts"
 import Migration0019 from "./Migrations/019_ProjectionSnapshotLookupIndexes.ts";
 import Migration0020 from "./Migrations/020_ProjectionThreadQueueState.ts";
 import Migration0021 from "./Migrations/021_ProjectionThreadMessageSequence.ts";
+import Migration0022 from "./Migrations/022_ProjectionProjectArchivedAndIcon.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -67,6 +68,7 @@ export const migrationEntries = [
   [19, "ProjectionSnapshotLookupIndexes", Migration0019],
   [20, "ProjectionThreadQueueState", Migration0020],
   [21, "ProjectionThreadMessageSequence", Migration0021],
+  [22, "ProjectionProjectArchivedAndIcon", Migration0022],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

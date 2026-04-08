@@ -1,10 +1,11 @@
 import type { GeminiSettings, ServerProvider, ServerProviderModel } from "@ace/contracts";
-import { Cache, Duration, Effect, Equal, Layer, Result, Stream } from "effect";
+import { Cache, Duration, Effect, Equal, Layer, Option, Result, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
   buildPendingServerProvider,
   buildServerProvider,
+  DEFAULT_TIMEOUT_MS,
   isCommandMissingCause,
   nonEmptyTrimmed,
   parseGenericCliVersion,
@@ -128,7 +129,10 @@ export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(
       });
     }
 
-    const versionResult = yield* runGeminiCommand(["--version"]).pipe(Effect.result);
+    const versionResult = yield* runGeminiCommand(["--version"]).pipe(
+      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+      Effect.result,
+    );
     if (Result.isFailure(versionResult)) {
       return buildServerProvider({
         provider: PROVIDER,
@@ -146,6 +150,21 @@ export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(
         },
       });
     }
+    if (Option.isNone(versionResult.success)) {
+      return buildServerProvider({
+        provider: PROVIDER,
+        enabled: true,
+        checkedAt,
+        models: fallbackModels,
+        probe: {
+          installed: true,
+          version: null,
+          status: "error",
+          auth: { status: "unknown" },
+          message: "Gemini CLI is installed but failed to run. Timed out while running command.",
+        },
+      });
+    }
 
     return buildServerProvider({
       provider: PROVIDER,
@@ -154,7 +173,7 @@ export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(
       models: fallbackModels,
       probe: {
         installed: true,
-        version: parseGeminiVersion(versionResult.success),
+        version: parseGeminiVersion(versionResult.success.value),
         status: "ready",
         auth: { status: "unknown" },
         message: "Gemini CLI detected. Authentication is verified when a session starts.",

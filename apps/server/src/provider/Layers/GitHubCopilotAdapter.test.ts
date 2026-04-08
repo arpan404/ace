@@ -36,6 +36,11 @@ type FakeStartConfig = SessionConfig;
 
 function makeFakeClient(options: {
   readonly models: ReadonlyArray<ModelInfo>;
+  readonly disconnect?: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  readonly send?: ReturnType<typeof vi.fn<(input: unknown) => Promise<string>>>;
+  readonly abort?: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  readonly stop?: ReturnType<typeof vi.fn<() => Promise<ReadonlyArray<Error>>>>;
+  readonly forceStop?: ReturnType<typeof vi.fn<() => Promise<void>>>;
 }): GitHubCopilotClientLike & {
   readonly createSession: ReturnType<
     typeof vi.fn<(config: FakeStartConfig) => Promise<GitHubCopilotSessionClient>>
@@ -59,25 +64,39 @@ function makeFakeClient(options: {
     },
   };
   const sessionListeners: Array<(event: SessionEvent) => void> = [];
+  const stop = options.stop ?? vi.fn(async (): Promise<ReadonlyArray<Error>> => []);
+  const forceStop = options.forceStop ?? vi.fn(async () => undefined);
 
   const createSession = vi.fn(
-    async (config: FakeStartConfig): Promise<GitHubCopilotSessionClient> => ({
-      sessionId: "copilot-session-1",
-      on: vi.fn((listener: (event: SessionEvent) => void) => {
-        sessionListeners.push(listener);
-        return () => {
-          const index = sessionListeners.indexOf(listener);
-          if (index >= 0) {
-            sessionListeners.splice(index, 1);
-          }
-        };
-      }),
-      disconnect: vi.fn(async () => undefined),
-      send: vi.fn(async () => "message-1"),
-      sendAndWait: vi.fn(async () => assistantMessageEvent),
-      abort: vi.fn(async () => undefined),
-      ...config,
-    }),
+    async (config: FakeStartConfig): Promise<GitHubCopilotSessionClient> => {
+      const disconnect = options.disconnect
+        ? vi.fn(async () => options.disconnect?.())
+        : vi.fn(async () => undefined);
+      const send = options.send
+        ? vi.fn(async (input: unknown) => options.send?.(input) ?? "message-1")
+        : vi.fn(async () => "message-1");
+      const abort = options.abort
+        ? vi.fn(async () => options.abort?.())
+        : vi.fn(async () => undefined);
+
+      return {
+        sessionId: "copilot-session-1",
+        on: vi.fn((listener: (event: SessionEvent) => void) => {
+          sessionListeners.push(listener);
+          return () => {
+            const index = sessionListeners.indexOf(listener);
+            if (index >= 0) {
+              sessionListeners.splice(index, 1);
+            }
+          };
+        }),
+        disconnect,
+        send,
+        sendAndWait: vi.fn(async () => assistantMessageEvent),
+        abort,
+        ...config,
+      };
+    },
   );
 
   return {
@@ -88,7 +107,8 @@ function makeFakeClient(options: {
     }),
     getStatus: vi.fn(async () => ({ version: "test", protocolVersion: 1 })),
     getAuthStatus: vi.fn(async () => ({ isAuthenticated: true, statusMessage: "ok" })),
-    stop: vi.fn(async (): Promise<ReadonlyArray<Error>> => []),
+    stop,
+    forceStop,
     emitSessionEvent: (event: SessionEvent) => {
       for (const listener of sessionListeners) {
         listener(event);
@@ -103,6 +123,21 @@ afterEach(() => {
 
 const layer = it.layer(
   makeGitHubCopilotAdapterLive().pipe(
+    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+    Layer.provideMerge(ServerSettingsService.layerTest()),
+    Layer.provideMerge(NodeServices.layer),
+  ),
+);
+
+const fastTimeoutLayer = it.layer(
+  makeGitHubCopilotAdapterLive({
+    timeouts: {
+      sendMs: 25,
+      inactivityMs: 40,
+      stopMs: 10,
+      abortMs: 10,
+    },
+  }).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(NodeServices.layer),
@@ -1101,6 +1136,107 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
     }),
   );
 
+  it.effect("reuses a single reasoning item when Copilot reasoning deltas omit reasoningId", () =>
+    Effect.gen(function* () {
+      const fakeClient = makeFakeClient({
+        models: [],
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const reasoningEventsFiber = yield* Stream.runCollect(
+        Stream.take(
+          Stream.filter(
+            adapter.streamEvents,
+            (event) =>
+              (event.type === "content.delta" && event.payload.streamKind === "reasoning_text") ||
+              (event.type === "item.completed" && event.payload.itemType === "reasoning"),
+          ),
+          3,
+        ),
+      ).pipe(Effect.forkChild);
+
+      const threadId = asThreadId("thread-copilot-missing-reasoning-id");
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        cwd: "/repo",
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId,
+        input: "Explain the ordering issue.",
+      });
+
+      fakeClient.emitSessionEvent({
+        id: "event-reasoning-delta-1",
+        type: "assistant.reasoning_delta",
+        timestamp: "2024-01-01T00:00:02.000Z",
+        parentId: null,
+        ephemeral: true,
+        data: {
+          deltaContent: "Inspecting",
+        },
+      } as SessionEvent);
+
+      fakeClient.emitSessionEvent({
+        id: "event-reasoning-delta-2",
+        type: "assistant.reasoning_delta",
+        timestamp: "2024-01-01T00:00:03.000Z",
+        parentId: "event-reasoning-delta-1",
+        ephemeral: true,
+        data: {
+          deltaContent: " the provider timeline",
+        },
+      } as SessionEvent);
+
+      fakeClient.emitSessionEvent({
+        id: "event-reasoning-complete",
+        type: "assistant.reasoning",
+        timestamp: "2024-01-01T00:00:04.000Z",
+        parentId: "event-reasoning-delta-2",
+        data: {
+          reasoningId: "reasoning-1",
+          content: "Inspecting the provider timeline",
+        },
+      });
+
+      const events = Array.from(yield* Fiber.join(reasoningEventsFiber));
+      assert.equal(events.length, 3);
+
+      const reasoningDeltaOne = events[0];
+      const reasoningDeltaTwo = events[1];
+      const reasoningCompleted = events[2];
+
+      assert.equal(reasoningDeltaOne?.type, "content.delta");
+      assert.equal(reasoningDeltaTwo?.type, "content.delta");
+      assert.equal(reasoningCompleted?.type, "item.completed");
+
+      if (reasoningDeltaOne?.type !== "content.delta") {
+        return;
+      }
+      if (reasoningDeltaTwo?.type !== "content.delta") {
+        return;
+      }
+      if (reasoningCompleted?.type !== "item.completed") {
+        return;
+      }
+
+      assert.equal(reasoningDeltaOne.payload.streamKind, "reasoning_text");
+      assert.equal(reasoningDeltaTwo.payload.streamKind, "reasoning_text");
+      assert.equal(reasoningDeltaOne.itemId, reasoningDeltaTwo.itemId);
+      assert.equal(reasoningDeltaTwo.itemId, reasoningCompleted.itemId);
+      assert.equal(reasoningDeltaOne.payload.delta, "Inspecting");
+      assert.equal(reasoningDeltaTwo.payload.delta, " the provider timeline");
+      assert.equal(reasoningCompleted.payload.itemType, "reasoning");
+      assert.equal(reasoningCompleted.payload.detail, "Inspecting the provider timeline");
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect(
     "splits repeated Copilot assistant completions into separate items and preserves provider timestamp order",
     () =>
@@ -1289,5 +1425,107 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
 
         yield* adapter.stopSession(threadId);
       }),
+  );
+});
+
+fastTimeoutLayer("GitHubCopilotAdapterLive recovery", (it) => {
+  it.effect(
+    "recovers Copilot turns that never produce runtime activity and force stops the CLI",
+    () =>
+      Effect.gen(function* () {
+        const forceStop = vi.fn(async () => undefined);
+        const fakeClient = makeFakeClient({
+          models: [],
+          stop: vi.fn(() => new Promise<ReadonlyArray<Error>>(() => undefined)),
+          forceStop,
+        });
+        mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+        const adapter = yield* GitHubCopilotAdapter;
+        const threadId = asThreadId("thread-copilot-hung");
+        const recoveryEventsFiber = yield* Stream.runCollect(
+          Stream.take(
+            Stream.filter(adapter.streamEvents, (event) => {
+              return (
+                event.threadId === threadId &&
+                (event.type === "runtime.error" ||
+                  event.type === "turn.completed" ||
+                  event.type === "session.exited")
+              );
+            }),
+            3,
+          ),
+        ).pipe(Effect.forkChild);
+
+        yield* adapter.startSession({
+          provider: "githubCopilot",
+          threadId,
+          cwd: "/repo",
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId,
+          input: "Inspect why the runtime hangs.",
+        });
+
+        const recoveryEvents = Array.from(yield* Fiber.join(recoveryEventsFiber));
+        assert.equal(forceStop.mock.calls.length, 1);
+
+        const runtimeError = recoveryEvents.find((event) => event.type === "runtime.error");
+        const turnCompleted = recoveryEvents.find((event) => event.type === "turn.completed");
+        const sessionExited = recoveryEvents.find((event) => event.type === "session.exited");
+
+        assert.equal(runtimeError?.type, "runtime.error");
+        assert.equal(turnCompleted?.type, "turn.completed");
+        assert.equal(sessionExited?.type, "session.exited");
+
+        if (runtimeError?.type !== "runtime.error") {
+          return;
+        }
+        if (turnCompleted?.type !== "turn.completed") {
+          return;
+        }
+        if (sessionExited?.type !== "session.exited") {
+          return;
+        }
+
+        assert.match(runtimeError.payload.message, /did not produce runtime activity/i);
+        assert.equal(turnCompleted.payload.state, "failed");
+        assert.match(turnCompleted.payload.errorMessage ?? "", /recovering the session/i);
+        assert.equal(sessionExited.payload.exitKind, "error");
+        assert.equal(sessionExited.payload.recoverable, true);
+
+        const sessions = yield* adapter.listSessions();
+        assert.equal(sessions.length, 0);
+      }),
+  );
+
+  it.effect("force stops the Copilot CLI when explicit session shutdown hangs", () =>
+    Effect.gen(function* () {
+      const forceStop = vi.fn(async () => undefined);
+      const fakeClient = makeFakeClient({
+        models: [],
+        stop: vi.fn(() => new Promise<ReadonlyArray<Error>>(() => undefined)),
+        forceStop,
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const threadId = asThreadId("thread-copilot-stop-timeout");
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        cwd: "/repo",
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.stopSession(threadId);
+
+      assert.equal(forceStop.mock.calls.length, 1);
+      const sessions = yield* adapter.listSessions();
+      assert.equal(sessions.length, 0);
+    }),
   );
 });

@@ -7,12 +7,13 @@ import type {
   ServerProvider,
   ServerProviderModel,
 } from "@ace/contracts";
-import { Cache, Duration, Effect, Equal, Layer, Result, Stream } from "effect";
+import { Cache, Duration, Effect, Equal, Layer, Option, Result, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import {
   buildPendingServerProvider,
   buildServerProvider,
+  DEFAULT_TIMEOUT_MS,
   isCommandMissingCause,
   nonEmptyTrimmed,
   providerModelsFromSettings,
@@ -425,7 +426,10 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
       });
     }
 
-    const versionResult = yield* runCursorCommand(["--version"]).pipe(Effect.result);
+    const versionResult = yield* runCursorCommand(["--version"]).pipe(
+      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+      Effect.result,
+    );
     if (Result.isFailure(versionResult)) {
       return buildServerProvider({
         provider: PROVIDER,
@@ -443,18 +447,43 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
         },
       });
     }
+    if (Option.isNone(versionResult.success)) {
+      return buildServerProvider({
+        provider: PROVIDER,
+        enabled: true,
+        checkedAt,
+        models: fallbackModels,
+        probe: {
+          installed: true,
+          version: null,
+          status: "error",
+          auth: { status: "unknown" },
+          message: "Cursor Agent is installed but failed to run. Timed out while running command.",
+        },
+      });
+    }
 
-    const modelsResult = yield* runCursorCommand(["models"]).pipe(Effect.result);
-    const discoveredModels = Result.isSuccess(modelsResult)
-      ? parseCursorModelsOutput(`${modelsResult.success.stdout}\n${modelsResult.success.stderr}`)
-      : [];
+    const version = versionResult.success.value;
+    const modelsResult = yield* runCursorCommand(["models"]).pipe(
+      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+      Effect.result,
+    );
+    const discoveredModels =
+      Result.isSuccess(modelsResult) && Option.isSome(modelsResult.success)
+        ? parseCursorModelsOutput(
+            `${modelsResult.success.value.stdout}\n${modelsResult.success.value.stderr}`,
+          )
+        : [];
     const models = providerModelsFromSettings(
       discoveredModels.length > 0 ? discoveredModels : FALLBACK_MODELS,
       PROVIDER,
       cursorSettings.customModels,
     );
 
-    const aboutResult = yield* runCursorCommand(["about"]).pipe(Effect.result);
+    const aboutResult = yield* runCursorCommand(["about"]).pipe(
+      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+      Effect.result,
+    );
     if (Result.isFailure(aboutResult)) {
       return buildServerProvider({
         provider: PROVIDER,
@@ -463,7 +492,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
         models,
         probe: {
           installed: true,
-          version: parseCursorVersion(versionResult.success),
+          version: parseCursorVersion(version),
           status: "warning",
           auth: { status: "unknown" },
           message:
@@ -473,9 +502,25 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
         },
       });
     }
+    if (Option.isNone(aboutResult.success)) {
+      return buildServerProvider({
+        provider: PROVIDER,
+        enabled: true,
+        checkedAt,
+        models,
+        probe: {
+          installed: true,
+          version: parseCursorVersion(version),
+          status: "warning",
+          auth: { status: "unknown" },
+          message:
+            "Could not determine Cursor Agent authentication status. Timed out while running command.",
+        },
+      });
+    }
 
     const auth = parseCursorAuthStatus(
-      `${aboutResult.success.stdout}\n${aboutResult.success.stderr}`,
+      `${aboutResult.success.value.stdout}\n${aboutResult.success.value.stderr}`,
     );
 
     return buildServerProvider({
@@ -485,7 +530,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
       models,
       probe: {
         installed: true,
-        version: parseCursorVersion(versionResult.success),
+        version: parseCursorVersion(version),
         status: auth.status,
         auth: auth.auth,
         ...(auth.message ? { message: auth.message } : {}),

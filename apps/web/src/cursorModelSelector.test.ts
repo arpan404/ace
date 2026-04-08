@@ -319,6 +319,43 @@ const FAST_ONLY_CURSOR_MODELS: ReadonlyArray<ServerProviderModel> = [
 ];
 
 describe("cursorModelSelector", () => {
+  it("sorts Cursor families alphabetically by family name", () => {
+    const models: ReadonlyArray<ServerProviderModel> = [
+      {
+        slug: "z-family-model",
+        name: "Z",
+        isCustom: false,
+        capabilities: null,
+        cursorMetadata: {
+          familySlug: "z-family",
+          familyName: "Zebra",
+          reasoningEffort: "medium",
+          fastMode: false,
+          thinking: false,
+          maxMode: false,
+        },
+      },
+      {
+        slug: "a-family-model",
+        name: "A",
+        isCustom: false,
+        capabilities: null,
+        cursorMetadata: {
+          familySlug: "a-family",
+          familyName: "Alpha",
+          reasoningEffort: "medium",
+          fastMode: false,
+          thinking: false,
+          maxMode: false,
+        },
+      },
+    ];
+    const families = buildCursorSelectorFamilies(models);
+    assert.equal(families.length, 2);
+    assert.equal(families[0]!.familySlug, "a-family");
+    assert.equal(families[1]!.familySlug, "z-family");
+  });
+
   it("groups exact Cursor models into families with the available variant axes", () => {
     const family = buildCursorSelectorFamilies(CURSOR_MODELS)[0];
 
@@ -588,5 +625,40 @@ describe("cursorModelSelector", () => {
       }),
       "composer-2-fast",
     );
+  });
+
+  it("sorts multiple Cursor families by family name", () => {
+    const multiFamilyModels: ReadonlyArray<ServerProviderModel> = [
+      {
+        slug: "zephyr-model",
+        name: "Zephyr",
+        isCustom: false,
+        capabilities: null,
+        cursorMetadata: {
+          familySlug: "zephyr",
+          familyName: "Zephyr",
+          fastMode: false,
+          thinking: false,
+          maxMode: false,
+        },
+      },
+      {
+        slug: "alpha-model",
+        name: "Alpha",
+        isCustom: false,
+        capabilities: null,
+        cursorMetadata: {
+          familySlug: "alpha",
+          familyName: "Alpha",
+          fastMode: false,
+          thinking: false,
+          maxMode: false,
+        },
+      },
+    ];
+    const families = buildCursorSelectorFamilies(multiFamilyModels);
+    assert.equal(families.length, 2);
+    assert.equal(families[0]?.familyName, "Alpha");
+    assert.equal(families[1]?.familyName, "Zephyr");
   });
 });

@@ -19,10 +19,26 @@ interface DerivedWorkLogEntry extends WorkLogEntry {
   collapseKey?: string;
 }
 
+function ensureActivitiesOrdered(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ReadonlyArray<OrchestrationThreadActivity> {
+  for (let index = 1; index < activities.length; index += 1) {
+    const previous = activities[index - 1];
+    const current = activities[index];
+    if (!previous || !current) {
+      continue;
+    }
+    if (compareActivitiesByOrder(previous, current) > 0) {
+      return [...activities].toSorted(compareActivitiesByOrder);
+    }
+  }
+  return activities;
+}
+
 export function findLatestRenderableWorkTurnId(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): TurnId | undefined {
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
+  const ordered = ensureActivitiesOrdered(activities);
   for (let index = ordered.length - 1; index >= 0; index -= 1) {
     const activity = ordered[index];
     if (!activity) {
@@ -254,7 +270,7 @@ export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
   latestTurnId?: TurnId | undefined,
 ): WorkLogEntry[] {
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
+  const ordered = ensureActivitiesOrdered(activities);
   const entries = ordered
     .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
     .filter(isRenderableWorkLogActivity)

@@ -135,4 +135,21 @@ describe("estimateTimelineMessageHeight", () => {
     expect(estimateTimelineMessageHeight(message, { timelineWidthPx: 320 })).toBe(188);
     expect(estimateTimelineMessageHeight(message, { timelineWidthPx: 768 })).toBe(122);
   });
+
+  it("caps assistant height estimates when the UI stays on a collapsed preview", () => {
+    expect(
+      estimateTimelineMessageHeight({
+        role: "assistant",
+        text: "a".repeat(500_000),
+        assistantRenderHint: "large-preview",
+      }),
+    ).toBeGreaterThan(400);
+    expect(
+      estimateTimelineMessageHeight({
+        role: "assistant",
+        text: "a".repeat(500_000),
+        assistantRenderHint: "large-preview",
+      }),
+    ).toBeLessThan(500);
+  });
 });

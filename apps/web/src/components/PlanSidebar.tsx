@@ -54,6 +54,7 @@ interface PlanSidebarProps {
   activePlan: ActivePlanState | null;
   activeProposedPlan: LatestProposedPlanState | null;
   markdownCwd: string | undefined;
+  onOpenBrowserUrl?: ((url: string) => void) | null;
   workspaceRoot: string | undefined;
   timestampFormat: TimestampFormat;
   onClose: () => void;
@@ -63,6 +64,7 @@ const PlanSidebar = memo(function PlanSidebar({
   activePlan,
   activeProposedPlan,
   markdownCwd,
+  onOpenBrowserUrl = null,
   workspaceRoot,
   timestampFormat,
   onClose,
@@ -241,6 +243,7 @@ const PlanSidebar = memo(function PlanSidebar({
                     text={displayedPlanMarkdown ?? ""}
                     cwd={markdownCwd}
                     isStreaming={false}
+                    onOpenBrowserUrl={onOpenBrowserUrl}
                   />
                 </div>
               ) : null}

@@ -146,17 +146,19 @@ export function ProviderSettingsSection({
           PROVIDER_DISPLAY_NAMES[providerCard.provider] ?? providerCard.title;
 
         return (
-          <div key={providerCard.provider} className="border-t border-border first:border-t-0">
-            <div className="px-4 py-4 sm:px-5">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 flex-1 space-y-1">
+          <div key={providerCard.provider} className="border-t border-border/12 first:border-t-0">
+            <div className="px-4 py-3 sm:px-5">
+              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 flex-1 space-y-0.5">
                   <div className="flex min-h-5 items-center gap-1.5">
                     <span
-                      className={cn("size-2 shrink-0 rounded-full", providerCard.statusStyle.dot)}
+                      className={cn("size-1.5 shrink-0 rounded-full", providerCard.statusStyle.dot)}
                     />
-                    <h3 className="text-sm font-medium text-foreground">{providerDisplayName}</h3>
+                    <h3 className="text-[13px] font-medium tracking-tight text-foreground/85">
+                      {providerDisplayName}
+                    </h3>
                     {providerCard.versionLabel ? (
-                      <code className="text-xs text-muted-foreground">
+                      <code className="text-[11px] text-muted-foreground/45">
                         {providerCard.versionLabel}
                       </code>
                     ) : null}
@@ -181,7 +183,7 @@ export function ProviderSettingsSection({
                       ) : null}
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[12px] leading-relaxed text-muted-foreground/45">
                     {providerCard.summary.headline}
                     {providerCard.summary.detail ? ` - ${providerCard.summary.detail}` : null}
                   </p>
@@ -190,7 +192,7 @@ export function ProviderSettingsSection({
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    className="h-7 px-2 text-xs text-muted-foreground/45 transition-colors duration-150 hover:text-foreground/70"
                     onClick={() =>
                       setOpenProviderDetails((existing) => ({
                         ...existing,
@@ -245,12 +247,12 @@ export function ProviderSettingsSection({
             >
               <CollapsibleContent>
                 <div className="space-y-0">
-                  <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                  <div className="border-t border-border/12 px-4 py-3 sm:px-5">
                     <label
                       htmlFor={`provider-install-${providerCard.provider}-binary-path`}
                       className="block"
                     >
-                      <span className="text-xs font-medium text-foreground">
+                      <span className="text-[12px] font-medium text-foreground/80">
                         {providerDisplayName} binary path
                       </span>
                       <Input
@@ -271,19 +273,19 @@ export function ProviderSettingsSection({
                         placeholder={providerCard.binaryPlaceholder}
                         spellCheck={false}
                       />
-                      <span className="mt-1 block text-xs text-muted-foreground">
+                      <span className="mt-1 block text-[11px] text-muted-foreground/45">
                         {providerCard.binaryDescription}
                       </span>
                     </label>
                   </div>
 
                   {providerCard.provider === "githubCopilot" ? (
-                    <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                    <div className="border-t border-border/12 px-4 py-3 sm:px-5">
                       <label
                         htmlFor={`provider-install-${providerCard.provider}-cli-url`}
                         className="block"
                       >
-                        <span className="text-xs font-medium text-foreground">
+                        <span className="text-[12px] font-medium text-foreground/80">
                           Copilot CLI server URL
                         </span>
                         <Input
@@ -305,7 +307,7 @@ export function ProviderSettingsSection({
                           spellCheck={false}
                         />
                         {providerCard.cliUrlDescription ? (
-                          <span className="mt-1 block text-xs text-muted-foreground">
+                          <span className="mt-1 block text-[11px] text-muted-foreground/45">
                             {providerCard.cliUrlDescription}
                           </span>
                         ) : null}
@@ -314,12 +316,14 @@ export function ProviderSettingsSection({
                   ) : null}
 
                   {providerCard.homePathKey ? (
-                    <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                    <div className="border-t border-border/12 px-4 py-3 sm:px-5">
                       <label
                         htmlFor={`provider-install-${providerCard.homePathKey}`}
                         className="block"
                       >
-                        <span className="text-xs font-medium text-foreground">CODEX_HOME path</span>
+                        <span className="text-[12px] font-medium text-foreground/80">
+                          CODEX_HOME path
+                        </span>
                         <Input
                           id={`provider-install-${providerCard.homePathKey}`}
                           className="mt-1.5"
@@ -339,7 +343,7 @@ export function ProviderSettingsSection({
                           spellCheck={false}
                         />
                         {providerCard.homeDescription ? (
-                          <span className="mt-1 block text-xs text-muted-foreground">
+                          <span className="mt-1 block text-[11px] text-muted-foreground/45">
                             {providerCard.homeDescription}
                           </span>
                         ) : null}
@@ -347,9 +351,9 @@ export function ProviderSettingsSection({
                     </div>
                   ) : null}
 
-                  <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-                    <div className="text-xs font-medium text-foreground">Models</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
+                  <div className="border-t border-border/12 px-4 py-3 sm:px-5">
+                    <div className="text-[12px] font-medium text-foreground/80">Models</div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground/45">
                       {providerCard.models.length} model
                       {providerCard.models.length === 1 ? "" : "s"} available.
                     </div>
@@ -383,7 +387,7 @@ export function ProviderSettingsSection({
                                   render={
                                     <button
                                       type="button"
-                                      className="shrink-0 text-muted-foreground/40 transition-colors hover:text-muted-foreground"
+                                      className="shrink-0 text-muted-foreground/35 transition-colors duration-150 hover:text-muted-foreground/60"
                                       aria-label={`Details for ${model.name}`}
                                     >
                                       <InfoIcon className="size-3" />

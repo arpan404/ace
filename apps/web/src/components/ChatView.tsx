@@ -60,18 +60,20 @@ import {
   deriveActiveWorkStartedAt,
   deriveVisibleWorkTurnId,
   deriveActivePlanState,
+  deriveVisibleTurnDiffSummaryByAssistantMessageId,
   findSidebarProposedPlan,
   findLatestProposedPlan,
   deriveWorkLogEntries,
+  hasLiveTurn,
   hasActionableProposedPlan,
   hasToolActivityForTurn,
   isLatestTurnSettled,
   formatElapsed,
 } from "../session-logic";
 import {
-  clampScrollTop,
   isScrollContainerNearBottom,
-  resolveThreadOpenScrollBehavior,
+  resolveAutoScrollOnScroll,
+  scrollContainerToBottom,
 } from "../chat-scroll";
 import {
   buildPendingUserInputAnswers,
@@ -107,14 +109,7 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
-import {
-  BotIcon,
-  CircleAlertIcon,
-  ListTodoIcon,
-  LockIcon,
-  LockOpenIcon,
-  XIcon,
-} from "lucide-react";
+import { BotIcon, CircleAlertIcon, ListTodoIcon, XIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { Spinner } from "./ui/spinner";
@@ -199,6 +194,7 @@ import {
   cloneComposerImageForRetry,
   collectUserMessageBlobPreviewUrls,
   deriveComposerSendState,
+  deriveHydratedThreadHistoryKeepIds,
   formatOutgoingPrompt,
   queuedComposerImageToDraftAttachment,
   revokeComposerImagePreviewUrls,
@@ -222,6 +218,10 @@ import {
   DEFAULT_BROWSER_SPLIT_WIDTH,
   clampBrowserSplitWidth,
 } from "~/lib/chat/browserSplit";
+import {
+  subscribeToBrowserLaunchRequests,
+  takePendingBrowserLaunchRequest,
+} from "~/lib/browser/launcher";
 import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
@@ -242,14 +242,6 @@ const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
-
-interface ThreadScrollSnapshot {
-  readonly scrollTop: number;
-  readonly shouldAutoScroll: boolean;
-}
-
-const sessionThreadScrollSnapshots = new Map<ThreadId, ThreadScrollSnapshot>();
-const sessionOpenedThreadIds = new Set<ThreadId>();
 
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
@@ -275,6 +267,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
   const pruneHydratedThreadHistories = useStore((store) => store.pruneHydratedThreadHistories);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
+  const trackActiveThread = useUiStateStore((store) => store.trackActiveThread);
+  const trackedActiveThreadId = useUiStateStore((store) => store.activeThreadId);
+  const previousActiveThreadId = useUiStateStore((store) => store.previousActiveThreadId);
   const activeThreadLastVisitedAt = useUiStateStore(
     (store) => store.threadLastVisitedAtById[threadId],
   );
@@ -408,6 +403,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const [messagesScrollElement, setMessagesScrollElement] = useState<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
+  const previousThreadIdRef = useRef<ThreadId | null>(null);
   const lastKnownScrollTopRef = useRef(0);
   const isPointerScrollActiveRef = useRef(false);
   const lastTouchClientYRef = useRef<number | null>(null);
@@ -547,19 +543,102 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
   const sourcePlanThread = useThreadById(sourceProposedPlanThreadId);
   const sourcePlanHydrationInFlightRef = useRef<ThreadId | null>(null);
+  const recentThreadHistoryKeepId =
+    trackedActiveThreadId === activeThreadId ? previousActiveThreadId : trackedActiveThreadId;
+  const recentThreadHistoryThread = useThreadById(recentThreadHistoryKeepId);
+  const recentThreadHistoryHydrationInFlightRef = useRef<ThreadId | null>(null);
   const hydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
     () =>
-      activeThread?.id
-        ? sourceProposedPlanThreadId && sourceProposedPlanThreadId !== activeThread.id
-          ? [activeThread.id, sourceProposedPlanThreadId]
-          : [activeThread.id]
-        : [],
-    [activeThread?.id, sourceProposedPlanThreadId],
+      deriveHydratedThreadHistoryKeepIds({
+        activeThreadId,
+        sourceProposedPlanThreadId,
+        previousThreadId: recentThreadHistoryKeepId,
+      }),
+    [activeThreadId, recentThreadHistoryKeepId, sourceProposedPlanThreadId],
+  );
+  const memoryPressureHydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
+    () =>
+      deriveHydratedThreadHistoryKeepIds({
+        activeThreadId,
+        sourceProposedPlanThreadId,
+        previousThreadId: null,
+      }),
+    [activeThreadId, sourceProposedPlanThreadId],
   );
   const criticalHydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
-    () => (activeThread?.id ? [activeThread.id] : []),
-    [activeThread?.id],
+    () => (activeThreadId ? [activeThreadId] : []),
+    [activeThreadId],
   );
+
+  // Update this before the next interaction so rapid thread switches keep the just-viewed history warm.
+  useLayoutEffect(() => {
+    trackActiveThread(activeThreadId);
+  }, [activeThreadId, trackActiveThread]);
+
+  useEffect(() => {
+    if (
+      !recentThreadHistoryKeepId ||
+      recentThreadHistoryKeepId === activeThreadId ||
+      recentThreadHistoryThread === undefined ||
+      recentThreadHistoryThread.historyLoaded !== false
+    ) {
+      return;
+    }
+
+    const cachedHydratedThread =
+      recentThreadHistoryThread.updatedAt === undefined
+        ? null
+        : readCachedHydratedThread(recentThreadHistoryKeepId, recentThreadHistoryThread.updatedAt);
+    if (cachedHydratedThread) {
+      startTransition(() => {
+        hydrateThreadFromReadModel(cachedHydratedThread);
+      });
+      return;
+    }
+
+    if (recentThreadHistoryHydrationInFlightRef.current === recentThreadHistoryKeepId) {
+      return;
+    }
+
+    recentThreadHistoryHydrationInFlightRef.current = recentThreadHistoryKeepId;
+    let canceled = false;
+    void (async () => {
+      try {
+        const readModelThread = await hydrateThreadFromCache(recentThreadHistoryKeepId, {
+          expectedUpdatedAt: recentThreadHistoryThread.updatedAt ?? null,
+        });
+        if (canceled) {
+          return;
+        }
+        startTransition(() => {
+          hydrateThreadFromReadModel(readModelThread);
+        });
+      } catch (error) {
+        if (!canceled) {
+          console.error("Failed to hydrate recent thread history", error);
+        }
+      } finally {
+        if (
+          !canceled &&
+          recentThreadHistoryHydrationInFlightRef.current === recentThreadHistoryKeepId
+        ) {
+          recentThreadHistoryHydrationInFlightRef.current = null;
+        }
+      }
+    })();
+
+    return () => {
+      canceled = true;
+      if (recentThreadHistoryHydrationInFlightRef.current === recentThreadHistoryKeepId) {
+        recentThreadHistoryHydrationInFlightRef.current = null;
+      }
+    };
+  }, [
+    activeThreadId,
+    hydrateThreadFromReadModel,
+    recentThreadHistoryKeepId,
+    recentThreadHistoryThread,
+  ]);
 
   useEffect(() => {
     if (hydratedThreadHistoryKeepIds.length === 0) {
@@ -568,7 +647,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     pruneHydratedThreadHistories(hydratedThreadHistoryKeepIds);
   }, [hydratedThreadHistoryKeepIds, pruneHydratedThreadHistories]);
   useEffect(() => {
-    if (hydratedThreadHistoryKeepIds.length === 0) {
+    if (memoryPressureHydratedThreadHistoryKeepIds.length === 0) {
       return;
     }
 
@@ -579,12 +658,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
       pruneHydratedThreadHistories(
         snapshot.level === "critical"
           ? criticalHydratedThreadHistoryKeepIds
-          : hydratedThreadHistoryKeepIds,
+          : memoryPressureHydratedThreadHistoryKeepIds,
       );
     });
   }, [
     criticalHydratedThreadHistoryKeepIds,
-    hydratedThreadHistoryKeepIds,
+    memoryPressureHydratedThreadHistoryKeepIds,
     pruneHydratedThreadHistories,
   ]);
   const threadPlanCatalog = useThreadPlanCatalog(
@@ -661,6 +740,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [activeThread?.activities],
   );
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
+  const liveTurnInProgress = hasLiveTurn(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = useProjectById(activeThread?.projectId);
   const handleActiveProjectChange = useCallback(
     (projectId: ProjectId) => {
@@ -851,6 +931,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const selectedModelForPicker = selectedModel;
   const phase = derivePhase(activeThread?.session ?? null);
+  const activeInterruptTurnId =
+    activeThread?.session?.activeTurnId ??
+    (activeLatestTurn?.state === "running" ? activeLatestTurn.turnId : undefined);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const activeWorkTurnId = useMemo(
     () =>
@@ -946,7 +1029,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activePendingUserInput: activePendingUserInput?.requestId ?? null,
     threadError: activeThread?.error,
   });
-  const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  const isWorking = liveTurnInProgress || isSendBusy || isConnecting || isRevertingCheckpoint;
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -962,7 +1045,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (activePendingProgress) {
       return `pending:${activePendingProgress.questionIndex}:${activePendingProgress.isLastQuestion}:${activePendingIsResponding}`;
     }
-    if (phase === "running") {
+    if (liveTurnInProgress) {
       return "running";
     }
     if (showPlanFollowUpPrompt) {
@@ -976,7 +1059,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     isConnecting,
     isPreparingWorktree,
     isSendBusy,
-    phase,
+    liveTurnInProgress,
     prompt,
     showPlanFollowUpPrompt,
   ]);
@@ -1153,6 +1236,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     return byMessageId;
   }, [turnDiffSummaries]);
+  const visibleTurnDiffSummaryByAssistantMessageId = useMemo(
+    () => deriveVisibleTurnDiffSummaryByAssistantMessageId(timelineMessages, turnDiffSummaries),
+    [timelineMessages, turnDiffSummaries],
+  );
   const revertTurnCountByUserMessageId = useMemo(() => {
     const byUserMessageId = new Map<MessageId, number>();
     for (let index = 0; index < timelineEntries.length; index += 1) {
@@ -1987,6 +2074,45 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     controller.openUrl(url, options);
   }, []);
+  const openBrowserUrlInNewTab = useCallback(
+    (url: string) => {
+      openBrowserUrl(url, { newTab: true });
+    },
+    [openBrowserUrl],
+  );
+
+  const handleBrowserLaunchRequest = useCallback(() => {
+    if (!isElectron) {
+      return;
+    }
+
+    const request = takePendingBrowserLaunchRequest();
+    if (!request) {
+      return;
+    }
+
+    if (request.action === "toggle" && !request.url && request.mode !== "split") {
+      toggleBrowserVisibility();
+      return;
+    }
+
+    if (request.url) {
+      openBrowserUrl(
+        request.url,
+        request.newTab === undefined ? undefined : { newTab: request.newTab },
+      );
+      if (request.mode === "split") {
+        openSplitBrowser();
+      }
+      return;
+    }
+
+    if (request.mode === "split") {
+      openSplitBrowser();
+    } else {
+      openBrowser();
+    }
+  }, [openBrowser, openBrowserUrl, openSplitBrowser, toggleBrowserVisibility]);
 
   useEffect(() => {
     if (!isElectron) return;
@@ -1995,6 +2121,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
       openBrowserUrl(url, { newTab: true });
     });
   }, [openBrowserUrl]);
+
+  useEffect(() => {
+    if (!isElectron) {
+      return;
+    }
+
+    handleBrowserLaunchRequest();
+    return subscribeToBrowserLaunchRequests(handleBrowserLaunchRequest);
+  }, [handleBrowserLaunchRequest]);
 
   useEffect(() => {
     if (!isElectron) return;
@@ -2632,11 +2767,28 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const toggleInteractionMode = useCallback(() => {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
-  const toggleRuntimeMode = useCallback(() => {
-    void handleRuntimeModeChange(
-      runtimeMode === "full-access" ? "approval-required" : "full-access",
-    );
-  }, [handleRuntimeModeChange, runtimeMode]);
+  useEffect(() => {
+    if (!isElectron) return;
+    return window.desktopBridge?.onMenuAction((action) => {
+      if (!activeThreadId) {
+        return;
+      }
+
+      if (action === "toggle-terminal") {
+        toggleTerminalVisibility();
+        return;
+      }
+
+      if (action === "toggle-diff") {
+        onToggleDiff();
+        return;
+      }
+
+      if (action === "toggle-plan-mode") {
+        toggleInteractionMode();
+      }
+    });
+  }, [activeThreadId, onToggleDiff, toggleInteractionMode, toggleTerminalVisibility]);
   const togglePlanSidebar = useCallback(() => {
     setPlanSidebarOpen((open) => {
       if (open) {
@@ -2707,26 +2859,26 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   // Auto-scroll on new messages
   const messageCount = timelineMessages.length;
-  const saveThreadScrollSnapshot = useCallback((threadId: ThreadId) => {
-    const scrollContainer = messagesScrollRef.current;
-    if (!scrollContainer) {
-      return;
-    }
-
-    sessionThreadScrollSnapshots.set(threadId, {
-      scrollTop: scrollContainer.scrollTop,
-      shouldAutoScroll: shouldAutoScrollRef.current || isScrollContainerNearBottom(scrollContainer),
-    });
-    sessionOpenedThreadIds.add(threadId);
-  }, []);
-  const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
-    const scrollContainer = messagesScrollRef.current;
-    if (!scrollContainer) return;
-    scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior });
+  const markMessagesAtBottom = useCallback((scrollContainer: HTMLDivElement) => {
     lastKnownScrollTopRef.current = scrollContainer.scrollTop;
     shouldAutoScrollRef.current = true;
+    pendingUserScrollUpIntentRef.current = false;
+    isPointerScrollActiveRef.current = false;
+    lastTouchClientYRef.current = null;
     setShowScrollToBottom(false);
   }, []);
+  const scrollMessagesToBottom = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      const scrollContainer = messagesScrollRef.current;
+      if (!scrollContainer) return;
+      scrollContainerToBottom(scrollContainer, behavior);
+      markMessagesAtBottom(scrollContainer);
+    },
+    [markMessagesAtBottom],
+  );
+  const jumpMessagesToBottom = useCallback(() => {
+    scrollMessagesToBottom();
+  }, [scrollMessagesToBottom]);
   const cancelPendingStickToBottom = useCallback(() => {
     const pendingFrame = pendingAutoScrollFrameRef.current;
     if (pendingFrame === null) return;
@@ -2781,47 +2933,61 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [cancelPendingInteractionAnchorAdjustment],
   );
-  const forceStickToBottom = useCallback(() => {
-    cancelPendingStickToBottom();
-    scrollMessagesToBottom();
-    scheduleStickToBottom();
-  }, [cancelPendingStickToBottom, scheduleStickToBottom, scrollMessagesToBottom]);
+  const forceStickToBottom = useCallback(
+    (jumpImmediately = false) => {
+      cancelPendingStickToBottom();
+      if (jumpImmediately) {
+        jumpMessagesToBottom();
+      } else {
+        scrollMessagesToBottom();
+      }
+      scheduleStickToBottom();
+    },
+    [
+      cancelPendingStickToBottom,
+      jumpMessagesToBottom,
+      scheduleStickToBottom,
+      scrollMessagesToBottom,
+    ],
+  );
   const onMessagesScroll = useCallback(() => {
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
     const currentScrollTop = scrollContainer.scrollTop;
     const isNearBottom = isScrollContainerNearBottom(scrollContainer);
+    const autoScrollDecision = resolveAutoScrollOnScroll({
+      shouldAutoScroll: shouldAutoScrollRef.current,
+      isNearBottom,
+      currentScrollTop,
+      previousScrollTop: lastKnownScrollTopRef.current,
+      hasPendingUserScrollUpIntent: pendingUserScrollUpIntentRef.current,
+      isPointerScrollActive: isPointerScrollActiveRef.current,
+    });
+    shouldAutoScrollRef.current = autoScrollDecision.shouldAutoScroll;
 
-    if (!shouldAutoScrollRef.current && isNearBottom) {
-      shouldAutoScrollRef.current = true;
+    if (autoScrollDecision.clearPendingUserScrollUpIntent) {
       pendingUserScrollUpIntentRef.current = false;
-    } else if (shouldAutoScrollRef.current && pendingUserScrollUpIntentRef.current) {
-      const scrolledUp = currentScrollTop < lastKnownScrollTopRef.current - 1;
-      if (scrolledUp) {
-        shouldAutoScrollRef.current = false;
-      }
-      pendingUserScrollUpIntentRef.current = false;
-    } else if (shouldAutoScrollRef.current && isPointerScrollActiveRef.current) {
-      const scrolledUp = currentScrollTop < lastKnownScrollTopRef.current - 1;
-      if (scrolledUp) {
-        shouldAutoScrollRef.current = false;
-      }
-    } else if (shouldAutoScrollRef.current && !isNearBottom) {
-      // Catch-all for keyboard/assistive scroll interactions.
-      const scrolledUp = currentScrollTop < lastKnownScrollTopRef.current - 1;
-      if (scrolledUp) {
-        shouldAutoScrollRef.current = false;
-      }
+    }
+    if (autoScrollDecision.cancelPendingStickToBottom) {
+      cancelPendingStickToBottom();
+    }
+    if (autoScrollDecision.scheduleStickToBottom) {
+      // Keep following output when layout shifts move the viewport slightly off-bottom.
+      scheduleStickToBottom();
     }
 
     setShowScrollToBottom(!shouldAutoScrollRef.current);
     lastKnownScrollTopRef.current = currentScrollTop;
-  }, []);
-  const onMessagesWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    if (event.deltaY < 0) {
-      pendingUserScrollUpIntentRef.current = true;
-    }
-  }, []);
+  }, [cancelPendingStickToBottom, scheduleStickToBottom]);
+  const onMessagesWheel = useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      if (event.deltaY < 0) {
+        pendingUserScrollUpIntentRef.current = true;
+        cancelPendingStickToBottom();
+      }
+    },
+    [cancelPendingStickToBottom],
+  );
   const onMessagesPointerDown = useCallback((_event: React.PointerEvent<HTMLDivElement>) => {
     isPointerScrollActiveRef.current = true;
   }, []);
@@ -2836,15 +3002,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (!touch) return;
     lastTouchClientYRef.current = touch.clientY;
   }, []);
-  const onMessagesTouchMove = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
-    const touch = event.touches[0];
-    if (!touch) return;
-    const previousTouchY = lastTouchClientYRef.current;
-    if (previousTouchY !== null && touch.clientY > previousTouchY + 1) {
-      pendingUserScrollUpIntentRef.current = true;
-    }
-    lastTouchClientYRef.current = touch.clientY;
-  }, []);
+  const onMessagesTouchMove = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      const previousTouchY = lastTouchClientYRef.current;
+      if (previousTouchY !== null && touch.clientY > previousTouchY + 1) {
+        pendingUserScrollUpIntentRef.current = true;
+        cancelPendingStickToBottom();
+      }
+      lastTouchClientYRef.current = touch.clientY;
+    },
+    [cancelPendingStickToBottom],
+  );
   const onMessagesTouchEnd = useCallback((_event: React.TouchEvent<HTMLDivElement>) => {
     lastTouchClientYRef.current = null;
   }, []);
@@ -2855,64 +3025,38 @@ export default function ChatView({ threadId }: ChatViewProps) {
     };
   }, [cancelPendingInteractionAnchorAdjustment, cancelPendingStickToBottom]);
   useLayoutEffect(() => {
-    if (!activeThread?.id) return;
+    const nextThreadId = activeThread?.id ?? null;
+    if (!nextThreadId) return;
+    const jumpImmediately =
+      previousThreadIdRef.current !== null && previousThreadIdRef.current !== nextThreadId;
+    previousThreadIdRef.current = nextThreadId;
     cancelPendingStickToBottom();
-    const scrollContainer = messagesScrollRef.current;
-    const savedSnapshot = sessionThreadScrollSnapshots.get(activeThread.id);
-    const scrollBehavior = resolveThreadOpenScrollBehavior({
-      hasSavedScrollSnapshot: savedSnapshot !== undefined,
-      hasOpenedAnyThreadInSession: sessionOpenedThreadIds.size > 0,
-    });
-    let timeout: number | null = null;
+    cancelPendingInteractionAnchorAdjustment();
+    pendingInteractionAnchorRef.current = null;
+    pendingUserScrollUpIntentRef.current = false;
+    isPointerScrollActiveRef.current = false;
+    lastTouchClientYRef.current = null;
+    lastKnownScrollTopRef.current = messagesScrollRef.current?.scrollTop ?? 0;
+    shouldAutoScrollRef.current = true;
+    setShowScrollToBottom(false);
+    forceStickToBottom(jumpImmediately);
 
-    if (scrollContainer) {
-      if (scrollBehavior === "restore-saved" && savedSnapshot) {
-        if (savedSnapshot.shouldAutoScroll) {
-          scrollMessagesToBottom();
-          timeout = window.setTimeout(() => {
-            const activeScrollContainer = messagesScrollRef.current;
-            if (!activeScrollContainer) return;
-            if (isScrollContainerNearBottom(activeScrollContainer)) return;
-            scheduleStickToBottom();
-          }, THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS);
-        } else {
-          const nextScrollTop = clampScrollTop(savedSnapshot.scrollTop, scrollContainer);
-          scrollContainer.scrollTop = nextScrollTop;
-          lastKnownScrollTopRef.current = nextScrollTop;
-          shouldAutoScrollRef.current = false;
-          setShowScrollToBottom(!isScrollContainerNearBottom(scrollContainer));
-        }
-      } else if (scrollBehavior === "preserve-current") {
-        const isNearBottom = isScrollContainerNearBottom(scrollContainer);
-        lastKnownScrollTopRef.current = scrollContainer.scrollTop;
-        shouldAutoScrollRef.current = isNearBottom;
-        setShowScrollToBottom(!isNearBottom);
-      } else {
-        shouldAutoScrollRef.current = true;
-        setShowScrollToBottom(false);
-        scheduleStickToBottom();
-        timeout = window.setTimeout(() => {
-          const activeScrollContainer = messagesScrollRef.current;
-          if (!activeScrollContainer) return;
-          if (isScrollContainerNearBottom(activeScrollContainer)) return;
-          scheduleStickToBottom();
-        }, THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS);
-      }
-    }
+    const timeout = window.setTimeout(() => {
+      const scrollContainer = messagesScrollRef.current;
+      if (!scrollContainer) return;
+      if (isScrollContainerNearBottom(scrollContainer)) return;
+      scheduleStickToBottom();
+    }, THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS);
 
-    sessionOpenedThreadIds.add(activeThread.id);
     return () => {
-      if (timeout !== null) {
-        window.clearTimeout(timeout);
-      }
-      saveThreadScrollSnapshot(activeThread.id);
+      window.clearTimeout(timeout);
     };
   }, [
     activeThread?.id,
+    cancelPendingInteractionAnchorAdjustment,
     cancelPendingStickToBottom,
-    saveThreadScrollSnapshot,
+    forceStickToBottom,
     scheduleStickToBottom,
-    scrollMessagesToBottom,
   ]);
   useLayoutEffect(() => {
     const composerForm = composerFormRef.current;
@@ -2993,10 +3137,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
     scheduleStickToBottom();
   }, [messageCount, scheduleStickToBottom]);
   useEffect(() => {
-    if (phase !== "running") return;
+    if (!liveTurnInProgress) return;
     if (!shouldAutoScrollRef.current) return;
     scheduleStickToBottom();
-  }, [phase, scheduleStickToBottom, timelineEntries]);
+  }, [liveTurnInProgress, scheduleStickToBottom, timelineEntries]);
 
   useEffect(() => {
     setExpandedWorkGroups({});
@@ -3499,7 +3643,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       const api = readNativeApi();
       if (!api || !activeThread || isRevertingCheckpoint) return;
 
-      if (phase === "running" || isSendBusy || isConnecting) {
+      if (liveTurnInProgress || isSendBusy || isConnecting) {
         setThreadError(activeThread.id, "Interrupt the current turn before reverting checkpoints.");
         return;
       }
@@ -3530,7 +3674,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
       setIsRevertingCheckpoint(false);
     },
-    [activeThread, isConnecting, isRevertingCheckpoint, isSendBusy, phase, setThreadError],
+    [
+      activeThread,
+      isConnecting,
+      isRevertingCheckpoint,
+      isSendBusy,
+      liveTurnInProgress,
+      setThreadError,
+    ],
   );
 
   const dispatchComposerMessage = useCallback(
@@ -3847,7 +3998,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       onAdvanceActivePendingUserInput();
       return;
     }
-    if (phase === "running" || isSendBusy || isConnecting) {
+    if (liveTurnInProgress || isSendBusy || isConnecting) {
       await queueCurrentComposerMessage();
       return;
     }
@@ -3938,7 +4089,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
     if (
-      phase === "running" ||
+      liveTurnInProgress ||
       isSendBusy ||
       isConnecting ||
       sendInFlightRef.current ||
@@ -3999,7 +4150,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     dispatchComposerMessage,
     isConnecting,
     isSendBusy,
-    phase,
+    liveTurnInProgress,
     persistQueuedComposerState,
     queuedSteerRequest,
     queuedComposerMessages,
@@ -4019,7 +4170,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       );
       return;
     }
-    if (phase !== "running" || isConnecting || queuedSteerRequest.interruptRequested) {
+    if (!liveTurnInProgress || isConnecting || queuedSteerRequest.interruptRequested) {
       return;
     }
     if (workLogEntries.length <= queuedSteerRequest.baselineWorkLogEntryCount) {
@@ -4048,13 +4199,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
         type: "thread.turn.interrupt",
         commandId: newCommandId(),
         threadId: activeThread.id,
+        ...(activeInterruptTurnId !== undefined ? { turnId: activeInterruptTurnId } : {}),
         createdAt: new Date().toISOString(),
       });
     })();
   }, [
+    activeInterruptTurnId,
     activeThread,
     isConnecting,
-    phase,
+    liveTurnInProgress,
     persistQueuedComposerState,
     queuedComposerMessages,
     queuedSteerRequest,
@@ -4068,6 +4221,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       type: "thread.turn.interrupt",
       commandId: newCommandId(),
       threadId: activeThread.id,
+      ...(activeInterruptTurnId !== undefined ? { turnId: activeInterruptTurnId } : {}),
       createdAt: new Date().toISOString(),
     });
   };
@@ -4859,7 +5013,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     timelineEntries,
     completionDividerBeforeEntryId,
     completionSummary,
-    turnDiffSummaryByAssistantMessageId,
+    turnDiffSummaryByAssistantMessageId: visibleTurnDiffSummaryByAssistantMessageId,
     expandedWorkGroups,
     onToggleWorkGroup,
     onOpenTurnDiff,
@@ -4869,6 +5023,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     isRevertingCheckpoint,
     onImageExpand: onExpandTimelineImage,
     markdownCwd: gitCwd ?? undefined,
+    onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
     resolvedTheme,
     timestampFormat,
     workspaceRoot: activeProject?.cwd ?? undefined,
@@ -4878,6 +5033,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
         threadId: activeThread.id,
         onEnvModeChange,
         envLocked,
+        runtimeMode,
+        onRuntimeModeChange: (mode: RuntimeMode) => void handleRuntimeModeChange(mode),
         onComposerFocusRequest: scheduleComposerFocus,
         ...(canCheckoutPullRequestIntoThread
           ? { onCheckoutPullRequestRequest: openPullRequestDialog }
@@ -4903,6 +5060,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activePlan,
           activeProposedPlan: sidebarProposedPlan,
           markdownCwd: gitCwd ?? undefined,
+          onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
           workspaceRoot: activeProject?.cwd ?? undefined,
           timestampFormat,
           onClose: () => {
@@ -5102,7 +5260,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 onMessagesWheel={onMessagesWheel}
                 scrollMessagesToBottom={scrollMessagesToBottom}
                 showScrollToBottom={showScrollToBottom}
-                timelineKey={activeThread.id}
+                timelineKey={`${activeThread.id}:${activeThread.historyLoaded === false ? "lean" : "hydrated"}`}
               />
 
               {/* Input bar */}
@@ -5351,7 +5509,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                 traitsMenuContent={providerTraitsMenuContent}
                                 onToggleInteractionMode={toggleInteractionMode}
                                 onTogglePlanSidebar={togglePlanSidebar}
-                                onToggleRuntimeMode={toggleRuntimeMode}
+                                onRuntimeModeChange={handleRuntimeModeChange}
                               />
                             ) : (
                               <>
@@ -5388,36 +5546,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                     <BotIcon className="size-4" />
                                   )}
                                   <span className="sr-only sm:not-sr-only">
-                                    {interactionMode === "plan" ? "Plan" : "Chat"}
-                                  </span>
-                                </Button>
-
-                                <Separator
-                                  orientation="vertical"
-                                  className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
-                                />
-
-                                <Button
-                                  variant="ghost"
-                                  className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5"
-                                  size="sm"
-                                  type="button"
-                                  onClick={() =>
-                                    void handleRuntimeModeChange(
-                                      runtimeMode === "full-access"
-                                        ? "approval-required"
-                                        : "full-access",
-                                    )
-                                  }
-                                  title={
-                                    runtimeMode === "full-access"
-                                      ? "Full access — click to require approvals"
-                                      : "Approval required — click for full access"
-                                  }
-                                >
-                                  {runtimeMode === "full-access" ? <LockOpenIcon /> : <LockIcon />}
-                                  <span className="sr-only sm:not-sr-only">
-                                    {runtimeMode === "full-access" ? "Full access" : "Supervised"}
+                                    {interactionMode === "plan" ? "Plan mode" : "Chat mode"}
                                   </span>
                                 </Button>
 
@@ -5443,7 +5572,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                       }
                                     >
                                       <ListTodoIcon />
-                                      <span className="sr-only sm:not-sr-only">Plan</span>
+                                      <span className="sr-only sm:not-sr-only">Plan panel</span>
                                     </Button>
                                   </>
                                 ) : null}
@@ -5481,7 +5610,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                     }
                                   : null
                               }
-                              isRunning={phase === "running"}
+                              isRunning={liveTurnInProgress}
                               showPlanFollowUpPrompt={
                                 pendingUserInputs.length === 0 && showPlanFollowUpPrompt
                               }
@@ -5495,7 +5624,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               onInterrupt={() => void onInterrupt()}
                               onImplementPlanInNewThread={() => void onImplementPlanInNewThread()}
                               onQueueMessage={() =>
-                                queueCurrentComposerMessage(phase === "running" ? "steer" : "queue")
+                                queueCurrentComposerMessage(liveTurnInProgress ? "steer" : "queue")
                               }
                             />
                           </div>

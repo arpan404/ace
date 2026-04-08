@@ -1,6 +1,12 @@
-import { type ProviderReplayTurn } from "@ace/contracts";
+import { type ChatAttachment, type ProviderReplayTurn } from "@ace/contracts";
 
 import type { ProjectionThreadMessage } from "../persistence/Services/ProjectionThreadMessages.ts";
+
+export type ReplaySourceMessage = {
+  readonly role: "user" | "assistant" | "system";
+  readonly text: string;
+  readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;
+};
 
 type MutableReplayTurn = {
   prompt: string;
@@ -8,10 +14,12 @@ type MutableReplayTurn = {
   assistantParts: Array<string>;
 };
 
-function uniqueAttachmentNames(message: ProjectionThreadMessage): Array<string> {
+function uniqueAttachmentNames(
+  attachments: ReadonlyArray<ChatAttachment> | undefined,
+): Array<string> {
   const seen = new Set<string>();
   const names: Array<string> = [];
-  for (const attachment of message.attachments ?? []) {
+  for (const attachment of attachments ?? []) {
     const normalized = attachment.name.trim();
     if (normalized.length === 0 || seen.has(normalized)) {
       continue;
@@ -50,8 +58,8 @@ function finalizeReplayTurn(
   );
 }
 
-export function projectionMessagesToReplayTurns(
-  messages: ReadonlyArray<ProjectionThreadMessage>,
+export function sourceMessagesToReplayTurns(
+  messages: ReadonlyArray<ReplaySourceMessage>,
 ): ReadonlyArray<ProviderReplayTurn> {
   const replayTurns: Array<ProviderReplayTurn> = [];
   let currentTurn: MutableReplayTurn | null = null;
@@ -65,7 +73,7 @@ export function projectionMessagesToReplayTurns(
       finalizeReplayTurn(currentTurn, replayTurns);
       currentTurn = {
         prompt: message.text,
-        attachmentNames: uniqueAttachmentNames(message),
+        attachmentNames: uniqueAttachmentNames(message.attachments),
         assistantParts: [],
       };
       continue;
@@ -83,4 +91,10 @@ export function projectionMessagesToReplayTurns(
 
   finalizeReplayTurn(currentTurn, replayTurns);
   return replayTurns;
+}
+
+export function projectionMessagesToReplayTurns(
+  messages: ReadonlyArray<ProjectionThreadMessage>,
+): ReadonlyArray<ProviderReplayTurn> {
+  return sourceMessagesToReplayTurns(messages);
 }

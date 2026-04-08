@@ -76,14 +76,14 @@ export const SETTINGS_NAV_ITEMS = [
   {
     group: "system",
     label: "About",
-    description: "Version details and desktop updates",
+    description: "Version details, CLI install, and desktop updates",
     to: "/settings/about",
     icon: InfoIcon,
   },
   {
     group: "data",
     label: "Archived",
-    description: "Recover or delete archived threads",
+    description: "Recover archived projects and threads",
     to: "/settings/archived",
     icon: ArchiveIcon,
   },

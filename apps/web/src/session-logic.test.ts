@@ -12,6 +12,7 @@ import {
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
   deriveVisibleWorkTurnId,
+  deriveVisibleTurnDiffSummaryByAssistantMessageId,
   PROVIDER_OPTIONS,
   derivePendingApprovals,
   derivePendingUserInputs,
@@ -1714,6 +1715,78 @@ describe("deriveWorkLogEntries context window handling", () => {
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.label).toBe("Context compacted");
+  });
+});
+
+describe("deriveVisibleTurnDiffSummaryByAssistantMessageId", () => {
+  it("keeps only the last assistant diff summary when it is the latest message", () => {
+    const assistantMessageId = MessageId.makeUnsafe("assistant-last");
+
+    expect(
+      deriveVisibleTurnDiffSummaryByAssistantMessageId(
+        [
+          {
+            id: MessageId.makeUnsafe("user-first"),
+            role: "user",
+          },
+          {
+            id: assistantMessageId,
+            role: "assistant",
+          },
+        ],
+        [
+          {
+            turnId: TurnId.makeUnsafe("turn-last"),
+            assistantMessageId,
+            completedAt: "2026-02-23T00:00:02.000Z",
+            files: [{ path: "apps/web/src/components/chat/MessagesTimeline.tsx" }],
+          },
+          {
+            turnId: TurnId.makeUnsafe("turn-earlier"),
+            assistantMessageId: MessageId.makeUnsafe("assistant-earlier"),
+            completedAt: "2026-02-23T00:00:01.000Z",
+            files: [{ path: "apps/web/src/components/ChatView.tsx" }],
+          },
+        ],
+      ),
+    ).toEqual(
+      new Map([
+        [
+          assistantMessageId,
+          {
+            turnId: TurnId.makeUnsafe("turn-last"),
+            assistantMessageId,
+            completedAt: "2026-02-23T00:00:02.000Z",
+            files: [{ path: "apps/web/src/components/chat/MessagesTimeline.tsx" }],
+          },
+        ],
+      ]),
+    );
+  });
+
+  it("clears visible diff summaries once a user sends a follow-up message", () => {
+    expect(
+      deriveVisibleTurnDiffSummaryByAssistantMessageId(
+        [
+          {
+            id: MessageId.makeUnsafe("assistant-with-diff"),
+            role: "assistant",
+          },
+          {
+            id: MessageId.makeUnsafe("user-follow-up"),
+            role: "user",
+          },
+        ],
+        [
+          {
+            turnId: TurnId.makeUnsafe("turn-with-diff"),
+            assistantMessageId: MessageId.makeUnsafe("assistant-with-diff"),
+            completedAt: "2026-02-23T00:00:02.000Z",
+            files: [{ path: "apps/web/src/components/chat/ChangedFilesTree.tsx" }],
+          },
+        ],
+      ),
+    ).toEqual(new Map());
   });
 });
 

@@ -1,6 +1,9 @@
+import { type CliProjectSummary, CliProjectServicesLive } from "./cliProjects";
+import { addCliProject, listCliProjects, removeCliProject } from "./cliProjects";
+import { normalizeCliWorkspaceRoot } from "./cliPaths";
 import { NetService } from "@ace/shared/Net";
 import { Config, Effect, LogLevel, Option, Schema } from "effect";
-import { Command, Flag, GlobalFlag } from "effect/unstable/cli";
+import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
 
 import {
   DEFAULT_PORT,
@@ -131,6 +134,7 @@ const resolveOptionPrecedence = <Value>(
 export const resolveServerConfig = (
   flags: CliServerFlags,
   cliLogLevel: Option.Option<LogLevel.LogLevel>,
+  launchWorkspaceRoot: Option.Option<string> = Option.none(),
 ) =>
   Effect.gen(function* () {
     const { findAvailablePort } = yield* NetService;
@@ -242,12 +246,16 @@ export const resolveServerConfig = (
       () => (mode === "desktop" ? "127.0.0.1" : undefined),
     );
     const logLevel = Option.getOrElse(cliLogLevel, () => env.logLevel);
+    const cwd = yield* Option.match(launchWorkspaceRoot, {
+      onNone: () => Effect.succeed(process.cwd()),
+      onSome: normalizeCliWorkspaceRoot,
+    });
 
     const config: ServerConfigShape = {
       logLevel,
       mode,
       port,
-      cwd: process.cwd(),
+      cwd,
       baseDir,
       ...derivedPaths,
       host,
@@ -255,7 +263,16 @@ export const resolveServerConfig = (
       devUrl,
       noBrowser,
       authToken,
-      autoBootstrapProjectFromCwd,
+      autoBootstrapProjectFromCwd:
+        Option.isSome(flags.autoBootstrapProjectFromCwd) ||
+        env.autoBootstrapProjectFromCwd !== undefined ||
+        Option.isSome(
+          Option.flatMap(bootstrapEnvelope, (bootstrap) =>
+            Option.fromUndefinedOr(bootstrap.autoBootstrapProjectFromCwd),
+          ),
+        )
+          ? autoBootstrapProjectFromCwd
+          : Option.isSome(launchWorkspaceRoot),
       logWebSocketEvents,
     };
 
@@ -275,15 +292,164 @@ const commandFlags = {
   logWebSocketEvents: logWebSocketEventsFlag,
 } as const;
 
-const rootCommand = Command.make("ace", commandFlags).pipe(
-  Command.withDescription("Run the ace server."),
-  Command.withHandler((flags) =>
+const openWorkspaceArgument = Argument.string("workspace").pipe(
+  Argument.withDescription("Workspace path to bootstrap on launch."),
+  Argument.optional,
+);
+
+const rootCommandConfig = {
+  ...commandFlags,
+  workspaceRoot: openWorkspaceArgument,
+} as const;
+const baseCommand = Command.make("ace", rootCommandConfig);
+
+const rootCommand = baseCommand.pipe(
+  Command.withDescription("Open ace. Pass a workspace path to bootstrap it on launch."),
+  Command.withHandler(({ workspaceRoot, ...flags }) =>
     Effect.gen(function* () {
       const logLevel = yield* GlobalFlag.LogLevel;
-      const config = yield* resolveServerConfig(flags, logLevel);
+      const config = yield* resolveServerConfig(flags, logLevel, workspaceRoot);
       return yield* runServer.pipe(Effect.provideService(ServerConfig, config));
     }),
   ),
 );
 
-export const cli = rootCommand;
+const runCliProjectCommand = <A, E, R>(flags: CliServerFlags, effect: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const logLevel = yield* GlobalFlag.LogLevel;
+    const config = yield* resolveServerConfig(flags, logLevel);
+
+    return yield* effect.pipe(
+      Effect.provide(CliProjectServicesLive),
+      Effect.provideService(ServerConfig, config),
+    );
+  });
+
+const writeStdout = (output: string) =>
+  Effect.sync(() => {
+    process.stdout.write(output);
+  });
+
+const formatProjectRows = (projects: ReadonlyArray<CliProjectSummary>): string => {
+  if (projects.length === 0) {
+    return "No projects added yet.\n";
+  }
+
+  const headers = ["ID", "THREADS", "TITLE", "PATH"] as const;
+  const rows = projects.map((project) => [
+    project.id,
+    String(project.activeThreadCount),
+    project.title,
+    project.workspaceRoot,
+  ]);
+  const widths = headers.map((header, index) =>
+    Math.max(header.length, ...rows.map((row) => row[index]!.length)),
+  );
+  const formatRow = (columns: ReadonlyArray<string>) =>
+    columns.map((column, index) => column.padEnd(widths[index]!)).join("  ");
+
+  return `${formatRow(headers)}\n${rows.map(formatRow).join("\n")}\n`;
+};
+
+const addCommand = Command.make("add", {
+  ...commandFlags,
+  path: Argument.string("path").pipe(Argument.withDescription("Workspace directory path to add.")),
+  title: Flag.string("title").pipe(
+    Flag.withDescription("Optional project title override."),
+    Flag.optional,
+  ),
+  json: Flag.boolean("json").pipe(
+    Flag.withDescription("Print the result as JSON."),
+    Flag.withDefault(false),
+  ),
+}).pipe(
+  Command.withDescription("Add a workspace project to ace."),
+  Command.withHandler(({ path, title, json, ...flags }) =>
+    Effect.gen(function* () {
+      const result = yield* runCliProjectCommand(
+        flags,
+        addCliProject({
+          workspaceRoot: path,
+          ...(Option.isSome(title) ? { title: title.value } : {}),
+        }),
+      );
+
+      if (json) {
+        return yield* writeStdout(`${JSON.stringify(result, null, 2)}\n`);
+      }
+
+      const verb = result.status === "created" ? "Added" : "Already added";
+      return yield* writeStdout(
+        `${verb} project "${result.project.title}" (${result.project.workspaceRoot}) [${result.project.id}]\n`,
+      );
+    }),
+  ),
+);
+
+const removeCommand = Command.make("remove", {
+  ...commandFlags,
+  selector: Argument.string("project").pipe(
+    Argument.withDescription("Project id, title, or workspace path."),
+  ),
+  force: Flag.boolean("force").pipe(
+    Flag.withDescription("Delete all project threads before removing the project."),
+    Flag.withDefault(false),
+  ),
+  json: Flag.boolean("json").pipe(
+    Flag.withDescription("Print the result as JSON."),
+    Flag.withDefault(false),
+  ),
+}).pipe(
+  Command.withAlias("delete"),
+  Command.withDescription("Remove a project from ace."),
+  Command.withHandler(({ selector, force, json, ...flags }) =>
+    Effect.gen(function* () {
+      const result = yield* runCliProjectCommand(
+        flags,
+        removeCliProject({
+          selector,
+          force,
+        }),
+      );
+
+      if (json) {
+        return yield* writeStdout(`${JSON.stringify(result, null, 2)}\n`);
+      }
+
+      const threadSuffix =
+        result.deletedThreadCount > 0
+          ? ` and deleted ${result.deletedThreadCount} thread${result.deletedThreadCount === 1 ? "" : "s"}`
+          : "";
+
+      return yield* writeStdout(
+        `Removed project "${result.project.title}" (${result.project.workspaceRoot})${threadSuffix}.\n`,
+      );
+    }),
+  ),
+);
+
+const listCommand = Command.make("list", {
+  ...commandFlags,
+  json: Flag.boolean("json").pipe(
+    Flag.withDescription("Print projects as JSON."),
+    Flag.withDefault(false),
+  ),
+}).pipe(
+  Command.withAlias("ls"),
+  Command.withDescription("List projects stored in ace."),
+  Command.withHandler(({ json, ...flags }) =>
+    Effect.gen(function* () {
+      const projects = yield* runCliProjectCommand(flags, listCliProjects);
+
+      if (json) {
+        return yield* writeStdout(`${JSON.stringify(projects, null, 2)}\n`);
+      }
+
+      return yield* writeStdout(formatProjectRows(projects));
+    }),
+  ),
+);
+
+export const cli = rootCommand.pipe(
+  Command.withSubcommands([addCommand, removeCommand, listCommand]),
+);

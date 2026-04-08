@@ -110,4 +110,55 @@ layer("ProjectionThreadMessageRepository", (it) => {
       assert.deepEqual(rows[0]?.attachments, []);
     }),
   );
+
+  it.effect("appends streaming text and preserves content on empty completion updates", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionThreadMessageRepository;
+      const threadId = ThreadId.makeUnsafe("thread-streaming-append");
+      const messageId = MessageId.makeUnsafe("message-streaming-append");
+      const createdAt = "2026-02-28T19:20:00.000Z";
+
+      yield* repository.upsert({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "assistant",
+        text: "hello",
+        isStreaming: true,
+        createdAt,
+        updatedAt: "2026-02-28T19:20:01.000Z",
+      });
+
+      yield* repository.upsert({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "assistant",
+        text: " world",
+        isStreaming: true,
+        createdAt: "2026-02-28T19:20:02.000Z",
+        updatedAt: "2026-02-28T19:20:02.000Z",
+      });
+
+      yield* repository.upsert({
+        messageId,
+        threadId,
+        turnId: null,
+        role: "assistant",
+        text: "",
+        isStreaming: false,
+        createdAt: "2026-02-28T19:20:03.000Z",
+        updatedAt: "2026-02-28T19:20:03.000Z",
+      });
+
+      const rowById = yield* repository.getByMessageId({ messageId });
+      assert.equal(rowById._tag, "Some");
+      if (rowById._tag === "Some") {
+        assert.equal(rowById.value.text, "hello world");
+        assert.equal(rowById.value.isStreaming, false);
+        assert.equal(rowById.value.createdAt, createdAt);
+        assert.equal(rowById.value.updatedAt, "2026-02-28T19:20:03.000Z");
+      }
+    }),
+  );
 });

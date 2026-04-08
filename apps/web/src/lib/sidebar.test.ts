@@ -618,8 +618,7 @@ describe("getVisibleThreadsForProject", () => {
     const result = getVisibleThreadsForProject({
       threads,
       activeThreadId: ThreadId.makeUnsafe("thread-8"),
-      isThreadListExpanded: false,
-      previewLimit: 6,
+      visibleCount: 5,
     });
 
     expect(result.hasHiddenThreads).toBe(true);
@@ -629,15 +628,15 @@ describe("getVisibleThreadsForProject", () => {
       ThreadId.makeUnsafe("thread-3"),
       ThreadId.makeUnsafe("thread-4"),
       ThreadId.makeUnsafe("thread-5"),
-      ThreadId.makeUnsafe("thread-6"),
       ThreadId.makeUnsafe("thread-8"),
     ]);
     expect(result.hiddenThreads.map((thread) => thread.id)).toEqual([
+      ThreadId.makeUnsafe("thread-6"),
       ThreadId.makeUnsafe("thread-7"),
     ]);
   });
 
-  it("returns all threads when the list is expanded", () => {
+  it("returns all threads when the visible count covers the list", () => {
     const threads = Array.from({ length: 8 }, (_, index) =>
       makeThread({
         id: ThreadId.makeUnsafe(`thread-${index + 1}`),
@@ -647,11 +646,10 @@ describe("getVisibleThreadsForProject", () => {
     const result = getVisibleThreadsForProject({
       threads,
       activeThreadId: ThreadId.makeUnsafe("thread-8"),
-      isThreadListExpanded: true,
-      previewLimit: 6,
+      visibleCount: 10,
     });
 
-    expect(result.hasHiddenThreads).toBe(true);
+    expect(result.hasHiddenThreads).toBe(false);
     expect(result.visibleThreads.map((thread) => thread.id)).toEqual(
       threads.map((thread) => thread.id),
     );
@@ -665,6 +663,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     id: ProjectId.makeUnsafe("project-1"),
     name: "Project",
     cwd: "/tmp/project",
+    icon: null,
     defaultModelSelection: {
       provider: "codex",
       model: "gpt-5.4",
@@ -672,6 +671,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     },
     createdAt: "2026-03-09T10:00:00.000Z",
     updatedAt: "2026-03-09T10:00:00.000Z",
+    archivedAt: null,
     scripts: [],
     ...rest,
   };

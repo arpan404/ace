@@ -25,7 +25,13 @@ import {
   DEFAULT_MAX_THREAD_ACTIVITIES,
 } from "@ace/shared/orchestrationThreadActivities";
 import { compareSequenceThenCreatedAt } from "./lib/activityOrder";
+import {
+  appendChatMessageStreamingTextState,
+  createChatMessageStreamingTextState,
+  finalizeChatMessageText,
+} from "./lib/chat/messageText";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
+import { resolveServerUrl } from "./lib/utils";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
 
 // ── State ────────────────────────────────────────────────────────────
@@ -101,14 +107,21 @@ function updateThread(
   threadId: ThreadId,
   updater: (t: Thread) => Thread,
 ): Thread[] {
-  let changed = false;
-  const next = threads.map((t) => {
-    if (t.id !== threadId) return t;
-    const updated = updater(t);
-    if (updated !== t) changed = true;
-    return updated;
-  });
-  return changed ? next : threads;
+  const threadIndex = threads.findIndex((thread) => thread.id === threadId);
+  if (threadIndex < 0) {
+    return threads;
+  }
+  const thread = threads[threadIndex];
+  if (!thread) {
+    return threads;
+  }
+  const updatedThread = updater(thread);
+  if (updatedThread === thread) {
+    return threads;
+  }
+  const next = [...threads];
+  next[threadIndex] = updatedThread;
+  return next;
 }
 
 function updateProject(
@@ -168,7 +181,10 @@ function mapMessage(message: OrchestrationMessage): ChatMessage {
   return {
     id: message.id,
     role: message.role,
-    text: message.text,
+    text: message.streaming ? "" : message.text,
+    ...(message.streaming
+      ? { streamingTextState: createChatMessageStreamingTextState(message.text) }
+      : {}),
     turnId: message.turnId,
     createdAt: message.createdAt,
     ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
@@ -308,8 +324,10 @@ function mapProject(project: OrchestrationReadModel["projects"][number]): Projec
     defaultModelSelection: project.defaultModelSelection
       ? normalizeModelSelection(project.defaultModelSelection)
       : null,
+    icon: project.icon ?? null,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
+    archivedAt: project.archivedAt ?? null,
     scripts: mapProjectScripts(project.scripts),
   };
 }
@@ -678,30 +696,20 @@ function toLegacyProvider(providerName: string | null): ProviderKind {
   return "codex";
 }
 
-function resolveWsHttpOrigin(): string {
-  if (typeof window === "undefined") return "";
-  const bridgeWsUrl = window.desktopBridge?.getWsUrl?.();
-  const envWsUrl = import.meta.env.VITE_WS_URL as string | undefined;
-  const wsCandidate =
-    typeof bridgeWsUrl === "string" && bridgeWsUrl.length > 0
-      ? bridgeWsUrl
-      : typeof envWsUrl === "string" && envWsUrl.length > 0
-        ? envWsUrl
-        : null;
-  if (!wsCandidate) return window.location.origin;
-  try {
-    const wsUrl = new URL(wsCandidate);
-    const protocol =
-      wsUrl.protocol === "wss:" ? "https:" : wsUrl.protocol === "ws:" ? "http:" : wsUrl.protocol;
-    return `${protocol}//${wsUrl.host}`;
-  } catch {
-    return window.location.origin;
-  }
-}
-
 function toAttachmentPreviewUrl(rawUrl: string): string {
   if (rawUrl.startsWith("/")) {
-    return `${resolveWsHttpOrigin()}${rawUrl}`;
+    try {
+      const resolvedUrl = new URL(rawUrl, resolveServerUrl({ pathname: "/" }));
+      resolvedUrl.protocol =
+        resolvedUrl.protocol === "wss:"
+          ? "https:"
+          : resolvedUrl.protocol === "ws:"
+            ? "http:"
+            : resolvedUrl.protocol;
+      return resolvedUrl.toString();
+    } catch {
+      return rawUrl;
+    }
   }
   return rawUrl;
 }
@@ -762,9 +770,11 @@ function applyProjectEvent(state: AppState, event: OrchestrationEvent): AppState
         title: event.payload.title,
         workspaceRoot: event.payload.workspaceRoot,
         defaultModelSelection: event.payload.defaultModelSelection,
+        icon: event.payload.icon ?? null,
         scripts: event.payload.scripts,
         createdAt: event.payload.createdAt,
         updatedAt: event.payload.updatedAt,
+        archivedAt: event.payload.archivedAt ?? null,
         deletedAt: null,
       });
       const projects =
@@ -788,6 +798,8 @@ function applyProjectEvent(state: AppState, event: OrchestrationEvent): AppState
                 : null,
             }
           : {}),
+        ...(event.payload.icon !== undefined ? { icon: event.payload.icon } : {}),
+        ...(event.payload.archivedAt !== undefined ? { archivedAt: event.payload.archivedAt } : {}),
         ...(event.payload.scripts !== undefined
           ? { scripts: mapProjectScripts(event.payload.scripts) }
           : {}),
@@ -993,7 +1005,9 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
         });
-        const existingMessage = thread.messages.find((entry) => entry.id === message.id);
+        const existingMessageIndex = thread.messages.findIndex((entry) => entry.id === message.id);
+        const existingMessage =
+          existingMessageIndex >= 0 ? thread.messages[existingMessageIndex] : undefined;
         const shouldRetainMessage =
           thread.historyLoaded !== false ||
           event.payload.role === "user" ||
@@ -1001,33 +1015,41 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         const messages = !shouldRetainMessage
           ? thread.messages
           : existingMessage
-            ? thread.messages.map((entry) =>
-                entry.id !== message.id
-                  ? entry
-                  : {
-                      ...entry,
-                      text: message.streaming
-                        ? `${entry.text}${message.text}`
-                        : message.text.length > 0
-                          ? message.text
-                          : entry.text,
-                      streaming: message.streaming,
-                      ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
-                      ...(entry.sequence !== undefined || message.sequence !== undefined
-                        ? { sequence: entry.sequence ?? message.sequence }
-                        : {}),
-                      ...(message.streaming
-                        ? entry.completedAt !== undefined
-                          ? { completedAt: entry.completedAt }
-                          : {}
-                        : message.completedAt !== undefined
-                          ? { completedAt: message.completedAt }
-                          : {}),
-                      ...(message.attachments !== undefined
-                        ? { attachments: message.attachments }
-                        : {}),
-                    },
-              )
+            ? (() => {
+                const nextMessages = [...thread.messages];
+                const { streamingTextState: _previousStreamingTextState, ...restEntry } =
+                  existingMessage;
+                const nextStreamingTextState = message.streaming
+                  ? appendChatMessageStreamingTextState(
+                      existingMessage.streamingTextState ??
+                        createChatMessageStreamingTextState(existingMessage.text),
+                      event.payload.text,
+                    )
+                  : undefined;
+                nextMessages[existingMessageIndex] = {
+                  ...restEntry,
+                  text: message.streaming
+                    ? ""
+                    : finalizeChatMessageText(existingMessage, message.text),
+                  ...(nextStreamingTextState ? { streamingTextState: nextStreamingTextState } : {}),
+                  streaming: message.streaming,
+                  ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+                  ...(existingMessage.sequence !== undefined || message.sequence !== undefined
+                    ? { sequence: existingMessage.sequence ?? message.sequence }
+                    : {}),
+                  ...(message.streaming
+                    ? existingMessage.completedAt !== undefined
+                      ? { completedAt: existingMessage.completedAt }
+                      : {}
+                    : message.completedAt !== undefined
+                      ? { completedAt: message.completedAt }
+                      : {}),
+                  ...(message.attachments !== undefined
+                    ? { attachments: message.attachments }
+                    : {}),
+                };
+                return nextMessages;
+              })()
             : [...thread.messages, message];
         const cappedMessages = shouldRetainMessage
           ? messages.slice(-MAX_THREAD_MESSAGES)
@@ -1269,13 +1291,9 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           thread.historyLoaded !== false || shouldRetainLeanThreadActivity(event.payload.activity);
         const activities = !shouldRetainActivity
           ? thread.activities
-          : appendCompactedThreadActivity(
-              thread.activities,
-              { ...event.payload.activity },
-              {
-                maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
-              },
-            );
+          : appendCompactedThreadActivity(thread.activities, event.payload.activity, {
+              maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
+            });
         return {
           ...thread,
           activities,

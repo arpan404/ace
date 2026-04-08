@@ -37,6 +37,7 @@ import {
   OrchestrationThread,
   OrchestrationThreadActivity,
   OrchestrationMessageRole,
+  ProjectIcon,
   ProjectScript,
 } from "./readModel";
 
@@ -78,8 +79,10 @@ export const ProjectCreatedPayload = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString,
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  icon: Schema.optional(Schema.NullOr(ProjectIcon)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
 });
 
 export const ProjectMetaUpdatedPayload = Schema.Struct({
@@ -88,6 +91,8 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  icon: Schema.optional(Schema.NullOr(ProjectIcon)),
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   updatedAt: IsoDateTime,
 });
 

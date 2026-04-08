@@ -40,14 +40,42 @@ export const ProjectScript = Schema.Struct({
 });
 export type ProjectScript = typeof ProjectScript.Type;
 
+export const ProjectIconName = Schema.Literals([
+  "folder",
+  "terminal",
+  "code",
+  "flask",
+  "rocket",
+  "package",
+]);
+export type ProjectIconName = typeof ProjectIconName.Type;
+
+export const ProjectIconColor = Schema.Literals([
+  "slate",
+  "blue",
+  "violet",
+  "emerald",
+  "amber",
+  "rose",
+]);
+export type ProjectIconColor = typeof ProjectIconColor.Type;
+
+export const ProjectIcon = Schema.Struct({
+  glyph: ProjectIconName,
+  color: ProjectIconColor,
+});
+export type ProjectIcon = typeof ProjectIcon.Type;
+
 export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  icon: Schema.optional(Schema.NullOr(ProjectIcon)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type OrchestrationProject = typeof OrchestrationProject.Type;

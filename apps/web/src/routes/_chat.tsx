@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { MemoryPressureCacheBridge } from "../components/MemoryPressureCacheBridge";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { configureThreadHydrationCache } from "../lib/threadHydrationCache";
+import { resolveThreadCreationOptions } from "../lib/threadCreation";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { resolveShortcutCommand } from "../keybindings";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
@@ -54,23 +55,54 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.newLocal") {
         event.preventDefault();
         event.stopPropagation();
-        void handleNewThread(projectId, {
-          envMode: resolveSidebarNewThreadEnvMode({
-            defaultEnvMode: appSettings.defaultThreadEnvMode,
+        void handleNewThread(
+          projectId,
+          resolveThreadCreationOptions("new-local-thread", {
+            activeDraftThread: activeDraftThread
+              ? {
+                  branch: activeDraftThread.branch,
+                  envMode: activeDraftThread.envMode,
+                  worktreePath: activeDraftThread.worktreePath,
+                }
+              : null,
+            activeThread: activeThread
+              ? {
+                  branch: activeThread.branch,
+                  worktreePath: activeThread.worktreePath,
+                }
+              : null,
+            defaultNewThreadEnvMode: resolveSidebarNewThreadEnvMode({
+              defaultEnvMode: appSettings.defaultThreadEnvMode,
+            }),
           }),
-        });
+        );
         return;
       }
 
       if (command === "chat.new") {
         event.preventDefault();
         event.stopPropagation();
-        void handleNewThread(projectId, {
-          branch: activeThread?.branch ?? activeDraftThread?.branch ?? null,
-          worktreePath: activeThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null,
-          envMode:
-            activeDraftThread?.envMode ?? (activeThread?.worktreePath ? "worktree" : "local"),
-        });
+        void handleNewThread(
+          projectId,
+          resolveThreadCreationOptions("new-thread", {
+            activeDraftThread: activeDraftThread
+              ? {
+                  branch: activeDraftThread.branch,
+                  envMode: activeDraftThread.envMode,
+                  worktreePath: activeDraftThread.worktreePath,
+                }
+              : null,
+            activeThread: activeThread
+              ? {
+                  branch: activeThread.branch,
+                  worktreePath: activeThread.worktreePath,
+                }
+              : null,
+            defaultNewThreadEnvMode: resolveSidebarNewThreadEnvMode({
+              defaultEnvMode: appSettings.defaultThreadEnvMode,
+            }),
+          }),
+        );
         return;
       }
     };

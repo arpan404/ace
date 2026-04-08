@@ -59,14 +59,17 @@ function normalizedReasoningEffort(
 
 function sortFamilies(
   families: ReadonlyArray<CursorSelectorFamily>,
-  sourceModels: ReadonlyArray<ServerProviderModel>,
 ): ReadonlyArray<CursorSelectorFamily> {
-  const order = new Map(sourceModels.map((model, index) => [model.slug, index]));
-  return [...families].toSorted(
-    (left, right) =>
-      (order.get(left.models[0]?.slug ?? left.familySlug) ?? Number.MAX_SAFE_INTEGER) -
-      (order.get(right.models[0]?.slug ?? right.familySlug) ?? Number.MAX_SAFE_INTEGER),
-  );
+  return [...families].toSorted((left, right) => {
+    const byName = left.familyName.localeCompare(right.familyName, undefined, {
+      sensitivity: "base",
+      numeric: true,
+    });
+    if (byName !== 0) {
+      return byName;
+    }
+    return left.familySlug.localeCompare(right.familySlug, undefined, { numeric: true });
+  });
 }
 
 export function buildCursorSelectorFamilies(
@@ -117,7 +120,7 @@ export function buildCursorSelectorFamilies(
     } satisfies CursorSelectorFamily;
   });
 
-  return sortFamilies(families, models);
+  return sortFamilies(families);
 }
 
 function fallbackScore(

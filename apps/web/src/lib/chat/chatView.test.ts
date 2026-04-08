@@ -6,6 +6,7 @@ import {
   buildExpiredTerminalContextToastCopy,
   createLocalDispatchSnapshot,
   deriveComposerSendState,
+  deriveHydratedThreadHistoryKeepIds,
   formatQueuedComposerMessagePreview,
   hasServerAcknowledgedLocalDispatch,
   waitForStartedServerThread,
@@ -95,6 +96,41 @@ describe("formatQueuedComposerMessagePreview", () => {
         terminalContextCount: 1,
       }),
     ).toBe("2 images · 1 terminal context");
+  });
+});
+
+describe("deriveHydratedThreadHistoryKeepIds", () => {
+  it("keeps the just-viewed thread alongside the active thread during rapid switches", () => {
+    const threadA = ThreadId.makeUnsafe("thread-a");
+    const threadB = ThreadId.makeUnsafe("thread-b");
+
+    expect(
+      deriveHydratedThreadHistoryKeepIds({
+        activeThreadId: threadB,
+        sourceProposedPlanThreadId: null,
+        previousThreadId: threadA,
+      }),
+    ).toEqual([threadB, threadA]);
+  });
+
+  it("dedupes overlapping ids and skips keep ids when nothing is active", () => {
+    const activeThreadId = ThreadId.makeUnsafe("thread-active");
+    const sourceThreadId = ThreadId.makeUnsafe("thread-source");
+
+    expect(
+      deriveHydratedThreadHistoryKeepIds({
+        activeThreadId,
+        sourceProposedPlanThreadId: sourceThreadId,
+        previousThreadId: sourceThreadId,
+      }),
+    ).toEqual([activeThreadId, sourceThreadId]);
+    expect(
+      deriveHydratedThreadHistoryKeepIds({
+        activeThreadId: null,
+        sourceProposedPlanThreadId: sourceThreadId,
+        previousThreadId: activeThreadId,
+      }),
+    ).toEqual([]);
   });
 });
 

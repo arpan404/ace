@@ -112,12 +112,12 @@ const SortableBrowserTab = memo(function SortableBrowserTab(props: {
       ref={setTabNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
-        "group flex min-w-0 max-w-64 items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-all duration-150",
+        "group flex min-w-0 max-w-56 items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors duration-150",
         active
-          ? "border-border/50 bg-background text-foreground shadow-xs shadow-black/[0.03]"
-          : "border-transparent bg-transparent text-muted-foreground hover:bg-foreground/[0.05]",
-        isDragging && "z-20 opacity-80",
-        isOver && !isDragging && "ring-1 ring-primary/30",
+          ? "border-border/20 bg-background/70 text-foreground shadow-xs/5"
+          : "border-transparent bg-transparent text-muted-foreground/50 hover:bg-foreground/[0.03] hover:text-foreground/70",
+        isDragging && "z-20 opacity-70",
+        isOver && !isDragging && "ring-1 ring-primary/15",
       )}
     >
       <button
@@ -169,7 +169,7 @@ const SortableBrowserTab = memo(function SortableBrowserTab(props: {
       </button>
       <button
         type="button"
-        className="rounded-md p-0.5 text-muted-foreground/50 opacity-0 transition-all duration-150 group-hover:opacity-100 hover:bg-foreground/[0.06] hover:text-foreground"
+        className="rounded-md p-0.5 text-muted-foreground/30 opacity-0 transition-all duration-150 group-hover:opacity-100 hover:bg-foreground/[0.04] hover:text-foreground/60"
         aria-label={`Close ${tab.title}`}
         onClick={() => {
           onClose(tab.id);
@@ -408,18 +408,18 @@ export function InAppBrowser(props: InAppBrowserProps) {
       <section
         onKeyDownCapture={handleBrowserKeyDownCapture}
         className={cn(
-          "flex size-full min-h-0 flex-col overflow-hidden border border-border/50 bg-background/98 text-foreground backdrop-blur-sm [-webkit-app-region:no-drag]",
+          "flex size-full min-h-0 flex-col overflow-hidden border border-border/30 bg-background/98 text-foreground backdrop-blur-sm [-webkit-app-region:no-drag]",
           mode === "full"
             ? "rounded-none shadow-none"
             : mode === "split"
               ? "rounded-none border-y-0 border-r-0 border-l shadow-none"
-              : "rounded-2xl shadow-[0_20px_60px_-18px_color-mix(in_srgb,var(--foreground)_18%,transparent)]",
+              : "rounded-2xl shadow-[0_16px_48px_-12px_color-mix(in_srgb,var(--foreground)_14%,transparent)]",
         )}
       >
         {mode === "pip" ? (
           <>
             <div
-              className="flex items-center gap-2 border-b border-border/40 bg-card/80 px-3 py-2 select-none"
+              className="flex items-center gap-2 border-b border-border/15 bg-card/40 px-3 py-1.5 select-none"
               onDoubleClick={onRestore}
               onPointerDown={handlePipDragPointerDown}
               onPointerMove={handlePipDragPointerMove}
@@ -437,7 +437,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                   </div>
                 </div>
                 {browserSession.tabs.length > 1 ? (
-                  <span className="rounded-full border border-border/30 bg-muted/25 px-1.5 py-0.5 text-[10px] text-muted-foreground/60">
+                  <span className="rounded-full border border-border/20 bg-muted/15 px-1.5 py-0.5 text-[10px] text-muted-foreground/45">
                     {browserSession.tabs.length} tabs
                   </span>
                 ) : null}
@@ -468,7 +468,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-lg transition-all duration-150"
+                  className="rounded-md transition-all duration-150"
                   onClick={goBack}
                   disabled={activeTabIsInternal || !activeRuntime.canGoBack}
                   aria-label="Go back"
@@ -479,7 +479,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-lg transition-all duration-150"
+                  className="rounded-md transition-all duration-150"
                   onClick={goForward}
                   disabled={activeTabIsInternal || !activeRuntime.canGoForward}
                   aria-label="Go forward"
@@ -490,7 +490,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-lg transition-all duration-150"
+                  className="rounded-md transition-all duration-150"
                   onClick={reload}
                   disabled={activeTabIsInternal}
                   aria-label={activeRuntime.loading ? "Stop loading" : "Reload page"}
@@ -505,7 +505,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-lg transition-all duration-150"
+                  className="rounded-md transition-all duration-150"
                   onClick={onRestore}
                   aria-label="Restore browser"
                   data-browser-control
@@ -515,7 +515,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-lg transition-all duration-150"
+                  className="rounded-md transition-all duration-150"
                   onClick={() => {
                     openActiveTabExternally();
                   }}
@@ -528,7 +528,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="rounded-lg transition-all duration-150"
+                  className="rounded-md transition-all duration-150"
                   onClick={onClose}
                   aria-label="Close browser"
                   data-browser-control
@@ -540,19 +540,19 @@ export function InAppBrowser(props: InAppBrowserProps) {
           </>
         ) : (
           <>
-            <div className="flex items-center gap-2 border-b border-border/35 bg-card/50 px-3 py-2 sm:px-5">
+            <div className="flex items-center gap-2 border-b border-border/12 bg-card/30 px-3 py-1.5 sm:px-5">
               <div className="relative flex min-w-0 flex-1 items-center">
                 {canScrollTabsLeft ? (
-                  <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-linear-to-r from-card/90 to-transparent" />
+                  <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-linear-to-r from-card/80 to-transparent" />
                 ) : null}
                 {canScrollTabsRight ? (
-                  <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-linear-to-l from-card/90 to-transparent" />
+                  <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-linear-to-l from-card/80 to-transparent" />
                 ) : null}
                 <Button
                   variant="ghost"
                   size="icon-xs"
                   className={cn(
-                    "absolute left-0 z-20 rounded-full border border-border/35 bg-background/90 shadow-xs shadow-black/[0.02] transition-opacity",
+                    "absolute left-0 z-20 rounded-full border border-border/15 bg-background/70 shadow-xs transition-opacity",
                     canScrollTabsLeft ? "opacity-100" : "pointer-events-none opacity-0",
                   )}
                   onClick={() => scrollTabsBy(-1)}
@@ -615,7 +615,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                   variant="ghost"
                   size="icon-xs"
                   className={cn(
-                    "absolute right-0 z-20 rounded-full border border-border/35 bg-background/90 shadow-xs shadow-black/[0.02] transition-opacity",
+                    "absolute right-0 z-20 rounded-full border border-border/20 bg-background/80 shadow-xs shadow-black/[0.01] transition-opacity",
                     canScrollTabsRight ? "opacity-100" : "pointer-events-none opacity-0",
                   )}
                   onClick={() => scrollTabsBy(1)}
@@ -656,7 +656,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
               </Tooltip>
             </div>
 
-            <div className="flex items-center gap-2 border-b border-border/30 bg-card/40 px-3 py-2 sm:px-5">
+            <div className="flex items-center gap-2 border-b border-border/12 bg-card/20 px-3 py-1.5 sm:px-5">
               <div className="flex shrink-0 items-center gap-1.5">
                 <Tooltip>
                   <TooltipTrigger
@@ -756,7 +756,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                   openUrl(draftUrl);
                 }}
               >
-                <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/30 bg-background/50 px-2 shadow-xs shadow-black/[0.02] transition-colors duration-150 focus-within:border-primary/25 focus-within:bg-background/70">
+                <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/20 bg-background/40 px-2 shadow-xs shadow-black/[0.01] transition-colors duration-150 focus-within:border-primary/15 focus-within:bg-background/50">
                   {activeTabFavicon}
                   <Input
                     ref={addressInputRef}

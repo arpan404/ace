@@ -124,12 +124,22 @@ it.effect("decodes project.meta-updated payloads with explicit default provider"
   Effect.gen(function* () {
     const parsed = yield* decodeProjectMetaUpdatedPayload({
       projectId: "project-1",
+      icon: {
+        glyph: "rocket",
+        color: "violet",
+      },
+      archivedAt: null,
       defaultModelSelection: {
         provider: "claudeAgent",
         model: "claude-opus-4-6",
       },
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
+    assert.deepStrictEqual(parsed.icon, {
+      glyph: "rocket",
+      color: "violet",
+    });
+    assert.strictEqual(parsed.archivedAt, null);
     assert.strictEqual(parsed.defaultModelSelection?.provider, "claudeAgent");
   }),
 );

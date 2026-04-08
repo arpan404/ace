@@ -3,6 +3,7 @@ import type {
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
   OrchestrationProposedPlanSummary,
+  ProjectIcon as ContractProjectIcon,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
   ProjectScript as ContractProjectScript,
@@ -24,6 +25,7 @@ export const DEFAULT_THREAD_TERMINAL_HEIGHT = 280;
 export const DEFAULT_THREAD_TERMINAL_ID = "default";
 export const MAX_TERMINALS_PER_GROUP = 4;
 export type ProjectScript = ContractProjectScript;
+export type ProjectIcon = ContractProjectIcon;
 
 export interface ThreadTerminalGroup {
   id: string;
@@ -73,10 +75,21 @@ export interface QueuedSteerRequest {
   interruptRequested: boolean;
 }
 
+export interface ChatMessageStreamingTextState {
+  chunks: ReadonlyArray<string>;
+  previewText: string;
+  previewLineCount: number;
+  totalLength: number;
+  totalLineCount: number;
+  truncatedCharCount: number;
+  truncatedLineCount: number;
+}
+
 export interface ChatMessage {
   id: MessageId;
   role: "user" | "assistant" | "system";
   text: string;
+  streamingTextState?: ChatMessageStreamingTextState;
   attachments?: ChatAttachment[];
   turnId?: TurnId | null;
   createdAt: string;
@@ -119,8 +132,10 @@ export interface Project {
   name: string;
   cwd: string;
   defaultModelSelection: ModelSelection | null;
+  icon: ProjectIcon | null;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
+  archivedAt: string | null;
   scripts: ProjectScript[];
 }
 

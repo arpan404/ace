@@ -9,6 +9,11 @@ type RuntimeSqliteLayerConfig = {
   readonly filename: string;
 };
 
+const SQLITE_BUSY_TIMEOUT_MS = Math.max(
+  0,
+  Number.parseInt(process.env.ACE_SQLITE_BUSY_TIMEOUT_MS ?? "5000", 10) || 5_000,
+);
+
 type Loader = {
   layer: (config: RuntimeSqliteLayerConfig) => Layer.Layer<SqlClient.SqlClient>;
 };
@@ -33,6 +38,8 @@ const setup = Layer.effectDiscard(
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* sql`PRAGMA journal_mode = WAL;`;
+      yield* sql`PRAGMA synchronous = NORMAL;`;
+      yield* sql.unsafe(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
       yield* sql`PRAGMA foreign_keys = ON;`;
       yield* runMigrations();
     }),

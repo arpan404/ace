@@ -113,6 +113,29 @@ export type BrowserShortcutAction =
   | "select-tab-8"
   | "select-tab-9";
 
+export const DESKTOP_MENU_ACTIONS = [
+  "new-thread",
+  "new-local-thread",
+  "toggle-plan-mode",
+  "toggle-terminal",
+  "toggle-browser",
+  "toggle-diff",
+  "open-settings",
+  "open-settings-chat",
+  "open-settings-editor",
+  "open-settings-browser",
+  "open-settings-models",
+  "open-settings-providers",
+  "open-settings-advanced",
+  "open-settings-about",
+  "open-settings-archived",
+] as const;
+
+export const DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM = "aceWsUrl";
+export const DESKTOP_BOOTSTRAP_DEV_BUILD_QUERY_PARAM = "aceDevBuild";
+
+export type DesktopMenuAction = (typeof DESKTOP_MENU_ACTIONS)[number];
+
 export interface DesktopRuntimeInfo {
   hostArch: DesktopRuntimeArch;
   appArch: DesktopRuntimeArch;
@@ -146,14 +169,54 @@ export interface DesktopUpdateCheckResult {
   state: DesktopUpdateState;
 }
 
+export type DesktopCliInstallStatus =
+  | "unsupported"
+  | "checking"
+  | "missing"
+  | "installing"
+  | "ready"
+  | "error";
+
+export interface DesktopCliInstallState {
+  status: DesktopCliInstallStatus;
+  binDir: string | null;
+  commandPath: string | null;
+  pathTargets: ReadonlyArray<string>;
+  checkedAt: string | null;
+  restartRequired: boolean;
+  message: string | null;
+}
+
+export interface DesktopCliInstallActionResult {
+  accepted: boolean;
+  completed: boolean;
+  state: DesktopCliInstallState;
+}
+
 export interface DesktopNotificationInput {
   id: string;
   title: string;
   body: string;
+  deepLink?: string;
+  reply?: {
+    placeholder?: string;
+  };
+}
+
+export interface DesktopNotificationClickEvent {
+  id: string;
+  deepLink?: string;
+}
+
+export interface DesktopNotificationReplyEvent {
+  id: string;
+  response: string;
+  deepLink?: string;
 }
 
 export interface DesktopBridge {
   getWsUrl: () => string | null;
+  getIsDevelopmentBuild?: () => boolean;
   getWindowShownAt?: () => number | null;
   pickFolder: () => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
@@ -166,8 +229,12 @@ export interface DesktopBridge {
   openExternal: (url: string) => Promise<boolean>;
   showNotification: (input: DesktopNotificationInput) => Promise<boolean>;
   closeNotification: (id: string) => Promise<boolean>;
-  onNotificationClick: (listener: (id: string) => void) => () => void;
-  onMenuAction: (listener: (action: string) => void) => () => void;
+  onNotificationClick: (listener: (event: DesktopNotificationClickEvent) => void) => () => void;
+  onNotificationReply: (listener: (event: DesktopNotificationReplyEvent) => void) => () => void;
+  onMenuAction: (listener: (action: DesktopMenuAction) => void) => () => void;
+  getCliInstallState: () => Promise<DesktopCliInstallState>;
+  installCli: () => Promise<DesktopCliInstallActionResult>;
+  onCliInstallState: (listener: (state: DesktopCliInstallState) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
   checkForUpdate: () => Promise<DesktopUpdateCheckResult>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
@@ -212,6 +279,7 @@ export interface NativeApi {
   };
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;
+    revealInFileManager: (path: string) => Promise<void>;
     openExternal: (url: string) => Promise<void>;
   };
   git: {

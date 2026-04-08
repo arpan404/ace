@@ -119,4 +119,41 @@ it.layer(TestLayer)("CheckpointStoreLive", (it) => {
       }),
     );
   });
+
+  describe("diffCheckpointFiles", () => {
+    it.effect("summarizes large checkpoint diffs without reading the full patch", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const checkpointStore = yield* CheckpointStore;
+        const threadId = ThreadId.makeUnsafe("thread-checkpoint-file-summary");
+        const fromCheckpointRef = checkpointRefForThreadTurn(threadId, 0);
+        const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
+
+        yield* checkpointStore.captureCheckpoint({
+          cwd: tmp,
+          checkpointRef: fromCheckpointRef,
+        });
+        yield* writeTextFile(path.join(tmp, "README.md"), buildLargeText(120_000));
+        yield* checkpointStore.captureCheckpoint({
+          cwd: tmp,
+          checkpointRef: toCheckpointRef,
+        });
+
+        const files = yield* checkpointStore.diffCheckpointFiles({
+          cwd: tmp,
+          fromCheckpointRef,
+          toCheckpointRef,
+        });
+
+        expect(files).toEqual([
+          {
+            path: "README.md",
+            additions: 120_000,
+            deletions: 1,
+          },
+        ]);
+      }),
+    );
+  });
 });

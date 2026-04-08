@@ -1,6 +1,6 @@
-import type { TurnId } from "@ace/contracts";
+import type { MessageId, TurnId } from "@ace/contracts";
 
-import type { TurnDiffSummary } from "./types";
+import type { ChatMessage, TurnDiffSummary } from "./types";
 
 export function inferCheckpointTurnCountByTurnId(
   summaries: TurnDiffSummary[],
@@ -13,4 +13,32 @@ export function inferCheckpointTurnCountByTurnId(
     result[summary.turnId] = index + 1;
   }
   return result;
+}
+
+export function deriveVisibleTurnDiffSummaryByAssistantMessageId(
+  messages: ReadonlyArray<Pick<ChatMessage, "id" | "role">>,
+  summaries: ReadonlyArray<TurnDiffSummary>,
+): Map<MessageId, TurnDiffSummary> {
+  const summaryByAssistantMessageId = new Map<MessageId, TurnDiffSummary>();
+  for (const summary of summaries) {
+    if (!summary.assistantMessageId) continue;
+    summaryByAssistantMessageId.set(summary.assistantMessageId, summary);
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message) continue;
+    if (message.role !== "assistant") {
+      return new Map();
+    }
+
+    const summary = summaryByAssistantMessageId.get(message.id);
+    if (!summary || summary.files.length === 0) {
+      return new Map();
+    }
+
+    return new Map([[message.id, summary]]);
+  }
+
+  return new Map();
 }

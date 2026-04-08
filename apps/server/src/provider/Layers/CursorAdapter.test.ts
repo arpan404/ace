@@ -1541,6 +1541,357 @@ describe("CursorAdapterLive", () => {
     });
   });
 
+  it("treats freeform create_plan responses as rejected feedback", async () => {
+    const client = makeFakeCursorClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-create-plan");
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const session = await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId: asThreadId("thread-create-plan"),
+            cwd: "/repo/create-plan",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        const requestHandler = client.getRequestHandler();
+        expect(requestHandler).toBeTypeOf("function");
+        if (!requestHandler) {
+          return;
+        }
+
+        const requestedEventsPromise = Effect.runPromise(
+          Stream.runCollect(Stream.take(adapter.streamEvents, 2)),
+        );
+        requestHandler({
+          id: 55,
+          method: "cursor/create_plan",
+          params: {
+            name: "Plan approval",
+            overview: "Approve the proposed plan?",
+            todos: [
+              {
+                title: "Draft implementation steps",
+                status: "in_progress",
+              },
+            ],
+          },
+        });
+
+        const requestedEvents = Array.from(await requestedEventsPromise);
+        const requestedEvent = requestedEvents.find(
+          (event) => event.type === "user-input.requested",
+        );
+        expect(requestedEvent?.type).toBe("user-input.requested");
+        if (!requestedEvent || requestedEvent.type !== "user-input.requested") {
+          return;
+        }
+        const requestId = requestedEvent.requestId;
+        expect(typeof requestId).toBe("string");
+        if (!requestId) {
+          return;
+        }
+
+        const resolvedEventPromise = Effect.runPromise(Stream.runHead(adapter.streamEvents));
+        await Effect.runPromise(
+          adapter.respondToUserInput(session.threadId, ApprovalRequestId.makeUnsafe(requestId), {
+            plan_decision: "Need rollback and test strategy before approving",
+          }),
+        );
+
+        const resolvedEvent = await resolvedEventPromise;
+        expect(resolvedEvent._tag).toBe("Some");
+        if (resolvedEvent._tag !== "Some") {
+          return;
+        }
+        expect(resolvedEvent.value.type).toBe("user-input.resolved");
+        if (resolvedEvent.value.type !== "user-input.resolved") {
+          return;
+        }
+        expect(resolvedEvent.value.payload.answers).toEqual({
+          plan_decision: "Need rollback and test strategy before approving",
+        });
+
+        expect(client.respond).toHaveBeenCalledWith(55, {
+          outcome: {
+            outcome: "rejected",
+            reason: "Need rollback and test strategy before approving",
+          },
+        });
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("updates session mode from current_mode_update modeId payloads", async () => {
+    const client = makeFakeCursorClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-mode-update");
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId: asThreadId("thread-mode-update"),
+            cwd: "/repo/mode-update",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        const notificationHandler = client.getNotificationHandler();
+        expect(notificationHandler).toBeTypeOf("function");
+        if (!notificationHandler) {
+          return;
+        }
+
+        const configuredEventPromise = Effect.runPromise(Stream.runHead(adapter.streamEvents));
+        notificationHandler({
+          method: "session/update",
+          params: {
+            sessionId: "cursor-session-mode-update",
+            update: {
+              sessionUpdate: "current_mode_update",
+              modeId: "plan",
+            },
+          },
+        });
+
+        const configuredEvent = await configuredEventPromise;
+        expect(configuredEvent._tag).toBe("Some");
+        if (configuredEvent._tag !== "Some") {
+          return;
+        }
+        expect(configuredEvent.value.type).toBe("session.configured");
+        if (configuredEvent.value.type !== "session.configured") {
+          return;
+        }
+        expect(configuredEvent.value.payload.config).toMatchObject({
+          modes: {
+            currentModeId: "plan",
+          },
+        });
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("rejects ask_question payloads that do not include any valid questions", async () => {
+    const promptResult = deferred<{ readonly stopReason: string }>();
+    const client = makeFakeCursorClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-invalid-question");
+          case "session/prompt":
+            return promptResult.promise;
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      let turnPromise: Promise<unknown> | undefined;
+      try {
+        const threadId = asThreadId("thread-invalid-question");
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId,
+            cwd: "/repo/invalid-question",
+            runtimeMode: "full-access",
+          }),
+        );
+        turnPromise = Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Prompt requiring user input",
+          }),
+        );
+        await waitForCondition(() =>
+          client.request.mock.calls.some(([method]) => method === "session/prompt"),
+        );
+
+        const requestHandler = client.getRequestHandler();
+        expect(requestHandler).toBeTypeOf("function");
+        if (!requestHandler) {
+          return;
+        }
+
+        const errorEventPromise = Effect.runPromise(Stream.runHead(adapter.streamEvents));
+        requestHandler({
+          id: 92,
+          method: "cursor/ask_question",
+          params: {
+            title: "Missing questions",
+            questions: [
+              {
+                id: "q1",
+                prompt: "Choose one",
+                options: [],
+              },
+            ],
+          },
+        });
+
+        const errorEvent = await errorEventPromise;
+        expect(client.respondError).toHaveBeenCalledWith(
+          92,
+          -32600,
+          "cursor/ask_question must include at least one valid question.",
+        );
+        expect(errorEvent._tag).toBe("Some");
+        if (errorEvent._tag !== "Some") {
+          return;
+        }
+        expect(errorEvent.value.type).toBe("runtime.error");
+        if (errorEvent.value.type !== "runtime.error") {
+          return;
+        }
+        expect(errorEvent.value.payload.class).toBe("validation_error");
+      } finally {
+        promptResult.resolve({ stopReason: "end_turn" });
+        await turnPromise;
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("maps plan entries from session updates into turn.plan.updated events", async () => {
+    const promptResult = deferred<{ readonly stopReason: string }>();
+    const client = makeFakeCursorClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-plan-entries");
+          case "session/prompt":
+            return promptResult.promise;
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      let turnPromise: Promise<unknown> | undefined;
+      try {
+        const threadId = asThreadId("thread-plan-entries");
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId,
+            cwd: "/repo/plan-entries",
+            runtimeMode: "full-access",
+          }),
+        );
+        turnPromise = Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Plan the implementation",
+          }),
+        );
+        await waitForCondition(() =>
+          client.request.mock.calls.some(([method]) => method === "session/prompt"),
+        );
+
+        const notificationHandler = client.getNotificationHandler();
+        expect(notificationHandler).toBeTypeOf("function");
+        if (!notificationHandler) {
+          return;
+        }
+
+        const planEventPromise = Effect.runPromise(Stream.runHead(adapter.streamEvents));
+        notificationHandler({
+          method: "session/update",
+          params: {
+            sessionId: "cursor-session-plan-entries",
+            update: {
+              sessionUpdate: "plan_update",
+              overview: "Proposed implementation plan",
+              entries: [
+                {
+                  content: "Audit server adapter lifecycle",
+                  status: "in_progress",
+                },
+                {
+                  content: "Patch protocol mismatches",
+                  status: "completed",
+                },
+              ],
+            },
+          },
+        });
+
+        const planEvent = await planEventPromise;
+        expect(planEvent._tag).toBe("Some");
+        if (planEvent._tag !== "Some") {
+          return;
+        }
+        expect(planEvent.value.type).toBe("turn.plan.updated");
+        if (planEvent.value.type !== "turn.plan.updated") {
+          return;
+        }
+        expect(planEvent.value.payload).toEqual({
+          explanation: "Proposed implementation plan",
+          plan: [
+            {
+              step: "Audit server adapter lifecycle",
+              status: "inProgress",
+            },
+            {
+              step: "Patch protocol mismatches",
+              status: "completed",
+            },
+          ],
+        });
+      } finally {
+        promptResult.resolve({ stopReason: "end_turn" });
+        await turnPromise;
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
   it("normalizes Cursor usage updates into thread usage details", () => {
     const snapshot = buildCursorUsageSnapshot(
       {

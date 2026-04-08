@@ -403,6 +403,51 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("serves workspace file preview responses before dev redirect", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const projectDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "ace-router-workspace-file-",
+      });
+      yield* fileSystem.makeDirectory(path.join(projectDir, "assets"), { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(projectDir, "assets", "preview.txt"),
+        "preview-ok",
+      );
+
+      yield* buildAppUnderTest({
+        config: { devUrl: new URL("http://127.0.0.1:5173") },
+      });
+
+      const response = yield* HttpClient.get(
+        `/api/workspace-file?cwd=${encodeURIComponent(projectDir)}&relativePath=${encodeURIComponent("assets/preview.txt")}`,
+      );
+
+      assert.equal(response.status, 200);
+      assert.equal(yield* response.text, "preview-ok");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects workspace file preview path traversal", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const projectDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "ace-router-workspace-file-invalid-",
+      });
+
+      yield* buildAppUnderTest({
+        config: { devUrl: new URL("http://127.0.0.1:5173") },
+      });
+
+      const response = yield* HttpClient.get(
+        `/api/workspace-file?cwd=${encodeURIComponent(projectDir)}&relativePath=${encodeURIComponent("../escape.txt")}`,
+      );
+
+      assert.equal(response.status, 400);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("serves attachment files from state dir", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -912,6 +957,74 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("routes websocket rpc shell.revealInFileManager", () =>
+    Effect.gen(function* () {
+      let revealedPath: string | null = null;
+      yield* buildAppUnderTest({
+        layers: {
+          open: {
+            revealInFileManager: (input) =>
+              Effect.sync(() => {
+                revealedPath = input.path;
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.shellRevealInFileManager]({
+            path: "/tmp/project/src/example.ts",
+          }),
+        ),
+      );
+
+      assert.equal(revealedPath, "/tmp/project/src/example.ts");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc server.pickFolder", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          open: {
+            pickFolder: () => Effect.succeed("/tmp/project"),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.serverPickFolder]({})),
+      );
+
+      assert.equal(response, "/tmp/project");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc server.pickFolder errors", () =>
+    Effect.gen(function* () {
+      const openError = new OpenError({ message: "Folder picker is unavailable." });
+      yield* buildAppUnderTest({
+        layers: {
+          open: {
+            pickFolder: () => Effect.fail(openError),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.serverPickFolder]({})).pipe(
+          Effect.result,
+        ),
+      );
+
+      assertFailure(result, openError);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("routes websocket rpc shell.openInEditor errors", () =>
     Effect.gen(function* () {
       const openError = new OpenError({ message: "Editor command not found: cursor" });
@@ -929,6 +1042,30 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           client[WS_METHODS.shellOpenInEditor]({
             cwd: "/tmp/project",
             editor: "cursor",
+          }),
+        ).pipe(Effect.result),
+      );
+
+      assertFailure(result, openError);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc shell.revealInFileManager errors", () =>
+    Effect.gen(function* () {
+      const openError = new OpenError({ message: "File manager command not found." });
+      yield* buildAppUnderTest({
+        layers: {
+          open: {
+            revealInFileManager: () => Effect.fail(openError),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.shellRevealInFileManager]({
+            path: "/tmp/project/src/example.ts",
           }),
         ).pipe(Effect.result),
       );
@@ -1375,7 +1512,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   );
 
   it.effect(
-    "routes websocket rpc orchestration.getSnapshot and getThread with lean and hydrated views",
+    "routes websocket rpc orchestration.getSnapshot through the in-memory lean view and targeted hydration",
     () =>
       Effect.gen(function* () {
         const now = new Date().toISOString();
@@ -1483,9 +1620,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
         yield* buildAppUnderTest({
           layers: {
+            orchestrationEngine: {
+              getReadModel: () => Effect.succeed(leanSnapshotFixture),
+            },
             projectionSnapshotQuery: {
-              getSnapshot: (input) =>
-                Effect.succeed(input?.hydrateThreadId === null ? leanSnapshotFixture : snapshot),
+              getSnapshot: () => Effect.die("unexpected full snapshot query"),
               getThread: (requestedThreadId) =>
                 Effect.succeed(
                   requestedThreadId === threadId

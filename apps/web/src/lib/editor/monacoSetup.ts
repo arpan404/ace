@@ -52,26 +52,6 @@ function updateLanguageOptions(
   setOptions.call(defaults, updater(isRecord(current) ? current : {}));
 }
 
-function updateModeConfiguration(
-  namespace: unknown,
-  defaultsKey: string,
-  updater: (current: Record<string, unknown>) => Record<string, unknown>,
-): void {
-  if (!isRecord(namespace)) {
-    return;
-  }
-  const defaults = Reflect.get(namespace, defaultsKey);
-  if (!isRecord(defaults)) {
-    return;
-  }
-  const setModeConfiguration = Reflect.get(defaults, "setModeConfiguration");
-  if (typeof setModeConfiguration !== "function") {
-    return;
-  }
-  const current = Reflect.get(defaults, "modeConfiguration");
-  setModeConfiguration.call(defaults, updater(isRecord(current) ? current : {}));
-}
-
 export function ensureMonacoConfigured(): void {
   if (monacoConfigured) {
     return;
@@ -106,65 +86,36 @@ export function ensureMonacoConfigured(): void {
   const typescriptNamespace = Reflect.get(monaco.languages, "typescript");
   const jsonNamespace = Reflect.get(monaco.languages, "json");
   const cssNamespace = Reflect.get(monaco.languages, "css");
-  const htmlNamespace = Reflect.get(monaco.languages, "html");
 
   updateLanguageDiagnosticsOptions(typescriptNamespace, "javascriptDefaults", (current) => ({
     ...current,
-    noSemanticValidation: true,
-    noSuggestionDiagnostics: true,
-    noSyntaxValidation: true,
+    noSemanticValidation: false,
+    noSuggestionDiagnostics: false,
+    noSyntaxValidation: false,
   }));
   updateLanguageDiagnosticsOptions(typescriptNamespace, "typescriptDefaults", (current) => ({
     ...current,
-    noSemanticValidation: true,
-    noSuggestionDiagnostics: true,
-    noSyntaxValidation: true,
+    noSemanticValidation: false,
+    noSuggestionDiagnostics: false,
+    noSyntaxValidation: false,
   }));
   updateLanguageDiagnosticsOptions(jsonNamespace, "jsonDefaults", (current) => ({
     ...current,
-    schemaRequest: "ignore",
-    schemaValidation: "ignore",
-    validate: false,
-  }));
-  updateModeConfiguration(jsonNamespace, "jsonDefaults", (current) => ({
-    ...current,
-    diagnostics: false,
+    schemaRequest: "warning",
+    schemaValidation: "warning",
+    validate: true,
   }));
   updateLanguageOptions(cssNamespace, "cssDefaults", (current) => ({
     ...current,
-    validate: false,
-  }));
-  updateModeConfiguration(cssNamespace, "cssDefaults", (current) => ({
-    ...current,
-    diagnostics: false,
+    validate: true,
   }));
   updateLanguageOptions(cssNamespace, "scssDefaults", (current) => ({
     ...current,
-    validate: false,
-  }));
-  updateModeConfiguration(cssNamespace, "scssDefaults", (current) => ({
-    ...current,
-    diagnostics: false,
+    validate: true,
   }));
   updateLanguageOptions(cssNamespace, "lessDefaults", (current) => ({
     ...current,
-    validate: false,
-  }));
-  updateModeConfiguration(cssNamespace, "lessDefaults", (current) => ({
-    ...current,
-    diagnostics: false,
-  }));
-  updateModeConfiguration(htmlNamespace, "htmlDefaults", (current) => ({
-    ...current,
-    diagnostics: false,
-  }));
-  updateModeConfiguration(htmlNamespace, "handlebarDefaults", (current) => ({
-    ...current,
-    diagnostics: false,
-  }));
-  updateModeConfiguration(htmlNamespace, "razorDefaults", (current) => ({
-    ...current,
-    diagnostics: false,
+    validate: true,
   }));
   monaco.editor.defineTheme("ace-carbon", {
     base: "vs-dark",

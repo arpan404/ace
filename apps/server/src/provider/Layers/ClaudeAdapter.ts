@@ -39,6 +39,7 @@ import {
   TurnId,
   type UserInputQuestion,
   ClaudeCodeEffort,
+  isFullAccessRuntimeMode,
 } from "@ace/contracts";
 import {
   applyClaudePromptEffortPrefix,
@@ -2560,7 +2561,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         }
 
         const runtimeMode = input.runtimeMode ?? "full-access";
-        if (runtimeMode === "full-access") {
+        if (isFullAccessRuntimeMode(runtimeMode)) {
           return {
             behavior: "allow",
             updatedInput: toolInput,
@@ -2698,7 +2699,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           ? modelSelection.options.thinking
           : undefined;
       const effectiveEffort = getEffectiveClaudeCodeEffort(effort);
-      const permissionMode = input.runtimeMode === "full-access" ? "bypassPermissions" : undefined;
+      const permissionMode = isFullAccessRuntimeMode(input.runtimeMode)
+        ? "bypassPermissions"
+        : undefined;
       const settings = {
         ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
         ...(fastMode ? { fastMode: true } : {}),

@@ -412,17 +412,17 @@ export function resolveProjectStatusIndicator(
 export function getVisibleThreadsForProject<T extends Pick<Thread, "id">>(input: {
   threads: readonly T[];
   activeThreadId: T["id"] | undefined;
-  isThreadListExpanded: boolean;
-  previewLimit: number;
+  visibleCount: number;
 }): {
   hasHiddenThreads: boolean;
   visibleThreads: T[];
   hiddenThreads: T[];
 } {
-  const { activeThreadId, isThreadListExpanded, previewLimit, threads } = input;
-  const hasHiddenThreads = threads.length > previewLimit;
+  const { activeThreadId, threads } = input;
+  const visibleCount = Math.max(0, input.visibleCount);
+  const hasHiddenThreads = threads.length > visibleCount;
 
-  if (!hasHiddenThreads || isThreadListExpanded) {
+  if (!hasHiddenThreads) {
     return {
       hasHiddenThreads,
       hiddenThreads: [],
@@ -430,11 +430,11 @@ export function getVisibleThreadsForProject<T extends Pick<Thread, "id">>(input:
     };
   }
 
-  const previewThreads = threads.slice(0, previewLimit);
+  const previewThreads = threads.slice(0, visibleCount);
   if (!activeThreadId || previewThreads.some((thread) => thread.id === activeThreadId)) {
     return {
       hasHiddenThreads: true,
-      hiddenThreads: threads.slice(previewLimit),
+      hiddenThreads: threads.slice(visibleCount),
       visibleThreads: previewThreads,
     };
   }
@@ -443,7 +443,7 @@ export function getVisibleThreadsForProject<T extends Pick<Thread, "id">>(input:
   if (!activeThread) {
     return {
       hasHiddenThreads: true,
-      hiddenThreads: threads.slice(previewLimit),
+      hiddenThreads: threads.slice(visibleCount),
       visibleThreads: previewThreads,
     };
   }

@@ -23,6 +23,7 @@ import {
   __resetThreadHydrationCacheForTests,
   readCachedHydratedThread,
 } from "./lib/threadHydrationCache";
+import { getChatMessageFullText } from "./lib/chat/messageText";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 
 beforeEach(() => {
@@ -69,10 +70,12 @@ function makeState(thread: Thread): AppState {
         id: ProjectId.makeUnsafe("project-1"),
         name: "Project",
         cwd: "/tmp/project",
+        icon: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
+        archivedAt: null,
         scripts: [],
       },
     ],
@@ -149,12 +152,14 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
         id: ProjectId.makeUnsafe("project-1"),
         title: "Project",
         workspaceRoot: "/tmp/project",
+        icon: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5.3-codex",
         },
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:00.000Z",
+        archivedAt: null,
         deletedAt: null,
         scripts: [],
       },
@@ -174,12 +179,14 @@ function makeReadModelFromThreads(
         id: ProjectId.makeUnsafe("project-1"),
         title: "Project",
         workspaceRoot: "/tmp/project",
+        icon: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5.3-codex",
         },
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:00.000Z",
+        archivedAt: null,
         deletedAt: null,
         scripts: [],
       },
@@ -195,12 +202,14 @@ function makeReadModelProject(
     id: ProjectId.makeUnsafe("project-1"),
     title: "Project",
     workspaceRoot: "/tmp/project",
+    icon: null,
     defaultModelSelection: {
       provider: "codex",
       model: "gpt-5.3-codex",
     },
     createdAt: "2026-02-27T00:00:00.000Z",
     updatedAt: "2026-02-27T00:00:00.000Z",
+    archivedAt: null,
     deletedAt: null,
     scripts: [],
     ...overrides,
@@ -741,20 +750,24 @@ describe("store read model sync", () => {
           id: project2,
           name: "Project 2",
           cwd: "/tmp/project-2",
+          icon: null,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
           },
+          archivedAt: null,
           scripts: [],
         },
         {
           id: project1,
           name: "Project 1",
           cwd: "/tmp/project-1",
+          icon: null,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
           },
+          archivedAt: null,
           scripts: [],
         },
       ],
@@ -843,10 +856,12 @@ describe("incremental orchestration updates", () => {
           id: originalProjectId,
           name: "Project",
           cwd: "/tmp/project",
+          icon: null,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
           },
+          archivedAt: null,
           scripts: [],
         },
       ],
@@ -892,20 +907,24 @@ describe("incremental orchestration updates", () => {
           id: originalProjectId,
           name: "Project 1",
           cwd: "/tmp/project-1",
+          icon: null,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
           },
+          archivedAt: null,
           scripts: [],
         },
         {
           id: recreatedProjectId,
           name: "Project 2",
           cwd: "/tmp/project-2",
+          icon: null,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
           },
+          archivedAt: null,
           scripts: [],
         },
       ],
@@ -977,9 +996,64 @@ describe("incremental orchestration updates", () => {
       }),
     );
 
-    expect(next.threads[0]?.messages[0]?.text).toBe("hello world");
+    expect(getChatMessageFullText(next.threads[0]?.messages[0] ?? { text: "" })).toBe(
+      "hello world",
+    );
     expect(next.threads[0]?.latestTurn?.state).toBe("running");
     expect(next.threads[1]).toBe(thread2);
+  });
+
+  it("preserves streamed assistant content when completion carries only trailing text", () => {
+    const threadId = ThreadId.makeUnsafe("thread-streamed-completion");
+    const messageId = MessageId.makeUnsafe("message-streamed-completion");
+    const turnId = TurnId.makeUnsafe("turn-streamed-completion");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        messages: [
+          {
+            id: messageId,
+            role: "assistant",
+            text: "hello",
+            turnId,
+            createdAt: "2026-02-27T00:00:00.000Z",
+            completedAt: "2026-02-27T00:00:00.000Z",
+            streaming: false,
+          },
+        ],
+      }),
+    );
+
+    const streaming = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.message-sent", {
+        threadId,
+        messageId,
+        role: "assistant",
+        text: " world",
+        turnId,
+        streaming: true,
+        createdAt: "2026-02-27T00:00:01.000Z",
+        updatedAt: "2026-02-27T00:00:01.000Z",
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      streaming,
+      makeEvent("thread.message-sent", {
+        threadId,
+        messageId,
+        role: "assistant",
+        text: "!",
+        turnId,
+        streaming: false,
+        createdAt: "2026-02-27T00:00:02.000Z",
+        updatedAt: "2026-02-27T00:00:02.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.messages[0]?.text).toBe("hello world!");
+    expect(next.threads[0]?.messages[0]?.streaming).toBe(false);
   });
 
   it("prefers payload sequence for assistant messages when provided", () => {

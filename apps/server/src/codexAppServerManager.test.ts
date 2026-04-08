@@ -266,6 +266,16 @@ describe("isRecoverableThreadResumeError", () => {
     ).toBe(true);
   });
 
+  it("matches missing rollout resume errors", () => {
+    expect(
+      isRecoverableThreadResumeError(
+        new Error(
+          "thread/resume failed: no rollout found for thread id 019d6393-cbf6-7261-88a8-f8f4f1a923f4",
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("ignores non-resume errors", () => {
     expect(
       isRecoverableThreadResumeError(new Error("thread/start failed: permission denied")),
@@ -469,6 +479,36 @@ describe("startSession", () => {
       versionCheck.mockRestore();
       manager.stopAll();
     }
+  });
+
+  it("replaces an existing in-memory session before starting a new one for the same thread", () => {
+    const manager = new CodexAppServerManager();
+    const stopSession = vi
+      .spyOn(manager as unknown as { stopSession: (threadId: ThreadId) => void }, "stopSession")
+      .mockImplementation(() => {});
+    const sessions = (
+      manager as unknown as {
+        sessions: Map<
+          ThreadId,
+          {
+            session: {
+              status: string;
+            };
+          }
+        >;
+      }
+    ).sessions;
+    sessions.set(asThreadId("thread-1"), {
+      session: {
+        status: "ready",
+      },
+    });
+
+    (
+      manager as unknown as { replaceExistingSession: (threadId: ThreadId) => void }
+    ).replaceExistingSession(asThreadId("thread-1"));
+
+    expect(stopSession).toHaveBeenCalledWith("thread-1");
   });
 });
 

@@ -28,6 +28,7 @@ import {
   OrchestrationCheckpointStatus,
   OrchestrationProposedPlan,
   OrchestrationSession,
+  ProjectIcon,
   OrchestrationThreadActivity,
   ProjectScript,
   SourceProposedPlanReference,
@@ -52,6 +53,8 @@ export const ProjectMetaUpdateCommand = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  icon: Schema.optional(Schema.NullOr(ProjectIcon)),
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
 });
 
 export const ProjectDeleteCommand = Schema.Struct({

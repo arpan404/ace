@@ -22,17 +22,32 @@ import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
 import type {
   BrowserShortcutAction,
+  DesktopCliInstallActionResult,
+  DesktopCliInstallState,
+  DesktopMenuAction,
   DesktopNotificationInput,
   DesktopTheme,
   DesktopUpdateActionResult,
   DesktopUpdateCheckResult,
   DesktopUpdateState,
 } from "@ace/contracts";
+import {
+  ensureAceCliInstalled,
+  inspectAceCliInstall,
+  type AceCliInstallOptions,
+  type AceCliInstallResult,
+} from "@ace/shared/cliInstall";
 import { autoUpdater } from "electron-updater";
 
 import type { ContextMenuItem } from "@ace/contracts";
 import { NetService } from "@ace/shared/Net";
 import { RotatingFileSink } from "@ace/shared/logging";
+import {
+  createDesktopCliInstallStateFromInspect,
+  createDesktopCliInstallStateFromResult,
+  createPendingDesktopCliInstallState,
+  createUnsupportedDesktopCliInstallState,
+} from "./desktopCliInstall";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import { resolveDesktopBaseDir, resolveDesktopUserDataPath } from "./stateMigration";
 import { syncShellEnvironment } from "./syncShellEnvironment";
@@ -50,7 +65,9 @@ import {
   reduceDesktopUpdateStateOnUpdateAvailable,
 } from "./updateMachine";
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
+import { appendDesktopBootstrapWsUrl } from "./rendererBootstrapUrl";
 import { buildWebContentsContextMenuTemplate } from "./webContentsContextMenu";
+import { buildApplicationMenuTemplate } from "./applicationMenu";
 
 syncShellEnvironment();
 
@@ -63,13 +80,18 @@ const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
 const CLOSE_NOTIFICATION_CHANNEL = "desktop:close-notification";
 const NOTIFICATION_CLICK_CHANNEL = "desktop:notification-click";
+const NOTIFICATION_REPLY_CHANNEL = "desktop:notification-reply";
 const MENU_ACTION_CHANNEL = "desktop:menu-action";
+const CLI_STATE_CHANNEL = "desktop:cli-state";
+const CLI_GET_STATE_CHANNEL = "desktop:cli-get-state";
+const CLI_INSTALL_CHANNEL = "desktop:cli-install";
 const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
+const GET_IS_DEVELOPMENT_BUILD_CHANNEL = "desktop:get-is-development-build";
 const GET_WINDOW_SHOWN_AT_CHANNEL = "desktop:get-window-shown-at";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
@@ -79,6 +101,8 @@ const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "ace";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+const isSourceCheckoutRun = process.env.ACE_LOCAL_DESKTOP_RUN === "1";
+const isDevelopmentBuild = isDevelopment || isSourceCheckoutRun || !app.isPackaged;
 const APP_DISPLAY_NAME = "ace";
 const APP_USER_MODEL_ID = "com.ace.ace";
 const LINUX_DESKTOP_ENTRY_NAME = isDevelopment ? "ace-dev.desktop" : "ace.desktop";
@@ -125,6 +149,17 @@ const desktopRuntimeInfo = resolveDesktopRuntimeInfo({
 });
 const initialUpdateState = (): DesktopUpdateState =>
   createInitialDesktopUpdateState(app.getVersion(), desktopRuntimeInfo);
+
+function desktopCliMetadataOptions() {
+  const shell = process.env.SHELL;
+  return {
+    baseDir: BASE_DIR,
+    platform: process.platform,
+    env: process.env,
+    homeDir: OS.homedir(),
+    ...(shell !== undefined ? { shell } : {}),
+  };
+}
 
 function logTimestamp(): string {
   return new Date().toISOString();
@@ -205,11 +240,28 @@ function getSafeDesktopNotificationInput(rawInput: unknown): DesktopNotification
   const id = typeof input.id === "string" ? input.id.trim() : "";
   const title = typeof input.title === "string" ? input.title.trim() : "";
   const body = typeof input.body === "string" ? input.body.trim() : "";
+  const deepLink = typeof input.deepLink === "string" ? input.deepLink.trim() : "";
+  const rawReply =
+    typeof input.reply === "object" && input.reply !== null
+      ? (input.reply as Record<string, unknown>)
+      : null;
+  const replyPlaceholder =
+    rawReply && typeof rawReply.placeholder === "string" ? rawReply.placeholder.trim() : "";
   if (id.length === 0 || title.length === 0 || body.length === 0) {
     return null;
   }
 
-  return { id, title, body };
+  return {
+    id,
+    title,
+    body,
+    ...(deepLink.length > 0 ? { deepLink } : {}),
+    ...(rawReply
+      ? {
+          reply: replyPlaceholder.length > 0 ? { placeholder: replyPlaceholder } : {},
+        }
+      : {}),
+  };
 }
 
 function getOrCreatePrimaryWindow(): BrowserWindow {
@@ -276,12 +328,31 @@ function showDesktopNotification(input: DesktopNotificationInput): boolean {
     const notification = new ElectronNotification({
       title: input.title,
       body: input.body,
+      ...(process.platform === "darwin" && input.reply
+        ? {
+            hasReply: true,
+            ...(input.reply.placeholder ? { replyPlaceholder: input.reply.placeholder } : {}),
+          }
+        : {}),
     });
 
     notification.on("click", () => {
       closeDesktopNotification(input.id);
       withReadyPrimaryWindow((window) => {
-        window.webContents.send(NOTIFICATION_CLICK_CHANNEL, input.id);
+        window.webContents.send(NOTIFICATION_CLICK_CHANNEL, {
+          id: input.id,
+          ...(input.deepLink ? { deepLink: input.deepLink } : {}),
+        });
+      });
+    });
+    notification.on("reply", (_event, response) => {
+      closeDesktopNotification(input.id);
+      withReadyPrimaryWindow((window) => {
+        window.webContents.send(NOTIFICATION_REPLY_CHANNEL, {
+          id: input.id,
+          response,
+          ...(input.deepLink ? { deepLink: input.deepLink } : {}),
+        });
       });
     });
     notification.on("close", () => {
@@ -459,6 +530,17 @@ let updateDownloadInFlight = false;
 let updateInstallInFlight = false;
 let updaterConfigured = false;
 let updateState: DesktopUpdateState = initialUpdateState();
+let cliInstallInFlight = false;
+let cliInstallState: DesktopCliInstallState = app.isPackaged
+  ? createPendingDesktopCliInstallState({
+      ...desktopCliMetadataOptions(),
+      status: "checking",
+      message: "Checking the ace CLI installation.",
+    })
+  : createUnsupportedDesktopCliInstallState({
+      ...desktopCliMetadataOptions(),
+      message: "CLI install is only available in packaged desktop builds.",
+    });
 
 function resolveUpdaterErrorContext(): DesktopUpdateErrorContext {
   if (updateInstallInFlight) return "install";
@@ -572,6 +654,53 @@ function resolveBackendEntry(): string {
   return Path.join(resolveAppRoot(), "apps/server/dist/bin.mjs");
 }
 
+function getDesktopCliUnavailableMessage(): string {
+  if (!app.isPackaged) {
+    return "CLI install is only available in packaged desktop builds.";
+  }
+
+  if (!FS.existsSync(process.execPath)) {
+    return "The packaged app launcher could not be found.";
+  }
+
+  if (!FS.existsSync(resolveBackendEntry())) {
+    return "Bundled CLI files are missing from this desktop build.";
+  }
+
+  return "CLI installation is unavailable in this build.";
+}
+
+function createUnsupportedCliInstallState(checkedAt: string | null = null): DesktopCliInstallState {
+  return createUnsupportedDesktopCliInstallState({
+    ...desktopCliMetadataOptions(),
+    checkedAt,
+    message: getDesktopCliUnavailableMessage(),
+  });
+}
+
+function resolveDesktopCliInstallOptions(): AceCliInstallOptions | null {
+  if (!app.isPackaged) {
+    return null;
+  }
+
+  const launchCommand = process.execPath;
+  const cliEntry = resolveBackendEntry();
+  if (!FS.existsSync(launchCommand) || !FS.existsSync(cliEntry)) {
+    return null;
+  }
+
+  return {
+    ...desktopCliMetadataOptions(),
+    target: {
+      launchCommand,
+      cliEntry,
+      environment: {
+        ELECTRON_RUN_AS_NODE: "1",
+      },
+    },
+  };
+}
+
 function resolveBackendCwd(): string {
   if (!app.isPackaged) {
     return resolveAppRoot();
@@ -682,7 +811,7 @@ function registerDesktopProtocol(): void {
   desktopProtocolRegistered = true;
 }
 
-function dispatchMenuAction(action: string): void {
+function dispatchMenuAction(action: DesktopMenuAction): void {
   withReadyPrimaryWindow((window) => {
     window.webContents.send(MENU_ACTION_CHANNEL, action);
   });
@@ -736,80 +865,12 @@ async function checkForUpdatesFromMenu(): Promise<void> {
 }
 
 function configureApplicationMenu(): void {
-  const template: MenuItemConstructorOptions[] = [];
-
-  if (process.platform === "darwin") {
-    template.push({
-      label: app.name,
-      submenu: [
-        { role: "about" },
-        {
-          label: "Check for Updates...",
-          click: () => handleCheckForUpdatesMenuClick(),
-        },
-        { type: "separator" },
-        {
-          label: "Settings...",
-          accelerator: "CmdOrCtrl+,",
-          click: () => dispatchMenuAction("open-settings"),
-        },
-        { type: "separator" },
-        { role: "services" },
-        { type: "separator" },
-        { role: "hide" },
-        { role: "hideOthers" },
-        { role: "unhide" },
-        { type: "separator" },
-        { role: "quit" },
-      ],
-    });
-  }
-
-  template.push(
-    {
-      label: "File",
-      submenu: [
-        ...(process.platform === "darwin"
-          ? []
-          : [
-              {
-                label: "Settings...",
-                accelerator: "CmdOrCtrl+,",
-                click: () => dispatchMenuAction("open-settings"),
-              },
-              { type: "separator" as const },
-            ]),
-        { role: process.platform === "darwin" ? "close" : "quit" },
-      ],
-    },
-    { role: "editMenu" },
-    {
-      label: "View",
-      submenu: [
-        { role: "reload" },
-        { role: "forceReload" },
-        { role: "toggleDevTools" },
-        { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn", accelerator: "CmdOrCtrl+=" },
-        { role: "zoomIn", accelerator: "CmdOrCtrl+Plus", visible: false },
-        { role: "zoomOut" },
-        { type: "separator" },
-        { role: "togglefullscreen" },
-      ],
-    },
-    { role: "windowMenu" },
-    {
-      role: "help",
-      submenu: [
-        {
-          label: "Check for Updates...",
-          click: () => handleCheckForUpdatesMenuClick(),
-        },
-      ],
-    },
-  );
-
+  const template: MenuItemConstructorOptions[] = buildApplicationMenuTemplate({
+    appName: APP_DISPLAY_NAME,
+    platform: process.platform,
+    onCheckForUpdates: handleCheckForUpdatesMenuClick,
+    onMenuAction: dispatchMenuAction,
+  });
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
@@ -856,13 +917,11 @@ function configureMacDockIcon(): void {
 /**
  * Resolve the Electron userData directory path.
  *
- * Electron derives the default userData path from `productName` in
- * package.json, which currently produces directories with spaces and
- * parentheses. This is
- * unfriendly for shell usage and violates Linux naming conventions.
+ * Electron derives the default userData path from the runtime app name,
+ * which can vary between development and packaged builds.
  *
- * We override it to a clean lowercase name (`ace`) so shell-facing
- * profile directories stay predictable across platforms.
+ * We override it to stable filesystem-friendly names (`ace` / `ace-dev`)
+ * so shell-facing profile directories stay predictable across platforms.
  */
 function resolveUserDataPath(): string {
   return resolveDesktopUserDataPath({
@@ -943,6 +1002,105 @@ function emitUpdateState(): void {
 function setUpdateState(patch: Partial<DesktopUpdateState>): void {
   updateState = { ...updateState, ...patch };
   emitUpdateState();
+}
+
+function emitCliInstallState(): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) continue;
+    window.webContents.send(CLI_STATE_CHANNEL, cliInstallState);
+  }
+}
+
+function setCliInstallState(state: DesktopCliInstallState): void {
+  cliInstallState = state;
+  emitCliInstallState();
+}
+
+function getDesktopCliReadyMessage(result: AceCliInstallResult): string {
+  if (!result.ready) {
+    return "The `ace` command is still unavailable after installation.";
+  }
+  if (!result.changed) {
+    return "The `ace` command is already ready to use.";
+  }
+  if (result.restartRequired) {
+    return "CLI installed. Open a new terminal window to use `ace`.";
+  }
+  return "The `ace` command is ready to use.";
+}
+
+async function installDesktopCli(
+  reason: "startup" | "settings",
+): Promise<DesktopCliInstallActionResult> {
+  if (cliInstallInFlight) {
+    return {
+      accepted: false,
+      completed: false,
+      state: cliInstallState,
+    } satisfies DesktopCliInstallActionResult;
+  }
+
+  const options = resolveDesktopCliInstallOptions();
+  const checkedAt = new Date().toISOString();
+  if (!options) {
+    const state = createUnsupportedCliInstallState(checkedAt);
+    setCliInstallState(state);
+    writeDesktopLogHeader(
+      `cli install unavailable reason=${sanitizeLogValue(state.message ?? "")}`,
+    );
+    return {
+      accepted: false,
+      completed: false,
+      state,
+    } satisfies DesktopCliInstallActionResult;
+  }
+
+  cliInstallInFlight = true;
+  setCliInstallState(
+    createPendingDesktopCliInstallState({
+      ...desktopCliMetadataOptions(),
+      status: "installing",
+      checkedAt,
+      message: "Installing the `ace` CLI.",
+    }),
+  );
+  writeDesktopLogHeader(`cli install start reason=${reason}`);
+
+  try {
+    const result = ensureAceCliInstalled(options);
+    const nextState = createDesktopCliInstallStateFromResult(result, {
+      checkedAt: new Date().toISOString(),
+      message: getDesktopCliReadyMessage(result),
+    });
+    setCliInstallState(nextState);
+    writeDesktopLogHeader(
+      `cli install complete reason=${reason} ready=${String(nextState.status === "ready")} restartRequired=${String(result.restartRequired)}`,
+    );
+    return {
+      accepted: true,
+      completed: nextState.status === "ready",
+      state: nextState,
+    } satisfies DesktopCliInstallActionResult;
+  } catch (error) {
+    const message = formatErrorMessage(error);
+    const inspectedState = inspectAceCliInstall(options);
+    const nextState = createDesktopCliInstallStateFromInspect(inspectedState, {
+      checkedAt: new Date().toISOString(),
+      status: "error",
+      message,
+    });
+    setCliInstallState(nextState);
+    writeDesktopLogHeader(
+      `cli install failed reason=${reason} message=${sanitizeLogValue(message)}`,
+    );
+    return {
+      accepted: true,
+      completed: false,
+      state: nextState,
+    } satisfies DesktopCliInstallActionResult;
+  } finally {
+    cliInstallInFlight = false;
+  }
 }
 
 function shouldEnableAutoUpdates(): boolean {
@@ -1325,6 +1483,11 @@ function registerIpcHandlers(): void {
     event.returnValue = backendWsUrl;
   });
 
+  ipcMain.removeAllListeners(GET_IS_DEVELOPMENT_BUILD_CHANNEL);
+  ipcMain.on(GET_IS_DEVELOPMENT_BUILD_CHANNEL, (event) => {
+    event.returnValue = isDevelopmentBuild;
+  });
+
   ipcMain.removeAllListeners(GET_WINDOW_SHOWN_AT_CHANNEL);
   ipcMain.on(GET_WINDOW_SHOWN_AT_CHANNEL, (event) => {
     event.returnValue = mainWindowShownAtMs;
@@ -1470,6 +1633,12 @@ function registerIpcHandlers(): void {
 
     return closeDesktopNotification(id);
   });
+
+  ipcMain.removeHandler(CLI_GET_STATE_CHANNEL);
+  ipcMain.handle(CLI_GET_STATE_CHANNEL, async () => cliInstallState);
+
+  ipcMain.removeHandler(CLI_INSTALL_CHANNEL);
+  ipcMain.handle(CLI_INSTALL_CHANNEL, async () => installDesktopCli("settings"));
 
   ipcMain.removeHandler(UPDATE_GET_STATE_CHANNEL);
   ipcMain.handle(UPDATE_GET_STATE_CHANNEL, async () => updateState);
@@ -1651,10 +1820,22 @@ function createWindow(): BrowserWindow {
   });
 
   if (isDevelopment) {
-    void window.loadURL(process.env.VITE_DEV_SERVER_URL as string);
+    void window.loadURL(
+      appendDesktopBootstrapWsUrl(
+        process.env.VITE_DEV_SERVER_URL as string,
+        backendWsUrl,
+        isDevelopmentBuild,
+      ),
+    );
     window.webContents.openDevTools({ mode: "detach" });
   } else {
-    void window.loadURL(`${DESKTOP_SCHEME}://app/index.html`);
+    void window.loadURL(
+      appendDesktopBootstrapWsUrl(
+        `${DESKTOP_SCHEME}://app/index.html`,
+        backendWsUrl,
+        isDevelopmentBuild,
+      ),
+    );
   }
 
   window.on("closed", () => {
@@ -1716,6 +1897,9 @@ app
     configureApplicationMenu();
     registerDesktopProtocol();
     configureAutoUpdater();
+    if (app.isPackaged) {
+      void installDesktopCli("startup");
+    }
     void bootstrap().catch((error) => {
       handleFatalStartupError("bootstrap", error);
     });

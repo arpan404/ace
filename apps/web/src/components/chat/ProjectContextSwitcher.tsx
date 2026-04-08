@@ -8,7 +8,7 @@ import { useStore } from "~/store";
 import type { Project } from "~/types";
 import { useUiStateStore } from "~/uiStateStore";
 
-import { ProjectFavicon } from "../ProjectFavicon";
+import { ProjectAvatar } from "../ProjectAvatar";
 import { Button } from "../ui/button";
 import {
   Menu,
@@ -20,7 +20,7 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 
-type ProjectContextProject = Pick<Project, "cwd" | "id" | "name">;
+type ProjectContextProject = Pick<Project, "cwd" | "icon" | "id" | "name">;
 
 interface ProjectContextSwitcherProps {
   activeProjectId: ProjectId | null;
@@ -42,7 +42,7 @@ export const ProjectContextSwitcher = memo(function ProjectContextSwitcher({
   const orderedProjects = useMemo<readonly ProjectContextProject[]>(
     () =>
       orderItemsByPreferredIds({
-        items: projects,
+        items: projects.filter((project) => project.archivedAt === null),
         preferredIds: projectOrder,
         getId: (project) => project.id,
       }),
@@ -83,7 +83,7 @@ export const ProjectContextSwitcher = memo(function ProjectContextSwitcher({
           variant === "hero" ? (
             <>
               <span className="inline-flex max-w-full items-center gap-2 text-2xl font-semibold tracking-tight text-foreground/90 sm:text-3xl">
-                <ProjectFavicon cwd={activeProject.cwd} className="size-5 sm:size-5.5" />
+                <ProjectAvatar project={activeProject} className="size-5 sm:size-5.5" />
                 <span className="truncate">{activeProject.name}</span>
                 <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground/60 transition-transform duration-150 group-hover:translate-y-px" />
               </span>
@@ -93,7 +93,7 @@ export const ProjectContextSwitcher = memo(function ProjectContextSwitcher({
             </>
           ) : (
             <>
-              <ProjectFavicon cwd={activeProject.cwd} className="size-3.5" />
+              <ProjectAvatar project={activeProject} className="size-3.5" />
               <span className="min-w-0 truncate">{activeProject.name}</span>
               <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground/60" />
             </>
@@ -128,7 +128,7 @@ export const ProjectContextSwitcher = memo(function ProjectContextSwitcher({
               {orderedProjects.map((project) => (
                 <MenuRadioItem key={project.id} value={project.id} className="min-h-11 py-1.5">
                   <span className="flex min-w-0 items-center gap-2.5">
-                    <ProjectFavicon cwd={project.cwd} className="size-4" />
+                    <ProjectAvatar project={project} className="size-4" />
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate font-medium">{project.name}</span>
                       <span className="truncate font-mono text-[11px] text-muted-foreground/70">

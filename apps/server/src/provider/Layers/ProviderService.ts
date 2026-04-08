@@ -390,28 +390,33 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       }
       const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
       const localTranscriptAuthority = usesLocalTranscriptAuthority(input.provider);
+      const explicitReplayTurns = input.replayTurns;
       const shouldPreferLocalTranscript =
+        explicitReplayTurns === undefined &&
         localTranscriptAuthority &&
         input.resumeCursor === undefined &&
         persistedBinding?.provider === input.provider;
-      const effectiveResumeCursor = shouldPreferLocalTranscript
-        ? undefined
-        : (input.resumeCursor ??
-          (persistedBinding?.provider === input.provider
-            ? persistedBinding.resumeCursor
-            : undefined));
-      const replayTurns = shouldPreferLocalTranscript
-        ? projectionMessagesToReplayTurns(
-            yield* projectionThreadMessageRepository.listByThreadId({
-              threadId,
-            }),
-          )
-        : [];
+      const effectiveResumeCursor =
+        shouldPreferLocalTranscript || explicitReplayTurns !== undefined
+          ? undefined
+          : (input.resumeCursor ??
+            (persistedBinding?.provider === input.provider
+              ? persistedBinding.resumeCursor
+              : undefined));
+      const replayTurns =
+        explicitReplayTurns ??
+        (shouldPreferLocalTranscript
+          ? projectionMessagesToReplayTurns(
+              yield* projectionThreadMessageRepository.listByThreadId({
+                threadId,
+              }),
+            )
+          : []);
       const adapter = yield* registry.getByProvider(input.provider);
       const session = yield* adapter.startSession({
         ...input,
         ...(effectiveResumeCursor !== undefined ? { resumeCursor: effectiveResumeCursor } : {}),
-        ...(replayTurns.length > 0 ? { replayTurns } : {}),
+        ...(explicitReplayTurns !== undefined || replayTurns.length > 0 ? { replayTurns } : {}),
       });
 
       if (session.provider !== adapter.provider) {
