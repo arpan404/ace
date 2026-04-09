@@ -12,6 +12,7 @@ import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
+  ArrowLeftRightIcon,
   CheckIcon,
   CircleAlertIcon,
   ChevronDownIcon,
@@ -86,6 +87,10 @@ function toTimelineWidthCacheKey(timelineWidthPx: number | null): string {
 interface MessagesTimelineProps {
   hasMessages: boolean;
   isWorking: boolean;
+  onStartConversationFromMessage?: (() => void) | null;
+  onContinueWithGitHubIssues?: (() => void) | null;
+  isContinueWithGitHubIssuesDisabled?: boolean;
+  continueWithGitHubIssuesDisabledReason?: string;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
   scrollContainer: HTMLDivElement | null;
@@ -111,6 +116,10 @@ interface MessagesTimelineProps {
 export const MessagesTimeline = memo(function MessagesTimeline({
   hasMessages,
   isWorking,
+  onStartConversationFromMessage = null,
+  onContinueWithGitHubIssues = null,
+  isContinueWithGitHubIssuesDisabled = false,
+  continueWithGitHubIssuesDisabledReason,
   activeTurnInProgress,
   activeTurnStartedAt,
   scrollContainer,
@@ -141,7 +150,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         completionDividerBeforeEntryId,
         completionSummary,
         isWorking,
-        turnDiffSummaryByAssistantMessageId,
       }),
     [
       activeTurnInProgress,
@@ -150,8 +158,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       completionSummary,
       isWorking,
       activeTurnStartedAt,
-      turnDiffSummaryByAssistantMessageId,
     ],
+  );
+  const latestAssistantTurnSummary = useMemo(
+    () =>
+      resolveLatestAssistantTurnDiffSummary(timelineEntries, turnDiffSummaryByAssistantMessageId),
+    [timelineEntries, turnDiffSummaryByAssistantMessageId],
   );
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
     Record<string, boolean>
@@ -215,9 +227,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       estimateTimelineRowHeight(virtualizedRows[index], {
         timelineWidthPx,
         expandedWorkGroups,
-        turnDiffSummaryByAssistantMessageId,
       }),
-    [expandedWorkGroups, timelineWidthPx, turnDiffSummaryByAssistantMessageId, virtualizedRows],
+    [expandedWorkGroups, timelineWidthPx, virtualizedRows],
   );
   const virtualizedRowsMeasurementKey = useMemo(
     () =>
@@ -226,11 +237,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           getTimelineRowHeightCacheKey(row, {
             timelineWidthPx,
             expandedWorkGroups,
-            turnDiffSummaryByAssistantMessageId,
           }),
         )
         .join("|"),
-    [expandedWorkGroups, timelineWidthPx, turnDiffSummaryByAssistantMessageId, virtualizedRows],
+    [expandedWorkGroups, timelineWidthPx, virtualizedRows],
   );
   const rowVirtualizer = useVirtualizer({
     count: virtualizedRows.length,
@@ -386,29 +396,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           />
         )}
 
+        {row.kind === "message" && isSystemTimelineMessage(row.message) && (
+          <SystemMessageTimelineRow message={row.message} />
+        )}
+
         {row.kind === "message" &&
           isAssistantTimelineMessage(row.message) &&
-          (() => {
-            const turnSummary = turnDiffSummaryByAssistantMessageId.get(row.message.id);
-            return (
-              <AssistantMessageTimelineRow
-                allDirectoriesExpanded={
-                  turnSummary
-                    ? (allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? false)
-                    : false
-                }
-                completionSummary={row.completionSummary}
-                markdownCwd={markdownCwd}
-                message={row.message}
-                onLayoutChange={handleAssistantMessageLayoutChange}
-                onOpenBrowserUrl={onOpenBrowserUrl}
-                onOpenTurnDiff={onOpenTurnDiff}
-                onToggleAllDirectories={onToggleAllDirectories}
-                resolvedTheme={resolvedTheme}
-                turnSummary={turnSummary}
-              />
-            );
-          })()}
+          (() => (
+            <AssistantMessageTimelineRow
+              completionSummary={row.completionSummary}
+              markdownCwd={markdownCwd}
+              message={row.message}
+              onLayoutChange={handleAssistantMessageLayoutChange}
+              onOpenBrowserUrl={onOpenBrowserUrl}
+            />
+          ))()}
 
         {row.kind === "proposed-plan" && (
           <ProposedPlanTimelineRow
@@ -427,7 +429,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             )}
           >
             <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
-              {row.mode === "silent-thinking" ? "Thought" : "Live"}
+              Live
             </p>
             <div className="flex items-center gap-2.5 text-[11px] text-muted-foreground/65">
               <span className="inline-flex items-center gap-1">
@@ -439,10 +441,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 {row.createdAt ? (
                   <WorkingTimer
                     createdAt={row.createdAt}
-                    label={row.mode === "silent-thinking" ? "Thought for" : "Working for"}
+                    label={row.mode === "silent-thinking" ? "Getting started for" : "Working for"}
                   />
                 ) : row.mode === "silent-thinking" ? (
-                  "Thought in progress..."
+                  "Getting started..."
                 ) : (
                   "Working..."
                 )}
@@ -466,11 +468,41 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   };
 
   if (!hasMessages && !isWorking) {
+    const showConversationStarters =
+      onStartConversationFromMessage !== null || onContinueWithGitHubIssues !== null;
+    if (!showConversationStarters) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <p className="text-sm text-muted-foreground/25">Start by sending a message.</p>
+        </div>
+      );
+    }
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground/25">
-          Send a message to start the conversation.
-        </p>
+      <div className="flex h-full items-center justify-center px-4">
+        <div className="max-w-xl text-center">
+          <p className="font-medium text-foreground/88 text-sm">Start this conversation</p>
+          <p className="mt-1 text-muted-foreground text-xs leading-relaxed">
+            Write a message or{" "}
+            {onContinueWithGitHubIssues !== null ? (
+              <button
+                type="button"
+                onClick={() => onContinueWithGitHubIssues()}
+                disabled={isContinueWithGitHubIssuesDisabled}
+                title={continueWithGitHubIssuesDisabledReason}
+                className={cn(
+                  "inline p-0 h-auto min-h-0 border-0 bg-transparent font-inherit text-inherit underline underline-offset-2",
+                  "cursor-pointer hover:text-blue-500",
+                  "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-inherit",
+                )}
+              >
+                continue with an open GitHub issue
+              </button>
+            ) : (
+              "continue with an open GitHub issue"
+            )}
+            .
+          </p>
+        </div>
       </div>
     );
   }
@@ -513,6 +545,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       {trailingRows.map((row, index) => (
         <div key={`row:${row.id}`}>{renderRowContent(row, virtualizedRows.length + index)}</div>
       ))}
+      {latestAssistantTurnSummary && (
+        <div
+          className="group/timeline relative pb-3"
+          data-timeline-row-kind="assistant-diff-summary"
+        >
+          <div className="min-w-0 border-border/35 border-l py-0.5 pr-1 pl-4">
+            <AssistantMessageTurnDiffSummary
+              allDirectoriesExpanded={
+                allDirectoriesExpandedByTurnId[latestAssistantTurnSummary.turnId] ?? false
+              }
+              onOpenTurnDiff={onOpenTurnDiff}
+              onToggleAllDirectories={onToggleAllDirectories}
+              resolvedTheme={resolvedTheme}
+              turnSummary={latestAssistantTurnSummary}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 });
@@ -521,6 +571,7 @@ type TimelineEntry = ReturnType<typeof deriveTimelineEntries>[number];
 type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];
 type UserTimelineMessage = TimelineMessage & { role: "user" };
 type AssistantTimelineMessage = TimelineMessage & { role: "assistant" };
+type SystemTimelineMessage = TimelineMessage & { role: "system" };
 type TimelineProposedPlan = Extract<TimelineEntry, { kind: "proposed-plan" }>["proposedPlan"];
 type TimelineWorkEntry = Extract<TimelineEntry, { kind: "work" }>["entry"];
 type TimelineMetaGroupEntry =
@@ -671,7 +722,6 @@ function buildTimelineRows(input: {
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
   isWorking: boolean;
-  turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
 }): TimelineRow[] {
   const nextRows: TimelineRow[] = [];
   const activeTurnStartedAtMs =
@@ -837,10 +887,7 @@ function buildTimelineRows(input: {
 
     if (
       timelineEntry.message.role === "assistant" &&
-      shouldSkipAssistantMessageRow(
-        timelineEntry.message,
-        input.turnDiffSummaryByAssistantMessageId.get(timelineEntry.message.id),
-      )
+      shouldSkipAssistantMessageRow(timelineEntry.message)
     ) {
       continue;
     }
@@ -968,12 +1015,22 @@ function findTrailingLiveWorkEntryId(
   return null;
 }
 
+function getUserMessageTextForHeightEstimate(userPromptText: string): string {
+  const displayedUserMessage = deriveDisplayedUserMessageState(userPromptText);
+  if (displayedUserMessage.visibleText.trim().length > 0) {
+    return displayedUserMessage.visibleText;
+  }
+  if (displayedUserMessage.contexts.length > 0) {
+    return displayedUserMessage.contexts.map((context) => context.header).join(" ");
+  }
+  return userPromptText;
+}
+
 function estimateTimelineRowHeight(
   row: TimelineRow | undefined,
   input: {
     timelineWidthPx: number | null;
     expandedWorkGroups: Record<string, boolean>;
-    turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
   },
 ): number {
   if (!row) {
@@ -996,7 +1053,7 @@ function estimateTimelineRowHeight(
       const renderedMessageText =
         row.message.role === "assistant"
           ? getChatMessageRenderableText(row.message)
-          : row.message.text;
+          : getUserMessageTextForHeightEstimate(row.message.text);
       const messageText =
         row.message.role === "assistant" &&
         renderedMessageText.trim().length === 0 &&
@@ -1023,13 +1080,8 @@ function estimateTimelineRowHeight(
         height = messageHeight + 16;
         break;
       }
-      const turnSummary = input.turnDiffSummaryByAssistantMessageId.get(row.message.id);
-      const changedFilesExtra =
-        turnSummary && turnSummary.files.length > 0
-          ? 84 + Math.min(turnSummary.files.length, 8) * 22
-          : 0;
       const completionSummaryExtra = row.completionSummary ? 24 : 0;
-      height = messageHeight + changedFilesExtra + completionSummaryExtra + 16;
+      height = messageHeight + completionSummaryExtra + 16;
       break;
     }
     case "work":
@@ -1060,7 +1112,6 @@ function getTimelineRowHeightCacheKey(
   input: {
     timelineWidthPx: number | null;
     expandedWorkGroups: Record<string, boolean>;
-    turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
   },
 ): string {
   if (!row) {
@@ -1077,8 +1128,7 @@ function getTimelineRowHeightCacheKey(
       const renderedMessageText =
         row.message.role === "assistant"
           ? getChatMessageRenderableText(row.message)
-          : row.message.text;
-      const turnSummary = input.turnDiffSummaryByAssistantMessageId.get(row.message.id);
+          : getUserMessageTextForHeightEstimate(row.message.text);
       return [
         "message",
         row.id,
@@ -1088,7 +1138,6 @@ function getTimelineRowHeightCacheKey(
         row.message.attachments?.length ?? 0,
         row.message.streaming ? 1 : 0,
         row.message.completedAt ?? "incomplete",
-        turnSummary?.files.length ?? 0,
         row.completionSummary ? 1 : 0,
         widthCacheKey,
       ].join(":");
@@ -1203,21 +1252,40 @@ function summarizeWorkGroupBreakdown(entries: ReadonlyArray<TimelineMetaGroupEnt
   return entries.length === 1 ? "1 log entry" : `${entries.length} log entries`;
 }
 
-function shouldSkipAssistantMessageRow(
-  message: TimelineMessage,
-  turnSummary: TurnDiffSummary | undefined,
-): boolean {
+function shouldSkipAssistantMessageRow(message: TimelineMessage): boolean {
   if (message.role !== "assistant" || message.streaming) {
-    return false;
-  }
-  if (turnSummary && turnSummary.files.length > 0) {
     return false;
   }
   return message.text.trim().length === 0;
 }
 
+function resolveLatestAssistantTurnDiffSummary(
+  timelineEntries: ReadonlyArray<TimelineEntry>,
+  summaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>,
+): TurnDiffSummary | null {
+  for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
+    const entry = timelineEntries[index];
+    if (!entry || entry.kind !== "message") {
+      continue;
+    }
+    if (entry.message.role !== "assistant") {
+      return null;
+    }
+    const summary = summaryByAssistantMessageId.get(entry.message.id);
+    if (!summary || summary.files.length === 0) {
+      return null;
+    }
+    return summary;
+  }
+  return null;
+}
+
 function isUserTimelineMessage(message: TimelineMessage): message is UserTimelineMessage {
   return message.role === "user";
+}
+
+function isSystemTimelineMessage(message: TimelineMessage): message is SystemTimelineMessage {
+  return message.role === "system";
 }
 
 function isAssistantTimelineMessage(message: TimelineMessage): message is AssistantTimelineMessage {
@@ -1328,6 +1396,25 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   );
 });
 
+const SystemMessageTimelineRow = memo(function SystemMessageTimelineRow(props: {
+  message: SystemTimelineMessage;
+}) {
+  if (props.message.text.trim().length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-center gap-3 py-2">
+      <div className="h-px flex-1 bg-border/30" />
+      <div className="flex max-w-[75%] items-center gap-2 rounded-full border border-border/30 bg-muted/50 px-3 py-1 text-[11px] text-muted-foreground/70">
+        <ArrowLeftRightIcon className="size-3 text-muted-foreground/60" />
+        <span className="wrap-break-word text-center leading-relaxed">{props.message.text}</span>
+      </div>
+      <div className="h-px flex-1 bg-border/30" />
+    </div>
+  );
+});
+
 const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
   canRevertAgentWork: boolean;
   isRevertingCheckpoint: boolean;
@@ -1345,45 +1432,47 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
   return (
     <div className="flex justify-end">
       <div className="group relative max-w-[80%] px-0 py-0" data-user-message-bubble="true">
-        {userImages.length > 0 && (
-          <div className="mb-2 grid max-w-105 grid-cols-2 gap-1.5">
-            {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
-              <div
-                key={image.id}
-                className="overflow-hidden rounded-lg border border-border/15 bg-background/40"
-              >
-                {image.previewUrl ? (
-                  <button
-                    type="button"
-                    className="h-full w-full cursor-zoom-in"
-                    aria-label={`Preview ${image.name}`}
-                    onClick={() => {
-                      const preview = buildExpandedImagePreview(userImages, image.id);
-                      if (!preview) return;
-                      props.onImageExpand(preview);
-                    }}
-                  >
-                    <img
-                      src={image.previewUrl}
-                      alt={image.name}
-                      className="h-full max-h-55 w-full object-cover"
-                    />
-                  </button>
-                ) : (
-                  <div className="flex min-h-18 items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/40">
-                    {image.name}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-        {(displayedUserMessage.visibleText.trim().length > 0 || terminalContexts.length > 0) && (
-          <UserMessageBody
-            text={displayedUserMessage.visibleText}
-            terminalContexts={terminalContexts}
-          />
-        )}
+        <div className="rounded-2xl border border-primary/30 bg-primary/[0.08] px-3 py-2 shadow-[0_2px_10px_-6px_rgba(0,0,0,0.55)] ring-1 ring-primary/15 ring-inset">
+          {userImages.length > 0 && (
+            <div className="mb-2 grid max-w-105 grid-cols-2 gap-1.5">
+              {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
+                <div
+                  key={image.id}
+                  className="overflow-hidden rounded-lg border border-border/15 bg-background/40"
+                >
+                  {image.previewUrl ? (
+                    <button
+                      type="button"
+                      className="h-full w-full cursor-zoom-in"
+                      aria-label={`Preview ${image.name}`}
+                      onClick={() => {
+                        const preview = buildExpandedImagePreview(userImages, image.id);
+                        if (!preview) return;
+                        props.onImageExpand(preview);
+                      }}
+                    >
+                      <img
+                        src={image.previewUrl}
+                        alt={image.name}
+                        className="h-full max-h-55 w-full object-cover"
+                      />
+                    </button>
+                  ) : (
+                    <div className="flex min-h-18 items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/40">
+                      {image.name}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {(displayedUserMessage.visibleText.trim().length > 0 || terminalContexts.length > 0) && (
+            <UserMessageBody
+              text={displayedUserMessage.visibleText}
+              terminalContexts={terminalContexts}
+            />
+          )}
+        </div>
         <div className="mt-1 flex items-center justify-end gap-2">
           <div className="flex items-center gap-1 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100">
             {displayedUserMessage.copyText && (
@@ -1414,16 +1503,11 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
 });
 
 const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(props: {
-  allDirectoriesExpanded: boolean;
   completionSummary: string | null;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
   onLayoutChange: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
-  onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
-  onToggleAllDirectories: (turnId: TurnId) => void;
-  resolvedTheme: "light" | "dark";
-  turnSummary: TurnDiffSummary | undefined;
 }) {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   const renderedMessageText = getChatMessageRenderableText(props.message);
@@ -1446,15 +1530,6 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
           ? { streamingTextState: props.message.streamingTextState }
           : {})}
       />
-      {props.turnSummary && props.turnSummary.files.length > 0 && (
-        <AssistantMessageTurnDiffSummary
-          allDirectoriesExpanded={props.allDirectoriesExpanded}
-          onOpenTurnDiff={props.onOpenTurnDiff}
-          onToggleAllDirectories={props.onToggleAllDirectories}
-          resolvedTheme={props.resolvedTheme}
-          turnSummary={props.turnSummary}
-        />
-      )}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 pl-0.5">
         {props.completionSummary && (
           <span
@@ -1482,7 +1557,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
   const changedFileCountLabel = String(checkpointFiles.length);
 
   return (
-    <div className="mt-3 border-border/35 border-l pl-4" data-turn-diff-summary="true">
+    <div className="mt-1.5" data-turn-diff-summary="true">
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/65">
           <span>Changed files ({changedFileCountLabel})</span>

@@ -85,4 +85,18 @@ describe("parseDiffRouteSearch", () => {
       diffTurnId: "turn-1",
     });
   });
+
+  it("preserves split mode when present", () => {
+    const parsed = parseDiffRouteSearch({
+      mode: "split",
+      diff: "1",
+      diffTurnId: "turn-1",
+    });
+
+    expect(parsed).toEqual({
+      mode: "split",
+      diff: "1",
+      diffTurnId: "turn-1",
+    });
+  });
 });

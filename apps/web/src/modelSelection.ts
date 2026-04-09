@@ -117,19 +117,16 @@ export function getAppModelOptions(
   provider: ProviderKind,
   selectedModel?: string | null,
 ): AppModelOption[] {
-  const options: AppModelOption[] = getProviderModels(providers, provider).map(
-    ({ slug, name, isCustom }) => ({
-      slug,
-      name,
-      isCustom,
-    }),
-  );
+  const serverModels = getProviderModels(providers, provider);
+  const options: AppModelOption[] = serverModels.map(({ slug, name, isCustom }) => ({
+    slug,
+    name,
+    isCustom,
+  }));
   const seen = new Set(options.map((option) => option.slug));
   const trimmedSelectedModel = selectedModel?.trim().toLowerCase();
   const builtInModelSlugs = new Set(
-    getProviderModels(providers, provider)
-      .filter((model) => !model.isCustom)
-      .map((model) => model.slug),
+    serverModels.filter((model) => !model.isCustom).map((model) => model.slug),
   );
 
   const customModels = settings.providers[provider].customModels;

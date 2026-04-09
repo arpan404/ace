@@ -27,6 +27,8 @@ import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
 
+import ChatMarkdown from "../ChatMarkdown";
+import MermaidDiagram from "../MermaidDiagram";
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Button } from "../ui/button";
 import {
@@ -248,13 +250,20 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     () => (pane.activeFilePath ? detectWorkspacePreviewKind(pane.activeFilePath) : null),
     [pane.activeFilePath],
   );
+  const isBinaryPreviewMode = activePreviewKind === "image" || activePreviewKind === "video";
+  const isTextPreviewMode = activePreviewKind === "markdown" || activePreviewKind === "mermaid";
   const isPreviewMode =
-    activePreviewKind !== null && pane.activeFilePath !== null && props.gitCwd !== null;
+    (isBinaryPreviewMode || isTextPreviewMode) &&
+    pane.activeFilePath !== null &&
+    props.gitCwd !== null;
   const activeFileQuery = useQuery(
     projectReadFileQueryOptions({
       cwd: props.gitCwd,
       relativePath: pane.activeFilePath,
-      enabled: pane.activeFilePath !== null && props.gitCwd !== null && !isPreviewMode,
+      enabled:
+        pane.activeFilePath !== null &&
+        props.gitCwd !== null &&
+        (!isPreviewMode || isTextPreviewMode),
     }),
   );
 
@@ -277,9 +286,15 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     ? null
     : (activeFileQuery.data?.sizeBytes ?? new Blob([activeFileContents]).size);
   const previewUrl =
-    isPreviewMode && pane.activeFilePath && props.gitCwd
+    isBinaryPreviewMode && pane.activeFilePath && props.gitCwd
       ? buildWorkspacePreviewUrl(props.gitCwd, pane.activeFilePath)
       : null;
+  const previewModeLabel =
+    activePreviewKind === "markdown"
+      ? "Markdown preview"
+      : activePreviewKind === "mermaid"
+        ? "Mermaid preview"
+        : "Preview mode";
 
   const handleSave = useCallback(() => {
     if (!pane.activeFilePath || !activeDraft) {
@@ -817,7 +832,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
               </p>
             </div>
           </div>
-        ) : isPreviewMode && previewUrl ? (
+        ) : isBinaryPreviewMode && previewUrl ? (
           <div className="flex h-full min-h-0 flex-col">
             <div className="min-h-0 flex-1 overflow-auto p-4">
               <div className="flex h-full min-h-[220px] items-center justify-center rounded-xl border border-border/50 bg-secondary/30">
@@ -843,7 +858,33 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
               </div>
             </div>
             <div className="flex items-center justify-between gap-2 border-t border-border/50 px-3 py-2 text-xs text-muted-foreground">
-              <span className="truncate">Preview mode</span>
+              <span className="truncate">{previewModeLabel}</span>
+              <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
+                Open in Editor
+              </Button>
+            </div>
+          </div>
+        ) : isTextPreviewMode && activeFileQuery.data?.contents !== undefined ? (
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="min-h-0 flex-1 overflow-auto p-4">
+              <div className="min-h-[220px] rounded-xl border border-border/50 bg-secondary/30 p-4">
+                {activePreviewKind === "markdown" ? (
+                  <ChatMarkdown
+                    text={activeFileQuery.data.contents}
+                    cwd={props.gitCwd ?? undefined}
+                    isStreaming={false}
+                  />
+                ) : (
+                  <MermaidDiagram
+                    source={activeFileQuery.data.contents}
+                    theme={props.resolvedTheme}
+                    className="h-full"
+                  />
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t border-border/50 px-3 py-2 text-xs text-muted-foreground">
+              <span className="truncate">{previewModeLabel}</span>
               <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
                 Open in Editor
               </Button>

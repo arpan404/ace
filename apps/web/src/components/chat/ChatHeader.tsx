@@ -88,6 +88,7 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleDiff,
   onWorkspaceModeChange,
 }: ChatHeaderProps) {
+  const headerWorkspaceMode: ThreadWorkspaceMode = workspaceMode === "chat" ? "chat" : "editor";
   const workspaceActionItems: ReactNode[] = [
     activeProjectScripts ? (
       <ProjectScriptsControl
@@ -257,7 +258,11 @@ export const ChatHeader = memo(function ChatHeader({
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
-        <WorkspaceModeToggle mode={workspaceMode} onModeChange={onWorkspaceModeChange} />
+        <WorkspaceModeToggle
+          mode={headerWorkspaceMode}
+          modes={["chat", "editor"]}
+          onModeChange={onWorkspaceModeChange}
+        />
         {workspaceActionNodes.length > 0 ? (
           <div className="flex min-w-0 items-center [&_[data-slot=group]]:shrink-0">
             {workspaceActionNodes}

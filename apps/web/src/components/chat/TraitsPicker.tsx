@@ -95,6 +95,9 @@ function getRawContextWindow(
   if (provider === "claudeAgent") {
     return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.contextWindow);
   }
+  if (provider === "opencode") {
+    return trimOrNull((modelOptions as OpenCodeModelOptions | undefined)?.variant);
+  }
   return null;
 }
 
@@ -129,6 +132,7 @@ function buildNextOptions(
     case "opencode":
       return {
         ...(modelOptions as OpenCodeModelOptions | undefined),
+        ...(typeof patch.contextWindow === "string" ? { variant: patch.contextWindow } : {}),
       } as OpenCodeModelOptions;
   }
 }
@@ -556,6 +560,8 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     return null;
   }
 
+  const contextTraitLabel = provider === "opencode" ? "Variant" : "Context Window";
+
   return (
     <>
       {effort ? (
@@ -628,7 +634,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
           <MenuDivider />
           <MenuGroup>
             <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
-              Context Window
+              {contextTraitLabel}
             </div>
             <MenuRadioGroup
               value={contextWindow ?? defaultContextWindow ?? ""}

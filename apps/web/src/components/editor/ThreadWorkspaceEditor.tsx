@@ -37,6 +37,7 @@ import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
 import { resolveShortcutCommand } from "~/keybindings";
+import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Badge } from "../ui/badge";
@@ -45,6 +46,7 @@ import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
 import { readExplorerEntryTransferPath, writeExplorerEntryTransfer } from "./dragTransfer";
 import { joinWorkspaceAbsolutePath, revealInFileManagerLabel } from "./workspaceFileUtils";
+import { WorkspaceModeToggle } from "./WorkspaceModeToggle";
 import WorkspaceEditorPane from "./WorkspaceEditorPane";
 
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
@@ -437,8 +439,10 @@ export default function ThreadWorkspaceEditor(props: {
   browserOpen: boolean;
   gitCwd: string | null;
   keybindings: ResolvedKeybindingsConfig;
+  onWorkspaceModeChange?: ((mode: ThreadWorkspaceMode) => void) | undefined;
   terminalOpen: boolean;
   threadId: ThreadId;
+  workspaceMode?: ThreadWorkspaceMode | undefined;
 }) {
   ensureMonacoConfigured();
 
@@ -486,6 +490,8 @@ export default function ThreadWorkspaceEditor(props: {
   const [selectedEntryPath, setSelectedEntryPath] = useState<string | null>(null);
   const [inlineEntryState, setInlineEntryState] = useState<ExplorerInlineEntryState | null>(null);
   const [dragTargetParentPath, setDragTargetParentPath] = useState<string | null>(null);
+  const editorWorkspaceMode: ThreadWorkspaceMode =
+    props.workspaceMode === "split" ? "split" : "editor";
   const hasRecentlyClosedFiles = useEditorStateStore(
     useCallback(
       (state) =>
@@ -1740,6 +1746,15 @@ export default function ThreadWorkspaceEditor(props: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      {props.onWorkspaceModeChange ? (
+        <div className="flex items-center justify-end border-b border-border/60 bg-secondary px-3 py-2">
+          <WorkspaceModeToggle
+            mode={editorWorkspaceMode}
+            modes={["editor", "split"]}
+            onModeChange={props.onWorkspaceModeChange}
+          />
+        </div>
+      ) : null}
       <div
         className="grid h-full min-h-0 min-w-0"
         style={{

@@ -19,6 +19,7 @@ import {
   normalizeCodexModelOptionsWithCapabilities,
   normalizeCursorModelOptionsWithCapabilities,
   normalizeGitHubCopilotModelOptionsWithCapabilities,
+  normalizeOpenCodeModelOptionsWithCapabilities,
 } from "@ace/shared/model";
 
 export type ComposerProviderStateInput = {
@@ -89,7 +90,7 @@ function getProviderStateFromCapabilities(
             : provider === "gemini"
               ? undefined
               : provider === "opencode"
-                ? undefined
+                ? normalizeOpenCodeModelOptionsWithCapabilities(caps, modelOptions?.opencode)
                 : undefined;
 
   // Ultrathink styling (driven by capabilities data, not provider identity)

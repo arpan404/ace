@@ -457,11 +457,17 @@ export function useSettingsRestore(onRestored?: () => void) {
   const changedSettingLabels = useMemo(
     () => [
       ...(theme !== "system" ? ["Theme"] : []),
+      ...(settings.browserOpenMode !== DEFAULT_UNIFIED_SETTINGS.browserOpenMode
+        ? ["Browser open mode"]
+        : []),
       ...(settings.browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine
         ? ["Browser search engine"]
         : []),
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
+        : []),
+      ...(settings.workspaceEditorOpenMode !== DEFAULT_UNIFIED_SETTINGS.workspaceEditorOpenMode
+        ? ["Workspace editor open mode"]
         : []),
       ...(settings.diffWordWrap !== DEFAULT_UNIFIED_SETTINGS.diffWordWrap
         ? ["Diff line wrapping"]
@@ -493,6 +499,15 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.enableThinkingStreaming !== DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming
         ? ["Thinking activity"]
         : []),
+      ...(settings.notifyOnAgentCompletion !== DEFAULT_UNIFIED_SETTINGS.notifyOnAgentCompletion
+        ? ["Completion notifications"]
+        : []),
+      ...(settings.notifyOnApprovalRequired !== DEFAULT_UNIFIED_SETTINGS.notifyOnApprovalRequired
+        ? ["Approval notifications"]
+        : []),
+      ...(settings.notifyOnUserInputRequired !== DEFAULT_UNIFIED_SETTINGS.notifyOnUserInputRequired
+        ? ["Input notifications"]
+        : []),
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
@@ -511,6 +526,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     ],
     [
       areProviderSettingsDirty,
+      settings.browserOpenMode,
       settings.browserSearchEngine,
       isGitWritingModelDirty,
       settings.confirmThreadArchive,
@@ -524,10 +540,14 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.editorSuggestions,
       settings.editorWordWrap,
       settings.enableAssistantStreaming,
+      settings.notifyOnAgentCompletion,
+      settings.notifyOnApprovalRequired,
+      settings.notifyOnUserInputRequired,
       settings.enableThinkingStreaming,
       settings.enableToolStreaming,
       settings.threadHydrationCacheMemoryMb,
       settings.timestampFormat,
+      settings.workspaceEditorOpenMode,
       theme,
     ],
   );
@@ -651,6 +671,14 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const workspaceShortcutSummaries = useMemo(
     () =>
       [
+        [
+          "Toggle workspace mode",
+          shortcutLabelForCommand(
+            keybindings,
+            "chat.toggleWorkspaceMode",
+            editorShortcutLabelOptions,
+          ),
+        ],
         [
           "Split window",
           shortcutLabelForCommand(keybindings, "editor.split", editorShortcutLabelOptions),
@@ -831,14 +859,13 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     const defaultProviderConfig = DEFAULT_UNIFIED_SETTINGS.providers[providerSettings.provider];
     const statusKey = liveProvider?.status ?? (providerConfig.enabled ? "warning" : "disabled");
     const summary = getProviderSummary(liveProvider);
-    const models =
-      liveProvider?.models ??
-      providerConfig.customModels.map((slug) => ({
-        slug,
-        name: slug,
-        isCustom: true,
-        capabilities: null,
-      }));
+    const selectedModels = providerConfig.customModels.map((slug) => ({
+      slug,
+      name: slug,
+      isCustom: true,
+      capabilities: null,
+    }));
+    const models = liveProvider?.models ?? selectedModels;
 
     return {
       provider: providerSettings.provider,
@@ -1003,6 +1030,92 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 </Select>
               }
             />
+
+            <SettingsRow
+              title="Workspace editor opening mode"
+              description="Choose whether opening the workspace editor from chat starts in split view or full editor."
+              resetAction={
+                settings.workspaceEditorOpenMode !==
+                DEFAULT_UNIFIED_SETTINGS.workspaceEditorOpenMode ? (
+                  <SettingResetButton
+                    label="workspace editor opening mode"
+                    onClick={() =>
+                      updateSettings({
+                        workspaceEditorOpenMode: DEFAULT_UNIFIED_SETTINGS.workspaceEditorOpenMode,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Select
+                  value={settings.workspaceEditorOpenMode}
+                  onValueChange={(value) => {
+                    if (value === "split" || value === "full") {
+                      updateSettings({ workspaceEditorOpenMode: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    className="w-full sm:w-44"
+                    aria-label="Workspace editor opening mode"
+                  >
+                    <SelectValue>
+                      {settings.workspaceEditorOpenMode === "split" ? "Split view" : "Full editor"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    <SelectItem hideIndicator value="split">
+                      Split view
+                    </SelectItem>
+                    <SelectItem hideIndicator value="full">
+                      Full editor
+                    </SelectItem>
+                  </SelectPopup>
+                </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Browser opening mode"
+              description="Choose whether opening the in-app browser starts in split view or full browser."
+              resetAction={
+                settings.browserOpenMode !== DEFAULT_UNIFIED_SETTINGS.browserOpenMode ? (
+                  <SettingResetButton
+                    label="browser opening mode"
+                    onClick={() =>
+                      updateSettings({
+                        browserOpenMode: DEFAULT_UNIFIED_SETTINGS.browserOpenMode,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Select
+                  value={settings.browserOpenMode}
+                  onValueChange={(value) => {
+                    if (value === "split" || value === "full") {
+                      updateSettings({ browserOpenMode: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-44" aria-label="Browser opening mode">
+                    <SelectValue>
+                      {settings.browserOpenMode === "split" ? "Split view" : "Full browser"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    <SelectItem hideIndicator value="split">
+                      Split view
+                    </SelectItem>
+                    <SelectItem hideIndicator value="full">
+                      Full browser
+                    </SelectItem>
+                  </SelectPopup>
+                </Select>
+              }
+            />
           </SettingsSection>
         </>
       ) : null}
@@ -1039,7 +1152,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
             <SettingsRow
               title="Tool activity"
-              description="Show tool-call activity in the timeline while a response is running."
+              description="Show tool-call activity in the timeline for current and past responses."
               resetAction={
                 settings.enableToolStreaming !== DEFAULT_UNIFIED_SETTINGS.enableToolStreaming ? (
                   <SettingResetButton
@@ -1058,14 +1171,14 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   onCheckedChange={(checked) =>
                     updateSettings({ enableToolStreaming: Boolean(checked) })
                   }
-                  aria-label="Stream tool activity"
+                  aria-label="Show tool activity"
                 />
               }
             />
 
             <SettingsRow
               title="Thinking activity"
-              description="Show reasoning and planning updates in the timeline while a response is running."
+              description="Show reasoning and planning updates in the timeline for current and past responses."
               resetAction={
                 settings.enableThinkingStreaming !==
                 DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming ? (
@@ -1085,7 +1198,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   onCheckedChange={(checked) =>
                     updateSettings({ enableThinkingStreaming: Boolean(checked) })
                   }
-                  aria-label="Stream thinking activity"
+                  aria-label="Show thinking activity"
                 />
               }
             />
@@ -1140,6 +1253,90 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     updateSettings({ confirmThreadDelete: Boolean(checked) })
                   }
                   aria-label="Confirm thread deletion"
+                />
+              }
+            />
+          </SettingsSection>
+
+          <SettingsSection title="Background notifications">
+            <SettingsRow
+              title="Agent completion"
+              description="Send a notification after a turn finishes while the app is not focused."
+              resetAction={
+                settings.notifyOnAgentCompletion !==
+                DEFAULT_UNIFIED_SETTINGS.notifyOnAgentCompletion ? (
+                  <SettingResetButton
+                    label="completion notifications"
+                    onClick={() =>
+                      updateSettings({
+                        notifyOnAgentCompletion: DEFAULT_UNIFIED_SETTINGS.notifyOnAgentCompletion,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.notifyOnAgentCompletion}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ notifyOnAgentCompletion: Boolean(checked) })
+                  }
+                  aria-label="Notify when the agent completes a turn"
+                />
+              }
+            />
+
+            <SettingsRow
+              title="Approval requests"
+              description="Send a notification when the agent is blocked on an approval request."
+              resetAction={
+                settings.notifyOnApprovalRequired !==
+                DEFAULT_UNIFIED_SETTINGS.notifyOnApprovalRequired ? (
+                  <SettingResetButton
+                    label="approval notifications"
+                    onClick={() =>
+                      updateSettings({
+                        notifyOnApprovalRequired: DEFAULT_UNIFIED_SETTINGS.notifyOnApprovalRequired,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.notifyOnApprovalRequired}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ notifyOnApprovalRequired: Boolean(checked) })
+                  }
+                  aria-label="Notify when the agent requires approval"
+                />
+              }
+            />
+
+            <SettingsRow
+              title="User input requests"
+              description="Send a notification when the agent requests structured user input. On supported desktop platforms, single-question prompts can be answered inline from the notification."
+              resetAction={
+                settings.notifyOnUserInputRequired !==
+                DEFAULT_UNIFIED_SETTINGS.notifyOnUserInputRequired ? (
+                  <SettingResetButton
+                    label="input notifications"
+                    onClick={() =>
+                      updateSettings({
+                        notifyOnUserInputRequired:
+                          DEFAULT_UNIFIED_SETTINGS.notifyOnUserInputRequired,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.notifyOnUserInputRequired}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ notifyOnUserInputRequired: Boolean(checked) })
+                  }
+                  aria-label="Notify when the agent requires user input"
                 />
               }
             />

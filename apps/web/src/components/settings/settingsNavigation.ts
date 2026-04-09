@@ -34,7 +34,7 @@ export const SETTINGS_NAV_ITEMS = [
   {
     group: "workspace",
     label: "Chat",
-    description: "Streaming and confirmation behavior",
+    description: "Streaming, notifications, and confirmation behavior",
     to: "/settings/chat",
     icon: MessageCircleIcon,
   },

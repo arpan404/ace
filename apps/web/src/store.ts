@@ -308,6 +308,7 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.handoff !== undefined ? { handoff: thread.handoff } : {}),
     historyLoaded: resolveThreadHistoryLoaded(thread.id, options),
     queuedComposerMessages: thread.queuedComposerMessages.map(mapQueuedComposerMessage),
     queuedSteerRequest: thread.queuedSteerRequest ? { ...thread.queuedSteerRequest } : null,
@@ -362,6 +363,7 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     latestTurn: thread.latestTurn,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.handoff !== undefined ? { handoff: thread.handoff } : {}),
     latestUserMessageAt: getLatestUserMessageAt(thread.messages),
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
@@ -389,6 +391,11 @@ function sidebarThreadSummariesEqual(
     left.latestTurn === right.latestTurn &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
+    left.handoff?.sourceThreadId === right.handoff?.sourceThreadId &&
+    left.handoff?.fromProvider === right.handoff?.fromProvider &&
+    left.handoff?.toProvider === right.handoff?.toProvider &&
+    left.handoff?.mode === right.handoff?.mode &&
+    left.handoff?.createdAt === right.handoff?.createdAt &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&

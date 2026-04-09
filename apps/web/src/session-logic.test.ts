@@ -18,6 +18,7 @@ import {
   derivePendingUserInputs,
   deriveTimelineEntries,
   deriveWorkLogEntries,
+  filterVisibleWorkLogActivities,
   findLatestProposedPlan,
   findSidebarProposedPlan,
   hasActionableProposedPlan,
@@ -302,6 +303,82 @@ describe("derivePendingUserInputs", () => {
     ];
 
     expect(derivePendingUserInputs(activities)).toEqual([]);
+  });
+
+  it("keeps freeform user-input prompts without predefined options", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "user-input-open-freeform",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: {
+          requestId: "req-user-input-freeform",
+          questions: [
+            {
+              id: "scope",
+              header: "Scope",
+              question: "What should this change cover?",
+              options: [],
+            },
+          ],
+        },
+      }),
+    ];
+
+    expect(derivePendingUserInputs(activities)).toEqual([
+      {
+        requestId: "req-user-input-freeform",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        questions: [
+          {
+            id: "scope",
+            header: "Scope",
+            question: "What should this change cover?",
+            options: [],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("normalizes option descriptions when providers omit them", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "user-input-open-missing-description",
+        createdAt: "2026-02-23T00:00:02.500Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: {
+          requestId: "req-user-input-missing-description",
+          questions: [
+            {
+              id: "mode",
+              header: "Mode",
+              question: "Pick one",
+              options: [{ label: "safe" }],
+            },
+          ],
+        },
+      }),
+    ];
+
+    expect(derivePendingUserInputs(activities)).toEqual([
+      {
+        requestId: "req-user-input-missing-description",
+        createdAt: "2026-02-23T00:00:02.500Z",
+        questions: [
+          {
+            id: "mode",
+            header: "Mode",
+            question: "Pick one",
+            options: [{ label: "safe", description: "safe" }],
+          },
+        ],
+      },
+    ]);
   });
 
   it("preserves multi-select question metadata for open prompts", () => {
@@ -622,6 +699,46 @@ describe("deriveWorkLogEntries", () => {
 
     const entries = deriveWorkLogEntries(activities, undefined);
     expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
+  });
+
+  it("surfaces runtime.error payload.message as work log detail", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "runtime-err-msg",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "runtime.error",
+        summary: "Runtime error",
+        tone: "error",
+        payload: {
+          message: "GitHub Copilot turn failed: network timeout",
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.label).toBe("Runtime error");
+    expect(entry?.detail).toBe("GitHub Copilot turn failed: network timeout");
+  });
+
+  it("combines runtime.warning message with structured detail for the work log", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "runtime-warn-detail",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "runtime.warning",
+        summary: "Runtime warning",
+        tone: "info",
+        payload: {
+          message: "Retry scheduled",
+          detail: { code: 429, reason: "rate limit" },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.detail).toContain("Retry scheduled");
+    expect(entry?.detail).toContain("429");
+    expect(entry?.detail).toContain("rate limit");
   });
 
   it("omits task start and completion lifecycle entries", () => {
@@ -1114,6 +1231,106 @@ describe("deriveWorkLogEntries", () => {
       itemType: "dynamic_tool_call",
       toolTitle: "Tool call",
     });
+  });
+
+  it("collapses interleaved Cursor tool lifecycle rows by toolCallId", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "tool-a-start",
+        turnId: "turn-cursor",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.started",
+        summary: "Read File",
+        payload: {
+          itemType: "file_change",
+          title: "Read File",
+          data: {
+            item: { toolCallId: "tool-a" },
+          },
+        },
+      }),
+      makeActivity({
+        id: "tool-a-update",
+        turnId: "turn-cursor",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.updated",
+        summary: "Read File",
+        payload: {
+          itemType: "file_change",
+          title: "Read File",
+          data: {
+            item: { toolCallId: "tool-a" },
+          },
+        },
+      }),
+      makeActivity({
+        id: "tool-b-start",
+        turnId: "turn-cursor",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "tool.started",
+        summary: "Read File",
+        payload: {
+          itemType: "file_change",
+          title: "Read File",
+          data: {
+            item: { toolCallId: "tool-b" },
+          },
+        },
+      }),
+      makeActivity({
+        id: "tool-b-update",
+        turnId: "turn-cursor",
+        createdAt: "2026-02-23T00:00:04.000Z",
+        kind: "tool.updated",
+        summary: "Read File",
+        payload: {
+          itemType: "file_change",
+          title: "Read File",
+          data: {
+            item: { toolCallId: "tool-b" },
+          },
+        },
+      }),
+      makeActivity({
+        id: "tool-a-complete",
+        turnId: "turn-cursor",
+        createdAt: "2026-02-23T00:00:05.000Z",
+        kind: "tool.completed",
+        summary: "Read File",
+        payload: {
+          itemType: "file_change",
+          title: "Read File",
+          detail: "README.md",
+          data: {
+            item: { toolCallId: "tool-a" },
+          },
+        },
+      }),
+      makeActivity({
+        id: "tool-b-complete",
+        turnId: "turn-cursor",
+        createdAt: "2026-02-23T00:00:06.000Z",
+        kind: "tool.completed",
+        summary: "Read File",
+        payload: {
+          itemType: "file_change",
+          title: "Read File",
+          detail: "package.json",
+          data: {
+            item: { toolCallId: "tool-b" },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries.map((entry) => entry.id)).toEqual(["tool-a-complete", "tool-b-complete"]);
+    expect(entries.map((entry) => entry.createdAt)).toEqual([
+      "2026-02-23T00:00:01.000Z",
+      "2026-02-23T00:00:03.000Z",
+    ]);
+    expect(entries.map((entry) => entry.detail)).toEqual(["README.md", "package.json"]);
   });
 
   it("keeps separate tool entries when an identical call starts after the prior one completed", () => {
@@ -1787,6 +2004,57 @@ describe("deriveVisibleTurnDiffSummaryByAssistantMessageId", () => {
         ],
       ),
     ).toEqual(new Map());
+  });
+});
+
+describe("filterVisibleWorkLogActivities", () => {
+  it("removes hidden tool and thinking activities when both visibility toggles are disabled", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "tool-complete",
+        kind: "tool.completed",
+        summary: "Tool completed",
+        tone: "tool",
+      }),
+      makeActivity({
+        id: "task-progress",
+        kind: "task.progress",
+        summary: "Reasoning update",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "plan-updated",
+        kind: "turn.plan.updated",
+        summary: "Plan updated",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "runtime-warning",
+        kind: "runtime.warning",
+        summary: "Runtime warning",
+        tone: "info",
+      }),
+    ];
+
+    const visible = filterVisibleWorkLogActivities(activities, {
+      enableToolStreaming: false,
+      enableThinkingStreaming: false,
+    });
+
+    expect(visible.map((activity) => activity.id)).toEqual(["runtime-warning"]);
+  });
+
+  it("returns the original array when both visibility toggles are enabled", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({ id: "tool-complete", kind: "tool.completed", tone: "tool" }),
+    ];
+
+    const visible = filterVisibleWorkLogActivities(activities, {
+      enableToolStreaming: true,
+      enableThinkingStreaming: true,
+    });
+
+    expect(visible).toBe(activities);
   });
 });
 

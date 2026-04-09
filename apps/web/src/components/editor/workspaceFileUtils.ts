@@ -1,4 +1,4 @@
-export type WorkspacePreviewKind = "image" | "video";
+export type WorkspacePreviewKind = "image" | "video" | "markdown" | "mermaid";
 
 const IMAGE_EXTENSIONS = new Set([
   "png",
@@ -13,6 +13,8 @@ const IMAGE_EXTENSIONS = new Set([
 ]);
 
 const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "mov", "m4v", "ogv"]);
+const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
+const MERMAID_EXTENSIONS = new Set(["mermaid", "mmd"]);
 
 function normalizePlatform(platform?: string): string {
   if (platform) {
@@ -44,6 +46,12 @@ export function detectWorkspacePreviewKind(pathValue: string): WorkspacePreviewK
   }
   if (VIDEO_EXTENSIONS.has(extension)) {
     return "video";
+  }
+  if (MERMAID_EXTENSIONS.has(extension)) {
+    return "mermaid";
+  }
+  if (MARKDOWN_EXTENSIONS.has(extension)) {
+    return "markdown";
   }
   return null;
 }

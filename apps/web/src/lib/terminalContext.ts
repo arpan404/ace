@@ -56,6 +56,8 @@ registerMemoryPressureHandler({
 
 const TRAILING_TERMINAL_CONTEXT_BLOCK_PATTERN =
   /\n*<terminal_context>\n([\s\S]*?)\n<\/terminal_context>\s*$/;
+const TRAILING_GITHUB_ISSUE_CONTEXT_BLOCK_PATTERN =
+  /\n*<github_issue_context>\n([\s\S]*?)\n<\/github_issue_context>\s*$/;
 
 export function normalizeTerminalContextText(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/^\n+|\n+$/g, "");
@@ -252,6 +254,34 @@ export function extractTrailingTerminalContexts(prompt: string): ExtractedTermin
   };
 }
 
+export function extractTrailingGitHubIssueContext(prompt: string): {
+  promptText: string;
+  context: string | null;
+} {
+  const match = TRAILING_GITHUB_ISSUE_CONTEXT_BLOCK_PATTERN.exec(prompt);
+  if (!match) {
+    return {
+      promptText: prompt,
+      context: null,
+    };
+  }
+  return {
+    promptText: prompt.slice(0, match.index).replace(/\n+$/, ""),
+    context: match[1] ?? null,
+  };
+}
+
+function stripTrailingGitHubIssueContexts(prompt: string): string {
+  let promptText = prompt;
+  while (true) {
+    const extracted = extractTrailingGitHubIssueContext(promptText);
+    if (extracted.context === null) {
+      return promptText;
+    }
+    promptText = extracted.promptText;
+  }
+}
+
 export function deriveDisplayedUserMessageState(prompt: string): DisplayedUserMessageState {
   if (!shouldBypassNonEssentialCaching()) {
     const cached = displayedUserMessageStateCache.get(prompt);
@@ -260,9 +290,11 @@ export function deriveDisplayedUserMessageState(prompt: string): DisplayedUserMe
     }
   }
 
-  const extractedContexts = extractTrailingTerminalContexts(prompt);
+  const promptWithoutTrailingIssueContext = stripTrailingGitHubIssueContexts(prompt);
+  const extractedContexts = extractTrailingTerminalContexts(promptWithoutTrailingIssueContext);
+  const visibleText = stripTrailingGitHubIssueContexts(extractedContexts.promptText);
   const displayedState = {
-    visibleText: extractedContexts.promptText,
+    visibleText,
     copyText: prompt,
     contextCount: extractedContexts.contextCount,
     previewTitle: extractedContexts.previewTitle,
