@@ -1,10 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 
-import {
-  DEFAULT_THEME_PRESET,
-  type ThemePresetId,
-  parseThemePresetId,
-} from "./themePresets";
+import { DEFAULT_THEME_PRESET, type ThemePresetId, parseThemePresetId } from "./themePresets";
 
 const STORAGE_PRESET = "ace:theme-preset";
 
@@ -49,35 +45,19 @@ function getSnapshot(): ThemePresetId {
   return cachedSnapshot;
 }
 
-/** Sets `data-theme-preset` on root elements when not the default preset. */
+/** Sets `data-theme-preset` on the root element for all presets. */
 export function applyThemePreset(preset: ThemePresetId) {
   if (typeof document === "undefined") {
     return;
   }
-  const targets: HTMLElement[] = [document.documentElement];
-  if (document.body) {
-    targets.push(document.body);
-  }
-  if (preset === DEFAULT_THEME_PRESET) {
-    for (const target of targets) {
-      target.removeAttribute("data-theme-preset");
-    }
-  } else {
-    for (const target of targets) {
-      target.setAttribute("data-theme-preset", preset);
-    }
-  }
+  document.documentElement.setAttribute("data-theme-preset", preset);
 }
 
 export function persistThemePreset(preset: ThemePresetId) {
   if (typeof localStorage === "undefined") {
     return;
   }
-  if (preset === DEFAULT_THEME_PRESET) {
-    localStorage.removeItem(STORAGE_PRESET);
-  } else {
-    localStorage.setItem(STORAGE_PRESET, preset);
-  }
+  localStorage.setItem(STORAGE_PRESET, preset);
   applyThemePreset(preset);
   emitChange();
 }
@@ -105,11 +85,7 @@ function subscribe(listener: () => void): () => void {
 }
 
 export function useAppearancePrefs() {
-  const themePreset = useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    () => DEFAULT_THEME_PRESET,
-  );
+  const themePreset = useSyncExternalStore(subscribe, getSnapshot, () => DEFAULT_THEME_PRESET);
 
   const setThemePreset = useCallback((preset: ThemePresetId) => {
     persistThemePreset(preset);

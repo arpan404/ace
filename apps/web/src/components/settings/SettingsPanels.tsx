@@ -508,7 +508,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.uiMonoFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiMonoFontFamily
         ? ["Monospace font"]
         : []),
-      ...(settings.uiFontSizeScale !== DEFAULT_UNIFIED_SETTINGS.uiFontSizeScale ? ["Text size"] : []),
+      ...(settings.uiFontSizeScale !== DEFAULT_UNIFIED_SETTINGS.uiFontSizeScale
+        ? ["Text size"]
+        : []),
       ...(settings.uiLetterSpacing !== DEFAULT_UNIFIED_SETTINGS.uiLetterSpacing
         ? ["Letter spacing"]
         : []),
@@ -1034,9 +1036,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 settings.uiFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiFontFamily ? (
                   <SettingResetButton
                     label="UI font"
-                    onClick={() =>
-                      updateSettings({ uiFontFamily: DEFAULT_UI_FONT_FAMILY })
-                    }
+                    onClick={() => updateSettings({ uiFontFamily: DEFAULT_UI_FONT_FAMILY })}
                   />
                 ) : null
               }
@@ -1112,9 +1112,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 settings.uiFontSizeScale !== DEFAULT_UNIFIED_SETTINGS.uiFontSizeScale ? (
                   <SettingResetButton
                     label="text size"
-                    onClick={() =>
-                      updateSettings({ uiFontSizeScale: DEFAULT_UI_FONT_SIZE_SCALE })
-                    }
+                    onClick={() => updateSettings({ uiFontSizeScale: DEFAULT_UI_FONT_SIZE_SCALE })}
                   />
                 ) : null
               }
@@ -1156,9 +1154,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 settings.uiLetterSpacing !== DEFAULT_UNIFIED_SETTINGS.uiLetterSpacing ? (
                   <SettingResetButton
                     label="letter spacing"
-                    onClick={() =>
-                      updateSettings({ uiLetterSpacing: DEFAULT_UI_LETTER_SPACING })
-                    }
+                    onClick={() => updateSettings({ uiLetterSpacing: DEFAULT_UI_LETTER_SPACING })}
                   />
                 ) : null
               }

@@ -6,162 +6,164 @@ export type ThemePresetPreview = {
   accentMuted: string;
 };
 
-/** Twelve unified UI presets (surfaces + primary). */
+/** Twelve unified UI presets: 3 neutrals + 9 accents. */
 export const THEME_PRESET_OPTIONS: ReadonlyArray<{
   id:
-    | "zenith-light"
-    | "zenith-dark"
-    | "monochrome-light"
-    | "monochrome-dark"
-    | "slate"
-    | "sandstone"
-    | "evergreen"
-    | "sakura"
-    | "oceanic"
-    | "inferno"
-    | "stardust"
-    | "cyberpunk";
+    | "zinc"
+    | "copper"
+    | "jade"
+    | "indigo"
+    | "rose"
+    | "amber"
+    | "teal"
+    | "violet"
+    | "sage"
+    | "crimson"
+    | "azure"
+    | "slate";
   label: string;
   description: string;
   preview: ThemePresetPreview;
 }> = [
+  /* ── Neutrals ── */
   {
-    id: "zenith-light",
-    label: "Aura",
-    description: "Balanced neutral surfaces with a crisp cobalt primary in both modes.",
+    id: "zinc",
+    label: "Zinc",
+    description: "Clean gray with blue accents.",
     preview: {
-      panel: "oklch(0.982 0.008 255)",
-      panelDeep: "oklch(0.958 0.01 255)",
-      accent: "oklch(0.63 0.17 255)",
-      accentMuted: "oklch(0.53 0.12 255)",
+      panel: "oklch(0.17 0 0)",
+      panelDeep: "oklch(0.13 0 0)",
+      accent: "oklch(0.68 0.17 250)",
+      accentMuted: "oklch(0.55 0.12 250)",
     },
   },
   {
-    id: "zenith-dark",
-    label: "Midnight",
-    description: "Cool slate palette that shifts from soft daylight to deep night contrast.",
+    id: "copper",
+    label: "Copper",
+    description: "Clean gray with warm orange accents.",
     preview: {
-      panel: "oklch(0.205 0.02 255)",
-      panelDeep: "oklch(0.155 0.02 255)",
-      accent: "oklch(0.7 0.16 255)",
-      accentMuted: "oklch(0.59 0.11 255)",
+      panel: "oklch(0.17 0 0)",
+      panelDeep: "oklch(0.13 0 0)",
+      accent: "oklch(0.75 0.17 45)",
+      accentMuted: "oklch(0.6 0.12 45)",
     },
   },
   {
-    id: "monochrome-light",
-    label: "Graphite",
-    description: "Pure grayscale palette tuned for focused reading in light and dark.",
+    id: "jade",
+    label: "Jade",
+    description: "Clean gray with emerald accents.",
     preview: {
-      panel: "oklch(0.985 0 0)",
-      panelDeep: "oklch(0.955 0 0)",
-      accent: "oklch(0.26 0 0)",
-      accentMuted: "oklch(0.46 0 0)",
+      panel: "oklch(0.17 0 0)",
+      panelDeep: "oklch(0.13 0 0)",
+      accent: "oklch(0.68 0.16 155)",
+      accentMuted: "oklch(0.55 0.1 155)",
+    },
+  },
+  /* ── Accents ── */
+  {
+    id: "indigo",
+    label: "Indigo",
+    description: "Rich indigo-tinted workspace.",
+    preview: {
+      panel: "oklch(0.18 0.025 275)",
+      panelDeep: "oklch(0.14 0.02 275)",
+      accent: "oklch(0.7 0.17 275)",
+      accentMuted: "oklch(0.58 0.015 275)",
     },
   },
   {
-    id: "monochrome-dark",
-    label: "Onyx",
-    description: "Higher-contrast monochrome palette with a darker personality across modes.",
+    id: "rose",
+    label: "Rose",
+    description: "Warm rose-tinted workspace.",
     preview: {
-      panel: "oklch(0.21 0 0)",
-      panelDeep: "oklch(0.16 0 0)",
-      accent: "oklch(0.86 0 0)",
-      accentMuted: "oklch(0.68 0 0)",
+      panel: "oklch(0.18 0.025 350)",
+      panelDeep: "oklch(0.14 0.02 350)",
+      accent: "oklch(0.72 0.16 350)",
+      accentMuted: "oklch(0.58 0.015 350)",
+    },
+  },
+  {
+    id: "amber",
+    label: "Amber",
+    description: "Golden amber-tinted workspace.",
+    preview: {
+      panel: "oklch(0.18 0.025 80)",
+      panelDeep: "oklch(0.14 0.02 80)",
+      accent: "oklch(0.75 0.16 80)",
+      accentMuted: "oklch(0.58 0.015 80)",
+    },
+  },
+  {
+    id: "teal",
+    label: "Teal",
+    description: "Cool teal-tinted workspace.",
+    preview: {
+      panel: "oklch(0.18 0.025 190)",
+      panelDeep: "oklch(0.14 0.02 190)",
+      accent: "oklch(0.7 0.14 190)",
+      accentMuted: "oklch(0.58 0.015 190)",
+    },
+  },
+  {
+    id: "violet",
+    label: "Violet",
+    description: "Ethereal violet-tinted workspace.",
+    preview: {
+      panel: "oklch(0.18 0.025 300)",
+      panelDeep: "oklch(0.14 0.02 300)",
+      accent: "oklch(0.72 0.17 300)",
+      accentMuted: "oklch(0.58 0.015 300)",
+    },
+  },
+  {
+    id: "sage",
+    label: "Sage",
+    description: "Natural sage-tinted workspace.",
+    preview: {
+      panel: "oklch(0.18 0.025 145)",
+      panelDeep: "oklch(0.14 0.02 145)",
+      accent: "oklch(0.68 0.14 145)",
+      accentMuted: "oklch(0.58 0.015 145)",
+    },
+  },
+  {
+    id: "crimson",
+    label: "Crimson",
+    description: "Bold crimson-tinted workspace.",
+    preview: {
+      panel: "oklch(0.18 0.025 25)",
+      panelDeep: "oklch(0.14 0.02 25)",
+      accent: "oklch(0.7 0.17 25)",
+      accentMuted: "oklch(0.58 0.015 25)",
+    },
+  },
+  {
+    id: "azure",
+    label: "Azure",
+    description: "Airy blue-tinted workspace.",
+    preview: {
+      panel: "oklch(0.18 0.025 225)",
+      panelDeep: "oklch(0.14 0.02 225)",
+      accent: "oklch(0.7 0.16 225)",
+      accentMuted: "oklch(0.58 0.015 225)",
     },
   },
   {
     id: "slate",
-    label: "Mist",
-    description: "Desaturated blue-gray palette for a calm workspace in any mode.",
+    label: "Slate",
+    description: "Cool steel-tinted workspace.",
     preview: {
-      panel: "oklch(0.24 0.012 235)",
-      panelDeep: "oklch(0.19 0.012 235)",
-      accent: "oklch(0.68 0.1 225)",
-      accentMuted: "oklch(0.56 0.075 225)",
-    },
-  },
-  {
-    id: "sandstone",
-    label: "Dune",
-    description: "Warm sand-tinted neutrals with restrained amber highlights day and night.",
-    preview: {
-      panel: "oklch(0.97 0.01 85)",
-      panelDeep: "oklch(0.94 0.01 85)",
-      accent: "oklch(0.65 0.09 72)",
-      accentMuted: "oklch(0.53 0.07 72)",
-    },
-  },
-  {
-    id: "evergreen",
-    label: "Forest",
-    description: "Natural green palette with earthy depth and mode-aware contrast.",
-    preview: {
-      panel: "oklch(0.2 0.02 145)",
-      panelDeep: "oklch(0.15 0.02 145)",
-      accent: "oklch(0.63 0.14 138)",
-      accentMuted: "oklch(0.5 0.095 138)",
-    },
-  },
-  {
-    id: "sakura",
-    label: "Blossom",
-    description: "Soft rose and lavender tones with refined surfaces in both modes.",
-    preview: {
-      panel: "oklch(0.982 0.01 335)",
-      panelDeep: "oklch(0.953 0.01 335)",
-      accent: "oklch(0.72 0.16 342)",
-      accentMuted: "oklch(0.58 0.11 342)",
-    },
-  },
-  {
-    id: "oceanic",
-    label: "Tide",
-    description: "Marine blues with clear cyan accents, balanced for light and dark.",
-    preview: {
-      panel: "oklch(0.2 0.02 205)",
-      panelDeep: "oklch(0.15 0.02 205)",
-      accent: "oklch(0.67 0.14 195)",
-      accentMuted: "oklch(0.53 0.095 195)",
-    },
-  },
-  {
-    id: "inferno",
-    label: "Ember",
-    description: "Smoky charcoal and ember-orange accents that stay readable in both modes.",
-    preview: {
-      panel: "oklch(0.16 0.02 35)",
-      panelDeep: "oklch(0.12 0.02 35)",
-      accent: "oklch(0.69 0.16 35)",
-      accentMuted: "oklch(0.56 0.11 35)",
-    },
-  },
-  {
-    id: "stardust",
-    label: "Nebula",
-    description: "Muted indigo-violet palette with luminous accents across both modes.",
-    preview: {
-      panel: "oklch(0.16 0.02 285)",
-      panelDeep: "oklch(0.11 0.02 285)",
-      accent: "oklch(0.7 0.16 300)",
-      accentMuted: "oklch(0.57 0.11 300)",
-    },
-  },
-  {
-    id: "cyberpunk",
-    label: "Neon Night",
-    description: "Futuristic neon palette with dedicated light and dark variants.",
-    preview: {
-      panel: "oklch(0.14 0.03 265)",
-      panelDeep: "oklch(0.1 0.03 265)",
-      accent: "oklch(0.72 0.19 322)",
-      accentMuted: "oklch(0.58 0.13 322)",
+      panel: "oklch(0.18 0.025 240)",
+      panelDeep: "oklch(0.14 0.02 240)",
+      accent: "oklch(0.65 0.1 240)",
+      accentMuted: "oklch(0.58 0.015 240)",
     },
   },
 ];
 
 export type ThemePresetId = (typeof THEME_PRESET_OPTIONS)[number]["id"];
 
-export const DEFAULT_THEME_PRESET: ThemePresetId = "zenith-light";
+export const DEFAULT_THEME_PRESET: ThemePresetId = "zinc";
 
 const PRESET_ID_SET = new Set<string>(THEME_PRESET_OPTIONS.map((o) => o.id));
 

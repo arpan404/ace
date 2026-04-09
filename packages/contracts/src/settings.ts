@@ -55,7 +55,12 @@ export type UiFontFamily = typeof UiFontFamily.Type;
 export const DEFAULT_UI_FONT_FAMILY: UiFontFamily = "plus-jakarta";
 
 /** Monospace font preset — applied via CSS `--font-mono` in the web client. */
-export const UiMonoFontFamily = Schema.Literals(["jetbrains", "fira-code", "ibm-plex-mono", "system-mono"]);
+export const UiMonoFontFamily = Schema.Literals([
+  "jetbrains",
+  "fira-code",
+  "ibm-plex-mono",
+  "system-mono",
+]);
 export type UiMonoFontFamily = typeof UiMonoFontFamily.Type;
 export const DEFAULT_UI_MONO_FONT_FAMILY: UiMonoFontFamily = "jetbrains";
 
@@ -102,8 +107,12 @@ export const ClientSettingsSchema = Schema.Struct({
   uiMonoFontFamily: UiMonoFontFamily.pipe(
     Schema.withDecodingDefault(() => DEFAULT_UI_MONO_FONT_FAMILY),
   ),
-  uiFontSizeScale: UiFontSizeScale.pipe(Schema.withDecodingDefault(() => DEFAULT_UI_FONT_SIZE_SCALE)),
-  uiLetterSpacing: UiLetterSpacing.pipe(Schema.withDecodingDefault(() => DEFAULT_UI_LETTER_SPACING)),
+  uiFontSizeScale: UiFontSizeScale.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_UI_FONT_SIZE_SCALE),
+  ),
+  uiLetterSpacing: UiLetterSpacing.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_UI_LETTER_SPACING),
+  ),
   workspaceEditorOpenMode: WorkspaceEditorOpenMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_WORKSPACE_EDITOR_OPEN_MODE),
   ),

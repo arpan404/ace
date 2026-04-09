@@ -14,11 +14,7 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
   className?: string;
 }) {
   return (
-    <div
-      className={cn("min-w-0", className)}
-      role="listbox"
-      aria-label="Theme presets"
-    >
+    <div className={cn("min-w-0", className)} role="listbox" aria-label="Theme presets">
       <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
         {THEME_PRESET_OPTIONS.map((option) => {
           const active = value === option.id;
@@ -62,8 +58,7 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
               <div
                 className="mt-1.5 flex min-h-0 flex-1 flex-col rounded-md border border-white/5 p-1.5"
                 style={{
-                  background:
-                    "linear-gradient(145deg, oklch(0.14 0.02 262), oklch(0.1 0.024 262))",
+                  background: "linear-gradient(145deg, oklch(0.14 0.02 262), oklch(0.1 0.024 262))",
                 }}
               >
                 <div className="flex min-h-0 flex-1 gap-1">
