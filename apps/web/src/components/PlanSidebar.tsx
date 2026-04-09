@@ -200,40 +200,52 @@ const PlanSidebar = memo(function PlanSidebar({
           {/* Plan Steps */}
           {activePlan && activePlan.steps.length > 0 ? (
             <div className="space-y-1">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
-                  Current todo
-                </p>
-                {planStepSummary ? (
-                  <p className="text-[10px] text-muted-foreground">
-                    {planStepSummary.completed}/{planStepSummary.total} done
-                  </p>
-                ) : null}
-              </div>
-              {activePlan.steps.map((step, index) => (
-                <div
-                  key={`${step.step}:${index}`}
-                  className={cn(
-                    "flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors duration-200",
-                    step.status === "inProgress" && "bg-blue-500/5",
-                    step.status === "completed" && "bg-emerald-500/5",
-                  )}
-                >
-                  <div className="mt-0.5">{stepStatusIcon(step.status)}</div>
-                  <p
-                    className={cn(
-                      "text-[13px] leading-snug",
-                      step.status === "completed"
-                        ? "text-muted-foreground line-through decoration-muted-foreground"
-                        : step.status === "inProgress"
-                          ? "text-foreground"
-                          : "text-muted-foreground",
-                    )}
-                  >
-                    {step.step}
-                  </p>
-                </div>
-              ))}
+              {(() => {
+                const stepOccurrenceByText = new Map<string, number>();
+                return (
+                  <>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
+                        Current todo
+                      </p>
+                      {planStepSummary ? (
+                        <p className="text-[10px] text-muted-foreground">
+                          {planStepSummary.completed}/{planStepSummary.total} done
+                        </p>
+                      ) : null}
+                    </div>
+                    {activePlan.steps.map((step) => {
+                      const seenCount = stepOccurrenceByText.get(step.step) ?? 0;
+                      stepOccurrenceByText.set(step.step, seenCount + 1);
+                      const stepKey = seenCount === 0 ? step.step : `${step.step}:${seenCount}`;
+                      return (
+                        <div
+                          key={stepKey}
+                          className={cn(
+                            "flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors duration-200",
+                            step.status === "inProgress" && "bg-blue-500/5",
+                            step.status === "completed" && "bg-emerald-500/5",
+                          )}
+                        >
+                          <div className="mt-0.5">{stepStatusIcon(step.status)}</div>
+                          <p
+                            className={cn(
+                              "text-[13px] leading-snug",
+                              step.status === "completed"
+                                ? "text-muted-foreground line-through decoration-muted-foreground"
+                                : step.status === "inProgress"
+                                  ? "text-foreground"
+                                  : "text-muted-foreground",
+                            )}
+                          >
+                            {step.step}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </>
+                );
+              })()}
             </div>
           ) : null}
 
