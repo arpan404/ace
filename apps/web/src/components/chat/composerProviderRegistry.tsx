@@ -104,7 +104,7 @@ function getProviderStateFromCapabilities(
     ...(ultrathinkActive ? { composerFrameClassName: "ultrathink-frame" } : {}),
     ...(ultrathinkActive
       ? {
-          composerSurfaceClassName: "shadow-[0_0_0_1px_rgba(255,255,255,0.04)_inset]",
+          composerSurfaceClassName: "ring-2 ring-primary/30",
         }
       : {}),
     ...(ultrathinkActive ? { modelPickerIconClassName: "ultrathink-chroma" } : {}),

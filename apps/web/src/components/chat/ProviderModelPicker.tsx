@@ -1,4 +1,4 @@
-import { type ProviderKind, type ServerProvider } from "@ace/contracts";
+import { type ProviderKind, type ServerProvider, type ThreadHandoffMode } from "@ace/contracts";
 import { resolveSelectableModel } from "@ace/shared/model";
 import { memo, useMemo, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
@@ -27,6 +27,7 @@ import {
   resolveCursorSelectorFamily,
   resolveExactCursorModelSelection,
 } from "../../cursorModelSelector";
+import { HandoffMenuButton } from "./HandoffMenu";
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
   value: ProviderKind;
@@ -127,6 +128,12 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
   onProviderModelChange: (provider: ProviderKind, model: string) => void;
+  /** Icon-only control beside the picker; opens a separate handoff menu. */
+  handoff?: {
+    providers: ReadonlyArray<ProviderKind>;
+    disabled: boolean;
+    onSelect: (provider: ProviderKind, mode: ThreadHandoffMode) => void;
+  };
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const activeProvider = props.lockedProvider ?? props.provider;
@@ -173,6 +180,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       setIsMenuOpen(false);
     }
   };
+
+  const handoffConfig = props.handoff;
   const renderCursorModelMenu = (provider: "cursor") =>
     cursorModels.length > 0 ? (
       <CursorModelMenuContent
@@ -221,7 +230,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     );
   };
 
-  return (
+  const modelMenu = (
     <Menu
       open={isMenuOpen}
       onOpenChange={(open) => {
@@ -239,7 +248,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             variant={props.triggerVariant ?? "ghost"}
             data-chat-provider-model-picker="true"
             className={cn(
-              "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 [&_svg]:mx-0",
+              "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground transition-colors duration-150 hover:text-foreground [&_svg]:mx-0",
               props.compact ? "max-w-42 shrink-0" : "max-w-48 shrink sm:max-w-56 sm:px-2.5",
               props.triggerClassName,
             )}
@@ -257,7 +266,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             aria-hidden="true"
             className={cn(
               "size-4 shrink-0",
-              providerIconClassName(activeProvider, "text-muted-foreground/70"),
+              providerIconClassName(activeProvider, "text-muted-foreground"),
               props.activeProviderIconClassName,
             )}
           />
@@ -291,11 +300,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                       aria-hidden="true"
                       className={cn(
                         "size-4 shrink-0 opacity-80",
-                        providerIconClassName(option.value, "text-muted-foreground/85"),
+                        providerIconClassName(option.value, "text-muted-foreground"),
                       )}
                     />
                     <span>{option.label}</span>
-                    <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
+                    <span className="ms-auto text-[11px] text-muted-foreground uppercase tracking-[0.08em]">
                       {unavailableLabel}
                     </span>
                   </MenuItem>
@@ -308,7 +317,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                       aria-hidden="true"
                       className={cn(
                         "size-4 shrink-0",
-                        providerIconClassName(option.value, "text-muted-foreground/85"),
+                        providerIconClassName(option.value, "text-muted-foreground"),
                       )}
                     />
                     {option.label}
@@ -331,10 +340,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 <MenuItem key={option.value} disabled>
                   <OptionIcon
                     aria-hidden="true"
-                    className="size-4 shrink-0 text-muted-foreground/85 opacity-80"
+                    className="size-4 shrink-0 text-muted-foreground opacity-80"
                   />
                   <span>{option.label}</span>
-                  <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
+                  <span className="ms-auto text-[11px] text-muted-foreground uppercase tracking-[0.08em]">
                     Coming soon
                   </span>
                 </MenuItem>
@@ -344,5 +353,26 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         )}
       </MenuPopup>
     </Menu>
+  );
+
+  if (!handoffConfig) {
+    return modelMenu;
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-0.5">
+      {modelMenu}
+      <HandoffMenuButton
+        {...(props.disabled ? { disabled: true } : {})}
+        entriesDisabled={handoffConfig.disabled}
+        providers={handoffConfig.providers}
+        showLabel={false}
+        triggerClassName={cn("shrink-0 rounded-md", props.compact ? "size-7 sm:size-8" : "size-8")}
+        triggerVariant={props.triggerVariant ?? "ghost"}
+        onSelect={(provider, mode) => {
+          handoffConfig.onSelect(provider, mode);
+        }}
+      />
+    </div>
   );
 });

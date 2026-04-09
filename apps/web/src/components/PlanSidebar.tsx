@@ -44,7 +44,7 @@ function stepStatusIcon(status: string): React.ReactNode {
     );
   }
   return (
-    <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/30">
+    <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-border/40 bg-muted/30">
       <span className="size-1.5 rounded-full bg-muted-foreground/30" />
     </span>
   );
@@ -120,9 +120,9 @@ const PlanSidebar = memo(function PlanSidebar({
   }, [planMarkdown, workspaceRoot]);
 
   return (
-    <div className="flex h-full w-[340px] shrink-0 flex-col border-l border-border/70 bg-card/50">
+    <div className="flex h-full w-[340px] shrink-0 flex-col border-l border-border/40 bg-card">
       {/* Header */}
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/60 px-3">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/40 px-3">
         <div className="flex items-center gap-2">
           <Badge
             variant="secondary"
@@ -131,7 +131,7 @@ const PlanSidebar = memo(function PlanSidebar({
             Plan
           </Badge>
           {activePlan ? (
-            <span className="text-[11px] text-muted-foreground/60">
+            <span className="text-[11px] text-muted-foreground">
               {formatTimestamp(activePlan.createdAt, timestampFormat)}
             </span>
           ) : null}
@@ -144,7 +144,7 @@ const PlanSidebar = memo(function PlanSidebar({
                   <Button
                     size="icon-xs"
                     variant="ghost"
-                    className="text-muted-foreground/50 hover:text-foreground/70"
+                    className="text-muted-foreground hover:text-foreground"
                     aria-label="Plan actions"
                   />
                 }
@@ -170,7 +170,7 @@ const PlanSidebar = memo(function PlanSidebar({
             variant="ghost"
             onClick={onClose}
             aria-label="Close plan sidebar"
-            className="text-muted-foreground/50 hover:text-foreground/70"
+            className="text-muted-foreground hover:text-foreground"
           >
             <PanelRightCloseIcon className="size-3.5" />
           </Button>
@@ -182,7 +182,7 @@ const PlanSidebar = memo(function PlanSidebar({
         <div className="p-3 space-y-4">
           {/* Explanation */}
           {activePlan?.explanation ? (
-            <p className="text-[13px] leading-relaxed text-muted-foreground/80">
+            <p className="text-[13px] leading-relaxed text-muted-foreground">
               {activePlan.explanation}
             </p>
           ) : null}
@@ -190,7 +190,7 @@ const PlanSidebar = memo(function PlanSidebar({
           {/* Plan Steps */}
           {activePlan && activePlan.steps.length > 0 ? (
             <div className="space-y-1">
-              <p className="mb-2 text-[10px] font-semibold tracking-widest text-muted-foreground/40 uppercase">
+              <p className="mb-2 text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
                 Steps
               </p>
               {activePlan.steps.map((step) => (
@@ -207,10 +207,10 @@ const PlanSidebar = memo(function PlanSidebar({
                     className={cn(
                       "text-[13px] leading-snug",
                       step.status === "completed"
-                        ? "text-muted-foreground/50 line-through decoration-muted-foreground/20"
+                        ? "text-muted-foreground line-through decoration-muted-foreground"
                         : step.status === "inProgress"
-                          ? "text-foreground/90"
-                          : "text-muted-foreground/70",
+                          ? "text-foreground"
+                          : "text-muted-foreground",
                     )}
                   >
                     {step.step}
@@ -229,16 +229,16 @@ const PlanSidebar = memo(function PlanSidebar({
                 onClick={() => setProposedPlanExpanded((v) => !v)}
               >
                 {proposedPlanExpanded ? (
-                  <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground/40 transition-transform" />
+                  <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform" />
                 ) : (
-                  <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground/40 transition-transform" />
+                  <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform" />
                 )}
-                <span className="text-[10px] font-semibold tracking-widest text-muted-foreground/40 uppercase group-hover:text-muted-foreground/60">
+                <span className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase group-hover:text-muted-foreground">
                   {planTitle ?? "Full Plan"}
                 </span>
               </button>
               {proposedPlanExpanded ? (
-                <div className="rounded-lg border border-border/50 bg-background/50 p-3">
+                <div className="rounded-lg border border-border/40 bg-background p-3">
                   <ChatMarkdown
                     text={displayedPlanMarkdown ?? ""}
                     cwd={markdownCwd}
@@ -253,8 +253,8 @@ const PlanSidebar = memo(function PlanSidebar({
           {/* Empty state */}
           {!activePlan && !planMarkdown ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
-              <p className="text-[13px] text-muted-foreground/40">No active plan yet.</p>
-              <p className="mt-1 text-[11px] text-muted-foreground/30">
+              <p className="text-[13px] text-muted-foreground">No active plan yet.</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
                 Plans will appear here when generated.
               </p>
             </div>

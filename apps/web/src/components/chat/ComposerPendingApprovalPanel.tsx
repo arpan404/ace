@@ -27,9 +27,9 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
           </span>
           Approval
         </span>
-        <span className="text-[13px] font-medium text-foreground/85">{approvalSummary}</span>
+        <span className="text-[13px] font-medium text-foreground">{approvalSummary}</span>
         {pendingCount > 1 ? (
-          <span className="flex h-[18px] items-center rounded-full bg-muted/40 px-2 text-[10px] font-semibold tabular-nums text-muted-foreground/60">
+          <span className="flex h-[18px] items-center rounded-full bg-muted px-2 text-[10px] font-semibold tabular-nums text-muted-foreground">
             1/{pendingCount}
           </span>
         ) : null}

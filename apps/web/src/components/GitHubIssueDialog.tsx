@@ -14,13 +14,7 @@ import { cn } from "~/lib/utils";
 import { GitHubIcon } from "./Icons";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import {
-  Dialog,
-  DialogFooter,
-  DialogHeader,
-  DialogPopup,
-  DialogTitle,
-} from "./ui/dialog";
+import { Dialog, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { ScrollArea } from "./ui/scroll-area";
 import { Spinner } from "./ui/spinner";
@@ -45,7 +39,11 @@ function formatIssueRelativeTime(iso: string): string {
     const w = Math.floor(days / 7);
     return `${w}w ago`;
   }
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export interface GitHubIssueDialogProps {
@@ -329,9 +327,7 @@ export function GitHubIssueDialog({ open, cwd, onOpenChange, onFixIssue }: GitHu
                           variant="outline"
                           size="sm"
                           className="shrink-0 gap-1.5 rounded-md"
-                          render={
-                            <a href={selectedIssue.url} target="_blank" rel="noreferrer" />
-                          }
+                          render={<a href={selectedIssue.url} target="_blank" rel="noreferrer" />}
                         >
                           GitHub
                           <ExternalLinkIcon className="size-3.5 opacity-70" />
@@ -358,7 +354,12 @@ export function GitHubIssueDialog({ open, cwd, onOpenChange, onFixIssue }: GitHu
                       {selectedIssue.labels.length > 0 ? (
                         <div className="flex flex-wrap gap-1.5">
                           {selectedIssue.labels.map((label) => (
-                            <Badge key={label.name} variant="secondary" size="sm" className="font-normal">
+                            <Badge
+                              key={label.name}
+                              variant="secondary"
+                              size="sm"
+                              className="font-normal"
+                            >
                               {label.name}
                             </Badge>
                           ))}
@@ -382,7 +383,9 @@ export function GitHubIssueDialog({ open, cwd, onOpenChange, onFixIssue }: GitHu
                             </h3>
                             <div className="rounded-lg border border-border/50 bg-muted/20 px-4 py-3 text-sm leading-relaxed text-muted-foreground dark:bg-muted/10">
                               <p className="whitespace-pre-wrap break-words">
-                                {thread.body?.trim().length ? thread.body : "No description provided."}
+                                {thread.body?.trim().length
+                                  ? thread.body
+                                  : "No description provided."}
                               </p>
                             </div>
                           </section>
@@ -416,7 +419,9 @@ export function GitHubIssueDialog({ open, cwd, onOpenChange, onFixIssue }: GitHu
                                       ) : null}
                                     </div>
                                     <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
-                                      {comment.body?.trim().length ? comment.body : "Empty comment."}
+                                      {comment.body?.trim().length
+                                        ? comment.body
+                                        : "Empty comment."}
                                     </p>
                                   </li>
                                 ))}
@@ -434,7 +439,9 @@ export function GitHubIssueDialog({ open, cwd, onOpenChange, onFixIssue }: GitHu
                 </>
               ) : (
                 <div className="flex flex-1 items-center justify-center px-6">
-                  <p className="text-center text-sm text-muted-foreground">Select an issue from the list</p>
+                  <p className="text-center text-sm text-muted-foreground">
+                    Select an issue from the list
+                  </p>
                 </div>
               )}
             </div>

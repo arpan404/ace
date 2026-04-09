@@ -181,7 +181,6 @@ import { type InAppBrowserController, type InAppBrowserMode } from "./InAppBrows
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./chat/CompactComposerControlsMenu";
-import { HandoffMenuButton } from "./chat/HandoffMenu";
 import { ComposerPrimaryActions } from "./chat/ComposerPrimaryActions";
 import { ComposerQueuedMessages } from "./chat/ComposerQueuedMessages";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
@@ -2145,12 +2144,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ],
   );
   const queuePreparedMessage = useCallback(
-    async (
-      preparedPrompt: string,
-      images: ReadonlyArray<ComposerImageAttachment> = [],
-    ) => {
-      const queuedImages =
-        images.length === 0 ? [] : await buildQueuedComposerImages([...images]);
+    async (preparedPrompt: string, images: ReadonlyArray<ComposerImageAttachment> = []) => {
+      const queuedImages = images.length === 0 ? [] : await buildQueuedComposerImages([...images]);
       const queuedMessage: QueuedComposerMessage = {
         id: newMessageId(),
         prompt: preparedPrompt,
@@ -5572,8 +5567,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   const messagesTimelineProps = {
     hasMessages:
-      timelineEntries.length > 0 ||
-      (isThreadHistoryLoading && activeThread.messages.length > 0),
+      timelineEntries.length > 0 || (isThreadHistoryLoading && activeThread.messages.length > 0),
     isWorking,
     onStartConversationFromMessage: scheduleComposerFocus,
     onContinueWithGitHubIssues: openGitHubIssueDialog,
@@ -5746,8 +5740,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Persistent top bar — always visible regardless of workspace mode */}
       <header
         className={cn(
-          "border-b border-border/30 bg-background/95 px-3 sm:px-5 supports-[backdrop-filter]:bg-background/80 supports-[backdrop-filter]:backdrop-blur-xl",
-          isElectron ? "drag-region flex h-13 items-center" : "py-2.5 sm:py-3",
+          "relative z-30 w-full shrink-0 border-b border-border bg-card",
+          "shadow-[0_1px_0_0_color-mix(in_oklch,var(--primary)_14%,transparent)]",
+          isElectron
+            ? "drag-region flex min-h-[52px] items-center px-4 sm:px-6"
+            : "px-4 py-3 sm:px-6 sm:py-3.5",
         )}
       >
         <ChatHeader
@@ -5756,13 +5753,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activeProjectId={activeProject?.id ?? null}
           activeProjectName={activeProject?.name}
           isGitRepo={isGitRepo}
-          openInCwd={gitCwd}
           activeProjectScripts={activeProject?.scripts}
           preferredScriptId={
             activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
           }
           keybindings={keybindings}
-          availableEditors={availableEditors}
           terminalAvailable={activeProject !== undefined}
           terminalOpen={terminalState.terminalOpen}
           terminalToggleShortcutLabel={terminalToggleShortcutLabel}
@@ -5815,6 +5810,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               }
             >
               <ThreadWorkspaceEditor
+                availableEditors={availableEditors}
                 gitCwd={gitCwd}
                 keybindings={keybindings}
                 browserOpen={browserOpen}
@@ -5829,45 +5825,31 @@ export default function ChatView({ threadId }: ChatViewProps) {
               className={cn(workspaceMode === "split" ? "flex min-h-0 min-w-0 flex-1" : "contents")}
             >
               <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-                {isServerThread || activePlan || sidebarProposedPlan || planSidebarOpen ? (
+                {activePlan || sidebarProposedPlan || planSidebarOpen ? (
                   <div className="pointer-events-none absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col gap-2">
-                    {isServerThread ? (
-                      <HandoffMenuButton
-                        providers={handoffTargetProviders}
-                        disabled={handoffDisabled}
-                        onSelect={onHandoffToProvider}
-                        showLabel={false}
-                        triggerVariant="outline"
-                        triggerClassName="pointer-events-auto h-8 w-8 rounded-full border-border/60 bg-background/90 px-0 text-muted-foreground/70 shadow-sm backdrop-blur-sm hover:text-foreground/85"
-                      />
-                    ) : null}
-                    {activePlan || sidebarProposedPlan || planSidebarOpen ? (
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              size="icon-sm"
-                              variant="outline"
-                              className={cn(
-                                "pointer-events-auto h-8 w-8 rounded-full border-border/60 bg-background/90 shadow-sm backdrop-blur-sm",
-                                planSidebarOpen
-                                  ? "text-primary/85 hover:text-primary"
-                                  : "text-muted-foreground/70 hover:text-foreground/85",
-                              )}
-                              onClick={togglePlanSidebar}
-                              aria-label={
-                                planSidebarOpen ? "Hide plan sidebar" : "Show plan sidebar"
-                              }
-                            />
-                          }
-                        >
-                          <ListTodoIcon className="size-4" />
-                        </TooltipTrigger>
-                        <TooltipPopup side="left">
-                          {planSidebarOpen ? "Hide plan sidebar" : "Show plan sidebar"}
-                        </TooltipPopup>
-                      </Tooltip>
-                    ) : null}
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            size="icon-sm"
+                            variant="outline"
+                            className={cn(
+                              "pointer-events-auto h-8 w-8 rounded-full border-border bg-card",
+                              planSidebarOpen
+                                ? "text-primary hover:text-primary"
+                                : "text-muted-foreground hover:text-foreground",
+                            )}
+                            onClick={togglePlanSidebar}
+                            aria-label={planSidebarOpen ? "Hide plan sidebar" : "Show plan sidebar"}
+                          />
+                        }
+                      >
+                        <ListTodoIcon className="size-4" />
+                      </TooltipTrigger>
+                      <TooltipPopup side="left">
+                        {planSidebarOpen ? "Hide plan sidebar" : "Show plan sidebar"}
+                      </TooltipPopup>
+                    </Tooltip>
                   </div>
                 ) : null}
                 {/* Messages Wrapper */}
@@ -5877,7 +5859,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   loadingNotice={
                     isThreadHistoryLoading ? (
                       <div className="sticky top-0 z-10 mb-3 flex justify-center">
-                        <div className="inline-flex items-center gap-2 rounded-full border border-border/45 bg-background/88 px-3 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-[11px] text-muted-foreground">
                           <Spinner className="size-3" />
                           <span>Loading full history...</span>
                         </div>
@@ -5913,7 +5895,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   >
                     <div
                       className={cn(
-                        "group rounded-2xl p-px transition-colors duration-200",
+                        "group rounded-xl p-px transition-colors duration-200",
                         composerProviderState.composerFrameClassName,
                       )}
                       onDragEnter={onComposerDragEnter}
@@ -5923,22 +5905,20 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     >
                       <div
                         className={cn(
-                          "rounded-2xl border bg-card/80 shadow-sm transition-all duration-200 has-focus-visible:border-ring/30 has-focus-visible:shadow-ring/5 has-focus-visible:shadow-md",
-                          isDragOverComposer
-                            ? "border-primary/50 bg-accent/20"
-                            : "border-border/50",
+                          "rounded-xl border-2 border-border bg-card transition-all duration-200 has-focus-visible:border-ring has-focus-visible:ring-2 has-focus-visible:ring-ring/35",
+                          isDragOverComposer ? "border-primary bg-primary/8" : "border-border",
                           composerProviderState.composerSurfaceClassName,
                         )}
                       >
                         {activePendingApproval ? (
-                          <div className="rounded-t-[15px] border-b border-border/40 bg-muted/15">
+                          <div className="rounded-t-[13px] border-b border-border bg-muted">
                             <ComposerPendingApprovalPanel
                               approval={activePendingApproval}
                               pendingCount={pendingApprovals.length}
                             />
                           </div>
                         ) : pendingUserInputs.length > 0 ? (
-                          <div className="rounded-t-[15px] border-b border-border/40 bg-muted/15">
+                          <div className="rounded-t-[13px] border-b border-border bg-muted">
                             <ComposerPendingUserInputPanel
                               pendingUserInputs={pendingUserInputs}
                               respondingRequestIds={respondingUserInputRequestIds}
@@ -5949,7 +5929,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             />
                           </div>
                         ) : showPlanFollowUpPrompt && activeProposedPlan ? (
-                          <div className="rounded-t-[15px] border-b border-border/40 bg-muted/15">
+                          <div className="rounded-t-[13px] border-b border-border bg-muted">
                             <ComposerPlanFollowUpBanner
                               key={activeProposedPlan.id}
                               planTitle={proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null}
@@ -6136,6 +6116,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                     }
                                   : {})}
                                 onProviderModelChange={onProviderModelSelect}
+                                {...(isServerThread
+                                  ? {
+                                      handoff: {
+                                        providers: handoffTargetProviders,
+                                        disabled: handoffDisabled,
+                                        onSelect: onHandoffToProvider,
+                                      },
+                                    }
+                                  : {})}
                               />
 
                               {isComposerFooterCompact ? (
@@ -6285,6 +6274,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                       }
                     >
                       <ThreadWorkspaceEditor
+                        availableEditors={availableEditors}
                         gitCwd={gitCwd}
                         keybindings={keybindings}
                         browserOpen={browserOpen}

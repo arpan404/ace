@@ -22,6 +22,10 @@ import {
   SidebarProjectSortOrder,
   SidebarThreadSortOrder,
   TimestampFormat,
+  UiFontFamily,
+  UiFontSizeScale,
+  UiLetterSpacing,
+  UiMonoFontFamily,
   UnifiedSettings,
   WorkspaceEditorOpenMode,
 } from "@ace/contracts/settings";
@@ -56,6 +60,10 @@ const ClientSettingsPatchSchema = Schema.Struct({
     ClientSettingsSchema.fields.threadHydrationCacheMemoryMb,
   ),
   timestampFormat: Schema.optionalKey(ClientSettingsSchema.fields.timestampFormat),
+  uiFontFamily: Schema.optionalKey(ClientSettingsSchema.fields.uiFontFamily),
+  uiMonoFontFamily: Schema.optionalKey(ClientSettingsSchema.fields.uiMonoFontFamily),
+  uiFontSizeScale: Schema.optionalKey(ClientSettingsSchema.fields.uiFontSizeScale),
+  uiLetterSpacing: Schema.optionalKey(ClientSettingsSchema.fields.uiLetterSpacing),
   workspaceEditorOpenMode: Schema.optionalKey(ClientSettingsSchema.fields.workspaceEditorOpenMode),
 });
 type ClientSettingsPatch = typeof ClientSettingsPatchSchema.Type;
@@ -307,6 +315,22 @@ export function buildLegacyClientSettingsMigrationPatch(
 
   if (Schema.is(WorkspaceEditorOpenMode)(legacySettings.workspaceEditorOpenMode)) {
     patch.workspaceEditorOpenMode = legacySettings.workspaceEditorOpenMode;
+  }
+
+  if (Schema.is(UiFontFamily)(legacySettings.uiFontFamily)) {
+    patch.uiFontFamily = legacySettings.uiFontFamily;
+  }
+
+  if (Schema.is(UiMonoFontFamily)(legacySettings.uiMonoFontFamily)) {
+    patch.uiMonoFontFamily = legacySettings.uiMonoFontFamily;
+  }
+
+  if (Schema.is(UiFontSizeScale)(legacySettings.uiFontSizeScale)) {
+    patch.uiFontSizeScale = legacySettings.uiFontSizeScale;
+  }
+
+  if (Schema.is(UiLetterSpacing)(legacySettings.uiLetterSpacing)) {
+    patch.uiLetterSpacing = legacySettings.uiLetterSpacing;
   }
 
   return patch;

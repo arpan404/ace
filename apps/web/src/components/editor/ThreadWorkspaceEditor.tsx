@@ -1,4 +1,4 @@
-import type { ProjectEntry, ResolvedKeybindingsConfig, ThreadId } from "@ace/contracts";
+import type { EditorId, ProjectEntry, ResolvedKeybindingsConfig, ThreadId } from "@ace/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -36,13 +36,16 @@ import { ensureMonacoConfigured } from "~/lib/editor/monacoSetup";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
-import { resolveShortcutCommand } from "~/keybindings";
+import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
+import { OpenInEditorMenuSection } from "../chat/OpenInPicker";
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { readExplorerEntryTransferPath, writeExplorerEntryTransfer } from "./dragTransfer";
 import { joinWorkspaceAbsolutePath, revealInFileManagerLabel } from "./workspaceFileUtils";
@@ -50,6 +53,66 @@ import { WorkspaceModeToggle } from "./WorkspaceModeToggle";
 import WorkspaceEditorPane from "./WorkspaceEditorPane";
 
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
+
+const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
+  gitCwd,
+  keybindings,
+  availableEditors,
+}: {
+  gitCwd: string | null;
+  keybindings: ResolvedKeybindingsConfig;
+  availableEditors: ReadonlyArray<EditorId>;
+}) {
+  const openFavoriteEditorShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "editor.openFavorite"),
+    [keybindings],
+  );
+
+  if (!gitCwd) {
+    return null;
+  }
+
+  return (
+    <Menu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <MenuTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  className="size-6 shrink-0 border-border/60 bg-background/80 text-muted-foreground hover:text-foreground"
+                  aria-label="Open workspace in external editor"
+                />
+              }
+            >
+              <ChevronDownIcon className="size-3.5" />
+            </MenuTrigger>
+          }
+        />
+        <TooltipPopup side="bottom" align="center" className="max-w-xs">
+          Open this workspace in VS Code, Cursor, or another installed editor.
+          {openFavoriteEditorShortcutLabel ? (
+            <>
+              {" "}
+              <span className="text-muted-foreground">
+                Favorite: {openFavoriteEditorShortcutLabel}
+              </span>
+            </>
+          ) : null}
+        </TooltipPopup>
+      </Tooltip>
+      <MenuPopup align="end" className="min-w-48">
+        <OpenInEditorMenuSection
+          keybindings={keybindings}
+          availableEditors={availableEditors}
+          openInCwd={gitCwd}
+        />
+      </MenuPopup>
+    </Menu>
+  );
+});
 
 type TreeRow =
   | {
@@ -436,6 +499,7 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
 });
 
 export default function ThreadWorkspaceEditor(props: {
+  availableEditors: ReadonlyArray<EditorId>;
   browserOpen: boolean;
   gitCwd: string | null;
   keybindings: ResolvedKeybindingsConfig;
@@ -1765,54 +1829,61 @@ export default function ThreadWorkspaceEditor(props: {
           className={cn("flex min-h-0 min-w-0 flex-col border-r border-border/60", "bg-secondary")}
         >
           <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
-            <FolderIcon className="size-3.5 text-muted-foreground/70" />
-            <span className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground/80 uppercase">
+            <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+            <span className="min-w-0 truncate text-[11px] font-semibold tracking-[0.16em] text-muted-foreground/80 uppercase">
               Explorer
             </span>
-            <Badge variant="outline" size="sm" className="ml-auto text-[10px]">
-              {workspaceFileCount}
-            </Badge>
-            {workspaceTreeQuery.data?.truncated ? (
-              <Badge variant="warning" size="sm">
-                Partial
+            <div className="ml-auto flex min-w-0 items-center gap-1.5">
+              <ExternalEditorOpenMenu
+                availableEditors={props.availableEditors}
+                gitCwd={props.gitCwd}
+                keybindings={props.keybindings}
+              />
+              <Badge variant="outline" size="sm" className="text-[10px]">
+                {workspaceFileCount}
               </Badge>
-            ) : null}
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="size-6 rounded-md text-muted-foreground/75 hover:text-foreground"
-              onClick={() =>
-                startInlineEntry({
-                  kind: "create-file",
-                  parentPath:
-                    focusedExplorerEntry?.kind === "directory"
-                      ? focusedExplorerEntry.path
-                      : (focusedExplorerEntry?.parentPath ?? null),
-                  value: "",
-                })
-              }
-              title="New File"
-            >
-              <FilePlus2Icon className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="size-6 rounded-md text-muted-foreground/75 hover:text-foreground"
-              onClick={() =>
-                startInlineEntry({
-                  kind: "create-folder",
-                  parentPath:
-                    focusedExplorerEntry?.kind === "directory"
-                      ? focusedExplorerEntry.path
-                      : (focusedExplorerEntry?.parentPath ?? null),
-                  value: "",
-                })
-              }
-              title="New Folder"
-            >
-              <FolderPlusIcon className="size-3.5" />
-            </Button>
+              {workspaceTreeQuery.data?.truncated ? (
+                <Badge variant="warning" size="sm">
+                  Partial
+                </Badge>
+              ) : null}
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="size-6 shrink-0 rounded-md text-muted-foreground/75 hover:text-foreground"
+                onClick={() =>
+                  startInlineEntry({
+                    kind: "create-file",
+                    parentPath:
+                      focusedExplorerEntry?.kind === "directory"
+                        ? focusedExplorerEntry.path
+                        : (focusedExplorerEntry?.parentPath ?? null),
+                    value: "",
+                  })
+                }
+                title="New File"
+              >
+                <FilePlus2Icon className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="size-6 shrink-0 rounded-md text-muted-foreground/75 hover:text-foreground"
+                onClick={() =>
+                  startInlineEntry({
+                    kind: "create-folder",
+                    parentPath:
+                      focusedExplorerEntry?.kind === "directory"
+                        ? focusedExplorerEntry.path
+                        : (focusedExplorerEntry?.parentPath ?? null),
+                    value: "",
+                  })
+                }
+                title="New Folder"
+              >
+                <FolderPlusIcon className="size-3.5" />
+              </Button>
+            </div>
           </div>
           <div className="px-2.5 py-2">
             <div className="relative">

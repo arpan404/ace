@@ -14,9 +14,7 @@ const ALLOWED_HOST_SUFFIXES = ["github.com", "githubusercontent.com", "githubass
 
 function isAllowedImageUrl(url: URL): boolean {
   const host = url.hostname.toLowerCase();
-  return ALLOWED_HOST_SUFFIXES.some(
-    (suffix) => host === suffix || host.endsWith(`.${suffix}`),
-  );
+  return ALLOWED_HOST_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
 }
 
 function resolveImageHref(href: string, issueUrl: string): string | null {

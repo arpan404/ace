@@ -271,7 +271,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         data-message-role={row.kind === "message" ? row.message.role : undefined}
       >
         {row.kind === "work" && (
-          <div className="min-w-0 border-border/35 border-l py-0.5 pl-4">
+          <div className="min-w-0 border-border border-l py-0.5 pl-4">
             <SimpleWorkEntryRow
               workEntry={row.workEntry}
               inlineIntentText={row.workEntry.intentText ?? null}
@@ -337,7 +337,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         <p className="truncate text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground/58">
                           {disclosureLabel}
                         </p>
-                        <span className="shrink-0 text-[10px] text-muted-foreground/45">
+                        <span className="shrink-0 text-[10px] text-muted-foreground">
                           {isExpanded ? "Hide log" : "Show log"}
                         </span>
                       </div>
@@ -348,7 +348,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   </div>
                 </button>
                 {isExpanded && (
-                  <div className="mt-2 space-y-2 border-border/25 border-l pl-4">
+                  <div className="mt-2 space-y-2 border-border/40 border-l pl-4">
                     {row.entries.map((entry) =>
                       entry.kind === "work" ? (
                         <SimpleWorkEntryRow
@@ -425,7 +425,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           <div
             className={cn(
               "border-l py-0.5 pl-4",
-              row.mode === "silent-thinking" ? "border-amber-500/26" : "border-border/35",
+              row.mode === "silent-thinking" ? "border-amber-500/26" : "border-border",
             )}
           >
             <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
@@ -490,9 +490,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 disabled={isContinueWithGitHubIssuesDisabled}
                 title={continueWithGitHubIssuesDisabledReason}
                 className={cn(
-                  "inline p-0 h-auto min-h-0 border-0 bg-transparent font-inherit text-inherit underline underline-offset-2",
-                  "cursor-pointer hover:text-blue-500",
-                  "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-inherit",
+                  "inline p-0 h-auto min-h-0 border-0 bg-transparent font-inherit underline underline-offset-2",
+                  "cursor-pointer text-primary hover:text-primary/90",
+                  "disabled:cursor-not-allowed disabled:opacity-50 disabled:text-muted-foreground disabled:hover:text-muted-foreground",
                 )}
               >
                 continue with an open GitHub issue
@@ -550,7 +550,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           className="group/timeline relative pb-3"
           data-timeline-row-kind="assistant-diff-summary"
         >
-          <div className="min-w-0 border-border/35 border-l py-0.5 pr-1 pl-4">
+          <div className="min-w-0 border-border border-l py-0.5 pr-1 pl-4">
             <AssistantMessageTurnDiffSummary
               allDirectoriesExpanded={
                 allDirectoriesExpandedByTurnId[latestAssistantTurnSummary.turnId] ?? false
@@ -1169,7 +1169,7 @@ function workGroupRailClass(entries: ReadonlyArray<TimelineMetaGroupEntry>): str
     return "border-amber-500/26";
   }
   if (hasTool) {
-    return "border-border/35";
+    return "border-border";
   }
   if (hasIntent) {
     return "border-primary/18";
@@ -1405,12 +1405,12 @@ const SystemMessageTimelineRow = memo(function SystemMessageTimelineRow(props: {
 
   return (
     <div className="flex items-center gap-3 py-2">
-      <div className="h-px flex-1 bg-border/30" />
-      <div className="flex max-w-[75%] items-center gap-2 rounded-full border border-border/30 bg-muted/50 px-3 py-1 text-[11px] text-muted-foreground/70">
-        <ArrowLeftRightIcon className="size-3 text-muted-foreground/60" />
+      <div className="h-px flex-1 bg-border" />
+      <div className="flex max-w-[75%] items-center gap-2 rounded-full border border-border/50 bg-muted px-3 py-1 text-[11px] text-muted-foreground">
+        <ArrowLeftRightIcon className="size-3 text-muted-foreground" />
         <span className="wrap-break-word text-center leading-relaxed">{props.message.text}</span>
       </div>
-      <div className="h-px flex-1 bg-border/30" />
+      <div className="h-px flex-1 bg-border" />
     </div>
   );
 });
@@ -1432,13 +1432,13 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
   return (
     <div className="flex justify-end">
       <div className="group relative max-w-[80%] px-0 py-0" data-user-message-bubble="true">
-        <div className="rounded-2xl border border-primary/30 bg-primary/[0.08] px-3 py-2 shadow-[0_2px_10px_-6px_rgba(0,0,0,0.55)] ring-1 ring-primary/15 ring-inset">
+        <div className="rounded-2xl border border-primary bg-primary/[0.08] px-3 py-2">
           {userImages.length > 0 && (
             <div className="mb-2 grid max-w-105 grid-cols-2 gap-1.5">
               {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
                 <div
                   key={image.id}
-                  className="overflow-hidden rounded-lg border border-border/15 bg-background/40"
+                  className="overflow-hidden rounded-lg border border-border bg-background"
                 >
                   {image.previewUrl ? (
                     <button
@@ -1458,7 +1458,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
                       />
                     </button>
                   ) : (
-                    <div className="flex min-h-18 items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/40">
+                    <div className="flex min-h-18 items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground">
                       {image.name}
                     </div>
                   )}
@@ -1483,7 +1483,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
                 type="button"
                 size="xs"
                 variant="outline"
-                className="border-border/15"
+                className="border-border"
                 disabled={props.isRevertingCheckpoint || props.isWorking}
                 onClick={() => props.onRevertUserMessage(props.message.id)}
                 title={props.revertActionTitle}
@@ -1519,7 +1519,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         : "(empty response)";
 
   return (
-    <div className="min-w-0 border-border/35 border-l py-0.5 pr-1 pl-4">
+    <div className="min-w-0 border-border border-l py-0.5 pr-1 pl-4">
       <ChatMarkdown
         text={messageText}
         cwd={props.markdownCwd}

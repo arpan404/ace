@@ -476,18 +476,18 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     <>
       <div className="relative min-w-0 flex-1 [-webkit-app-region:no-drag]">
         {canScrollTurnStripLeft && (
-          <div className="pointer-events-none absolute inset-y-0 left-8 z-10 w-8 bg-linear-to-r from-background to-transparent" />
+          <div className="pointer-events-none absolute inset-y-0 left-8 z-10 w-8 bg-background" />
         )}
         {canScrollTurnStripRight && (
-          <div className="pointer-events-none absolute inset-y-0 right-8 z-10 w-8 bg-linear-to-l from-background to-transparent" />
+          <div className="pointer-events-none absolute inset-y-0 right-8 z-10 w-8 bg-background" />
         )}
         <button
           type="button"
           className={cn(
-            "absolute left-0 top-1/2 z-20 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-lg border bg-background/95 text-muted-foreground shadow-xs shadow-black/[0.03] transition-all duration-150",
+            "absolute left-0 top-1/2 z-20 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md border border-border/40 bg-background text-muted-foreground transition-all duration-150",
             canScrollTurnStripLeft
-              ? "border-border/50 hover:border-border/70 hover:bg-accent/50 hover:text-foreground"
-              : "cursor-not-allowed border-border/25 text-muted-foreground/30",
+              ? "hover:border-border hover:bg-accent/50 hover:text-foreground"
+              : "cursor-not-allowed border-border text-muted-foreground/30",
           )}
           onClick={() => scrollTurnStripBy(-180)}
           disabled={!canScrollTurnStripLeft}
@@ -498,10 +498,10 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         <button
           type="button"
           className={cn(
-            "absolute right-0 top-1/2 z-20 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-lg border bg-background/95 text-muted-foreground shadow-xs shadow-black/[0.03] transition-all duration-150",
+            "absolute right-0 top-1/2 z-20 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md border border-border/40 bg-background text-muted-foreground transition-all duration-150",
             canScrollTurnStripRight
-              ? "border-border/50 hover:border-border/70 hover:bg-accent/50 hover:text-foreground"
-              : "cursor-not-allowed border-border/25 text-muted-foreground/30",
+              ? "hover:border-border hover:bg-accent/50 hover:text-foreground"
+              : "cursor-not-allowed border-border text-muted-foreground/30",
           )}
           onClick={() => scrollTurnStripBy(180)}
           disabled={!canScrollTurnStripRight}
@@ -524,8 +524,8 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
               className={cn(
                 "rounded-lg border px-2.5 py-1 text-left transition-all duration-150",
                 selectedTurnId === null
-                  ? "border-primary/20 bg-primary/[0.07] text-foreground shadow-xs shadow-primary/[0.04]"
-                  : "border-border/40 bg-muted/20 text-muted-foreground/70 hover:border-border/60 hover:bg-muted/35 hover:text-foreground/80",
+                  ? "border-primary/15 bg-primary/[0.06] text-foreground"
+                  : "border-border/50 bg-transparent text-muted-foreground/60 hover:bg-muted/25 hover:text-foreground",
               )}
             >
               <div className="text-[10px] leading-tight font-medium">All turns</div>
@@ -544,8 +544,8 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                 className={cn(
                   "rounded-lg border px-2.5 py-1 text-left transition-all duration-150",
                   summary.turnId === selectedTurn?.turnId
-                    ? "border-primary/20 bg-primary/[0.07] text-foreground shadow-xs shadow-primary/[0.04]"
-                    : "border-border/40 bg-muted/20 text-muted-foreground/70 hover:border-border/60 hover:bg-muted/35 hover:text-foreground/80",
+                    ? "border-primary/15 bg-primary/[0.06] text-foreground"
+                    : "border-border/50 bg-transparent text-muted-foreground/60 hover:bg-muted/25 hover:text-foreground",
                 )}
               >
                 <div className="flex items-center gap-1">
@@ -694,7 +694,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                   <p className="text-[11px] text-muted-foreground/65">{renderablePatch.reason}</p>
                   <pre
                     className={cn(
-                      "max-h-[72vh] rounded-xl border border-border/40 bg-muted/15 p-3.5 font-mono text-[11px] leading-relaxed text-muted-foreground/85",
+                      "max-h-[72vh] rounded-xl border border-border bg-muted/15 p-3.5 font-mono text-[11px] leading-relaxed text-muted-foreground",
                       diffWordWrap
                         ? "overflow-auto whitespace-pre-wrap wrap-break-word"
                         : "overflow-auto",

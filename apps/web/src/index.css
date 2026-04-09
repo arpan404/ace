@@ -29,6 +29,11 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -41,18 +46,57 @@
       background-position: -200% 0;
     }
   }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(2px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  @keyframes slide-in-from-left {
+    from {
+      opacity: 0;
+      transform: translateX(-6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring/60;
   }
   body {
     @apply bg-background text-foreground relative;
   }
 }
 
-/* Suppress all transitions during theme changes */
 .no-transitions,
 .no-transitions *,
 .no-transitions *::before,
@@ -63,45 +107,54 @@
 
 :root {
   color-scheme: light;
-  --radius: 0.625rem;
+  --radius: 0.5rem;
+  --transition-timing: cubic-bezier(0.16, 1, 0.3, 1);
   --font-ui:
-    "DM Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    "Plus Jakarta Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono:
     "JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono", "JetBrains Mono", "SF Mono",
     "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  --background: var(--color-white);
-  --foreground: var(--color-neutral-800);
-  --card: var(--color-white);
-  --card-foreground: var(--color-neutral-800);
-  --popover: var(--color-white);
-  --popover-foreground: var(--color-neutral-800);
-  --primary: oklch(0.488 0.217 264);
-  --primary-foreground: var(--color-white);
-  --secondary: --alpha(var(--color-black) / 4%);
-  --secondary-foreground: var(--color-neutral-800);
-  --muted: --alpha(var(--color-black) / 4%);
-  --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-black));
-  --accent: --alpha(var(--color-black) / 4%);
-  --accent-foreground: var(--color-neutral-800);
-  --destructive: var(--color-red-500);
-  --border: --alpha(var(--color-black) / 8%);
-  --input: --alpha(var(--color-black) / 10%);
-  --ring: oklch(0.488 0.217 264);
-  --destructive-foreground: var(--color-red-700);
-  --info: var(--color-blue-500);
-  --info-foreground: var(--color-blue-700);
-  --success: var(--color-emerald-500);
-  --success-foreground: var(--color-emerald-700);
-  --warning: var(--color-amber-500);
-  --warning-foreground: var(--color-amber-700);
-  --terminal-surface: rgb(241, 236, 228);
-  --terminal-surface-elevated: rgb(247, 243, 237);
-  --terminal-foreground: rgb(29, 35, 42);
-  --terminal-cursor: rgb(47, 84, 136);
-  --terminal-selection-background: rgba(63, 97, 150, 0.18);
-  --terminal-scrollbar-slider: rgba(22, 28, 36, 0.18);
-  --terminal-scrollbar-slider-hover: rgba(22, 28, 36, 0.28);
-  --terminal-scrollbar-slider-active: rgba(22, 28, 36, 0.36);
+  --ui-font-size: 15px;
+  --ui-letter-spacing: -0.018em;
+  /* HSL triplets — used by sidebar primitives with hsl(var(--sidebar-*)) */
+  --sidebar: 240 10% 97%;
+  --sidebar-foreground: 240 10% 10%;
+  --sidebar-border: 240 10% 88%;
+  --sidebar-accent: 240 10% 93%;
+  --sidebar-accent-foreground: 240 10% 10%;
+  --background: oklch(0.98 0.01 240);
+  --foreground: oklch(0.2 0.02 240);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.02 240);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.02 240);
+  --primary: oklch(0.6 0.17 250);
+  --primary-foreground: oklch(0.99 0.01 250);
+  --secondary: oklch(0.95 0.01 240);
+  --secondary-foreground: oklch(0.3 0.02 240);
+  --muted: oklch(0.95 0.01 240);
+  --muted-foreground: oklch(0.45 0.02 240);
+  --accent: oklch(0.93 0.01 240);
+  --accent-foreground: oklch(0.25 0.02 240);
+  --destructive: oklch(0.57 0.21 25);
+  --border: oklch(0.9 0.01 240);
+  --input: oklch(0.92 0.01 240);
+  --ring: oklch(0.6 0.17 250);
+  --destructive-foreground: oklch(0.46 0.17 25);
+  --info: oklch(0.6 0.17 250);
+  --info-foreground: oklch(0.45 0.12 250);
+  --success: oklch(0.58 0.15 155);
+  --success-foreground: oklch(0.4 0.13 155);
+  --warning: oklch(0.68 0.15 75);
+  --warning-foreground: oklch(0.48 0.13 60);
+  --terminal-surface: oklch(0.97 0.003 80);
+  --terminal-surface-elevated: oklch(0.98 0.003 80);
+  --terminal-foreground: oklch(0.2 0.01 260);
+  --terminal-cursor: oklch(0.45 0.12 255);
+  --terminal-selection-background: rgba(63, 97, 150, 0.12);
+  --terminal-scrollbar-slider: rgba(22, 28, 36, 0.1);
+  --terminal-scrollbar-slider-hover: rgba(22, 28, 36, 0.2);
+  --terminal-scrollbar-slider-active: rgba(22, 28, 36, 0.28);
   --terminal-ansi-black: rgb(52, 60, 72);
   --terminal-ansi-red: rgb(165, 60, 79);
   --terminal-ansi-green: rgb(59, 112, 79);
@@ -121,39 +174,44 @@
 
   @variant dark {
     color-scheme: dark;
-    --background: color-mix(in srgb, var(--color-neutral-950) 95%, var(--color-white));
-    --foreground: var(--color-neutral-100);
-    --card: color-mix(in srgb, var(--background) 98%, var(--color-white));
-    --card-foreground: var(--color-neutral-100);
-    --popover: color-mix(in srgb, var(--background) 98%, var(--color-white));
-    --popover-foreground: var(--color-neutral-100);
-    --primary: oklch(0.588 0.217 264);
-    --primary-foreground: var(--color-white);
-    --secondary: --alpha(var(--color-white) / 4%);
-    --secondary-foreground: var(--color-neutral-100);
-    --muted: --alpha(var(--color-white) / 4%);
-    --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-white));
-    --accent: --alpha(var(--color-white) / 4%);
-    --accent-foreground: var(--color-neutral-100);
-    --destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
-    --border: --alpha(var(--color-white) / 7%);
-    --input: --alpha(var(--color-white) / 8%);
-    --ring: oklch(0.588 0.217 264);
-    --destructive-foreground: var(--color-red-400);
-    --info: var(--color-blue-500);
-    --info-foreground: var(--color-blue-400);
-    --success: var(--color-emerald-500);
-    --success-foreground: var(--color-emerald-400);
-    --warning: var(--color-amber-500);
-    --warning-foreground: var(--color-amber-400);
-    --terminal-surface: rgb(12, 14, 17);
-    --terminal-surface-elevated: rgb(18, 21, 25);
-    --terminal-foreground: rgb(220, 227, 235);
-    --terminal-cursor: rgb(139, 190, 255);
-    --terminal-selection-background: rgba(116, 166, 245, 0.24);
-    --terminal-scrollbar-slider: rgba(255, 255, 255, 0.12);
-    --terminal-scrollbar-slider-hover: rgba(255, 255, 255, 0.18);
-    --terminal-scrollbar-slider-active: rgba(255, 255, 255, 0.24);
+    --sidebar: 240 10% 10%;
+    --sidebar-foreground: 240 10% 97%;
+    --sidebar-border: 240 10% 18%;
+    --sidebar-accent: 240 10% 14%;
+    --sidebar-accent-foreground: 240 10% 97%;
+    --background: oklch(0.15 0.02 240);
+    --foreground: oklch(0.9 0.01 240);
+    --card: oklch(0.2 0.02 240);
+    --card-foreground: oklch(0.9 0.01 240);
+    --popover: oklch(0.22 0.02 240);
+    --popover-foreground: oklch(0.9 0.01 240);
+    --primary: oklch(0.7 0.17 250);
+    --primary-foreground: oklch(0.15 0.02 240);
+    --secondary: oklch(0.25 0.02 240);
+    --secondary-foreground: oklch(0.9 0.01 240);
+    --muted: oklch(0.25 0.02 240);
+    --muted-foreground: oklch(0.6 0.01 240);
+    --accent: oklch(0.3 0.02 240);
+    --accent-foreground: oklch(0.9 0.01 240);
+    --destructive: oklch(0.6 0.19 25);
+    --border: oklch(0.3 0.02 240);
+    --input: oklch(0.28 0.02 240);
+    --ring: oklch(0.7 0.17 250);
+    --destructive-foreground: oklch(0.68 0.16 25);
+    --info: oklch(0.7 0.17 250);
+    --info-foreground: oklch(0.65 0.12 250);
+    --success: oklch(0.6 0.15 155);
+    --success-foreground: oklch(0.68 0.12 155);
+    --warning: oklch(0.7 0.15 75);
+    --warning-foreground: oklch(0.76 0.12 75);
+    --terminal-surface: oklch(0.13 0.007 260);
+    --terminal-surface-elevated: oklch(0.16 0.007 260);
+    --terminal-foreground: oklch(0.9 0.005 260);
+    --terminal-cursor: oklch(0.7 0.14 255);
+    --terminal-selection-background: rgba(116, 166, 245, 0.16);
+    --terminal-scrollbar-slider: rgba(255, 255, 255, 0.08);
+    --terminal-scrollbar-slider-hover: rgba(255, 255, 255, 0.14);
+    --terminal-scrollbar-slider-active: rgba(255, 255, 255, 0.2);
     --terminal-ansi-black: rgb(35, 41, 49);
     --terminal-ansi-red: rgb(220, 96, 120);
     --terminal-ansi-green: rgb(132, 191, 99);
@@ -173,23 +231,35 @@
   }
 }
 
+html {
+  font-size: var(--ui-font-size);
+}
+
 body {
   font-family: var(--font-ui);
-  letter-spacing: -0.011em;
+  letter-spacing: var(--ui-letter-spacing);
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  background-image:
-    radial-gradient(
-      circle at top,
-      color-mix(in srgb, var(--primary) 4%, transparent),
-      transparent 50%
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--background) 97%, var(--color-neutral-950)),
-      var(--background) 18%
-    );
+  background-color: var(--background);
+  background-image: radial-gradient(
+    120% 70% at 50% -15%,
+    color-mix(in oklch, var(--primary) 10%, transparent),
+    transparent 52%
+  );
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition:
+    background-color 200ms ease,
+    color 200ms ease;
+}
+
+.dark body {
+  background-image: radial-gradient(
+    100% 65% at 50% 0%,
+    color-mix(in oklch, var(--primary) 16%, transparent),
+    transparent 58%
+  );
 }
 
 html,
@@ -202,17 +272,6 @@ body,
   overflow-x: hidden;
   overflow-x: clip;
   overscroll-behavior-y: none;
-}
-
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.018;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-repeat: repeat;
-  background-size: 256px 256px;
 }
 
 pre,
@@ -234,7 +293,6 @@ label {
   font-family: var(--font-mono);
 }
 
-/* Window drag region (frameless titlebar) */
 .drag-region {
   -webkit-app-region: drag;
 }
@@ -247,14 +305,12 @@ label {
   -webkit-app-region: no-drag;
 }
 
-/* Text selection */
 ::selection {
-  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  background: color-mix(in oklch, var(--primary) 28%, transparent);
 }
 
-/* Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 5px;
+  width: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -262,20 +318,20 @@ label {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.08);
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.16);
+  background: color-mix(in srgb, var(--foreground) 22%, transparent);
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: color-mix(in srgb, var(--foreground) 18%, transparent);
 }
 
 .turn-chip-strip {
@@ -288,29 +344,16 @@ label {
   display: none;
 }
 
-/* Terminal drawer scrollbar parity with chat */
 .thread-terminal-drawer .xterm .xterm-scrollable-element > .scrollbar.vertical {
-  width: 6px !important;
+  width: 4px !important;
 }
 
 .thread-terminal-drawer {
   background-color: var(--terminal-surface);
-  background-image: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--terminal-surface-elevated) 97%, transparent),
-    transparent 38%
-  );
 }
 
 .thread-terminal-drawer .terminal-viewport {
-  background: linear-gradient(
-    180deg,
-    var(--terminal-surface-elevated),
-    color-mix(in srgb, var(--terminal-surface) 97%, var(--color-black))
-  );
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--color-white) 4%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--terminal-foreground) 10%, transparent);
+  background: var(--terminal-surface);
 }
 
 .thread-terminal-drawer .xterm,
@@ -325,11 +368,10 @@ label {
 }
 
 .thread-terminal-drawer .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
-  width: 6px !important;
+  width: 4px !important;
   left: 0 !important;
 }
 
-/* Reasoning select -- clickable label surface */
 label:has(> select#reasoning-effort) {
   position: relative;
 }
@@ -342,7 +384,6 @@ label:has(> select#reasoning-effort) select {
   height: 100%;
 }
 
-/* Chat markdown rendering */
 .chat-markdown {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -363,7 +404,7 @@ label:has(> select#reasoning-effort) select {
 .chat-markdown blockquote,
 .chat-markdown pre,
 .chat-markdown table {
-  margin: 0.65rem 0;
+  margin: 0.5rem 0;
 }
 
 .chat-markdown ul {
@@ -393,13 +434,13 @@ label:has(> select#reasoning-effort) select {
 }
 
 .chat-markdown li + li {
-  margin-top: 0.25rem;
+  margin-top: 0.2rem;
 }
 
 .chat-markdown a {
   color: var(--info-foreground);
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--info-foreground) 40%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--info-foreground) 35%, transparent);
 }
 
 .chat-markdown a:hover {
@@ -445,15 +486,15 @@ label:has(> select#reasoning-effort) select {
 
 .chat-markdown blockquote {
   border-left: 2px solid var(--border);
-  padding-left: 0.8rem;
+  padding-left: 0.75rem;
   color: var(--muted-foreground);
 }
 
 .chat-markdown :not(pre) > code {
-  border: 1px solid var(--border);
-  border-radius: 0.375rem;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 0.3rem;
   background: var(--muted);
-  padding: 0.1rem 0.35rem;
+  padding: 0.1rem 0.3rem;
   color: var(--foreground);
   font-size: 0.75rem;
 }
@@ -461,10 +502,10 @@ label:has(> select#reasoning-effort) select {
 .chat-markdown pre {
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  border-radius: 0.5rem;
   background: var(--muted);
-  padding: 0.8rem 0.9rem;
+  padding: 0.75rem 0.85rem;
 }
 
 .chat-markdown pre code {
@@ -477,7 +518,7 @@ label:has(> select#reasoning-effort) select {
 
 .chat-markdown .chat-markdown-codeblock {
   position: relative;
-  margin: 0.65rem 0;
+  margin: 0.5rem 0;
 }
 
 .chat-markdown .chat-markdown-codeblock pre {
@@ -494,16 +535,16 @@ label:has(> select#reasoning-effort) select {
   justify-content: center;
   height: 1.5rem;
   width: 1.5rem;
-  border-radius: 0.375rem;
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--background) 82%, transparent);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: var(--background);
   color: var(--muted-foreground);
   opacity: 0;
   pointer-events: none;
   transition:
-    opacity 120ms ease,
-    color 120ms ease,
-    border-color 120ms ease;
+    opacity 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease;
 }
 
 .chat-markdown .chat-markdown-codeblock:hover .chat-markdown-copy-button,
@@ -518,7 +559,7 @@ label:has(> select#reasoning-effort) select {
 }
 
 .chat-markdown .chat-markdown-shiki .shiki {
-  background: color-mix(in srgb, var(--muted) 78%, var(--background)) !important;
+  background: var(--muted) !important;
 }
 
 .chat-markdown table {
@@ -529,20 +570,19 @@ label:has(> select#reasoning-effort) select {
 .chat-markdown th,
 .chat-markdown td {
   border: 1px solid var(--border);
-  padding: 0.35rem 0.45rem;
+  padding: 0.3rem 0.4rem;
   text-align: left;
 }
 
-/* Diffs theme bridge (match diff surfaces to app palette) */
 .diff-panel-viewport {
-  background: color-mix(in srgb, var(--background) 94%, var(--card));
+  background: var(--background);
 }
 
 .diff-render-file {
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  border-radius: var(--radius);
   overflow: clip;
-  background: color-mix(in srgb, var(--card) 92%, var(--background));
+  background: var(--card);
 }
 
 @keyframes ultrathink-rainbow {

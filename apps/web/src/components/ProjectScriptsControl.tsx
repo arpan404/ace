@@ -273,11 +273,9 @@ export default function ProjectScriptsControl({
             title={`Run ${primaryScript.name}`}
           >
             <ScriptIcon icon={primaryScript.icon} />
-            <span className="sr-only @lg/header-actions:not-sr-only @lg/header-actions:ml-0.5">
-              {primaryScript.name}
-            </span>
+            <span className="sr-only md:not-sr-only md:ml-0.5">{primaryScript.name}</span>
           </Button>
-          <GroupSeparator className="hidden @lg/header-actions:block" />
+          <GroupSeparator />
           <Menu highlightItemOnHover={false}>
             <MenuTrigger
               render={<Button size="icon-xs" variant="outline" aria-label="Script actions" />}
@@ -338,9 +336,7 @@ export default function ProjectScriptsControl({
       ) : (
         <Button size="xs" variant="outline" onClick={openAddDialog} title="Add action">
           <PlusIcon className="size-3.5" />
-          <span className="sr-only @lg/header-actions:not-sr-only @lg/header-actions:ml-0.5">
-            Add action
-          </span>
+          <span className="sr-only md:not-sr-only md:ml-0.5">Add action</span>
         </Button>
       )}
 
@@ -381,7 +377,7 @@ export default function ProjectScriptsControl({
                         <Button
                           type="button"
                           variant="outline"
-                          className="size-9 shrink-0 hover:bg-popover active:bg-popover data-pressed:bg-popover data-pressed:shadow-xs/5 data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] dark:data-pressed:before:shadow-[0_-1px_--theme(--color-white/6%)]"
+                          className="size-9 shrink-0 hover:bg-popover active:bg-popover data-pressed:bg-popover"
                           aria-label="Choose icon"
                         />
                       }
@@ -398,8 +394,8 @@ export default function ProjectScriptsControl({
                               type="button"
                               className={`relative flex flex-col items-center gap-2 rounded-md border px-2 py-2 text-xs ${
                                 isSelected
-                                  ? "border-primary/70 bg-primary/10"
-                                  : "border-border/70 hover:bg-accent/60"
+                                  ? "border-primary bg-primary/10"
+                                  : "border-border hover:bg-accent"
                               }`}
                               onClick={() => {
                                 setIcon(entry.id);
@@ -445,7 +441,7 @@ export default function ProjectScriptsControl({
                   onChange={(event) => setCommand(event.target.value)}
                 />
               </div>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm">
+              <label className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
                 <span>Run automatically on worktree creation</span>
                 <Switch
                   checked={runOnWorktreeCreate}
