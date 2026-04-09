@@ -30,12 +30,23 @@ export const BrowserSearchEngine = Schema.Literals(["duckduckgo", "google", "bra
 export type BrowserSearchEngine = typeof BrowserSearchEngine.Type;
 export const DEFAULT_BROWSER_SEARCH_ENGINE: BrowserSearchEngine = "duckduckgo";
 
+export const WorkspaceEditorOpenMode = Schema.Literals(["split", "full"]);
+export type WorkspaceEditorOpenMode = typeof WorkspaceEditorOpenMode.Type;
+export const DEFAULT_WORKSPACE_EDITOR_OPEN_MODE: WorkspaceEditorOpenMode = "split";
+
+export const BrowserOpenMode = Schema.Literals(["split", "full"]);
+export type BrowserOpenMode = typeof BrowserOpenMode.Type;
+export const DEFAULT_BROWSER_OPEN_MODE: BrowserOpenMode = "split";
+
 export const EditorLineNumbers = Schema.Literals(["off", "on", "relative"]);
 export type EditorLineNumbers = typeof EditorLineNumbers.Type;
 export const DEFAULT_EDITOR_LINE_NUMBERS: EditorLineNumbers = "on";
 export const DEFAULT_THREAD_HYDRATION_CACHE_MEMORY_MB = 100;
 
 export const ClientSettingsSchema = Schema.Struct({
+  browserOpenMode: BrowserOpenMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_BROWSER_OPEN_MODE),
+  ),
   browserSearchEngine: BrowserSearchEngine.pipe(
     Schema.withDecodingDefault(() => DEFAULT_BROWSER_SEARCH_ENGINE),
   ),
@@ -61,6 +72,9 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(() => DEFAULT_THREAD_HYDRATION_CACHE_MEMORY_MB),
   ),
   timestampFormat: TimestampFormat.pipe(Schema.withDecodingDefault(() => DEFAULT_TIMESTAMP_FORMAT)),
+  workspaceEditorOpenMode: WorkspaceEditorOpenMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_WORKSPACE_EDITOR_OPEN_MODE),
+  ),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -131,6 +145,9 @@ export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   enableToolStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   enableThinkingStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  notifyOnAgentCompletion: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  notifyOnApprovalRequired: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  notifyOnUserInputRequired: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   defaultThreadEnvMode: ThreadEnvMode.pipe(
     Schema.withDecodingDefault(() => "local" as const satisfies ThreadEnvMode),
   ),
@@ -195,7 +212,7 @@ const GitHubCopilotModelOptionsPatch = Schema.Struct({
 });
 
 const OpenCodeModelOptionsPatch = Schema.Struct({
-  ...(OpenCodeModelOptions.fields satisfies Record<string, never>),
+  variant: Schema.optionalKey(OpenCodeModelOptions.fields.variant),
 });
 
 const GeminiModelOptionsPatch = Schema.Struct({
@@ -276,6 +293,9 @@ export const ServerSettingsPatch = Schema.Struct({
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   enableToolStreaming: Schema.optionalKey(Schema.Boolean),
   enableThinkingStreaming: Schema.optionalKey(Schema.Boolean),
+  notifyOnAgentCompletion: Schema.optionalKey(Schema.Boolean),
+  notifyOnApprovalRequired: Schema.optionalKey(Schema.Boolean),
+  notifyOnUserInputRequired: Schema.optionalKey(Schema.Boolean),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   providers: Schema.optionalKey(

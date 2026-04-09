@@ -15,6 +15,7 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   ModelSelection,
+  ProviderKind,
   ProviderInteractionMode,
   QueuedComposerMessage,
   QueuedSteerRequest,
@@ -126,6 +127,18 @@ export const SourceProposedPlanReference = Schema.Struct({
 });
 export type SourceProposedPlanReference = typeof SourceProposedPlanReference.Type;
 
+export const ThreadHandoffMode = Schema.Literals(["transcript", "compact"]);
+export type ThreadHandoffMode = typeof ThreadHandoffMode.Type;
+
+export const ThreadHandoff = Schema.Struct({
+  sourceThreadId: ThreadId,
+  fromProvider: ProviderKind,
+  toProvider: ProviderKind,
+  mode: ThreadHandoffMode,
+  createdAt: IsoDateTime,
+});
+export type ThreadHandoff = typeof ThreadHandoff.Type;
+
 export const OrchestrationSessionStatus = Schema.Literals([
   "idle",
   "starting",
@@ -220,6 +233,7 @@ export const OrchestrationThread = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  handoff: Schema.optional(ThreadHandoff),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
