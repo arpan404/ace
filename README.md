@@ -1,36 +1,59 @@
 # ace
 
-ace is a minimal web GUI for coding agents: Codex, Claude, GitHub Copilot, and Cursor.
+ace is a fast, minimal GUI for coding agents (Codex, Claude, GitHub Copilot, Cursor, Gemini, and OpenCode).
 
-> **Note:** ace is a fork of the original **T3 Code** by **T3 Tools Inc.** This fork keeps that attribution and is released under the MIT License as copyright (c) 2026 **arpan404**.
+> **Attribution:** ace is a fork of **T3 Code** by **T3 Tools Inc.** and is released under the MIT License, copyright (c) 2026 **arpan404**.
 
-## Installation
+## Quick start
 
-> [!WARNING]
-> ace currently supports Codex, Claude, GitHub Copilot, and Cursor.
-> Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://github.com/openai/codex) and run `codex login`
-> - Claude: install Claude Code and run `claude auth login`
-> - GitHub Copilot: install the [GitHub Copilot CLI](https://docs.github.com/copilot) and sign in (Copilot access required)
-> - Cursor: install [Cursor](https://cursor.com) and ensure the Cursor Agent CLI (`cursor-agent`) is installed and you are signed in
+### 1. Install one provider CLI and sign in
 
-### Run without installing
+- Codex: [Codex CLI](https://github.com/openai/codex) + `codex login`
+- Claude: Claude Code + `claude auth login`
+- GitHub Copilot: [GitHub Copilot CLI](https://docs.github.com/copilot)
+- Cursor: [Cursor](https://cursor.com) + installed `cursor-agent`
+- Gemini: [Gemini CLI](https://github.com/google-gemini/gemini-cli)
+- OpenCode: [OpenCode](https://opencode.ai/docs)
+
+### 2. Run ace
 
 ```bash
 npx ace
 ```
 
-### Desktop app
+## Local development
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/arpan404/ace/releases).
+```bash
+bun install
+bun dev
+```
 
-## Some notes
+Useful commands:
 
-We are very very early in this project. Expect bugs.
+- `bun dev:web` – web app only
+- `bun dev:server` – server only
+- `bun dev:desktop` – desktop app
+- `bun fmt` / `bun lint` / `bun typecheck` – repo quality gates
 
-We are not accepting contributions yet.
+OpenCode model behavior:
 
-## If you REALLY want to contribute still.... read this first
+- Provider status fetches a featured OpenCode model snapshot (top 10 models).
+- You can select from fetched OpenCode models and add custom OpenCode model slugs in Settings.
 
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
+## Desktop app
+
+Download the latest desktop build from [GitHub Releases](https://github.com/arpan404/ace/releases).
+
+## Repo structure
+
+- `apps/web` – React/Vite frontend
+- `apps/server` – WebSocket server and provider/session orchestration
+- `apps/desktop` – Electron shell
+- `packages/contracts` – shared schemas and protocol types
+- `packages/shared` – shared runtime utilities
+
+## Project status
+
+ace is still early-stage and changing quickly. Expect rough edges.
+
+If you want to contribute, read [CONTRIBUTING.md](./CONTRIBUTING.md) first.
