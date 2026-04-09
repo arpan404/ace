@@ -19,6 +19,18 @@ import { Input } from "./ui/input";
 import { ScrollArea } from "./ui/scroll-area";
 import { Spinner } from "./ui/spinner";
 
+const EMPTY_ISSUES: readonly GitHubIssue[] = [];
+const ISSUE_SKELETON_KEYS = [
+  "skeleton-1",
+  "skeleton-2",
+  "skeleton-3",
+  "skeleton-4",
+  "skeleton-5",
+  "skeleton-6",
+  "skeleton-7",
+  "skeleton-8",
+] as const;
+
 function formatIssueRelativeTime(iso: string): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) {
@@ -97,7 +109,7 @@ export function GitHubIssueDialog({ open, cwd, onOpenChange, onFixIssue }: GitHu
     }),
   );
 
-  const issues = issuesQuery.data?.issues ?? [];
+  const issues = issuesQuery.data?.issues ?? EMPTY_ISSUES;
   const isSearchStale = searchDebouncer.state.isPending && search.trim() !== trimmedDebouncedSearch;
 
   const selectedIssue = useMemo(() => {
@@ -236,9 +248,9 @@ export function GitHubIssueDialog({ open, cwd, onOpenChange, onFixIssue }: GitHu
                 <div role="listbox" aria-label="Issues" className="pb-1">
                   {issuesQuery.isPending && issues.length === 0 ? (
                     <div className="flex flex-col gap-px py-1">
-                      {Array.from({ length: 8 }).map((_, index) => (
+                      {ISSUE_SKELETON_KEYS.map((skeletonKey) => (
                         <div
-                          key={index}
+                          key={skeletonKey}
                           className="h-[3.25rem] animate-pulse rounded-md bg-muted/45 dark:bg-muted/25"
                         />
                       ))}
@@ -395,9 +407,12 @@ export function GitHubIssueDialog({ open, cwd, onOpenChange, onFixIssue }: GitHu
                                 Comments ({thread.comments.length})
                               </h3>
                               <ul className="space-y-3">
-                                {thread.comments.map((comment, index) => (
+                                {thread.comments.map((comment) => (
                                   <li
-                                    key={`${comment.createdAt}-${index}`}
+                                    key={
+                                      comment.url ??
+                                      `${comment.createdAt}-${comment.author?.login ?? "unknown"}`
+                                    }
                                     className="rounded-lg border border-border/45 bg-background/60 px-4 py-3 dark:bg-background/25"
                                   >
                                     <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">

@@ -216,7 +216,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       provider: session.provider,
       runtimeMode: session.runtimeMode,
       status: toRuntimeStatus(session),
-      ...(session.resumeCursor !== undefined ? { resumeCursor: session.resumeCursor } : {}),
+      resumeCursor: session.resumeCursor ?? null,
       runtimePayload: toRuntimePayloadFromSession(session, extra),
     });
 
@@ -645,10 +645,18 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         Effect.map((sessions) => sessions.find((session) => session.threadId === routed.threadId)),
       );
     if (refreshedSession) {
+      const shouldClearResumeCursor = usesLocalTranscriptAuthority(routed.adapter.provider);
       yield* upsertSessionBinding(refreshedSession, routed.threadId, {
         lastRuntimeEvent: "provider.rollbackConversation",
         lastRuntimeEventAt: new Date().toISOString(),
       });
+      if (shouldClearResumeCursor) {
+        yield* directory.upsert({
+          threadId: routed.threadId,
+          provider: refreshedSession.provider,
+          resumeCursor: null,
+        });
+      }
     }
     yield* analytics.record("provider.conversation.rolled_back", {
       provider: routed.adapter.provider,

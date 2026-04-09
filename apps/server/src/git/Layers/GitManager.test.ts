@@ -557,6 +557,13 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
           args: ["repo", "view", input.repository, "--json", "nameWithOwner,url,sshUrl"],
         }).pipe(Effect.map((result) => JSON.parse(result.stdout))),
       listIssues: () => Effect.succeed([]),
+      getIssueThread: () =>
+        Effect.fail(
+          new GitHubCliError({
+            operation: "getIssueThread",
+            detail: "Issue thread lookup is not configured in this fake GitHub CLI scenario.",
+          }),
+        ),
       checkoutPullRequest: (input) =>
         execute({
           cwd: input.cwd,

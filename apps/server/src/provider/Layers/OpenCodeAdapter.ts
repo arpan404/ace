@@ -139,6 +139,18 @@ async function stopContext(ctx: OpenCodeSessionContext): Promise<void> {
   ctx.stopped = true;
   ctx.sseAbort?.abort();
 
+  const deleted = await ctx.client.session.delete({
+    sessionID: ctx.opencodeSessionId,
+    directory: ctx.cwd,
+  });
+  if (deleted.error) {
+    throw new ProviderAdapterRequestError({
+      provider: PROVIDER,
+      method: "session.delete",
+      detail: toMessage(deleted.error, "Failed to delete OpenCode session"),
+    });
+  }
+
   await ctx.server.close();
 }
 
