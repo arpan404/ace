@@ -139,31 +139,7 @@ async function stopContext(ctx: OpenCodeSessionContext): Promise<void> {
   ctx.stopped = true;
   ctx.sseAbort?.abort();
 
-  const cleanupErrors: Array<Error> = [];
-  try {
-    await ctx.client.session.delete({
-      sessionID: ctx.opencodeSessionId,
-      directory: ctx.cwd,
-    });
-  } catch (cause) {
-    cleanupErrors.push(
-      cause instanceof Error
-        ? cause
-        : new Error(`Failed to delete OpenCode session: ${String(cause)}`),
-    );
-  }
-  try {
-    await ctx.server.close();
-  } catch (cause) {
-    cleanupErrors.push(
-      cause instanceof Error
-        ? cause
-        : new Error(`Failed to stop OpenCode server: ${String(cause)}`),
-    );
-  }
-  if (cleanupErrors.length > 0) {
-    throw new AggregateError(cleanupErrors, "Failed to fully stop OpenCode session.");
-  }
+  await ctx.server.close();
 }
 
 type OpenCodeDeltaStreamKind = Extract<
@@ -239,6 +215,48 @@ function parseIsoTimestampMs(value: string): number | undefined {
 
 function toMessage(cause: unknown, fallback: string): string {
   return meaningfulErrorMessage(cause, fallback);
+}
+
+export function readOpenCodeResumeSessionId(resumeCursor: unknown): string | undefined {
+  const directCursor = nonEmptyString(resumeCursor);
+  if (directCursor) {
+    return directCursor;
+  }
+  if (!resumeCursor || typeof resumeCursor !== "object" || Array.isArray(resumeCursor)) {
+    return undefined;
+  }
+  const cursor = resumeCursor as Record<string, unknown>;
+  return (
+    nonEmptyString(cursor.sessionId) ??
+    nonEmptyString(cursor.sessionID) ??
+    nonEmptyString(cursor.id)
+  );
+}
+
+export function isMissingOpenCodeSessionError(cause: unknown): boolean {
+  if (cause === null || cause === undefined) {
+    return false;
+  }
+
+  if (typeof cause === "string") {
+    return cause.toLowerCase().includes("not found");
+  }
+
+  if (typeof cause !== "object" || Array.isArray(cause)) {
+    return false;
+  }
+
+  const record = cause as Record<string, unknown>;
+  if (nonEmptyString(record.name)?.toLowerCase() === "notfounderror") {
+    return true;
+  }
+  if (asNumber(record.status) === 404 || asNumber(record.code) === 404) {
+    return true;
+  }
+
+  const data = asRecord(record.data);
+  const message = nonEmptyString(record.message) ?? nonEmptyString(data?.message);
+  return message?.toLowerCase().includes("not found") === true;
 }
 
 export function openCodeTimestampToIso(value: unknown): string | undefined {
@@ -489,6 +507,14 @@ function resolveOpenCodeModel(
   const parsed = parseOpenCodeModelSlug(fallbackSlug);
   if (parsed) return parsed;
   return resolveOpenCodeModelForPrompt({ modelSlug: fallbackSlug, defaults });
+}
+
+function resolveOpenCodeVariant(modelSelection: ModelSelection | undefined): string | undefined {
+  if (modelSelection?.provider !== PROVIDER) {
+    return undefined;
+  }
+  const variant = modelSelection.options?.variant?.trim();
+  return variant && variant.length > 0 ? variant : undefined;
 }
 
 const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
@@ -1070,13 +1096,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       }
       case "session.error": {
         const err = props.error;
-        const msg =
-          err &&
-          typeof err === "object" &&
-          "message" in err &&
-          typeof (err as { message?: string }).message === "string"
-            ? String((err as { message: string }).message)
-            : "OpenCode session error";
+        const msg = toMessage(err, "OpenCode session error");
         completeTurn(ctx, "failed", msg);
         emit(
           baseEvent(ctx, {
@@ -1084,6 +1104,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             payload: {
               message: msg,
               class: "provider_error",
+              ...(err !== undefined && err !== null ? { detail: err } : {}),
             },
           }),
         );
@@ -1214,18 +1235,51 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           const body = listed.data as { default?: Record<string, string> } | undefined;
           const defaultModels = body?.default ?? {};
 
-          const created = await client.session.create({
-            directory: cwd,
-            title: "ace",
-          });
-          if (created.error || !created.data) {
-            throw new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "session.create",
-              detail: toMessage(created.error, "Failed to create OpenCode session"),
+          const createSession = async (): Promise<string> => {
+            const created = await client.session.create({
+              directory: cwd,
+              title: "ace",
             });
+            if (created.error || !created.data) {
+              throw new ProviderAdapterRequestError({
+                provider: PROVIDER,
+                method: "session.create",
+                detail: toMessage(created.error, "Failed to create OpenCode session"),
+              });
+            }
+            return created.data.id;
+          };
+
+          const resumeSessionId = readOpenCodeResumeSessionId(input.resumeCursor);
+          let opencodeSessionId: string;
+          let resumedExistingSession = false;
+          if (resumeSessionId) {
+            const resumed = await client.session.get({
+              sessionID: resumeSessionId,
+              directory: cwd,
+            });
+            if (resumed.error) {
+              if (!isMissingOpenCodeSessionError(resumed.error)) {
+                throw new ProviderAdapterRequestError({
+                  provider: PROVIDER,
+                  method: "session.get",
+                  detail: toMessage(resumed.error, "Failed to resume OpenCode session"),
+                });
+              }
+              opencodeSessionId = await createSession();
+            } else if (!resumed.data) {
+              throw new ProviderAdapterRequestError({
+                provider: PROVIDER,
+                method: "session.get",
+                detail: "OpenCode did not return session details for resume.",
+              });
+            } else {
+              opencodeSessionId = resumeSessionId;
+              resumedExistingSession = true;
+            }
+          } else {
+            opencodeSessionId = await createSession();
           }
-          const opencodeSessionId = created.data.id;
 
           const createdAt = isoNow();
           const model =
@@ -1240,6 +1294,9 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             cwd,
             model,
             threadId: input.threadId,
+            resumeCursor: {
+              sessionId: opencodeSessionId,
+            },
             createdAt,
             updatedAt: createdAt,
           };
@@ -1261,7 +1318,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             pendingApprovals: new Map(),
             pendingUserInputs: new Map(),
             sseAbort: null,
-            pendingBootstrapReset: (input.replayTurns?.length ?? 0) > 0,
+            pendingBootstrapReset: (input.replayTurns?.length ?? 0) > 0 && !resumedExistingSession,
             stopped: false,
           };
           sessions.set(input.threadId, ctx);
@@ -1270,7 +1327,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           emit(
             baseEvent(ctx, {
               type: "session.started",
-              payload: {},
+              payload: resumedExistingSession ? { resume: session.resumeCursor } : {},
             }),
           );
           emit(
@@ -1344,6 +1401,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           selectedModelSlug,
           ctx.defaultModels,
         );
+        const variant = resolveOpenCodeVariant(input.modelSelection);
 
         ctx.activeTurn = {
           id: turnId,
@@ -1417,6 +1475,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           sessionID: ctx.opencodeSessionId,
           directory: ctx.cwd,
           model: modelIds,
+          ...(variant ? { variant } : {}),
           parts,
         });
 

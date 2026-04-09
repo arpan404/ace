@@ -2053,7 +2053,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
               baseEvent(contextRef, {
                 type: "runtime.error",
                 payload: {
-                  message: error.message,
+                  message: toMessage(error, "Gemini ACP protocol error"),
                   class: "transport_error",
                 },
               }),

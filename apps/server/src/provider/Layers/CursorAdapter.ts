@@ -287,6 +287,18 @@ function cursorTaskSubagentType(value: unknown): string | undefined {
   return asString(record?.custom);
 }
 
+function normalizeCursorSessionUpdateKind(value: string): string {
+  const normalized = value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[\s-]+/g, "_")
+    .toLowerCase();
+  if (normalized === "config_options_update") {
+    return "config_option_update";
+  }
+  return normalized;
+}
+
 function cursorModelTokens(value: string): ReadonlySet<string> {
   const normalized = value
     .trim()
@@ -1208,10 +1220,12 @@ export const CursorAdapterLive = Layer.effect(
     const handleSessionUpdate = (context: CursorSessionContext, params: unknown) => {
       const record = asObject(params);
       const update = asObject(record?.update);
-      const updateKind = asString(update?.sessionUpdate);
-      if (!updateKind || !update) {
+      const updateKindRaw =
+        asString(update?.sessionUpdate) ?? asString(update?.updateType) ?? asString(update?.kind);
+      if (!updateKindRaw || !update) {
         return;
       }
+      const updateKind = normalizeCursorSessionUpdateKind(updateKindRaw);
 
       if (updateKind === "current_mode_update") {
         const currentModeId = asString(update.currentModeId) ?? asString(update.modeId);
@@ -1229,8 +1243,66 @@ export const CursorAdapterLive = Layer.effect(
         return;
       }
 
+      if (updateKind === "current_model_update") {
+        const currentModelId = asString(update.currentModelId) ?? asString(update.modelId);
+        if (!currentModelId) {
+          return;
+        }
+        updateMetadata(context, {
+          currentModelId,
+        });
+        emitSessionConfigured(context, {
+          rawMethod: "session/update",
+          rawPayload: params,
+          rawSource: "cursor.acp.notification",
+        });
+        return;
+      }
+
+      if (updateKind === "available_modes_update") {
+        const modesSource = asObject(update.modes) ?? update;
+        const modes = parseCursorSessionModeState(modesSource);
+        const currentModeId = asString(update.currentModeId) ?? asString(update.modeId);
+        if (!modes && !currentModeId) {
+          return;
+        }
+        updateMetadata(context, {
+          ...(modes ? { modes } : {}),
+          ...(currentModeId ? { currentModeId } : {}),
+        });
+        emitSessionConfigured(context, {
+          rawMethod: "session/update",
+          rawPayload: params,
+          rawSource: "cursor.acp.notification",
+        });
+        return;
+      }
+
+      if (updateKind === "available_models_update") {
+        const modelsSource = asObject(update.models) ?? update;
+        const models = parseCursorSessionModelState(modelsSource);
+        const currentModelId = asString(update.currentModelId) ?? asString(update.modelId);
+        if (!models && !currentModelId) {
+          return;
+        }
+        updateMetadata(context, {
+          ...(models ? { models } : {}),
+          ...(currentModelId ? { currentModelId } : {}),
+        });
+        emitSessionConfigured(context, {
+          rawMethod: "session/update",
+          rawPayload: params,
+          rawSource: "cursor.acp.notification",
+        });
+        return;
+      }
+
       if (updateKind === "config_option_update") {
-        const configOptions = parseCursorConfigOptions(update.configOptions);
+        const parsedConfigOptions = parseCursorConfigOptions(update.configOptions);
+        const configOptions =
+          parsedConfigOptions.length > 0
+            ? parsedConfigOptions
+            : parseCursorConfigOptions(update.options);
         if (configOptions.length > 0) {
           updateMetadata(context, {
             configOptions,
@@ -1291,11 +1363,12 @@ export const CursorAdapterLive = Layer.effect(
       }
 
       if (updateKind === "tool_call" || updateKind === "tool_call_update") {
+        const toolCall = asObject(update.toolCall) ?? asObject(update.tool_call) ?? update;
         completeActiveContentItems(context, turnId, {
           rawMethod: "session/update",
           rawPayload: params,
         });
-        syncCursorToolCall(context, turnId, update, {
+        syncCursorToolCall(context, turnId, toolCall, {
           rawMethod: "session/update",
           rawPayload: params,
         });
@@ -1817,7 +1890,7 @@ export const CursorAdapterLive = Layer.effect(
                   ...baseEvent(context),
                   type: "runtime.error",
                   payload: {
-                    message: error.message,
+                    message: describeCursorAdapterCause(error),
                     class: "transport_error",
                   },
                 });
@@ -2124,11 +2197,12 @@ export const CursorAdapterLive = Layer.effect(
               });
             })
             .catch((error) => {
+              const detailMessage = describeCursorAdapterCause(error);
               emit({
                 ...baseEvent(context, { turnId }),
                 type: "runtime.error",
                 payload: {
-                  message: error instanceof Error ? error.message : String(error),
+                  message: detailMessage,
                   class: "provider_error",
                 },
               });
@@ -2141,7 +2215,7 @@ export const CursorAdapterLive = Layer.effect(
               }
               settleTurn(context, turnId, {
                 type: "completed",
-                errorMessage: error instanceof Error ? error.message : String(error),
+                errorMessage: detailMessage,
               });
             });
 
