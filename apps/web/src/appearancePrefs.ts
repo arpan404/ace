@@ -49,15 +49,23 @@ function getSnapshot(): ThemePresetId {
   return cachedSnapshot;
 }
 
-/** Sets `data-theme-preset` on `<html>` when not the default (neutral-blue). */
+/** Sets `data-theme-preset` on root elements when not the default preset. */
 export function applyThemePreset(preset: ThemePresetId) {
   if (typeof document === "undefined") {
     return;
   }
+  const targets: HTMLElement[] = [document.documentElement];
+  if (document.body) {
+    targets.push(document.body);
+  }
   if (preset === DEFAULT_THEME_PRESET) {
-    document.documentElement.removeAttribute("data-theme-preset");
+    for (const target of targets) {
+      target.removeAttribute("data-theme-preset");
+    }
   } else {
-    document.documentElement.setAttribute("data-theme-preset", preset);
+    for (const target of targets) {
+      target.setAttribute("data-theme-preset", preset);
+    }
   }
 }
 
