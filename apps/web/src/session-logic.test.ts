@@ -476,6 +476,71 @@ describe("deriveActivePlanState", () => {
       steps: [{ step: "Implement Codex user input", status: "inProgress" }],
     });
   });
+
+  it("falls back to the latest provider todo update when the active turn has none", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "plan-turn-1",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "turn.plan.updated",
+        summary: "Plan updated",
+        tone: "info",
+        turnId: "turn-1",
+        payload: {
+          plan: [{ step: "Collect requirements", status: "completed" }],
+        },
+      }),
+      makeActivity({
+        id: "plan-turn-2",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "turn.plan.updated",
+        summary: "Plan updated",
+        tone: "info",
+        turnId: "turn-2",
+        payload: {
+          plan: [{ step: "Implement UI fixes", status: "inProgress" }],
+        },
+      }),
+    ];
+
+    expect(deriveActivePlanState(activities, TurnId.makeUnsafe("turn-3"))).toEqual({
+      createdAt: "2026-02-23T00:00:02.000Z",
+      turnId: "turn-2",
+      steps: [{ step: "Implement UI fixes", status: "inProgress" }],
+    });
+  });
+
+  it("uses turnless provider todo updates while a turn is active", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "plan-turn-scoped",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "turn.plan.updated",
+        summary: "Plan updated",
+        tone: "info",
+        turnId: "turn-1",
+        payload: {
+          plan: [{ step: "Draft implementation", status: "inProgress" }],
+        },
+      }),
+      makeActivity({
+        id: "plan-turnless-latest",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "turn.plan.updated",
+        summary: "Plan updated",
+        tone: "info",
+        payload: {
+          plan: [{ step: "Draft implementation", status: "completed" }],
+        },
+      }),
+    ];
+
+    expect(deriveActivePlanState(activities, TurnId.makeUnsafe("turn-1"))).toEqual({
+      createdAt: "2026-02-23T00:00:02.000Z",
+      turnId: null,
+      steps: [{ step: "Draft implementation", status: "completed" }],
+    });
+  });
 });
 
 describe("findLatestProposedPlan", () => {

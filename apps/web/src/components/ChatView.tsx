@@ -1138,8 +1138,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [activeLatestTurn, activeThread?.id, latestTurnSettled, threadPlanCatalog],
   );
   const activePlan = useMemo(
-    () => deriveActivePlanState(visibleThreadActivities, activeWorkTurnId),
-    [activeWorkTurnId, visibleThreadActivities],
+    () => deriveActivePlanState(threadActivities, activeWorkTurnId),
+    [activeWorkTurnId, threadActivities],
   );
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&

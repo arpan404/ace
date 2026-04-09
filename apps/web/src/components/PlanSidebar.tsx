@@ -1,4 +1,4 @@
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, useMemo } from "react";
 import { type TimestampFormat } from "@ace/contracts/settings";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -76,6 +76,16 @@ const PlanSidebar = memo(function PlanSidebar({
   const planMarkdown = activeProposedPlan?.planMarkdown ?? null;
   const displayedPlanMarkdown = planMarkdown ? stripDisplayedPlanMarkdown(planMarkdown) : null;
   const planTitle = planMarkdown ? proposedPlanTitle(planMarkdown) : null;
+  const planStepSummary = useMemo(() => {
+    if (!activePlan || activePlan.steps.length === 0) {
+      return null;
+    }
+    const completed = activePlan.steps.filter((step) => step.status === "completed").length;
+    return {
+      completed,
+      total: activePlan.steps.length,
+    };
+  }, [activePlan]);
 
   const handleCopyPlan = useCallback(() => {
     if (!planMarkdown) return;
@@ -190,12 +200,19 @@ const PlanSidebar = memo(function PlanSidebar({
           {/* Plan Steps */}
           {activePlan && activePlan.steps.length > 0 ? (
             <div className="space-y-1">
-              <p className="mb-2 text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
-                Steps
-              </p>
-              {activePlan.steps.map((step) => (
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
+                  Current todo
+                </p>
+                {planStepSummary ? (
+                  <p className="text-[10px] text-muted-foreground">
+                    {planStepSummary.completed}/{planStepSummary.total} done
+                  </p>
+                ) : null}
+              </div>
+              {activePlan.steps.map((step, index) => (
                 <div
-                  key={`${step.status}:${step.step}`}
+                  key={`${step.step}:${index}`}
                   className={cn(
                     "flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors duration-200",
                     step.status === "inProgress" && "bg-blue-500/5",
