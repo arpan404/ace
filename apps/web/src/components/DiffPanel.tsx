@@ -13,6 +13,7 @@ import {
 import {
   type WheelEvent as ReactWheelEvent,
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -308,7 +309,11 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     return `conversation:${queryableTurnDiffSummaries.map((summary) => summary.turnId).join(",")}`;
   }, [queryableTurnDiffSummaries, selectedTurn]);
   const canQueryCheckpointDiff =
-    !isCheckingGitRepo && isGitRepo && activeThreadId !== null && activeCheckpointRange !== null;
+    diffOpen &&
+    !isCheckingGitRepo &&
+    isGitRepo &&
+    activeThreadId !== null &&
+    activeCheckpointRange !== null;
   const activeCheckpointDiffQuery = useQuery(
     checkpointDiffQueryOptions({
       threadId: activeThreadId,
@@ -334,9 +339,16 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         ? "Failed to load checkpoint diff."
         : null;
 
-  const selectedPatch = selectedTurn ? selectedTurnCheckpointDiff : conversationCheckpointDiff;
-  const hasResolvedPatch = typeof selectedPatch === "string";
-  const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
+  const selectedPatch = diffOpen
+    ? selectedTurn
+      ? selectedTurnCheckpointDiff
+      : conversationCheckpointDiff
+    : undefined;
+  const deferredSelectedPatch = useDeferredValue(selectedPatch);
+  const isPatchResolutionDeferred =
+    typeof selectedPatch === "string" && selectedPatch !== deferredSelectedPatch;
+  const hasResolvedPatch = typeof deferredSelectedPatch === "string";
+  const hasNoNetChanges = hasResolvedPatch && deferredSelectedPatch.trim().length === 0;
   const noPatchMessage =
     selectedTurnUnavailableReason ??
     (!selectedTurn && queryableTurnDiffSummaries.length === 0
@@ -345,8 +357,8 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         ? "No net changes in this selection."
         : "No patch available for this selection.");
   const renderablePatch = useMemo(
-    () => getRenderablePatch(selectedPatch, "diff-panel"),
-    [selectedPatch],
+    () => getRenderablePatch(deferredSelectedPatch, "diff-panel"),
+    [deferredSelectedPatch],
   );
   const renderableFiles = useMemo(() => {
     if (!renderablePatch || renderablePatch.kind !== "files") {
@@ -638,7 +650,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
               </div>
             )}
             {!renderablePatch ? (
-              isLoadingCheckpointDiff ? (
+              isLoadingCheckpointDiff || isPatchResolutionDeferred ? (
                 <DiffPanelLoadingState label="Loading checkpoint diff..." />
               ) : (
                 <div className="flex h-full items-center justify-center px-4 py-2 text-xs text-muted-foreground/60">

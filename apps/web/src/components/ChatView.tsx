@@ -1789,14 +1789,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
     onWorkspaceModeChange(workspaceMode === "chat" ? "editor" : "chat");
   }, [onWorkspaceModeChange, workspaceMode]);
   const onToggleDiff = useCallback(() => {
-    void navigate({
-      to: "/$threadId",
-      params: { threadId },
-      replace: true,
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
-      },
+    startTransition(() => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId },
+        replace: true,
+        search: (previous) => {
+          const rest = stripDiffSearchParams(previous);
+          return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
+        },
+      });
     });
   }, [diffOpen, navigate, threadId]);
 
@@ -5740,8 +5742,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Persistent top bar — always visible regardless of workspace mode */}
       <header
         className={cn(
-          "relative z-30 w-full shrink-0 border-b border-border bg-card",
-          "shadow-[0_1px_0_0_color-mix(in_oklch,var(--primary)_14%,transparent)]",
+          "relative z-30 w-full shrink-0 border-b border-sidebar-border bg-sidebar",
           isElectron
             ? "drag-region flex min-h-[52px] items-center px-4 sm:px-6"
             : "px-4 py-3 sm:px-6 sm:py-3.5",
@@ -6254,7 +6255,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     <div className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-primary/10" />
                   </div>
                   <div
-                    className="min-h-0 shrink-0 overflow-hidden"
+                    className="min-h-0 min-w-0 shrink-0 overflow-hidden"
                     style={{
                       width: `${workspaceEditorSplitWidth}px`,
                       minWidth: `${workspaceEditorSplitWidth}px`,
