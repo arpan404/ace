@@ -105,7 +105,9 @@ export const ChatHeader = memo(function ChatHeader({
       />
     ) : null,
   ];
-  const workspaceActionNodes = interleaveTopBarItems(workspaceActionItems);
+  const workspaceActionNodes = workspaceActionItems.filter(
+    (item): item is NonNullable<ReactNode> => item !== null,
+  );
   const utilityToggleClassName =
     "shrink-0 rounded-full border border-transparent text-foreground/60 hover:text-foreground/85 data-[pressed]:border-border/45 data-[pressed]:text-foreground disabled:text-foreground/25";
   const utilityItems = interleaveTopBarItems([
@@ -272,9 +274,7 @@ export const ChatHeader = memo(function ChatHeader({
 
       <div className="flex shrink-0 items-center gap-1.5">
         {workspaceActionNodes.length > 0 ? (
-          <div className="flex min-w-0 items-center [&_[data-slot=group]]:shrink-0">
-            {workspaceActionNodes}
-          </div>
+          <div className="flex min-w-0 items-center gap-1.5">{workspaceActionNodes}</div>
         ) : null}
         <TopBarCluster>{utilityItems}</TopBarCluster>
       </div>

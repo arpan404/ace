@@ -34,13 +34,13 @@ import {
   DialogPopup,
   DialogTitle,
 } from "~/components/ui/dialog";
-import { Group, GroupSeparator } from "~/components/ui/group";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast";
+import { TopBarCluster, TopBarClusterDivider } from "~/components/thread/TopBarCluster";
 import {
   gitBranchesQueryOptions,
   gitInitMutationOptions,
@@ -96,6 +96,9 @@ interface RunGitActionWithToastInput {
   progressToastId?: GitActionToastId;
   filePaths?: string[];
 }
+
+const TOP_BAR_ACTION_BUTTON_CLASS_NAME =
+  "rounded-full border-transparent bg-transparent text-foreground/80 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08]";
 
 function formatElapsedDescription(startedAtMs: number | null): string | undefined {
   if (startedAtMs === null) {
@@ -795,7 +798,7 @@ export default function GitActionsControl({
           {initMutation.isPending ? "Initializing..." : "Initialize Git"}
         </Button>
       ) : (
-        <Group aria-label="Git actions" className="shrink-0">
+        <TopBarCluster aria-label="Git actions" className="shrink-0">
           {quickActionDisabledReason ? (
             <Popover>
               <PopoverTrigger
@@ -803,9 +806,9 @@ export default function GitActionsControl({
                 render={
                   <Button
                     aria-disabled="true"
-                    className="cursor-not-allowed rounded-e-none border-e-0 opacity-64 before:rounded-e-none"
+                    className={`${TOP_BAR_ACTION_BUTTON_CLASS_NAME} cursor-not-allowed opacity-64`}
                     size="xs"
-                    variant="outline"
+                    variant="ghost"
                   />
                 }
               >
@@ -818,8 +821,9 @@ export default function GitActionsControl({
             </Popover>
           ) : (
             <Button
-              variant="outline"
+              variant="ghost"
               size="xs"
+              className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
               disabled={isGitActionRunning || quickAction.disabled}
               onClick={runQuickAction}
             >
@@ -827,7 +831,7 @@ export default function GitActionsControl({
               <span className="sr-only md:not-sr-only md:ml-0.5">{quickAction.label}</span>
             </Button>
           )}
-          <GroupSeparator />
+          <TopBarClusterDivider />
           <Menu
             onOpenChange={(open) => {
               if (open) void invalidateGitStatusQuery(queryClient, gitCwd);
@@ -838,7 +842,12 @@ export default function GitActionsControl({
                 render={
                   <MenuTrigger
                     render={
-                      <Button aria-label="More Git actions" size="icon-xs" variant="outline" />
+                      <Button
+                        aria-label="More Git actions"
+                        size="icon-xs"
+                        variant="ghost"
+                        className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
+                      />
                     }
                     disabled={isGitActionRunning}
                   >
@@ -915,7 +924,7 @@ export default function GitActionsControl({
               )}
             </MenuPopup>
           </Menu>
-        </Group>
+        </TopBarCluster>
       )}
 
       <Dialog

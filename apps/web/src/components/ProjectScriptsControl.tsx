@@ -42,13 +42,13 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
-import { Group, GroupSeparator } from "./ui/group";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
+import { TopBarCluster, TopBarClusterDivider } from "./thread/TopBarCluster";
 
 const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
   { id: "play", label: "Play" },
@@ -58,6 +58,9 @@ const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
   { id: "build", label: "Build" },
   { id: "debug", label: "Debug" },
 ];
+
+const TOP_BAR_ACTION_BUTTON_CLASS_NAME =
+  "rounded-full border-transparent bg-transparent text-foreground/80 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08]";
 
 function ScriptIcon({
   icon,
@@ -265,20 +268,28 @@ export default function ProjectScriptsControl({
   return (
     <>
       {primaryScript ? (
-        <Group aria-label="Project scripts">
+        <TopBarCluster aria-label="Project scripts" className="shrink-0">
           <Button
             size="xs"
-            variant="outline"
+            variant="ghost"
+            className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
             onClick={() => onRunScript(primaryScript)}
             title={`Run ${primaryScript.name}`}
           >
             <ScriptIcon icon={primaryScript.icon} />
             <span className="sr-only md:not-sr-only md:ml-0.5">{primaryScript.name}</span>
           </Button>
-          <GroupSeparator />
+          <TopBarClusterDivider />
           <Menu highlightItemOnHover={false}>
             <MenuTrigger
-              render={<Button size="icon-xs" variant="outline" aria-label="Script actions" />}
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
+                  aria-label="Script actions"
+                />
+              }
             >
               <ChevronDownIcon className="size-4" />
             </MenuTrigger>
@@ -332,12 +343,20 @@ export default function ProjectScriptsControl({
               </MenuItem>
             </MenuPopup>
           </Menu>
-        </Group>
+        </TopBarCluster>
       ) : (
-        <Button size="xs" variant="outline" onClick={openAddDialog} title="Add action">
-          <PlusIcon className="size-3.5" />
-          <span className="sr-only md:not-sr-only md:ml-0.5">Add action</span>
-        </Button>
+        <TopBarCluster aria-label="Project scripts" className="shrink-0">
+          <Button
+            size="xs"
+            variant="ghost"
+            className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
+            onClick={openAddDialog}
+            title="Add action"
+          >
+            <PlusIcon className="size-3.5" />
+            <span className="sr-only md:not-sr-only md:ml-0.5">Add action</span>
+          </Button>
+        </TopBarCluster>
       )}
 
       <Dialog
