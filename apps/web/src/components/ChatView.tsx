@@ -3112,25 +3112,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [activeProject, persistProjectScripts],
   );
 
-  const handleRuntimeModeChange = useCallback(
-    (mode: RuntimeMode) => {
-      if (mode === runtimeMode) return;
-      setComposerDraftRuntimeMode(threadId, mode);
-      if (isLocalDraftThread) {
-        setDraftThreadContext(threadId, { runtimeMode: mode });
-      }
-      scheduleComposerFocus();
-    },
-    [
-      isLocalDraftThread,
-      runtimeMode,
-      scheduleComposerFocus,
-      setComposerDraftRuntimeMode,
-      setDraftThreadContext,
-      threadId,
-    ],
-  );
-
   const handleInteractionModeChange = useCallback(
     (mode: ProviderInteractionMode) => {
       if (mode === interactionMode) return;
@@ -5606,8 +5587,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
         threadId: activeThread.id,
         onEnvModeChange,
         envLocked,
-        runtimeMode,
-        onRuntimeModeChange: (mode: RuntimeMode) => void handleRuntimeModeChange(mode),
         onComposerFocusRequest: scheduleComposerFocus,
         ...(canCheckoutPullRequestIntoThread
           ? { onCheckoutPullRequestRequest: openPullRequestDialog }
