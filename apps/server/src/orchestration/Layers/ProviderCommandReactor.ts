@@ -4,6 +4,7 @@ import {
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
+  type OrchestrationThread,
   type ProviderReplayTurn,
   ProviderKind,
   type OrchestrationSession,
@@ -19,7 +20,10 @@ import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { meaningfulErrorMessage } from "../../provider/errorCause.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
-import { sourceMessagesToReplayTurns } from "../../provider/providerReplayTurns.ts";
+import {
+  sourceMessagesToHandoffReplayTurns,
+  sourceMessagesToReplayTurns,
+} from "../../provider/providerReplayTurns.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -171,6 +175,71 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 
   const safeFragment = branchFragment.length > 0 ? branchFragment : "update";
   return `${WORKTREE_BRANCH_PREFIX}/${safeFragment}`;
+}
+
+function resolveHandoffLineage(input: {
+  readonly sourceThreadId: ThreadId;
+  readonly threads: ReadonlyArray<OrchestrationThread>;
+}): {
+  readonly threads: ReadonlyArray<OrchestrationThread>;
+  readonly missingThreadId: ThreadId | null;
+  readonly hasCycle: boolean;
+} {
+  const threadsById = new Map(input.threads.map((thread) => [thread.id, thread] as const));
+  const lineageNewestFirst: OrchestrationThread[] = [];
+  const visited = new Set<string>();
+  let currentThreadId: ThreadId | null = input.sourceThreadId;
+
+  while (currentThreadId !== null) {
+    const thread = threadsById.get(currentThreadId);
+    if (!thread) {
+      return {
+        threads: lineageNewestFirst.toReversed(),
+        missingThreadId: currentThreadId,
+        hasCycle: false,
+      };
+    }
+    if (visited.has(thread.id)) {
+      return {
+        threads: lineageNewestFirst.toReversed(),
+        missingThreadId: null,
+        hasCycle: true,
+      };
+    }
+    visited.add(thread.id);
+    lineageNewestFirst.push(thread);
+    currentThreadId = thread.handoff?.sourceThreadId ?? null;
+  }
+
+  return {
+    threads: lineageNewestFirst.toReversed(),
+    missingThreadId: null,
+    hasCycle: false,
+  };
+}
+
+function collectHandoffReplayMessages(
+  sourceThreads: ReadonlyArray<OrchestrationThread>,
+): ReadonlyArray<{
+  readonly role: "user" | "assistant" | "system";
+  readonly text: string;
+  readonly attachments?: ReadonlyArray<ChatAttachment>;
+}> {
+  const messages: Array<{
+    readonly role: "user" | "assistant" | "system";
+    readonly text: string;
+    readonly attachments?: ReadonlyArray<ChatAttachment>;
+  }> = [];
+  for (const thread of sourceThreads) {
+    for (const message of thread.messages) {
+      messages.push({
+        role: message.role,
+        text: message.text,
+        ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+      });
+    }
+  }
+  return messages;
 }
 
 const make = Effect.gen(function* () {
@@ -672,6 +741,47 @@ const make = Effect.gen(function* () {
       }
     }
 
+    const messageIndex = thread.messages.findIndex((entry) => entry.id === message.id);
+    const threadReplayTurns = sourceMessagesToReplayTurns(
+      thread.messages.slice(0, Math.max(0, messageIndex)),
+    );
+    let replayTurns: ReadonlyArray<ProviderReplayTurn> = threadReplayTurns;
+    if (thread.handoff) {
+      const readModel = yield* orchestrationEngine.getReadModel();
+      const lineage = resolveHandoffLineage({
+        sourceThreadId: thread.handoff.sourceThreadId,
+        threads: readModel.threads,
+      });
+      if (lineage.hasCycle) {
+        yield* appendProviderFailureActivity({
+          threadId: event.payload.threadId,
+          kind: "provider.turn.start.failed",
+          summary: "Provider turn start failed",
+          detail: "Detected a cycle in handoff lineage. The handoff chain cannot be replayed.",
+          turnId: null,
+          createdAt: event.payload.createdAt,
+        });
+        return;
+      }
+      if (lineage.missingThreadId !== null) {
+        yield* appendProviderFailureActivity({
+          threadId: event.payload.threadId,
+          kind: "provider.turn.start.failed",
+          summary: "Provider turn start failed",
+          detail: `Handoff source thread '${lineage.missingThreadId}' is unavailable, so handoff context could not be replayed.`,
+          turnId: null,
+          createdAt: event.payload.createdAt,
+        });
+        return;
+      }
+      const handoffReplayMessages = collectHandoffReplayMessages(lineage.threads);
+      const handoffReplayTurns = sourceMessagesToHandoffReplayTurns(
+        handoffReplayMessages,
+        thread.handoff.mode,
+      );
+      replayTurns = [...handoffReplayTurns, ...threadReplayTurns];
+    }
+
     yield* sendTurnForThread({
       threadId: event.payload.threadId,
       messageText: message.text,
@@ -680,12 +790,7 @@ const make = Effect.gen(function* () {
         ? { modelSelection: event.payload.modelSelection }
         : {}),
       interactionMode: event.payload.interactionMode,
-      replayTurns: sourceMessagesToReplayTurns(
-        thread.messages.slice(
-          0,
-          thread.messages.findIndex((entry) => entry.id === message.id),
-        ),
-      ),
+      replayTurns,
       createdAt: event.payload.createdAt,
     }).pipe(
       Effect.catchCause((cause) =>

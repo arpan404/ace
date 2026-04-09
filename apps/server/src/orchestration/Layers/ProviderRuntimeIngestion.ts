@@ -219,6 +219,11 @@ type ActivityStreamingSettings = {
   readonly enableThinkingStreaming: boolean;
 };
 
+const ALL_ACTIVITY_STREAMING_SETTINGS: ActivityStreamingSettings = {
+  enableToolStreaming: true,
+  enableThinkingStreaming: true,
+};
+
 function extractReasoningDetail(event: Extract<ProviderRuntimeEvent, { type: "item.completed" }>) {
   if (hasRenderableReasoningText(event.payload.detail)) {
     return event.payload.detail;
@@ -1576,10 +1581,16 @@ const make = Effect.fn("make")(function* () {
         ? yield* getSourceProposedPlanReferenceForAcceptedTurnStart(thread.id, eventTurnId)
         : null;
     const serverSettings = yield* serverSettingsService.getSettings;
-    const activities = runtimeEventToActivities(event, {
+    const activityVisibilitySettings: ActivityStreamingSettings = {
       enableToolStreaming: serverSettings.enableToolStreaming,
       enableThinkingStreaming: serverSettings.enableThinkingStreaming,
-    });
+    };
+    const activities = runtimeEventToActivities(event, ALL_ACTIVITY_STREAMING_SETTINGS);
+    const visibleActivities =
+      activityVisibilitySettings.enableToolStreaming &&
+      activityVisibilitySettings.enableThinkingStreaming
+        ? activities
+        : runtimeEventToActivities(event, activityVisibilitySettings);
     const bufferedThinkingKeysForEvent = new Set(
       activities
         .map((activity) => thinkingActivityBufferKeyFromActivity(thread.id, activity))
@@ -1593,7 +1604,7 @@ const make = Effect.fn("make")(function* () {
     const shouldBreakAssistantMessageSegments = (() => {
       if (
         !eventTurnId ||
-        !activities.some(isRenderableAssistantBoundaryActivity) ||
+        !visibleActivities.some(isRenderableAssistantBoundaryActivity) ||
         (STRICT_PROVIDER_LIFECYCLE_GUARD &&
           activeTurnId !== null &&
           !sameId(activeTurnId, eventTurnId))

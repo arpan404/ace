@@ -802,7 +802,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(toolActivity?.kind).toBe("tool.started");
   });
 
-  it("keeps assistant output merged when tool activity streaming is disabled", async () => {
+  it("keeps assistant output merged when tool activity visibility is disabled", async () => {
     const harness = await createHarness({ serverSettings: { enableToolStreaming: false } });
     const now = new Date().toISOString();
 
@@ -875,11 +875,10 @@ describe("ProviderRuntimeIngestion", () => {
         message.turnId === "turn-tool-disabled" && message.role === "assistant",
     );
     expect(assistantMessages.map((message) => message.text)).toEqual(["Before tool. After tool."]);
-    expect(
-      thread.activities.find(
-        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-tool-disabled-started",
-      ),
-    ).toBeUndefined();
+    const toolActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-tool-disabled-started",
+    );
+    expect(toolActivity?.kind).toBe("tool.started");
   });
 
   it("splits assistant messages when reasoning activity interrupts the same assistant item", async () => {
@@ -964,7 +963,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(reasoningActivity?.kind).toBe("task.progress");
   });
 
-  it("keeps assistant output merged when thinking activity streaming is disabled", async () => {
+  it("keeps assistant output merged when thinking activity visibility is disabled", async () => {
     const harness = await createHarness({ serverSettings: { enableThinkingStreaming: false } });
     const now = new Date().toISOString();
 
@@ -1037,12 +1036,10 @@ describe("ProviderRuntimeIngestion", () => {
     expect(assistantMessages.map((message) => message.text)).toEqual([
       "Before thinking. After thinking.",
     ]);
-    expect(
-      thread.activities.find(
-        (activity: ProviderRuntimeTestActivity) =>
-          activity.id === "evt-thinking-disabled-reasoning",
-      ),
-    ).toBeUndefined();
+    const reasoningActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-thinking-disabled-reasoning",
+    );
+    expect(reasoningActivity?.kind).toBe("task.progress");
   });
 
   it("splits assistant messages when task progress interrupts the same turn", async () => {
