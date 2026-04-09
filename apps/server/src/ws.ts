@@ -579,6 +579,8 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.gitPreparePullRequestThread]: (input) =>
         gitManager.preparePullRequestThread(input),
       [WS_METHODS.gitListBranches]: (input) => git.listBranches(input),
+      [WS_METHODS.gitListGitHubIssues]: (input) => gitManager.listGitHubIssues(input),
+      [WS_METHODS.gitGetGitHubIssueThread]: (input) => gitManager.getGitHubIssueThread(input),
       [WS_METHODS.gitCreateWorktree]: (input) => git.createWorktree(input),
       [WS_METHODS.gitRemoveWorktree]: (input) => git.removeWorktree(input),
       [WS_METHODS.gitCreateBranch]: (input) => git.createBranch(input),

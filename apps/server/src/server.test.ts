@@ -1161,6 +1161,47 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 branch: "feature/demo",
                 worktreePath: null,
               }),
+            listGitHubIssues: () =>
+              Effect.succeed({
+                issues: [
+                  {
+                    number: 42,
+                    title: "Fix chat empty state",
+                    state: "open",
+                    url: "https://example.com/issues/42",
+                    body: "Issue body",
+                    labels: [{ name: "bug" }],
+                    assignees: [{ login: "octocat" }],
+                    author: { login: "hubot" },
+                    createdAt: "2026-04-08T00:00:00.000Z",
+                    updatedAt: "2026-04-08T00:00:00.000Z",
+                  },
+                ],
+              }),
+            getGitHubIssueThread: () =>
+              Effect.succeed({
+                issue: {
+                  number: 42,
+                  title: "Fix chat empty state",
+                  state: "open",
+                  url: "https://example.com/issues/42",
+                  body: "Issue body",
+                  labels: [{ name: "bug" }],
+                  assignees: [{ login: "octocat" }],
+                  author: { login: "hubot" },
+                  createdAt: "2026-04-08T00:00:00.000Z",
+                  updatedAt: "2026-04-08T00:00:00.000Z",
+                  comments: [
+                    {
+                      author: { login: "maintainer" },
+                      body: "Please include repro steps.",
+                      createdAt: "2026-04-08T00:02:00.000Z",
+                      updatedAt: "2026-04-08T00:03:00.000Z",
+                      url: "https://example.com/issues/42#issuecomment-1",
+                    },
+                  ],
+                },
+              }),
           },
           gitCore: {
             pullCurrentBranch: () =>
@@ -1251,6 +1292,20 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.equal(branches.branches[0]?.name, "main");
+
+      const issues = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.gitListGitHubIssues]({ cwd: "/tmp/repo", limit: 20 }),
+        ),
+      );
+      assert.equal(issues.issues[0]?.number, 42);
+
+      const issueThread = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.gitGetGitHubIssueThread]({ cwd: "/tmp/repo", issueNumber: 42 }),
+        ),
+      );
+      assert.equal(issueThread.issue.comments[0]?.author?.login, "maintainer");
 
       const worktree = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
