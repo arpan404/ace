@@ -5827,30 +5827,21 @@ export default function ChatView({ threadId }: ChatViewProps) {
             >
               <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
                 {activePlan || sidebarProposedPlan || planSidebarOpen ? (
-                  <div className="pointer-events-none absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col gap-2">
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            size="icon-sm"
-                            variant="outline"
-                            className={cn(
-                              "pointer-events-auto h-8 w-8 rounded-full border-border bg-card",
-                              planSidebarOpen
-                                ? "text-primary hover:text-primary"
-                                : "text-muted-foreground hover:text-foreground",
-                            )}
-                            onClick={togglePlanSidebar}
-                            aria-label={planSidebarOpen ? "Hide plan sidebar" : "Show plan sidebar"}
-                          />
-                        }
-                      >
-                        <ListTodoIcon className="size-4" />
-                      </TooltipTrigger>
-                      <TooltipPopup side="left">
-                        {planSidebarOpen ? "Hide plan sidebar" : "Show plan sidebar"}
-                      </TooltipPopup>
-                    </Tooltip>
+                  <div className="pointer-events-none absolute bottom-3 right-3 z-30">
+                    <Button
+                      size="icon-sm"
+                      variant="outline"
+                      className={cn(
+                        "pointer-events-auto h-8 w-8 rounded-full border-border bg-card",
+                        planSidebarOpen
+                          ? "text-primary hover:text-primary"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                      onClick={togglePlanSidebar}
+                      aria-label={planSidebarOpen ? "Hide plan sidebar" : "Show plan sidebar"}
+                    >
+                      <ListTodoIcon className="size-4" />
+                    </Button>
                   </div>
                 ) : null}
                 {/* Messages Wrapper */}
@@ -6131,10 +6122,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               {isComposerFooterCompact ? (
                                 <CompactComposerControlsMenu
                                   interactionMode={interactionMode}
-                                  runtimeMode={runtimeMode}
                                   traitsMenuContent={providerTraitsMenuContent}
                                   onToggleInteractionMode={toggleInteractionMode}
-                                  onRuntimeModeChange={handleRuntimeModeChange}
                                 />
                               ) : (
                                 <>
@@ -6161,8 +6150,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                     onClick={toggleInteractionMode}
                                     title={
                                       interactionMode === "plan"
-                                        ? "Plan mode — click to return to normal chat mode"
-                                        : "Default mode — click to enter plan mode"
+                                        ? "Plan mode — click to return to build mode"
+                                        : "Build mode — click to enter plan mode"
                                     }
                                   >
                                     {interactionMode === "plan" ? (
@@ -6171,7 +6160,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                       <BotIcon className="size-4" />
                                     )}
                                     <span className="sr-only sm:not-sr-only">
-                                      {interactionMode === "plan" ? "Plan mode" : "Chat mode"}
+                                      {interactionMode === "plan" ? "Plan" : "Build"}
                                     </span>
                                   </Button>
                                 </>
