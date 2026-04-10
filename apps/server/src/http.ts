@@ -1,5 +1,5 @@
 import Mime from "@effect/platform-node/Mime";
-import { Effect, FileSystem, Option, Path } from "effect";
+import { Effect, FileSystem, Layer, Option, Path } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import {
@@ -9,6 +9,13 @@ import {
 } from "./attachmentPaths";
 import { resolveAttachmentPathById } from "./attachmentStore";
 import { ServerConfig } from "./config";
+import {
+  claimPairingSession,
+  createPairingSession,
+  getPairingClaim,
+  getPairingSession,
+  resolvePairingSession,
+} from "./pairing";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
 import { WorkspacePaths } from "./workspace/Services/WorkspacePaths";
 
@@ -21,10 +28,96 @@ const SECURITY_HEADERS = {
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
 } as const;
+const PAIRING_CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+} as const;
 
 const withSecurityHeaders = <T extends Parameters<typeof HttpServerResponse.setHeaders>[0]>(
   response: T,
 ) => HttpServerResponse.setHeaders(response, SECURITY_HEADERS);
+
+const withPairingHeaders = <T extends Parameters<typeof HttpServerResponse.setHeaders>[0]>(
+  response: T,
+) => HttpServerResponse.setHeaders(withSecurityHeaders(response), PAIRING_CORS_HEADERS);
+
+function respondJson(payload: unknown, options?: { readonly status?: number }) {
+  return HttpServerResponse.text(JSON.stringify(payload), {
+    status: options?.status ?? 200,
+    contentType: "application/json; charset=utf-8",
+  });
+}
+
+function readAuthTokenFromRequest(
+  request: HttpServerRequest.HttpServerRequest,
+  requestUrl: URL,
+): string {
+  const header = request.headers.authorization ?? request.headers.Authorization;
+  if (typeof header === "string") {
+    const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+  return requestUrl.searchParams.get("token")?.trim() ?? "";
+}
+
+function requirePairingAuthorization(
+  request: HttpServerRequest.HttpServerRequest,
+  requestUrl: URL,
+  authToken: string | undefined,
+) {
+  if (!authToken || authToken.length === 0) {
+    return null;
+  }
+  const providedToken = readAuthTokenFromRequest(request, requestUrl);
+  if (providedToken === authToken) {
+    return null;
+  }
+  return withPairingHeaders(
+    respondJson(
+      {
+        error: "Unauthorized pairing request.",
+      },
+      { status: 401 },
+    ),
+  );
+}
+
+function readPairingSessionId(pathname: string): string | null {
+  const match = /^\/api\/pairing\/sessions\/([^/]+)$/.exec(pathname);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function readPairingResolveSessionId(pathname: string): string | null {
+  const match = /^\/api\/pairing\/sessions\/([^/]+)\/resolve$/.exec(pathname);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function readPairingClaimId(pathname: string): string | null {
+  const match = /^\/api\/pairing\/claims\/([^/]+)$/.exec(pathname);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function readPairingErrorStatus(code: string): number {
+  switch (code) {
+    case "invalid-ws-url":
+      return 400;
+    case "invalid-secret":
+      return 403;
+    case "not-found":
+      return 404;
+    case "already-claimed":
+      return 409;
+    case "claim-missing":
+      return 409;
+    case "expired":
+      return 410;
+    default:
+      return 400;
+  }
+}
 
 export const attachmentsRouteLayer = HttpRouter.add(
   "GET",
@@ -208,6 +301,219 @@ export const workspaceFileRouteLayer = HttpRouter.add(
       ),
     );
   }),
+);
+
+const pairingOptionsRouteLayer = HttpRouter.add(
+  "OPTIONS",
+  "/api/pairing/*",
+  Effect.succeed(withPairingHeaders(HttpServerResponse.empty({ status: 204 }))),
+);
+
+const pairingCreateSessionRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/pairing/sessions",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const config = yield* ServerConfig;
+    const unauthorized = requirePairingAuthorization(request, requestUrl.value, config.authToken);
+    if (unauthorized) {
+      return unauthorized;
+    }
+    const body = yield* request.json.pipe(Effect.catch(() => Effect.succeed(null)));
+    if (!body || typeof body !== "object") {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing session body must be a JSON object." }, { status: 400 }),
+      );
+    }
+    const payload = body as { wsUrl?: unknown; name?: unknown };
+    if (typeof payload.wsUrl !== "string") {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing session requires a wsUrl string." }, { status: 400 }),
+      );
+    }
+    const created = createPairingSession({
+      wsUrl: payload.wsUrl,
+      authToken: config.authToken ?? "",
+      ...(typeof payload.name === "string" ? { name: payload.name } : {}),
+    });
+    if (!created.ok) {
+      return withPairingHeaders(
+        respondJson({ error: created.message }, { status: readPairingErrorStatus(created.code) }),
+      );
+    }
+    const claimUrl = new URL("/api/pairing/claims", requestUrl.value).toString();
+    return withPairingHeaders(
+      respondJson({
+        ...created.value,
+        claimUrl,
+      }),
+    );
+  }),
+);
+
+const pairingGetSessionRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/pairing/sessions/:sessionId",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const sessionId = readPairingSessionId(requestUrl.value.pathname);
+    if (!sessionId) {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing session was not found." }, { status: 404 }),
+      );
+    }
+    const config = yield* ServerConfig;
+    const unauthorized = requirePairingAuthorization(request, requestUrl.value, config.authToken);
+    if (unauthorized) {
+      return unauthorized;
+    }
+    const session = getPairingSession(sessionId);
+    if (!session.ok) {
+      return withPairingHeaders(
+        respondJson({ error: session.message }, { status: readPairingErrorStatus(session.code) }),
+      );
+    }
+    return withPairingHeaders(respondJson(session.value));
+  }),
+);
+
+const pairingResolveSessionRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/pairing/sessions/:sessionId/resolve",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const sessionId = readPairingResolveSessionId(requestUrl.value.pathname);
+    if (!sessionId) {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing session was not found." }, { status: 404 }),
+      );
+    }
+    const config = yield* ServerConfig;
+    const unauthorized = requirePairingAuthorization(request, requestUrl.value, config.authToken);
+    if (unauthorized) {
+      return unauthorized;
+    }
+    const body = yield* request.json.pipe(Effect.catch(() => Effect.succeed(null)));
+    if (!body || typeof body !== "object") {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing resolve body must be a JSON object." }, { status: 400 }),
+      );
+    }
+    const payload = body as { approve?: unknown };
+    if (typeof payload.approve !== "boolean") {
+      return withPairingHeaders(
+        respondJson(
+          { error: "Pairing resolve request requires an approve boolean." },
+          { status: 400 },
+        ),
+      );
+    }
+    const resolved = resolvePairingSession({
+      sessionId,
+      approve: payload.approve,
+    });
+    if (!resolved.ok) {
+      return withPairingHeaders(
+        respondJson({ error: resolved.message }, { status: readPairingErrorStatus(resolved.code) }),
+      );
+    }
+    return withPairingHeaders(respondJson(resolved.value));
+  }),
+);
+
+const pairingCreateClaimRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/pairing/claims",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const body = yield* request.json.pipe(Effect.catch(() => Effect.succeed(null)));
+    if (!body || typeof body !== "object") {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing claim body must be a JSON object." }, { status: 400 }),
+      );
+    }
+    const payload = body as { sessionId?: unknown; secret?: unknown; requesterName?: unknown };
+    if (typeof payload.sessionId !== "string" || typeof payload.secret !== "string") {
+      return withPairingHeaders(
+        respondJson(
+          { error: "Pairing claim requires sessionId and secret strings." },
+          { status: 400 },
+        ),
+      );
+    }
+    const claimed = claimPairingSession({
+      sessionId: payload.sessionId,
+      secret: payload.secret,
+      ...(typeof payload.requesterName === "string"
+        ? { requesterName: payload.requesterName }
+        : {}),
+    });
+    if (!claimed.ok) {
+      return withPairingHeaders(
+        respondJson({ error: claimed.message }, { status: readPairingErrorStatus(claimed.code) }),
+      );
+    }
+    const pollUrl = new URL(
+      `/api/pairing/claims/${encodeURIComponent(claimed.value.claimId)}`,
+      requestUrl.value,
+    ).toString();
+    return withPairingHeaders(
+      respondJson({
+        ...claimed.value,
+        pollUrl,
+      }),
+    );
+  }),
+);
+
+const pairingGetClaimRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/pairing/claims/:claimId",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const claimId = readPairingClaimId(requestUrl.value.pathname);
+    if (!claimId) {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing claim was not found." }, { status: 404 }),
+      );
+    }
+    const claim = getPairingClaim(claimId);
+    if (!claim.ok) {
+      return withPairingHeaders(
+        respondJson({ error: claim.message }, { status: readPairingErrorStatus(claim.code) }),
+      );
+    }
+    return withPairingHeaders(respondJson(claim.value));
+  }),
+);
+
+export const pairingRouteLayer = Layer.mergeAll(
+  pairingOptionsRouteLayer,
+  pairingCreateSessionRouteLayer,
+  pairingGetSessionRouteLayer,
+  pairingResolveSessionRouteLayer,
+  pairingCreateClaimRouteLayer,
+  pairingGetClaimRouteLayer,
 );
 
 export const staticAndDevRouteLayer = HttpRouter.add(

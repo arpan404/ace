@@ -334,7 +334,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-baseline justify-between gap-3">
-                        <p className="truncate text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground/58">
+                        <p className="truncate text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/58">
                           {disclosureLabel}
                         </p>
                         <span className="shrink-0 text-[10px] text-muted-foreground">
@@ -374,7 +374,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             className="min-w-0 border-primary/18 border-l py-0.5 pr-1 pl-4"
             data-intent-message="true"
           >
-            <p className="px-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
+            <p className="px-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/55">
               Message
             </p>
             <p className="wrap-break-word px-0.5 pt-1 text-[13px] leading-6 text-foreground/84">
@@ -425,10 +425,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           <div
             className={cn(
               "border-l py-0.5 pl-4",
-              row.mode === "silent-thinking" ? "border-amber-500/26" : "border-border",
+              row.mode === "silent-thinking" ? "border-warning/26" : "border-border",
             )}
           >
-            <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
+            <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/55">
               Live
             </p>
             <div className="flex items-center gap-2.5 text-[11px] text-muted-foreground/65">
@@ -473,7 +473,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (!showConversationStarters) {
       return (
         <div className="flex h-full items-center justify-center">
-          <p className="text-sm text-muted-foreground/25">Start by sending a message.</p>
+          <p className="text-sm text-muted-foreground/45">Start by sending a message.</p>
         </div>
       );
     }
@@ -1166,7 +1166,7 @@ function workGroupRailClass(entries: ReadonlyArray<TimelineMetaGroupEntry>): str
     return "border-rose-500/22";
   }
   if (hasThinking && !hasTool) {
-    return "border-amber-500/26";
+    return "border-warning/26";
   }
   if (hasTool) {
     return "border-border";
@@ -1559,7 +1559,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
   return (
     <div className="mt-1.5" data-turn-diff-summary="true">
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/65">
+        <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/65">
           <span>Changed files ({changedFileCountLabel})</span>
           {hasNonZeroStat(summaryStat) && (
             <>

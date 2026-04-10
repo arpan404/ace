@@ -108,7 +108,7 @@ export function SettingsSection({
   return (
     <section className="space-y-2.5">
       <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <h2 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {icon}
           {title}
         </h2>

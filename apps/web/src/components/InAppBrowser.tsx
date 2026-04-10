@@ -399,7 +399,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
       aria-hidden={!open}
       className={cn(
         mode === "split"
-          ? "relative z-20 flex h-full min-h-0 min-w-0"
+          ? "relative flex h-full min-h-0 min-w-0"
           : "absolute z-30 min-h-0 min-w-0 will-change-[left,top,width,height,transform] transition-[left,top,width,height,transform,opacity,border-radius] duration-250 ease-out",
         mode === "full" ? "inset-0" : mode === "pip" ? "pointer-events-auto" : null,
       )}
@@ -412,7 +412,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
           mode === "full"
             ? "rounded-none shadow-none"
             : mode === "split"
-              ? "rounded-none border-y-0 border-r-0 border-l shadow-none"
+              ? "rounded-none border-y-0 border-r-0 border-l-0 shadow-none"
               : "rounded-2xl shadow-none",
         )}
       >

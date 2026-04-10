@@ -43,7 +43,15 @@ import { gitBranchesQueryOptions, gitCreateWorktreeMutationOptions } from "~/lib
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
-import type { ThreadWorkspaceMode } from "../threadWorkspaceMode";
+import {
+  normalizeThreadWorkspaceLayoutMode,
+  normalizeThreadWorkspaceMode,
+  THREAD_WORKSPACE_LAYOUT_BY_THREAD_ID_STORAGE_KEY,
+  THREAD_WORKSPACE_MODE_BY_THREAD_ID_STORAGE_KEY,
+  ThreadWorkspaceLayoutByThreadIdSchema,
+  ThreadWorkspaceModeByThreadIdSchema,
+  type ThreadWorkspaceMode,
+} from "../threadWorkspaceMode";
 import {
   clampCollapsedComposerCursor,
   type ComposerTrigger,
@@ -566,7 +574,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const handoffHasCycle = handoffLineage?.hasCycle ?? false;
   const isThreadHistoryLoading = isServerThread && activeThread?.historyLoaded === false;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
-  const workspaceMode: ThreadWorkspaceMode =
+  const routeWorkspaceMode: ThreadWorkspaceMode =
     rawSearch.mode === "editor" || rawSearch.mode === "split" ? rawSearch.mode : "chat";
   const diffOpen = rawSearch.diff === "1";
   const activeThreadId = activeThread?.id ?? null;
@@ -1740,6 +1748,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
     DEFAULT_WORKSPACE_EDITOR_SPLIT_WIDTH,
     Schema.Number,
   );
+  const [workspaceModeByThreadId, setWorkspaceModeByThreadId] = useLocalStorage(
+    THREAD_WORKSPACE_MODE_BY_THREAD_ID_STORAGE_KEY,
+    {},
+    ThreadWorkspaceModeByThreadIdSchema,
+  );
+  const [workspaceLayoutByThreadId, setWorkspaceLayoutByThreadId] = useLocalStorage(
+    THREAD_WORKSPACE_LAYOUT_BY_THREAD_ID_STORAGE_KEY,
+    {},
+    ThreadWorkspaceLayoutByThreadIdSchema,
+  );
   const [workspaceEditorSplitWidth, setWorkspaceEditorSplitWidth] = useState(() =>
     clampWorkspaceEditorSplitWidth(storedWorkspaceEditorSplitWidth, 0),
   );
@@ -1765,13 +1783,53 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const lastSyncedWorkspaceEditorSplitWidthRef = useRef(workspaceEditorSplitWidth);
   const defaultWorkspaceMode: ThreadWorkspaceMode =
     settings.workspaceEditorOpenMode === "split" ? "split" : "editor";
+  const persistedWorkspaceMode = normalizeThreadWorkspaceMode(workspaceModeByThreadId[threadId]);
+  const persistedWorkspaceLayout = normalizeThreadWorkspaceLayoutMode(
+    workspaceLayoutByThreadId[threadId],
+    defaultWorkspaceMode,
+  );
+  const workspaceMode = routeWorkspaceMode === "chat" ? persistedWorkspaceMode : routeWorkspaceMode;
   const defaultBrowserMode: Extract<InAppBrowserMode, "full" | "split"> = settings.browserOpenMode;
   const browserOpen = browserMode !== "closed";
+  useEffect(() => {
+    if (routeWorkspaceMode === "chat") {
+      return;
+    }
+    setWorkspaceModeByThreadId((previous) => {
+      if (previous[threadId] === routeWorkspaceMode) {
+        return previous;
+      }
+      return {
+        ...previous,
+        [threadId]: routeWorkspaceMode,
+      };
+    });
+    setWorkspaceLayoutByThreadId((previous) => {
+      if (previous[threadId] === routeWorkspaceMode) {
+        return previous;
+      }
+      return {
+        ...previous,
+        [threadId]: routeWorkspaceMode,
+      };
+    });
+  }, [routeWorkspaceMode, setWorkspaceLayoutByThreadId, setWorkspaceModeByThreadId, threadId]);
   const onWorkspaceModeChange = useCallback(
     (mode: ThreadWorkspaceMode) => {
-      const nextMode = mode === "editor" && workspaceMode === "chat" ? defaultWorkspaceMode : mode;
+      const nextMode =
+        mode === "editor" && workspaceMode === "chat" ? persistedWorkspaceLayout : mode;
       if (nextMode === workspaceMode) {
         return;
+      }
+      setWorkspaceModeByThreadId((previous) => ({
+        ...previous,
+        [threadId]: nextMode,
+      }));
+      if (nextMode !== "chat") {
+        setWorkspaceLayoutByThreadId((previous) => ({
+          ...previous,
+          [threadId]: nextMode,
+        }));
       }
       void navigate({
         to: "/$threadId",
@@ -1783,7 +1841,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
         }),
       });
     },
-    [defaultWorkspaceMode, navigate, threadId, workspaceMode],
+    [
+      navigate,
+      persistedWorkspaceLayout,
+      setWorkspaceLayoutByThreadId,
+      setWorkspaceModeByThreadId,
+      threadId,
+      workspaceMode,
+    ],
   );
   const toggleWorkspaceMode = useCallback(() => {
     onWorkspaceModeChange(workspaceMode === "chat" ? "editor" : "chat");
@@ -3110,6 +3175,25 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
     },
     [activeProject, persistProjectScripts],
+  );
+
+  const handleRuntimeModeChange = useCallback(
+    (mode: RuntimeMode) => {
+      if (mode === runtimeMode) return;
+      setComposerDraftRuntimeMode(threadId, mode);
+      if (isLocalDraftThread) {
+        setDraftThreadContext(threadId, { runtimeMode: mode });
+      }
+      scheduleComposerFocus();
+    },
+    [
+      isLocalDraftThread,
+      runtimeMode,
+      scheduleComposerFocus,
+      setComposerDraftRuntimeMode,
+      setDraftThreadContext,
+      threadId,
+    ],
   );
 
   const handleInteractionModeChange = useCallback(
@@ -5587,6 +5671,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
         threadId: activeThread.id,
         onEnvModeChange,
         envLocked,
+        runtimeMode,
+        onRuntimeModeChange: handleRuntimeModeChange,
         onComposerFocusRequest: scheduleComposerFocus,
         ...(canCheckoutPullRequestIntoThread
           ? { onCheckoutPullRequestRequest: openPullRequestDialog }
@@ -6101,8 +6187,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               {isComposerFooterCompact ? (
                                 <CompactComposerControlsMenu
                                   interactionMode={interactionMode}
+                                  runtimeMode={runtimeMode}
                                   traitsMenuContent={providerTraitsMenuContent}
                                   onToggleInteractionMode={toggleInteractionMode}
+                                  onRuntimeModeChange={handleRuntimeModeChange}
                                 />
                               ) : (
                                 <>
@@ -6223,7 +6311,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     <div className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-primary/10" />
                   </div>
                   <div
-                    className="min-h-0 min-w-0 shrink-0 overflow-hidden"
+                    className="flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden"
                     style={{
                       width: `${workspaceEditorSplitWidth}px`,
                       minWidth: `${workspaceEditorSplitWidth}px`,
@@ -6231,7 +6319,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   >
                     <Suspense
                       fallback={
-                        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+                        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
                           <div className="border-b border-border/60 px-4 py-3">
                             <div className="h-5 w-44 rounded bg-foreground/6" />
                           </div>

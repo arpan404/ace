@@ -3318,6 +3318,42 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("shows the runtime access mode beside Local in the bottom toolbar", async () => {
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-runtime-mode-target" as MessageId,
+      targetText: "runtime mode label target",
+    });
+    const approvalRequiredSnapshot: OrchestrationReadModel = {
+      ...snapshot,
+      threads: snapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? Object.assign({}, thread, {
+              runtimeMode: "approval-required",
+              session: thread.session
+                ? Object.assign({}, thread.session, { runtimeMode: "approval-required" })
+                : null,
+            })
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: approvalRequiredSnapshot,
+    });
+
+    try {
+      await waitForElement(
+        () => document.querySelector('[data-chat-branch-runtime-mode="approval-required"]'),
+        "Unable to find runtime mode control in branch toolbar.",
+      );
+      const bodyText = document.body.textContent ?? "";
+      expect(bodyText).toContain("Supervised");
+      expect(bodyText).not.toContain("Access: Approval required");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps the slash-command menu visible above the composer", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,

@@ -125,7 +125,9 @@ export function ChatViewPanels({
           ) : null}
           <div
             className={cn(
-              browserPanel.mode === "split" ? "min-h-0 shrink-0 overflow-hidden" : "contents",
+              browserPanel.mode === "split"
+                ? "relative z-0 min-h-0 shrink-0 overflow-hidden"
+                : "contents",
             )}
             style={
               browserPanel.mode === "split"

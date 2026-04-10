@@ -428,4 +428,21 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
       variant: "default",
     });
   });
+
+  it("keeps OpenCode fastMode when capabilities support it", () => {
+    expect(
+      normalizeOpenCodeModelOptionsWithCapabilities(
+        {
+          ...openCodeCaps,
+          supportsFastMode: true,
+        },
+        {
+          fastMode: true,
+        },
+      ),
+    ).toEqual({
+      variant: "default",
+      fastMode: true,
+    });
+  });
 });

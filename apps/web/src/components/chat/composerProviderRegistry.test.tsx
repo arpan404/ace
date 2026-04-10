@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ThreadId, type ServerProviderModel } from "@ace/contracts";
-import { getComposerProviderState, renderProviderTraitsPicker } from "./composerProviderRegistry";
+import {
+  getComposerProviderState,
+  renderProviderTraitsMenuContent,
+  renderProviderTraitsPicker,
+} from "./composerProviderRegistry";
 
 const CODEX_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
@@ -588,5 +592,21 @@ describe("renderProviderTraitsPicker", () => {
     });
 
     expect(picker).not.toBeNull();
+  });
+});
+
+describe("renderProviderTraitsMenuContent", () => {
+  it("returns null when the selected provider model exposes no visible traits", () => {
+    const menuContent = renderProviderTraitsMenuContent({
+      provider: "githubCopilot",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      model: "gpt-4.1",
+      models: GITHUB_COPILOT_MODELS,
+      modelOptions: undefined,
+      prompt: "",
+      onPromptChange: () => undefined,
+    });
+
+    expect(menuContent).toBeNull();
   });
 });

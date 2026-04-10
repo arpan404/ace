@@ -300,6 +300,18 @@ export function renderProviderTraitsMenuContent(input: {
   prompt: string;
   onPromptChange: (prompt: string) => void;
 }): ReactNode {
+  if (
+    !shouldRenderTraitsPicker({
+      provider: input.provider,
+      models: input.models,
+      model: input.model,
+      modelOptions: input.modelOptions,
+      prompt: input.prompt,
+    })
+  ) {
+    return null;
+  }
+
   return composerProviderRegistry[input.provider].renderTraitsMenuContent({
     threadId: input.threadId,
     model: input.model,

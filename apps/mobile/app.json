@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "ace Mobile",
+    "slug": "ace-mobile",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "jsEngine": "hermes",
+    "plugins": ["expo-notifications", "expo-camera"],
+    "ios": {
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan QR codes to add ace host instances."
+      }
+    },
+    "android": {
+      "permissions": ["android.permission.CAMERA"]
+    }
+  }
+}

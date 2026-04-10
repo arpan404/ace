@@ -33,6 +33,7 @@ Useful commands:
 - `bun dev:web` – web app only
 - `bun dev:server` – server only
 - `bun dev:desktop` – desktop app
+- `bun dev:mobile` – mobile app (Expo) + server + contracts
 - `bun fmt` / `bun lint` / `bun typecheck` – repo quality gates
 
 OpenCode model behavior:
@@ -44,9 +45,46 @@ OpenCode model behavior:
 
 Download the latest desktop build from [GitHub Releases](https://github.com/arpan404/ace/releases).
 
+## Remote control modes
+
+- **Desktop app**: manages local agents and multiple remote hosts.
+- **URL/web mode**: manages a single remote host at a time.
+- **Mobile app**: manages multiple hosts with host switching.
+- **Initial authentication**: use two-way QR pairing (request + host approval) from **Settings → Devices**.
+
+## Mobile app (Expo)
+
+The mobile app lives in `apps/mobile` and connects to the same ace server over WebSocket RPC.
+
+```bash
+bun dev:mobile
+```
+
+or run separately:
+
+```bash
+bun dev:server
+bun --cwd apps/mobile run dev
+```
+
+Mobile app highlights:
+
+- Bottom tabs: **Projects**, **Threads**, **Browser**, **Editor**, **Terminal**
+- Multi-host instances (manual + QR pairing) with active-host switching
+- Project dashboard with working/completed/pending agent counts
+
+Default host behavior:
+
+- The app infers your desktop host from Expo runtime and targets `ws://<desktop-host>:3773/ws`
+- Override defaults with:
+  - `EXPO_PUBLIC_ACE_HOST` (host/IP only)
+  - `EXPO_PUBLIC_ACE_PORT` (port)
+  - or full `EXPO_PUBLIC_ACE_WS_URL`
+
 ## Repo structure
 
 - `apps/web` – React/Vite frontend
+- `apps/mobile` – React Native/Expo mobile app
 - `apps/server` – WebSocket server and provider/session orchestration
 - `apps/desktop` – Electron shell
 - `packages/contracts` – shared schemas and protocol types

@@ -533,7 +533,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               : Schema.is(WorkspaceRootNotExistsError)(cause) ||
                   Schema.is(WorkspaceRootNotDirectoryError)(cause)
                 ? cause.message
-                : "Failed to sync workspace diagnostics through Neovim.";
+                : "Failed to sync workspace diagnostics.";
             return new WorkspaceEditorSyncBufferError({
               message,
               cause,
@@ -548,7 +548,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               : Schema.is(WorkspaceRootNotExistsError)(cause) ||
                   Schema.is(WorkspaceRootNotDirectoryError)(cause)
                 ? cause.message
-                : "Failed to close the Neovim workspace buffer.";
+                : "Failed to close the workspace diagnostics buffer.";
             return new WorkspaceEditorCloseBufferError({
               message,
               cause,

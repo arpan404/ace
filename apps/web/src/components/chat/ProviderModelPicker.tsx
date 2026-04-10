@@ -88,7 +88,6 @@ const CursorModelMenuContent = memo(function CursorModelMenuContent(props: {
 
   return (
     <MenuGroup>
-      <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">Model Family</div>
       <MenuRadioGroup
         value={selectedFamily.familySlug}
         onValueChange={(value) => applyFamilySelection(value)}

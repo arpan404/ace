@@ -117,8 +117,10 @@ export function normalizeOpenCodeModelOptionsWithCapabilities(
   modelOptions: OpenCodeModelOptions | null | undefined,
 ): OpenCodeModelOptions | undefined {
   const variant = resolveContextWindow(caps, modelOptions?.variant);
-  if (variant === undefined) {
-    return undefined;
-  }
-  return { variant };
+  const fastMode = caps.supportsFastMode ? modelOptions?.fastMode : undefined;
+  const nextOptions: OpenCodeModelOptions = {
+    ...(variant !== undefined ? { variant } : {}),
+    ...(fastMode !== undefined ? { fastMode } : {}),
+  };
+  return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }

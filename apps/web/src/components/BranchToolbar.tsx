@@ -1,5 +1,5 @@
-import type { ThreadId } from "@ace/contracts";
-import { FolderIcon, GitForkIcon } from "lucide-react";
+import { type RuntimeMode, type ThreadId } from "@ace/contracts";
+import { FolderIcon, GitForkIcon, LockIcon, LockOpenIcon, SparklesIcon } from "lucide-react";
 import { useCallback } from "react";
 
 import { runAsyncTask } from "../lib/async";
@@ -13,6 +13,7 @@ import {
   resolveEffectiveEnvMode,
 } from "../lib/git/branchToolbar";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
+import { Button } from "./ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 
 const envModeItems = [
@@ -20,10 +21,50 @@ const envModeItems = [
   { value: "worktree", label: "New worktree" },
 ] as const;
 
+function nextAccessMode(mode: RuntimeMode): RuntimeMode {
+  switch (mode) {
+    case "approval-required":
+      return "full-access";
+    case "full-access":
+      return "andy";
+    case "andy":
+    default:
+      return "approval-required";
+  }
+}
+
+const ACCESS_MODE_META: Record<
+  RuntimeMode,
+  { label: string; title: string; textClassName: string; iconClassName: string }
+> = {
+  "approval-required": {
+    label: "Supervised",
+    title: "Supervised — click to switch to Full access",
+    textClassName:
+      "text-amber-600 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300",
+    iconClassName: "text-amber-600 dark:text-amber-400",
+  },
+  "full-access": {
+    label: "Full access",
+    title: "Full access — click to switch to Andy",
+    textClassName:
+      "text-emerald-600 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-300",
+    iconClassName: "text-emerald-600 dark:text-emerald-400",
+  },
+  andy: {
+    label: "Andy",
+    title: "Andy — full access with automation profile (click for Supervised)",
+    textClassName: "text-sky-600 hover:text-sky-600 dark:text-sky-400 dark:hover:text-sky-300",
+    iconClassName: "text-sky-600 dark:text-sky-400",
+  },
+};
+
 interface BranchToolbarProps {
   threadId: ThreadId;
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
+  runtimeMode?: RuntimeMode;
+  onRuntimeModeChange?: (mode: RuntimeMode) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
 }
@@ -32,6 +73,8 @@ export default function BranchToolbar({
   threadId,
   onEnvModeChange,
   envLocked,
+  runtimeMode,
+  onRuntimeModeChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarProps) {
@@ -109,6 +152,7 @@ export default function BranchToolbar({
   );
 
   if (!activeThreadId || !activeProject) return null;
+  const runtimeModeMeta = runtimeMode ? ACCESS_MODE_META[runtimeMode] : null;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-2 pt-0.5">
@@ -161,6 +205,32 @@ export default function BranchToolbar({
             </SelectPopup>
           </Select>
         )}
+        {runtimeMode && onRuntimeModeChange ? (
+          <>
+            <span className="mx-0.5 h-3 w-px bg-border/50" />
+            <Button
+              variant="ghost"
+              size="xs"
+              className={`gap-1.5 rounded-md text-[11px] font-medium tracking-wide uppercase transition-colors duration-150 ${runtimeModeMeta?.textClassName ?? "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => onRuntimeModeChange(nextAccessMode(runtimeMode))}
+              title={runtimeModeMeta?.title}
+              data-chat-branch-runtime-mode={runtimeMode}
+            >
+              {runtimeMode === "andy" ? (
+                <SparklesIcon
+                  className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
+                />
+              ) : runtimeMode === "full-access" ? (
+                <LockOpenIcon
+                  className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
+                />
+              ) : (
+                <LockIcon className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`} />
+              )}
+              {runtimeModeMeta?.label ?? "Access"}
+            </Button>
+          </>
+        ) : null}
       </div>
 
       <BranchToolbarBranchSelector

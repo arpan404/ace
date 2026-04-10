@@ -54,8 +54,7 @@ export function NewThreadLanding() {
       {!isElectron && (
         <header
           className={cn(
-            "relative z-30 w-full shrink-0 border-b border-border bg-card",
-            "shadow-[0_1px_0_0_color-mix(in_oklch,var(--primary)_14%,transparent)]",
+            "relative z-30 w-full shrink-0 border-b border-border bg-background",
             "px-4 py-3 sm:px-6 sm:py-3.5",
           )}
         >
@@ -76,8 +75,7 @@ export function NewThreadLanding() {
       {isElectron && (
         <div
           className={cn(
-            "drag-region flex min-h-[52px] shrink-0 items-center justify-between border-b border-border bg-card",
-            "shadow-[0_1px_0_0_color-mix(in_oklch,var(--primary)_14%,transparent)]",
+            "drag-region flex min-h-[52px] shrink-0 items-center justify-between border-b border-border bg-background",
             "px-5",
           )}
         >
@@ -103,10 +101,10 @@ export function NewThreadLanding() {
         </div>
 
         <section className="relative flex w-full max-w-2xl flex-col items-center text-center">
-          <div className="mb-7 inline-flex size-14 items-center justify-center rounded-xl bg-muted/60">
+          <div className="mb-7 inline-flex size-14 items-center justify-center rounded-xl border border-border/50 bg-muted/50">
             <SquarePenIcon className="size-6 text-muted-foreground" />
           </div>
-          <p className="text-[10px] font-semibold tracking-[0.32em] text-muted-foreground/40 uppercase">
+          <p className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground/60 uppercase">
             Thread context
           </p>
           <h1 className="mt-4 text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
@@ -121,7 +119,7 @@ export function NewThreadLanding() {
                 onSelectProject={setSelectedProjectId}
                 variant="hero"
               />
-              <p className="mt-6 max-w-lg text-sm leading-relaxed text-muted-foreground/50">
+              <p className="mt-6 max-w-lg text-sm leading-relaxed text-muted-foreground/65">
                 Start from the right project, keep the sidebar in view, and let each new draft
                 thread inherit the workspace context you actually want.
               </p>
@@ -130,7 +128,7 @@ export function NewThreadLanding() {
                   Start new thread
                   <ArrowRightIcon className="size-4.5" />
                 </Button>
-                <div className="rounded-md bg-muted/50 px-3.5 py-1.5 text-xs text-muted-foreground">
+                <div className="rounded-md bg-muted/60 px-3.5 py-1.5 text-xs text-muted-foreground">
                   {activeProjects.length} {activeProjects.length === 1 ? "project" : "projects"} in
                   {" sidebar"}
                 </div>
@@ -138,7 +136,7 @@ export function NewThreadLanding() {
             </>
           ) : (
             <>
-              <p className="mt-5 max-w-lg text-sm leading-relaxed text-muted-foreground/50">
+              <p className="mt-5 max-w-lg text-sm leading-relaxed text-muted-foreground/65">
                 Add a project from the sidebar to get started. Once a project is available, new
                 threads open with visible project context and a quick switcher.
               </p>

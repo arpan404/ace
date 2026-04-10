@@ -6,7 +6,7 @@ import {
   useNavigate,
   useLocation,
 } from "@tanstack/react-router";
-import { useEffect, useEffectEvent, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 
@@ -50,6 +50,7 @@ import {
   resolveOrchestrationUiEventFlushPriority,
 } from "../orchestrationUiEvents";
 import { createOrchestrationRecoveryCoordinator } from "../orchestrationRecovery";
+import { useEffectEvent } from "../hooks/useEffectEvent";
 import { getWsRpcClient } from "../wsRpcClient";
 
 export const Route = createRootRouteWithContext<{
@@ -138,7 +139,7 @@ function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
             <span className="group-open:hidden">Show error details</span>
             <span className="hidden group-open:inline">Hide error details</span>
           </summary>
-          <pre className="max-h-56 overflow-auto border-t border-border bg-muted px-3 py-2 text-xs text-foreground">
+          <pre className="max-h-56 overflow-auto border-t border-border bg-muted/60 px-3 py-2 text-xs text-foreground">
             {details}
           </pre>
         </details>

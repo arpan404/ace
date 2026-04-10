@@ -6,10 +6,11 @@ import type {
   ThreadId,
 } from "@ace/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
 import { GitHubIcon } from "./Icons";
 import { runAsyncTask } from "../lib/async";
+import { useEffectEvent } from "../hooks/useEffectEvent";
 import {
   buildGitActionProgressStages,
   buildMenuItems,

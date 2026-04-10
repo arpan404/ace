@@ -58,7 +58,7 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
               <div
                 className="mt-1.5 flex min-h-0 flex-1 flex-col rounded-md border border-white/5 p-1.5"
                 style={{
-                  background: "linear-gradient(145deg, oklch(0.14 0.02 262), oklch(0.1 0.024 262))",
+                  background: `linear-gradient(145deg, ${preview.panel}, ${preview.panelDeep})`,
                 }}
               >
                 <div className="flex min-h-0 flex-1 gap-1">

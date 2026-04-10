@@ -4,6 +4,7 @@ import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { ServerConfig } from "./config";
 import {
   attachmentsRouteLayer,
+  pairingRouteLayer,
   projectFaviconRouteLayer,
   staticAndDevRouteLayer,
   workspaceFileRouteLayer,
@@ -264,6 +265,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   attachmentsRouteLayer,
   projectFaviconRouteLayer,
   workspaceFileRouteLayer,
+  pairingRouteLayer,
   staticAndDevRouteLayer,
   websocketRpcRouteLayer,
 );

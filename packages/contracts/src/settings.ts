@@ -254,6 +254,7 @@ const GitHubCopilotModelOptionsPatch = Schema.Struct({
 
 const OpenCodeModelOptionsPatch = Schema.Struct({
   variant: Schema.optionalKey(OpenCodeModelOptions.fields.variant),
+  fastMode: Schema.optionalKey(OpenCodeModelOptions.fields.fastMode),
 });
 
 const GeminiModelOptionsPatch = Schema.Struct({

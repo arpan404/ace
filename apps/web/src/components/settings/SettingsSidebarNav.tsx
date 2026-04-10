@@ -29,7 +29,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
           const items = SETTINGS_NAV_ITEMS.filter((item) => item.group === group.id);
           return (
             <SidebarGroup key={group.id} className="px-2 py-1">
-              <SidebarGroupLabel className="h-auto px-2 py-1 text-[10px] font-medium tracking-wider text-muted-foreground/50 uppercase">
+              <SidebarGroupLabel className="h-auto px-2 py-1 text-[10px] font-medium tracking-[0.14em] text-muted-foreground/50 uppercase">
                 {group.label}
               </SidebarGroupLabel>
               <SidebarMenu>
@@ -75,7 +75,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
           <SidebarMenuItem>
             <SidebarMenuButton
               size="sm"
-              className="gap-2 px-2 py-1.5 text-xs text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-foreground"
+              className="gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-foreground"
               onClick={() => window.history.back()}
             >
               <ArrowLeftIcon className="size-3.5" />

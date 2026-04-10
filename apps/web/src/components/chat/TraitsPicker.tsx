@@ -19,7 +19,7 @@ import {
   hasContextWindowOption,
   resolveEffort,
 } from "@ace/shared/model";
-import { memo, useCallback, useState } from "react";
+import { memo, type ReactElement, useCallback, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { ChevronDownIcon } from "lucide-react";
 import { Button, buttonVariants } from "../ui/button";
@@ -133,6 +133,7 @@ function buildNextOptions(
       return {
         ...(modelOptions as OpenCodeModelOptions | undefined),
         ...(typeof patch.contextWindow === "string" ? { variant: patch.contextWindow } : {}),
+        ...(typeof patch.fastMode === "boolean" ? { fastMode: patch.fastMode } : {}),
       } as OpenCodeModelOptions;
   }
 }
@@ -333,82 +334,88 @@ export const CursorTraitsMenuContent = memo(function CursorTraitsMenuContent(pro
     }
     const defaultValue = defaultTraits[key];
     return (
-      <>
-        <MenuDivider />
-        <MenuGroup>
-          <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">{label}</div>
-          <MenuRadioGroup
-            value={selectedValue ? "on" : "off"}
-            onValueChange={(value) => {
-              const nextModel = pickCursorModelFromTraits({
-                family,
-                selections: {
-                  ...selectedTraits,
-                  [key]: value === "on",
-                },
-              });
-              if (nextModel) {
-                applySelection(nextModel.slug);
-              }
-            }}
-          >
-            {[
-              { value: "off", label: "off", enabled: values.includes("false"), active: false },
-              { value: "on", label: "on", enabled: values.includes("true"), active: true },
-            ].map((option) => (
-              <MenuRadioItem
-                key={`cursor-${key}:${option.value}`}
-                value={option.value}
-                disabled={!option.enabled}
-              >
-                {option.label}
-                {defaultValue === option.active ? " (default)" : ""}
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </MenuGroup>
-      </>
+      <MenuGroup key={`cursor-${key}`}>
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">{label}</div>
+        <MenuRadioGroup
+          value={selectedValue ? "on" : "off"}
+          onValueChange={(value) => {
+            const nextModel = pickCursorModelFromTraits({
+              family,
+              selections: {
+                ...selectedTraits,
+                [key]: value === "on",
+              },
+            });
+            if (nextModel) {
+              applySelection(nextModel.slug);
+            }
+          }}
+        >
+          {[
+            { value: "off", label: "off", enabled: values.includes("false"), active: false },
+            { value: "on", label: "on", enabled: values.includes("true"), active: true },
+          ].map((option) => (
+            <MenuRadioItem
+              key={`cursor-${key}:${option.value}`}
+              value={option.value}
+              disabled={!option.enabled}
+            >
+              {option.label}
+              {defaultValue === option.active ? " (default)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>
     );
   };
 
+  const sections = [
+    family.reasoningEffortOptions.length > 0 ? (
+      <MenuGroup key="cursor-effort">
+        <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">Effort</div>
+        <MenuRadioGroup
+          value={selectedTraits.reasoningEffort ?? "medium"}
+          onValueChange={(value) => {
+            const nextModel = pickCursorModelFromTraits({
+              family,
+              selections: {
+                ...selectedTraits,
+                reasoningEffort: value as CursorSelectorReasoningEffort,
+              },
+            });
+            if (nextModel) {
+              applySelection(nextModel.slug);
+            }
+          }}
+        >
+          {family.reasoningEffortOptions.map((option) => (
+            <MenuRadioItem
+              key={`cursor-effort:${option}`}
+              value={option}
+              disabled={
+                !cursorFacetValues(family, "reasoningEffort", selectedTraits).includes(option)
+              }
+            >
+              {CURSOR_REASONING_LABELS[option]}
+              {defaultTraits.reasoningEffort === option ? " (default)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>
+    ) : null,
+    renderBinaryFacet("thinking", "Thinking", selectedTraits.thinking),
+    renderBinaryFacet("fastMode", "Fast Mode", selectedTraits.fastMode),
+    renderBinaryFacet("maxMode", "Max Mode", selectedTraits.maxMode),
+  ].filter((section): section is ReactElement => section !== null);
+
   return (
     <>
-      {family.reasoningEffortOptions.length > 0 ? (
-        <MenuGroup>
-          <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">Effort</div>
-          <MenuRadioGroup
-            value={selectedTraits.reasoningEffort ?? "medium"}
-            onValueChange={(value) => {
-              const nextModel = pickCursorModelFromTraits({
-                family,
-                selections: {
-                  ...selectedTraits,
-                  reasoningEffort: value as CursorSelectorReasoningEffort,
-                },
-              });
-              if (nextModel) {
-                applySelection(nextModel.slug);
-              }
-            }}
-          >
-            {family.reasoningEffortOptions.map((option) => (
-              <MenuRadioItem
-                key={`cursor-effort:${option}`}
-                value={option}
-                disabled={
-                  !cursorFacetValues(family, "reasoningEffort", selectedTraits).includes(option)
-                }
-              >
-                {CURSOR_REASONING_LABELS[option]}
-                {defaultTraits.reasoningEffort === option ? " (default)" : ""}
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </MenuGroup>
-      ) : null}
-      {renderBinaryFacet("thinking", "Thinking", selectedTraits.thinking)}
-      {renderBinaryFacet("fastMode", "Fast Mode", selectedTraits.fastMode)}
-      {renderBinaryFacet("maxMode", "Max Mode", selectedTraits.maxMode)}
+      {sections.map((section, index) => (
+        <div key={String(section.key)}>
+          {index > 0 ? <MenuDivider /> : null}
+          {section}
+        </div>
+      ))}
     </>
   );
 });
@@ -561,101 +568,107 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   }
 
   const contextTraitLabel = provider === "opencode" ? "Variant" : "Context Window";
+  const sections: Array<ReactElement> = [];
+
+  if (effort) {
+    sections.push(
+      <MenuGroup key="effort">
+        <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">Effort</div>
+        {ultrathinkInBodyText ? (
+          <div className="px-2 pb-1.5 text-muted-foreground/80 text-xs">
+            Your prompt contains &quot;ultrathink&quot; in the text. Remove it to change effort.
+          </div>
+        ) : null}
+        <MenuRadioGroup
+          value={ultrathinkPromptControlled ? "ultrathink" : effort}
+          onValueChange={handleEffortChange}
+        >
+          {effortLevels.map((option) => (
+            <MenuRadioItem key={option.value} value={option.value} disabled={ultrathinkInBodyText}>
+              {option.label}
+              {option.value === defaultEffort ? " (default)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>,
+    );
+  } else if (thinkingEnabled !== null) {
+    sections.push(
+      <MenuGroup key="thinking">
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Thinking</div>
+        <MenuRadioGroup
+          value={thinkingEnabled ? "on" : "off"}
+          onValueChange={(value) => {
+            updateModelOptions(
+              buildNextOptions(provider, modelOptions, {
+                thinking: value === "on",
+              }),
+            );
+          }}
+        >
+          <MenuRadioItem value="on">On (default)</MenuRadioItem>
+          <MenuRadioItem value="off">Off</MenuRadioItem>
+        </MenuRadioGroup>
+      </MenuGroup>,
+    );
+  }
+
+  if (caps.supportsFastMode) {
+    sections.push(
+      <MenuGroup key="fast-mode">
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Fast Mode</div>
+        <MenuRadioGroup
+          value={fastModeEnabled ? "on" : "off"}
+          onValueChange={(value) => {
+            updateModelOptions(
+              buildNextOptions(provider, modelOptions, {
+                fastMode: value === "on",
+              }),
+            );
+          }}
+        >
+          <MenuRadioItem value="off">off</MenuRadioItem>
+          <MenuRadioItem value="on">on</MenuRadioItem>
+        </MenuRadioGroup>
+      </MenuGroup>,
+    );
+  }
+
+  if (contextWindowOptions.length > 1) {
+    sections.push(
+      <MenuGroup key="context-window">
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
+          {contextTraitLabel}
+        </div>
+        <MenuRadioGroup
+          value={contextWindow ?? defaultContextWindow ?? ""}
+          onValueChange={(value) => {
+            updateModelOptions(
+              buildNextOptions(provider, modelOptions, {
+                contextWindow: value,
+              }),
+            );
+          }}
+        >
+          {contextWindowOptions.map((option) => (
+            <MenuRadioItem key={option.value} value={option.value}>
+              {option.label}
+              {option.value === defaultContextWindow ? " (default)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>,
+    );
+  }
 
   return (
     <>
-      {effort ? (
-        <>
-          <MenuGroup>
-            <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">Effort</div>
-            {ultrathinkInBodyText ? (
-              <div className="px-2 pb-1.5 text-muted-foreground/80 text-xs">
-                Your prompt contains &quot;ultrathink&quot; in the text. Remove it to change effort.
-              </div>
-            ) : null}
-            <MenuRadioGroup
-              value={ultrathinkPromptControlled ? "ultrathink" : effort}
-              onValueChange={handleEffortChange}
-            >
-              {effortLevels.map((option) => (
-                <MenuRadioItem
-                  key={option.value}
-                  value={option.value}
-                  disabled={ultrathinkInBodyText}
-                >
-                  {option.label}
-                  {option.value === defaultEffort ? " (default)" : ""}
-                </MenuRadioItem>
-              ))}
-            </MenuRadioGroup>
-          </MenuGroup>
-        </>
-      ) : thinkingEnabled !== null ? (
-        <MenuGroup>
-          <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Thinking</div>
-          <MenuRadioGroup
-            value={thinkingEnabled ? "on" : "off"}
-            onValueChange={(value) => {
-              updateModelOptions(
-                buildNextOptions(provider, modelOptions, {
-                  thinking: value === "on",
-                }),
-              );
-            }}
-          >
-            <MenuRadioItem value="on">On (default)</MenuRadioItem>
-            <MenuRadioItem value="off">Off</MenuRadioItem>
-          </MenuRadioGroup>
-        </MenuGroup>
-      ) : null}
-      {caps.supportsFastMode ? (
-        <>
-          <MenuDivider />
-          <MenuGroup>
-            <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Fast Mode</div>
-            <MenuRadioGroup
-              value={fastModeEnabled ? "on" : "off"}
-              onValueChange={(value) => {
-                updateModelOptions(
-                  buildNextOptions(provider, modelOptions, {
-                    fastMode: value === "on",
-                  }),
-                );
-              }}
-            >
-              <MenuRadioItem value="off">off</MenuRadioItem>
-              <MenuRadioItem value="on">on</MenuRadioItem>
-            </MenuRadioGroup>
-          </MenuGroup>
-        </>
-      ) : null}
-      {contextWindowOptions.length > 1 ? (
-        <>
-          <MenuDivider />
-          <MenuGroup>
-            <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
-              {contextTraitLabel}
-            </div>
-            <MenuRadioGroup
-              value={contextWindow ?? defaultContextWindow ?? ""}
-              onValueChange={(value) => {
-                updateModelOptions(
-                  buildNextOptions(provider, modelOptions, {
-                    contextWindow: value,
-                  }),
-                );
-              }}
-            >
-              {contextWindowOptions.map((option) => (
-                <MenuRadioItem key={option.value} value={option.value}>
-                  {option.label}
-                  {option.value === defaultContextWindow ? " (default)" : ""}
-                </MenuRadioItem>
-              ))}
-            </MenuRadioGroup>
-          </MenuGroup>
-        </>
-      ) : null}
+      {sections.map((section, index) => (
+        <div key={String(section.key)}>
+          {index > 0 ? <MenuDivider /> : null}
+          {section}
+        </div>
+      ))}
     </>
   );
 });
@@ -705,6 +718,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   ]
     .filter(Boolean)
     .join(" · ");
+  const resolvedTriggerLabel = triggerLabel || (provider === "opencode" ? "Variant" : "Traits");
 
   const isCodexStyle = provider === "codex" || provider === "githubCopilot";
 
@@ -742,12 +756,12 @@ export const TraitsPicker = memo(function TraitsPicker({
       >
         {isCodexStyle ? (
           <span className="flex min-w-0 w-full items-center gap-2 overflow-hidden">
-            {triggerLabel}
+            {resolvedTriggerLabel}
             <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
           </span>
         ) : (
           <>
-            <span>{triggerLabel}</span>
+            <span>{resolvedTriggerLabel}</span>
             <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
           </>
         )}

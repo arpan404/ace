@@ -1,0 +1,30 @@
+{
+  "name": "@ace/mobile",
+  "version": "0.0.1",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "dev": "expo start --clear",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "build": "expo export --platform all",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ace/contracts": "workspace:*",
+    "@ace/shared": "workspace:*",
+    "@react-native-async-storage/async-storage": "2.1.2",
+    "effect": "catalog:",
+    "expo": "^53.0.0",
+    "expo-camera": "~16.1.8",
+    "expo-notifications": "~0.31.0",
+    "react": "19.0.0",
+    "react-native": "0.79.6",
+    "react-native-webview": "13.13.5"
+  },
+  "devDependencies": {
+    "@types/react": "~19.0.10",
+    "typescript": "~5.8.3"
+  }
+}

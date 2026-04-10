@@ -9,161 +9,161 @@ export type ThemePresetPreview = {
 /** Twelve unified UI presets: 3 neutrals + 9 accents. */
 export const THEME_PRESET_OPTIONS: ReadonlyArray<{
   id:
-    | "zinc"
-    | "copper"
-    | "jade"
-    | "indigo"
-    | "rose"
-    | "amber"
-    | "teal"
-    | "violet"
-    | "sage"
-    | "crimson"
-    | "azure"
-    | "slate";
+    | "obsidian"
+    | "ember"
+    | "terminal"
+    | "midnight"
+    | "aurora"
+    | "nebula"
+    | "horizon"
+    | "evergreen"
+    | "solaris"
+    | "vermillion"
+    | "cobalt"
+    | "graphite";
   label: string;
   description: string;
   preview: ThemePresetPreview;
 }> = [
   /* ── Neutrals ── */
   {
-    id: "zinc",
-    label: "Zinc",
-    description: "Clean gray with blue accents.",
+    id: "obsidian",
+    label: "Obsidian",
+    description: "Classic neutral with sharp cobalt accents.",
     preview: {
       panel: "oklch(0.17 0 0)",
       panelDeep: "oklch(0.13 0 0)",
-      accent: "oklch(0.68 0.17 250)",
-      accentMuted: "oklch(0.55 0.12 250)",
+      accent: "oklch(0.68 0.18 255)",
+      accentMuted: "oklch(0.5 0.1 255)",
     },
   },
   {
-    id: "copper",
-    label: "Copper",
-    description: "Clean gray with warm orange accents.",
+    id: "ember",
+    label: "Ember",
+    description: "Warm neutral with amber-orange accents.",
     preview: {
       panel: "oklch(0.17 0 0)",
       panelDeep: "oklch(0.13 0 0)",
-      accent: "oklch(0.75 0.17 45)",
-      accentMuted: "oklch(0.6 0.12 45)",
+      accent: "oklch(0.74 0.18 40)",
+      accentMuted: "oklch(0.56 0.1 40)",
     },
   },
   {
-    id: "jade",
-    label: "Jade",
-    description: "Clean gray with emerald accents.",
+    id: "terminal",
+    label: "Terminal",
+    description: "Clean neutral with retro green accents.",
     preview: {
       panel: "oklch(0.17 0 0)",
       panelDeep: "oklch(0.13 0 0)",
-      accent: "oklch(0.68 0.16 155)",
-      accentMuted: "oklch(0.55 0.1 155)",
+      accent: "oklch(0.68 0.16 150)",
+      accentMuted: "oklch(0.5 0.08 150)",
     },
   },
   /* ── Accents ── */
   {
-    id: "indigo",
-    label: "Indigo",
-    description: "Rich indigo-tinted workspace.",
+    id: "midnight",
+    label: "Midnight",
+    description: "Deep indigo for late-night sessions.",
     preview: {
-      panel: "oklch(0.18 0.025 275)",
-      panelDeep: "oklch(0.14 0.02 275)",
-      accent: "oklch(0.7 0.17 275)",
-      accentMuted: "oklch(0.58 0.015 275)",
+      panel: "oklch(0.18 0.025 265)",
+      panelDeep: "oklch(0.14 0.02 265)",
+      accent: "oklch(0.68 0.18 265)",
+      accentMuted: "oklch(0.55 0.012 265)",
     },
   },
   {
-    id: "rose",
-    label: "Rose",
+    id: "aurora",
+    label: "Aurora",
+    description: "Cool cyan inspired by northern lights.",
+    preview: {
+      panel: "oklch(0.18 0.025 180)",
+      panelDeep: "oklch(0.14 0.02 180)",
+      accent: "oklch(0.7 0.14 180)",
+      accentMuted: "oklch(0.55 0.012 180)",
+    },
+  },
+  {
+    id: "nebula",
+    label: "Nebula",
+    description: "Cosmic violet for creative flow.",
+    preview: {
+      panel: "oklch(0.18 0.025 295)",
+      panelDeep: "oklch(0.14 0.02 295)",
+      accent: "oklch(0.72 0.18 295)",
+      accentMuted: "oklch(0.55 0.012 295)",
+    },
+  },
+  {
+    id: "horizon",
+    label: "Horizon",
     description: "Warm rose-tinted workspace.",
     preview: {
-      panel: "oklch(0.18 0.025 350)",
-      panelDeep: "oklch(0.14 0.02 350)",
-      accent: "oklch(0.72 0.16 350)",
-      accentMuted: "oklch(0.58 0.015 350)",
+      panel: "oklch(0.18 0.025 5)",
+      panelDeep: "oklch(0.14 0.02 5)",
+      accent: "oklch(0.72 0.16 5)",
+      accentMuted: "oklch(0.55 0.012 5)",
     },
   },
   {
-    id: "amber",
-    label: "Amber",
-    description: "Golden amber-tinted workspace.",
+    id: "evergreen",
+    label: "Evergreen",
+    description: "Natural forest tones for focused work.",
     preview: {
-      panel: "oklch(0.18 0.025 80)",
-      panelDeep: "oklch(0.14 0.02 80)",
-      accent: "oklch(0.75 0.16 80)",
-      accentMuted: "oklch(0.58 0.015 80)",
+      panel: "oklch(0.18 0.025 150)",
+      panelDeep: "oklch(0.14 0.02 150)",
+      accent: "oklch(0.65 0.14 150)",
+      accentMuted: "oklch(0.55 0.012 150)",
     },
   },
   {
-    id: "teal",
-    label: "Teal",
-    description: "Cool teal-tinted workspace.",
+    id: "solaris",
+    label: "Solaris",
+    description: "Golden amber glow for warm sessions.",
     preview: {
-      panel: "oklch(0.18 0.025 190)",
-      panelDeep: "oklch(0.14 0.02 190)",
-      accent: "oklch(0.7 0.14 190)",
-      accentMuted: "oklch(0.58 0.015 190)",
+      panel: "oklch(0.18 0.025 75)",
+      panelDeep: "oklch(0.14 0.02 75)",
+      accent: "oklch(0.76 0.15 75)",
+      accentMuted: "oklch(0.55 0.012 75)",
     },
   },
   {
-    id: "violet",
-    label: "Violet",
-    description: "Ethereal violet-tinted workspace.",
-    preview: {
-      panel: "oklch(0.18 0.025 300)",
-      panelDeep: "oklch(0.14 0.02 300)",
-      accent: "oklch(0.72 0.17 300)",
-      accentMuted: "oklch(0.58 0.015 300)",
-    },
-  },
-  {
-    id: "sage",
-    label: "Sage",
-    description: "Natural sage-tinted workspace.",
-    preview: {
-      panel: "oklch(0.18 0.025 145)",
-      panelDeep: "oklch(0.14 0.02 145)",
-      accent: "oklch(0.68 0.14 145)",
-      accentMuted: "oklch(0.58 0.015 145)",
-    },
-  },
-  {
-    id: "crimson",
-    label: "Crimson",
-    description: "Bold crimson-tinted workspace.",
+    id: "vermillion",
+    label: "Vermillion",
+    description: "Bold crimson energy.",
     preview: {
       panel: "oklch(0.18 0.025 25)",
       panelDeep: "oklch(0.14 0.02 25)",
-      accent: "oklch(0.7 0.17 25)",
-      accentMuted: "oklch(0.58 0.015 25)",
+      accent: "oklch(0.7 0.18 25)",
+      accentMuted: "oklch(0.55 0.012 25)",
     },
   },
   {
-    id: "azure",
-    label: "Azure",
-    description: "Airy blue-tinted workspace.",
+    id: "cobalt",
+    label: "Cobalt",
+    description: "Rich blue for deep focus.",
     preview: {
-      panel: "oklch(0.18 0.025 225)",
-      panelDeep: "oklch(0.14 0.02 225)",
-      accent: "oklch(0.7 0.16 225)",
-      accentMuted: "oklch(0.58 0.015 225)",
+      panel: "oklch(0.18 0.025 235)",
+      panelDeep: "oklch(0.14 0.02 235)",
+      accent: "oklch(0.68 0.17 235)",
+      accentMuted: "oklch(0.55 0.012 235)",
     },
   },
   {
-    id: "slate",
-    label: "Slate",
-    description: "Cool steel-tinted workspace.",
+    id: "graphite",
+    label: "Graphite",
+    description: "Industrial steel-gray, minimal distraction.",
     preview: {
-      panel: "oklch(0.18 0.025 240)",
-      panelDeep: "oklch(0.14 0.02 240)",
-      accent: "oklch(0.65 0.1 240)",
-      accentMuted: "oklch(0.58 0.015 240)",
+      panel: "oklch(0.18 0.02 240)",
+      panelDeep: "oklch(0.14 0.015 240)",
+      accent: "oklch(0.63 0.08 240)",
+      accentMuted: "oklch(0.55 0.01 240)",
     },
   },
 ];
 
 export type ThemePresetId = (typeof THEME_PRESET_OPTIONS)[number]["id"];
 
-export const DEFAULT_THEME_PRESET: ThemePresetId = "zinc";
+export const DEFAULT_THEME_PRESET: ThemePresetId = "obsidian";
 
 const PRESET_ID_SET = new Set<string>(THEME_PRESET_OPTIONS.map((o) => o.id));
 
