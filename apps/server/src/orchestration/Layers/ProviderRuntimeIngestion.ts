@@ -1563,8 +1563,14 @@ const make = Effect.fn("make")(function* () {
         case "turn.started":
           return !conflictsWithActiveTurn;
         case "turn.completed":
-          if (conflictsWithActiveTurn || missingTurnForActiveTurn) {
+          if (conflictsWithActiveTurn) {
             return false;
+          }
+          // Some providers emit turn completion scoped to the thread but omit
+          // turnId. When we already track an active turn for this thread, treat
+          // this as completion of that active turn so lifecycle state can close.
+          if (missingTurnForActiveTurn) {
+            return true;
           }
           // Only the active turn may close the lifecycle state.
           if (activeTurnId !== null && eventTurnId !== undefined) {

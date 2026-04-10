@@ -663,6 +663,43 @@ describe("ProviderRuntimeIngestion", () => {
     );
   });
 
+  it("accepts turn completion without turnId for the active thread turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-no-turnid-complete"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-no-turnid-complete"),
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-no-turnid-complete",
+    );
+
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-no-turnid-complete"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      payload: {
+        state: "completed",
+      },
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "ready" && thread.session?.activeTurnId === null,
+    );
+  });
+
   it("maps canonical content delta/item completed into finalized assistant messages", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
