@@ -702,7 +702,8 @@ export const TraitsPicker = memo(function TraitsPicker({
     ? (effortLevels.find((l) => l.value === effort)?.label ?? effort)
     : null;
   const contextWindowLabel =
-    contextWindowOptions.length > 1 && contextWindow !== defaultContextWindow
+    contextWindowOptions.length > 1 &&
+    (provider === "opencode" || contextWindow !== defaultContextWindow)
       ? (contextWindowOptions.find((o) => o.value === contextWindow)?.label ?? null)
       : null;
   const triggerLabel = [
