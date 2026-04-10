@@ -28,7 +28,7 @@ import {
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
-import { getDefaultServerModel, getProviderModels } from "./providerModels";
+import { getProviderModels } from "./providerModels";
 import { UnifiedSettings } from "@ace/contracts/settings";
 import { resolveExactCursorModelSelection } from "./cursorModelSelector";
 
@@ -776,11 +776,18 @@ export function deriveEffectiveComposerModelState(input: {
   projectModelSelection: ModelSelection | null | undefined;
   settings: UnifiedSettings;
 }): EffectiveComposerModelState {
-  const baseModel =
-    normalizeModelSlug(
-      input.threadModelSelection?.model ?? input.projectModelSelection?.model,
-      input.selectedProvider,
-    ) ?? getDefaultServerModel(input.providers, input.selectedProvider);
+  const baseModelCandidate =
+    input.threadModelSelection?.provider === input.selectedProvider
+      ? input.threadModelSelection.model
+      : input.projectModelSelection?.provider === input.selectedProvider
+        ? input.projectModelSelection.model
+        : null;
+  const baseModel = resolveAppModelSelection(
+    input.selectedProvider,
+    input.settings,
+    input.providers,
+    baseModelCandidate,
+  );
   const activeSelection = input.draft?.modelSelectionByProvider?.[input.selectedProvider];
   const selectedModel = activeSelection?.model
     ? resolveAppModelSelection(

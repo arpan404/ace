@@ -888,6 +888,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         interactionMode: event.payload.interactionMode,
         branch: event.payload.branch,
         worktreePath: event.payload.worktreePath,
+        ...(event.payload.handoff !== undefined ? { handoff: event.payload.handoff } : {}),
         queuedComposerMessages: [],
         queuedSteerRequest: null,
         latestTurn: null,

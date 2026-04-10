@@ -961,6 +961,63 @@ describe("incremental orchestration updates", () => {
     expect(next.threadIdsByProjectId[recreatedProjectId]).toEqual([threadId]);
   });
 
+  it("retains handoff metadata from thread.created events", () => {
+    const projectId = ProjectId.makeUnsafe("project-1");
+    const threadId = ThreadId.makeUnsafe("thread-handoff");
+    const sourceThreadId = ThreadId.makeUnsafe("thread-source");
+    const state: AppState = {
+      projects: [
+        {
+          id: projectId,
+          name: "Project 1",
+          cwd: "/tmp/project-1",
+          icon: null,
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          archivedAt: null,
+          scripts: [],
+        },
+      ],
+      threads: [],
+      sidebarThreadsById: {},
+      threadIdsByProjectId: {},
+      bootstrapComplete: true,
+    };
+
+    const handoff = {
+      sourceThreadId,
+      fromProvider: "codex" as const,
+      toProvider: "claudeAgent" as const,
+      mode: "transcript" as const,
+      createdAt: "2026-02-27T00:00:01.000Z",
+    };
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.created", {
+        threadId,
+        projectId,
+        title: "Handoff thread",
+        modelSelection: {
+          provider: "claudeAgent",
+          model: DEFAULT_MODEL_BY_PROVIDER.claudeAgent,
+        },
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+        interactionMode: DEFAULT_INTERACTION_MODE,
+        branch: null,
+        worktreePath: null,
+        handoff,
+        createdAt: "2026-02-27T00:00:01.000Z",
+        updatedAt: "2026-02-27T00:00:01.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.handoff).toEqual(handoff);
+    expect(next.sidebarThreadsById[threadId]?.handoff).toEqual(handoff);
+  });
+
   it("updates only the affected thread for message events", () => {
     const thread1 = makeThread({
       id: ThreadId.makeUnsafe("thread-1"),

@@ -171,6 +171,7 @@ const DiffPanelInlineSidebar = (props: {
 function ChatThreadRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
+  const store = useStore();
   const navigate = useNavigate();
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
@@ -299,6 +300,45 @@ function ChatThreadRouteView() {
     threadHydrationFailed,
     threadId,
   ]);
+
+  const handoffSourceThreadId = serverThread?.handoff?.sourceThreadId;
+  useEffect(() => {
+    if (!bootstrapComplete || !handoffSourceThreadId) {
+      return;
+    }
+    const sourceThread = getThreadById(store.threads, handoffSourceThreadId);
+    if (sourceThread && sourceThread.historyLoaded !== false) {
+      return;
+    }
+    if (sourceThread?.updatedAt) {
+      const cached = readCachedHydratedThread(handoffSourceThreadId, sourceThread.updatedAt);
+      if (cached) {
+        startTransition(() => {
+          hydrateThreadFromReadModel(cached);
+        });
+        return;
+      }
+    }
+    let canceled = false;
+    void (async () => {
+      try {
+        const readModelThread = await hydrateThreadFromCache(handoffSourceThreadId, {
+          expectedUpdatedAt: sourceThread?.updatedAt ?? null,
+        });
+        if (canceled) {
+          return;
+        }
+        startTransition(() => {
+          hydrateThreadFromReadModel(readModelThread);
+        });
+      } catch (error) {
+        console.error("Failed to hydrate handoff source thread", error);
+      }
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, [bootstrapComplete, handoffSourceThreadId, store.threads, hydrateThreadFromReadModel]);
 
   if (!bootstrapComplete || !routeThreadExists) {
     return null;

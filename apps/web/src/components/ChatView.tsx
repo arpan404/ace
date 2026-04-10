@@ -4677,10 +4677,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const api = readNativeApi();
     if (!api || !activeThread) return;
     await api.orchestration.dispatchCommand({
-      type: "thread.turn.interrupt",
+      type: "thread.session.stop",
       commandId: newCommandId(),
       threadId: activeThread.id,
-      ...(activeInterruptTurnId !== undefined ? { turnId: activeInterruptTurnId } : {}),
       createdAt: new Date().toISOString(),
     });
   };
@@ -5632,9 +5631,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
     return <NewThreadLanding />;
   }
 
+  const isHandoffThread =
+    serverThread?.handoff !== undefined || activeThread?.handoff !== undefined;
   const messagesTimelineProps = {
     hasMessages:
-      timelineEntries.length > 0 || (isThreadHistoryLoading && activeThread.messages.length > 0),
+      timelineEntries.length > 0 ||
+      (isThreadHistoryLoading && activeThread.messages.length > 0) ||
+      isHandoffThread,
     isWorking,
     onStartConversationFromMessage: scheduleComposerFocus,
     onContinueWithGitHubIssues: openGitHubIssueDialog,

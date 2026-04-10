@@ -18,6 +18,7 @@ import {
   deriveEffectiveComposerModelState,
   useComposerDraftStore,
 } from "./composerDraftStore";
+import { getDefaultServerModel } from "./providerModels";
 import { removeLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
@@ -1172,6 +1173,21 @@ describe("deriveEffectiveComposerModelState", () => {
 
     expect(state.selectedModel).toBe("composer-2-fast");
     expect(state.modelOptions).toBeNull();
+  });
+
+  it("falls back to the selected provider default when thread/project models are from other providers", () => {
+    const state = deriveEffectiveComposerModelState({
+      draft: null,
+      providers: CURSOR_PROVIDER_WITH_FAST_VARIANTS,
+      selectedProvider: "cursor",
+      threadModelSelection: modelSelection("codex", "gpt-5.3-codex"),
+      projectModelSelection: modelSelection("claudeAgent", "claude-opus-4-6"),
+      settings: DEFAULT_UNIFIED_SETTINGS,
+    });
+
+    expect(state.selectedModel).toBe(
+      getDefaultServerModel(CURSOR_PROVIDER_WITH_FAST_VARIANTS, "cursor"),
+    );
   });
 });
 
