@@ -20,6 +20,15 @@ type MutableReplayTurn = {
 
 const DEFAULT_COMPACT_MAX_CHARS = 12_000;
 const DEFAULT_COMPACT_MAX_TURNS = 24;
+const HANDOFF_CONTEXT_INSTRUCTION = [
+  "Handoff context from a prior provider session.",
+  "The replayed context is historical interaction between USER and ASSISTANT.",
+  "Tool availability can differ across providers, so treat referenced tools and outputs as historical context and adapt to tools available in this session.",
+].join(" ");
+const HANDOFF_TRANSCRIPT_MODE_SUFFIX = "The full transcript replay appears after this note.";
+const HANDOFF_COMPACT_MODE_SUFFIX = "A compact interaction summary appears after this note.";
+const HANDOFF_COMPACT_SUMMARY_PROMPT =
+  "Please provide a concise summary of the prior USER and ASSISTANT interaction before addressing the latest user request in this session.";
 
 function uniqueAttachmentNames(
   attachments: ReadonlyArray<ChatAttachment> | undefined,
@@ -125,6 +134,14 @@ function formatReplayTurnForCompact(
   return sections.join("\n\n");
 }
 
+function buildHandoffInstructionTurn(mode: ThreadHandoffMode): ProviderReplayTurn {
+  const suffix = mode === "compact" ? HANDOFF_COMPACT_MODE_SUFFIX : HANDOFF_TRANSCRIPT_MODE_SUFFIX;
+  return {
+    prompt: `${HANDOFF_CONTEXT_INSTRUCTION} ${suffix}`,
+    attachmentNames: [],
+  };
+}
+
 export function compactReplayTurns(
   replayTurns: ReadonlyArray<ProviderReplayTurn>,
   options?: {
@@ -153,8 +170,9 @@ export function compactReplayTurns(
 
   return [
     {
-      prompt: `Handoff context summary from a prior provider session:\n\n${compacted}`,
+      prompt: HANDOFF_COMPACT_SUMMARY_PROMPT,
       attachmentNames: [],
+      assistantResponse: `Prior interaction summary:\n\n${compacted}`,
     },
   ];
 }
@@ -164,5 +182,11 @@ export function sourceMessagesToHandoffReplayTurns(
   mode: ThreadHandoffMode,
 ): ReadonlyArray<ProviderReplayTurn> {
   const replayTurns = sourceMessagesToReplayTurns(messages);
-  return mode === "compact" ? compactReplayTurns(replayTurns) : replayTurns;
+  if (replayTurns.length === 0) {
+    return [];
+  }
+  const handoffInstructionTurn = buildHandoffInstructionTurn(mode);
+  return mode === "compact"
+    ? [handoffInstructionTurn, ...compactReplayTurns(replayTurns)]
+    : [handoffInstructionTurn, ...replayTurns];
 }

@@ -637,9 +637,9 @@ const make = Effect.gen(function* () {
         cwd: input.cwd,
         message: input.messageText,
         ...(attachments.length > 0 ? { attachments } : {}),
+        // Thread titles should always use the dedicated text-generation setting.
         modelSelection: resolveTextGenerationModelSelection({
           serverSettings,
-          fallbackModelSelection: input.modelSelection,
         }),
       });
       if (!generated) return;
