@@ -11,10 +11,21 @@ export interface HostPairingPayload {
   readonly claimUrl: string;
 }
 
+export interface HostRelayPayload {
+  readonly name?: string;
+  readonly relayUrl: string;
+  readonly hostToken: string;
+  readonly apiKey: string;
+}
+
 export type HostConnectionQrPayload =
   | {
       readonly kind: "direct";
       readonly draft: HostConnectionDraft;
+    }
+  | {
+      readonly kind: "relay";
+      readonly relay: HostRelayPayload;
     }
   | {
       readonly kind: "pairing";
@@ -34,6 +45,10 @@ interface QrHostPayload {
   readonly pairingSecret?: string;
   readonly claimUrl?: string;
   readonly pairingUrl?: string;
+  readonly relayUrl?: string;
+  readonly connectUrl?: string;
+  readonly hostToken?: string;
+  readonly apiKey?: string;
 }
 
 function ensureWsPath(pathname: string): string {
@@ -96,6 +111,12 @@ function parseAceSchemePayload(rawPayload: string): QrHostPayload | null {
     const wsUrl = parsed.searchParams.get("wsUrl") ?? parsed.searchParams.get("ws");
     const url = parsed.searchParams.get("url");
     const token = parsed.searchParams.get("token");
+    const relayUrl =
+      parsed.searchParams.get("relayUrl") ??
+      parsed.searchParams.get("connectUrl") ??
+      parsed.searchParams.get("relay");
+    const hostToken = parsed.searchParams.get("hostToken") ?? parsed.searchParams.get("host");
+    const apiKey = parsed.searchParams.get("apiKey") ?? parsed.searchParams.get("key");
     const name = parsed.searchParams.get("name");
     const sessionId = parsed.searchParams.get("sessionId") ?? parsed.searchParams.get("pairingId");
     const secret = parsed.searchParams.get("secret") ?? parsed.searchParams.get("pairingSecret");
@@ -105,6 +126,9 @@ function parseAceSchemePayload(rawPayload: string): QrHostPayload | null {
       ...(wsUrl ? { wsUrl } : {}),
       ...(url ? { url } : {}),
       ...(token ? { token } : {}),
+      ...(relayUrl ? { relayUrl } : {}),
+      ...(hostToken ? { hostToken } : {}),
+      ...(apiKey ? { apiKey } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(secret ? { secret } : {}),
       ...(claimUrl ? { claimUrl } : {}),
@@ -142,6 +166,18 @@ function resolvePairingClaimUrl(input: string): string | null {
   }
 }
 
+function resolveRelayUrl(input: string): string | null {
+  try {
+    const parsed = new URL(input);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 function resolvePairingFromPayload(payload: QrHostPayload): HostPairingPayload | null {
   const sessionId = payload.sessionId ?? payload.pairingId;
   const secret = payload.secret ?? payload.pairingSecret;
@@ -168,6 +204,36 @@ function resolvePairingFromPayload(payload: QrHostPayload): HostPairingPayload |
   };
 }
 
+function resolveRelayFromPayload(payload: QrHostPayload): HostRelayPayload | null {
+  const relayUrlValue = payload.relayUrl ?? payload.connectUrl;
+  const hostTokenValue = payload.hostToken;
+  const apiKeyValue = payload.apiKey ?? payload.authToken ?? payload.token;
+  if (
+    typeof relayUrlValue !== "string" ||
+    typeof hostTokenValue !== "string" ||
+    typeof apiKeyValue !== "string"
+  ) {
+    return null;
+  }
+  const relayUrl = resolveRelayUrl(relayUrlValue.trim());
+  if (!relayUrl) {
+    return null;
+  }
+  const apiKey = apiKeyValue.trim();
+  const hostToken = hostTokenValue.trim();
+  if (apiKey.length === 0 || hostToken.length === 0) {
+    return null;
+  }
+  return {
+    ...(typeof payload.name === "string" && payload.name.trim().length > 0
+      ? { name: payload.name.trim() }
+      : {}),
+    relayUrl,
+    hostToken,
+    apiKey,
+  };
+}
+
 export function parseHostConnectionQrPayload(rawPayload: string): HostConnectionQrPayload | null {
   const trimmed = rawPayload.trim();
   if (trimmed.length === 0) {
@@ -188,6 +254,10 @@ export function parseHostConnectionQrPayload(rawPayload: string): HostConnection
 
   const fromAceScheme = parseAceSchemePayload(trimmed);
   if (fromAceScheme) {
+    const relay = resolveRelayFromPayload(fromAceScheme);
+    if (relay) {
+      return { kind: "relay", relay };
+    }
     const pairing = resolvePairingFromPayload(fromAceScheme);
     if (pairing) {
       return { kind: "pairing", pairing };
@@ -201,6 +271,10 @@ export function parseHostConnectionQrPayload(rawPayload: string): HostConnection
 
   const fromJson = parseHostPayloadJson(trimmed);
   if (fromJson) {
+    const relay = resolveRelayFromPayload(fromJson);
+    if (relay) {
+      return { kind: "relay", relay };
+    }
     const pairing = resolvePairingFromPayload(fromJson);
     if (pairing) {
       return { kind: "pairing", pairing };
@@ -252,6 +326,31 @@ export function buildPairingPayload(input: HostPairingPayload): string {
     null,
     2,
   );
+}
+
+export function buildRelayConnectionString(input: HostRelayPayload): string {
+  const relayUrl = resolveRelayUrl(input.relayUrl);
+  if (!relayUrl) {
+    throw new Error("Relay URL must use http:// or https://.");
+  }
+  const hostToken = input.hostToken.trim();
+  if (hostToken.length === 0) {
+    throw new Error("Relay host token is required.");
+  }
+  const apiKey = input.apiKey.trim();
+  if (apiKey.length === 0) {
+    throw new Error("Relay API key is required.");
+  }
+  const params = new URLSearchParams({
+    relayUrl,
+    hostToken,
+    apiKey,
+  });
+  const name = input.name?.trim();
+  if (name && name.length > 0) {
+    params.set("name", name);
+  }
+  return `ace://connect?${params.toString()}`;
 }
 
 export function resolveHostDisplayName(rawName: string | undefined, wsUrl: string): string {
@@ -349,6 +448,71 @@ function resolveFetch(fetchImpl?: FetchLike): FetchLike {
     throw new Error("Fetch API is unavailable in this runtime.");
   }
   return fetch as unknown as FetchLike;
+}
+
+export async function requestRelayConnection(
+  relay: HostRelayPayload,
+  options?: {
+    readonly requesterName?: string;
+    readonly lastKnownWsUrl?: string;
+    readonly fetch?: FetchLike;
+  },
+): Promise<HostConnectionDraft> {
+  const relayUrl = resolveRelayUrl(relay.relayUrl);
+  if (!relayUrl) {
+    throw new Error("Relay URL must use http:// or https://.");
+  }
+  const hostToken = relay.hostToken.trim();
+  if (hostToken.length === 0) {
+    throw new Error("Relay host token is required.");
+  }
+  const apiKey = relay.apiKey.trim();
+  if (apiKey.length === 0) {
+    throw new Error("Relay API key is required.");
+  }
+  const fetchImpl = resolveFetch(options?.fetch);
+  const response = await fetchImpl(relayUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      hostToken,
+      apiKey,
+      ...(options?.lastKnownWsUrl?.trim()
+        ? {
+            lastKnownWsUrl: options.lastKnownWsUrl.trim(),
+          }
+        : {}),
+      ...(options?.requesterName?.trim()
+        ? {
+            requesterName: options.requesterName.trim(),
+          }
+        : {}),
+    }),
+  });
+  const payload = await parseResponseJson(response);
+  if (!response.ok) {
+    const errorMessage = readErrorMessage(payload);
+    throw new Error(
+      errorMessage ?? `Relay connection request failed with status ${String(response.status)}.`,
+    );
+  }
+  if (!isObjectRecord(payload)) {
+    throw new Error("Relay connection response was invalid.");
+  }
+  if (typeof payload.wsUrl !== "string" || typeof payload.authToken !== "string") {
+    throw new Error("Relay connection response was missing required fields.");
+  }
+  const name =
+    typeof payload.name === "string" && payload.name.trim().length > 0
+      ? payload.name.trim()
+      : relay.name?.trim();
+  return {
+    ...(name && name.length > 0 ? { name } : {}),
+    wsUrl: payload.wsUrl,
+    authToken: payload.authToken,
+  };
 }
 
 export interface PairingClaimReceipt {

@@ -1,11 +1,13 @@
 import { DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM } from "@ace/contracts";
 import { randomUUID } from "@ace/shared/ids";
 import {
+  buildRelayConnectionString,
   appendWsAuthToken,
   buildPairingPayload,
   normalizeWsUrl,
   parseHostConnectionQrPayload,
   parseHostDraftFromQrPayload,
+  requestRelayConnection,
   readPairingClaim,
   requestPairingClaim,
   resolveHostDisplayName,
@@ -13,6 +15,7 @@ import {
   waitForPairingApproval,
   type HostConnectionDraft,
   type HostPairingPayload,
+  type HostRelayPayload,
   wsUrlToBrowserBaseUrl,
 } from "@ace/shared/hostConnections";
 
@@ -40,6 +43,30 @@ export interface HostPairingSessionStatus {
 export interface HostPairingSessionCreated extends HostPairingSessionStatus {
   readonly secret: string;
   readonly claimUrl: string;
+}
+
+export interface PairingAdvertisedEndpoint {
+  readonly wsUrl: string;
+}
+
+export type RelayDeviceIcon = "iphone" | "ipad" | "laptop" | "desktop" | "watch";
+
+export interface RelayDeviceView {
+  readonly deviceId: string;
+  readonly name: string;
+  readonly icon: RelayDeviceIcon;
+  readonly apiKey: string;
+  readonly createdAt: string;
+  readonly lastSeenAt?: string;
+  readonly revokedAt?: string;
+  readonly activeConnectionCount: number;
+}
+
+export interface RelayHostSnapshot {
+  readonly hostToken: string;
+  readonly relayUrl: string;
+  readonly wsUrl: string;
+  readonly devices: readonly RelayDeviceView[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -283,6 +310,98 @@ function assertPairingSessionCreated(payload: unknown): HostPairingSessionCreate
   };
 }
 
+function assertPairingAdvertisedEndpoint(payload: unknown): PairingAdvertisedEndpoint {
+  if (typeof payload !== "object" || payload === null) {
+    throw new Error("Pairing endpoint response was invalid.");
+  }
+  const value = payload as { wsUrl?: unknown };
+  if (typeof value.wsUrl !== "string") {
+    throw new Error("Pairing endpoint response was missing wsUrl.");
+  }
+  return {
+    wsUrl: value.wsUrl,
+  };
+}
+
+function isRelayDeviceIcon(value: unknown): value is RelayDeviceIcon {
+  return (
+    value === "iphone" ||
+    value === "ipad" ||
+    value === "laptop" ||
+    value === "desktop" ||
+    value === "watch"
+  );
+}
+
+function assertRelayDeviceView(payload: unknown): RelayDeviceView {
+  if (!isRecord(payload)) {
+    throw new Error("Relay device response was invalid.");
+  }
+  if (
+    typeof payload.deviceId !== "string" ||
+    typeof payload.name !== "string" ||
+    !isRelayDeviceIcon(payload.icon) ||
+    typeof payload.apiKey !== "string" ||
+    typeof payload.createdAt !== "string" ||
+    typeof payload.activeConnectionCount !== "number"
+  ) {
+    throw new Error("Relay device response was missing required fields.");
+  }
+  return {
+    deviceId: payload.deviceId,
+    name: payload.name,
+    icon: payload.icon,
+    apiKey: payload.apiKey,
+    createdAt: payload.createdAt,
+    ...(typeof payload.lastResolvedAt === "string"
+      ? { lastSeenAt: payload.lastResolvedAt }
+      : typeof payload.lastSeenAt === "string"
+        ? { lastSeenAt: payload.lastSeenAt }
+        : {}),
+    ...(typeof payload.revokedAt === "string" ? { revokedAt: payload.revokedAt } : {}),
+    activeConnectionCount: payload.activeConnectionCount,
+  };
+}
+
+function assertRelayDeviceCreated(payload: unknown): RelayHostSnapshot {
+  if (!isRecord(payload)) {
+    throw new Error("Relay device creation response was invalid.");
+  }
+  if (
+    typeof payload.hostToken !== "string" ||
+    typeof payload.relayUrl !== "string" ||
+    typeof payload.wsUrl !== "string"
+  ) {
+    throw new Error("Relay device creation response was missing required fields.");
+  }
+  const device = assertRelayDeviceView(payload.device);
+  return {
+    hostToken: payload.hostToken,
+    relayUrl: payload.relayUrl,
+    wsUrl: payload.wsUrl,
+    devices: [device],
+  };
+}
+
+function assertRelayHostSnapshot(payload: unknown): RelayHostSnapshot {
+  if (!isRecord(payload) || !Array.isArray(payload.devices)) {
+    throw new Error("Relay devices response was invalid.");
+  }
+  if (
+    typeof payload.hostToken !== "string" ||
+    typeof payload.relayUrl !== "string" ||
+    typeof payload.wsUrl !== "string"
+  ) {
+    throw new Error("Relay devices response was missing required fields.");
+  }
+  return {
+    hostToken: payload.hostToken,
+    relayUrl: payload.relayUrl,
+    wsUrl: payload.wsUrl,
+    devices: payload.devices.map((device) => assertRelayDeviceView(device)),
+  };
+}
+
 async function requestPairingSessionJson(
   input: {
     readonly wsUrl: string;
@@ -333,6 +452,98 @@ export async function createHostPairingSession(input: {
   return assertPairingSessionCreated(payload);
 }
 
+export async function readHostPairingAdvertisedEndpoint(input: {
+  readonly wsUrl: string;
+  readonly authToken?: string;
+}): Promise<PairingAdvertisedEndpoint> {
+  const normalizedWsUrl = normalizeWsUrl(input.wsUrl);
+  const payload = await requestPairingSessionJson(
+    {
+      wsUrl: normalizedWsUrl,
+      ...(input.authToken ? { authToken: input.authToken } : {}),
+    },
+    {
+      method: "GET",
+      path: `/api/pairing/advertised-endpoint?wsUrl=${encodeURIComponent(normalizedWsUrl)}`,
+    },
+  );
+  return assertPairingAdvertisedEndpoint(payload);
+}
+
+export async function listHostRelayDevices(input: {
+  readonly wsUrl: string;
+  readonly authToken?: string;
+}): Promise<RelayHostSnapshot> {
+  const normalizedWsUrl = normalizeWsUrl(input.wsUrl);
+  const payload = await requestPairingSessionJson(
+    {
+      wsUrl: normalizedWsUrl,
+      ...(input.authToken ? { authToken: input.authToken } : {}),
+    },
+    {
+      method: "GET",
+      path: `/api/pairing/relay/devices?wsUrl=${encodeURIComponent(normalizedWsUrl)}`,
+    },
+  );
+  return assertRelayHostSnapshot(payload);
+}
+
+export async function createHostRelayDevice(input: {
+  readonly wsUrl: string;
+  readonly authToken?: string;
+  readonly name?: string;
+  readonly icon?: RelayDeviceIcon;
+}): Promise<RelayHostSnapshot> {
+  const payload = await requestPairingSessionJson(
+    {
+      wsUrl: normalizeWsUrl(input.wsUrl),
+      ...(input.authToken ? { authToken: input.authToken } : {}),
+    },
+    {
+      method: "POST",
+      path: "/api/pairing/relay/devices",
+      body: {
+        wsUrl: normalizeWsUrl(input.wsUrl),
+        ...(input.name?.trim() ? { name: input.name.trim() } : {}),
+        ...(input.icon ? { icon: input.icon } : {}),
+      },
+    },
+  );
+  return assertRelayDeviceCreated(payload);
+}
+
+export async function revokeHostRelayDevice(input: {
+  readonly wsUrl: string;
+  readonly authToken?: string;
+  readonly deviceId: string;
+}): Promise<RelayHostSnapshot> {
+  const payload = await requestPairingSessionJson(
+    {
+      wsUrl: normalizeWsUrl(input.wsUrl),
+      ...(input.authToken ? { authToken: input.authToken } : {}),
+    },
+    {
+      method: "POST",
+      path: `/api/pairing/relay/devices/${encodeURIComponent(input.deviceId)}/revoke`,
+      body: {
+        wsUrl: normalizeWsUrl(input.wsUrl),
+      },
+    },
+  );
+  return assertRelayDeviceCreated(payload);
+}
+
+export function buildHostRelayConnectionString(input: HostRelayPayload): string {
+  return buildRelayConnectionString(input);
+}
+
+export async function resolveRelayHostConnection(
+  relay: HostRelayPayload,
+  options?: { readonly requesterName?: string; readonly lastKnownWsUrl?: string },
+): Promise<HostConnectionDraft> {
+  return requestRelayConnection(relay, options);
+}
+
 export async function readHostPairingSession(input: {
   readonly wsUrl: string;
   readonly authToken?: string;
@@ -381,4 +592,4 @@ export {
   requestPairingClaim,
   waitForPairingApproval,
 };
-export type { HostConnectionDraft, HostPairingPayload };
+export type { HostConnectionDraft, HostPairingPayload, HostRelayPayload };

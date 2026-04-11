@@ -3,9 +3,10 @@
     "name": "ace Mobile",
     "slug": "ace-mobile",
     "version": "0.0.1",
+    "scheme": "ace-mobile",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "plugins": ["expo-notifications", "expo-camera"],
+    "plugins": ["expo-router", "expo-notifications", "expo-camera"],
     "ios": {
       "infoPlist": {
         "NSCameraUsageDescription": "Scan QR codes to add ace host instances."

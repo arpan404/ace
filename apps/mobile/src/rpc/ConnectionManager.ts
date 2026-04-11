@@ -1,0 +1,88 @@
+import {
+  createMobileWsClient,
+  type MobileWsClient,
+  type MobileWsClientConnectionState,
+} from "./mobileWsClient";
+import type { HostInstance } from "../hostInstances";
+
+export interface ManagedConnection {
+  host: HostInstance;
+  client: MobileWsClient;
+  status: MobileWsClientConnectionState;
+  cleanup: () => void;
+}
+
+class ConnectionManager {
+  private connections = new Map<string, ManagedConnection>();
+  private statusListeners = new Set<(connections: ManagedConnection[]) => void>();
+
+  async connect(host: HostInstance): Promise<MobileWsClient> {
+    const existing = this.connections.get(host.id);
+    if (existing) {
+      return existing.client;
+    }
+
+    const client = createMobileWsClient({
+      url: host.wsUrl,
+      authToken: host.authToken,
+      clientSessionId: host.clientSessionId,
+    });
+
+    const cleanupStatus = client.onConnectionStateChange((status) => {
+      const conn = this.connections.get(host.id);
+      if (conn) {
+        conn.status = status;
+        this.notify();
+      }
+    });
+
+    const managed: ManagedConnection = {
+      host,
+      client,
+      status: { kind: "disconnected" },
+      cleanup: () => {
+        cleanupStatus();
+        void client.dispose();
+      },
+    };
+
+    this.connections.set(host.id, managed);
+    this.notify();
+    return client;
+  }
+
+  async disconnect(hostId: string): Promise<void> {
+    const conn = this.connections.get(hostId);
+    if (conn) {
+      conn.cleanup();
+      this.connections.delete(hostId);
+      this.notify();
+    }
+  }
+
+  async disconnectAll(): Promise<void> {
+    for (const conn of this.connections.values()) {
+      conn.cleanup();
+    }
+    this.connections.clear();
+    this.notify();
+  }
+
+  getConnections(): ManagedConnection[] {
+    return Array.from(this.connections.values());
+  }
+
+  onStatusChange(listener: (connections: ManagedConnection[]) => void): () => void {
+    this.statusListeners.add(listener);
+    return () => this.statusListeners.delete(listener);
+  }
+
+  private notify(): void {
+    const conns = this.getConnections();
+    for (const listener of this.statusListeners) {
+      listener(conns);
+    }
+  }
+}
+
+export const connectionManager = new ConnectionManager();

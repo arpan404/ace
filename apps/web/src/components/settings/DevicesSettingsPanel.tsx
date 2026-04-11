@@ -2,28 +2,29 @@ import { LaptopIcon, LinkIcon, ScanLineIcon, Trash2Icon } from "lucide-react";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { isElectron } from "../../env";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import {
-  buildPairingPayload,
-  createHostPairingSession,
-  buildHostSharePayload,
+  buildHostRelayConnectionString,
   connectToWsHost,
+  createHostRelayDevice,
   createRemoteHostInstance,
   isHostConnectionActive,
+  listHostRelayDevices,
   loadRemoteHostInstances,
   normalizeWsUrl,
   parseHostConnectionQrPayload,
-  requestPairingClaim,
-  resolveHostPairingSession,
-  readHostPairingSession,
   persistRemoteHostInstances,
+  readHostPairingAdvertisedEndpoint,
   resolveActiveWsUrl,
   resolveHostConnectionWsUrl,
   resolveLocalDeviceWsUrl,
+  resolveRelayHostConnection,
+  revokeHostRelayDevice,
   splitWsUrlAuthToken,
-  waitForPairingApproval,
+  type RelayDeviceIcon,
+  type RelayDeviceView,
   type RemoteHostInstance,
-  type HostPairingSessionStatus,
 } from "../../lib/remoteHosts";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { Button } from "../ui/button";
@@ -31,12 +32,16 @@ import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
-import { isElectron } from "../../env";
 
 interface HostDraftState {
   readonly name: string;
   readonly wsUrl: string;
   readonly authToken: string;
+}
+
+interface RelayDraftState {
+  readonly name: string;
+  readonly icon: RelayDeviceIcon;
 }
 
 const EMPTY_HOST_DRAFT: HostDraftState = {
@@ -45,15 +50,21 @@ const EMPTY_HOST_DRAFT: HostDraftState = {
   authToken: "",
 };
 
-interface PairingSessionState {
-  readonly sessionId: string;
-  readonly secret: string;
-  readonly claimUrl: string;
-  readonly status: HostPairingSessionStatus["status"];
-  readonly expiresAt: string;
-  readonly requesterName?: string;
-  readonly claimId?: string;
-}
+const EMPTY_RELAY_DRAFT: RelayDraftState = {
+  name: "",
+  icon: "iphone",
+};
+
+const RELAY_ICON_OPTIONS: ReadonlyArray<{
+  readonly icon: RelayDeviceIcon;
+  readonly label: string;
+}> = [
+  { icon: "iphone", label: "Phone" },
+  { icon: "ipad", label: "Tablet" },
+  { icon: "laptop", label: "Laptop" },
+  { icon: "desktop", label: "Desktop" },
+  { icon: "watch", label: "Watch" },
+];
 
 const URL_MODE_MAX_HOSTS = 1;
 
@@ -64,6 +75,19 @@ function normalizeHostsForMode(hosts: ReadonlyArray<RemoteHostInstance>, desktop
   return hosts.slice(0, URL_MODE_MAX_HOSTS);
 }
 
+function relayIconLabel(icon: RelayDeviceIcon): string {
+  return RELAY_ICON_OPTIONS.find((option) => option.icon === icon)?.label ?? "Phone";
+}
+
+function resolveRelayUrlFromWs(wsUrl: string): string {
+  const parsed = new URL(wsUrl);
+  parsed.protocol = parsed.protocol === "wss:" ? "https:" : "http:";
+  parsed.pathname = "/v1/resolve";
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString();
+}
+
 export function DevicesSettingsPanel() {
   const desktopMode = isElectron;
   const [hosts, setHosts] = useState<RemoteHostInstance[]>(() =>
@@ -71,72 +95,38 @@ export function DevicesSettingsPanel() {
   );
   const [hostDraft, setHostDraft] = useState<HostDraftState>(EMPTY_HOST_DRAFT);
   const [importPayload, setImportPayload] = useState("");
-  const [importingPairing, setImportingPairing] = useState(false);
-  const [pairingSession, setPairingSession] = useState<PairingSessionState | null>(null);
-  const [creatingPairingSession, setCreatingPairingSession] = useState(false);
-  const [resolvingPairingSession, setResolvingPairingSession] = useState(false);
-  const [pairingQrDataUrl, setPairingQrDataUrl] = useState<string | null>(null);
+  const [importingHost, setImportingHost] = useState(false);
+  const [advertisedLocalWsUrl, setAdvertisedLocalWsUrl] = useState<string | null>(null);
+  const [relayHostToken, setRelayHostToken] = useState<string | null>(null);
+  const [relayResolveUrl, setRelayResolveUrl] = useState<string | null>(null);
+  const [relayDevices, setRelayDevices] = useState<readonly RelayDeviceView[]>([]);
+  const [relayDeviceError, setRelayDeviceError] = useState<string | null>(null);
+  const [loadingRelayDevices, setLoadingRelayDevices] = useState(false);
+  const [creatingRelayDevice, setCreatingRelayDevice] = useState(false);
+  const [revokingRelayDeviceId, setRevokingRelayDeviceId] = useState<string | null>(null);
+  const [relayDraft, setRelayDraft] = useState<RelayDraftState>(EMPTY_RELAY_DRAFT);
+  const [visibleRelayQrDeviceId, setVisibleRelayQrDeviceId] = useState<string | null>(null);
+  const [visibleRelayQrDataUrl, setVisibleRelayQrDataUrl] = useState<string | null>(null);
   const activeWsUrl = useMemo(() => resolveActiveWsUrl(), []);
   const localDeviceConnection = useMemo(() => splitWsUrlAuthToken(resolveLocalDeviceWsUrl()), []);
-  const localConnectionUrl = useMemo(
+  const localAdvertisedWsUrl = advertisedLocalWsUrl ?? localDeviceConnection.wsUrl;
+  const localControlConnectionUrl = useMemo(
     () => resolveHostConnectionWsUrl(localDeviceConnection),
     [localDeviceConnection],
   );
+  const localShareConnectionUrl = useMemo(
+    () =>
+      resolveHostConnectionWsUrl({
+        wsUrl: localAdvertisedWsUrl,
+        authToken: localDeviceConnection.authToken,
+      }),
+    [localAdvertisedWsUrl, localDeviceConnection.authToken],
+  );
   const localIsActive = useMemo(
-    () => localConnectionUrl === activeWsUrl,
-    [activeWsUrl, localConnectionUrl],
+    () => localControlConnectionUrl === activeWsUrl,
+    [activeWsUrl, localControlConnectionUrl],
   );
-  const pairingPayload = useMemo(() => {
-    if (!pairingSession) {
-      return "";
-    }
-    try {
-      return buildPairingPayload({
-        name: "Primary ace host",
-        sessionId: pairingSession.sessionId,
-        secret: pairingSession.secret,
-        claimUrl: pairingSession.claimUrl,
-      });
-    } catch {
-      return "";
-    }
-  }, [pairingSession]);
-
-  const saveHosts = useCallback(
-    (nextHosts: RemoteHostInstance[]) => {
-      const normalizedHosts = normalizeHostsForMode(nextHosts, desktopMode);
-      setHosts(normalizedHosts);
-      persistRemoteHostInstances(normalizedHosts);
-    },
-    [desktopMode],
-  );
-
-  useEffect(() => {
-    if (!pairingPayload) {
-      setPairingQrDataUrl(null);
-      return;
-    }
-    let cancelled = false;
-    void QRCode.toDataURL(pairingPayload, {
-      margin: 1,
-      width: 220,
-    })
-      .then((dataUrl: string) => {
-        if (!cancelled) {
-          setPairingQrDataUrl(dataUrl);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPairingQrDataUrl(null);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [pairingPayload]);
-
-  const { copyToClipboard, isCopied } = useCopyToClipboard<{ readonly label: string }>({
+  const { copyToClipboard } = useCopyToClipboard<{ readonly label: string }>({
     onCopy: ({ label }) => {
       toastManager.add({
         type: "success",
@@ -151,6 +141,123 @@ export function DevicesSettingsPanel() {
       });
     },
   });
+
+  const saveHosts = useCallback(
+    (nextHosts: RemoteHostInstance[]) => {
+      const normalizedHosts = normalizeHostsForMode(nextHosts, desktopMode);
+      setHosts(normalizedHosts);
+      persistRemoteHostInstances(normalizedHosts);
+    },
+    [desktopMode],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void readHostPairingAdvertisedEndpoint({
+      wsUrl: localDeviceConnection.wsUrl,
+      ...(localDeviceConnection.authToken ? { authToken: localDeviceConnection.authToken } : {}),
+    })
+      .then((endpoint) => {
+        if (cancelled) {
+          return;
+        }
+        setAdvertisedLocalWsUrl(endpoint.wsUrl);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAdvertisedLocalWsUrl(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [localDeviceConnection.authToken, localDeviceConnection.wsUrl]);
+
+  const refreshRelayDevices = useCallback(async () => {
+    setLoadingRelayDevices(true);
+    try {
+      const snapshot = await listHostRelayDevices({
+        wsUrl: localAdvertisedWsUrl,
+        ...(localDeviceConnection.authToken ? { authToken: localDeviceConnection.authToken } : {}),
+      });
+      setRelayHostToken(snapshot.hostToken);
+      setRelayResolveUrl(snapshot.relayUrl);
+      setRelayDevices(snapshot.devices);
+      setRelayDeviceError(null);
+    } catch (error) {
+      setRelayDeviceError(error instanceof Error ? error.message : "Could not load relay devices.");
+    } finally {
+      setLoadingRelayDevices(false);
+    }
+  }, [localAdvertisedWsUrl, localDeviceConnection.authToken]);
+
+  useEffect(() => {
+    void refreshRelayDevices();
+  }, [refreshRelayDevices]);
+
+  useEffect(() => {
+    const handle = window.setInterval(() => {
+      void refreshRelayDevices();
+    }, 15_000);
+    return () => window.clearInterval(handle);
+  }, [refreshRelayDevices]);
+
+  const resolveRelayConnectionString = useCallback(
+    (device: RelayDeviceView) => {
+      const relayUrl = relayResolveUrl ?? resolveRelayUrlFromWs(localAdvertisedWsUrl);
+      const hostToken = relayHostToken?.trim() ?? "";
+      if (relayUrl.length === 0) {
+        throw new Error("Relay endpoint is unavailable.");
+      }
+      if (hostToken.length === 0) {
+        throw new Error("Relay host token is unavailable.");
+      }
+      return buildHostRelayConnectionString({
+        name: device.name,
+        relayUrl,
+        hostToken,
+        apiKey: device.apiKey,
+      });
+    },
+    [localAdvertisedWsUrl, relayHostToken, relayResolveUrl],
+  );
+
+  const visibleRelayDevice = useMemo(
+    () => relayDevices.find((device) => device.deviceId === visibleRelayQrDeviceId) ?? null,
+    [relayDevices, visibleRelayQrDeviceId],
+  );
+
+  useEffect(() => {
+    if (!visibleRelayDevice) {
+      setVisibleRelayQrDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    let payload = "";
+    try {
+      payload = resolveRelayConnectionString(visibleRelayDevice);
+    } catch {
+      setVisibleRelayQrDataUrl(null);
+      return;
+    }
+    void QRCode.toDataURL(payload, {
+      margin: 1,
+      width: 220,
+    })
+      .then((dataUrl) => {
+        if (!cancelled) {
+          setVisibleRelayQrDataUrl(dataUrl);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setVisibleRelayQrDataUrl(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [resolveRelayConnectionString, visibleRelayDevice]);
 
   const upsertHost = useCallback(
     (draft: { readonly name?: string; readonly wsUrl: string; readonly authToken?: string }) => {
@@ -233,8 +340,8 @@ export function DevicesSettingsPanel() {
     if (!parsed) {
       toastManager.add({
         type: "error",
-        title: "Invalid pairing payload.",
-        description: "Provide a ws/http URL, host:port, ace:// URL, or JSON payload.",
+        title: "Invalid connection string.",
+        description: "Use a relay connection string, ws/http URL, host:port, or legacy JSON.",
       });
       return;
     }
@@ -250,54 +357,57 @@ export function DevicesSettingsPanel() {
         });
         toastManager.add({
           type: "success",
-          title: "Payload imported.",
+          title: "Connection details imported.",
         });
       } catch (error) {
         toastManager.add({
           type: "error",
-          title: "Invalid host URL in payload.",
-          description: error instanceof Error ? error.message : "Could not parse host payload.",
+          title: "Invalid host URL.",
+          description: error instanceof Error ? error.message : "Could not parse connection input.",
         });
       }
       return;
     }
 
-    setImportingPairing(true);
-    try {
-      const receipt = await requestPairingClaim(parsed.pairing, {
-        requesterName: desktopMode ? "ace desktop" : "ace web",
-      });
-      toastManager.add({
-        type: "info",
-        title: "Pairing request sent.",
-        description: "Approve this request on the host device.",
-      });
-      const approvedDraft = await waitForPairingApproval(receipt);
-      const { wsUrl, authToken: embeddedAuthToken } = splitWsUrlAuthToken(
-        normalizeWsUrl(approvedDraft.wsUrl),
-      );
-      upsertHost({
-        name: approvedDraft.name ?? parsed.pairing.name ?? "",
-        wsUrl,
-        authToken: approvedDraft.authToken?.trim() || embeddedAuthToken,
-      });
-      setHostDraft(EMPTY_HOST_DRAFT);
-      setImportPayload("");
-      toastManager.add({
-        type: "success",
-        title: "Pairing approved.",
-        description: "Remote host saved.",
-      });
-    } catch (error) {
-      toastManager.add({
-        type: "error",
-        title: "Pairing failed.",
-        description: error instanceof Error ? error.message : "Could not complete host pairing.",
-      });
-    } finally {
-      setImportingPairing(false);
+    if (parsed.kind === "relay") {
+      setImportingHost(true);
+      try {
+        const resolved = await resolveRelayHostConnection(parsed.relay, {
+          requesterName: desktopMode ? "ace desktop" : "ace web",
+          ...(hosts[0]?.wsUrl ? { lastKnownWsUrl: hosts[0].wsUrl } : {}),
+        });
+        const { wsUrl, authToken: embeddedAuthToken } = splitWsUrlAuthToken(
+          normalizeWsUrl(resolved.wsUrl),
+        );
+        upsertHost({
+          name: resolved.name ?? parsed.relay.name ?? "",
+          wsUrl,
+          authToken: resolved.authToken?.trim() || embeddedAuthToken,
+        });
+        setHostDraft(EMPTY_HOST_DRAFT);
+        setImportPayload("");
+        toastManager.add({
+          type: "success",
+          title: "Remote host connected.",
+        });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Could not resolve relay connection.",
+          description: error instanceof Error ? error.message : "Relay connection failed.",
+        });
+      } finally {
+        setImportingHost(false);
+      }
+      return;
     }
-  }, [desktopMode, importPayload, upsertHost]);
+
+    toastManager.add({
+      type: "error",
+      title: "Legacy pairing format is no longer supported.",
+      description: "Create and use a relay connection string from Host this device.",
+    });
+  }, [desktopMode, hosts, importPayload, upsertHost]);
 
   const removeHost = useCallback(
     (host: RemoteHostInstance) => {
@@ -324,122 +434,84 @@ export function DevicesSettingsPanel() {
   );
 
   const connectLocalHost = useCallback(() => {
-    connectToWsHost(localConnectionUrl);
-  }, [localConnectionUrl]);
+    connectToWsHost(localControlConnectionUrl);
+  }, [localControlConnectionUrl]);
 
-  const startPairingSession = useCallback(async () => {
-    setCreatingPairingSession(true);
+  const createRelayAccess = useCallback(async () => {
+    setCreatingRelayDevice(true);
     try {
-      const created = await createHostPairingSession({
-        wsUrl: localDeviceConnection.wsUrl,
-        authToken: localDeviceConnection.authToken,
-        name: "Primary ace host",
+      const created = await createHostRelayDevice({
+        wsUrl: localAdvertisedWsUrl,
+        ...(localDeviceConnection.authToken ? { authToken: localDeviceConnection.authToken } : {}),
+        ...(relayDraft.name.trim() ? { name: relayDraft.name.trim() } : {}),
+        icon: relayDraft.icon,
       });
-      setPairingSession({
-        sessionId: created.sessionId,
-        secret: created.secret,
-        claimUrl: created.claimUrl,
-        status: created.status,
-        expiresAt: created.expiresAt,
-      });
+      setRelayHostToken(created.hostToken);
+      setRelayResolveUrl(created.relayUrl);
+      setRelayDraft(EMPTY_RELAY_DRAFT);
+      setVisibleRelayQrDeviceId(created.devices[0]?.deviceId ?? null);
       toastManager.add({
         type: "success",
-        title: "Pairing session ready.",
-        description: "Scan the QR code from another device to request access.",
+        title: "Remote device access created.",
       });
+      await refreshRelayDevices();
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Could not start pairing session.",
-        description: error instanceof Error ? error.message : "Pairing API request failed.",
+        title: "Could not create remote access.",
+        description: error instanceof Error ? error.message : "Relay device creation failed.",
       });
     } finally {
-      setCreatingPairingSession(false);
+      setCreatingRelayDevice(false);
     }
-  }, [localDeviceConnection.authToken, localDeviceConnection.wsUrl]);
+  }, [
+    localDeviceConnection.authToken,
+    localAdvertisedWsUrl,
+    refreshRelayDevices,
+    relayDraft.icon,
+    relayDraft.name,
+  ]);
 
-  const resolvePairingRequest = useCallback(
-    async (approve: boolean) => {
-      if (!pairingSession) {
+  const revokeRelayAccess = useCallback(
+    async (device: RelayDeviceView) => {
+      const confirmed = window.confirm(`Revoke access for "${device.name}"?`);
+      if (!confirmed) {
         return;
       }
-      setResolvingPairingSession(true);
+      setRevokingRelayDeviceId(device.deviceId);
       try {
-        const updated = await resolveHostPairingSession({
-          wsUrl: localDeviceConnection.wsUrl,
-          authToken: localDeviceConnection.authToken,
-          sessionId: pairingSession.sessionId,
-          approve,
+        await revokeHostRelayDevice({
+          wsUrl: localAdvertisedWsUrl,
+          ...(localDeviceConnection.authToken
+            ? { authToken: localDeviceConnection.authToken }
+            : {}),
+          deviceId: device.deviceId,
         });
-        setPairingSession((previous) =>
-          previous
-            ? {
-                ...previous,
-                status: updated.status,
-                expiresAt: updated.expiresAt,
-                ...(updated.requesterName ? { requesterName: updated.requesterName } : {}),
-                ...(updated.claimId ? { claimId: updated.claimId } : {}),
-              }
-            : previous,
-        );
+        if (visibleRelayQrDeviceId === device.deviceId) {
+          setVisibleRelayQrDeviceId(null);
+        }
+        toastManager.add({
+          type: "success",
+          title: "Remote access revoked.",
+        });
+        await refreshRelayDevices();
       } catch (error) {
         toastManager.add({
           type: "error",
-          title: "Could not resolve pairing request.",
-          description: error instanceof Error ? error.message : "Pairing resolution failed.",
+          title: "Could not revoke remote access.",
+          description: error instanceof Error ? error.message : "Relay revoke failed.",
         });
       } finally {
-        setResolvingPairingSession(false);
+        setRevokingRelayDeviceId(null);
       }
     },
-    [localDeviceConnection.authToken, localDeviceConnection.wsUrl, pairingSession],
+    [
+      localDeviceConnection.authToken,
+      localAdvertisedWsUrl,
+      refreshRelayDevices,
+      visibleRelayQrDeviceId,
+    ],
   );
-
-  useEffect(() => {
-    if (!pairingSession) {
-      return;
-    }
-    if (
-      pairingSession.status === "approved" ||
-      pairingSession.status === "rejected" ||
-      pairingSession.status === "expired"
-    ) {
-      return;
-    }
-    let cancelled = false;
-    const handle = setInterval(() => {
-      void readHostPairingSession({
-        wsUrl: localDeviceConnection.wsUrl,
-        authToken: localDeviceConnection.authToken,
-        sessionId: pairingSession.sessionId,
-      })
-        .then((nextStatus) => {
-          if (cancelled) {
-            return;
-          }
-          setPairingSession((previous) =>
-            previous
-              ? {
-                  ...previous,
-                  status: nextStatus.status,
-                  expiresAt: nextStatus.expiresAt,
-                  ...(nextStatus.requesterName ? { requesterName: nextStatus.requesterName } : {}),
-                  ...(nextStatus.claimId ? { claimId: nextStatus.claimId } : {}),
-                }
-              : previous,
-          );
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setPairingSession(null);
-          }
-        });
-    }, 1_200);
-    return () => {
-      cancelled = true;
-      clearInterval(handle);
-    };
-  }, [localDeviceConnection.authToken, localDeviceConnection.wsUrl, pairingSession]);
 
   return (
     <SettingsPageContainer>
@@ -450,12 +522,12 @@ export function DevicesSettingsPanel() {
           status={
             <>
               <span className="block break-all font-mono text-[11px] text-foreground">
-                {localDeviceConnection.wsUrl}
+                {localAdvertisedWsUrl}
               </span>
               <span className="mt-1 block">
                 {localDeviceConnection.authToken
-                  ? "Auth token is gated by pairing approval."
-                  : "No auth token configured."}
+                  ? "Host auth token is enabled."
+                  : "No host auth token configured."}
               </span>
             </>
           }
@@ -472,7 +544,7 @@ export function DevicesSettingsPanel() {
               <Button
                 size="xs"
                 variant="outline"
-                onClick={() => copyToClipboard(localConnectionUrl, { label: "Host URL" })}
+                onClick={() => copyToClipboard(localShareConnectionUrl, { label: "Host URL" })}
               >
                 <LinkIcon className="size-3.5" />
                 Copy URL
@@ -480,105 +552,150 @@ export function DevicesSettingsPanel() {
             </div>
           }
         />
+
         <SettingsRow
-          title="Two-way QR pairing"
-          description="Create a short-lived pairing QR. New devices request access, then you approve or reject here."
+          title="Remote device access"
+          description="Create named API-key access for remote devices. Each device gets a copyable connection string and optional QR."
           control={
-            <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={() => {
-                  void startPairingSession();
-                }}
-                disabled={creatingPairingSession}
-              >
-                {creatingPairingSession
-                  ? "Creating…"
-                  : pairingSession
-                    ? "Refresh session"
-                    : "Start pairing"}
-              </Button>
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={() => copyToClipboard(pairingPayload, { label: "Pairing payload" })}
-                disabled={pairingPayload.length === 0}
-              >
-                {isCopied ? "Copied" : "Copy payload"}
-              </Button>
-            </div>
+            <Button
+              size="xs"
+              onClick={() => void createRelayAccess()}
+              disabled={creatingRelayDevice}
+            >
+              {creatingRelayDevice ? "Creating…" : "Add remote device"}
+            </Button>
           }
         >
-          {pairingSession ? (
-            <div className="mt-3 grid gap-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-                <div className="w-fit rounded-md border border-border/60 bg-background p-2">
-                  {pairingQrDataUrl ? (
-                    <img
-                      src={pairingQrDataUrl}
-                      alt="Pairing QR code"
-                      className="size-40 rounded-sm bg-white p-1"
-                    />
-                  ) : (
-                    <div className="flex size-40 items-center justify-center text-[11px] text-muted-foreground">
-                      Preparing QR…
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0 space-y-1 text-xs text-muted-foreground">
-                  <p>
-                    Status: <span className="text-foreground">{pairingSession.status}</span>
-                  </p>
-                  <p>
-                    Expires:{" "}
-                    <span className="text-foreground">
-                      {formatRelativeTimeLabel(pairingSession.expiresAt)}
-                    </span>
-                  </p>
-                  {pairingSession.requesterName ? (
-                    <p>
-                      Requester:{" "}
-                      <span className="text-foreground">{pairingSession.requesterName}</span>
-                    </p>
-                  ) : null}
-                  {pairingSession.status === "claim-pending" ? (
-                    <div className="flex gap-2 pt-2">
-                      <Button
-                        size="xs"
-                        onClick={() => {
-                          void resolvePairingRequest(true);
-                        }}
-                        disabled={resolvingPairingSession}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        onClick={() => {
-                          void resolvePairingRequest(false);
-                        }}
-                        disabled={resolvingPairingSession}
-                      >
-                        Reject
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-              <Textarea
-                className="min-h-20 font-mono text-[11px] leading-relaxed"
-                value={pairingPayload}
-                readOnly
-              />
+          <div className="mt-3 grid gap-2">
+            <Input
+              value={relayDraft.name}
+              onChange={(event) =>
+                setRelayDraft((previous) => ({ ...previous, name: event.currentTarget.value }))
+              }
+              placeholder="Remote device name (optional)"
+            />
+            <div className="flex flex-wrap gap-2">
+              {RELAY_ICON_OPTIONS.map((option) => {
+                const selected = relayDraft.icon === option.icon;
+                return (
+                  <Button
+                    key={option.icon}
+                    size="xs"
+                    variant={selected ? "default" : "outline"}
+                    onClick={() =>
+                      setRelayDraft((previous) => ({ ...previous, icon: option.icon }))
+                    }
+                  >
+                    <span>{option.label}</span>
+                  </Button>
+                );
+              })}
             </div>
-          ) : (
-            <p className="mt-3 text-xs text-muted-foreground">
-              No active pairing session. Start one to generate a QR payload.
-            </p>
-          )}
+          </div>
         </SettingsRow>
+
+        {relayDeviceError ? (
+          <SettingsRow title="Remote devices" description={relayDeviceError} />
+        ) : null}
+
+        {loadingRelayDevices && relayDevices.length === 0 ? (
+          <SettingsRow title="Remote devices" description="Loading relay devices…" />
+        ) : null}
+
+        {!loadingRelayDevices && relayDevices.length === 0 ? (
+          <SettingsRow
+            title="Remote devices"
+            description="No remote device access keys yet. Add one above."
+          />
+        ) : null}
+
+        {relayDevices.map((device) => {
+          const revoked = device.revokedAt !== undefined;
+          const isActive = device.activeConnectionCount > 0;
+          const isShowingQr = visibleRelayQrDeviceId === device.deviceId;
+          return (
+            <SettingsRow
+              key={device.deviceId}
+              title={device.name}
+              description={revoked ? "Access revoked" : isActive ? "Connected" : "Not connected"}
+              status={
+                <>
+                  <span className="block">
+                    Type: <span className="text-foreground">{relayIconLabel(device.icon)}</span>
+                  </span>
+                  <span className="block">
+                    Created:{" "}
+                    <span className="text-foreground">
+                      {formatRelativeTimeLabel(device.createdAt)}
+                    </span>
+                  </span>
+                  <span className="mt-1 block">
+                    Last seen:{" "}
+                    <span className="text-foreground">
+                      {device.lastSeenAt ? formatRelativeTimeLabel(device.lastSeenAt) : "never"}
+                    </span>
+                  </span>
+                  <span className="mt-1 block">
+                    Active sessions:{" "}
+                    <span className="text-foreground">{device.activeConnectionCount}</span>
+                  </span>
+                </>
+              }
+              control={
+                <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() =>
+                      copyToClipboard(resolveRelayConnectionString(device), {
+                        label: "Connection string",
+                      })
+                    }
+                    disabled={revoked}
+                  >
+                    <LinkIcon className="size-3.5" />
+                    Copy string
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() => setVisibleRelayQrDeviceId(isShowingQr ? null : device.deviceId)}
+                    disabled={revoked}
+                  >
+                    {isShowingQr ? "Hide QR" : "Show QR"}
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => void revokeRelayAccess(device)}
+                    disabled={revoked || revokingRelayDeviceId === device.deviceId}
+                  >
+                    <Trash2Icon className="size-3.5" />
+                    {revoked ? "Revoked" : "Revoke"}
+                  </Button>
+                </div>
+              }
+            >
+              {isShowingQr ? (
+                <div className="mt-3">
+                  <div className="w-fit rounded-md border border-border/60 bg-background p-2">
+                    {visibleRelayQrDataUrl ? (
+                      <img
+                        src={visibleRelayQrDataUrl}
+                        alt="Relay connection QR code"
+                        className="size-40 rounded-sm bg-white p-1"
+                      />
+                    ) : (
+                      <div className="flex size-40 items-center justify-center text-[11px] text-muted-foreground">
+                        Preparing QR…
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </SettingsRow>
+          );
+        })}
       </SettingsSection>
 
       <SettingsSection title="Remote control hosts" icon={<ScanLineIcon className="size-3.5" />}>
@@ -624,7 +741,7 @@ export function DevicesSettingsPanel() {
               className="min-h-20 font-mono text-[11px] leading-relaxed"
               value={importPayload}
               onChange={(event) => setImportPayload(event.currentTarget.value)}
-              placeholder="Paste ace:// URL, ws/http URL, host:port, or JSON payload from another device"
+              placeholder="Paste relay connection string, ws/http URL, host:port, or legacy JSON"
             />
             <div className="flex justify-end">
               <Button
@@ -633,9 +750,9 @@ export function DevicesSettingsPanel() {
                 onClick={() => {
                   void importHostPayload();
                 }}
-                disabled={importingPairing}
+                disabled={importingHost}
               >
-                {importingPairing ? "Waiting approval…" : "Import payload"}
+                {importingHost ? "Connecting…" : "Import connection string"}
               </Button>
             </div>
           </div>
@@ -653,11 +770,7 @@ export function DevicesSettingsPanel() {
         ) : (
           hosts.map((host) => {
             const active = isHostConnectionActive(host, activeWsUrl);
-            const sharePayload = buildHostSharePayload({
-              name: host.name,
-              wsUrl: host.wsUrl,
-              authToken: host.authToken,
-            });
+            const connectionString = resolveHostConnectionWsUrl(host);
             return (
               <SettingsRow
                 key={host.id}
@@ -689,9 +802,11 @@ export function DevicesSettingsPanel() {
                     <Button
                       size="xs"
                       variant="outline"
-                      onClick={() => copyToClipboard(sharePayload, { label: "Pairing payload" })}
+                      onClick={() =>
+                        copyToClipboard(connectionString, { label: "Connection string" })
+                      }
                     >
-                      Copy payload
+                      Copy string
                     </Button>
                     <Button size="xs" variant="ghost" onClick={() => removeHost(host)}>
                       <Trash2Icon className="size-3.5" />

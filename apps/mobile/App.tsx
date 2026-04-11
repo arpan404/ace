@@ -33,8 +33,7 @@ import {
   createDefaultHostInstance,
   createHostInstance,
   parseHostConnectionQrPayload,
-  requestPairingClaim,
-  waitForPairingApproval,
+  requestRelayConnection,
   type HostInstance,
   wsUrlToBrowserBaseUrl,
 } from "./src/hostInstances";
@@ -50,22 +49,22 @@ const NOTIFICATION_EVENT_CACHE_LIMIT = 800;
 const MAX_TERMINAL_OUTPUT_CHARS = 160_000;
 const TERMINAL_ID = "default";
 const MOBILE_THEME = {
-  background: "#171717",
-  surface: "#1f1f1f",
-  surfaceElevated: "#252525",
-  activeSurface: "#2b3550",
-  border: "#3a3a3a",
-  borderStrong: "#4a4a4a",
+  background: "#090b10",
+  surface: "#11141b",
+  surfaceElevated: "#171b24",
+  activeSurface: "#1e2430",
+  border: "#2a3140",
+  borderStrong: "#374154",
   foreground: "#ededed",
-  subtleForeground: "#c5cedc",
-  mutedForeground: "#9aa0ab",
-  primary: "#7aa2ff",
-  primaryForeground: "#141414",
-  inputSurface: "#181818",
+  subtleForeground: "#c1c7d3",
+  mutedForeground: "#949cab",
+  primary: "#9ca3af",
+  primaryForeground: "#101319",
+  inputSurface: "#12161e",
   dangerSurface: "#3a1f1f",
   dangerBorder: "#734545",
   dangerForeground: "#ffc9c9",
-  terminalSurface: "#111111",
+  terminalSurface: "#0c0f14",
   terminalForeground: "#bfe6c0",
 } as const;
 
@@ -690,31 +689,35 @@ export default function App() {
         setScanLocked(false);
         return;
       }
-      setStatusMessage("Pairing request sent. Approve it on the host device.");
-      try {
-        const receipt = await requestPairingClaim(parsed.pairing, {
-          requesterName: "ace mobile",
-        });
-        const approvedHost = await waitForPairingApproval(receipt, {
-          timeoutMs: 120_000,
-          pollIntervalMs: 1_200,
-        });
-        const pairedHostName = approvedHost.name ?? parsed.pairing.name;
-        await upsertHost(
-          {
-            wsUrl: approvedHost.wsUrl,
-            ...(approvedHost.authToken !== undefined ? { authToken: approvedHost.authToken } : {}),
-            ...(pairedHostName ? { name: pairedHostName } : {}),
-          },
-          true,
-        );
-        setScannerVisible(false);
-        setStatusMessage("Pairing approved and host saved.");
-      } catch (error) {
-        setStatusMessage(`Pairing failed: ${formatError(error)}`);
-      } finally {
-        setScanLocked(false);
+      if (parsed.kind === "relay") {
+        setStatusMessage("Connecting through relay...");
+        try {
+          const resolvedHost = await requestRelayConnection(parsed.relay, {
+            requesterName: "ace mobile",
+          });
+          await upsertHost(
+            {
+              wsUrl: resolvedHost.wsUrl,
+              ...(resolvedHost.authToken !== undefined
+                ? { authToken: resolvedHost.authToken }
+                : {}),
+              ...(resolvedHost.name ? { name: resolvedHost.name } : {}),
+            },
+            true,
+          );
+          setScannerVisible(false);
+          setStatusMessage("Relay connection saved.");
+        } catch (error) {
+          setStatusMessage(`Relay connection failed: ${formatError(error)}`);
+        } finally {
+          setScanLocked(false);
+        }
+        return;
       }
+      setStatusMessage(
+        "This legacy pairing format is no longer supported. Use a relay connection string.",
+      );
+      setScanLocked(false);
     },
     [upsertHost],
   );
