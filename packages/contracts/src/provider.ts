@@ -57,6 +57,7 @@ export const ProviderSessionStartInput = Schema.Struct({
   threadId: ThreadId,
   provider: Schema.optional(ProviderKind),
   cwd: Schema.optional(TrimmedNonEmptyString),
+  threadTitle: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   resumeCursor: Schema.optional(Schema.Unknown),
   replayTurns: Schema.optional(Schema.Array(ProviderReplayTurn)),

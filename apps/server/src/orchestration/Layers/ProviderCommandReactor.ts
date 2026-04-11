@@ -386,6 +386,7 @@ const make = Effect.gen(function* () {
       thread,
       projects: readModel.projects,
     });
+    const threadTitle = toNonEmptyProviderInput(thread.title);
 
     const resolveActiveSession = (threadId: ThreadId) =>
       providerService
@@ -401,6 +402,7 @@ const make = Effect.gen(function* () {
         threadId,
         ...(preferredProvider ? { provider: preferredProvider } : {}),
         ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+        ...(threadTitle ? { threadTitle } : {}),
         modelSelection: desiredModelSelection,
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         ...(input?.replayTurns !== undefined ? { replayTurns: input.replayTurns } : {}),

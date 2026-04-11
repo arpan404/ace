@@ -1250,7 +1250,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           const createSession = async (): Promise<string> => {
             const created = await client.session.create({
               directory: cwd,
-              title: "ace",
+              ...(input.threadTitle ? { title: input.threadTitle } : {}),
             });
             if (created.error || !created.data) {
               throw new ProviderAdapterRequestError({
