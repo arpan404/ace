@@ -16,10 +16,10 @@ import { randomUUID } from "@ace/shared/ids";
 import { CameraView, type BarcodeScanningResult, useCameraPermissions } from "expo-camera";
 import * as Notifications from "expo-notifications";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -49,6 +49,25 @@ const MAX_ACTIVITIES_VISIBLE = 40;
 const NOTIFICATION_EVENT_CACHE_LIMIT = 800;
 const MAX_TERMINAL_OUTPUT_CHARS = 160_000;
 const TERMINAL_ID = "default";
+const MOBILE_THEME = {
+  background: "#171717",
+  surface: "#1f1f1f",
+  surfaceElevated: "#252525",
+  activeSurface: "#2b3550",
+  border: "#3a3a3a",
+  borderStrong: "#4a4a4a",
+  foreground: "#ededed",
+  subtleForeground: "#c5cedc",
+  mutedForeground: "#9aa0ab",
+  primary: "#7aa2ff",
+  primaryForeground: "#141414",
+  inputSurface: "#181818",
+  dangerSurface: "#3a1f1f",
+  dangerBorder: "#734545",
+  dangerForeground: "#ffc9c9",
+  terminalSurface: "#111111",
+  terminalForeground: "#bfe6c0",
+} as const;
 
 type AppTab = "projects" | "threads" | "browser" | "editor" | "terminal";
 type ConnectionStatus = "disconnected" | "connecting" | "connected";
@@ -88,22 +107,46 @@ function formatRelativeDate(isoDate: string | null | undefined): string {
   return value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function sortedCopy<T>(values: ReadonlyArray<T>, compare: (left: T, right: T) => number): Array<T> {
+  const result = [...values];
+  for (let index = 1; index < result.length; index += 1) {
+    const candidate = result[index];
+    let insertionIndex = index - 1;
+    while (insertionIndex >= 0 && compare(result[insertionIndex] as T, candidate as T) > 0) {
+      result[insertionIndex + 1] = result[insertionIndex] as T;
+      insertionIndex -= 1;
+    }
+    result[insertionIndex + 1] = candidate as T;
+  }
+  return result;
+}
+
+function reversedCopy<T>(values: ReadonlyArray<T>): Array<T> {
+  const result: T[] = [];
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    result.push(values[index] as T);
+  }
+  return result;
+}
+
 function sortProjects(projects: ReadonlyArray<OrchestrationProject>): OrchestrationProject[] {
-  return projects
-    .filter((project) => project.deletedAt === null)
-    .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  return sortedCopy(
+    projects.filter((project) => project.deletedAt === null),
+    (left, right) => right.updatedAt.localeCompare(left.updatedAt),
+  );
 }
 
 function sortAllThreads(threads: ReadonlyArray<OrchestrationThread>): OrchestrationThread[] {
-  return threads
-    .filter((thread) => thread.deletedAt === null)
-    .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  return sortedCopy(
+    threads.filter((thread) => thread.deletedAt === null),
+    (left, right) => right.updatedAt.localeCompare(left.updatedAt),
+  );
 }
 
 function summarizeThread(thread: OrchestrationThread): string {
-  const latestMessage = thread.messages
-    .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))
-    .at(0);
+  const latestMessage = sortedCopy(thread.messages, (left, right) =>
+    right.createdAt.localeCompare(left.createdAt),
+  ).at(0);
   if (!latestMessage) {
     return "No messages yet";
   }
@@ -115,15 +158,15 @@ function summarizeThread(thread: OrchestrationThread): string {
 }
 
 function pickVisibleMessages(thread: OrchestrationThread) {
-  return thread.messages
-    .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt))
-    .slice(-MAX_MESSAGES_VISIBLE);
+  return sortedCopy(thread.messages, (left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  ).slice(-MAX_MESSAGES_VISIBLE);
 }
 
 function pickVisibleActivities(thread: OrchestrationThread) {
-  return thread.activities
-    .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))
-    .slice(0, MAX_ACTIVITIES_VISIBLE);
+  return sortedCopy(thread.activities, (left, right) =>
+    right.createdAt.localeCompare(left.createdAt),
+  ).slice(0, MAX_ACTIVITIES_VISIBLE);
 }
 
 function trimEventCache(cache: Set<string>): void {
@@ -280,20 +323,18 @@ export default function App() {
   );
   const editorFiles = useMemo(
     () =>
-      editorEntries
-        .filter((entry) => entry.kind === "file")
-        .toSorted((left, right) => left.path.localeCompare(right.path)),
+      sortedCopy(
+        editorEntries.filter((entry) => entry.kind === "file"),
+        (left, right) => left.path.localeCompare(right.path),
+      ),
     [editorEntries],
   );
   const terminalSuggestions = useMemo(() => {
     const prefix = terminalInput.trim();
     if (prefix.length === 0) {
-      return terminalHistory.slice(-5).toReversed();
+      return reversedCopy(terminalHistory.slice(-5));
     }
-    return terminalHistory
-      .filter((item) => item.startsWith(prefix))
-      .toReversed()
-      .slice(0, 5);
+    return reversedCopy(terminalHistory.filter((item) => item.startsWith(prefix))).slice(0, 5);
   }, [terminalHistory, terminalInput]);
   const editorHasUnsavedChanges = editorContent !== editorOriginalContent;
 
@@ -993,8 +1034,8 @@ export default function App() {
           try {
             const decoded = JSON.parse(rawHosts) as unknown;
             if (Array.isArray(decoded)) {
-              parsedHosts = decoded
-                .flatMap((item) => {
+              parsedHosts = sortedCopy(
+                decoded.flatMap((item) => {
                   if (!item || typeof item !== "object") {
                     return [];
                   }
@@ -1039,8 +1080,9 @@ export default function App() {
                   } catch {
                     return [];
                   }
-                })
-                .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
+                }),
+                (left, right) => left.createdAt.localeCompare(right.createdAt),
+              );
             }
           } catch {
             parsedHosts = [];
@@ -1241,7 +1283,7 @@ export default function App() {
         }
         style={styles.input}
         placeholder="My desktop ace"
-        placeholderTextColor="#5f739a"
+        placeholderTextColor={MOBILE_THEME.mutedForeground}
       />
 
       <Text style={styles.label}>WebSocket URL</Text>
@@ -1257,7 +1299,7 @@ export default function App() {
         autoCapitalize="none"
         autoCorrect={false}
         placeholder="ws://192.168.x.x:3773/ws"
-        placeholderTextColor="#5f739a"
+        placeholderTextColor={MOBILE_THEME.mutedForeground}
       />
 
       <Text style={styles.label}>Auth token (optional)</Text>
@@ -1274,7 +1316,7 @@ export default function App() {
         autoCorrect={false}
         secureTextEntry
         placeholder="ACE_AUTH_TOKEN"
-        placeholderTextColor="#5f739a"
+        placeholderTextColor={MOBILE_THEME.mutedForeground}
       />
 
       <View style={styles.buttonRow}>
@@ -1491,7 +1533,7 @@ export default function App() {
             onChangeText={setPromptInput}
             style={[styles.input, styles.promptInput]}
             placeholder="Send prompt..."
-            placeholderTextColor="#5f739a"
+            placeholderTextColor={MOBILE_THEME.mutedForeground}
             multiline
           />
           <View style={styles.buttonRow}>
@@ -1625,7 +1667,7 @@ export default function App() {
           autoCapitalize="none"
           autoCorrect={false}
           placeholder="http://your-ace-host:3773/"
-          placeholderTextColor="#5f739a"
+          placeholderTextColor={MOBILE_THEME.mutedForeground}
         />
         <View style={styles.buttonRow}>
           <Pressable
@@ -1773,7 +1815,7 @@ export default function App() {
           autoCorrect={false}
           editable={editorSelectedFilePath !== null}
           placeholder="File contents"
-          placeholderTextColor="#5f739a"
+          placeholderTextColor={MOBILE_THEME.mutedForeground}
         />
       </View>
       <View style={styles.footerPad} />
@@ -1864,7 +1906,7 @@ export default function App() {
             autoCapitalize="none"
             autoCorrect={false}
             placeholder="Type a command..."
-            placeholderTextColor="#5f739a"
+            placeholderTextColor={MOBILE_THEME.mutedForeground}
             onSubmitEditing={() => {
               void sendTerminalCommand();
             }}
@@ -1950,97 +1992,99 @@ export default function App() {
   }, [activeHostId, hosts, hostsLoaded]);
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <StatusBar barStyle="light-content" />
-      {statusMessage ? (
-        <View style={styles.statusBanner}>
-          <Text style={styles.statusBannerText}>{statusMessage}</Text>
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.screen}>
+        <StatusBar barStyle="light-content" />
+        {statusMessage ? (
+          <View style={styles.statusBanner}>
+            <Text style={styles.statusBannerText}>{statusMessage}</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.mainPane}>
+          {activeTab === "projects" ? renderProjectsTab() : null}
+          {activeTab === "threads" ? renderThreadsTab() : null}
+          {activeTab === "browser" ? renderBrowserTab() : null}
+          {activeTab === "editor" ? renderEditorTab() : null}
+          {activeTab === "terminal" ? renderTerminalTab() : null}
         </View>
-      ) : null}
 
-      <View style={styles.mainPane}>
-        {activeTab === "projects" ? renderProjectsTab() : null}
-        {activeTab === "threads" ? renderThreadsTab() : null}
-        {activeTab === "browser" ? renderBrowserTab() : null}
-        {activeTab === "editor" ? renderEditorTab() : null}
-        {activeTab === "terminal" ? renderTerminalTab() : null}
-      </View>
-
-      <View style={styles.bottomNav}>
-        {TAB_ORDER.map((tab) => (
-          <Pressable
-            key={tab}
-            onPress={() => setActiveTab(tab)}
-            style={({ pressed }) => [
-              styles.bottomNavItem,
-              tab === activeTab ? styles.bottomNavItemActive : undefined,
-              pressed ? styles.buttonPressed : undefined,
-            ]}
-          >
-            <Text style={styles.bottomNavItemText}>{TAB_LABEL[tab]}</Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <Modal
-        visible={scannerVisible}
-        transparent={false}
-        animationType="slide"
-        onRequestClose={() => {
-          setScannerVisible(false);
-          setScanLocked(false);
-        }}
-      >
-        <SafeAreaView style={styles.scannerScreen}>
-          <View style={styles.scannerHeader}>
-            <Text style={styles.sectionTitle}>Scan ace host QR</Text>
+        <View style={styles.bottomNav}>
+          {TAB_ORDER.map((tab) => (
             <Pressable
-              onPress={() => {
-                setScannerVisible(false);
-                setScanLocked(false);
-              }}
+              key={tab}
+              onPress={() => setActiveTab(tab)}
               style={({ pressed }) => [
-                styles.buttonSecondary,
+                styles.bottomNavItem,
+                tab === activeTab ? styles.bottomNavItemActive : undefined,
                 pressed ? styles.buttonPressed : undefined,
               ]}
             >
-              <Text style={styles.buttonSecondaryText}>Close</Text>
+              <Text style={styles.bottomNavItemText}>{TAB_LABEL[tab]}</Text>
             </Pressable>
-          </View>
-          <View style={styles.scannerCameraWrapper}>
-            <CameraView
-              style={styles.scannerCamera}
-              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-              onBarcodeScanned={onQrScanned}
-            />
-          </View>
-          <Text style={styles.connectionHint}>
-            Accepted payloads: ws/wss URL, http/https URL, host:port, ace:// URL, or JSON with
-            wsUrl.
-          </Text>
-        </SafeAreaView>
-      </Modal>
-    </SafeAreaView>
+          ))}
+        </View>
+
+        <Modal
+          visible={scannerVisible}
+          transparent={false}
+          animationType="slide"
+          onRequestClose={() => {
+            setScannerVisible(false);
+            setScanLocked(false);
+          }}
+        >
+          <SafeAreaView style={styles.scannerScreen}>
+            <View style={styles.scannerHeader}>
+              <Text style={styles.sectionTitle}>Scan ace host QR</Text>
+              <Pressable
+                onPress={() => {
+                  setScannerVisible(false);
+                  setScanLocked(false);
+                }}
+                style={({ pressed }) => [
+                  styles.buttonSecondary,
+                  pressed ? styles.buttonPressed : undefined,
+                ]}
+              >
+                <Text style={styles.buttonSecondaryText}>Close</Text>
+              </Pressable>
+            </View>
+            <View style={styles.scannerCameraWrapper}>
+              <CameraView
+                style={styles.scannerCamera}
+                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                onBarcodeScanned={onQrScanned}
+              />
+            </View>
+            <Text style={styles.connectionHint}>
+              Accepted payloads: ws/wss URL, http/https URL, host:port, ace:// URL, or JSON with
+              wsUrl.
+            </Text>
+          </SafeAreaView>
+        </Modal>
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#070b14",
+    backgroundColor: MOBILE_THEME.background,
   },
   mainPane: {
     flex: 1,
   },
   statusBanner: {
-    backgroundColor: "#2f1618",
-    borderBottomColor: "#6d2f35",
+    backgroundColor: MOBILE_THEME.dangerSurface,
+    borderBottomColor: MOBILE_THEME.dangerBorder,
     borderBottomWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   statusBannerText: {
-    color: "#fecaca",
+    color: MOBILE_THEME.dangerForeground,
     fontSize: 12,
   },
   tabContent: {
@@ -2058,25 +2102,25 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   title: {
-    color: "#f8fafc",
+    color: MOBILE_THEME.foreground,
     fontSize: 30,
     fontWeight: "700",
     letterSpacing: -0.5,
   },
   subtitle: {
-    color: "#91a3c7",
+    color: MOBILE_THEME.mutedForeground,
     fontSize: 14,
   },
   card: {
-    backgroundColor: "#0f1728",
-    borderColor: "#1b2741",
+    backgroundColor: MOBILE_THEME.surface,
+    borderColor: MOBILE_THEME.border,
     borderWidth: 1,
     borderRadius: 16,
     padding: 14,
     gap: 10,
   },
   sectionTitle: {
-    color: "#e2e8f0",
+    color: MOBILE_THEME.foreground,
     fontSize: 17,
     fontWeight: "600",
   },
@@ -2087,11 +2131,11 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sectionMeta: {
-    color: "#9fb2d8",
+    color: MOBILE_THEME.mutedForeground,
     fontSize: 12,
   },
   sectionSubheading: {
-    color: "#d5def0",
+    color: MOBILE_THEME.subtleForeground,
     fontSize: 15,
     fontWeight: "600",
     marginTop: 6,
@@ -2121,7 +2165,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#3f1010",
   },
   statusPillText: {
-    color: "#dbeafe",
+    color: MOBILE_THEME.foreground,
     fontSize: 12,
     fontWeight: "600",
   },
@@ -2135,50 +2179,50 @@ const styles = StyleSheet.create({
     minWidth: 220,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#223553",
-    backgroundColor: "#111d33",
+    borderColor: MOBILE_THEME.border,
+    backgroundColor: MOBILE_THEME.surfaceElevated,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 3,
   },
   hostChipActive: {
-    borderColor: "#8fb7ff",
-    backgroundColor: "#162847",
+    borderColor: MOBILE_THEME.primary,
+    backgroundColor: MOBILE_THEME.activeSurface,
   },
   hostChipTitle: {
-    color: "#dbe8ff",
+    color: MOBILE_THEME.foreground,
     fontSize: 13,
     fontWeight: "600",
   },
   hostChipMeta: {
-    color: "#88a2cf",
+    color: MOBILE_THEME.mutedForeground,
     fontSize: 11,
   },
   removeHostButton: {
     alignSelf: "flex-start",
     marginTop: 4,
-    backgroundColor: "#351b1b",
-    borderColor: "#6e3333",
+    backgroundColor: MOBILE_THEME.dangerSurface,
+    borderColor: MOBILE_THEME.dangerBorder,
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
   },
   removeHostButtonText: {
-    color: "#fecaca",
+    color: MOBILE_THEME.dangerForeground,
     fontSize: 11,
   },
   label: {
-    color: "#9cb3da",
+    color: MOBILE_THEME.mutedForeground,
     fontSize: 12,
     fontWeight: "600",
   },
   input: {
-    backgroundColor: "#0b1220",
-    borderColor: "#20304f",
+    backgroundColor: MOBILE_THEME.inputSurface,
+    borderColor: MOBILE_THEME.border,
     borderWidth: 1,
     borderRadius: 12,
-    color: "#edf2ff",
+    color: MOBILE_THEME.foreground,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
@@ -2197,7 +2241,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   buttonPrimary: {
-    backgroundColor: "#c8ddff",
+    backgroundColor: MOBILE_THEME.primary,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 10,
@@ -2206,13 +2250,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   buttonPrimaryText: {
-    color: "#0b1220",
+    color: MOBILE_THEME.primaryForeground,
     fontWeight: "700",
     fontSize: 13,
   },
   buttonSecondary: {
-    backgroundColor: "#17243d",
-    borderColor: "#243553",
+    backgroundColor: MOBILE_THEME.surfaceElevated,
+    borderColor: MOBILE_THEME.borderStrong,
     borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -2222,7 +2266,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   buttonSecondaryText: {
-    color: "#d6e4ff",
+    color: MOBILE_THEME.foreground,
     fontWeight: "600",
     fontSize: 13,
   },
@@ -2238,25 +2282,25 @@ const styles = StyleSheet.create({
   },
   metricCard: {
     flex: 1,
-    backgroundColor: "#0f1728",
+    backgroundColor: MOBILE_THEME.surface,
     borderRadius: 12,
-    borderColor: "#1b2741",
+    borderColor: MOBILE_THEME.border,
     borderWidth: 1,
     paddingVertical: 10,
     paddingHorizontal: 12,
     gap: 2,
   },
   metricLabel: {
-    color: "#88a2cf",
+    color: MOBILE_THEME.mutedForeground,
     fontSize: 12,
   },
   metricValue: {
-    color: "#f8fafc",
+    color: MOBILE_THEME.foreground,
     fontSize: 20,
     fontWeight: "700",
   },
   emptyText: {
-    color: "#8aa1c8",
+    color: MOBILE_THEME.mutedForeground,
     fontSize: 13,
   },
   projectList: {
@@ -2265,8 +2309,8 @@ const styles = StyleSheet.create({
   projectCard: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#233754",
-    backgroundColor: "#101b31",
+    borderColor: MOBILE_THEME.border,
+    backgroundColor: MOBILE_THEME.surface,
     padding: 10,
     gap: 8,
   },
@@ -2274,12 +2318,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   projectTitle: {
-    color: "#eaf1ff",
+    color: MOBILE_THEME.foreground,
     fontSize: 15,
     fontWeight: "600",
   },
   projectRoot: {
-    color: "#8aa1c8",
+    color: MOBILE_THEME.mutedForeground,
     fontSize: 11,
   },
   projectStatsRow: {
@@ -2290,18 +2334,18 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#2b4064",
-    backgroundColor: "#16233f",
+    borderColor: MOBILE_THEME.borderStrong,
+    backgroundColor: MOBILE_THEME.surfaceElevated,
     paddingHorizontal: 9,
     paddingVertical: 8,
     gap: 1,
   },
   projectStatLabel: {
-    color: "#9fb6dd",
+    color: MOBILE_THEME.mutedForeground,
     fontSize: 11,
   },
   projectStatValue: {
-    color: "#f2f6ff",
+    color: MOBILE_THEME.foreground,
     fontSize: 17,
     fontWeight: "700",
   },
@@ -2315,39 +2359,39 @@ const styles = StyleSheet.create({
     minWidth: 190,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#233554",
-    backgroundColor: "#111d33",
+    borderColor: MOBILE_THEME.border,
+    backgroundColor: MOBILE_THEME.surfaceElevated,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 2,
   },
   projectPillActive: {
-    borderColor: "#8fb7ff",
-    backgroundColor: "#162847",
+    borderColor: MOBILE_THEME.primary,
+    backgroundColor: MOBILE_THEME.activeSurface,
   },
   projectPillTitle: {
-    color: "#dfe9ff",
+    color: MOBILE_THEME.foreground,
     fontSize: 14,
     fontWeight: "600",
   },
   projectPillSubtitle: {
-    color: "#88a2cf",
+    color: MOBILE_THEME.mutedForeground,
     fontSize: 11,
   },
   threadList: {
     gap: 9,
   },
   threadCard: {
-    borderColor: "#253857",
+    borderColor: MOBILE_THEME.border,
     borderWidth: 1,
     borderRadius: 12,
-    backgroundColor: "#101b31",
+    backgroundColor: MOBILE_THEME.surface,
     padding: 11,
     gap: 4,
   },
   threadCardActive: {
-    borderColor: "#8fb7ff",
-    backgroundColor: "#182a49",
+    borderColor: MOBILE_THEME.primary,
+    backgroundColor: MOBILE_THEME.activeSurface,
   },
   threadHeaderRow: {
     flexDirection: "row",
@@ -2356,22 +2400,22 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   threadTitle: {
-    color: "#eaf1ff",
+    color: MOBILE_THEME.foreground,
     fontSize: 15,
     fontWeight: "600",
     flexShrink: 1,
   },
   threadStatus: {
-    color: "#bcd4ff",
+    color: MOBILE_THEME.subtleForeground,
     fontSize: 11,
     textTransform: "uppercase",
   },
   threadMeta: {
-    color: "#8aa1c8",
+    color: MOBILE_THEME.mutedForeground,
     fontSize: 12,
   },
   threadPreview: {
-    color: "#d4e1fb",
+    color: MOBILE_THEME.subtleForeground,
     fontSize: 13,
     lineHeight: 18,
   },
@@ -2386,16 +2430,16 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   messageAssistant: {
-    backgroundColor: "#112338",
-    borderColor: "#1f3c63",
+    backgroundColor: MOBILE_THEME.surfaceElevated,
+    borderColor: MOBILE_THEME.borderStrong,
   },
   messageUser: {
-    backgroundColor: "#1d1f41",
-    borderColor: "#31356f",
+    backgroundColor: MOBILE_THEME.activeSurface,
+    borderColor: MOBILE_THEME.primary,
   },
   messageSystem: {
-    backgroundColor: "#2e1e1d",
-    borderColor: "#5c3736",
+    backgroundColor: MOBILE_THEME.dangerSurface,
+    borderColor: MOBILE_THEME.dangerBorder,
   },
   messageMetaRow: {
     flexDirection: "row",
@@ -2403,17 +2447,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   messageRole: {
-    color: "#b5cdf8",
+    color: MOBILE_THEME.subtleForeground,
     fontSize: 11,
     textTransform: "uppercase",
     fontWeight: "600",
   },
   messageTime: {
-    color: "#7e97c5",
+    color: MOBILE_THEME.mutedForeground,
     fontSize: 11,
   },
   messageBody: {
-    color: "#edf3ff",
+    color: MOBILE_THEME.foreground,
     fontSize: 13,
     lineHeight: 18,
   },
@@ -2427,14 +2471,14 @@ const styles = StyleSheet.create({
   },
   activityBadge: {
     borderRadius: 8,
-    backgroundColor: "#1b2b49",
+    backgroundColor: MOBILE_THEME.surfaceElevated,
     paddingHorizontal: 8,
     paddingVertical: 4,
     minWidth: 56,
     alignItems: "center",
   },
   activityBadgeText: {
-    color: "#c7ddff",
+    color: MOBILE_THEME.subtleForeground,
     fontSize: 11,
     textTransform: "uppercase",
     fontWeight: "600",
@@ -2443,28 +2487,28 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#233754",
-    backgroundColor: "#101b31",
+    borderColor: MOBILE_THEME.border,
+    backgroundColor: MOBILE_THEME.surface,
     paddingHorizontal: 10,
     paddingVertical: 8,
     gap: 3,
   },
   activitySummary: {
-    color: "#d8e6ff",
+    color: MOBILE_THEME.foreground,
     fontSize: 13,
     lineHeight: 18,
   },
   activityMeta: {
-    color: "#88a2cf",
+    color: MOBILE_THEME.mutedForeground,
     fontSize: 11,
   },
   browserContainer: {
     flex: 1,
     borderRadius: 16,
-    borderColor: "#1b2741",
+    borderColor: MOBILE_THEME.border,
     borderWidth: 1,
     overflow: "hidden",
-    backgroundColor: "#0f1728",
+    backgroundColor: MOBILE_THEME.surface,
   },
   webview: {
     flex: 1,
@@ -2482,24 +2526,24 @@ const styles = StyleSheet.create({
   fileItem: {
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#263d63",
-    backgroundColor: "#12203a",
+    borderColor: MOBILE_THEME.border,
+    backgroundColor: MOBILE_THEME.surfaceElevated,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
   fileItemActive: {
-    borderColor: "#8fb7ff",
-    backgroundColor: "#1c3257",
+    borderColor: MOBILE_THEME.primary,
+    backgroundColor: MOBILE_THEME.activeSurface,
   },
   fileItemPath: {
-    color: "#d6e4ff",
+    color: MOBILE_THEME.foreground,
     fontSize: 12,
   },
   terminalOutputBox: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#233754",
-    backgroundColor: "#04070d",
+    borderColor: MOBILE_THEME.border,
+    backgroundColor: MOBILE_THEME.terminalSurface,
     minHeight: 220,
     maxHeight: 320,
     overflow: "hidden",
@@ -2509,7 +2553,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   terminalOutputText: {
-    color: "#c4f7c5",
+    color: MOBILE_THEME.terminalForeground,
     fontSize: 12,
     fontFamily: "Courier",
     lineHeight: 16,
@@ -2531,13 +2575,13 @@ const styles = StyleSheet.create({
   quickKeyButton: {
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#29416a",
-    backgroundColor: "#15233d",
+    borderColor: MOBILE_THEME.borderStrong,
+    backgroundColor: MOBILE_THEME.surfaceElevated,
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
   quickKeyButtonText: {
-    color: "#cde1ff",
+    color: MOBILE_THEME.foreground,
     fontSize: 12,
     fontWeight: "600",
   },
@@ -2547,20 +2591,20 @@ const styles = StyleSheet.create({
   suggestionItem: {
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#263d63",
-    backgroundColor: "#12203a",
+    borderColor: MOBILE_THEME.border,
+    backgroundColor: MOBILE_THEME.surfaceElevated,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
   suggestionText: {
-    color: "#d6e4ff",
+    color: MOBILE_THEME.foreground,
     fontSize: 12,
   },
   bottomNav: {
     flexDirection: "row",
     borderTopWidth: 1,
-    borderTopColor: "#1b2741",
-    backgroundColor: "#0c1322",
+    borderTopColor: MOBILE_THEME.border,
+    backgroundColor: MOBILE_THEME.surface,
     paddingHorizontal: 6,
     paddingVertical: 8,
     gap: 6,
@@ -2569,24 +2613,24 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#21324f",
-    backgroundColor: "#111d33",
+    borderColor: MOBILE_THEME.border,
+    backgroundColor: MOBILE_THEME.surfaceElevated,
     paddingVertical: 10,
     alignItems: "center",
     justifyContent: "center",
   },
   bottomNavItemActive: {
-    borderColor: "#8fb7ff",
-    backgroundColor: "#1a2f52",
+    borderColor: MOBILE_THEME.primary,
+    backgroundColor: MOBILE_THEME.activeSurface,
   },
   bottomNavItemText: {
-    color: "#d8e6ff",
+    color: MOBILE_THEME.foreground,
     fontSize: 12,
     fontWeight: "600",
   },
   scannerScreen: {
     flex: 1,
-    backgroundColor: "#070b14",
+    backgroundColor: MOBILE_THEME.background,
     padding: 16,
     gap: 12,
   },
@@ -2600,14 +2644,14 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#223553",
+    borderColor: MOBILE_THEME.border,
     overflow: "hidden",
   },
   scannerCamera: {
     flex: 1,
   },
   connectionHint: {
-    color: "#758bb2",
+    color: MOBILE_THEME.mutedForeground,
     fontSize: 12,
     lineHeight: 16,
   },

@@ -95,6 +95,39 @@ function sameId(left: string | null | undefined, right: string | null | undefine
   return left === right;
 }
 
+function runtimeProcessPidFromSessionEvent(event: ProviderRuntimeEvent): number | undefined {
+  switch (event.type) {
+    case "session.started":
+    case "session.state.changed":
+    case "session.exited":
+      return event.payload.processPid;
+    default:
+      return undefined;
+  }
+}
+
+function isRuntimeProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EPERM") {
+        return true;
+      }
+      if (code === "ESRCH") {
+        return false;
+      }
+    }
+    return false;
+  }
+}
+
 function truncateDetail(value: string, limit = 180): string {
   return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
 }
@@ -796,6 +829,7 @@ const make = Effect.fn("make")(function* () {
   >();
   const bufferedThinkingActivityByKey = new Map<string, BufferedThinkingActivity>();
   const lastActivityFingerprintByThread = new Map<ThreadId, string>();
+  const sessionProcessPidByThread = new Map<ThreadId, number>();
 
   const bufferedProposedPlanById = yield* Cache.make<string, { text: string; createdAt: string }>({
     capacity: BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY,
@@ -1545,6 +1579,14 @@ const make = Effect.fn("make")(function* () {
     const now = event.createdAt;
     const eventTurnId = toTurnId(event.turnId);
     const activeTurnId = thread.session?.activeTurnId ?? null;
+    const eventProcessPid = runtimeProcessPidFromSessionEvent(event);
+    const trackedSessionProcessPid = sessionProcessPidByThread.get(thread.id);
+    const shouldApplySessionExitedLifecycle =
+      event.type !== "session.exited" || eventProcessPid === undefined
+        ? true
+        : (trackedSessionProcessPid === undefined ||
+            trackedSessionProcessPid === eventProcessPid) &&
+          (event.payload.exitKind === "graceful" || !isRuntimeProcessAlive(eventProcessPid));
 
     const conflictsWithActiveTurn =
       activeTurnId !== null && eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId);
@@ -1556,7 +1598,7 @@ const make = Effect.fn("make")(function* () {
       }
       switch (event.type) {
         case "session.exited":
-          return true;
+          return shouldApplySessionExitedLifecycle;
         case "session.started":
         case "thread.started":
           return true;
@@ -1674,6 +1716,16 @@ const make = Effect.fn("make")(function* () {
               : (thread.session?.lastError ?? null);
 
       if (shouldApplyThreadLifecycle) {
+        if (
+          (event.type === "session.started" || event.type === "session.state.changed") &&
+          eventProcessPid !== undefined
+        ) {
+          sessionProcessPidByThread.set(thread.id, eventProcessPid);
+        }
+        if (event.type === "session.exited") {
+          sessionProcessPidByThread.delete(thread.id);
+        }
+
         if (event.type === "turn.started" && acceptedTurnStartedSourcePlan !== null) {
           yield* markSourceProposedPlanImplemented(
             acceptedTurnStartedSourcePlan.sourceThreadId,
@@ -1879,7 +1931,7 @@ const make = Effect.fn("make")(function* () {
       }
     }
 
-    if (event.type === "session.exited") {
+    if (event.type === "session.exited" && shouldApplySessionExitedLifecycle) {
       yield* flushBufferedThinkingActivitiesForThread({ threadId: thread.id });
       yield* flushPendingStreamingAssistantDeltasForThread(thread.id);
       yield* clearTurnStateForSession(thread.id);

@@ -4,7 +4,7 @@
   "private": true,
   "main": "index.ts",
   "scripts": {
-    "dev": "expo start --clear",
+    "dev": "expo start --clear --port 0",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
@@ -14,17 +14,20 @@
   "dependencies": {
     "@ace/contracts": "workspace:*",
     "@ace/shared": "workspace:*",
-    "@react-native-async-storage/async-storage": "2.1.2",
+    "@babel/runtime": "^7.29.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "effect": "catalog:",
-    "expo": "^53.0.0",
-    "expo-camera": "~16.1.8",
-    "expo-notifications": "~0.31.0",
-    "react": "19.0.0",
-    "react-native": "0.79.6",
-    "react-native-webview": "13.13.5"
+    "expo": "^55.0.14",
+    "expo-camera": "~55.0.15",
+    "expo-notifications": "~55.0.18",
+    "react": "19.2.0",
+    "react-native": "0.83.4",
+    "react-native-safe-area-context": "~5.6.2",
+    "react-native-webview": "13.16.0"
   },
   "devDependencies": {
-    "@types/react": "~19.0.10",
-    "typescript": "~5.8.3"
+    "@types/react": "~19.2.10",
+    "babel-preset-expo": "~55.0.8",
+    "typescript": "~5.9.2"
   }
 }
