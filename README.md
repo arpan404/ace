@@ -62,7 +62,7 @@ Relay pairing now runs as a dedicated centralized app in `apps/relay`.
 
 Development defaults:
 
-- Relay server: `http://10.0.0.228:9091`
+- Relay server: `http://127.0.0.1:3780`
 - Host server relay URL override: `ACE_RELAY_SERVER_URL`
 - Relay public URL override (for generated resolve URL): `RELAY_PUBLIC_URL`
 

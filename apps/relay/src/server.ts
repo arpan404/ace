@@ -1,7 +1,7 @@
 import Crypto from "node:crypto";
 import Http from "node:http";
 
-const DEFAULT_PORT = 9091;
+const DEFAULT_PORT = 3780;
 const HOST_TTL_MS = 10 * 60_000;
 const CONNECTION_TTL_MS = 30 * 60_000;
 const MAX_NAME_LENGTH = 120;

@@ -3,7 +3,7 @@ import Fs from "node:fs/promises";
 import Path from "node:path";
 
 const HOST_TOKEN_FILE_NAME = "relay-host-token";
-const DEFAULT_RELAY_SERVER_URL = "http://10.0.0.228:9091";
+const DEFAULT_RELAY_SERVER_URL = "http://127.0.0.1:3780";
 
 type RelayDeviceIcon = "iphone" | "ipad" | "laptop" | "desktop" | "watch";
 
