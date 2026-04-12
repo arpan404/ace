@@ -21,6 +21,7 @@ import {
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   type TerminalEvent,
+  ServerLspToolsError,
   WorkspaceEditorCloseBufferError,
   WorkspaceEditorSyncBufferError,
   WS_METHODS,
@@ -51,10 +52,14 @@ import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./pro
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
+import { getLspToolsStatus, installLspTools } from "./lspTools";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceEditor } from "./workspace/Services/WorkspaceEditor";
-import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
+import {
+  WorkspaceFileSystem,
+  WorkspaceFileSystemError,
+} from "./workspace/Services/WorkspaceFileSystem";
 import {
   WorkspacePathOutsideRootError,
   WorkspaceRootNotDirectoryError,
@@ -447,6 +452,28 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             }
           }).pipe(Effect.orDie);
         }),
+      [WS_METHODS.serverGetLspToolsStatus]: (_input) =>
+        Effect.tryPromise({
+          try: () => getLspToolsStatus(config.stateDir),
+          catch: (cause) =>
+            new ServerLspToolsError({
+              message: "Unable to load language server installation status.",
+              cause,
+            }),
+        }),
+      [WS_METHODS.serverInstallLspTools]: (input) =>
+        Effect.tryPromise({
+          try: () =>
+            installLspTools(
+              config.stateDir,
+              input.reinstall === undefined ? {} : { reinstall: input.reinstall },
+            ),
+          catch: (cause) =>
+            new ServerLspToolsError({
+              message: "Unable to install language server tools.",
+              cause,
+            }),
+        }),
       [WS_METHODS.serverUpsertKeybinding]: (rule) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.upsertKeybindingRule(rule);
@@ -544,8 +571,18 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           Effect.mapError((cause) => {
             const message = Schema.is(WorkspacePathOutsideRootError)(cause)
               ? "Workspace file path must stay within the project root."
-              : "Failed to write workspace file";
+              : cause.detail;
             return new ProjectWriteFileError({
+              conflict: Schema.is(WorkspaceFileSystemError)(cause) ? cause.conflict : undefined,
+              currentContents: Schema.is(WorkspaceFileSystemError)(cause)
+                ? cause.currentContents
+                : undefined,
+              currentVersion: Schema.is(WorkspaceFileSystemError)(cause)
+                ? cause.currentVersion
+                : undefined,
+              expectedVersion: Schema.is(WorkspaceFileSystemError)(cause)
+                ? cause.expectedVersion
+                : undefined,
               message,
               cause,
             });

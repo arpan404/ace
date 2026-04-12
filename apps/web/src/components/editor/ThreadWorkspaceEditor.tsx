@@ -1,4 +1,11 @@
-import type { EditorId, ProjectEntry, ResolvedKeybindingsConfig, ThreadId } from "@ace/contracts";
+import { DiffEditor } from "@monaco-editor/react";
+import type {
+  EditorId,
+  ProjectEntry,
+  ProjectReadFileResult,
+  ResolvedKeybindingsConfig,
+  ThreadId,
+} from "@ace/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -50,6 +57,15 @@ import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "../ui/dialog";
 import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
@@ -58,6 +74,43 @@ import { joinWorkspaceAbsolutePath, revealInFileManagerLabel } from "./workspace
 import WorkspaceEditorPane from "./WorkspaceEditorPane";
 
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
+const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 1_500;
+const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
+
+interface SaveConflictState {
+  readonly currentContents: string;
+  readonly currentVersion?: string;
+  readonly expectedVersion?: string;
+  readonly localContents: string;
+  readonly relativePath: string;
+}
+
+function readConflictField(error: unknown, key: string): unknown {
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+  return Reflect.get(error, key);
+}
+
+function parseSaveConflictState(
+  error: unknown,
+  variables: { contents: string; relativePath: string },
+): SaveConflictState | null {
+  const conflict = readConflictField(error, "conflict");
+  const currentContents = readConflictField(error, "currentContents");
+  if (conflict !== true || typeof currentContents !== "string") {
+    return null;
+  }
+  const currentVersion = readConflictField(error, "currentVersion");
+  const expectedVersion = readConflictField(error, "expectedVersion");
+  return {
+    currentContents,
+    localContents: variables.contents,
+    relativePath: variables.relativePath,
+    ...(typeof currentVersion === "string" ? { currentVersion } : {}),
+    ...(typeof expectedVersion === "string" ? { expectedVersion } : {}),
+  };
+}
 
 const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
   gitCwd,
@@ -559,6 +612,7 @@ export default function ThreadWorkspaceEditor(props: {
   const [selectedEntryPath, setSelectedEntryPath] = useState<string | null>(null);
   const [inlineEntryState, setInlineEntryState] = useState<ExplorerInlineEntryState | null>(null);
   const [dragTargetParentPath, setDragTargetParentPath] = useState<string | null>(null);
+  const [saveConflict, setSaveConflict] = useState<SaveConflictState | null>(null);
   const onWorkspaceModeChange = props.onWorkspaceModeChange;
   const editorWorkspaceMode: ThreadWorkspaceMode =
     props.workspaceMode === "split" ? "split" : "editor";
@@ -713,6 +767,8 @@ export default function ThreadWorkspaceEditor(props: {
   const workspaceTreeQuery = useQuery(
     projectListTreeQueryOptions({
       cwd: props.gitCwd,
+      refetchInterval: WORKSPACE_TREE_REFETCH_INTERVAL_MS,
+      staleTime: 0,
     }),
   );
   const workspaceSearchQuery = useQuery(
@@ -772,17 +828,29 @@ export default function ThreadWorkspaceEditor(props: {
   }, [inlineEntryState]);
 
   const saveMutation = useMutation({
-    mutationFn: async (input: { contents: string; relativePath: string }) => {
+    mutationFn: async (input: {
+      contents: string;
+      expectedVersion?: string;
+      overwrite?: boolean;
+      relativePath: string;
+    }) => {
       if (!api || !props.gitCwd) {
         throw new Error("Workspace editor is unavailable.");
       }
       return api.projects.writeFile({
         contents: input.contents,
         cwd: props.gitCwd,
+        expectedVersion: input.expectedVersion,
+        overwrite: input.overwrite,
         relativePath: input.relativePath,
       });
     },
     onError: (error, variables) => {
+      const conflict = parseSaveConflictState(error, variables);
+      if (conflict) {
+        setSaveConflict(conflict);
+        return;
+      }
       toastManager.add({
         description:
           error instanceof Error ? error.message : `Failed to save ${variables.relativePath}.`,
@@ -790,12 +858,16 @@ export default function ThreadWorkspaceEditor(props: {
         type: "error",
       });
     },
-    onSuccess: (_result, variables) => {
+    onSuccess: (result, variables) => {
+      setSaveConflict((current) =>
+        current?.relativePath === variables.relativePath ? null : current,
+      );
       markFileSaved(props.threadId, variables.relativePath, variables.contents);
       queryClient.setQueryData(projectQueryKeys.readFile(props.gitCwd, variables.relativePath), {
         contents: variables.contents,
         relativePath: variables.relativePath,
         sizeBytes: new Blob([variables.contents]).size,
+        version: result.version,
       });
       void queryClient.invalidateQueries({ queryKey: projectQueryKeys.listTree(props.gitCwd) });
       toastManager.add({
@@ -811,10 +883,62 @@ export default function ThreadWorkspaceEditor(props: {
       if (saveMutation.isPending) {
         return;
       }
-      void saveMutation.mutate({ contents, relativePath });
+      const readFileCache = queryClient.getQueryData<ProjectReadFileResult>(
+        projectQueryKeys.readFile(props.gitCwd, relativePath),
+      );
+      const payload: {
+        contents: string;
+        expectedVersion?: string;
+        relativePath: string;
+      } = {
+        contents,
+        relativePath,
+      };
+      if (typeof readFileCache?.version === "string") {
+        payload.expectedVersion = readFileCache.version;
+      }
+      void saveMutation.mutate(payload);
     },
-    [saveMutation],
+    [props.gitCwd, queryClient, saveMutation],
   );
+  const handleOverwriteSaveConflict = useCallback(() => {
+    if (!saveConflict || saveMutation.isPending) {
+      return;
+    }
+    const payload: {
+      contents: string;
+      expectedVersion?: string;
+      overwrite: boolean;
+      relativePath: string;
+    } = {
+      contents: saveConflict.localContents,
+      overwrite: true,
+      relativePath: saveConflict.relativePath,
+    };
+    if (saveConflict.currentVersion) {
+      payload.expectedVersion = saveConflict.currentVersion;
+    }
+    void saveMutation.mutate(payload);
+  }, [saveConflict, saveMutation]);
+  const handleUseDiskVersion = useCallback(() => {
+    if (!saveConflict) {
+      return;
+    }
+    markFileSaved(props.threadId, saveConflict.relativePath, saveConflict.currentContents);
+    if (saveConflict.currentVersion) {
+      queryClient.setQueryData(projectQueryKeys.readFile(props.gitCwd, saveConflict.relativePath), {
+        contents: saveConflict.currentContents,
+        relativePath: saveConflict.relativePath,
+        sizeBytes: new Blob([saveConflict.currentContents]).size,
+        version: saveConflict.currentVersion,
+      });
+    } else {
+      void queryClient.invalidateQueries({
+        queryKey: projectQueryKeys.readFile(props.gitCwd, saveConflict.relativePath),
+      });
+    }
+    setSaveConflict(null);
+  }, [markFileSaved, props.gitCwd, props.threadId, queryClient, saveConflict]);
   const handleHydrateFile = useCallback(
     (filePath: string, contents: string) => {
       hydrateFile(props.threadId, filePath, contents);
@@ -2179,6 +2303,58 @@ export default function ThreadWorkspaceEditor(props: {
           </div>
         </section>
       </div>
+      <Dialog
+        open={saveConflict !== null}
+        onOpenChange={(open) => (!open ? setSaveConflict(null) : null)}
+      >
+        <DialogPopup className="max-w-[min(95vw,1100px)]">
+          <DialogHeader>
+            <DialogTitle>File changed on disk</DialogTitle>
+            <DialogDescription>
+              {saveConflict
+                ? `${saveConflict.relativePath} was modified outside the editor. Review the diff, then overwrite the file or keep the disk version.`
+                : "Review the conflict before saving."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-3">
+            {saveConflict ? (
+              <div className="overflow-hidden rounded-md border border-border/60">
+                <DiffEditor
+                  height={WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT}
+                  original={saveConflict.currentContents}
+                  modified={saveConflict.localContents}
+                  theme={resolvedTheme === "dark" ? "ace-carbon" : "ace-paper"}
+                  options={{
+                    automaticLayout: true,
+                    minimap: { enabled: false },
+                    originalEditable: false,
+                    readOnly: true,
+                    renderSideBySide: true,
+                  }}
+                />
+              </div>
+            ) : null}
+          </DialogPanel>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaveConflict(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleUseDiskVersion}
+              disabled={!saveConflict || saveMutation.isPending}
+            >
+              Keep Disk Version
+            </Button>
+            <Button
+              onClick={handleOverwriteSaveConflict}
+              disabled={!saveConflict || saveMutation.isPending}
+            >
+              Overwrite Disk File
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </div>
   );
 }

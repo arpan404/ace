@@ -125,6 +125,8 @@ export function createWsNativeApi(): NativeApi {
     server: {
       getConfig: rpcClient.server.getConfig,
       refreshProviders: rpcClient.server.refreshProviders,
+      getLspToolsStatus: rpcClient.server.getLspToolsStatus,
+      installLspTools: (input) => rpcClient.server.installLspTools(input ?? {}),
       searchOpenCodeModels: rpcClient.server.searchOpenCodeModels,
       upsertKeybinding: rpcClient.server.upsertKeybinding,
       getSettings: rpcClient.server.getSettings,

@@ -209,3 +209,41 @@ export const ServerSearchOpenCodeModelsResult = Schema.Struct({
   hasMore: Schema.Boolean,
 });
 export type ServerSearchOpenCodeModelsResult = typeof ServerSearchOpenCodeModelsResult.Type;
+
+export const ServerLspToolId = Schema.Literals([
+  "typescript-language-server",
+  "vscode-json-language-server",
+  "vscode-css-language-server",
+  "vscode-html-language-server",
+]);
+export type ServerLspToolId = typeof ServerLspToolId.Type;
+
+export const ServerLspToolStatus = Schema.Struct({
+  id: ServerLspToolId,
+  label: TrimmedNonEmptyString,
+  command: TrimmedNonEmptyString,
+  packageName: TrimmedNonEmptyString,
+  installed: Schema.Boolean,
+  version: Schema.NullOr(TrimmedNonEmptyString),
+  binaryPath: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type ServerLspToolStatus = typeof ServerLspToolStatus.Type;
+
+export const ServerLspToolsStatus = Schema.Struct({
+  installDir: TrimmedNonEmptyString,
+  tools: Schema.Array(ServerLspToolStatus),
+});
+export type ServerLspToolsStatus = typeof ServerLspToolsStatus.Type;
+
+export const ServerInstallLspToolsInput = Schema.Struct({
+  reinstall: Schema.optional(Schema.Boolean),
+});
+export type ServerInstallLspToolsInput = typeof ServerInstallLspToolsInput.Type;
+
+export class ServerLspToolsError extends Schema.TaggedErrorClass<ServerLspToolsError>()(
+  "ServerLspToolsError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}

@@ -220,7 +220,7 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
 
   const tokenStart = tokenStartForCursor(text, cursor);
   const token = text.slice(tokenStart, cursor);
-  if (/^#\d*$/.test(token) && /^\s*\/issues(?:\s+.*)?$/i.test(linePrefix)) {
+  if (/^#\d*$/.test(token)) {
     return {
       kind: "issue",
       query: token.slice(1),

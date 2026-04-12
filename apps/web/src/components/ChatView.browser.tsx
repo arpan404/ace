@@ -2490,7 +2490,99 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("shows #issue autocomplete for /issues and supports multi-tag selection", async () => {
+  it("attaches hidden issue context for inline #issue tags in regular messages", async () => {
+    const baseSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-inline-issue-tag-flow" as MessageId,
+      targetText: "inline issue tag flow",
+    });
+    const emptyThreadSnapshot: OrchestrationReadModel = {
+      ...baseSnapshot,
+      threads: baseSnapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? Object.assign({}, thread, {
+              messages: [],
+              activities: [],
+              latestTurn: null,
+              updatedAt: NOW_ISO,
+            })
+          : thread,
+      ),
+    };
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: emptyThreadSnapshot,
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitGetGitHubIssueThread && body.issueNumber === 77) {
+          return {
+            issue: {
+              number: 77,
+              title: "Improve empty state copy",
+              state: "open",
+              url: "https://github.com/pingdotgg/ace/issues/77",
+              body: "Use concise copy and support issue continuation.",
+              labels: [{ name: "ux" }],
+              assignees: [{ login: "octocat" }],
+              author: { login: "hubot" },
+              createdAt: "2026-04-08T00:00:00.000Z",
+              updatedAt: "2026-04-08T00:10:00.000Z",
+              comments: [],
+            },
+          };
+        }
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: 1 };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      await waitForComposerEditor();
+      const userPrompt = "Please fix #77 and keep timeline hints concise.";
+      await page.getByTestId("composer-editor").fill(userPrompt);
+
+      const sendButton = await waitForSendButton();
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          );
+          expect(turnStartRequest).toBeDefined();
+          const messageText =
+            typeof turnStartRequest === "object" &&
+            turnStartRequest &&
+            "message" in turnStartRequest &&
+            typeof turnStartRequest.message === "object" &&
+            turnStartRequest.message &&
+            "text" in turnStartRequest.message &&
+            typeof turnStartRequest.message.text === "string"
+              ? turnStartRequest.message.text
+              : "";
+          expect(messageText).toContain(userPrompt);
+          expect(messageText).toContain("<github_issue_context>");
+          expect(messageText).toContain("issue_number: 77");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent ?? "").toContain(userPrompt);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      expect(document.body.textContent ?? "").not.toContain("<github_issue_context>");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows #issue autocomplete while typing and supports multi-tag selection", async () => {
     const baseSnapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-issues-autocomplete-flow" as MessageId,
       targetText: "issues autocomplete flow",
@@ -2585,7 +2677,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await waitForComposerEditor();
-      await page.getByTestId("composer-editor").fill("/issues #3");
+      await page.getByTestId("composer-editor").fill("Please review #3");
 
       await waitForComposerMenuItem("issue:3");
       await waitForComposerMenuItem("issue:35");
@@ -2605,22 +2697,113 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           const editor = document.querySelector<HTMLElement>('[data-testid="composer-editor"]');
-          expect(editor?.textContent ?? "").toContain("/issues #35");
+          expect(editor?.textContent ?? "").toContain("Please review #35");
         },
         { timeout: 8_000, interval: 16 },
       );
 
-      await page.getByTestId("composer-editor").fill("/issues #35 #3");
+      await page.getByTestId("composer-editor").fill("Please review #35 and #3");
       const issue356Item = await waitForComposerMenuItem("issue:356");
       issue356Item.click();
 
       await vi.waitFor(
         () => {
           const editor = document.querySelector<HTMLElement>('[data-testid="composer-editor"]');
-          expect(editor?.textContent ?? "").toContain("/issues #35 #356");
+          expect(editor?.textContent ?? "").toContain("Please review #35 and #356");
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("dismisses issue suggestions on Escape and keeps typing uninterrupted", async () => {
+    const baseSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-issues-escape-dismiss" as MessageId,
+      targetText: "issues escape dismiss",
+    });
+    const emptyThreadSnapshot: OrchestrationReadModel = {
+      ...baseSnapshot,
+      threads: baseSnapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? Object.assign({}, thread, {
+              messages: [],
+              activities: [],
+              latestTurn: null,
+              updatedAt: NOW_ISO,
+            })
+          : thread,
+      ),
+    };
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: emptyThreadSnapshot,
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitListGitHubIssues) {
+          return {
+            issues: [
+              {
+                number: 3,
+                title: "Issue 3",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/3",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+              {
+                number: 35,
+                title: "Issue 35",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/35",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+            ],
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const composerEditor = await waitForComposerEditor();
+      await page.getByTestId("composer-editor").fill("Please review #3");
+      await waitForComposerMenuItem("issue:3");
+
+      composerEditor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(document.querySelector('[data-composer-item-id="issue:3"]')).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await page.getByTestId("composer-editor").fill("Please review #35");
+      await vi.waitFor(
+        () => {
+          const editor = document.querySelector<HTMLElement>('[data-testid="composer-editor"]');
+          expect(editor?.textContent ?? "").toContain("Please review #35");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      expect(document.querySelector('[data-composer-item-id="issue:35"]')).toBeNull();
     } finally {
       await mounted.cleanup();
     }

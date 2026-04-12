@@ -68,6 +68,7 @@ import {
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "../composer-logic";
+import { extractIssueReferenceNumbers } from "../composer-editor-mentions";
 import {
   deriveCompletionDividerBeforeEntryId,
   derivePendingApprovals,
@@ -462,6 +463,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerSelectLockRef = useRef(false);
   const composerMenuOpenRef = useRef(false);
+  const dismissedComposerTriggerRef = useRef<{
+    kind: ComposerTrigger["kind"];
+    rangeStart: number;
+  } | null>(null);
   const composerMenuItemsRef = useRef<ComposerCommandItem[]>([]);
   const activeComposerMenuItemRef = useRef<ComposerCommandItem | null>(null);
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
@@ -503,6 +508,26 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [setComposerDraftPrompt, threadId],
   );
+  const detectComposerTriggerWithDismissal = useCallback(
+    (text: string, expandedCursor: number): ComposerTrigger | null => {
+      const detected = detectComposerTrigger(text, expandedCursor);
+      if (!detected) {
+        dismissedComposerTriggerRef.current = null;
+        return null;
+      }
+      const dismissed = dismissedComposerTriggerRef.current;
+      if (
+        dismissed &&
+        dismissed.kind === detected.kind &&
+        dismissed.rangeStart === detected.rangeStart
+      ) {
+        return null;
+      }
+      dismissedComposerTriggerRef.current = null;
+      return detected;
+    },
+    [],
+  );
   const addComposerImage = useCallback(
     (image: ComposerImageAttachment) => {
       addComposerDraftImage(threadId, image);
@@ -541,13 +566,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
       removeComposerDraftTerminalContext(threadId, contextId);
       setComposerCursor(nextPrompt.cursor);
       setComposerTrigger(
-        detectComposerTrigger(
+        detectComposerTriggerWithDismissal(
           nextPrompt.prompt,
           expandCollapsedComposerCursor(nextPrompt.prompt, nextPrompt.cursor),
         ),
       );
     },
-    [composerTerminalContexts, removeComposerDraftTerminalContext, setPrompt, threadId],
+    [
+      composerTerminalContexts,
+      detectComposerTriggerWithDismissal,
+      removeComposerDraftTerminalContext,
+      setPrompt,
+      threadId,
+    ],
   );
 
   const fallbackDraftProject = useProjectById(draftThread?.projectId);
@@ -1269,7 +1300,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const nextCursor = collapseExpandedComposerCursor(nextCustomAnswer, nextCustomAnswer.length);
     setComposerCursor(nextCursor);
     setComposerTrigger(
-      detectComposerTrigger(
+      detectComposerTriggerWithDismissal(
         nextCustomAnswer,
         expandCollapsedComposerCursor(nextCustomAnswer, nextCursor),
       ),
@@ -1279,6 +1310,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activePendingProgress?.customAnswer,
     activePendingUserInput?.requestId,
     activePendingProgress?.activeQuestion?.id,
+    detectComposerTriggerWithDismissal,
   ]);
   useEffect(() => {
     attachmentPreviewHandoffByMessageIdRef.current = attachmentPreviewHandoffByMessageId;
@@ -2111,12 +2143,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
       const nextCursor = collapseExpandedComposerCursor(message.prompt, message.prompt.length);
       setComposerCursor(nextCursor);
-      setComposerTrigger(detectComposerTrigger(message.prompt, message.prompt.length));
+      setComposerTrigger(detectComposerTriggerWithDismissal(message.prompt, message.prompt.length));
       setComposerHighlightedItemId(null);
       scheduleComposerFocus();
     },
     [
       addComposerImagesToDraft,
+      detectComposerTriggerWithDismissal,
       isLocalDraftThread,
       scheduleComposerFocus,
       setComposerDraftInteractionMode,
@@ -2384,12 +2417,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
       promptRef.current = insertion.prompt;
       setComposerCursor(nextCollapsedCursor);
-      setComposerTrigger(detectComposerTrigger(insertion.prompt, insertion.cursor));
+      setComposerTrigger(detectComposerTriggerWithDismissal(insertion.prompt, insertion.cursor));
       window.requestAnimationFrame(() => {
         composerEditorRef.current?.focusAt(nextCollapsedCursor);
       });
     },
-    [activeThread, composerCursor, composerTerminalContexts, insertComposerDraftTerminalContext],
+    [
+      activeThread,
+      composerCursor,
+      composerTerminalContexts,
+      detectComposerTriggerWithDismissal,
+      insertComposerDraftTerminalContext,
+    ],
   );
   const setTerminalOpen = useCallback(
     (open: boolean) => {
@@ -3676,6 +3715,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setPlanSidebarOpen(false);
     }
     planSidebarDismissedForTurnRef.current = null;
+    dismissedComposerTriggerRef.current = null;
   }, [activeThread?.id]);
 
   useEffect(() => {
@@ -3755,11 +3795,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
     resetLocalDispatch();
     setComposerHighlightedItemId(null);
     setComposerCursor(collapseExpandedComposerCursor(promptRef.current, promptRef.current.length));
-    setComposerTrigger(detectComposerTrigger(promptRef.current, promptRef.current.length));
+    setComposerTrigger(
+      detectComposerTriggerWithDismissal(promptRef.current, promptRef.current.length),
+    );
     dragDepthRef.current = 0;
     setIsDragOverComposer(false);
     setExpandedImage(null);
-  }, [resetLocalDispatch, threadId]);
+  }, [detectComposerTriggerWithDismissal, resetLocalDispatch, threadId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4228,6 +4270,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       },
       options?: {
         onFailure?: () => void;
+        restorePrompt?: string;
       },
     ) => {
       const api = readNativeApi();
@@ -4452,6 +4495,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         });
         turnStartSucceeded = true;
       })().catch(async (err: unknown) => {
+        const promptForRestore = options?.restorePrompt ?? promptForSend;
         if (createdServerThreadForLocalDraft && !turnStartSucceeded) {
           await api.orchestration
             .dispatchCommand({
@@ -4477,16 +4521,20 @@ export default function ChatView({ threadId }: ChatViewProps) {
             const next = existing.filter((message) => message.id !== messageIdForSend);
             return next.length === existing.length ? existing : next;
           });
-          promptRef.current = promptForSend;
-          setPrompt(promptForSend);
-          setComposerCursor(collapseExpandedComposerCursor(promptForSend, promptForSend.length));
+          promptRef.current = promptForRestore;
+          setPrompt(promptForRestore);
+          setComposerCursor(
+            collapseExpandedComposerCursor(promptForRestore, promptForRestore.length),
+          );
           addComposerImagesToDraft(
             composerImagesSnapshot.flatMap((image) =>
               "dataUrl" in image ? [] : [cloneComposerImageForRetry(image)],
             ),
           );
           addComposerTerminalContextsToDraft(composerTerminalContextsSnapshot);
-          setComposerTrigger(detectComposerTrigger(promptForSend, promptForSend.length));
+          setComposerTrigger(
+            detectComposerTriggerWithDismissal(promptForRestore, promptForRestore.length),
+          );
         } else {
           options?.onFailure?.();
         }
@@ -4511,6 +4559,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       forceStickToBottom,
       isLocalDraftThread,
       isServerThread,
+      detectComposerTriggerWithDismissal,
       persistThreadSettingsForNextTurn,
       providerStatuses,
       resetLocalDispatch,
@@ -4646,6 +4695,42 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
     if (!activeProject) return;
+    let promptWithIssueContext = promptForSend;
+    let imagesWithIssueContext: Array<ComposerImageAttachment | QueuedComposerImageAttachment> =
+      composerImages;
+    if (composerIssuesCommandPayload === null && gitCwd && isGitRepo) {
+      const inlineIssueNumbers = extractIssueReferenceNumbers(promptForSend);
+      if (inlineIssueNumbers.length > 0) {
+        try {
+          const payload = await buildGitHubIssueSelectionPayload({
+            cwd: gitCwd,
+            issueNumbers: inlineIssueNumbers,
+            queryClient,
+            includeSummaryLines: false,
+          });
+          if (payload.prompt.length > 0) {
+            promptWithIssueContext = `${promptForSend}\n\n${payload.prompt}`;
+          }
+          if (payload.images.length > 0) {
+            const seenImageIds = new Set<string>();
+            imagesWithIssueContext = [...composerImages, ...payload.images].filter((image) => {
+              if (seenImageIds.has(image.id)) {
+                return false;
+              }
+              seenImageIds.add(image.id);
+              return true;
+            });
+          }
+        } catch (error) {
+          toastManager.add({
+            type: "error",
+            title: "Failed to load GitHub issue context.",
+            description: error instanceof Error ? error.message : "Please try again.",
+          });
+          return;
+        }
+      }
+    }
     if (expiredTerminalContextCount > 0) {
       const toastCopy = buildExpiredTerminalContextToastCopy(
         expiredTerminalContextCount,
@@ -4663,14 +4748,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
     setComposerCursor(0);
     setComposerTrigger(null);
 
-    await dispatchComposerMessage({
-      prompt: promptForSend,
-      images: composerImages,
-      terminalContexts: sendableComposerTerminalContexts,
-      modelSelection: selectedModelSelection,
-      runtimeMode,
-      interactionMode,
-    });
+    await dispatchComposerMessage(
+      {
+        prompt: promptWithIssueContext,
+        images: imagesWithIssueContext,
+        terminalContexts: sendableComposerTerminalContexts,
+        modelSelection: selectedModelSelection,
+        runtimeMode,
+        interactionMode,
+      },
+      { restorePrompt: promptForSend },
+    );
   };
 
   useEffect(() => {
@@ -4934,10 +5022,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }));
       setComposerCursor(nextCursor);
       setComposerTrigger(
-        cursorAdjacentToMention ? null : detectComposerTrigger(value, expandedCursor),
+        cursorAdjacentToMention ? null : detectComposerTriggerWithDismissal(value, expandedCursor),
       );
     },
-    [activePendingUserInput],
+    [activePendingUserInput, detectComposerTriggerWithDismissal],
   );
 
   const onAdvanceActivePendingUserInput = useCallback(() => {
@@ -5390,10 +5478,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setPrompt(nextPrompt);
       const nextCursor = collapseExpandedComposerCursor(nextPrompt, nextPrompt.length);
       setComposerCursor(nextCursor);
-      setComposerTrigger(detectComposerTrigger(nextPrompt, nextPrompt.length));
+      setComposerTrigger(detectComposerTriggerWithDismissal(nextPrompt, nextPrompt.length));
       scheduleComposerFocus();
     },
-    [scheduleComposerFocus, setPrompt],
+    [detectComposerTriggerWithDismissal, scheduleComposerFocus, setPrompt],
   );
   const providerTraitsMenuContent = renderProviderTraitsMenuContent({
     provider: selectedProvider,
@@ -5459,14 +5547,22 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
       setComposerCursor(nextCursor);
       setComposerTrigger(
-        detectComposerTrigger(next.text, expandCollapsedComposerCursor(next.text, nextCursor)),
+        detectComposerTriggerWithDismissal(
+          next.text,
+          expandCollapsedComposerCursor(next.text, nextCursor),
+        ),
       );
       window.requestAnimationFrame(() => {
         composerEditorRef.current?.focusAt(nextCursor);
       });
       return true;
     },
-    [activePendingProgress?.activeQuestion, activePendingUserInput, setPrompt],
+    [
+      activePendingProgress?.activeQuestion,
+      activePendingUserInput,
+      detectComposerTriggerWithDismissal,
+      setPrompt,
+    ],
   );
 
   const readComposerSnapshot = useCallback((): {
@@ -5494,9 +5590,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const snapshot = readComposerSnapshot();
     return {
       snapshot,
-      trigger: detectComposerTrigger(snapshot.value, snapshot.expandedCursor),
+      trigger: detectComposerTriggerWithDismissal(snapshot.value, snapshot.expandedCursor),
     };
-  }, [readComposerSnapshot]);
+  }, [detectComposerTriggerWithDismissal, readComposerSnapshot]);
 
   const onSelectComposerItem = useCallback(
     (item: ComposerCommandItem) => {
@@ -5654,13 +5750,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
       setComposerCursor(nextCursor);
       setComposerTrigger(
-        cursorAdjacentToMention ? null : detectComposerTrigger(nextPrompt, expandedCursor),
+        cursorAdjacentToMention
+          ? null
+          : detectComposerTriggerWithDismissal(nextPrompt, expandedCursor),
       );
     },
     [
       activePendingProgress?.activeQuestion,
       activePendingUserInput,
       composerTerminalContexts,
+      detectComposerTriggerWithDismissal,
       onChangeActivePendingUserInputCustomAnswer,
       setPrompt,
       setComposerDraftTerminalContexts,
@@ -5669,7 +5768,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
 
   const onComposerCommandKey = (
-    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab",
+    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape",
     event: KeyboardEvent,
   ) => {
     if (key === "Tab" && event.shiftKey) {
@@ -5679,6 +5778,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
     const { trigger } = resolveActiveComposerTrigger();
     const menuIsActive = composerMenuOpenRef.current || trigger !== null;
+    if (key === "Escape" && menuIsActive) {
+      const dismissedTrigger = trigger ?? composerTrigger;
+      if (dismissedTrigger) {
+        dismissedComposerTriggerRef.current = {
+          kind: dismissedTrigger.kind,
+          rangeStart: dismissedTrigger.rangeStart,
+        };
+      }
+      setComposerTrigger(null);
+      setComposerHighlightedItemId(null);
+      return true;
+    }
 
     if (menuIsActive) {
       const currentItems = composerMenuItemsRef.current;

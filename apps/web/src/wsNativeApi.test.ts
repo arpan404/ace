@@ -82,6 +82,8 @@ const rpcClientMock = {
     getConfig: vi.fn(),
     pickFolder: vi.fn(),
     refreshProviders: vi.fn(),
+    getLspToolsStatus: vi.fn(),
+    installLspTools: vi.fn(),
     upsertKeybinding: vi.fn(),
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
@@ -554,6 +556,47 @@ describe("wsNativeApi", () => {
 
     await expect(api.server.refreshProviders()).resolves.toEqual({ providers: nextProviders });
     expect(rpcClientMock.server.refreshProviders).toHaveBeenCalledWith();
+  });
+
+  it("forwards LSP tool status requests directly to the RPC client", async () => {
+    const status = {
+      installDir: "/tmp/ace/userdata/lsp-tools",
+      tools: [
+        {
+          id: "typescript-language-server",
+          label: "TypeScript / JavaScript",
+          command: "typescript-language-server",
+          packageName: "typescript-language-server",
+          installed: true,
+          version: "5.0.1",
+          binaryPath: "/tmp/ace/userdata/lsp-tools/node_modules/.bin/typescript-language-server",
+        },
+      ],
+    } as const;
+    rpcClientMock.server.getLspToolsStatus.mockResolvedValue(status);
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+
+    await expect(api.server.getLspToolsStatus()).resolves.toEqual(status);
+    expect(rpcClientMock.server.getLspToolsStatus).toHaveBeenCalledWith();
+  });
+
+  it("forwards LSP install requests directly to the RPC client", async () => {
+    const status = {
+      installDir: "/tmp/ace/userdata/lsp-tools",
+      tools: [],
+    } as const;
+    rpcClientMock.server.installLspTools.mockResolvedValue(status);
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+
+    await expect(api.server.installLspTools()).resolves.toEqual(status);
+    expect(rpcClientMock.server.installLspTools).toHaveBeenCalledWith({});
+
+    await expect(api.server.installLspTools({ reinstall: true })).resolves.toEqual(status);
+    expect(rpcClientMock.server.installLspTools).toHaveBeenLastCalledWith({ reinstall: true });
   });
 
   it("forwards server settings updates directly to the RPC client", async () => {

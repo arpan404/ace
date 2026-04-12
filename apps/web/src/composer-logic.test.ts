@@ -97,9 +97,29 @@ describe("detectComposerTrigger", () => {
     });
   });
 
-  it("does not detect issue trigger outside /issues command", () => {
+  it("detects issue trigger outside /issues command", () => {
     const text = "#35";
-    expect(detectComposerTrigger(text, text.length)).toBeNull();
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "issue",
+      query: "35",
+      rangeStart: 0,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("detects issue trigger in the middle of normal message text", () => {
+    const text = "Please check #356 before release";
+    const cursorAfterIssue = "Please check #356".length;
+    expect(detectComposerTrigger(text, cursorAfterIssue)).toEqual({
+      kind: "issue",
+      query: "356",
+      rangeStart: "Please check ".length,
+      rangeEnd: cursorAfterIssue,
+    });
+  });
+
+  it("does not detect hash-like fragments embedded in words", () => {
+    expect(detectComposerTrigger("c#35", "c#35".length)).toBeNull();
   });
 
   it("detects @path trigger in the middle of existing text", () => {

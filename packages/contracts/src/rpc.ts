@@ -92,6 +92,9 @@ import {
 import {
   ServerConfigStreamEvent,
   ServerConfig,
+  ServerInstallLspToolsInput,
+  ServerLspToolsError,
+  ServerLspToolsStatus,
   ServerSearchOpenCodeModelsInput,
   ServerSearchOpenCodeModelsResult,
   ServerLifecycleStreamEvent,
@@ -148,6 +151,8 @@ export const WS_METHODS = {
   serverPickFolder: "server.pickFolder",
   serverRefreshProviders: "server.refreshProviders",
   serverSearchOpenCodeModels: "server.searchOpenCodeModels",
+  serverGetLspToolsStatus: "server.getLspToolsStatus",
+  serverInstallLspTools: "server.installLspTools",
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
@@ -196,6 +201,18 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
 export const WsServerSearchOpenCodeModelsRpc = Rpc.make(WS_METHODS.serverSearchOpenCodeModels, {
   payload: ServerSearchOpenCodeModelsInput,
   success: ServerSearchOpenCodeModelsResult,
+});
+
+export const WsServerGetLspToolsStatusRpc = Rpc.make(WS_METHODS.serverGetLspToolsStatus, {
+  payload: Schema.Struct({}),
+  success: ServerLspToolsStatus,
+  error: ServerLspToolsError,
+});
+
+export const WsServerInstallLspToolsRpc = Rpc.make(WS_METHODS.serverInstallLspTools, {
+  payload: ServerInstallLspToolsInput,
+  success: ServerLspToolsStatus,
+  error: ServerLspToolsError,
 });
 
 export const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
@@ -461,6 +478,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerPickFolderRpc,
   WsServerRefreshProvidersRpc,
   WsServerSearchOpenCodeModelsRpc,
+  WsServerGetLspToolsStatusRpc,
+  WsServerInstallLspToolsRpc,
   WsServerUpsertKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,

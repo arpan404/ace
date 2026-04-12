@@ -44,6 +44,8 @@ import type {
 } from "./workspaceEditor";
 import type {
   ServerConfig,
+  ServerInstallLspToolsInput,
+  ServerLspToolsStatus,
   ServerSearchOpenCodeModelsInput,
   ServerSearchOpenCodeModelsResult,
   ServerProviderUpdatedPayload,
@@ -315,6 +317,8 @@ export interface NativeApi {
   server: {
     getConfig: () => Promise<ServerConfig>;
     refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
+    getLspToolsStatus: () => Promise<ServerLspToolsStatus>;
+    installLspTools: (input?: ServerInstallLspToolsInput) => Promise<ServerLspToolsStatus>;
     searchOpenCodeModels: (
       input: ServerSearchOpenCodeModelsInput,
     ) => Promise<ServerSearchOpenCodeModelsResult>;

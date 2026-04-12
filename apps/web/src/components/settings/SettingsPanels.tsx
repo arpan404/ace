@@ -1,7 +1,12 @@
 import { ArchiveIcon, ArchiveX } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
-import { type DesktopCliInstallState, type ProviderKind, ThreadId } from "@ace/contracts";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type DesktopCliInstallState,
+  type ProviderKind,
+  type ServerLspToolsStatus,
+  ThreadId,
+} from "@ace/contracts";
 import {
   DEFAULT_UI_FONT_FAMILY,
   DEFAULT_UI_FONT_SIZE_SCALE,
@@ -699,6 +704,9 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     Partial<Record<ProviderKind, string | null>>
   >({});
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
+  const [lspToolsStatus, setLspToolsStatus] = useState<ServerLspToolsStatus | null>(null);
+  const [lspToolsError, setLspToolsError] = useState<string | null>(null);
+  const [isInstallingLspTools, setIsInstallingLspTools] = useState(false);
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
   const refreshProviders = useCallback(() => {
@@ -971,6 +979,44 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const isProvidersPage = page === "providers";
   const isAdvancedPage = page === "advanced";
   const isAboutPage = page === "about";
+  const lspToolsInstalled = lspToolsStatus?.tools.every((tool) => tool.installed) ?? false;
+
+  const refreshLspToolsStatus = useCallback(() => {
+    void ensureNativeApi()
+      .server.getLspToolsStatus()
+      .then((status) => {
+        setLspToolsStatus(status);
+        setLspToolsError(null);
+      })
+      .catch((error: unknown) => {
+        setLspToolsError(
+          error instanceof Error ? error.message : "Unable to load LSP tool status.",
+        );
+      });
+  }, []);
+
+  const installLspToolsFromSettings = useCallback((reinstall: boolean) => {
+    setIsInstallingLspTools(true);
+    setLspToolsError(null);
+    void ensureNativeApi()
+      .server.installLspTools({ reinstall })
+      .then((status) => {
+        setLspToolsStatus(status);
+        toastManager.add({
+          type: "success",
+          title: "Language server tools are ready.",
+        });
+      })
+      .catch((error: unknown) => {
+        setLspToolsError(error instanceof Error ? error.message : "Unable to install LSP tools.");
+      })
+      .finally(() => setIsInstallingLspTools(false));
+  }, []);
+
+  useEffect(() => {
+    if (!isEditorPage || lspToolsStatus) return;
+    refreshLspToolsStatus();
+  }, [isEditorPage, lspToolsStatus, refreshLspToolsStatus]);
 
   return (
     <SettingsPageContainer>
@@ -1779,6 +1825,49 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     </SelectItem>
                   </SelectPopup>
                 </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Language server tools"
+              description="Install and repair built-in language servers used by the workspace editor."
+              status={
+                <div className="space-y-1 text-[11px] text-muted-foreground">
+                  {lspToolsStatus?.tools.map((tool) => (
+                    <div key={tool.id} className="flex items-center gap-2">
+                      <span>{tool.label}</span>
+                      <span className={tool.installed ? "text-emerald-500" : "text-amber-500"}>
+                        {tool.installed
+                          ? `Installed${tool.version ? ` (${tool.version})` : ""}`
+                          : "Missing"}
+                      </span>
+                    </div>
+                  ))}
+                  {lspToolsError ? <div className="text-destructive">{lspToolsError}</div> : null}
+                </div>
+              }
+              control={
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={refreshLspToolsStatus}
+                    disabled={isInstallingLspTools}
+                  >
+                    Refresh
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => installLspToolsFromSettings(lspToolsInstalled)}
+                    disabled={isInstallingLspTools}
+                  >
+                    {isInstallingLspTools
+                      ? "Installing..."
+                      : lspToolsInstalled
+                        ? "Reinstall"
+                        : "Install"}
+                  </Button>
+                </div>
               }
             />
 

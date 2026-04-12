@@ -1,11 +1,14 @@
+import { basename, delimiter, dirname, extname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { Effect, Exit, Layer, Ref, Schema } from "effect";
+import { existsSync } from "node:fs";
+import { Effect, Layer, Ref } from "effect";
 import * as Semaphore from "effect/Semaphore";
 
-import {
+import type {
+  WorkspaceEditorCloseBufferResult,
   WorkspaceEditorDiagnostic,
-  type WorkspaceEditorCloseBufferResult,
-  type WorkspaceEditorSyncBufferResult,
+  WorkspaceEditorSyncBufferResult,
 } from "@ace/contracts";
 
 import {
@@ -14,231 +17,616 @@ import {
   type WorkspaceEditorShape,
 } from "../Services/WorkspaceEditor";
 import { WorkspacePaths } from "../Services/WorkspacePaths";
-import type { NeovimClient } from "neovim";
+import { ServerConfig } from "../../config";
 
-const NVIM_MIN_VERSION = "0.9.0";
-const NVIM_STARTUP_ARGS = ["--headless", "--embed", "-n", "-i", "NONE"] as const;
-const COMMON_NVIM_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] as const;
+type LspServerId = "typescript" | "json" | "css" | "html";
 
-const NVIM_BOOTSTRAP_LUA = String.raw`
-local function ace_split_lines(contents)
-  if contents == "" then
-    return { "" }
-  end
-  local lines = vim.split(contents, "\n", { plain = true })
-  if contents:sub(-1) == "\n" then
-    table.remove(lines, #lines)
-  end
-  if #lines == 0 then
-    return { "" }
-  end
-  return lines
-end
-
-local function ace_severity_name(severity)
-  if severity == vim.diagnostic.severity.ERROR then
-    return "error"
-  end
-  if severity == vim.diagnostic.severity.WARN then
-    return "warning"
-  end
-  if severity == vim.diagnostic.severity.INFO then
-    return "info"
-  end
-  return "hint"
-end
-
-if _G.__ace_editor == nil then
-  _G.__ace_editor = {}
-
-  function _G.__ace_editor.ensure_buffer(abs_path, cwd)
-    vim.api.nvim_set_current_dir(cwd)
-
-    local bufnr = vim.fn.bufnr(abs_path)
-    if bufnr == -1 then
-      bufnr = vim.fn.bufadd(abs_path)
-    end
-
-    vim.fn.bufload(bufnr)
-    if vim.api.nvim_buf_get_name(bufnr) ~= abs_path then
-      vim.api.nvim_buf_set_name(bufnr, abs_path)
-    end
-
-    vim.bo[bufnr].buflisted = true
-    vim.bo[bufnr].bufhidden = "hide"
-    vim.bo[bufnr].swapfile = false
-    vim.bo[bufnr].undofile = false
-
-    local filetype = vim.filetype.match({ filename = abs_path })
-    if filetype and filetype ~= "" and vim.bo[bufnr].filetype ~= filetype then
-      vim.bo[bufnr].filetype = filetype
-    end
-
-    if vim.b[bufnr].ace_initialized ~= true then
-      vim.b[bufnr].ace_initialized = true
-      vim.api.nvim_exec_autocmds("BufReadPost", { buffer = bufnr, modeline = false })
-      vim.api.nvim_exec_autocmds("BufEnter", { buffer = bufnr, modeline = false })
-      vim.api.nvim_exec_autocmds("FileType", { buffer = bufnr, modeline = false })
-      vim.wait(120, function()
-        return #vim.lsp.get_clients({ bufnr = bufnr }) > 0
-      end, 20)
-    end
-
-    return bufnr
-  end
-
-  function _G.__ace_editor.sync_buffer(abs_path, cwd, contents)
-    local bufnr = _G.__ace_editor.ensure_buffer(abs_path, cwd)
-    local lines = ace_split_lines(contents)
-
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
-    vim.api.nvim_exec_autocmds("TextChanged", { buffer = bufnr, modeline = false })
-    vim.api.nvim_exec_autocmds("InsertLeave", { buffer = bufnr, modeline = false })
-    vim.wait(180, function()
-      return false
-    end, 30)
-
-    local diagnostics = {}
-    for _, item in ipairs(vim.diagnostic.get(bufnr)) do
-      local start_line = math.max(0, item.lnum or 0)
-      local start_column = math.max(0, item.col or 0)
-      local end_line = math.max(start_line, item.end_lnum or start_line)
-      local end_column = math.max(start_column + 1, item.end_col or (start_column + 1))
-
-      diagnostics[#diagnostics + 1] = {
-        code = item.code and tostring(item.code) or nil,
-        endColumn = end_column,
-        endLine = end_line,
-        message = tostring(item.message or ""),
-        severity = ace_severity_name(item.severity),
-        source = item.source and tostring(item.source) or nil,
-        startColumn = start_column,
-        startLine = start_line,
-      }
-    end
-
-    return diagnostics
-  end
-
-  function _G.__ace_editor.close_buffer(abs_path)
-    local bufnr = vim.fn.bufnr(abs_path)
-    if bufnr ~= -1 and vim.api.nvim_buf_is_valid(bufnr) then
-      pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
-    end
-    return true
-  end
-end
-
-return true
-`;
-
-interface WorkspaceEditorSession {
-  readonly mutex: Semaphore.Semaphore;
-  readonly nvim: NeovimClient;
-  readonly proc: ChildProcessWithoutNullStreams;
+interface LspServerDefinition {
+  readonly args: readonly string[];
+  readonly command: string;
+  readonly envArgsJsonKey: string;
+  readonly envBinKey: string;
+  readonly id: LspServerId;
+  readonly languageIds: ReadonlySet<string>;
 }
 
-function waitForProcessSpawn(proc: ChildProcessWithoutNullStreams): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const handleError = (error: Error) => {
-      cleanup();
-      reject(error);
-    };
-    const handleSpawn = () => {
-      cleanup();
-      resolve();
-    };
-    const cleanup = () => {
-      proc.off("error", handleError);
-      proc.off("spawn", handleSpawn);
-    };
+interface LspPendingRequest {
+  readonly reject: (error: Error) => void;
+  readonly resolve: (value: unknown) => void;
+  readonly timeout: ReturnType<typeof setTimeout>;
+}
 
-    proc.once("error", handleError);
-    proc.once("spawn", handleSpawn);
+interface LspDiagnosticsWaiter {
+  readonly minimumRevision: number;
+  readonly resolve: (diagnostics: readonly WorkspaceEditorDiagnostic[]) => void;
+  readonly timeout: ReturnType<typeof setTimeout>;
+}
+
+interface LspSession {
+  readonly diagnosticsByUri: Map<string, readonly WorkspaceEditorDiagnostic[]>;
+  readonly diagnosticsRevisionByUri: Map<string, number>;
+  readonly diagnosticsWaitersByUri: Map<string, Set<LspDiagnosticsWaiter>>;
+  readonly documentVersions: Map<string, number>;
+  readonly key: string;
+  readonly languageServer: LspServerDefinition;
+  readonly mutex: Semaphore.Semaphore;
+  readonly openedUris: Set<string>;
+  readonly pendingRequests: Map<number, LspPendingRequest>;
+  readonly proc: ChildProcessWithoutNullStreams;
+  dead: boolean;
+  nextRequestId: number;
+  stderrTail: string;
+  stdoutBuffer: Buffer;
+}
+
+const LSP_REQUEST_TIMEOUT_MS = 5_000;
+const LSP_SHUTDOWN_TIMEOUT_MS = 750;
+const LSP_SYNC_DIAGNOSTICS_TIMEOUT_MS = 550;
+const SESSION_RETRY_COOLDOWN_MS = 5_000;
+const STDERR_TAIL_MAX_CHARS = 4_000;
+const HEADER_BODY_SEPARATOR = Buffer.from("\r\n\r\n");
+const PATH_ENV_KEYS = ["PATH", "Path", "path"] as const;
+const COMMON_NODE_MODULES_BIN_ANCESTOR_LIMIT = 8;
+const DIAGNOSTIC_SOURCE_FALLBACK = "lsp";
+
+const LSP_SERVERS = [
+  {
+    id: "typescript",
+    command: "typescript-language-server",
+    args: ["--stdio"],
+    languageIds: new Set(["typescript", "javascript"]),
+    envBinKey: "ACE_LSP_TYPESCRIPT_SERVER_BIN",
+    envArgsJsonKey: "ACE_LSP_TYPESCRIPT_SERVER_ARGS_JSON",
+  },
+  {
+    id: "json",
+    command: "vscode-json-language-server",
+    args: ["--stdio"],
+    languageIds: new Set(["json"]),
+    envBinKey: "ACE_LSP_JSON_SERVER_BIN",
+    envArgsJsonKey: "ACE_LSP_JSON_SERVER_ARGS_JSON",
+  },
+  {
+    id: "css",
+    command: "vscode-css-language-server",
+    args: ["--stdio"],
+    languageIds: new Set(["css", "scss", "less"]),
+    envBinKey: "ACE_LSP_CSS_SERVER_BIN",
+    envArgsJsonKey: "ACE_LSP_CSS_SERVER_ARGS_JSON",
+  },
+  {
+    id: "html",
+    command: "vscode-html-language-server",
+    args: ["--stdio"],
+    languageIds: new Set(["html"]),
+    envBinKey: "ACE_LSP_HTML_SERVER_BIN",
+    envArgsJsonKey: "ACE_LSP_HTML_SERVER_ARGS_JSON",
+  },
+] as const satisfies readonly LspServerDefinition[];
+
+function toWorkspaceDiagnosticSeverity(severity: unknown): WorkspaceEditorDiagnostic["severity"] {
+  if (severity === 2) {
+    return "warning";
+  }
+  if (severity === 3) {
+    return "info";
+  }
+  if (severity === 4) {
+    return "hint";
+  }
+  return "error";
+}
+
+function resolveLanguageIdFromPath(relativePath: string): string | null {
+  const extension = extname(relativePath).toLowerCase();
+  switch (extension) {
+    case ".ts":
+    case ".tsx":
+    case ".mts":
+    case ".cts":
+      return "typescript";
+    case ".js":
+    case ".jsx":
+    case ".mjs":
+    case ".cjs":
+      return "javascript";
+    case ".json":
+      return "json";
+    case ".css":
+      return "css";
+    case ".scss":
+      return "scss";
+    case ".less":
+      return "less";
+    case ".html":
+    case ".htm":
+      return "html";
+    default:
+      return null;
+  }
+}
+
+function resolveServerForLanguageId(languageId: string): LspServerDefinition | null {
+  for (const server of LSP_SERVERS) {
+    if (server.languageIds.has(languageId)) {
+      return server;
+    }
+  }
+  return null;
+}
+
+function parseServerArgsOverride(raw: string | undefined): readonly string[] | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || !parsed.every((value) => typeof value === "string")) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function appendStderrTail(session: LspSession, chunk: Buffer | string): void {
+  const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  session.stderrTail = `${session.stderrTail}${text}`.slice(-STDERR_TAIL_MAX_CHARS);
+}
+
+function resolvePathEnvValue(env: NodeJS.ProcessEnv): string {
+  for (const key of PATH_ENV_KEYS) {
+    const value = env[key];
+    if (typeof value === "string" && value.length > 0) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function collectNodeModuleBinDirectories(anchors: readonly string[]): readonly string[] {
+  const directories = new Set<string>();
+  for (const anchor of anchors) {
+    let current = anchor;
+    for (let index = 0; index < COMMON_NODE_MODULES_BIN_ANCESTOR_LIMIT; index += 1) {
+      const candidate = join(current, "node_modules", ".bin");
+      if (existsSync(candidate)) {
+        directories.add(candidate);
+      }
+      const parent = dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+  }
+  return [...directories];
+}
+
+function buildLspEnvironment(stateDir: string): NodeJS.ProcessEnv {
+  const nextEnv = { ...process.env };
+  const currentPath = resolvePathEnvValue(nextEnv);
+  const localBins = collectNodeModuleBinDirectories([
+    process.cwd(),
+    import.meta.dirname,
+    join(stateDir, "lsp-tools"),
+  ]);
+  const nextPathEntries = [...localBins, ...currentPath.split(delimiter).filter(Boolean)];
+  if (nextPathEntries.length > 0) {
+    nextEnv.PATH = Array.from(new Set(nextPathEntries)).join(delimiter);
+  }
+  return nextEnv;
+}
+
+function parseLspDiagnostics(
+  payload: unknown,
+  sourceFallback: string,
+): readonly WorkspaceEditorDiagnostic[] {
+  if (typeof payload !== "object" || payload === null) {
+    return [];
+  }
+  const diagnostics = Reflect.get(payload, "diagnostics");
+  if (!Array.isArray(diagnostics)) {
+    return [];
+  }
+  return diagnostics.flatMap((item): WorkspaceEditorDiagnostic[] => {
+    if (typeof item !== "object" || item === null) {
+      return [];
+    }
+    const message = Reflect.get(item, "message");
+    const range = Reflect.get(item, "range");
+    const code = Reflect.get(item, "code");
+    const source = Reflect.get(item, "source");
+    const severity = Reflect.get(item, "severity");
+    if (typeof message !== "string" || typeof range !== "object" || range === null) {
+      return [];
+    }
+    const start = Reflect.get(range, "start");
+    const end = Reflect.get(range, "end");
+    if (typeof start !== "object" || start === null || typeof end !== "object" || end === null) {
+      return [];
+    }
+
+    const startLine = Number(Reflect.get(start, "line"));
+    const startColumn = Number(Reflect.get(start, "character"));
+    const endLine = Number(Reflect.get(end, "line"));
+    const endColumn = Number(Reflect.get(end, "character"));
+    if (
+      !Number.isFinite(startLine) ||
+      !Number.isFinite(startColumn) ||
+      !Number.isFinite(endLine) ||
+      !Number.isFinite(endColumn)
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        code: typeof code === "string" || typeof code === "number" ? String(code) : undefined,
+        endColumn: Math.max(Math.trunc(endColumn), Math.trunc(startColumn) + 1),
+        endLine: Math.max(Math.trunc(endLine), Math.trunc(startLine)),
+        message,
+        severity: toWorkspaceDiagnosticSeverity(severity),
+        source: typeof source === "string" && source.trim().length > 0 ? source : sourceFallback,
+        startColumn: Math.max(0, Math.trunc(startColumn)),
+        startLine: Math.max(0, Math.trunc(startLine)),
+      },
+    ];
   });
 }
 
-function waitForProcessExit(
+function isResponseMessage(message: unknown): message is {
+  readonly id: number;
+  readonly result?: unknown;
+  readonly error?: { readonly message?: unknown };
+} {
+  if (typeof message !== "object" || message === null) {
+    return false;
+  }
+  const id = Reflect.get(message, "id");
+  return typeof id === "number";
+}
+
+function parseContentLength(headerBlock: string): number | null {
+  const lines = headerBlock.split("\r\n");
+  for (const line of lines) {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+    const key = line.slice(0, separatorIndex).trim().toLowerCase();
+    if (key !== "content-length") {
+      continue;
+    }
+    const rawLength = line.slice(separatorIndex + 1).trim();
+    const length = Number(rawLength);
+    if (!Number.isFinite(length) || length < 0) {
+      return null;
+    }
+    return Math.trunc(length);
+  }
+  return null;
+}
+
+function failPendingRequests(session: LspSession, error: Error): void {
+  for (const pending of session.pendingRequests.values()) {
+    clearTimeout(pending.timeout);
+    pending.reject(error);
+  }
+  session.pendingRequests.clear();
+}
+
+function resolveDiagnosticsWaiters(
+  session: LspSession,
+  uri: string,
+  diagnostics: readonly WorkspaceEditorDiagnostic[],
+): void {
+  const waiters = session.diagnosticsWaitersByUri.get(uri);
+  if (!waiters || waiters.size === 0) {
+    return;
+  }
+  const revision = session.diagnosticsRevisionByUri.get(uri) ?? 0;
+  for (const waiter of waiters) {
+    if (waiter.minimumRevision >= revision) {
+      continue;
+    }
+    waiters.delete(waiter);
+    clearTimeout(waiter.timeout);
+    waiter.resolve(diagnostics);
+  }
+  if (waiters.size === 0) {
+    session.diagnosticsWaitersByUri.delete(uri);
+  }
+}
+
+function readAvailableLspMessages(
+  session: LspSession,
+  onMessage: (message: unknown) => void,
+): void {
+  while (true) {
+    const headerEndIndex = session.stdoutBuffer.indexOf(HEADER_BODY_SEPARATOR);
+    if (headerEndIndex < 0) {
+      return;
+    }
+    const headerBlock = session.stdoutBuffer.subarray(0, headerEndIndex).toString("utf8");
+    const contentLength = parseContentLength(headerBlock);
+    if (contentLength === null) {
+      session.stdoutBuffer = Buffer.alloc(0);
+      return;
+    }
+
+    const bodyStart = headerEndIndex + HEADER_BODY_SEPARATOR.length;
+    const bodyEnd = bodyStart + contentLength;
+    if (session.stdoutBuffer.length < bodyEnd) {
+      return;
+    }
+
+    const rawBody = session.stdoutBuffer.subarray(bodyStart, bodyEnd).toString("utf8");
+    session.stdoutBuffer = session.stdoutBuffer.subarray(bodyEnd);
+    try {
+      onMessage(JSON.parse(rawBody));
+    } catch {
+      // Ignore malformed payloads from crashed server output.
+    }
+  }
+}
+
+async function writeLspPacket(session: LspSession, payload: unknown): Promise<void> {
+  const body = JSON.stringify(payload);
+  const packet = `Content-Length: ${String(Buffer.byteLength(body, "utf8"))}\r\n\r\n${body}`;
+  await new Promise<void>((resolve, reject) => {
+    session.proc.stdin.write(packet, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+async function sendLspNotification(
+  session: LspSession,
+  method: string,
+  params: Record<string, unknown>,
+): Promise<void> {
+  if (session.dead) {
+    throw new Error("LSP session is not running.");
+  }
+  await writeLspPacket(session, {
+    jsonrpc: "2.0",
+    method,
+    params,
+  });
+}
+
+async function sendLspRequest(
+  session: LspSession,
+  method: string,
+  params: Record<string, unknown>,
+  timeoutMs: number,
+): Promise<unknown> {
+  if (session.dead) {
+    throw new Error("LSP session is not running.");
+  }
+  const requestId = session.nextRequestId;
+  session.nextRequestId += 1;
+
+  const responsePromise = new Promise<unknown>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      session.pendingRequests.delete(requestId);
+      reject(new Error(`LSP request timed out: ${method}`));
+    }, timeoutMs);
+    session.pendingRequests.set(requestId, {
+      reject,
+      resolve,
+      timeout,
+    });
+  });
+
+  try {
+    await writeLspPacket(session, {
+      jsonrpc: "2.0",
+      id: requestId,
+      method,
+      params,
+    });
+  } catch (error) {
+    const pending = session.pendingRequests.get(requestId);
+    if (pending) {
+      clearTimeout(pending.timeout);
+      session.pendingRequests.delete(requestId);
+    }
+    throw error;
+  }
+
+  return responsePromise;
+}
+
+function waitForDiagnosticsUpdate(
+  session: LspSession,
+  uri: string,
+  timeoutMs: number,
+): Promise<readonly WorkspaceEditorDiagnostic[]> {
+  const previousRevision = session.diagnosticsRevisionByUri.get(uri) ?? 0;
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      const waiters = session.diagnosticsWaitersByUri.get(uri);
+      if (waiters) {
+        for (const waiter of waiters) {
+          if (waiter.timeout === timeout) {
+            waiters.delete(waiter);
+          }
+        }
+        if (waiters.size === 0) {
+          session.diagnosticsWaitersByUri.delete(uri);
+        }
+      }
+      resolve(session.diagnosticsByUri.get(uri) ?? []);
+    }, timeoutMs);
+
+    const waiter: LspDiagnosticsWaiter = {
+      minimumRevision: previousRevision,
+      timeout,
+      resolve,
+    };
+    const waiters = session.diagnosticsWaitersByUri.get(uri);
+    if (waiters) {
+      waiters.add(waiter);
+    } else {
+      session.diagnosticsWaitersByUri.set(uri, new Set([waiter]));
+    }
+  });
+}
+
+async function waitForProcessSpawn(proc: ChildProcessWithoutNullStreams): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const onSpawn = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const cleanup = () => {
+      proc.off("spawn", onSpawn);
+      proc.off("error", onError);
+    };
+    proc.once("spawn", onSpawn);
+    proc.once("error", onError);
+  });
+}
+
+async function waitForProcessExit(
   proc: ChildProcessWithoutNullStreams,
   timeoutMs: number,
 ): Promise<void> {
   if (proc.exitCode !== null) {
-    return Promise.resolve();
+    return;
   }
-
-  return new Promise((resolve) => {
-    const handleDone = () => {
-      cleanup();
+  await new Promise<void>((resolve) => {
+    let timeout: ReturnType<typeof setTimeout>;
+    const onExit = () => done();
+    const onError = () => done();
+    const done = () => {
+      clearTimeout(timeout);
+      proc.off("exit", onExit);
+      proc.off("error", onError);
       resolve();
     };
-    const cleanup = () => {
-      clearTimeout(timeout);
-      proc.off("exit", handleDone);
-      proc.off("error", handleDone);
-    };
-    const timeout = setTimeout(handleDone, timeoutMs);
-
-    proc.once("exit", handleDone);
-    proc.once("error", handleDone);
+    timeout = setTimeout(done, timeoutMs);
+    proc.once("exit", onExit);
+    proc.once("error", onError);
   });
 }
 
-function snapshotConsoleMethods(): Map<string, unknown> {
-  const snapshot = new Map<string, unknown>();
-  for (const key of Object.keys(console)) {
-    snapshot.set(key, Reflect.get(console, key));
-  }
-  return snapshot;
+function resolveServerCommand(definition: LspServerDefinition): {
+  readonly args: readonly string[];
+  readonly command: string;
+} {
+  const commandOverride = process.env[definition.envBinKey]?.trim();
+  const argsOverride = parseServerArgsOverride(process.env[definition.envArgsJsonKey]);
+  return {
+    command: commandOverride && commandOverride.length > 0 ? commandOverride : definition.command,
+    args: argsOverride ?? definition.args,
+  };
 }
 
-function restoreConsoleMethods(snapshot: Map<string, unknown>): void {
-  for (const [key, value] of snapshot) {
-    Reflect.set(console, key, value);
-  }
+function createSessionKey(cwd: string, serverId: LspServerId): string {
+  return `${cwd}:${serverId}`;
 }
 
-function closeSession(session: WorkspaceEditorSession): Effect.Effect<void> {
-  return Effect.gen(function* () {
-    const quitExit = yield* Effect.exit(
-      Effect.promise(() =>
-        Promise.race([
-          session.nvim.command("qa!"),
-          new Promise<void>((resolve) => {
-            setTimeout(resolve, 150);
-          }),
-        ]),
-      ),
-    );
-
-    if (Exit.isFailure(quitExit)) {
-      yield* Effect.logWarning("workspace editor failed to send Neovim quit command", {
-        cause: quitExit.cause,
-      });
+function handleServerMessage(session: LspSession, message: unknown): void {
+  if (isResponseMessage(message)) {
+    const pending = session.pendingRequests.get(message.id);
+    if (!pending) {
+      return;
     }
-
-    if (session.proc.exitCode === null && !session.proc.killed) {
-      session.proc.kill("SIGTERM");
-      yield* Effect.promise(() => waitForProcessExit(session.proc, 500));
+    session.pendingRequests.delete(message.id);
+    clearTimeout(pending.timeout);
+    if (message.error) {
+      const rawMessage = message.error.message;
+      pending.reject(
+        new Error(typeof rawMessage === "string" ? rawMessage : "LSP request failed."),
+      );
+      return;
     }
+    pending.resolve(message.result);
+    return;
+  }
 
-    if (session.proc.exitCode === null && !session.proc.killed) {
-      session.proc.kill("SIGKILL");
-      yield* Effect.promise(() => waitForProcessExit(session.proc, 250));
+  if (typeof message !== "object" || message === null) {
+    return;
+  }
+  const method = Reflect.get(message, "method");
+  if (method !== "textDocument/publishDiagnostics") {
+    return;
+  }
+  const params = Reflect.get(message, "params");
+  if (typeof params !== "object" || params === null) {
+    return;
+  }
+  const uri = Reflect.get(params, "uri");
+  if (typeof uri !== "string" || uri.length === 0) {
+    return;
+  }
+  const diagnostics = parseLspDiagnostics(params, DIAGNOSTIC_SOURCE_FALLBACK);
+  const nextRevision = (session.diagnosticsRevisionByUri.get(uri) ?? 0) + 1;
+  session.diagnosticsByUri.set(uri, diagnostics);
+  session.diagnosticsRevisionByUri.set(uri, nextRevision);
+  resolveDiagnosticsWaiters(session, uri, diagnostics);
+}
+
+async function closeSession(session: LspSession): Promise<void> {
+  session.dead = true;
+  failPendingRequests(session, new Error("LSP session closed."));
+  for (const waiters of session.diagnosticsWaitersByUri.values()) {
+    for (const waiter of waiters) {
+      clearTimeout(waiter.timeout);
+      waiter.resolve([]);
     }
-  });
+  }
+  session.diagnosticsWaitersByUri.clear();
+
+  try {
+    await sendLspRequest(session, "shutdown", {}, LSP_SHUTDOWN_TIMEOUT_MS);
+  } catch {
+    // Best effort shutdown.
+  }
+  try {
+    await sendLspNotification(session, "exit", {});
+  } catch {
+    // Best effort shutdown.
+  }
+  if (session.proc.exitCode === null && !session.proc.killed) {
+    session.proc.kill("SIGTERM");
+    await waitForProcessExit(session.proc, 500);
+  }
+  if (session.proc.exitCode === null && !session.proc.killed) {
+    session.proc.kill("SIGKILL");
+    await waitForProcessExit(session.proc, 250);
+  }
 }
 
 export const makeWorkspaceEditor = Effect.gen(function* () {
   const workspacePaths = yield* WorkspacePaths;
-  const sessionsRef = yield* Ref.make(new Map<string, WorkspaceEditorSession>());
+  const serverConfig = yield* ServerConfig;
+  const sessionsRef = yield* Ref.make(new Map<string, LspSession>());
+  const sessionRetryAtRef = yield* Ref.make(new Map<string, number>());
 
   yield* Effect.addFinalizer(() =>
     Ref.get(sessionsRef).pipe(
       Effect.flatMap((sessions) =>
-        Effect.forEach([...sessions.values()], closeSession, {
-          concurrency: "unbounded",
-          discard: true,
-        }),
+        Effect.forEach(
+          [...sessions.values()],
+          (session) => Effect.promise(() => closeSession(session)),
+          {
+            concurrency: "unbounded",
+            discard: true,
+          },
+        ),
       ),
       Effect.ignore({ log: true }),
     ),
@@ -246,28 +634,13 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
 
   const createSession = Effect.fn("WorkspaceEditor.createSession")(function* (
     cwd: string,
-  ): Effect.fn.Return<WorkspaceEditorSession, WorkspaceEditorError> {
-    const { attach, findNvim } = yield* Effect.promise(() => import("neovim"));
-    const resolvedBinary = findNvim({
-      firstMatch: true,
-      minVersion: NVIM_MIN_VERSION,
-      dirs: [...COMMON_NVIM_DIRS],
-      ...(typeof process.env.NVIM === "string" && process.env.NVIM.trim().length > 0
-        ? { paths: [process.env.NVIM.trim()] }
-        : {}),
-    }).matches[0]?.path;
-
-    if (!resolvedBinary) {
-      return yield* new WorkspaceEditorError({
-        cwd,
-        detail: `Neovim ${NVIM_MIN_VERSION}+ was not found in PATH.`,
-        operation: "workspaceEditor.findNvim",
-      });
-    }
-
-    const proc = spawn(resolvedBinary, [...NVIM_STARTUP_ARGS], {
+    languageServer: LspServerDefinition,
+  ): Effect.fn.Return<LspSession, WorkspaceEditorError> {
+    const { command, args } = resolveServerCommand(languageServer);
+    const env = buildLspEnvironment(serverConfig.stateDir);
+    const proc = spawn(command, [...args], {
       cwd,
-      env: { ...process.env },
+      env,
       stdio: "pipe",
     });
 
@@ -277,72 +650,133 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
         new WorkspaceEditorError({
           cause,
           cwd,
-          detail: "Failed to spawn Neovim.",
-          operation: "workspaceEditor.spawn",
+          detail: `Workspace diagnostics backend unavailable: unable to spawn ${languageServer.id} language server (${command}).`,
+          operation: "workspaceEditor.spawnLspServer",
         }),
     });
 
-    const consoleSnapshot = snapshotConsoleMethods();
-    const nvim = (() => {
-      try {
-        return attach({ proc });
-      } finally {
-        restoreConsoleMethods(consoleSnapshot);
-      }
-    })();
-
-    yield* Effect.promise(() => nvim.channelId).pipe(
-      Effect.mapError(
-        (cause) =>
-          new WorkspaceEditorError({
-            cause,
-            cwd,
-            detail: "Failed to establish the Neovim IPC channel.",
-            operation: "workspaceEditor.attach",
-          }),
-      ),
-    );
-
-    yield* Effect.promise(() => nvim.executeLua(NVIM_BOOTSTRAP_LUA, [])).pipe(
-      Effect.mapError(
-        (cause) =>
-          new WorkspaceEditorError({
-            cause,
-            cwd,
-            detail: "Failed to bootstrap the Neovim editor helpers.",
-            operation: "workspaceEditor.bootstrap",
-          }),
-      ),
-    );
-
-    return {
+    const session: LspSession = {
+      dead: false,
+      diagnosticsByUri: new Map(),
+      diagnosticsRevisionByUri: new Map(),
+      diagnosticsWaitersByUri: new Map(),
+      documentVersions: new Map(),
+      key: createSessionKey(cwd, languageServer.id),
+      languageServer,
       mutex: yield* Semaphore.make(1),
-      nvim,
+      nextRequestId: 1,
+      openedUris: new Set(),
+      pendingRequests: new Map(),
       proc,
+      stderrTail: "",
+      stdoutBuffer: Buffer.alloc(0),
     };
+
+    proc.stdout.on("data", (chunk: Buffer | string) => {
+      if (session.dead) {
+        return;
+      }
+      const data = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk;
+      session.stdoutBuffer = Buffer.concat([session.stdoutBuffer, data]);
+      readAvailableLspMessages(session, (message) => handleServerMessage(session, message));
+    });
+    proc.stderr.on("data", (chunk: Buffer | string) => {
+      appendStderrTail(session, chunk);
+    });
+    proc.once("exit", () => {
+      session.dead = true;
+      failPendingRequests(session, new Error("Language server exited unexpectedly."));
+    });
+    proc.once("error", () => {
+      session.dead = true;
+      failPendingRequests(session, new Error("Language server process errored."));
+    });
+
+    const rootUri = pathToFileURL(cwd).toString();
+    yield* Effect.tryPromise({
+      try: () =>
+        sendLspRequest(
+          session,
+          "initialize",
+          {
+            capabilities: {
+              textDocument: {
+                publishDiagnostics: {},
+                synchronization: {
+                  didClose: true,
+                  didSave: false,
+                  dynamicRegistration: false,
+                  willSave: false,
+                  willSaveWaitUntil: false,
+                },
+              },
+              workspace: {},
+            },
+            clientInfo: { name: "ace" },
+            processId: process.pid,
+            rootUri,
+            workspaceFolders: [{ name: basename(cwd), uri: rootUri }],
+          },
+          LSP_REQUEST_TIMEOUT_MS,
+        ).then(() => sendLspNotification(session, "initialized", {})),
+      catch: (cause) =>
+        new WorkspaceEditorError({
+          cause,
+          cwd,
+          detail: `Workspace diagnostics backend unavailable: failed to initialize ${languageServer.id} language server.${session.stderrTail.trim().length > 0 ? ` ${session.stderrTail.trim()}` : ""}`,
+          operation: "workspaceEditor.initializeLspServer",
+        }),
+    });
+
+    return session;
   });
 
   const getOrCreateSession = Effect.fn("WorkspaceEditor.getOrCreateSession")(function* (
     cwd: string,
-  ): Effect.fn.Return<WorkspaceEditorSession, WorkspaceEditorError> {
-    const existing = (yield* Ref.get(sessionsRef)).get(cwd);
-    if (existing && existing.proc.exitCode === null) {
+    languageServer: LspServerDefinition,
+  ): Effect.fn.Return<LspSession, WorkspaceEditorError> {
+    const key = createSessionKey(cwd, languageServer.id);
+    const existing = (yield* Ref.get(sessionsRef)).get(key);
+    if (existing && !existing.dead && existing.proc.exitCode === null) {
       return existing;
     }
 
     if (existing) {
-      yield* closeSession(existing).pipe(Effect.ignore({ log: true }));
+      yield* Effect.promise(() => closeSession(existing)).pipe(Effect.ignore({ log: true }));
       yield* Ref.update(sessionsRef, (sessions) => {
         const next = new Map(sessions);
-        next.delete(cwd);
+        next.delete(key);
         return next;
       });
     }
 
-    const created = yield* createSession(cwd);
+    const retryAt = (yield* Ref.get(sessionRetryAtRef)).get(key) ?? 0;
+    if (retryAt > Date.now()) {
+      return yield* new WorkspaceEditorError({
+        cwd,
+        detail:
+          "Workspace diagnostics backend unavailable: language server restart is cooling down after a previous failure.",
+        operation: "workspaceEditor.cooldown",
+      });
+    }
+
+    const created = yield* createSession(cwd, languageServer).pipe(
+      Effect.tapError(() =>
+        Ref.update(sessionRetryAtRef, (entries) => {
+          const next = new Map(entries);
+          next.set(key, Date.now() + SESSION_RETRY_COOLDOWN_MS);
+          return next;
+        }),
+      ),
+    );
+    yield* Ref.update(sessionRetryAtRef, (entries) => {
+      const next = new Map(entries);
+      next.delete(key);
+      return next;
+    });
     yield* Ref.update(sessionsRef, (sessions) => {
       const next = new Map(sessions);
-      next.set(cwd, created);
+      next.set(key, created);
       return next;
     });
     return created;
@@ -355,41 +789,61 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
         workspaceRoot: normalizedWorkspaceRoot,
         relativePath: input.relativePath,
       });
-      const session = yield* getOrCreateSession(normalizedWorkspaceRoot);
+      const languageId = resolveLanguageIdFromPath(target.relativePath);
+      if (!languageId) {
+        return {
+          diagnostics: [],
+          relativePath: target.relativePath,
+        } satisfies WorkspaceEditorSyncBufferResult;
+      }
+      const languageServer = resolveServerForLanguageId(languageId);
+      if (!languageServer) {
+        return {
+          diagnostics: [],
+          relativePath: target.relativePath,
+        } satisfies WorkspaceEditorSyncBufferResult;
+      }
 
-      const rawDiagnostics = yield* session.mutex.withPermits(1)(
-        Effect.promise(() =>
-          session.nvim.executeLua("return _G.__ace_editor.sync_buffer(...)", [
-            target.absolutePath,
-            normalizedWorkspaceRoot,
-            input.contents,
-          ]),
-        ).pipe(
-          Effect.mapError(
-            (cause) =>
-              new WorkspaceEditorError({
-                cause,
-                cwd: normalizedWorkspaceRoot,
-                detail: "Failed to sync the workspace buffer through Neovim.",
-                operation: "workspaceEditor.syncBuffer",
-                relativePath: target.relativePath,
-              }),
-          ),
-        ),
+      const session = yield* getOrCreateSession(normalizedWorkspaceRoot, languageServer);
+      const uri = pathToFileURL(target.absolutePath).toString();
+      const diagnostics = yield* session.mutex.withPermits(1)(
+        Effect.tryPromise({
+          try: async () => {
+            const diagnosticsPromise = waitForDiagnosticsUpdate(
+              session,
+              uri,
+              LSP_SYNC_DIAGNOSTICS_TIMEOUT_MS,
+            );
+            const nextVersion = (session.documentVersions.get(uri) ?? 0) + 1;
+            if (session.openedUris.has(uri)) {
+              await sendLspNotification(session, "textDocument/didChange", {
+                textDocument: { uri, version: nextVersion },
+                contentChanges: [{ text: input.contents }],
+              });
+            } else {
+              await sendLspNotification(session, "textDocument/didOpen", {
+                textDocument: {
+                  uri,
+                  languageId,
+                  version: nextVersion,
+                  text: input.contents,
+                },
+              });
+              session.openedUris.add(uri);
+            }
+            session.documentVersions.set(uri, nextVersion);
+            return diagnosticsPromise;
+          },
+          catch: (cause) =>
+            new WorkspaceEditorError({
+              cause,
+              cwd: normalizedWorkspaceRoot,
+              detail: `Workspace diagnostics backend unavailable: failed to sync LSP buffer.${session.stderrTail.trim().length > 0 ? ` ${session.stderrTail.trim()}` : ""}`,
+              operation: "workspaceEditor.syncBuffer",
+              relativePath: target.relativePath,
+            }),
+        }),
       );
-
-      const diagnostics = yield* Effect.try({
-        try: () =>
-          Schema.decodeUnknownSync(Schema.Array(WorkspaceEditorDiagnostic))(rawDiagnostics),
-        catch: (cause) =>
-          new WorkspaceEditorError({
-            cause,
-            cwd: normalizedWorkspaceRoot,
-            detail: "Neovim returned an invalid diagnostics payload.",
-            operation: "workspaceEditor.decodeDiagnostics",
-            relativePath: target.relativePath,
-          }),
-      });
 
       return {
         diagnostics,
@@ -405,30 +859,48 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
         workspaceRoot: normalizedWorkspaceRoot,
         relativePath: input.relativePath,
       });
-      const existing = (yield* Ref.get(sessionsRef)).get(normalizedWorkspaceRoot);
-      if (!existing || existing.proc.exitCode !== null) {
+      const languageId = resolveLanguageIdFromPath(target.relativePath);
+      const languageServer = languageId ? resolveServerForLanguageId(languageId) : null;
+      if (!languageServer) {
+        return {
+          relativePath: target.relativePath,
+        } satisfies WorkspaceEditorCloseBufferResult;
+      }
+      const key = createSessionKey(normalizedWorkspaceRoot, languageServer.id);
+      const existing = (yield* Ref.get(sessionsRef)).get(key);
+      if (!existing || existing.dead || existing.proc.exitCode !== null) {
         return {
           relativePath: target.relativePath,
         } satisfies WorkspaceEditorCloseBufferResult;
       }
 
+      const uri = pathToFileURL(target.absolutePath).toString();
       yield* existing.mutex.withPermits(1)(
-        Effect.promise(() =>
-          existing.nvim.executeLua("return _G.__ace_editor.close_buffer(...)", [
-            target.absolutePath,
-          ]),
-        ).pipe(
-          Effect.mapError(
-            (cause) =>
-              new WorkspaceEditorError({
-                cause,
-                cwd: normalizedWorkspaceRoot,
-                detail: "Failed to close the workspace buffer through Neovim.",
-                operation: "workspaceEditor.closeBuffer",
-                relativePath: target.relativePath,
-              }),
-          ),
-        ),
+        Effect.tryPromise({
+          try: async () => {
+            if (!existing.openedUris.has(uri)) {
+              existing.documentVersions.delete(uri);
+              existing.diagnosticsByUri.delete(uri);
+              existing.diagnosticsRevisionByUri.delete(uri);
+              return;
+            }
+            await sendLspNotification(existing, "textDocument/didClose", {
+              textDocument: { uri },
+            });
+            existing.openedUris.delete(uri);
+            existing.documentVersions.delete(uri);
+            existing.diagnosticsByUri.delete(uri);
+            existing.diagnosticsRevisionByUri.delete(uri);
+          },
+          catch: (cause) =>
+            new WorkspaceEditorError({
+              cause,
+              cwd: normalizedWorkspaceRoot,
+              detail: "Failed to close the workspace diagnostics buffer.",
+              operation: "workspaceEditor.closeBuffer",
+              relativePath: target.relativePath,
+            }),
+        }),
       );
 
       return {

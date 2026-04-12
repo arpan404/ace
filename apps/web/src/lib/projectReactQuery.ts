@@ -57,6 +57,7 @@ export function projectSearchEntriesQueryOptions(input: {
 export function projectListTreeQueryOptions(input: {
   cwd: string | null;
   enabled?: boolean;
+  refetchInterval?: number | false;
   staleTime?: number;
 }) {
   return queryOptions({
@@ -70,7 +71,9 @@ export function projectListTreeQueryOptions(input: {
     },
     enabled: (input.enabled ?? true) && input.cwd !== null,
     staleTime: input.staleTime ?? DEFAULT_TREE_STALE_TIME,
-    placeholderData: (previous) => previous ?? EMPTY_LIST_TREE_RESULT,
+    placeholderData: (previous: ProjectListTreeResult | undefined) =>
+      previous ?? EMPTY_LIST_TREE_RESULT,
+    ...(input.refetchInterval === undefined ? {} : { refetchInterval: input.refetchInterval }),
   });
 }
 
@@ -78,6 +81,7 @@ export function projectReadFileQueryOptions(input: {
   cwd: string | null;
   relativePath: string | null;
   enabled?: boolean;
+  refetchInterval?: number | false;
   staleTime?: number;
 }) {
   return queryOptions({
@@ -95,5 +99,6 @@ export function projectReadFileQueryOptions(input: {
     enabled: (input.enabled ?? true) && input.cwd !== null && input.relativePath !== null,
     retry: false,
     staleTime: input.staleTime ?? Number.POSITIVE_INFINITY,
+    ...(input.refetchInterval === undefined ? {} : { refetchInterval: input.refetchInterval }),
   });
 }
