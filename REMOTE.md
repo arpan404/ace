@@ -27,6 +27,23 @@ The ace CLI accepts the following configuration options, available either as CLI
 - Treat the token like a password.
 - Prefer binding to trusted interfaces (LAN IP or Tailnet IP) instead of opening all interfaces unless needed.
 
+## Remote control mode behavior
+
+- **Desktop app mode** can manage the local host plus multiple remote hosts.
+- **URL/web mode** stores and manages only one remote host at a time.
+- **Mobile app** supports multiple hosts and host switching.
+
+## Two-way QR pairing (recommended)
+
+Use this for initial authentication instead of manually sharing `ACE_AUTH_TOKEN`.
+
+1. On the host device, open **Settings → Devices** and start a pairing session.
+2. Scan the generated QR payload from the remote device.
+3. Approve or reject the incoming request on the host device.
+4. Once approved, the remote device saves the host and can connect immediately.
+
+Pairing sessions are short-lived and expire automatically.
+
 ## 1) Build + run server for remote access
 
 Remote access should use the built web app (not local Vite redirect mode).

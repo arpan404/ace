@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas";
+import { IsoDateTime, NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas";
 import { ModelSelection } from "./orchestration";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
@@ -44,6 +44,21 @@ const GitStatusPrState = Schema.Literals(["open", "closed", "merged"]);
 const GitPullRequestReference = TrimmedNonEmptyStringSchema;
 const GitPullRequestState = Schema.Literals(["open", "closed", "merged"]);
 const GitPreparePullRequestThreadMode = Schema.Literals(["local", "worktree"]);
+const GitHubIssueState = Schema.Literals(["open", "closed"]);
+const GitHubIssueUser = Schema.Struct({
+  login: TrimmedNonEmptyStringSchema,
+});
+const GitHubIssueLabel = Schema.Struct({
+  name: TrimmedNonEmptyStringSchema,
+});
+export const GitHubIssueComment = Schema.Struct({
+  author: Schema.NullOr(GitHubIssueUser),
+  body: Schema.NullOr(Schema.String),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime.pipe(Schema.NullOr),
+  url: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
+});
+export type GitHubIssueComment = typeof GitHubIssueComment.Type;
 export const GitRunStackedActionToastRunAction = Schema.Struct({
   kind: GitStackedAction,
 });
@@ -95,6 +110,35 @@ const GitResolvedPullRequest = Schema.Struct({
 });
 export type GitResolvedPullRequest = typeof GitResolvedPullRequest.Type;
 
+export const GitHubIssue = Schema.Struct({
+  number: PositiveInt,
+  title: TrimmedNonEmptyStringSchema,
+  state: GitHubIssueState,
+  url: TrimmedNonEmptyStringSchema,
+  body: Schema.NullOr(Schema.String),
+  labels: Schema.Array(GitHubIssueLabel),
+  assignees: Schema.Array(GitHubIssueUser),
+  author: Schema.NullOr(GitHubIssueUser),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type GitHubIssue = typeof GitHubIssue.Type;
+
+export const GitHubIssueThread = Schema.Struct({
+  number: PositiveInt,
+  title: TrimmedNonEmptyStringSchema,
+  state: GitHubIssueState,
+  url: TrimmedNonEmptyStringSchema,
+  body: Schema.NullOr(Schema.String),
+  labels: Schema.Array(GitHubIssueLabel),
+  assignees: Schema.Array(GitHubIssueUser),
+  author: Schema.NullOr(GitHubIssueUser),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+  comments: Schema.Array(GitHubIssueComment),
+});
+export type GitHubIssueThread = typeof GitHubIssueThread.Type;
+
 // RPC Inputs
 
 export const GitStatusInput = Schema.Struct({
@@ -124,6 +168,19 @@ export const GitListBranchesInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
 });
 export type GitListBranchesInput = typeof GitListBranchesInput.Type;
+
+export const GitListGitHubIssuesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  limit: Schema.optional(PositiveInt),
+  query: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(200))),
+});
+export type GitListGitHubIssuesInput = typeof GitListGitHubIssuesInput.Type;
+
+export const GitGetGitHubIssueThreadInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  issueNumber: PositiveInt,
+});
+export type GitGetGitHubIssueThreadInput = typeof GitGetGitHubIssueThreadInput.Type;
 
 export const GitCreateWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -208,6 +265,16 @@ export const GitListBranchesResult = Schema.Struct({
   hasOriginRemote: Schema.Boolean,
 });
 export type GitListBranchesResult = typeof GitListBranchesResult.Type;
+
+export const GitListGitHubIssuesResult = Schema.Struct({
+  issues: Schema.Array(GitHubIssue),
+});
+export type GitListGitHubIssuesResult = typeof GitListGitHubIssuesResult.Type;
+
+export const GitGetGitHubIssueThreadResult = Schema.Struct({
+  issue: GitHubIssueThread,
+});
+export type GitGetGitHubIssueThreadResult = typeof GitGetGitHubIssueThreadResult.Type;
 
 export const GitCreateWorktreeResult = Schema.Struct({
   worktree: GitWorktree,

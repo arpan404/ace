@@ -2,10 +2,8 @@ import { EditorId, type ResolvedKeybindingsConfig } from "@ace/contracts";
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { isOpenFavoriteEditorShortcut, shortcutLabelForCommand } from "../../keybindings";
 import { usePreferredEditor } from "../../editorPreferences";
-import { ChevronDownIcon, FolderClosedIcon } from "lucide-react";
-import { Button } from "../ui/button";
-import { Group, GroupSeparator } from "../ui/group";
-import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
+import { FolderClosedIcon } from "lucide-react";
+import { MenuItem, MenuSeparator, MenuShortcut } from "../ui/menu";
 import { AntigravityIcon, CursorIcon, Icon, TraeIcon, VisualStudioCode, Zed } from "../Icons";
 import { isMacPlatform, isWindowsPlatform } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
@@ -60,7 +58,8 @@ const resolveOptions = (platform: string, availableEditors: ReadonlyArray<Editor
   return baseOptions.filter((option) => availableEditors.includes(option.value));
 };
 
-export const OpenInPicker = memo(function OpenInPicker({
+/** Open-in-editor rows for use inside another menu (e.g. workspace editor toolbar). */
+export const OpenInEditorMenuSection = memo(function OpenInEditorMenuSection({
   keybindings,
   availableEditors,
   openInCwd,
@@ -74,7 +73,6 @@ export const OpenInPicker = memo(function OpenInPicker({
     () => resolveOptions(navigator.platform, availableEditors),
     [availableEditors],
   );
-  const primaryOption = options.find(({ value }) => value === preferredEditor) ?? null;
 
   const openInEditor = useCallback(
     (editorId: EditorId | null) => {
@@ -107,37 +105,24 @@ export const OpenInPicker = memo(function OpenInPicker({
     return () => window.removeEventListener("keydown", handler);
   }, [preferredEditor, keybindings, openInCwd]);
 
+  if (!openInCwd) {
+    return null;
+  }
+
   return (
-    <Group aria-label="Subscription actions">
-      <Button
-        size="xs"
-        variant="outline"
-        disabled={!preferredEditor || !openInCwd}
-        onClick={() => openInEditor(preferredEditor)}
-      >
-        {primaryOption?.Icon && <primaryOption.Icon aria-hidden="true" className="size-3.5" />}
-        <span className="sr-only @lg/header-actions:not-sr-only @lg/header-actions:ml-0.5">
-          Open
-        </span>
-      </Button>
-      <GroupSeparator className="hidden @lg/header-actions:block" />
-      <Menu>
-        <MenuTrigger render={<Button aria-label="Copy options" size="icon-xs" variant="outline" />}>
-          <ChevronDownIcon aria-hidden="true" className="size-4" />
-        </MenuTrigger>
-        <MenuPopup align="end">
-          {options.length === 0 && <MenuItem disabled>No installed editors found</MenuItem>}
-          {options.map(({ label, Icon, value }) => (
-            <MenuItem key={value} onClick={() => openInEditor(value)}>
-              <Icon aria-hidden="true" className="text-muted-foreground" />
-              {label}
-              {value === preferredEditor && openFavoriteEditorShortcutLabel && (
-                <MenuShortcut>{openFavoriteEditorShortcutLabel}</MenuShortcut>
-              )}
-            </MenuItem>
-          ))}
-        </MenuPopup>
-      </Menu>
-    </Group>
+    <>
+      <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Open in editor</div>
+      {options.length === 0 && <MenuItem disabled>No installed editors found</MenuItem>}
+      {options.map(({ label, Icon, value }) => (
+        <MenuItem key={value} onClick={() => openInEditor(value)}>
+          <Icon aria-hidden="true" className="text-muted-foreground" />
+          {label}
+          {value === preferredEditor && openFavoriteEditorShortcutLabel ? (
+            <MenuShortcut>{openFavoriteEditorShortcutLabel}</MenuShortcut>
+          ) : null}
+        </MenuItem>
+      ))}
+      <MenuSeparator />
+    </>
   );
 });

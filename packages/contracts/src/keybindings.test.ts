@@ -65,6 +65,12 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedLocal.command, "chat.newLocal");
 
+    const parsedWorkspaceToggle = yield* decode(KeybindingRule, {
+      key: "mod+e",
+      command: "chat.toggleWorkspaceMode",
+    });
+    assert.strictEqual(parsedWorkspaceToggle.command, "chat.toggleWorkspaceMode");
+
     const parsedThreadPrevious = yield* decode(KeybindingRule, {
       key: "mod+shift+[",
       command: "thread.previous",

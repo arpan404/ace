@@ -117,6 +117,40 @@ describe("openCodeModelsFromProviderList", () => {
     expect(result.totalModels).toBe(OPENCODE_PROVIDER_MODEL_LIMIT + 5);
     expect(result.truncated).toBe(true);
   });
+
+  it("maps OpenCode model variants into selectable model capabilities", () => {
+    const result = openCodeModelsFromProviderList({
+      all: [
+        {
+          id: "openai",
+          name: "OpenAI",
+          models: {
+            gpt5: {
+              id: "gpt-5",
+              name: "GPT-5",
+              release_date: "2026-01-01",
+              attachment: true,
+              reasoning: true,
+              tool_call: true,
+              variants: {
+                default: {},
+                balanced: {},
+              },
+            },
+          },
+        },
+      ],
+      default: {
+        openai: "gpt-5",
+      },
+      connected: ["openai"],
+    });
+
+    expect(result.models[0]?.capabilities?.contextWindowOptions).toEqual([
+      { value: "default", label: "Default", isDefault: true },
+      { value: "balanced", label: "Balanced" },
+    ]);
+  });
 });
 
 describe("searchOpenCodeModelsFromProviderList", () => {

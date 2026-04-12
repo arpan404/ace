@@ -14,6 +14,7 @@ import {
   buildAgentAttentionNotificationCopy,
   collectAgentAttentionRequestsToNotify,
   deriveAgentAttentionRequests,
+  filterAgentAttentionRequestsBySettings,
   getAgentAttentionDesktopNotificationBridge,
   isAppWindowFocused,
   readAgentAttentionNotificationPermission,
@@ -384,6 +385,67 @@ describe("agent attention notification helpers", () => {
         isAppFocused: true,
       }),
     ).toEqual([]);
+  });
+
+  it("filters requests by the notification settings toggles", () => {
+    const requests = deriveAgentAttentionRequests([
+      makeThread({
+        id: "thread-1",
+        title: "Build fixes",
+        activities: [
+          makeActivity({
+            id: "approval-open",
+            createdAt: "2026-04-06T08:00:05.000Z",
+            kind: "approval.requested",
+            summary: "Command approval requested",
+            tone: "approval",
+            payload: {
+              requestId: "req-approval",
+              requestKind: "command",
+            },
+          }),
+          makeActivity({
+            id: "input-open",
+            createdAt: "2026-04-06T08:00:06.000Z",
+            kind: "user-input.requested",
+            summary: "Structured input requested",
+            tone: "info",
+            payload: {
+              requestId: "req-input",
+              questions: [
+                {
+                  id: "scope",
+                  header: "Scope",
+                  question: "Which scope should the agent handle first?",
+                  options: [
+                    {
+                      label: "Server",
+                      description: "Start with the server",
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        ],
+        latestTurn: {
+          turnId: TurnId.makeUnsafe("turn-1"),
+          state: "completed",
+          requestedAt: "2026-04-06T08:00:00.000Z",
+          startedAt: "2026-04-06T08:00:01.000Z",
+          completedAt: "2026-04-06T08:00:09.000Z",
+          assistantMessageId: null,
+        },
+      }),
+    ]);
+
+    expect(
+      filterAgentAttentionRequestsBySettings(requests, {
+        notifyOnAgentCompletion: false,
+        notifyOnApprovalRequired: true,
+        notifyOnUserInputRequired: false,
+      }).map((request) => request.kind),
+    ).toEqual(["approval"]);
   });
 
   it("suppresses historical completion notifications from before the current notification session", () => {

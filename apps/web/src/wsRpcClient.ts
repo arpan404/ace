@@ -74,6 +74,8 @@ export interface WsRpcClient {
   readonly git: {
     readonly pull: RpcUnaryMethod<typeof WS_METHODS.gitPull>;
     readonly status: RpcUnaryMethod<typeof WS_METHODS.gitStatus>;
+    readonly listGitHubIssues: RpcUnaryMethod<typeof WS_METHODS.gitListGitHubIssues>;
+    readonly getGitHubIssueThread: RpcUnaryMethod<typeof WS_METHODS.gitGetGitHubIssueThread>;
     readonly runStackedAction: (
       input: GitRunStackedActionInput,
       options?: GitRunStackedActionOptions,
@@ -179,6 +181,10 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     git: {
       pull: (input) => transport.request((client) => client[WS_METHODS.gitPull](input)),
       status: (input) => transport.request((client) => client[WS_METHODS.gitStatus](input)),
+      listGitHubIssues: (input) =>
+        transport.request((client) => client[WS_METHODS.gitListGitHubIssues](input)),
+      getGitHubIssueThread: (input) =>
+        transport.request((client) => client[WS_METHODS.gitGetGitHubIssueThread](input)),
       runStackedAction: async (input, options) => {
         let result: GitRunStackedActionResult | null = null;
 

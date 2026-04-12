@@ -33,7 +33,7 @@ const BootstrapEnvelopeSchema = Schema.Struct({
 });
 
 const modeFlag = Flag.choice("mode", RuntimeMode.literals).pipe(
-  Flag.withDescription("Runtime mode. `desktop` keeps loopback defaults unless overridden."),
+  Flag.withDescription("Runtime mode. `desktop` binds to LAN interfaces unless overridden."),
   Flag.optional,
 );
 const portFlag = Flag.integer("port").pipe(
@@ -243,7 +243,7 @@ export const resolveServerConfig = (
         Option.fromUndefinedOr(env.host),
         Option.flatMap(bootstrapEnvelope, (bootstrap) => Option.fromUndefinedOr(bootstrap.host)),
       ),
-      () => (mode === "desktop" ? "127.0.0.1" : undefined),
+      () => (mode === "desktop" ? "0.0.0.0" : undefined),
     );
     const logLevel = Option.getOrElse(cliLogLevel, () => env.logLevel);
     const cwd = yield* Option.match(launchWorkspaceRoot, {

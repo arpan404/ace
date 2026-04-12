@@ -86,6 +86,11 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         interactionMode: "default",
         branch: null,
         worktreePath: null,
+        handoffSourceThreadId: null,
+        handoffFromProvider: null,
+        handoffToProvider: null,
+        handoffMode: null,
+        handoffCreatedAt: null,
         queuedComposerMessages: [
           {
             id: "queued-message-1" as never,

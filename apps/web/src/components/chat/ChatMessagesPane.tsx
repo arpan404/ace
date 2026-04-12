@@ -63,7 +63,7 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
           <button
             type="button"
             onClick={() => scrollMessagesToBottom()}
-            className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/50 bg-card/90 px-3 py-1 text-muted-foreground text-xs shadow-md backdrop-blur-sm transition-colors hover:border-border/70 hover:text-foreground hover:cursor-pointer"
+            className="pointer-events-auto flex cursor-pointer items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-muted-foreground text-xs transition-colors duration-150 hover:bg-accent hover:text-foreground"
           >
             <ChevronDownIcon className="size-3.5" />
             Scroll to bottom

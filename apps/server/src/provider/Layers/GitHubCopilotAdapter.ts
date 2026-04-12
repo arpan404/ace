@@ -1231,8 +1231,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
     }
     switch (event.type) {
       case "session.error": {
-        const message =
-          stringValue(getObjectProperty(data, "message")) ?? "GitHub Copilot session error.";
+        const message = toMessage(data, "GitHub Copilot session error.");
         emitRuntimeEvent(
           makeBaseEvent(context, {
             type: "runtime.error",
@@ -1241,6 +1240,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             payload: {
               message,
               class: "provider_error",
+              ...(Object.keys(data).length > 0 ? { detail: data } : {}),
             },
             rawMethod: event.type,
             rawSource: "github-copilot.sdk.event",

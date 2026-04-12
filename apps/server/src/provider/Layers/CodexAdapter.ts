@@ -148,6 +148,11 @@ function toTurnId(value: string | undefined): TurnId | undefined {
   return value?.trim() ? TurnId.makeUnsafe(value) : undefined;
 }
 
+function toProcessPid(value: unknown): number | undefined {
+  const pid = asNumber(asObject(value)?.processPid);
+  return pid !== undefined && Number.isInteger(pid) && pid > 0 ? pid : undefined;
+}
+
 function toProviderItemId(value: string | undefined): ProviderItemId | undefined {
   return value?.trim() ? ProviderItemId.makeUnsafe(value) : undefined;
 }
@@ -646,6 +651,7 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "session/connecting") {
+    const processPid = toProcessPid(payload);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -653,12 +659,14 @@ function mapToRuntimeEvents(
         payload: {
           state: "starting",
           ...(event.message ? { reason: event.message } : {}),
+          ...(processPid !== undefined ? { processPid } : {}),
         },
       },
     ];
   }
 
   if (event.method === "session/ready") {
+    const processPid = toProcessPid(payload);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -666,12 +674,14 @@ function mapToRuntimeEvents(
         payload: {
           state: "ready",
           ...(event.message ? { reason: event.message } : {}),
+          ...(processPid !== undefined ? { processPid } : {}),
         },
       },
     ];
   }
 
   if (event.method === "session/started") {
+    const processPid = toProcessPid(payload);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -679,12 +689,14 @@ function mapToRuntimeEvents(
         payload: {
           ...(event.message ? { message: event.message } : {}),
           ...(event.payload !== undefined ? { resume: event.payload } : {}),
+          ...(processPid !== undefined ? { processPid } : {}),
         },
       },
     ];
   }
 
   if (event.method === "session/exited" || event.method === "session/closed") {
+    const processPid = toProcessPid(payload);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -692,6 +704,7 @@ function mapToRuntimeEvents(
         payload: {
           ...(event.message ? { reason: event.message } : {}),
           ...(event.method === "session/closed" ? { exitKind: "graceful" } : {}),
+          ...(processPid !== undefined ? { processPid } : {}),
         },
       },
     ];

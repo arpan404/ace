@@ -12,6 +12,7 @@
 import { useCallback, useMemo } from "react";
 import { ServerSettings, ServerSettingsPatch, ModelSelection, ThreadEnvMode } from "@ace/contracts";
 import {
+  BrowserOpenMode,
   BrowserSearchEngine,
   type ClientSettings,
   ClientSettingsSchema,
@@ -21,7 +22,12 @@ import {
   SidebarProjectSortOrder,
   SidebarThreadSortOrder,
   TimestampFormat,
+  UiFontFamily,
+  UiFontSizeScale,
+  UiLetterSpacing,
+  UiMonoFontFamily,
   UnifiedSettings,
+  WorkspaceEditorOpenMode,
 } from "@ace/contracts/settings";
 import { ensureNativeApi } from "~/nativeApi";
 import { useLocalStorage } from "./useLocalStorage";
@@ -36,6 +42,7 @@ const OLD_SETTINGS_KEY = "ace:app-settings:v1";
 const JsonObjectSchema = Schema.Record(Schema.String, Schema.Unknown);
 const decodeJsonObject = Schema.decodeSync(Schema.fromJsonString(JsonObjectSchema));
 const ClientSettingsPatchSchema = Schema.Struct({
+  browserOpenMode: Schema.optionalKey(ClientSettingsSchema.fields.browserOpenMode),
   browserSearchEngine: Schema.optionalKey(ClientSettingsSchema.fields.browserSearchEngine),
   confirmThreadArchive: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadArchive),
   confirmThreadDelete: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadDelete),
@@ -53,6 +60,11 @@ const ClientSettingsPatchSchema = Schema.Struct({
     ClientSettingsSchema.fields.threadHydrationCacheMemoryMb,
   ),
   timestampFormat: Schema.optionalKey(ClientSettingsSchema.fields.timestampFormat),
+  uiFontFamily: Schema.optionalKey(ClientSettingsSchema.fields.uiFontFamily),
+  uiMonoFontFamily: Schema.optionalKey(ClientSettingsSchema.fields.uiMonoFontFamily),
+  uiFontSizeScale: Schema.optionalKey(ClientSettingsSchema.fields.uiFontSizeScale),
+  uiLetterSpacing: Schema.optionalKey(ClientSettingsSchema.fields.uiLetterSpacing),
+  workspaceEditorOpenMode: Schema.optionalKey(ClientSettingsSchema.fields.workspaceEditorOpenMode),
 });
 type ClientSettingsPatch = typeof ClientSettingsPatchSchema.Type;
 
@@ -167,6 +179,18 @@ export function buildLegacyServerSettingsMigrationPatch(legacySettings: Record<s
     patch.enableThinkingStreaming = legacySettings.enableThinkingStreaming;
   }
 
+  if (Predicate.isBoolean(legacySettings.notifyOnAgentCompletion)) {
+    patch.notifyOnAgentCompletion = legacySettings.notifyOnAgentCompletion;
+  }
+
+  if (Predicate.isBoolean(legacySettings.notifyOnApprovalRequired)) {
+    patch.notifyOnApprovalRequired = legacySettings.notifyOnApprovalRequired;
+  }
+
+  if (Predicate.isBoolean(legacySettings.notifyOnUserInputRequired)) {
+    patch.notifyOnUserInputRequired = legacySettings.notifyOnUserInputRequired;
+  }
+
   if (Schema.is(ThreadEnvMode)(legacySettings.defaultThreadEnvMode)) {
     patch.defaultThreadEnvMode = legacySettings.defaultThreadEnvMode;
   }
@@ -220,6 +244,10 @@ export function buildLegacyClientSettingsMigrationPatch(
   legacySettings: Record<string, unknown>,
 ): Partial<DeepMutable<ClientSettings>> {
   const patch: Partial<DeepMutable<ClientSettings>> = {};
+
+  if (Schema.is(BrowserOpenMode)(legacySettings.browserOpenMode)) {
+    patch.browserOpenMode = legacySettings.browserOpenMode;
+  }
 
   if (Schema.is(BrowserSearchEngine)(legacySettings.browserSearchEngine)) {
     patch.browserSearchEngine = legacySettings.browserSearchEngine;
@@ -283,6 +311,26 @@ export function buildLegacyClientSettingsMigrationPatch(
 
   if (Schema.is(TimestampFormat)(legacySettings.timestampFormat)) {
     patch.timestampFormat = legacySettings.timestampFormat;
+  }
+
+  if (Schema.is(WorkspaceEditorOpenMode)(legacySettings.workspaceEditorOpenMode)) {
+    patch.workspaceEditorOpenMode = legacySettings.workspaceEditorOpenMode;
+  }
+
+  if (Schema.is(UiFontFamily)(legacySettings.uiFontFamily)) {
+    patch.uiFontFamily = legacySettings.uiFontFamily;
+  }
+
+  if (Schema.is(UiMonoFontFamily)(legacySettings.uiMonoFontFamily)) {
+    patch.uiMonoFontFamily = legacySettings.uiMonoFontFamily;
+  }
+
+  if (Schema.is(UiFontSizeScale)(legacySettings.uiFontSizeScale)) {
+    patch.uiFontSizeScale = legacySettings.uiFontSizeScale;
+  }
+
+  if (Schema.is(UiLetterSpacing)(legacySettings.uiLetterSpacing)) {
+    patch.uiLetterSpacing = legacySettings.uiLetterSpacing;
   }
 
   return patch;

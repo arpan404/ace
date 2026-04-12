@@ -19,6 +19,7 @@ import {
   normalizeCodexModelOptionsWithCapabilities,
   normalizeCursorModelOptionsWithCapabilities,
   normalizeGitHubCopilotModelOptionsWithCapabilities,
+  normalizeOpenCodeModelOptionsWithCapabilities,
 } from "@ace/shared/model";
 
 export type ComposerProviderStateInput = {
@@ -89,7 +90,7 @@ function getProviderStateFromCapabilities(
             : provider === "gemini"
               ? undefined
               : provider === "opencode"
-                ? undefined
+                ? normalizeOpenCodeModelOptionsWithCapabilities(caps, modelOptions?.opencode)
                 : undefined;
 
   // Ultrathink styling (driven by capabilities data, not provider identity)
@@ -103,7 +104,7 @@ function getProviderStateFromCapabilities(
     ...(ultrathinkActive ? { composerFrameClassName: "ultrathink-frame" } : {}),
     ...(ultrathinkActive
       ? {
-          composerSurfaceClassName: "shadow-[0_0_0_1px_rgba(255,255,255,0.04)_inset]",
+          composerSurfaceClassName: "ring-2 ring-primary/30",
         }
       : {}),
     ...(ultrathinkActive ? { modelPickerIconClassName: "ultrathink-chroma" } : {}),
@@ -299,6 +300,18 @@ export function renderProviderTraitsMenuContent(input: {
   prompt: string;
   onPromptChange: (prompt: string) => void;
 }): ReactNode {
+  if (
+    !shouldRenderTraitsPicker({
+      provider: input.provider,
+      models: input.models,
+      model: input.model,
+      modelOptions: input.modelOptions,
+      prompt: input.prompt,
+    })
+  ) {
+    return null;
+  }
+
   return composerProviderRegistry[input.provider].renderTraitsMenuContent({
     threadId: input.threadId,
     model: input.model,

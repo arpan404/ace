@@ -68,6 +68,8 @@ const rpcClientMock = {
     status: vi.fn(),
     runStackedAction: vi.fn(),
     listBranches: vi.fn(),
+    listGitHubIssues: vi.fn(),
+    getGitHubIssueThread: vi.fn(),
     createWorktree: vi.fn(),
     removeWorktree: vi.fn(),
     createBranch: vi.fn(),
@@ -235,6 +237,108 @@ describe("wsNativeApi", () => {
     expect(rpcClientMock.server.getConfig).toHaveBeenCalledWith();
     expect(rpcClientMock.server.subscribeConfig).not.toHaveBeenCalled();
     expect(rpcClientMock.server.subscribeLifecycle).not.toHaveBeenCalled();
+  });
+
+  it("forwards github issue list requests directly to the git RPC", async () => {
+    rpcClientMock.git.listGitHubIssues.mockResolvedValue({
+      issues: [
+        {
+          number: 42,
+          title: "Fix timeline empty state",
+          state: "open",
+          url: "https://github.com/acme/repo/issues/42",
+          body: "Details",
+          labels: [{ name: "bug" }],
+          assignees: [{ login: "octocat" }],
+          author: { login: "hubot" },
+          createdAt: "2026-04-08T00:00:00.000Z",
+          updatedAt: "2026-04-08T00:00:00.000Z",
+        },
+      ],
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+
+    await expect(api.git.listGitHubIssues({ cwd: "/tmp/workspace", limit: 20 })).resolves.toEqual({
+      issues: [
+        {
+          number: 42,
+          title: "Fix timeline empty state",
+          state: "open",
+          url: "https://github.com/acme/repo/issues/42",
+          body: "Details",
+          labels: [{ name: "bug" }],
+          assignees: [{ login: "octocat" }],
+          author: { login: "hubot" },
+          createdAt: "2026-04-08T00:00:00.000Z",
+          updatedAt: "2026-04-08T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(rpcClientMock.git.listGitHubIssues).toHaveBeenCalledWith({
+      cwd: "/tmp/workspace",
+      limit: 20,
+    });
+  });
+
+  it("forwards github issue thread requests directly to the git RPC", async () => {
+    rpcClientMock.git.getGitHubIssueThread.mockResolvedValue({
+      issue: {
+        number: 42,
+        title: "Fix timeline empty state",
+        state: "open",
+        url: "https://github.com/acme/repo/issues/42",
+        body: "Details",
+        labels: [{ name: "bug" }],
+        assignees: [{ login: "octocat" }],
+        author: { login: "hubot" },
+        createdAt: "2026-04-08T00:00:00.000Z",
+        updatedAt: "2026-04-08T00:10:00.000Z",
+        comments: [
+          {
+            author: { login: "maintainer" },
+            body: "I can reproduce this on macOS.",
+            createdAt: "2026-04-08T00:05:00.000Z",
+            updatedAt: "2026-04-08T00:06:00.000Z",
+            url: "https://github.com/acme/repo/issues/42#issuecomment-1",
+          },
+        ],
+      },
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+
+    await expect(
+      api.git.getGitHubIssueThread({ cwd: "/tmp/workspace", issueNumber: 42 }),
+    ).resolves.toEqual({
+      issue: {
+        number: 42,
+        title: "Fix timeline empty state",
+        state: "open",
+        url: "https://github.com/acme/repo/issues/42",
+        body: "Details",
+        labels: [{ name: "bug" }],
+        assignees: [{ login: "octocat" }],
+        author: { login: "hubot" },
+        createdAt: "2026-04-08T00:00:00.000Z",
+        updatedAt: "2026-04-08T00:10:00.000Z",
+        comments: [
+          {
+            author: { login: "maintainer" },
+            body: "I can reproduce this on macOS.",
+            createdAt: "2026-04-08T00:05:00.000Z",
+            updatedAt: "2026-04-08T00:06:00.000Z",
+            url: "https://github.com/acme/repo/issues/42#issuecomment-1",
+          },
+        ],
+      },
+    });
+    expect(rpcClientMock.git.getGitHubIssueThread).toHaveBeenCalledWith({
+      cwd: "/tmp/workspace",
+      issueNumber: 42,
+    });
   });
 
   it("forwards terminal and orchestration stream events", async () => {

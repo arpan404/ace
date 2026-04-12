@@ -1291,6 +1291,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   }
 
   private emitLifecycleEvent(context: CodexSessionContext, method: string, message: string): void {
+    const processPid = context.child.pid;
     this.emitEvent({
       id: EventId.makeUnsafe(randomUUID()),
       kind: "session",
@@ -1299,6 +1300,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       createdAt: new Date().toISOString(),
       method,
       message,
+      ...(typeof processPid === "number" && Number.isInteger(processPid) && processPid > 0
+        ? { payload: { processPid } }
+        : {}),
     });
   }
 

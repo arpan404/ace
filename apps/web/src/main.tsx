@@ -5,6 +5,8 @@ import { createHashHistory, createBrowserHistory } from "@tanstack/react-router"
 
 import "@xterm/xterm/css/xterm.css";
 import "./index.css";
+import "./theme-presets.css";
+import "./appearancePrefs";
 
 import { isElectron } from "./env";
 import { getRouter } from "./router";

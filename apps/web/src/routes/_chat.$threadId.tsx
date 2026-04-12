@@ -82,10 +82,11 @@ const LazyDiffPanel = (props: { mode: DiffPanelMode }) => {
 
 const DiffPanelInlineSidebar = (props: {
   diffOpen: boolean;
+  shouldMountPanel: boolean;
   onCloseDiff: () => void;
   onOpenDiff: () => void;
 }) => {
-  const { diffOpen, onCloseDiff, onOpenDiff } = props;
+  const { diffOpen, shouldMountPanel, onCloseDiff, onOpenDiff } = props;
   const onOpenChange = useCallback(
     (open: boolean) => {
       if (open) {
@@ -160,7 +161,7 @@ const DiffPanelInlineSidebar = (props: {
           storageKey: DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY,
         }}
       >
-        {diffOpen ? <LazyDiffPanel mode="sidebar" /> : null}
+        {shouldMountPanel ? <LazyDiffPanel mode="sidebar" /> : null}
         <SidebarRail />
       </Sidebar>
     </SidebarProvider>
@@ -170,6 +171,7 @@ const DiffPanelInlineSidebar = (props: {
 function ChatThreadRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
+  const store = useStore();
   const navigate = useNavigate();
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
@@ -185,27 +187,48 @@ function ChatThreadRouteView() {
   const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY);
   const [hydratingThreadId, setHydratingThreadId] = useState<ThreadId | null>(null);
   const [threadHydrationFailed, setThreadHydrationFailed] = useState(false);
+  const [hasOpenedDiffPanel, setHasOpenedDiffPanel] = useState(diffOpen);
   const cachedHydratedThread =
     serverThread?.historyLoaded === false && serverThread.updatedAt
       ? readCachedHydratedThread(threadId, serverThread.updatedAt)
       : null;
   const closeDiff = useCallback(() => {
-    void navigate({
-      to: "/$threadId",
-      params: { threadId },
-      search: { diff: undefined },
+    startTransition(() => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId },
+        search: { diff: undefined },
+      });
     });
   }, [navigate, threadId]);
   const openDiff = useCallback(() => {
-    void navigate({
-      to: "/$threadId",
-      params: { threadId },
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return { ...rest, diff: "1" };
-      },
+    startTransition(() => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId },
+        search: (previous) => {
+          const rest = stripDiffSearchParams(previous);
+          return { ...rest, diff: "1" };
+        },
+      });
     });
   }, [navigate, threadId]);
+
+  useEffect(() => {
+    const preloadTimer = window.setTimeout(() => {
+      void import("../components/DiffPanel");
+    }, 350);
+    return () => {
+      window.clearTimeout(preloadTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!diffOpen) {
+      return;
+    }
+    setHasOpenedDiffPanel(true);
+  }, [diffOpen]);
 
   useEffect(() => {
     setThreadHydrationFailed(false);
@@ -278,6 +301,45 @@ function ChatThreadRouteView() {
     threadId,
   ]);
 
+  const handoffSourceThreadId = serverThread?.handoff?.sourceThreadId;
+  useEffect(() => {
+    if (!bootstrapComplete || !handoffSourceThreadId) {
+      return;
+    }
+    const sourceThread = getThreadById(store.threads, handoffSourceThreadId);
+    if (sourceThread && sourceThread.historyLoaded !== false) {
+      return;
+    }
+    if (sourceThread?.updatedAt) {
+      const cached = readCachedHydratedThread(handoffSourceThreadId, sourceThread.updatedAt);
+      if (cached) {
+        startTransition(() => {
+          hydrateThreadFromReadModel(cached);
+        });
+        return;
+      }
+    }
+    let canceled = false;
+    void (async () => {
+      try {
+        const readModelThread = await hydrateThreadFromCache(handoffSourceThreadId, {
+          expectedUpdatedAt: sourceThread?.updatedAt ?? null,
+        });
+        if (canceled) {
+          return;
+        }
+        startTransition(() => {
+          hydrateThreadFromReadModel(readModelThread);
+        });
+      } catch (error) {
+        console.error("Failed to hydrate handoff source thread", error);
+      }
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, [bootstrapComplete, handoffSourceThreadId, store.threads, hydrateThreadFromReadModel]);
+
   if (!bootstrapComplete || !routeThreadExists) {
     return null;
   }
@@ -285,10 +347,15 @@ function ChatThreadRouteView() {
   if (!shouldUseDiffSheet) {
     return (
       <>
-        <SidebarInset className="h-dvh  min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+        <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
           <ChatView threadId={threadId} />
         </SidebarInset>
-        <DiffPanelInlineSidebar diffOpen={diffOpen} onCloseDiff={closeDiff} onOpenDiff={openDiff} />
+        <DiffPanelInlineSidebar
+          diffOpen={diffOpen}
+          shouldMountPanel={hasOpenedDiffPanel}
+          onCloseDiff={closeDiff}
+          onOpenDiff={openDiff}
+        />
       </>
     );
   }
@@ -299,7 +366,7 @@ function ChatThreadRouteView() {
         <ChatView threadId={threadId} />
       </SidebarInset>
       <DiffPanelSheet diffOpen={diffOpen} onCloseDiff={closeDiff}>
-        {diffOpen ? <LazyDiffPanel mode="sheet" /> : null}
+        {hasOpenedDiffPanel ? <LazyDiffPanel mode="sheet" /> : null}
       </DiffPanelSheet>
     </>
   );
@@ -308,7 +375,7 @@ function ChatThreadRouteView() {
 export const Route = createFileRoute("/_chat/$threadId")({
   validateSearch: (search) => parseDiffRouteSearch(search),
   search: {
-    middlewares: [retainSearchParams<DiffRouteSearch>(["diff", "mode"])],
+    middlewares: [retainSearchParams<DiffRouteSearch>(["diff"])],
   },
   component: ChatThreadRouteView,
 });
