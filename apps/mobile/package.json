@@ -1,0 +1,43 @@
+{
+  "name": "@ace/mobile",
+  "version": "0.0.1",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "dev": "expo start --clear --port 0",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "build": "expo export --platform all",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ace/contracts": "workspace:*",
+    "@ace/shared": "workspace:*",
+    "@babel/runtime": "^7.29.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "effect": "catalog:",
+    "expo": "^54.0.0",
+    "expo-camera": "~17.0.10",
+    "expo-constants": "~18.0.13",
+    "expo-glass-effect": "~0.1.9",
+    "expo-linking": "~8.0.11",
+    "expo-notifications": "~0.32.16",
+    "expo-router": "~6.0.23",
+    "expo-status-bar": "~3.0.9",
+    "lucide-react-native": "^1.8.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-markdown-display": "^7.0.2",
+    "react-native-reanimated": "~4.1.1",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.16.0",
+    "react-native-webview": "13.15.0",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.10",
+    "babel-preset-expo": "~54.0.10",
+    "typescript": "~5.9.2"
+  }
+}

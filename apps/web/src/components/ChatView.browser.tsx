@@ -1042,7 +1042,7 @@ async function expectComposerActionsContained(): Promise<void> {
 }
 
 async function waitForInteractionModeButton(
-  expectedLabel: "Chat" | "Plan",
+  expectedLabel: "Build" | "Plan",
 ): Promise<HTMLButtonElement> {
   return waitForElement(
     () =>
@@ -1071,6 +1071,19 @@ function dispatchChatNewShortcut(): void {
     new KeyboardEvent("keydown", {
       key: "o",
       shiftKey: true,
+      metaKey: useMetaForMod,
+      ctrlKey: !useMetaForMod,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+function dispatchWorkspaceModeToggleShortcut(): void {
+  const useMetaForMod = isMacPlatform(navigator.platform);
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "e",
       metaKey: useMetaForMod,
       ctrlKey: !useMetaForMod,
       bubbles: true,
@@ -2259,6 +2272,120 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("sends selected github issues with hidden issue context", async () => {
+    const baseSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-issues-flow" as MessageId,
+      targetText: "issues flow",
+    });
+    const emptyThreadSnapshot: OrchestrationReadModel = {
+      ...baseSnapshot,
+      threads: baseSnapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? Object.assign({}, thread, {
+              messages: [],
+              activities: [],
+              latestTurn: null,
+              updatedAt: NOW_ISO,
+            })
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: emptyThreadSnapshot,
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitListGitHubIssues) {
+          return {
+            issues: [
+              {
+                number: 77,
+                title: "Improve empty state copy",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/77",
+                body: "Use concise copy and support issue continuation.",
+                labels: [{ name: "ux" }],
+                assignees: [{ login: "octocat" }],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+            ],
+          };
+        }
+        if (body._tag === WS_METHODS.gitGetGitHubIssueThread) {
+          return {
+            issue: {
+              number: 77,
+              title: "Improve empty state copy",
+              state: "open",
+              url: "https://github.com/pingdotgg/ace/issues/77",
+              body: "Use concise copy and support issue continuation.",
+              labels: [{ name: "ux" }],
+              assignees: [{ login: "octocat" }],
+              author: { login: "hubot" },
+              createdAt: "2026-04-08T00:00:00.000Z",
+              updatedAt: "2026-04-08T00:10:00.000Z",
+              comments: [
+                {
+                  author: { login: "alice" },
+                  body: "Also update the timeline hint.",
+                  createdAt: "2026-04-08T00:11:00.000Z",
+                  updatedAt: null,
+                  url: "https://github.com/pingdotgg/ace/issues/77#issuecomment-1",
+                },
+              ],
+            },
+          };
+        }
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: 1 };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const continueButton = await waitForButtonByText("continue with an open GitHub issue");
+      continueButton.click();
+
+      const fixButton = await waitForButtonByText("Solve issue");
+      fixButton.click();
+
+      await vi.waitFor(
+        () => {
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          );
+          expect(turnStartRequest).toBeDefined();
+          const messageText =
+            typeof turnStartRequest === "object" &&
+            turnStartRequest &&
+            "message" in turnStartRequest &&
+            typeof turnStartRequest.message === "object" &&
+            turnStartRequest.message &&
+            "text" in turnStartRequest.message &&
+            typeof turnStartRequest.message.text === "string"
+              ? turnStartRequest.message.text
+              : "";
+          expect(messageText).toContain("Solve #77: Improve empty state copy");
+          expect(messageText).toContain("<github_issue_context>");
+          expect(messageText).toContain("comment_count: 1");
+          expect(messageText).toContain("Also update the timeline hint.");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await expect
+        .element(page.getByText("Solve #77: Improve empty state copy"))
+        .toBeInTheDocument();
+      expect(document.body.textContent ?? "").not.toContain("<github_issue_context>");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("toggles plan mode with Shift+Tab only while the composer is focused", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -2269,7 +2396,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const initialModeButton = await waitForInteractionModeButton("Chat");
+      const initialModeButton = await waitForInteractionModeButton("Build");
       expect(initialModeButton.title).toContain("enter plan mode");
 
       window.dispatchEvent(
@@ -2282,7 +2409,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       await waitForLayout();
 
-      expect((await waitForInteractionModeButton("Chat")).title).toContain("enter plan mode");
+      expect((await waitForInteractionModeButton("Build")).title).toContain("enter plan mode");
 
       const composerEditor = await waitForComposerEditor();
       composerEditor.focus();
@@ -2298,7 +2425,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         async () => {
           expect((await waitForInteractionModeButton("Plan")).title).toContain(
-            "return to normal chat mode",
+            "return to build mode",
           );
         },
         { timeout: 8_000, interval: 16 },
@@ -2315,7 +2442,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         async () => {
-          expect((await waitForInteractionModeButton("Chat")).title).toContain("enter plan mode");
+          expect((await waitForInteractionModeButton("Build")).title).toContain("enter plan mode");
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -2623,8 +2750,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
 
       // The empty thread view and composer should still be visible.
+      await expect.element(page.getByText("Start this conversation")).toBeInTheDocument();
       await expect
-        .element(page.getByText("Send a message to start the conversation."))
+        .element(page.getByRole("button", { name: "continue with an open GitHub issue" }))
         .toBeInTheDocument();
       await expect.element(page.getByTestId("composer-editor")).toBeInTheDocument();
     } finally {
@@ -2954,6 +3082,124 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("toggles workspace mode from the global shortcut", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-workspace-shortcut-test" as MessageId,
+        targetText: "workspace shortcut test",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "chat.toggleWorkspaceMode",
+              shortcut: {
+                key: "e",
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: false,
+                modKey: true,
+              },
+              whenAst: {
+                type: "not",
+                node: { type: "identifier", name: "terminalFocus" },
+              },
+            },
+          ],
+        };
+      },
+    });
+
+    try {
+      await waitForServerConfigToApply();
+      const composerEditor = await waitForComposerEditor();
+      composerEditor.focus();
+      await waitForLayout();
+
+      dispatchWorkspaceModeToggleShortcut();
+
+      await vi.waitFor(
+        () => {
+          expect(mounted.router.state.location.search.mode).toBe("split");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      dispatchWorkspaceModeToggleShortcut();
+
+      await vi.waitFor(
+        () => {
+          expect(mounted.router.state.location.search.mode).toBeUndefined();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("respects workspace editor opening mode when toggling from chat", async () => {
+    localStorage.setItem(
+      "ace:client-settings:v1",
+      JSON.stringify({
+        ...DEFAULT_CLIENT_SETTINGS,
+        workspaceEditorOpenMode: "full",
+      }),
+    );
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-workspace-shortcut-full-mode" as MessageId,
+        targetText: "workspace shortcut full mode",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "chat.toggleWorkspaceMode",
+              shortcut: {
+                key: "e",
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: false,
+                modKey: true,
+              },
+              whenAst: {
+                type: "not",
+                node: { type: "identifier", name: "terminalFocus" },
+              },
+            },
+          ],
+        };
+      },
+    });
+
+    try {
+      await waitForServerConfigToApply();
+      const composerEditor = await waitForComposerEditor();
+      composerEditor.focus();
+      await waitForLayout();
+
+      dispatchWorkspaceModeToggleShortcut();
+
+      await vi.waitFor(
+        () => {
+          expect(mounted.router.state.location.search.mode).toBe("editor");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      localStorage.removeItem("ace:client-settings:v1");
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps long proposed plans lightweight until the user expands them", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -3067,6 +3313,42 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows the runtime access mode beside Local in the bottom toolbar", async () => {
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-runtime-mode-target" as MessageId,
+      targetText: "runtime mode label target",
+    });
+    const approvalRequiredSnapshot: OrchestrationReadModel = {
+      ...snapshot,
+      threads: snapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? Object.assign({}, thread, {
+              runtimeMode: "approval-required",
+              session: thread.session
+                ? Object.assign({}, thread.session, { runtimeMode: "approval-required" })
+                : null,
+            })
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: approvalRequiredSnapshot,
+    });
+
+    try {
+      await waitForElement(
+        () => document.querySelector('[data-chat-branch-runtime-mode="approval-required"]'),
+        "Unable to find runtime mode control in branch toolbar.",
+      );
+      const bodyText = document.body.textContent ?? "";
+      expect(bodyText).toContain("Supervised");
+      expect(bodyText).not.toContain("Access: Approval required");
     } finally {
       await mounted.cleanup();
     }

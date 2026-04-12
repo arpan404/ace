@@ -5,16 +5,20 @@ import {
   type ModelSelection,
   type ProviderKind,
   type ProviderModelOptions,
+  type ServerProvider,
 } from "@ace/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
 
 import {
   COMPOSER_DRAFT_STORAGE_KEY,
   clearPromotedDraftThread,
   clearPromotedDraftThreads,
   type ComposerImageAttachment,
+  deriveEffectiveComposerModelState,
   useComposerDraftStore,
 } from "./composerDraftStore";
+import { getDefaultServerModel } from "./providerModels";
 import { removeLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
@@ -95,6 +99,58 @@ function modelSelection(
 function providerModelOptions(options: ProviderModelOptions): ProviderModelOptions {
   return options;
 }
+
+const CURSOR_PROVIDER_WITH_FAST_VARIANTS: ReadonlyArray<ServerProvider> = [
+  {
+    provider: "cursor",
+    enabled: true,
+    installed: true,
+    version: "0.1.0",
+    status: "ready",
+    auth: { status: "authenticated" },
+    checkedAt: "2026-01-01T00:00:00.000Z",
+    models: [
+      {
+        slug: "composer-2",
+        name: "Composer 2",
+        isCustom: false,
+        capabilities: {
+          reasoningEffortLevels: [],
+          supportsFastMode: true,
+          supportsThinkingToggle: false,
+          contextWindowOptions: [],
+          promptInjectedEffortLevels: [],
+        },
+        cursorMetadata: {
+          familySlug: "composer-2",
+          familyName: "Composer 2",
+          fastMode: false,
+          thinking: false,
+          maxMode: false,
+        },
+      },
+      {
+        slug: "composer-2-fast",
+        name: "Composer 2 Fast",
+        isCustom: false,
+        capabilities: {
+          reasoningEffortLevels: [],
+          supportsFastMode: true,
+          supportsThinkingToggle: false,
+          contextWindowOptions: [],
+          promptInjectedEffortLevels: [],
+        },
+        cursorMetadata: {
+          familySlug: "composer-2",
+          familyName: "Composer 2",
+          fastMode: true,
+          thinking: false,
+          maxMode: false,
+        },
+      },
+    ],
+  },
+];
 
 describe("composerDraftStore addImages", () => {
   const threadId = ThreadId.makeUnsafe("thread-dedupe");
@@ -1070,6 +1126,68 @@ describe("composerDraftStore provider-scoped option updates", () => {
       }),
     );
     expect(draft?.activeProvider).toBe("codex");
+  });
+
+  it("stores OpenCode variant options without changing the active selection", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(
+      threadId,
+      modelSelection("codex", "gpt-5.3-codex", {
+        reasoningEffort: "medium",
+      }),
+    );
+    store.setProviderModelOptions(threadId, "opencode", {
+      variant: "max",
+      fastMode: true,
+    });
+
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.modelSelectionByProvider.codex).toEqual(
+      modelSelection("codex", "gpt-5.3-codex", { reasoningEffort: "medium" }),
+    );
+    expect(draft?.modelSelectionByProvider.opencode).toEqual(
+      modelSelection("opencode", "auto", {
+        variant: "max",
+        fastMode: true,
+      }),
+    );
+    expect(draft?.activeProvider).toBe("codex");
+  });
+});
+
+describe("deriveEffectiveComposerModelState", () => {
+  it("keeps exact cursor draft selections when draft options are intentionally cleared", () => {
+    const state = deriveEffectiveComposerModelState({
+      draft: {
+        modelSelectionByProvider: {
+          cursor: modelSelection("cursor", "composer-2-fast"),
+        },
+        activeProvider: "cursor",
+      },
+      providers: CURSOR_PROVIDER_WITH_FAST_VARIANTS,
+      selectedProvider: "cursor",
+      threadModelSelection: modelSelection("cursor", "composer-2", { fastMode: false }),
+      projectModelSelection: null,
+      settings: DEFAULT_UNIFIED_SETTINGS,
+    });
+
+    expect(state.selectedModel).toBe("composer-2-fast");
+    expect(state.modelOptions).toBeNull();
+  });
+
+  it("falls back to the selected provider default when thread/project models are from other providers", () => {
+    const state = deriveEffectiveComposerModelState({
+      draft: null,
+      providers: CURSOR_PROVIDER_WITH_FAST_VARIANTS,
+      selectedProvider: "cursor",
+      threadModelSelection: modelSelection("codex", "gpt-5.3-codex"),
+      projectModelSelection: modelSelection("claudeAgent", "claude-opus-4-6"),
+      settings: DEFAULT_UNIFIED_SETTINGS,
+    });
+
+    expect(state.selectedModel).toBe(
+      getDefaultServerModel(CURSOR_PROVIDER_WITH_FAST_VARIANTS, "cursor"),
+    );
   });
 });
 

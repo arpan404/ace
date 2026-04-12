@@ -148,9 +148,9 @@ function buildSortedTimelineEntries(
 }
 
 export function deriveTimelineEntries(
-  messages: ChatMessage[],
-  proposedPlans: ProposedPlan[],
-  workEntries: WorkLogEntry[],
+  messages: ReadonlyArray<ChatMessage>,
+  proposedPlans: ReadonlyArray<ProposedPlan>,
+  workEntries: ReadonlyArray<WorkLogEntry>,
 ): TimelineEntry[] {
   const rawEntries = buildSortedTimelineEntries(messages, proposedPlans, workEntries);
   if (rawEntries.length === 0) {

@@ -1,5 +1,4 @@
 import {
-  type EditorId,
   type ProjectId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
@@ -7,15 +6,13 @@ import {
 } from "@ace/contracts";
 import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
-import { BugIcon, DiffIcon, GlobeIcon, TerminalSquareIcon } from "lucide-react";
+import { BugIcon, DiffIcon, GlobeIcon, SquarePenIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
-import { OpenInPicker } from "./OpenInPicker";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
-import { WorkspaceModeToggle } from "../editor/WorkspaceModeToggle";
 import { TopBarCluster, interleaveTopBarItems } from "../thread/TopBarCluster";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
@@ -25,11 +22,9 @@ interface ChatHeaderProps {
   activeProjectId: ProjectId | null;
   activeProjectName: string | undefined;
   isGitRepo: boolean;
-  openInCwd: string | null;
   activeProjectScripts: ProjectScript[] | undefined;
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
-  availableEditors: ReadonlyArray<EditorId>;
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
@@ -60,11 +55,9 @@ export const ChatHeader = memo(function ChatHeader({
   activeProjectId,
   activeProjectName,
   isGitRepo,
-  openInCwd,
   activeProjectScripts,
   preferredScriptId,
   keybindings,
-  availableEditors,
   terminalAvailable,
   terminalOpen,
   terminalToggleShortcutLabel,
@@ -88,6 +81,7 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleDiff,
   onWorkspaceModeChange,
 }: ChatHeaderProps) {
+  const editorWorkspaceActive = workspaceMode === "editor" || workspaceMode === "split";
   const workspaceActionItems: ReactNode[] = [
     activeProjectScripts ? (
       <ProjectScriptsControl
@@ -102,21 +96,43 @@ export const ChatHeader = memo(function ChatHeader({
       />
     ) : null,
     activeProjectName ? (
-      <OpenInPicker
-        key="open-in"
-        keybindings={keybindings}
-        availableEditors={availableEditors}
-        openInCwd={openInCwd}
+      <GitActionsControl
+        key="git"
+        gitCwd={gitCwd}
+        activeThreadId={activeThreadId}
+        workspaceMode={workspaceMode}
+        onWorkspaceModeChange={onWorkspaceModeChange}
       />
     ) : null,
-    activeProjectName ? (
-      <GitActionsControl key="git" gitCwd={gitCwd} activeThreadId={activeThreadId} />
-    ) : null,
   ];
-  const workspaceActionNodes = interleaveTopBarItems(workspaceActionItems);
+  const workspaceActionNodes = workspaceActionItems.filter(
+    (item): item is NonNullable<ReactNode> => item !== null,
+  );
   const utilityToggleClassName =
     "shrink-0 rounded-full border border-transparent text-foreground/60 hover:text-foreground/85 data-[pressed]:border-border/45 data-[pressed]:text-foreground disabled:text-foreground/25";
   const utilityItems = interleaveTopBarItems([
+    <Tooltip key="editor-workspace">
+      <TooltipTrigger
+        render={
+          <Toggle
+            className={utilityToggleClassName}
+            pressed={editorWorkspaceActive}
+            onPressedChange={(pressed) => {
+              onWorkspaceModeChange(pressed ? "editor" : "chat");
+            }}
+            aria-pressed={editorWorkspaceActive}
+            aria-label="Editor workspace"
+            variant="default"
+            size="xs"
+          >
+            <SquarePenIcon className="size-3.5" />
+          </Toggle>
+        }
+      />
+      <TooltipPopup side="bottom">
+        {editorWorkspaceActive ? "Leave editor — return to chat" : "Open editor workspace"}
+      </TooltipPopup>
+    </Tooltip>,
     browserAvailable ? (
       <Tooltip key="browser">
         <TooltipTrigger
@@ -210,7 +226,7 @@ export const ChatHeader = memo(function ChatHeader({
   ]);
 
   return (
-    <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2.5">
+    <div className="flex min-w-0 flex-1 items-center gap-2.5">
       <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
         <SidebarTrigger className="size-7 shrink-0 md:hidden" />
         {workspaceMode === "editor" ? (
@@ -228,7 +244,7 @@ export const ChatHeader = memo(function ChatHeader({
             >
               {activeThreadTitle}
             </h2>
-            {activeProjectName && (
+            {activeProjectName ? (
               <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
                 {activeProjectId !== null && onActiveProjectChange ? (
                   <ProjectContextSwitcher
@@ -245,23 +261,20 @@ export const ChatHeader = memo(function ChatHeader({
                     <span className="min-w-0 truncate">{activeProjectName}</span>
                   </Badge>
                 )}
-                {!isGitRepo && (
+                {!isGitRepo ? (
                   <Badge variant="warning" size="sm" className="shrink-0">
                     No Git
                   </Badge>
-                )}
+                ) : null}
               </div>
-            )}
+            ) : null}
           </div>
         )}
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
-        <WorkspaceModeToggle mode={workspaceMode} onModeChange={onWorkspaceModeChange} />
         {workspaceActionNodes.length > 0 ? (
-          <div className="flex min-w-0 items-center [&_[data-slot=group]]:shrink-0">
-            {workspaceActionNodes}
-          </div>
+          <div className="flex min-w-0 items-center gap-1.5">{workspaceActionNodes}</div>
         ) : null}
         <TopBarCluster>{utilityItems}</TopBarCluster>
       </div>

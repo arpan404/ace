@@ -11,7 +11,7 @@ function getDiffPanelHeaderRowClassName(mode: DiffPanelMode) {
   const shouldUseDragRegion = isElectron && mode !== "sheet";
   return cn(
     "flex items-center justify-between gap-2.5 px-4",
-    shouldUseDragRegion ? "drag-region h-[52px] border-b border-border/60" : "h-12",
+    shouldUseDragRegion ? "drag-region h-[52px] border-b border-border/40" : "h-12",
   );
 }
 
@@ -27,14 +27,14 @@ export function DiffPanelShell(props: {
       className={cn(
         "flex h-full min-w-0 flex-col bg-background",
         props.mode === "inline"
-          ? "w-[42vw] min-w-[360px] max-w-[560px] shrink-0 border-l border-border/60"
+          ? "w-[42vw] min-w-[360px] max-w-[560px] shrink-0 border-l border-border/40"
           : "w-full",
       )}
     >
       {shouldUseDragRegion ? (
         <div className={getDiffPanelHeaderRowClassName(props.mode)}>{props.header}</div>
       ) : (
-        <div className="border-b border-border/60">
+        <div className="border-b border-border/40">
           <div className={getDiffPanelHeaderRowClassName(props.mode)}>{props.header}</div>
         </div>
       )}
@@ -47,8 +47,8 @@ export function DiffPanelHeaderSkeleton() {
   return (
     <>
       <div className="relative min-w-0 flex-1">
-        <Skeleton className="absolute left-0 top-1/2 size-6 -translate-y-1/2 rounded-lg border border-border/30" />
-        <Skeleton className="absolute right-0 top-1/2 size-6 -translate-y-1/2 rounded-lg border border-border/30" />
+        <Skeleton className="absolute left-0 top-1/2 size-6 -translate-y-1/2 rounded-lg border border-border" />
+        <Skeleton className="absolute right-0 top-1/2 size-6 -translate-y-1/2 rounded-lg border border-border" />
         <div className="flex gap-1.5 overflow-hidden px-8 py-0.5">
           <Skeleton className="h-6 w-16 shrink-0 rounded-lg" />
           <Skeleton className="h-6 w-24 shrink-0 rounded-lg" />
@@ -67,12 +67,12 @@ export function DiffPanelLoadingState(props: { label: string }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col p-2.5">
       <div
-        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/40 bg-card/30"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card"
         role="status"
         aria-live="polite"
         aria-label={props.label}
       >
-        <div className="flex items-center gap-2.5 border-b border-border/30 px-3.5 py-2.5">
+        <div className="flex items-center gap-2.5 border-b border-border px-3.5 py-2.5">
           <Skeleton className="h-4 w-32 rounded-full" />
           <Skeleton className="ml-auto h-4 w-20 rounded-full" />
         </div>

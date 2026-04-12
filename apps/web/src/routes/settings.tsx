@@ -35,12 +35,12 @@ function SettingsContentLayout() {
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
         {!isElectron && (
-          <header className="border-b border-border px-3 py-3 sm:px-5">
+          <header className="border-b border-border px-4 py-4 sm:px-6">
             <div className="flex flex-wrap items-start gap-3 sm:items-center">
               <div className="flex min-w-0 flex-1 items-start gap-2">
                 <SidebarTrigger className="mt-0.5 size-7 shrink-0 md:hidden" />
                 <div className="min-w-0">
-                  <p className="text-[10px] font-medium tracking-[0.18em] text-muted-foreground uppercase">
+                  <p className="text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
                     Settings
                   </p>
                   <h1 className="truncate text-sm font-semibold text-foreground sm:text-base">
@@ -69,7 +69,7 @@ function SettingsContentLayout() {
         {isElectron && (
           <div className="drag-region flex min-h-[52px] shrink-0 items-center border-b border-border px-5 py-2">
             <div className="min-w-0">
-              <p className="text-[10px] font-medium tracking-[0.18em] text-muted-foreground/70 uppercase">
+              <p className="text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
                 Settings
               </p>
               <p className="truncate text-xs font-semibold tracking-wide text-foreground">

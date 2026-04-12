@@ -308,6 +308,7 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.handoff !== undefined ? { handoff: thread.handoff } : {}),
     historyLoaded: resolveThreadHistoryLoaded(thread.id, options),
     queuedComposerMessages: thread.queuedComposerMessages.map(mapQueuedComposerMessage),
     queuedSteerRequest: thread.queuedSteerRequest ? { ...thread.queuedSteerRequest } : null,
@@ -362,6 +363,7 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     latestTurn: thread.latestTurn,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.handoff !== undefined ? { handoff: thread.handoff } : {}),
     latestUserMessageAt: getLatestUserMessageAt(thread.messages),
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
@@ -389,6 +391,11 @@ function sidebarThreadSummariesEqual(
     left.latestTurn === right.latestTurn &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
+    left.handoff?.sourceThreadId === right.handoff?.sourceThreadId &&
+    left.handoff?.fromProvider === right.handoff?.fromProvider &&
+    left.handoff?.toProvider === right.handoff?.toProvider &&
+    left.handoff?.mode === right.handoff?.mode &&
+    left.handoff?.createdAt === right.handoff?.createdAt &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
@@ -535,6 +542,56 @@ function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error"
     return "interrupted" as const;
   }
   return "completed" as const;
+}
+
+function latestTurnFromSessionLifecycleEvent(
+  thread: Thread,
+  session: Extract<OrchestrationEvent, { type: "thread.session-set" }>["payload"]["session"],
+): Thread["latestTurn"] {
+  if (session.status === "running" && session.activeTurnId !== null) {
+    return buildLatestTurn({
+      previous: thread.latestTurn,
+      turnId: session.activeTurnId,
+      state: "running",
+      requestedAt:
+        thread.latestTurn?.turnId === session.activeTurnId
+          ? thread.latestTurn.requestedAt
+          : session.updatedAt,
+      startedAt:
+        thread.latestTurn?.turnId === session.activeTurnId
+          ? (thread.latestTurn.startedAt ?? session.updatedAt)
+          : session.updatedAt,
+      completedAt: null,
+      assistantMessageId:
+        thread.latestTurn?.turnId === session.activeTurnId
+          ? thread.latestTurn.assistantMessageId
+          : null,
+      sourceProposedPlan: thread.pendingSourceProposedPlan,
+    });
+  }
+
+  const previous = thread.latestTurn;
+  if (
+    previous === null ||
+    previous.state !== "running" ||
+    session.activeTurnId !== null ||
+    session.status === "running" ||
+    session.status === "starting"
+  ) {
+    return previous;
+  }
+
+  const state =
+    session.status === "ready" ? "completed" : session.status === "error" ? "error" : "interrupted";
+  return buildLatestTurn({
+    previous,
+    turnId: previous.turnId,
+    state,
+    requestedAt: previous.requestedAt,
+    startedAt: previous.startedAt ?? session.updatedAt,
+    completedAt: previous.completedAt ?? session.updatedAt,
+    assistantMessageId: previous.assistantMessageId,
+  });
 }
 
 function buildLatestTurn(params: {
@@ -831,6 +888,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         interactionMode: event.payload.interactionMode,
         branch: event.payload.branch,
         worktreePath: event.payload.worktreePath,
+        ...(event.payload.handoff !== undefined ? { handoff: event.payload.handoff } : {}),
         queuedComposerMessages: [],
         queuedSteerRequest: null,
         latestTurn: null,
@@ -1110,28 +1168,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         ...thread,
         session: mapSession(event.payload.session),
         error: event.payload.session.lastError ?? null,
-        latestTurn:
-          event.payload.session.status === "running" && event.payload.session.activeTurnId !== null
-            ? buildLatestTurn({
-                previous: thread.latestTurn,
-                turnId: event.payload.session.activeTurnId,
-                state: "running",
-                requestedAt:
-                  thread.latestTurn?.turnId === event.payload.session.activeTurnId
-                    ? thread.latestTurn.requestedAt
-                    : event.payload.session.updatedAt,
-                startedAt:
-                  thread.latestTurn?.turnId === event.payload.session.activeTurnId
-                    ? (thread.latestTurn.startedAt ?? event.payload.session.updatedAt)
-                    : event.payload.session.updatedAt,
-                completedAt: null,
-                assistantMessageId:
-                  thread.latestTurn?.turnId === event.payload.session.activeTurnId
-                    ? thread.latestTurn.assistantMessageId
-                    : null,
-                sourceProposedPlan: thread.pendingSourceProposedPlan,
-              })
-            : thread.latestTurn,
+        latestTurn: latestTurnFromSessionLifecycleEvent(thread, event.payload.session),
         updatedAt: event.occurredAt,
       }));
     }

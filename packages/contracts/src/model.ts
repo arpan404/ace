@@ -47,7 +47,10 @@ export type CursorModelMetadata = typeof CursorModelMetadata.Type;
 export const GeminiModelOptions = Schema.Struct({});
 export type GeminiModelOptions = typeof GeminiModelOptions.Type;
 
-export const OpenCodeModelOptions = Schema.Struct({});
+export const OpenCodeModelOptions = Schema.Struct({
+  variant: Schema.optional(TrimmedNonEmptyString),
+  fastMode: Schema.optional(Schema.Boolean),
+});
 export type OpenCodeModelOptions = typeof OpenCodeModelOptions.Type;
 
 export const ProviderModelOptions = Schema.Struct({

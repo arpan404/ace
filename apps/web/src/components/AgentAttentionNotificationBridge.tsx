@@ -7,6 +7,7 @@ import {
   buildAgentAttentionNotificationCopy,
   collectAgentAttentionRequestsToNotify,
   deriveAgentAttentionRequests,
+  filterAgentAttentionRequestsBySettings,
   getAgentAttentionDesktopNotificationBridge,
   getAgentAttentionNotificationConstructor,
   isAppWindowFocused,
@@ -19,6 +20,7 @@ import {
 import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
+import { useSettings } from "../hooks/useSettings";
 import { toastManager } from "./ui/toast";
 
 function closeNotification(notification: Notification | undefined): void {
@@ -32,7 +34,19 @@ function describeNotificationError(error: unknown, fallback: string): string {
 export function AgentAttentionNotificationBridge() {
   const threads = useStore((store) => store.threads);
   const navigate = useNavigate();
-  const attentionRequests = useMemo(() => deriveAgentAttentionRequests(threads), [threads]);
+  const notificationSettings = useSettings((settings) => ({
+    notifyOnAgentCompletion: settings.notifyOnAgentCompletion,
+    notifyOnApprovalRequired: settings.notifyOnApprovalRequired,
+    notifyOnUserInputRequired: settings.notifyOnUserInputRequired,
+  }));
+  const attentionRequests = useMemo(
+    () =>
+      filterAgentAttentionRequestsBySettings(
+        deriveAgentAttentionRequests(threads),
+        notificationSettings,
+      ),
+    [notificationSettings, threads],
+  );
   const attentionRequestByKey = useMemo(
     () => new Map(attentionRequests.map((request) => [request.key, request])),
     [attentionRequests],
@@ -53,6 +67,7 @@ export function AgentAttentionNotificationBridge() {
     );
   const activeBrowserNotificationsRef = useRef(new Map<string, Notification>());
   const activeDesktopNotificationIdsRef = useRef(new Set<string>());
+  const failedDesktopNotificationRequestKeysRef = useRef(new Set<string>());
   const notifiedRequestKeysRef = useRef(new Set<string>());
   const attentionRequestByKeyRef = useRef(attentionRequestByKey);
   const hasPromptedForPermissionRef = useRef(false);
@@ -92,6 +107,11 @@ export function AgentAttentionNotificationBridge() {
     for (const requestKey of notifiedRequestKeysRef.current) {
       if (!activeRequestKeys.has(requestKey)) {
         notifiedRequestKeysRef.current.delete(requestKey);
+      }
+    }
+    for (const requestKey of failedDesktopNotificationRequestKeysRef.current) {
+      if (!activeRequestKeys.has(requestKey)) {
+        failedDesktopNotificationRequestKeysRef.current.delete(requestKey);
       }
     }
 
@@ -235,28 +255,34 @@ export function AgentAttentionNotificationBridge() {
       void desktopNotificationBridge
         .showNotification(notificationInput)
         .then((shown) => {
-          notifiedRequestKeysRef.current.add(request.key);
           if (!shown) {
-            toastManager.add({
-              type: "error",
-              title: "Unable to send agent notification",
-              description: "Desktop notifications are unavailable in the current app session.",
-            });
+            if (!failedDesktopNotificationRequestKeysRef.current.has(request.key)) {
+              failedDesktopNotificationRequestKeysRef.current.add(request.key);
+              toastManager.add({
+                type: "error",
+                title: "Unable to send agent notification",
+                description: "Desktop notifications are unavailable in the current app session.",
+              });
+            }
             return;
           }
 
+          failedDesktopNotificationRequestKeysRef.current.delete(request.key);
+          notifiedRequestKeysRef.current.add(request.key);
           activeDesktopNotificationIdsRef.current.add(request.key);
         })
         .catch((error) => {
-          notifiedRequestKeysRef.current.add(request.key);
-          toastManager.add({
-            type: "error",
-            title: "Unable to send agent notification",
-            description: describeNotificationError(
-              error,
-              "Unknown error creating a desktop notification.",
-            ),
-          });
+          if (!failedDesktopNotificationRequestKeysRef.current.has(request.key)) {
+            failedDesktopNotificationRequestKeysRef.current.add(request.key);
+            toastManager.add({
+              type: "error",
+              title: "Unable to send agent notification",
+              description: describeNotificationError(
+                error,
+                "Unknown error creating a desktop notification.",
+              ),
+            });
+          }
         });
     }
   }, [attentionRequests, desktopNotificationBridge, isAppFocused]);

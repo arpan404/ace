@@ -260,6 +260,7 @@ export type ProviderRuntimeEventBase = typeof ProviderRuntimeEventBase.Type;
 const SessionStartedPayload = Schema.Struct({
   message: Schema.optional(TrimmedNonEmptyStringSchema),
   resume: Schema.optional(Schema.Unknown),
+  processPid: Schema.optional(PositiveInt),
 });
 export type SessionStartedPayload = typeof SessionStartedPayload.Type;
 
@@ -272,6 +273,7 @@ const SessionStateChangedPayload = Schema.Struct({
   state: RuntimeSessionState,
   reason: Schema.optional(TrimmedNonEmptyStringSchema),
   detail: Schema.optional(Schema.Unknown),
+  processPid: Schema.optional(PositiveInt),
 });
 export type SessionStateChangedPayload = typeof SessionStateChangedPayload.Type;
 
@@ -279,6 +281,7 @@ const SessionExitedPayload = Schema.Struct({
   reason: Schema.optional(TrimmedNonEmptyStringSchema),
   recoverable: Schema.optional(Schema.Boolean),
   exitKind: Schema.optional(RuntimeSessionExitKind),
+  processPid: Schema.optional(PositiveInt),
 });
 export type SessionExitedPayload = typeof SessionExitedPayload.Type;
 

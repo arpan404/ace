@@ -12,6 +12,7 @@ import {
   normalizeCodexModelOptionsWithCapabilities,
   normalizeCursorModelOptionsWithCapabilities,
   normalizeGitHubCopilotModelOptionsWithCapabilities,
+  normalizeOpenCodeModelOptionsWithCapabilities,
   normalizeModelSlug,
   inferModelContextWindowTokens,
   resolveApiModelId,
@@ -71,6 +72,17 @@ const cursorCaps: ModelCapabilities = {
   supportsFastMode: true,
   supportsThinkingToggle: false,
   contextWindowOptions: [],
+  promptInjectedEffortLevels: [],
+};
+
+const openCodeCaps: ModelCapabilities = {
+  reasoningEffortLevels: [],
+  supportsFastMode: false,
+  supportsThinkingToggle: false,
+  contextWindowOptions: [
+    { value: "default", label: "Default", isDefault: true },
+    { value: "fast", label: "Fast" },
+  ],
   promptInjectedEffortLevels: [],
 };
 
@@ -395,5 +407,42 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
         },
       ),
     ).toBeUndefined();
+  });
+
+  it("normalizes OpenCode variant options against capabilities", () => {
+    expect(
+      normalizeOpenCodeModelOptionsWithCapabilities(openCodeCaps, {
+        variant: "fast",
+      }),
+    ).toEqual({
+      variant: "fast",
+    });
+  });
+
+  it("drops unsupported OpenCode variants", () => {
+    expect(
+      normalizeOpenCodeModelOptionsWithCapabilities(openCodeCaps, {
+        variant: "unknown",
+      }),
+    ).toEqual({
+      variant: "default",
+    });
+  });
+
+  it("keeps OpenCode fastMode when capabilities support it", () => {
+    expect(
+      normalizeOpenCodeModelOptionsWithCapabilities(
+        {
+          ...openCodeCaps,
+          supportsFastMode: true,
+        },
+        {
+          fastMode: true,
+        },
+      ),
+    ).toEqual({
+      variant: "default",
+      fastMode: true,
+    });
   });
 });

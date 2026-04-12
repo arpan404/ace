@@ -460,6 +460,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          handoff_source_thread_id AS "handoffSourceThreadId",
+          handoff_from_provider AS "handoffFromProvider",
+          handoff_to_provider AS "handoffToProvider",
+          handoff_mode AS "handoffMode",
+          handoff_created_at AS "handoffCreatedAt",
           queued_composer_messages_json AS "queuedComposerMessages",
           queued_steer_request_json AS "queuedSteerRequest",
           latest_turn_id AS "latestTurnId",
@@ -486,6 +491,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          handoff_source_thread_id AS "handoffSourceThreadId",
+          handoff_from_provider AS "handoffFromProvider",
+          handoff_to_provider AS "handoffToProvider",
+          handoff_mode AS "handoffMode",
+          handoff_created_at AS "handoffCreatedAt",
           queued_composer_messages_json AS "queuedComposerMessages",
           queued_steer_request_json AS "queuedSteerRequest",
           latest_turn_id AS "latestTurnId",
@@ -1283,7 +1293,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               latestTurn: latestTurnByThread.get(row.threadId) ?? null,
               runtimeRow: providerRuntimeByThread.get(row.threadId),
             });
-            return {
+            const threadBase: OrchestrationThread = {
               id: row.threadId,
               projectId: row.projectId,
               title: row.title,
@@ -1312,6 +1322,24 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               checkpoints: historyLoaded ? (checkpointsByThread.get(row.threadId) ?? []) : [],
               session: reconciledThreadState.session,
             };
+            if (
+              row.handoffSourceThreadId !== null &&
+              row.handoffFromProvider !== null &&
+              row.handoffToProvider !== null &&
+              row.handoffMode !== null &&
+              row.handoffCreatedAt !== null
+            ) {
+              return Object.assign({}, threadBase, {
+                handoff: {
+                  sourceThreadId: row.handoffSourceThreadId,
+                  fromProvider: row.handoffFromProvider,
+                  toProvider: row.handoffToProvider,
+                  mode: row.handoffMode,
+                  createdAt: row.handoffCreatedAt,
+                },
+              });
+            }
+            return threadBase;
           });
 
           const snapshot = {
@@ -1437,6 +1465,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             interactionMode: threadRow.value.interactionMode,
             branch: threadRow.value.branch,
             worktreePath: threadRow.value.worktreePath,
+            ...(threadRow.value.handoffSourceThreadId !== null &&
+            threadRow.value.handoffFromProvider !== null &&
+            threadRow.value.handoffToProvider !== null &&
+            threadRow.value.handoffMode !== null &&
+            threadRow.value.handoffCreatedAt !== null
+              ? {
+                  handoff: {
+                    sourceThreadId: threadRow.value.handoffSourceThreadId,
+                    fromProvider: threadRow.value.handoffFromProvider,
+                    toProvider: threadRow.value.handoffToProvider,
+                    mode: threadRow.value.handoffMode,
+                    createdAt: threadRow.value.handoffCreatedAt,
+                  },
+                }
+              : {}),
             latestTurn: reconciledThreadState.latestTurn,
             createdAt: threadRow.value.createdAt,
             updatedAt: threadRow.value.updatedAt,

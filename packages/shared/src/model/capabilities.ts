@@ -4,6 +4,7 @@ import {
   type CursorModelOptions,
   type GitHubCopilotModelOptions,
   type ModelCapabilities,
+  type OpenCodeModelOptions,
 } from "@ace/contracts";
 
 /** Check whether a capabilities object includes a given effort value. */
@@ -106,6 +107,19 @@ export function normalizeCursorModelOptionsWithCapabilities(
     ...(reasoningEffort
       ? { reasoningEffort: reasoningEffort as CursorModelOptions["reasoningEffort"] }
       : {}),
+    ...(fastMode !== undefined ? { fastMode } : {}),
+  };
+  return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
+}
+
+export function normalizeOpenCodeModelOptionsWithCapabilities(
+  caps: ModelCapabilities,
+  modelOptions: OpenCodeModelOptions | null | undefined,
+): OpenCodeModelOptions | undefined {
+  const variant = resolveContextWindow(caps, modelOptions?.variant);
+  const fastMode = caps.supportsFastMode ? modelOptions?.fastMode : undefined;
+  const nextOptions: OpenCodeModelOptions = {
+    ...(variant !== undefined ? { variant } : {}),
     ...(fastMode !== undefined ? { fastMode } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;

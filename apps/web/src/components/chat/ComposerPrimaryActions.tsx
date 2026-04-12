@@ -67,7 +67,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             <Button
               size="icon-sm"
               variant="outline"
-              className="rounded-full border-border/50 shadow-xs"
+              className="rounded-full border-border"
               onClick={onPreviousPendingQuestion}
               disabled={pendingAction.isResponding}
               aria-label="Previous question"
@@ -78,7 +78,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             <Button
               size="sm"
               variant="outline"
-              className="rounded-full border-border/50 shadow-xs"
+              className="rounded-full border-border"
               onClick={onPreviousPendingQuestion}
               disabled={pendingAction.isResponding}
             >
@@ -89,7 +89,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         <Button
           type="submit"
           size="sm"
-          className={cn("rounded-full shadow-sm shadow-primary/15", compact ? "px-3" : "px-4")}
+          className={cn("rounded-full", compact ? "px-3" : "px-4")}
           disabled={
             pendingAction.isResponding ||
             (pendingAction.isLastQuestion ? !pendingAction.isComplete : !pendingAction.canAdvance)
@@ -116,7 +116,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             className={cn(
               "rounded-full transition-all duration-150",
               isRunning
-                ? "bg-primary/8 text-primary shadow-sm shadow-primary/8 hover:bg-primary/14 hover:text-primary hover:shadow-primary/15"
+                ? "bg-primary/8 text-primary hover:bg-primary/14 hover:text-primary"
                 : compact
                   ? "px-3"
                   : "px-4",
@@ -133,7 +133,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         {isRunning ? (
           <button
             type="button"
-            className="flex size-7 cursor-pointer items-center justify-center rounded-full bg-rose-500/90 text-white shadow-md shadow-rose-500/25 transition-all duration-200 hover:bg-rose-500 hover:shadow-lg hover:shadow-rose-500/30 sm:size-7"
+            className="flex size-7 cursor-pointer items-center justify-center rounded-full bg-destructive text-white transition-all duration-200 hover:bg-destructive/90 sm:size-7"
             onClick={onInterrupt}
             aria-label="Stop generation"
           >
@@ -143,7 +143,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           </button>
         ) : (
           <div
-            className="flex size-7 items-center justify-center rounded-full border border-border/40 bg-card/50 text-muted-foreground/50 sm:size-7"
+            className="flex size-7 items-center justify-center rounded-full border border-border/40 bg-muted/30 text-muted-foreground sm:size-7"
             aria-label="Sending current message"
           >
             <svg
@@ -176,10 +176,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         <Button
           type="submit"
           size="sm"
-          className={cn(
-            "rounded-full shadow-sm shadow-primary/15",
-            compact ? "h-9 px-3 sm:h-8" : "h-9 px-4 sm:h-8",
-          )}
+          className={cn("rounded-full", compact ? "h-9 px-3 sm:h-8" : "h-9 px-4 sm:h-8")}
           disabled={isSendBusy || isConnecting}
         >
           {isConnecting || isSendBusy ? "Sending..." : "Refine"}
@@ -192,10 +189,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         <Button
           type="submit"
           size="sm"
-          className={cn(
-            "h-9 rounded-l-full rounded-r-none shadow-sm shadow-primary/15 sm:h-8",
-            compact ? "px-3" : "px-4",
-          )}
+          className={cn("h-9 rounded-l-full rounded-r-none sm:h-8", compact ? "px-3" : "px-4")}
           disabled={isSendBusy || isConnecting}
         >
           {isConnecting || isSendBusy ? "Sending..." : "Implement"}
@@ -206,7 +200,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
               <Button
                 size="sm"
                 variant="default"
-                className="h-9 rounded-l-none rounded-r-full border-l-white/10 px-2 shadow-sm shadow-primary/15 sm:h-8"
+                className="h-9 rounded-l-none rounded-r-full border-l border-border px-2 sm:h-8"
                 aria-label="Implementation actions"
                 disabled={isSendBusy || isConnecting}
               />
@@ -230,7 +224,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   return (
     <button
       type="submit"
-      className="flex h-8 w-8 enabled:cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/20 transition-all duration-200 hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25 disabled:pointer-events-none disabled:opacity-20 disabled:shadow-none disabled:hover:scale-100 sm:h-7 sm:w-7"
+      className="flex h-8 w-8 enabled:cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground transition-all duration-150 hover:bg-primary/88 disabled:pointer-events-none disabled:opacity-15 sm:h-7 sm:w-7"
       disabled={isSendBusy || isConnecting || !hasSendableContent}
       aria-label={
         isConnecting

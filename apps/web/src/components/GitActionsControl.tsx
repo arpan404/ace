@@ -6,10 +6,11 @@ import type {
   ThreadId,
 } from "@ace/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
 import { GitHubIcon } from "./Icons";
 import { runAsyncTask } from "../lib/async";
+import { useEffectEvent } from "../hooks/useEffectEvent";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
@@ -34,13 +35,13 @@ import {
   DialogPopup,
   DialogTitle,
 } from "~/components/ui/dialog";
-import { Group, GroupSeparator } from "~/components/ui/group";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast";
-import { openInPreferredEditor } from "~/editorPreferences";
+import { TopBarCluster, TopBarClusterDivider } from "~/components/thread/TopBarCluster";
 import {
   gitBranchesQueryOptions,
   gitInitMutationOptions,
@@ -52,13 +53,16 @@ import {
   invalidateGitQueries,
 } from "~/lib/gitReactQuery";
 import { newCommandId, randomUUID } from "~/lib/utils";
-import { resolvePathLinkTarget } from "~/terminal-links";
 import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
+import { useEditorStateStore } from "~/editorStateStore";
+import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
   activeThreadId: ThreadId | null;
+  workspaceMode: ThreadWorkspaceMode;
+  onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
 }
 
 interface PendingDefaultBranchAction {
@@ -93,6 +97,9 @@ interface RunGitActionWithToastInput {
   progressToastId?: GitActionToastId;
   filePaths?: string[];
 }
+
+const TOP_BAR_ACTION_BUTTON_CLASS_NAME =
+  "rounded-full border-transparent bg-transparent text-foreground/80 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08]";
 
 function formatElapsedDescription(startedAtMs: number | null): string | undefined {
   if (startedAtMs === null) {
@@ -207,7 +214,12 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   return <InfoIcon className={iconClassName} />;
 }
 
-export default function GitActionsControl({ gitCwd, activeThreadId }: GitActionsControlProps) {
+export default function GitActionsControl({
+  gitCwd,
+  activeThreadId,
+  workspaceMode,
+  onWorkspaceModeChange,
+}: GitActionsControlProps) {
   const threadToastData = useMemo(
     () => (activeThreadId ? { threadId: activeThreadId } : undefined),
     [activeThreadId],
@@ -224,6 +236,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
   const activeGitActionProgressRef = useRef<ActiveGitActionProgress | null>(null);
+  const openFileInWorkspace = useEditorStateStore((state) => state.openFile);
 
   const updateActiveProgressToast = useCallback(() => {
     const progress = activeGitActionProgressRef.current;
@@ -745,26 +758,31 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
 
   const openChangedFileInEditor = useCallback(
     (filePath: string) => {
-      const api = readNativeApi();
-      if (!api || !gitCwd) {
+      if (!activeThreadId || !gitCwd) {
         toastManager.add({
           type: "error",
-          title: "Editor opening is unavailable.",
+          title: "Workspace editor is unavailable.",
           data: threadToastData,
         });
         return;
       }
-      const target = resolvePathLinkTarget(filePath, gitCwd);
-      void openInPreferredEditor(api, target).catch((error) => {
-        toastManager.add({
-          type: "error",
-          title: "Unable to open file",
-          description: error instanceof Error ? error.message : "An error occurred.",
-          data: threadToastData,
-        });
-      });
+      const relativePath = filePath.trim();
+      if (!relativePath) {
+        return;
+      }
+      if (workspaceMode === "chat") {
+        onWorkspaceModeChange("editor");
+      }
+      openFileInWorkspace(activeThreadId, relativePath);
     },
-    [gitCwd, threadToastData],
+    [
+      activeThreadId,
+      gitCwd,
+      onWorkspaceModeChange,
+      openFileInWorkspace,
+      threadToastData,
+      workspaceMode,
+    ],
   );
 
   if (!gitCwd) return null;
@@ -781,7 +799,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
           {initMutation.isPending ? "Initializing..." : "Initialize Git"}
         </Button>
       ) : (
-        <Group aria-label="Git actions" className="shrink-0">
+        <TopBarCluster aria-label="Git actions" className="shrink-0">
           {quickActionDisabledReason ? (
             <Popover>
               <PopoverTrigger
@@ -789,16 +807,14 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
                 render={
                   <Button
                     aria-disabled="true"
-                    className="cursor-not-allowed rounded-e-none border-e-0 opacity-64 before:rounded-e-none"
+                    className={`${TOP_BAR_ACTION_BUTTON_CLASS_NAME} cursor-not-allowed opacity-64`}
                     size="xs"
-                    variant="outline"
+                    variant="ghost"
                   />
                 }
               >
                 <GitQuickActionIcon quickAction={quickAction} />
-                <span className="sr-only @lg/header-actions:not-sr-only @lg/header-actions:ml-0.5">
-                  {quickAction.label}
-                </span>
+                <span className="sr-only md:not-sr-only md:ml-0.5">{quickAction.label}</span>
               </PopoverTrigger>
               <PopoverPopup tooltipStyle side="bottom" align="start">
                 {quickActionDisabledReason}
@@ -806,29 +822,44 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
             </Popover>
           ) : (
             <Button
-              variant="outline"
+              variant="ghost"
               size="xs"
+              className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
               disabled={isGitActionRunning || quickAction.disabled}
               onClick={runQuickAction}
             >
               <GitQuickActionIcon quickAction={quickAction} />
-              <span className="sr-only @lg/header-actions:not-sr-only @lg/header-actions:ml-0.5">
-                {quickAction.label}
-              </span>
+              <span className="sr-only md:not-sr-only md:ml-0.5">{quickAction.label}</span>
             </Button>
           )}
-          <GroupSeparator className="hidden @lg/header-actions:block" />
+          <TopBarClusterDivider />
           <Menu
             onOpenChange={(open) => {
               if (open) void invalidateGitStatusQuery(queryClient, gitCwd);
             }}
           >
-            <MenuTrigger
-              render={<Button aria-label="Git action options" size="icon-xs" variant="outline" />}
-              disabled={isGitActionRunning}
-            >
-              <ChevronDownIcon aria-hidden="true" className="size-4" />
-            </MenuTrigger>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <MenuTrigger
+                    render={
+                      <Button
+                        aria-label="More Git actions"
+                        size="icon-xs"
+                        variant="ghost"
+                        className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
+                      />
+                    }
+                    disabled={isGitActionRunning}
+                  >
+                    <ChevronDownIcon aria-hidden="true" className="size-4" />
+                  </MenuTrigger>
+                }
+              />
+              <TooltipPopup side="bottom" align="end" className="max-w-xs">
+                More Git actions: commit, push, create PR, and related options.
+              </TooltipPopup>
+            </Tooltip>
             <MenuPopup align="end" className="w-full">
               {gitActionMenuItems.map((item) => {
                 const disabledReason = getMenuActionDisabledReason({
@@ -894,7 +925,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
               )}
             </MenuPopup>
           </Menu>
-        </Group>
+        </TopBarCluster>
       )}
 
       <Dialog

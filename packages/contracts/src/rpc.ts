@@ -8,6 +8,10 @@ import {
   GitCheckoutInput,
   GitCommandError,
   GitCreateBranchInput,
+  GitGetGitHubIssueThreadInput,
+  GitGetGitHubIssueThreadResult,
+  GitListGitHubIssuesInput,
+  GitListGitHubIssuesResult,
   GitCreateWorktreeInput,
   GitCreateWorktreeResult,
   GitInitInput,
@@ -121,6 +125,8 @@ export const WS_METHODS = {
   gitStatus: "git.status",
   gitRunStackedAction: "git.runStackedAction",
   gitListBranches: "git.listBranches",
+  gitListGitHubIssues: "git.listGitHubIssues",
+  gitGetGitHubIssueThread: "git.getGitHubIssueThread",
   gitCreateWorktree: "git.createWorktree",
   gitRemoveWorktree: "git.removeWorktree",
   gitCreateBranch: "git.createBranch",
@@ -310,6 +316,18 @@ export const WsGitListBranchesRpc = Rpc.make(WS_METHODS.gitListBranches, {
   error: GitCommandError,
 });
 
+export const WsGitListGitHubIssuesRpc = Rpc.make(WS_METHODS.gitListGitHubIssues, {
+  payload: GitListGitHubIssuesInput,
+  success: GitListGitHubIssuesResult,
+  error: GitManagerServiceError,
+});
+
+export const WsGitGetGitHubIssueThreadRpc = Rpc.make(WS_METHODS.gitGetGitHubIssueThread, {
+  payload: GitGetGitHubIssueThreadInput,
+  success: GitGetGitHubIssueThreadResult,
+  error: GitManagerServiceError,
+});
+
 export const WsGitCreateWorktreeRpc = Rpc.make(WS_METHODS.gitCreateWorktree, {
   payload: GitCreateWorktreeInput,
   success: GitCreateWorktreeResult,
@@ -464,6 +482,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
   WsGitListBranchesRpc,
+  WsGitListGitHubIssuesRpc,
+  WsGitGetGitHubIssueThreadRpc,
   WsGitCreateWorktreeRpc,
   WsGitRemoveWorktreeRpc,
   WsGitCreateBranchRpc,

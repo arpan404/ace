@@ -420,6 +420,9 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         createdAt: new Date().toISOString(),
         method: "session/closed",
         message: "Session stopped",
+        payload: {
+          processPid: process.pid,
+        },
       };
 
       lifecycleManager.emit("event", event);
@@ -435,6 +438,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       }
       assert.equal(firstEvent.value.threadId, "thread-1");
       assert.equal(firstEvent.value.payload.reason, "Session stopped");
+      assert.equal(firstEvent.value.payload.processPid, process.pid);
     }),
   );
 

@@ -32,7 +32,7 @@ export function LoadDiagnosticsConsole() {
       <button
         type="button"
         onClick={() => setLoadDiagnosticsExpanded(true)}
-        className="fixed right-4 bottom-4 z-[70] flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-2xl border border-white/10 bg-neutral-950/88 px-3 py-2 text-left text-white shadow-2xl shadow-black/35 backdrop-blur-xl transition-transform hover:-translate-y-0.5"
+        className="fixed right-4 bottom-4 z-[70] flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-xl border border-white/10 bg-neutral-950/90 px-3 py-2 text-left text-white backdrop-blur-xl transition-transform hover:-translate-y-0.5"
       >
         <span
           className={`size-2.5 rounded-full ${
@@ -57,7 +57,7 @@ export function LoadDiagnosticsConsole() {
   }
 
   return (
-    <section className="fixed right-4 bottom-4 z-[70] flex max-h-[min(70vh,48rem)] w-[min(42rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-[1.65rem] border border-white/10 bg-neutral-950/92 text-white shadow-2xl shadow-black/40 backdrop-blur-2xl">
+    <section className="fixed right-4 bottom-4 z-[70] flex max-h-[min(70vh,48rem)] w-[min(42rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-white/10 bg-neutral-950/92 text-white backdrop-blur-2xl">
       <div className="border-b border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),transparent_58%)] px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">

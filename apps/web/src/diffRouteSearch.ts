@@ -35,7 +35,7 @@ export function parseDiffRouteSearch(search: Record<string, unknown>): DiffRoute
   const mode = normalizeThreadWorkspaceMode(search.mode);
 
   return {
-    ...(mode === "editor" ? { mode } : {}),
+    ...(mode !== "chat" ? { mode } : {}),
     ...(diff ? { diff } : {}),
     ...(diffTurnId ? { diffTurnId } : {}),
     ...(diffFilePath ? { diffFilePath } : {}),

@@ -28,7 +28,7 @@ import {
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
-import { getDefaultServerModel, getProviderModels } from "./providerModels";
+import { getProviderModels } from "./providerModels";
 import { UnifiedSettings } from "@ace/contracts/settings";
 import { resolveExactCursorModelSelection } from "./cursorModelSelector";
 
@@ -299,6 +299,39 @@ function modelSelectionByProviderToOptions(
     }
   }
   return Object.keys(result).length > 0 ? (result as ProviderModelOptions) : null;
+}
+
+function deriveEffectiveProviderModelOptions(input: {
+  draftSelections: Partial<Record<ProviderKind, ModelSelection>> | null | undefined;
+  threadModelSelection: ModelSelection | null | undefined;
+  projectModelSelection: ModelSelection | null | undefined;
+}): ProviderModelOptions | null {
+  const baseOptions =
+    providerModelOptionsFromSelection(input.threadModelSelection) ??
+    providerModelOptionsFromSelection(input.projectModelSelection) ??
+    null;
+  const draftSelections = input.draftSelections;
+  if (!draftSelections || Object.keys(draftSelections).length === 0) {
+    return baseOptions;
+  }
+  const draftOptions = modelSelectionByProviderToOptions(draftSelections);
+  const nextOptions: Record<string, unknown> = {};
+  if (baseOptions) {
+    Object.assign(nextOptions, baseOptions);
+  }
+  if (draftOptions) {
+    Object.assign(nextOptions, draftOptions);
+  }
+
+  for (const provider of ALL_PROVIDER_KINDS) {
+    const selection = draftSelections[provider];
+    if (!selection || selection.options !== undefined) {
+      continue;
+    }
+    delete nextOptions[provider];
+  }
+
+  return normalizeProviderModelOptions(nextOptions);
 }
 
 const EMPTY_PERSISTED_DRAFT_STORE_STATE = Object.freeze<PersistedComposerDraftStoreState>({
@@ -594,7 +627,29 @@ function normalizeProviderModelOptions(
         }
       : undefined;
 
-  if (!codex && !claude && !githubCopilot && !cursor) {
+  const opencodeCandidate =
+    candidate?.opencode && typeof candidate.opencode === "object"
+      ? (candidate.opencode as Record<string, unknown>)
+      : null;
+  const opencodeVariant =
+    typeof opencodeCandidate?.variant === "string" && opencodeCandidate.variant.trim().length > 0
+      ? opencodeCandidate.variant.trim()
+      : undefined;
+  const opencodeFastMode =
+    opencodeCandidate?.fastMode === true
+      ? true
+      : opencodeCandidate?.fastMode === false
+        ? false
+        : undefined;
+  const opencode =
+    opencodeVariant !== undefined || opencodeFastMode !== undefined
+      ? {
+          ...(opencodeVariant !== undefined ? { variant: opencodeVariant } : {}),
+          ...(opencodeFastMode !== undefined ? { fastMode: opencodeFastMode } : {}),
+        }
+      : undefined;
+
+  if (!codex && !claude && !githubCopilot && !cursor && !opencode) {
     return null;
   }
   return {
@@ -602,6 +657,7 @@ function normalizeProviderModelOptions(
     ...(claude ? { claudeAgent: claude } : {}),
     ...(githubCopilot ? { githubCopilot } : {}),
     ...(cursor ? { cursor } : {}),
+    ...(opencode ? { opencode } : {}),
   };
 }
 
@@ -720,11 +776,18 @@ export function deriveEffectiveComposerModelState(input: {
   projectModelSelection: ModelSelection | null | undefined;
   settings: UnifiedSettings;
 }): EffectiveComposerModelState {
-  const baseModel =
-    normalizeModelSlug(
-      input.threadModelSelection?.model ?? input.projectModelSelection?.model,
-      input.selectedProvider,
-    ) ?? getDefaultServerModel(input.providers, input.selectedProvider);
+  const baseModelCandidate =
+    input.threadModelSelection?.provider === input.selectedProvider
+      ? input.threadModelSelection.model
+      : input.projectModelSelection?.provider === input.selectedProvider
+        ? input.projectModelSelection.model
+        : null;
+  const baseModel = resolveAppModelSelection(
+    input.selectedProvider,
+    input.settings,
+    input.providers,
+    baseModelCandidate,
+  );
   const activeSelection = input.draft?.modelSelectionByProvider?.[input.selectedProvider];
   const selectedModel = activeSelection?.model
     ? resolveAppModelSelection(
@@ -734,11 +797,11 @@ export function deriveEffectiveComposerModelState(input: {
         activeSelection.model,
       )
     : baseModel;
-  const modelOptions =
-    modelSelectionByProviderToOptions(input.draft?.modelSelectionByProvider) ??
-    providerModelOptionsFromSelection(input.threadModelSelection) ??
-    providerModelOptionsFromSelection(input.projectModelSelection) ??
-    null;
+  const modelOptions = deriveEffectiveProviderModelOptions({
+    draftSelections: input.draft?.modelSelectionByProvider,
+    threadModelSelection: input.threadModelSelection,
+    projectModelSelection: input.projectModelSelection,
+  });
   const resolvedCursorModel =
     input.selectedProvider === "cursor"
       ? resolveExactCursorModelSelection({

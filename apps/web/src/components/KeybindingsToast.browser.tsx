@@ -1,6 +1,7 @@
 import "../index.css";
 
 import {
+  DEFAULT_SERVER_SETTINGS,
   ORCHESTRATION_WS_METHODS,
   type MessageId,
   type OrchestrationReadModel,
@@ -57,26 +58,11 @@ function createBaseServerConfig(): ServerConfig {
     ],
     availableEditors: [],
     settings: {
+      ...DEFAULT_SERVER_SETTINGS,
       enableAssistantStreaming: false,
-      enableToolStreaming: true,
-      enableThinkingStreaming: true,
-      defaultThreadEnvMode: "local" as const,
       textGenerationModelSelection: {
         provider: "codex" as const,
         model: "gpt-5.4-mini",
-      },
-      providers: {
-        codex: {
-          enabled: true,
-          binaryPath: "",
-          homePath: "",
-          customModels: [],
-        },
-        claudeAgent: { enabled: true, binaryPath: "", customModels: [] },
-        githubCopilot: { enabled: true, binaryPath: "", cliUrl: "", customModels: [] },
-        cursor: { enabled: true, binaryPath: "", customModels: [] },
-        gemini: { enabled: true, binaryPath: "", customModels: [] },
-        opencode: { enabled: true, binaryPath: "", customModels: [] },
       },
     },
   };

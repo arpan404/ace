@@ -69,7 +69,7 @@ export const ProjectContextSwitcher = memo(function ProjectContextSwitcher({
             <Button
               aria-label={triggerLabel}
               className={cn(
-                "min-w-0 max-w-60 justify-start gap-1.5 rounded-full border-border/70 bg-background/70 px-2.5 font-medium text-foreground/90 shadow-xs/5 hover:bg-accent/55 hover:text-foreground",
+                "min-w-0 max-w-60 justify-start gap-1.5 rounded-full border-border bg-background px-2.5 font-medium text-foreground hover:bg-accent hover:text-foreground",
                 className,
               )}
               size="xs"

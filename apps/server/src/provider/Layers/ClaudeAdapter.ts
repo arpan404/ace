@@ -246,10 +246,30 @@ function interruptionMessageFromClaudeCause(cause: Cause.Cause<Error>): string {
   return isClaudeInterruptedMessage(message) ? "Claude runtime interrupted." : message;
 }
 
+function claudeResultErrorEntryText(entry: unknown): string {
+  if (typeof entry === "string") {
+    return entry;
+  }
+  return meaningfulErrorMessage(entry, "");
+}
+
 function resultErrorsText(result: SDKResultMessage): string {
   return "errors" in result && Array.isArray(result.errors)
-    ? result.errors.join(" ").toLowerCase()
+    ? result.errors.map(claudeResultErrorEntryText).join(" ").toLowerCase()
     : "";
+}
+
+function normalizedFirstClaudeResultError(result: SDKResultMessage): string | undefined {
+  if (!("errors" in result) || !Array.isArray(result.errors) || result.errors.length === 0) {
+    return undefined;
+  }
+  const raw = result.errors[0];
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  const extracted = meaningfulErrorMessage(raw, "").trim();
+  return extracted.length > 0 ? extracted : undefined;
 }
 
 function isInterruptedResult(result: SDKResultMessage): boolean {
@@ -1238,9 +1258,6 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     message: string,
     cause?: unknown,
   ) {
-    if (cause !== undefined) {
-      void cause;
-    }
     const turnState = context.turnState;
     const stamp = yield* makeEventStamp();
     yield* offerRuntimeEvent({
@@ -1913,7 +1930,8 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
 
     const status = turnStatusFromResult(message);
-    const errorMessage = message.subtype === "success" ? undefined : message.errors[0];
+    const errorMessage =
+      message.subtype === "success" ? undefined : normalizedFirstClaudeResultError(message);
 
     if (status === "failed") {
       yield* emitRuntimeError(context, errorMessage ?? "Claude turn failed.");
@@ -2315,7 +2333,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     try {
       context.query.close();
     } catch (cause) {
-      yield* emitRuntimeError(context, "Failed to close Claude runtime query.", cause);
+      yield* emitRuntimeError(
+        context,
+        meaningfulErrorMessage(cause, "Failed to close Claude runtime query."),
+        cause,
+      );
     }
 
     const updatedAt = yield* nowIso;

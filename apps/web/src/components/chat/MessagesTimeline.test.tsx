@@ -1138,7 +1138,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-work-entry-id="work-tool-followup"');
   });
 
-  it("renders changed-files summaries after preceding work without swallowing the next turn", async () => {
+  it("hides changed-files summaries after a newer user message", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const assistantMessageId = MessageId.makeUnsafe("assistant-with-diff");
     const markup = renderToStaticMarkup(
@@ -1228,6 +1228,88 @@ describe("MessagesTimeline", () => {
       />,
     );
 
+    expect(markup).not.toContain('data-turn-diff-summary="true"');
+    expect(markup).not.toContain("Changed files (2)");
+  });
+
+  it("renders changed-files summaries at the end of the latest assistant turn", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const assistantMessageId = MessageId.makeUnsafe("assistant-with-diff-latest");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "tool-before-diff-latest",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            entry: {
+              id: "tool-before-diff-latest",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              label: "Run command",
+              toolTitle: "Run command",
+              detail: "bun lint",
+              tone: "tool",
+            },
+          },
+          {
+            id: "assistant-with-diff-latest",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: assistantMessageId,
+              role: "assistant",
+              text: "Updated the timeline rendering.",
+              turnId: TurnId.makeUnsafe("turn-diff-latest"),
+              createdAt: "2026-03-17T19:12:32.000Z",
+              completedAt: "2026-03-17T19:12:33.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId="assistant-with-diff-latest"
+        completionSummary="Worked for 2m"
+        turnDiffSummaryByAssistantMessageId={
+          new Map([
+            [
+              assistantMessageId,
+              {
+                turnId: TurnId.makeUnsafe("turn-diff-latest"),
+                completedAt: "2026-03-17T19:12:33.500Z",
+                files: [
+                  {
+                    path: "apps/web/src/components/chat/MessagesTimeline.tsx",
+                    additions: 10,
+                    deletions: 2,
+                  },
+                  {
+                    path: "apps/web/src/components/chat/ChangedFilesTree.tsx",
+                    additions: 4,
+                    deletions: 1,
+                  },
+                ],
+              },
+            ],
+          ])
+        }
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
     expect(markup).toContain('data-turn-diff-summary="true"');
     expect(markup).toContain("Changed files (2)");
     expect(markup).toContain("Expand all");
@@ -1236,11 +1318,9 @@ describe("MessagesTimeline", () => {
       markup.indexOf("Updated the timeline rendering."),
     );
     expect(markup.indexOf("Updated the timeline rendering.")).toBeLessThan(
-      markup.indexOf("Changed files (2)"),
+      markup.indexOf("Worked for 2m"),
     );
-    expect(markup.indexOf("Changed files (2)")).toBeLessThan(
-      markup.indexOf("Thanks, now fix the spacing below it."),
-    );
+    expect(markup.indexOf("Worked for 2m")).toBeLessThan(markup.indexOf("Changed files (2)"));
   });
 
   it("shows completed intent and tool activity after completion", async () => {
@@ -1742,6 +1822,8 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-intent-message="true"');
     expect(markup).toContain('data-inline-intent="true"');
     expect(markup).toContain("Inspecting the provider transcript before responding");
+    expect(markup).toContain("Getting started for");
+    expect(markup).not.toContain("Thought");
   });
 
   it("uses the matching group id when expanding completed tool calls", async () => {

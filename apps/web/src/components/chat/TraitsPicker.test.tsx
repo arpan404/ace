@@ -37,6 +37,24 @@ const COPILOT_WITH_REASONING: ReadonlyArray<ServerProviderModel> = [
   },
 ];
 
+const OPENCODE_WITH_VARIANTS: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "openai/gpt-5",
+    name: "OpenAI: GPT-5",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [],
+      supportsFastMode: false,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [
+        { value: "high", label: "High", isDefault: true },
+        { value: "low", label: "Low" },
+      ],
+      promptInjectedEffortLevels: [],
+    },
+  },
+];
+
 describe("TraitsPicker", () => {
   it("hides the Copilot selector when the model exposes no selectable traits", () => {
     const html = renderToStaticMarkup(
@@ -68,5 +86,21 @@ describe("TraitsPicker", () => {
     );
 
     expect(html).toContain("High");
+  });
+
+  it("shows the default OpenCode variant label in the trigger", () => {
+    const html = renderToStaticMarkup(
+      <TraitsPicker
+        provider="opencode"
+        models={OPENCODE_WITH_VARIANTS}
+        model="openai/gpt-5"
+        prompt=""
+        onPromptChange={() => undefined}
+        onModelOptionsChange={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("High");
+    expect(html).not.toContain("Variant");
   });
 });

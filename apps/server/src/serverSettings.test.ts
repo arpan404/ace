@@ -21,6 +21,19 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     Effect.sync(() => {
       const decodePatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 
+      assert.deepEqual(
+        decodePatch({
+          notifyOnAgentCompletion: false,
+          notifyOnApprovalRequired: false,
+          notifyOnUserInputRequired: true,
+        }),
+        {
+          notifyOnAgentCompletion: false,
+          notifyOnApprovalRequired: false,
+          notifyOnUserInputRequired: true,
+        },
+      );
+
       assert.deepEqual(decodePatch({ providers: { codex: { binaryPath: "/tmp/codex" } } }), {
         providers: { codex: { binaryPath: "/tmp/codex" } },
       });
@@ -225,6 +238,29 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             binaryPath: "/opt/homebrew/bin/codex",
           },
         },
+      });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("persists notification settings as non-default server settings", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+      const serverConfig = yield* ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+
+      const next = yield* serverSettings.updateSettings({
+        notifyOnAgentCompletion: false,
+        notifyOnApprovalRequired: false,
+      });
+
+      assert.equal(next.notifyOnAgentCompletion, false);
+      assert.equal(next.notifyOnApprovalRequired, false);
+      assert.equal(next.notifyOnUserInputRequired, true);
+
+      const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      assert.deepEqual(JSON.parse(raw), {
+        notifyOnAgentCompletion: false,
+        notifyOnApprovalRequired: false,
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );

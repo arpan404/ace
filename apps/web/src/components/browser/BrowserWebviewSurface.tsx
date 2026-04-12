@@ -1,5 +1,5 @@
 import { GlobeIcon } from "lucide-react";
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { type BrowserTabState, resolveBrowserTabTitle } from "~/lib/browser/session";
@@ -10,6 +10,7 @@ import {
   IN_APP_BROWSER_PARTITION,
 } from "~/lib/browser/types";
 import { normalizeBrowserHttpUrl } from "~/lib/browser/url";
+import { useEffectEvent } from "~/hooks/useEffectEvent";
 
 function isAbortedWebviewLoad(error: unknown): boolean {
   if (!(error instanceof Error)) {
