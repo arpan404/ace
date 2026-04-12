@@ -63,10 +63,10 @@ export function BrowserNewTabPanel(props: {
             onSubmitQuery(query);
           }}
         >
-          <div className="flex items-center gap-3 rounded-xl border border-border/15 bg-card/20 px-4 py-2.5 transition-all duration-150 focus-within:border-primary/15 focus-within:shadow-xs focus-within:shadow-primary/[0.03]">
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5 transition-colors duration-150 focus-within:border-primary/30">
             <SearchIcon className="size-4 shrink-0 text-muted-foreground/35" />
             <Input
-              className="h-auto w-full flex-1 border-0 bg-transparent px-0 text-base shadow-none before:shadow-none"
+              className="h-auto w-full flex-1 border-0 bg-transparent px-0 text-base"
               unstyled
               value={query}
               onChange={(event) => setQuery(event.target.value)}

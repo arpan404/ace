@@ -817,6 +817,94 @@ routing.layer("ProviderServiceLive routing", (it) => {
       }),
   );
 
+  it.effect(
+    "recovers restart-session providers by reusing persisted resume cursor with projected transcript fallback",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const messages = yield* ProjectionThreadMessageRepository;
+        const threadId = asThreadId("thread-cursor-resume-recover");
+        const createdAt = "2026-04-05T12:00:00.500Z";
+        const persistedResumeCursor = { sessionId: "cursor-session-live" };
+
+        yield* directory.upsert({
+          provider: "cursor",
+          threadId,
+          runtimeMode: "full-access",
+          status: "stopped",
+          resumeCursor: persistedResumeCursor,
+          runtimePayload: {
+            cwd: "/tmp/project-cursor-resume-recover",
+            modelSelection: {
+              provider: "cursor",
+              model: "gpt-5-mini",
+            },
+          },
+        });
+        yield* messages.upsert({
+          messageId: asMessageId("user-cursor-resume-recover-1"),
+          threadId,
+          turnId: asTurnId("turn-cursor-resume-recover-1"),
+          role: "user",
+          text: "Original prompt",
+          attachments: [],
+          isStreaming: false,
+          sequence: 1,
+          createdAt,
+          updatedAt: createdAt,
+        });
+        yield* messages.upsert({
+          messageId: asMessageId("assistant-cursor-resume-recover-1"),
+          threadId,
+          turnId: asTurnId("turn-cursor-resume-recover-1"),
+          role: "assistant",
+          text: "Original answer",
+          isStreaming: false,
+          sequence: 2,
+          createdAt,
+          updatedAt: createdAt,
+        });
+
+        routing.cursor.startSession.mockClear();
+        routing.cursor.sendTurn.mockClear();
+
+        yield* provider.sendTurn({
+          threadId,
+          input: "Continue",
+          attachments: [],
+        });
+
+        assert.equal(routing.cursor.startSession.mock.calls.length, 1);
+        const startPayload = routing.cursor.startSession.mock.calls[0]?.[0] as
+          | {
+              provider?: string;
+              cwd?: string;
+              modelSelection?: unknown;
+              resumeCursor?: unknown;
+              replayTurns?: unknown;
+            }
+          | undefined;
+        assert.equal(startPayload?.provider, "cursor");
+        assert.equal(startPayload?.cwd, "/tmp/project-cursor-resume-recover");
+        assert.deepEqual(startPayload?.resumeCursor, persistedResumeCursor);
+        assert.deepEqual(startPayload?.modelSelection, {
+          provider: "cursor",
+          model: "gpt-5-mini",
+        });
+        assert.deepEqual(startPayload?.replayTurns, [
+          {
+            prompt: "Original prompt",
+            attachmentNames: [],
+            assistantResponse: "Original answer",
+          },
+        ]);
+        assert.equal(routing.cursor.sendTurn.mock.calls.length, 1);
+
+        yield* provider.stopSession({ threadId });
+      }),
+  );
+
   it.effect("recovers stale claudeAgent sessions for sendTurn using persisted cwd", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
@@ -1036,7 +1124,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
   );
 
   it.effect(
-    "prefers projected transcript over persisted resume cursor when reopening restart-session providers",
+    "passes persisted resume cursor alongside projected transcript when reopening restart-session providers",
     () =>
       Effect.gen(function* () {
         const provider = yield* ProviderService;
@@ -1098,7 +1186,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
               replayTurns?: unknown;
             }
           | undefined;
-        assert.equal(startPayload?.resumeCursor, undefined);
+        assert.deepEqual(startPayload?.resumeCursor, { sessionId: "cursor-remote-session-stale" });
         assert.deepEqual(startPayload?.replayTurns, [
           {
             prompt: "Earlier prompt",
@@ -1112,7 +1200,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
   );
 
   it.effect(
-    "honors explicit replay turns over persisted transcript and resume cursors when starting restart-session providers",
+    "honors explicit replay turns while still passing persisted resume cursors for restart-session providers",
     () =>
       Effect.gen(function* () {
         const provider = yield* ProviderService;
@@ -1164,7 +1252,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
               replayTurns?: unknown;
             }
           | undefined;
-        assert.equal(startPayload?.resumeCursor, undefined);
+        assert.deepEqual(startPayload?.resumeCursor, { sessionId: "cursor-stale-resume" });
         assert.deepEqual(startPayload?.replayTurns, []);
 
         yield* provider.stopSession({ threadId });

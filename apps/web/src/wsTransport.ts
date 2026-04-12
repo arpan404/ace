@@ -19,12 +19,19 @@ interface RequestOptions {
   readonly timeout?: Option.Option<Duration.Input>;
 }
 
+interface WsTransportOptions {
+  readonly connectionProbeIntervalMs?: number;
+  readonly connectionProbeTimeoutMs?: number;
+}
+
 export interface WsTransportConnectionState {
   readonly kind: "disconnected" | "reconnected";
   readonly error?: string;
 }
 
 const DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS = Duration.millis(250);
+const DEFAULT_CONNECTION_PROBE_INTERVAL_MS = 15_000;
+const DEFAULT_CONNECTION_PROBE_TIMEOUT_MS = 4_000;
 const WS_CLIENT_SESSION_STORAGE_KEY = "ace.wsClientSessionId";
 
 function createConnectionId(): string {
@@ -54,18 +61,32 @@ export class WsTransport {
   private readonly clientScope: Scope.Closeable;
   private readonly clientPromise: Promise<WsRpcProtocolClient>;
   private readonly identity: WsClientConnectionIdentity;
+  private readonly connectionProbeIntervalMs: number;
+  private readonly connectionProbeTimeoutMs: number;
   private readonly connectionStateListeners = new Set<
     (state: WsTransportConnectionState) => void
   >();
+  private readonly probeListenerCleanups: Array<() => void> = [];
+  private connectionProbeIntervalHandle: ReturnType<typeof setInterval> | null = null;
   private disposed = false;
   private hasConnected = false;
   private disconnected = false;
+  private probeInFlight = false;
+  private queuedProbe = false;
 
-  constructor(url?: string) {
+  constructor(url?: string, options: WsTransportOptions = {}) {
     this.identity = {
       clientSessionId: resolveClientSessionId(),
       connectionId: createConnectionId(),
     };
+    this.connectionProbeIntervalMs = Math.max(
+      0,
+      options.connectionProbeIntervalMs ?? DEFAULT_CONNECTION_PROBE_INTERVAL_MS,
+    );
+    this.connectionProbeTimeoutMs = Math.max(
+      1,
+      options.connectionProbeTimeoutMs ?? DEFAULT_CONNECTION_PROBE_TIMEOUT_MS,
+    );
     logLoadDiagnostic({
       phase: "ws",
       message: "Creating WebSocket transport",
@@ -80,6 +101,7 @@ export class WsTransport {
     this.clientPromise = this.runtime.runPromise(
       Scope.provide(this.clientScope)(makeWsRpcProtocolClient),
     );
+    this.setupConnectionProbeLifecycle();
   }
 
   getConnectionIdentity(): WsClientConnectionIdentity {
@@ -141,6 +163,96 @@ export class WsTransport {
       kind: "disconnected",
       error: formatErrorMessage(error),
     });
+  }
+
+  private setupConnectionProbeLifecycle(): void {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const queueProbe = (reason: string) => {
+      this.queueConnectionProbe(reason);
+    };
+
+    if (
+      typeof window.addEventListener === "function" &&
+      typeof window.removeEventListener === "function"
+    ) {
+      const onOnline = () => queueProbe("online");
+      const onFocus = () => queueProbe("focus");
+      window.addEventListener("online", onOnline);
+      window.addEventListener("focus", onFocus);
+      this.probeListenerCleanups.push(() => {
+        window.removeEventListener("online", onOnline);
+        window.removeEventListener("focus", onFocus);
+      });
+    }
+
+    if (
+      typeof document !== "undefined" &&
+      typeof document.addEventListener === "function" &&
+      typeof document.removeEventListener === "function"
+    ) {
+      const onVisibilityChange = () => {
+        if (document.visibilityState === "visible") {
+          queueProbe("visibilitychange");
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      this.probeListenerCleanups.push(() => {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      });
+    }
+
+    if (this.connectionProbeIntervalMs > 0) {
+      this.connectionProbeIntervalHandle = setInterval(() => {
+        if (this.disposed) {
+          return;
+        }
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+          return;
+        }
+        queueProbe("interval");
+      }, this.connectionProbeIntervalMs);
+    }
+  }
+
+  private queueConnectionProbe(reason: string): void {
+    if (this.disposed) {
+      return;
+    }
+    if (this.probeInFlight) {
+      this.queuedProbe = true;
+      return;
+    }
+    this.probeInFlight = true;
+    void this.runConnectionProbe(reason).finally(() => {
+      this.probeInFlight = false;
+      if (this.disposed || !this.queuedProbe) {
+        return;
+      }
+      this.queuedProbe = false;
+      this.queueConnectionProbe("queued");
+    });
+  }
+
+  private async runConnectionProbe(reason: string): Promise<void> {
+    try {
+      const client = await this.clientPromise;
+      const probeResult = await this.runtime.runPromise(
+        Effect.suspend(() => client[WS_METHODS.serverGetConfig]({})).pipe(
+          Effect.timeoutOption(Duration.millis(this.connectionProbeTimeoutMs)),
+        ),
+      );
+      if (Option.isNone(probeResult)) {
+        throw new Error(
+          `WebSocket probe timed out after ${String(this.connectionProbeTimeoutMs)}ms (${reason})`,
+        );
+      }
+      this.noteConnected();
+    } catch (error) {
+      this.noteDisconnected(error);
+    }
   }
 
   async request<TSuccess>(
@@ -243,6 +355,14 @@ export class WsTransport {
       return;
     }
     this.disposed = true;
+    this.queuedProbe = false;
+    if (this.connectionProbeIntervalHandle !== null) {
+      clearInterval(this.connectionProbeIntervalHandle);
+      this.connectionProbeIntervalHandle = null;
+    }
+    for (const cleanup of this.probeListenerCleanups.splice(0)) {
+      cleanup();
+    }
     const clientPromise = Reflect.get(this, "clientPromise") as
       | Promise<WsRpcProtocolClient>
       | undefined;

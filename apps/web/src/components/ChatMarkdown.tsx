@@ -37,6 +37,7 @@ import { normalizeBrowserHttpUrl } from "../lib/browser/url";
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
 import type { ChatMessageStreamingTextState } from "../types";
+import MermaidDiagram from "./MermaidDiagram";
 
 class CodeHighlightErrorBoundary extends React.Component<
   { fallback: ReactNode; children: ReactNode },
@@ -95,7 +96,7 @@ registerMemoryPressureHandler({
 
 function extractFenceLanguage(className: string | undefined): string {
   const match = className?.match(CODE_FENCE_LANGUAGE_REGEX);
-  const raw = match?.[1] ?? "text";
+  const raw = (match?.[1] ?? "text").toLowerCase();
   // Shiki doesn't bundle a gitignore grammar; ini is a close match (#685)
   return raw === "gitignore" ? "ini" : raw;
 }
@@ -475,6 +476,19 @@ function ChatMarkdown({
         if (!codeBlock) {
           return <pre {...props}>{children}</pre>;
         }
+        const language = extractFenceLanguage(codeBlock.className);
+
+        if (language === "mermaid") {
+          return (
+            <MarkdownCodeBlock code={codeBlock.code}>
+              <MermaidDiagram
+                source={codeBlock.code}
+                theme={resolvedTheme}
+                className="chat-markdown-mermaid"
+              />
+            </MarkdownCodeBlock>
+          );
+        }
 
         return (
           <MarkdownCodeBlock code={codeBlock.code}>
@@ -492,7 +506,7 @@ function ChatMarkdown({
         );
       },
     }),
-    [cwd, diffThemeName, isStreaming, onOpenBrowserUrl],
+    [cwd, diffThemeName, isStreaming, onOpenBrowserUrl, resolvedTheme],
   );
 
   useEffect(() => {

@@ -16,6 +16,7 @@ import { Route as SettingsProvidersRouteImport } from './routes/settings.provide
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsEditorRouteImport } from './routes/settings.editor'
+import { Route as SettingsDevicesRouteImport } from './routes/settings.devices'
 import { Route as SettingsChatRouteImport } from './routes/settings.chat'
 import { Route as SettingsBrowserRouteImport } from './routes/settings.browser'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
@@ -55,6 +56,11 @@ const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
 const SettingsEditorRoute = SettingsEditorRouteImport.update({
   id: '/editor',
   path: '/editor',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsDevicesRoute = SettingsDevicesRouteImport.update({
+  id: '/devices',
+  path: '/devices',
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsChatRoute = SettingsChatRouteImport.update({
@@ -97,6 +103,7 @@ export interface FileRoutesByFullPath {
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/browser': typeof SettingsBrowserRoute
   '/settings/chat': typeof SettingsChatRoute
+  '/settings/devices': typeof SettingsDevicesRoute
   '/settings/editor': typeof SettingsEditorRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/models': typeof SettingsModelsRoute
@@ -110,6 +117,7 @@ export interface FileRoutesByTo {
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/browser': typeof SettingsBrowserRoute
   '/settings/chat': typeof SettingsChatRoute
+  '/settings/devices': typeof SettingsDevicesRoute
   '/settings/editor': typeof SettingsEditorRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/models': typeof SettingsModelsRoute
@@ -126,6 +134,7 @@ export interface FileRoutesById {
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/browser': typeof SettingsBrowserRoute
   '/settings/chat': typeof SettingsChatRoute
+  '/settings/devices': typeof SettingsDevicesRoute
   '/settings/editor': typeof SettingsEditorRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/models': typeof SettingsModelsRoute
@@ -143,6 +152,7 @@ export interface FileRouteTypes {
     | '/settings/archived'
     | '/settings/browser'
     | '/settings/chat'
+    | '/settings/devices'
     | '/settings/editor'
     | '/settings/general'
     | '/settings/models'
@@ -156,6 +166,7 @@ export interface FileRouteTypes {
     | '/settings/archived'
     | '/settings/browser'
     | '/settings/chat'
+    | '/settings/devices'
     | '/settings/editor'
     | '/settings/general'
     | '/settings/models'
@@ -171,6 +182,7 @@ export interface FileRouteTypes {
     | '/settings/archived'
     | '/settings/browser'
     | '/settings/chat'
+    | '/settings/devices'
     | '/settings/editor'
     | '/settings/general'
     | '/settings/models'
@@ -232,6 +244,13 @@ declare module '@tanstack/react-router' {
       path: '/editor'
       fullPath: '/settings/editor'
       preLoaderRoute: typeof SettingsEditorRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/devices': {
+      id: '/settings/devices'
+      path: '/devices'
+      fullPath: '/settings/devices'
+      preLoaderRoute: typeof SettingsDevicesRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/settings/chat': {
@@ -297,6 +316,7 @@ interface SettingsRouteChildren {
   SettingsArchivedRoute: typeof SettingsArchivedRoute
   SettingsBrowserRoute: typeof SettingsBrowserRoute
   SettingsChatRoute: typeof SettingsChatRoute
+  SettingsDevicesRoute: typeof SettingsDevicesRoute
   SettingsEditorRoute: typeof SettingsEditorRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
@@ -309,6 +329,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsArchivedRoute: SettingsArchivedRoute,
   SettingsBrowserRoute: SettingsBrowserRoute,
   SettingsChatRoute: SettingsChatRoute,
+  SettingsDevicesRoute: SettingsDevicesRoute,
   SettingsEditorRoute: SettingsEditorRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsModelsRoute: SettingsModelsRoute,

@@ -11,11 +11,16 @@ const GIT_STATUS_STALE_TIME_MS = 5_000;
 const GIT_STATUS_REFETCH_INTERVAL_MS = 15_000;
 const GIT_BRANCHES_STALE_TIME_MS = 15_000;
 const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
+const GIT_GITHUB_ISSUES_STALE_TIME_MS = 30_000;
 
 export const gitQueryKeys = {
   all: ["git"] as const,
   status: (cwd: string | null) => ["git", "status", cwd] as const,
   branches: (cwd: string | null) => ["git", "branches", cwd] as const,
+  githubIssues: (cwd: string | null, limit: number, query: string | null) =>
+    ["git", "github-issues", cwd, limit, query] as const,
+  githubIssueThread: (cwd: string | null, issueNumber: number | null) =>
+    ["git", "github-issue-thread", cwd, issueNumber] as const,
 };
 
 export const gitMutationKeys = {
@@ -76,6 +81,56 @@ export function gitBranchesQueryOptions(cwd: string | null) {
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     refetchInterval: GIT_BRANCHES_REFETCH_INTERVAL_MS,
+  });
+}
+
+export function gitGitHubIssuesQueryOptions(input: {
+  cwd: string | null;
+  limit?: number;
+  query?: string;
+  enabled?: boolean;
+}) {
+  const limit = input.limit ?? 50;
+  const query = input.query?.trim() ?? "";
+  return queryOptions({
+    queryKey: gitQueryKeys.githubIssues(input.cwd, limit, query.length > 0 ? query : null),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!input.cwd) throw new Error("GitHub issues are unavailable.");
+      return api.git.listGitHubIssues({
+        cwd: input.cwd,
+        limit,
+        ...(query.length > 0 ? { query } : {}),
+      });
+    },
+    enabled: (input.enabled ?? true) && input.cwd !== null,
+    staleTime: GIT_GITHUB_ISSUES_STALE_TIME_MS,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitGitHubIssueThreadQueryOptions(input: {
+  cwd: string | null;
+  issueNumber: number | null;
+  enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: gitQueryKeys.githubIssueThread(input.cwd, input.issueNumber),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!input.cwd || typeof input.issueNumber !== "number") {
+        throw new Error("GitHub issue thread is unavailable.");
+      }
+      return api.git.getGitHubIssueThread({
+        cwd: input.cwd,
+        issueNumber: input.issueNumber,
+      });
+    },
+    enabled: (input.enabled ?? true) && input.cwd !== null && typeof input.issueNumber === "number",
+    staleTime: GIT_GITHUB_ISSUES_STALE_TIME_MS,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
   });
 }
 

@@ -69,10 +69,10 @@ function ExpandedImageOverlay({
         <img
           src={expandedImageItem.src}
           alt={expandedImageItem.name}
-          className="max-h-[86vh] max-w-[92vw] select-none rounded-lg border border-border/70 bg-background object-contain shadow-2xl"
+          className="max-h-[86vh] max-w-[92vw] select-none rounded-lg border border-border bg-background object-contain"
           draggable={false}
         />
-        <p className="mt-2 max-w-[92vw] truncate text-center text-xs text-muted-foreground/80">
+        <p className="mt-2 max-w-[92vw] truncate text-center text-xs text-muted-foreground">
           {expandedImageItem.name}
           {expandedImage.images.length > 1
             ? ` (${expandedImage.index + 1}/${expandedImage.images.length})`
@@ -119,13 +119,15 @@ export function ChatViewPanels({
               className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none"
               onPointerDown={browserPanel.onResizePointerDown}
             >
-              <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-primary/55" />
+              <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-primary/55" />
               <div className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-primary/10" />
             </div>
           ) : null}
           <div
             className={cn(
-              browserPanel.mode === "split" ? "min-h-0 shrink-0 overflow-hidden" : "contents",
+              browserPanel.mode === "split"
+                ? "relative z-0 min-h-0 shrink-0 overflow-hidden"
+                : "contents",
             )}
             style={
               browserPanel.mode === "split"

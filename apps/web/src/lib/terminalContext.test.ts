@@ -8,6 +8,7 @@ import {
   countInlineTerminalContextPlaceholders,
   deriveDisplayedUserMessageState,
   ensureInlineTerminalContextPlaceholders,
+  extractTrailingGitHubIssueContext,
   extractTrailingTerminalContexts,
   filterTerminalContextsWithText,
   formatInlineTerminalContextLabel,
@@ -131,6 +132,51 @@ describe("terminalContext", () => {
       contextCount: 0,
       previewTitle: null,
       contexts: [],
+    });
+  });
+
+  it("extracts trailing github issue context blocks from message text", () => {
+    const prompt = [
+      "Solve #42: Keep timeline rows stable",
+      "",
+      "<github_issue_context>",
+      "number: 42",
+      "title: Keep timeline rows stable",
+      "body:",
+      "  Repro steps",
+      "</github_issue_context>",
+    ].join("\n");
+    expect(extractTrailingGitHubIssueContext(prompt)).toEqual({
+      promptText: "Solve #42: Keep timeline rows stable",
+      context: ["number: 42", "title: Keep timeline rows stable", "body:", "  Repro steps"].join(
+        "\n",
+      ),
+    });
+  });
+
+  it("hides trailing github issue blocks while preserving terminal context chips", () => {
+    const terminalPrompt = appendTerminalContextsToPrompt("Investigate this", [makeContext()]);
+    const prompt = [
+      terminalPrompt,
+      "",
+      "<github_issue_context>",
+      "number: 99",
+      "title: Hidden details",
+      "body:",
+      "  this should not appear in the user bubble",
+      "</github_issue_context>",
+    ].join("\n");
+    expect(deriveDisplayedUserMessageState(prompt)).toEqual({
+      visibleText: "Investigate this",
+      copyText: prompt,
+      contextCount: 1,
+      previewTitle: "Terminal 1 lines 12-13\n12 | git status\n13 | On branch main",
+      contexts: [
+        {
+          header: "Terminal 1 lines 12-13",
+          body: "12 | git status\n13 | On branch main",
+        },
+      ],
     });
   });
 

@@ -2,9 +2,25 @@ const WS_AUTH_PROTOCOL_PREFIX = "ace-auth.";
 const WS_CLIENT_SESSION_PROTOCOL_PREFIX = "ace-client-session.";
 const WS_CONNECTION_PROTOCOL_PREFIX = "ace-connection.";
 
+interface BufferLikeValue extends ArrayLike<number> {
+  toString(encoding?: string): string;
+}
+
+interface BufferLikeCtor {
+  from(input: Uint8Array | string, encoding?: string): BufferLikeValue;
+}
+
+function resolveBufferCtor(): BufferLikeCtor | undefined {
+  const candidate = (globalThis as { Buffer?: unknown }).Buffer;
+  if (!candidate) {
+    return undefined;
+  }
+  return candidate as BufferLikeCtor;
+}
+
 function encodeBase64Url(input: string): string {
   const bytes = new TextEncoder().encode(input);
-  const bufferCtor = (globalThis as { Buffer?: typeof Buffer }).Buffer;
+  const bufferCtor = resolveBufferCtor();
   const base64 = bufferCtor
     ? bufferCtor.from(bytes).toString("base64")
     : btoa(String.fromCharCode(...bytes));
@@ -16,7 +32,7 @@ function decodeBase64Url(input: string): string | undefined {
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
 
   try {
-    const bufferCtor = (globalThis as { Buffer?: typeof Buffer }).Buffer;
+    const bufferCtor = resolveBufferCtor();
     const bytes = bufferCtor
       ? new Uint8Array(bufferCtor.from(padded, "base64"))
       : Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));

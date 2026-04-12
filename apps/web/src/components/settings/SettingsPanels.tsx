@@ -2,7 +2,17 @@ import { ArchiveIcon, ArchiveX } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { type DesktopCliInstallState, type ProviderKind, ThreadId } from "@ace/contracts";
-import { DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
+import {
+  DEFAULT_UI_FONT_FAMILY,
+  DEFAULT_UI_FONT_SIZE_SCALE,
+  DEFAULT_UI_LETTER_SPACING,
+  DEFAULT_UI_MONO_FONT_FAMILY,
+  DEFAULT_UNIFIED_SETTINGS,
+  type UiFontFamily,
+  type UiFontSizeScale,
+  type UiLetterSpacing,
+  type UiMonoFontFamily,
+} from "@ace/contracts/settings";
 import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
@@ -18,6 +28,9 @@ import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { resolveAndPersistPreferredEditor } from "../../editorPreferences";
 import { isElectron } from "../../env";
+import { resetThemePresetToDefault, useAppearancePrefs } from "../../appearancePrefs";
+import { DEFAULT_THEME_PRESET } from "../../themePresets";
+import { ThemePresetPicker } from "./ThemePresetPicker";
 import { useTheme } from "../../hooks/useTheme";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
@@ -84,6 +97,38 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+
+const UI_FONT_FAMILY_OPTIONS: { value: UiFontFamily; label: string }[] = [
+  { value: "plus-jakarta", label: "Plus Jakarta Sans" },
+  { value: "inter", label: "Inter" },
+  { value: "system-ui", label: "System UI" },
+  { value: "dm-sans", label: "DM Sans" },
+  { value: "source-sans-3", label: "Source Sans 3" },
+];
+
+const UI_MONO_FONT_OPTIONS: { value: UiMonoFontFamily; label: string }[] = [
+  { value: "jetbrains", label: "JetBrains Mono" },
+  { value: "fira-code", label: "Fira Code" },
+  { value: "ibm-plex-mono", label: "IBM Plex Mono" },
+  { value: "system-mono", label: "System monospace" },
+];
+
+const UI_FONT_SIZE_OPTIONS: { value: UiFontSizeScale; label: string; description: string }[] = [
+  { value: "compact", label: "Compact", description: "Smaller base size (14px)" },
+  { value: "normal", label: "Normal", description: "Default (15px)" },
+  { value: "comfortable", label: "Comfortable", description: "Larger base size (16px)" },
+];
+
+const UI_LETTER_SPACING_OPTIONS: { value: UiLetterSpacing; label: string }[] = [
+  { value: "tight", label: "Tight" },
+  { value: "normal", label: "Normal" },
+  { value: "relaxed", label: "Relaxed" },
+];
+
+const UI_FONT_FAMILY_VALUE_SET = new Set(UI_FONT_FAMILY_OPTIONS.map((o) => o.value));
+const UI_MONO_FONT_VALUE_SET = new Set(UI_MONO_FONT_OPTIONS.map((o) => o.value));
+const UI_FONT_SIZE_VALUE_SET = new Set(UI_FONT_SIZE_OPTIONS.map((o) => o.value));
+const UI_LETTER_SPACING_VALUE_SET = new Set(UI_LETTER_SPACING_OPTIONS.map((o) => o.value));
 
 type InstallProviderSettings = {
   provider: ProviderKind;
@@ -441,6 +486,7 @@ function AboutCliInstallSection() {
 
 export function useSettingsRestore(onRestored?: () => void) {
   const { theme, setTheme } = useTheme();
+  const { themePreset } = useAppearancePrefs();
   const settings = useSettings();
   const { resetSettings } = useUpdateSettings();
 
@@ -457,11 +503,28 @@ export function useSettingsRestore(onRestored?: () => void) {
   const changedSettingLabels = useMemo(
     () => [
       ...(theme !== "system" ? ["Theme"] : []),
+      ...(themePreset !== DEFAULT_THEME_PRESET ? ["Theme preset"] : []),
+      ...(settings.uiFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiFontFamily ? ["UI font"] : []),
+      ...(settings.uiMonoFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiMonoFontFamily
+        ? ["Monospace font"]
+        : []),
+      ...(settings.uiFontSizeScale !== DEFAULT_UNIFIED_SETTINGS.uiFontSizeScale
+        ? ["Text size"]
+        : []),
+      ...(settings.uiLetterSpacing !== DEFAULT_UNIFIED_SETTINGS.uiLetterSpacing
+        ? ["Letter spacing"]
+        : []),
+      ...(settings.browserOpenMode !== DEFAULT_UNIFIED_SETTINGS.browserOpenMode
+        ? ["Browser open mode"]
+        : []),
       ...(settings.browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine
         ? ["Browser search engine"]
         : []),
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
+        : []),
+      ...(settings.workspaceEditorOpenMode !== DEFAULT_UNIFIED_SETTINGS.workspaceEditorOpenMode
+        ? ["Workspace editor open mode"]
         : []),
       ...(settings.diffWordWrap !== DEFAULT_UNIFIED_SETTINGS.diffWordWrap
         ? ["Diff line wrapping"]
@@ -493,6 +556,15 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.enableThinkingStreaming !== DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming
         ? ["Thinking activity"]
         : []),
+      ...(settings.notifyOnAgentCompletion !== DEFAULT_UNIFIED_SETTINGS.notifyOnAgentCompletion
+        ? ["Completion notifications"]
+        : []),
+      ...(settings.notifyOnApprovalRequired !== DEFAULT_UNIFIED_SETTINGS.notifyOnApprovalRequired
+        ? ["Approval notifications"]
+        : []),
+      ...(settings.notifyOnUserInputRequired !== DEFAULT_UNIFIED_SETTINGS.notifyOnUserInputRequired
+        ? ["Input notifications"]
+        : []),
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
@@ -511,6 +583,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     ],
     [
       areProviderSettingsDirty,
+      settings.browserOpenMode,
       settings.browserSearchEngine,
       isGitWritingModelDirty,
       settings.confirmThreadArchive,
@@ -524,11 +597,20 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.editorSuggestions,
       settings.editorWordWrap,
       settings.enableAssistantStreaming,
+      settings.notifyOnAgentCompletion,
+      settings.notifyOnApprovalRequired,
+      settings.notifyOnUserInputRequired,
       settings.enableThinkingStreaming,
       settings.enableToolStreaming,
       settings.threadHydrationCacheMemoryMb,
       settings.timestampFormat,
+      settings.uiFontFamily,
+      settings.uiFontSizeScale,
+      settings.uiLetterSpacing,
+      settings.uiMonoFontFamily,
+      settings.workspaceEditorOpenMode,
       theme,
+      themePreset,
     ],
   );
 
@@ -543,6 +625,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     if (!confirmed) return;
 
     setTheme("system");
+    resetThemePresetToDefault();
     resetSettings();
     onRestored?.();
   }, [changedSettingLabels, onRestored, resetSettings, setTheme]);
@@ -565,6 +648,7 @@ type SettingsPanelPage =
 
 function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const { theme, setTheme } = useTheme();
+  const { themePreset, setThemePreset } = useAppearancePrefs();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
@@ -651,6 +735,14 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const workspaceShortcutSummaries = useMemo(
     () =>
       [
+        [
+          "Toggle workspace mode",
+          shortcutLabelForCommand(
+            keybindings,
+            "chat.toggleWorkspaceMode",
+            editorShortcutLabelOptions,
+          ),
+        ],
         [
           "Split window",
           shortcutLabelForCommand(keybindings, "editor.split", editorShortcutLabelOptions),
@@ -831,14 +923,13 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     const defaultProviderConfig = DEFAULT_UNIFIED_SETTINGS.providers[providerSettings.provider];
     const statusKey = liveProvider?.status ?? (providerConfig.enabled ? "warning" : "disabled");
     const summary = getProviderSummary(liveProvider);
-    const models =
-      liveProvider?.models ??
-      providerConfig.customModels.map((slug) => ({
-        slug,
-        name: slug,
-        isCustom: true,
-        capabilities: null,
-      }));
+    const selectedModels = providerConfig.customModels.map((slug) => ({
+      slug,
+      name: slug,
+      isCustom: true,
+      capabilities: null,
+    }));
+    const models = liveProvider?.models ?? selectedModels;
 
     return {
       provider: providerSettings.provider,
@@ -888,7 +979,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
           <SettingsSection title="Appearance">
             <SettingsRow
               title="Theme"
-              description="Choose how ace looks across the app."
+              description="Light, dark, or follow the system appearance."
               resetAction={
                 theme !== "system" ? (
                   <SettingResetButton label="theme" onClick={() => setTheme("system")} />
@@ -910,6 +1001,180 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   </SelectTrigger>
                   <SelectPopup align="end" alignItemWithTrigger={false}>
                     {THEME_OPTIONS.map((option) => (
+                      <SelectItem hideIndicator key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Theme presets"
+              description="Pick a full palette (surfaces + primary). Cards show a dark preview strip; the app follows your light/dark theme setting."
+              resetAction={
+                themePreset !== DEFAULT_THEME_PRESET ? (
+                  <SettingResetButton
+                    label="theme preset"
+                    onClick={() => setThemePreset(DEFAULT_THEME_PRESET)}
+                  />
+                ) : null
+              }
+            >
+              <ThemePresetPicker
+                className="mt-3 w-full"
+                value={themePreset}
+                onChange={setThemePreset}
+              />
+            </SettingsRow>
+
+            <SettingsRow
+              title="UI font"
+              description="Sans-serif typeface for interface text, sidebars, and chat."
+              resetAction={
+                settings.uiFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiFontFamily ? (
+                  <SettingResetButton
+                    label="UI font"
+                    onClick={() => updateSettings({ uiFontFamily: DEFAULT_UI_FONT_FAMILY })}
+                  />
+                ) : null
+              }
+              control={
+                <Select
+                  value={settings.uiFontFamily}
+                  onValueChange={(value) => {
+                    if (value != null && UI_FONT_FAMILY_VALUE_SET.has(value)) {
+                      updateSettings({ uiFontFamily: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-56" aria-label="UI font">
+                    <SelectValue>
+                      {UI_FONT_FAMILY_OPTIONS.find((o) => o.value === settings.uiFontFamily)
+                        ?.label ?? "UI font"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    {UI_FONT_FAMILY_OPTIONS.map((option) => (
+                      <SelectItem hideIndicator key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Monospace font"
+              description="Used for code, diffs, inputs, and the integrated terminal."
+              resetAction={
+                settings.uiMonoFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiMonoFontFamily ? (
+                  <SettingResetButton
+                    label="monospace font"
+                    onClick={() =>
+                      updateSettings({ uiMonoFontFamily: DEFAULT_UI_MONO_FONT_FAMILY })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Select
+                  value={settings.uiMonoFontFamily}
+                  onValueChange={(value) => {
+                    if (value != null && UI_MONO_FONT_VALUE_SET.has(value)) {
+                      updateSettings({ uiMonoFontFamily: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-56" aria-label="Monospace font">
+                    <SelectValue>
+                      {UI_MONO_FONT_OPTIONS.find((o) => o.value === settings.uiMonoFontFamily)
+                        ?.label ?? "Monospace font"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    {UI_MONO_FONT_OPTIONS.map((option) => (
+                      <SelectItem hideIndicator key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Text size"
+              description="Scales the base size of the interface (affects spacing that uses rem units)."
+              resetAction={
+                settings.uiFontSizeScale !== DEFAULT_UNIFIED_SETTINGS.uiFontSizeScale ? (
+                  <SettingResetButton
+                    label="text size"
+                    onClick={() => updateSettings({ uiFontSizeScale: DEFAULT_UI_FONT_SIZE_SCALE })}
+                  />
+                ) : null
+              }
+              control={
+                <Select
+                  value={settings.uiFontSizeScale}
+                  onValueChange={(value) => {
+                    if (value != null && UI_FONT_SIZE_VALUE_SET.has(value)) {
+                      updateSettings({ uiFontSizeScale: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-56" aria-label="Text size">
+                    <SelectValue>
+                      {UI_FONT_SIZE_OPTIONS.find((o) => o.value === settings.uiFontSizeScale)
+                        ?.label ?? "Text size"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    {UI_FONT_SIZE_OPTIONS.map((option) => (
+                      <SelectItem hideIndicator key={option.value} value={option.value}>
+                        <span className="flex flex-col gap-0.5">
+                          <span>{option.label}</span>
+                          <span className="text-[11px] font-normal text-muted-foreground">
+                            {option.description}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Letter spacing"
+              description="Adjusts tracking for body text."
+              resetAction={
+                settings.uiLetterSpacing !== DEFAULT_UNIFIED_SETTINGS.uiLetterSpacing ? (
+                  <SettingResetButton
+                    label="letter spacing"
+                    onClick={() => updateSettings({ uiLetterSpacing: DEFAULT_UI_LETTER_SPACING })}
+                  />
+                ) : null
+              }
+              control={
+                <Select
+                  value={settings.uiLetterSpacing}
+                  onValueChange={(value) => {
+                    if (value != null && UI_LETTER_SPACING_VALUE_SET.has(value)) {
+                      updateSettings({ uiLetterSpacing: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-44" aria-label="Letter spacing">
+                    <SelectValue>
+                      {UI_LETTER_SPACING_OPTIONS.find((o) => o.value === settings.uiLetterSpacing)
+                        ?.label ?? "Letter spacing"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    {UI_LETTER_SPACING_OPTIONS.map((option) => (
                       <SelectItem hideIndicator key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
@@ -1003,6 +1268,92 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 </Select>
               }
             />
+
+            <SettingsRow
+              title="Workspace editor opening mode"
+              description="Choose whether opening the workspace editor from chat starts in split view or full editor."
+              resetAction={
+                settings.workspaceEditorOpenMode !==
+                DEFAULT_UNIFIED_SETTINGS.workspaceEditorOpenMode ? (
+                  <SettingResetButton
+                    label="workspace editor opening mode"
+                    onClick={() =>
+                      updateSettings({
+                        workspaceEditorOpenMode: DEFAULT_UNIFIED_SETTINGS.workspaceEditorOpenMode,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Select
+                  value={settings.workspaceEditorOpenMode}
+                  onValueChange={(value) => {
+                    if (value === "split" || value === "full") {
+                      updateSettings({ workspaceEditorOpenMode: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    className="w-full sm:w-44"
+                    aria-label="Workspace editor opening mode"
+                  >
+                    <SelectValue>
+                      {settings.workspaceEditorOpenMode === "split" ? "Split view" : "Full editor"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    <SelectItem hideIndicator value="split">
+                      Split view
+                    </SelectItem>
+                    <SelectItem hideIndicator value="full">
+                      Full editor
+                    </SelectItem>
+                  </SelectPopup>
+                </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Browser opening mode"
+              description="Choose whether opening the in-app browser starts in split view or full browser."
+              resetAction={
+                settings.browserOpenMode !== DEFAULT_UNIFIED_SETTINGS.browserOpenMode ? (
+                  <SettingResetButton
+                    label="browser opening mode"
+                    onClick={() =>
+                      updateSettings({
+                        browserOpenMode: DEFAULT_UNIFIED_SETTINGS.browserOpenMode,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Select
+                  value={settings.browserOpenMode}
+                  onValueChange={(value) => {
+                    if (value === "split" || value === "full") {
+                      updateSettings({ browserOpenMode: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-44" aria-label="Browser opening mode">
+                    <SelectValue>
+                      {settings.browserOpenMode === "split" ? "Split view" : "Full browser"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    <SelectItem hideIndicator value="split">
+                      Split view
+                    </SelectItem>
+                    <SelectItem hideIndicator value="full">
+                      Full browser
+                    </SelectItem>
+                  </SelectPopup>
+                </Select>
+              }
+            />
           </SettingsSection>
         </>
       ) : null}
@@ -1039,7 +1390,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
             <SettingsRow
               title="Tool activity"
-              description="Show tool-call activity in the timeline while a response is running."
+              description="Show tool-call activity in the timeline for current and past responses."
               resetAction={
                 settings.enableToolStreaming !== DEFAULT_UNIFIED_SETTINGS.enableToolStreaming ? (
                   <SettingResetButton
@@ -1058,14 +1409,14 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   onCheckedChange={(checked) =>
                     updateSettings({ enableToolStreaming: Boolean(checked) })
                   }
-                  aria-label="Stream tool activity"
+                  aria-label="Show tool activity"
                 />
               }
             />
 
             <SettingsRow
               title="Thinking activity"
-              description="Show reasoning and planning updates in the timeline while a response is running."
+              description="Show reasoning and planning updates in the timeline for current and past responses."
               resetAction={
                 settings.enableThinkingStreaming !==
                 DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming ? (
@@ -1085,7 +1436,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   onCheckedChange={(checked) =>
                     updateSettings({ enableThinkingStreaming: Boolean(checked) })
                   }
-                  aria-label="Stream thinking activity"
+                  aria-label="Show thinking activity"
                 />
               }
             />
@@ -1140,6 +1491,90 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     updateSettings({ confirmThreadDelete: Boolean(checked) })
                   }
                   aria-label="Confirm thread deletion"
+                />
+              }
+            />
+          </SettingsSection>
+
+          <SettingsSection title="Background notifications">
+            <SettingsRow
+              title="Agent completion"
+              description="Send a notification after a turn finishes while the app is not focused."
+              resetAction={
+                settings.notifyOnAgentCompletion !==
+                DEFAULT_UNIFIED_SETTINGS.notifyOnAgentCompletion ? (
+                  <SettingResetButton
+                    label="completion notifications"
+                    onClick={() =>
+                      updateSettings({
+                        notifyOnAgentCompletion: DEFAULT_UNIFIED_SETTINGS.notifyOnAgentCompletion,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.notifyOnAgentCompletion}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ notifyOnAgentCompletion: Boolean(checked) })
+                  }
+                  aria-label="Notify when the agent completes a turn"
+                />
+              }
+            />
+
+            <SettingsRow
+              title="Approval requests"
+              description="Send a notification when the agent is blocked on an approval request."
+              resetAction={
+                settings.notifyOnApprovalRequired !==
+                DEFAULT_UNIFIED_SETTINGS.notifyOnApprovalRequired ? (
+                  <SettingResetButton
+                    label="approval notifications"
+                    onClick={() =>
+                      updateSettings({
+                        notifyOnApprovalRequired: DEFAULT_UNIFIED_SETTINGS.notifyOnApprovalRequired,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.notifyOnApprovalRequired}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ notifyOnApprovalRequired: Boolean(checked) })
+                  }
+                  aria-label="Notify when the agent requires approval"
+                />
+              }
+            />
+
+            <SettingsRow
+              title="User input requests"
+              description="Send a notification when the agent requests structured user input. On supported desktop platforms, single-question prompts can be answered inline from the notification."
+              resetAction={
+                settings.notifyOnUserInputRequired !==
+                DEFAULT_UNIFIED_SETTINGS.notifyOnUserInputRequired ? (
+                  <SettingResetButton
+                    label="input notifications"
+                    onClick={() =>
+                      updateSettings({
+                        notifyOnUserInputRequired:
+                          DEFAULT_UNIFIED_SETTINGS.notifyOnUserInputRequired,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.notifyOnUserInputRequired}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ notifyOnUserInputRequired: Boolean(checked) })
+                  }
+                  aria-label="Notify when the agent requires user input"
                 />
               }
             />

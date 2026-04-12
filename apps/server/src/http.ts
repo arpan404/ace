@@ -1,5 +1,6 @@
 import Mime from "@effect/platform-node/Mime";
-import { Effect, FileSystem, Option, Path } from "effect";
+import Os from "node:os";
+import { Effect, FileSystem, Layer, Option, Path } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import {
@@ -9,6 +10,18 @@ import {
 } from "./attachmentPaths";
 import { resolveAttachmentPathById } from "./attachmentStore";
 import { ServerConfig } from "./config";
+import {
+  claimPairingSession,
+  createPairingSession,
+  getPairingClaim,
+  getPairingSession,
+  resolvePairingSession,
+} from "./pairing";
+import {
+  createRelayDeviceForHost,
+  listRelayDevicesForHost,
+  revokeRelayDeviceForHost,
+} from "./relayClient";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
 import { WorkspacePaths } from "./workspace/Services/WorkspacePaths";
 
@@ -21,10 +34,203 @@ const SECURITY_HEADERS = {
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
 } as const;
+const PAIRING_CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+} as const;
 
 const withSecurityHeaders = <T extends Parameters<typeof HttpServerResponse.setHeaders>[0]>(
   response: T,
 ) => HttpServerResponse.setHeaders(response, SECURITY_HEADERS);
+
+const withPairingHeaders = <T extends Parameters<typeof HttpServerResponse.setHeaders>[0]>(
+  response: T,
+) => HttpServerResponse.setHeaders(withSecurityHeaders(response), PAIRING_CORS_HEADERS);
+
+function respondJson(payload: unknown, options?: { readonly status?: number }) {
+  return HttpServerResponse.text(JSON.stringify(payload), {
+    status: options?.status ?? 200,
+    contentType: "application/json; charset=utf-8",
+  });
+}
+
+function readAuthTokenFromRequest(
+  request: HttpServerRequest.HttpServerRequest,
+  requestUrl: URL,
+): string {
+  const header = request.headers.authorization ?? request.headers.Authorization;
+  if (typeof header === "string") {
+    const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+  return requestUrl.searchParams.get("token")?.trim() ?? "";
+}
+
+function requirePairingAuthorization(
+  request: HttpServerRequest.HttpServerRequest,
+  requestUrl: URL,
+  authToken: string | undefined,
+) {
+  if (!authToken || authToken.length === 0) {
+    return null;
+  }
+  const providedToken = readAuthTokenFromRequest(request, requestUrl);
+  if (providedToken === authToken) {
+    return null;
+  }
+  return withPairingHeaders(
+    respondJson(
+      {
+        error: "Unauthorized pairing request.",
+      },
+      { status: 401 },
+    ),
+  );
+}
+
+function requirePairingAdminAuthorization(
+  request: HttpServerRequest.HttpServerRequest,
+  requestUrl: URL,
+  authToken: string | undefined,
+) {
+  if (!authToken || authToken.length === 0) {
+    if (isLoopbackHostname(requestUrl.hostname)) {
+      return null;
+    }
+    return withPairingHeaders(
+      respondJson(
+        {
+          error: "Pairing admin endpoints require a configured auth token for non-loopback access.",
+        },
+        { status: 401 },
+      ),
+    );
+  }
+  return requirePairingAuthorization(request, requestUrl, authToken);
+}
+
+function readPairingSessionId(pathname: string): string | null {
+  const match = /^\/api\/pairing\/sessions\/([^/]+)$/.exec(pathname);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function readPairingResolveSessionId(pathname: string): string | null {
+  const match = /^\/api\/pairing\/sessions\/([^/]+)\/resolve$/.exec(pathname);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function readPairingClaimId(pathname: string): string | null {
+  const match = /^\/api\/pairing\/claims\/([^/]+)$/.exec(pathname);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function readRelayDeviceRevokeId(pathname: string): string | null {
+  const match = /^\/api\/pairing\/relay\/devices\/([^/]+)\/revoke$/.exec(pathname);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function readPairingErrorStatus(code: string): number {
+  switch (code) {
+    case "invalid-ws-url":
+      return 400;
+    case "invalid-secret":
+      return 403;
+    case "not-found":
+      return 404;
+    case "already-claimed":
+      return 409;
+    case "claim-missing":
+      return 409;
+    case "expired":
+      return 410;
+    default:
+      return 400;
+  }
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized === "0.0.0.0" ||
+    normalized === "::"
+  );
+}
+
+function isPrivateIpv4(ipv4: string): boolean {
+  return (
+    ipv4.startsWith("10.") ||
+    ipv4.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(ipv4)
+  );
+}
+
+function resolveLocalNetworkIpv4(): string | null {
+  const interfaces = Os.networkInterfaces();
+  let fallback: string | null = null;
+  for (const entries of Object.values(interfaces)) {
+    if (!entries) {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.family !== "IPv4" || entry.internal) {
+        continue;
+      }
+      if (entry.address.startsWith("169.254.")) {
+        continue;
+      }
+      if (isPrivateIpv4(entry.address)) {
+        return entry.address;
+      }
+      if (fallback === null) {
+        fallback = entry.address;
+      }
+    }
+  }
+  return fallback;
+}
+
+function resolveAdvertisedRequestUrl(requestUrl: URL): URL {
+  const advertised = new URL(requestUrl.toString());
+  if (!isLoopbackHostname(advertised.hostname)) {
+    return advertised;
+  }
+  const networkHost = resolveLocalNetworkIpv4();
+  if (!networkHost) {
+    return advertised;
+  }
+  advertised.hostname = networkHost;
+  return advertised;
+}
+
+function parsePairingWsUrl(value: string): URL | null {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function resolveAdvertisedWsUrl(rawWsUrl: string, advertisedHost: string): string {
+  const parsedWsUrl = parsePairingWsUrl(rawWsUrl);
+  if (!parsedWsUrl) {
+    return rawWsUrl;
+  }
+  if (!isLoopbackHostname(parsedWsUrl.hostname)) {
+    return rawWsUrl;
+  }
+  parsedWsUrl.hostname = advertisedHost;
+  return parsedWsUrl.toString();
+}
 
 export const attachmentsRouteLayer = HttpRouter.add(
   "GET",
@@ -208,6 +414,459 @@ export const workspaceFileRouteLayer = HttpRouter.add(
       ),
     );
   }),
+);
+
+const pairingOptionsRouteLayer = HttpRouter.add(
+  "OPTIONS",
+  "/api/pairing/*",
+  Effect.succeed(withPairingHeaders(HttpServerResponse.empty({ status: 204 }))),
+);
+
+const pairingAdvertisedEndpointRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/pairing/advertised-endpoint",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const config = yield* ServerConfig;
+    const unauthorized = requirePairingAuthorization(request, requestUrl.value, config.authToken);
+    if (unauthorized) {
+      return unauthorized;
+    }
+    const requestedWsUrl = requestUrl.value.searchParams.get("wsUrl")?.trim();
+    if (!requestedWsUrl) {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing endpoint requires wsUrl query parameter." }, { status: 400 }),
+      );
+    }
+    if (!parsePairingWsUrl(requestedWsUrl)) {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing endpoint wsUrl is invalid." }, { status: 400 }),
+      );
+    }
+    const advertisedRequestUrl = resolveAdvertisedRequestUrl(requestUrl.value);
+    const advertisedWsUrl = resolveAdvertisedWsUrl(requestedWsUrl, advertisedRequestUrl.hostname);
+    return withPairingHeaders(
+      respondJson({
+        wsUrl: advertisedWsUrl,
+      }),
+    );
+  }),
+);
+
+const pairingCreateSessionRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/pairing/sessions",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const config = yield* ServerConfig;
+    const unauthorized = requirePairingAuthorization(request, requestUrl.value, config.authToken);
+    if (unauthorized) {
+      return unauthorized;
+    }
+    const body = yield* request.json.pipe(Effect.catch(() => Effect.succeed(null)));
+    if (!body || typeof body !== "object") {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing session body must be a JSON object." }, { status: 400 }),
+      );
+    }
+    const payload = body as { wsUrl?: unknown; name?: unknown };
+    if (typeof payload.wsUrl !== "string") {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing session requires a wsUrl string." }, { status: 400 }),
+      );
+    }
+    const advertisedRequestUrl = resolveAdvertisedRequestUrl(requestUrl.value);
+    const pairingWsUrl = resolveAdvertisedWsUrl(payload.wsUrl, advertisedRequestUrl.hostname);
+    const created = createPairingSession({
+      wsUrl: pairingWsUrl,
+      authToken: config.authToken ?? "",
+      ...(typeof payload.name === "string" ? { name: payload.name } : {}),
+    });
+    if (!created.ok) {
+      return withPairingHeaders(
+        respondJson({ error: created.message }, { status: readPairingErrorStatus(created.code) }),
+      );
+    }
+    const claimUrl = new URL("/api/pairing/claims", advertisedRequestUrl).toString();
+    return withPairingHeaders(
+      respondJson({
+        ...created.value,
+        claimUrl,
+      }),
+    );
+  }),
+);
+
+const pairingGetSessionRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/pairing/sessions/:sessionId",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const sessionId = readPairingSessionId(requestUrl.value.pathname);
+    if (!sessionId) {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing session was not found." }, { status: 404 }),
+      );
+    }
+    const config = yield* ServerConfig;
+    const unauthorized = requirePairingAuthorization(request, requestUrl.value, config.authToken);
+    if (unauthorized) {
+      return unauthorized;
+    }
+    const session = getPairingSession(sessionId);
+    if (!session.ok) {
+      return withPairingHeaders(
+        respondJson({ error: session.message }, { status: readPairingErrorStatus(session.code) }),
+      );
+    }
+    return withPairingHeaders(respondJson(session.value));
+  }),
+);
+
+const pairingResolveSessionRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/pairing/sessions/:sessionId/resolve",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const sessionId = readPairingResolveSessionId(requestUrl.value.pathname);
+    if (!sessionId) {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing session was not found." }, { status: 404 }),
+      );
+    }
+    const config = yield* ServerConfig;
+    const unauthorized = requirePairingAuthorization(request, requestUrl.value, config.authToken);
+    if (unauthorized) {
+      return unauthorized;
+    }
+    const body = yield* request.json.pipe(Effect.catch(() => Effect.succeed(null)));
+    if (!body || typeof body !== "object") {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing resolve body must be a JSON object." }, { status: 400 }),
+      );
+    }
+    const payload = body as { approve?: unknown };
+    if (typeof payload.approve !== "boolean") {
+      return withPairingHeaders(
+        respondJson(
+          { error: "Pairing resolve request requires an approve boolean." },
+          { status: 400 },
+        ),
+      );
+    }
+    const resolved = resolvePairingSession({
+      sessionId,
+      approve: payload.approve,
+    });
+    if (!resolved.ok) {
+      return withPairingHeaders(
+        respondJson({ error: resolved.message }, { status: readPairingErrorStatus(resolved.code) }),
+      );
+    }
+    return withPairingHeaders(respondJson(resolved.value));
+  }),
+);
+
+const pairingCreateClaimRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/pairing/claims",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const body = yield* request.json.pipe(Effect.catch(() => Effect.succeed(null)));
+    if (!body || typeof body !== "object") {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing claim body must be a JSON object." }, { status: 400 }),
+      );
+    }
+    const payload = body as { sessionId?: unknown; secret?: unknown; requesterName?: unknown };
+    if (typeof payload.sessionId !== "string" || typeof payload.secret !== "string") {
+      return withPairingHeaders(
+        respondJson(
+          { error: "Pairing claim requires sessionId and secret strings." },
+          { status: 400 },
+        ),
+      );
+    }
+    const claimed = claimPairingSession({
+      sessionId: payload.sessionId,
+      secret: payload.secret,
+      ...(typeof payload.requesterName === "string"
+        ? { requesterName: payload.requesterName }
+        : {}),
+    });
+    if (!claimed.ok) {
+      return withPairingHeaders(
+        respondJson({ error: claimed.message }, { status: readPairingErrorStatus(claimed.code) }),
+      );
+    }
+    const advertisedRequestUrl = resolveAdvertisedRequestUrl(requestUrl.value);
+    const pollUrl = new URL(
+      `/api/pairing/claims/${encodeURIComponent(claimed.value.claimId)}`,
+      advertisedRequestUrl,
+    ).toString();
+    return withPairingHeaders(
+      respondJson({
+        ...claimed.value,
+        pollUrl,
+      }),
+    );
+  }),
+);
+
+const pairingGetClaimRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/pairing/claims/:claimId",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const claimId = readPairingClaimId(requestUrl.value.pathname);
+    if (!claimId) {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing claim was not found." }, { status: 404 }),
+      );
+    }
+    const claim = getPairingClaim(claimId);
+    if (!claim.ok) {
+      return withPairingHeaders(
+        respondJson({ error: claim.message }, { status: readPairingErrorStatus(claim.code) }),
+      );
+    }
+    return withPairingHeaders(respondJson(claim.value));
+  }),
+);
+
+const relayPairingListDevicesRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/pairing/relay/devices",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const config = yield* ServerConfig;
+    const unauthorized = requirePairingAdminAuthorization(
+      request,
+      requestUrl.value,
+      config.authToken,
+    );
+    if (unauthorized) {
+      return unauthorized;
+    }
+    const requestedWsUrl = requestUrl.value.searchParams.get("wsUrl")?.trim();
+    if (!requestedWsUrl) {
+      return withPairingHeaders(
+        respondJson(
+          { error: "Relay devices endpoint requires wsUrl query parameter." },
+          { status: 400 },
+        ),
+      );
+    }
+    if (!parsePairingWsUrl(requestedWsUrl)) {
+      return withPairingHeaders(
+        respondJson({ error: "Relay devices endpoint wsUrl is invalid." }, { status: 400 }),
+      );
+    }
+    const advertisedRequestUrl = resolveAdvertisedRequestUrl(requestUrl.value);
+    const advertisedWsUrl = resolveAdvertisedWsUrl(requestedWsUrl, advertisedRequestUrl.hostname);
+    const snapshot = yield* Effect.tryPromise(() =>
+      listRelayDevicesForHost({
+        stateDir: config.stateDir,
+        wsUrl: advertisedWsUrl,
+      }),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.succeed({
+          error:
+            error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : "Could not list relay devices.",
+        } as const),
+      ),
+    );
+    if ("error" in snapshot) {
+      return withPairingHeaders(respondJson({ error: snapshot.error }, { status: 502 }));
+    }
+    return withPairingHeaders(
+      respondJson({
+        hostToken: snapshot.hostToken,
+        relayUrl: snapshot.relayUrl,
+        wsUrl: snapshot.wsUrl,
+        devices: snapshot.devices,
+      }),
+    );
+  }),
+);
+
+const relayPairingCreateDeviceRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/pairing/relay/devices",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const config = yield* ServerConfig;
+    const unauthorized = requirePairingAdminAuthorization(
+      request,
+      requestUrl.value,
+      config.authToken,
+    );
+    if (unauthorized) {
+      return unauthorized;
+    }
+    const body = yield* request.json.pipe(Effect.catch(() => Effect.succeed(null)));
+    if (!body || typeof body !== "object") {
+      return withPairingHeaders(
+        respondJson({ error: "Relay device body must be a JSON object." }, { status: 400 }),
+      );
+    }
+    const payload = body as { wsUrl?: unknown; name?: unknown; icon?: unknown };
+    if (typeof payload.wsUrl !== "string") {
+      return withPairingHeaders(
+        respondJson({ error: "Relay device requires a wsUrl string." }, { status: 400 }),
+      );
+    }
+    const advertisedRequestUrl = resolveAdvertisedRequestUrl(requestUrl.value);
+    const advertisedWsUrl = resolveAdvertisedWsUrl(payload.wsUrl, advertisedRequestUrl.hostname);
+    const created = yield* Effect.tryPromise(() =>
+      createRelayDeviceForHost({
+        stateDir: config.stateDir,
+        wsUrl: advertisedWsUrl,
+        ...(typeof payload.name === "string" ? { name: payload.name } : {}),
+        ...(typeof payload.icon === "string"
+          ? {
+              icon: payload.icon as "iphone" | "ipad" | "laptop" | "desktop" | "watch",
+            }
+          : {}),
+      }),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.succeed({
+          error:
+            error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : "Could not create relay device.",
+        } as const),
+      ),
+    );
+    if ("error" in created) {
+      return withPairingHeaders(respondJson({ error: created.error }, { status: 502 }));
+    }
+    return withPairingHeaders(
+      respondJson({
+        hostToken: created.hostToken,
+        relayUrl: created.relayUrl,
+        wsUrl: created.wsUrl,
+        device: created.devices[0],
+      }),
+    );
+  }),
+);
+
+const relayPairingRevokeDeviceRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/pairing/relay/devices/:deviceId/revoke",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const deviceId = readRelayDeviceRevokeId(requestUrl.value.pathname);
+    if (!deviceId) {
+      return withPairingHeaders(
+        respondJson({ error: "Relay device was not found." }, { status: 404 }),
+      );
+    }
+    const config = yield* ServerConfig;
+    const unauthorized = requirePairingAdminAuthorization(
+      request,
+      requestUrl.value,
+      config.authToken,
+    );
+    if (unauthorized) {
+      return unauthorized;
+    }
+    const body = yield* request.json.pipe(Effect.catch(() => Effect.succeed(null)));
+    if (!body || typeof body !== "object") {
+      return withPairingHeaders(
+        respondJson({ error: "Relay revoke body must be a JSON object." }, { status: 400 }),
+      );
+    }
+    const payload = body as { wsUrl?: unknown };
+    if (typeof payload.wsUrl !== "string") {
+      return withPairingHeaders(
+        respondJson({ error: "Relay revoke requires a wsUrl string." }, { status: 400 }),
+      );
+    }
+    const advertisedRequestUrl = resolveAdvertisedRequestUrl(requestUrl.value);
+    const advertisedWsUrl = resolveAdvertisedWsUrl(payload.wsUrl, advertisedRequestUrl.hostname);
+    const revoked = yield* Effect.tryPromise(() =>
+      revokeRelayDeviceForHost({
+        stateDir: config.stateDir,
+        wsUrl: advertisedWsUrl,
+        deviceId,
+      }),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.succeed({
+          error:
+            error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : "Could not revoke relay device.",
+        } as const),
+      ),
+    );
+    if ("error" in revoked) {
+      return withPairingHeaders(respondJson({ error: revoked.error }, { status: 502 }));
+    }
+    return withPairingHeaders(
+      respondJson({
+        hostToken: revoked.hostToken,
+        relayUrl: revoked.relayUrl,
+        wsUrl: revoked.wsUrl,
+        device: revoked.devices[0],
+      }),
+    );
+  }),
+);
+
+export const pairingRouteLayer = Layer.mergeAll(
+  pairingOptionsRouteLayer,
+  pairingAdvertisedEndpointRouteLayer,
+  pairingCreateSessionRouteLayer,
+  pairingGetSessionRouteLayer,
+  pairingResolveSessionRouteLayer,
+  pairingCreateClaimRouteLayer,
+  pairingGetClaimRouteLayer,
+  relayPairingListDevicesRouteLayer,
+  relayPairingCreateDeviceRouteLayer,
+  relayPairingRevokeDeviceRouteLayer,
 );
 
 export const staticAndDevRouteLayer = HttpRouter.add(

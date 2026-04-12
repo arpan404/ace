@@ -1705,6 +1705,165 @@ describe("CursorAdapterLive", () => {
     });
   });
 
+  it("updates session model from camelCase currentModelUpdate payloads", async () => {
+    const client = makeFakeCursorClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-model-update");
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId: asThreadId("thread-model-update"),
+            cwd: "/repo/model-update",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        const notificationHandler = client.getNotificationHandler();
+        expect(notificationHandler).toBeTypeOf("function");
+        if (!notificationHandler) {
+          return;
+        }
+
+        const configuredEventPromise = Effect.runPromise(Stream.runHead(adapter.streamEvents));
+        notificationHandler({
+          method: "session/update",
+          params: {
+            sessionId: "cursor-session-model-update",
+            update: {
+              sessionUpdate: "currentModelUpdate",
+              modelId: "gpt-5.3-codex-fast",
+            },
+          },
+        });
+
+        const configuredEvent = await configuredEventPromise;
+        expect(configuredEvent._tag).toBe("Some");
+        if (configuredEvent._tag !== "Some") {
+          return;
+        }
+        expect(configuredEvent.value.type).toBe("session.configured");
+        if (configuredEvent.value.type !== "session.configured") {
+          return;
+        }
+        expect(configuredEvent.value.payload.config).toMatchObject({
+          models: {
+            currentModelId: "gpt-5.3-codex-fast",
+          },
+        });
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("handles nested session/update toolCall payloads", async () => {
+    const promptResult = deferred<{ readonly stopReason: string }>();
+    const client = makeFakeCursorClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-toolcall-nested");
+          case "session/prompt":
+            return promptResult.promise;
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      let turnPromise: Promise<unknown> | undefined;
+      try {
+        const threadId = asThreadId("thread-toolcall-nested");
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId,
+            cwd: "/repo/toolcall-nested",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        const eventsPromise = Effect.runPromise(
+          Stream.runCollect(Stream.take(adapter.streamEvents, 2)),
+        );
+        turnPromise = Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Inspect files",
+          }),
+        );
+        await waitForCondition(() =>
+          client.request.mock.calls.some(([method]) => method === "session/prompt"),
+        );
+
+        const notificationHandler = client.getNotificationHandler();
+        expect(notificationHandler).toBeTypeOf("function");
+        if (!notificationHandler) {
+          return;
+        }
+
+        notificationHandler({
+          method: "session/update",
+          params: {
+            sessionId: "cursor-session-toolcall-nested",
+            update: {
+              sessionUpdate: "tool_call",
+              toolCall: {
+                toolCallId: "tool_nested",
+                kind: "read",
+                title: "Read File",
+                status: "pending",
+                rawInput: {
+                  path: "README.md",
+                },
+              },
+            },
+          },
+        });
+
+        const events = Array.from(await eventsPromise);
+        const toolEvent = events.find((event) => event.type === "item.started");
+        expect(toolEvent?.type).toBe("item.started");
+        if (!toolEvent || toolEvent.type !== "item.started") {
+          return;
+        }
+        expect(toolEvent.payload).toMatchObject({
+          itemType: "file_change",
+          data: {
+            item: {
+              toolCallId: "tool_nested",
+            },
+          },
+        });
+      } finally {
+        promptResult.resolve({ stopReason: "end_turn" });
+        await turnPromise;
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
   it("rejects ask_question payloads that do not include any valid questions", async () => {
     const promptResult = deferred<{ readonly stopReason: string }>();
     const client = makeFakeCursorClient({

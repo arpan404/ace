@@ -143,6 +143,11 @@ const DEFAULT_BINDINGS = compile([
   },
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
   { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
+  {
+    shortcut: modShortcut("e"),
+    command: "chat.toggleWorkspaceMode",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
   { shortcut: modShortcut("n", { altKey: true }), command: "editor.newFile" },
   { shortcut: modShortcut("n", { altKey: true, shiftKey: true }), command: "editor.newFolder" },
@@ -416,6 +421,10 @@ describe("shortcutLabelForCommand", () => {
 
   it("returns effective labels for non-terminal commands", () => {
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.new", "MacIntel"), "⇧⌘O");
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.toggleWorkspaceMode", "MacIntel"),
+      "⌘E",
+    );
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.toggle", "Linux"),
@@ -593,6 +602,22 @@ describe("chat/editor shortcuts", () => {
     assert.isTrue(
       isChatNewLocalShortcut(event({ key: "n", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
         platform: "Linux",
+      }),
+    );
+  });
+
+  it("resolves chat.toggleWorkspaceMode only outside terminal focus", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "e", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "chat.toggleWorkspaceMode",
+    );
+    assert.isNull(
+      resolveShortcutCommand(event({ key: "e", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: true },
       }),
     );
   });

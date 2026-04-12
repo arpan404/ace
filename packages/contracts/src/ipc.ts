@@ -1,6 +1,10 @@
 import type {
   GitCheckoutInput,
   GitCreateBranchInput,
+  GitGetGitHubIssueThreadInput,
+  GitGetGitHubIssueThreadResult,
+  GitListGitHubIssuesInput,
+  GitListGitHubIssuesResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -285,6 +289,10 @@ export interface NativeApi {
   git: {
     // Existing branch/worktree API
     listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
+    listGitHubIssues: (input: GitListGitHubIssuesInput) => Promise<GitListGitHubIssuesResult>;
+    getGitHubIssueThread: (
+      input: GitGetGitHubIssueThreadInput,
+    ) => Promise<GitGetGitHubIssueThreadResult>;
     createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResult>;
     removeWorktree: (input: GitRemoveWorktreeInput) => Promise<void>;
     createBranch: (input: GitCreateBranchInput) => Promise<void>;

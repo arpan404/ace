@@ -1,12 +1,14 @@
-import type { ProjectEntry, ResolvedKeybindingsConfig, ThreadId } from "@ace/contracts";
+import type { EditorId, ProjectEntry, ResolvedKeybindingsConfig, ThreadId } from "@ace/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  Columns2Icon,
   ChevronDownIcon,
   ChevronRightIcon,
   FilePlus2Icon,
   FolderIcon,
   FolderPlusIcon,
+  Maximize2Icon,
   SearchIcon,
 } from "lucide-react";
 import {
@@ -31,23 +33,91 @@ import { useUpdateSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { isTerminalFocused } from "~/lib/terminalFocus";
 import { normalizePaneRatios, resizePaneRatios } from "~/lib/paneRatios";
-import { projectListTreeQueryOptions, projectQueryKeys } from "~/lib/projectReactQuery";
+import {
+  projectListTreeQueryOptions,
+  projectQueryKeys,
+  projectSearchEntriesQueryOptions,
+} from "~/lib/projectReactQuery";
 import { ensureMonacoConfigured } from "~/lib/editor/monacoSetup";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
-import { resolveShortcutCommand } from "~/keybindings";
+import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
+import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
+import { OpenInEditorMenuSection } from "../chat/OpenInPicker";
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { readExplorerEntryTransferPath, writeExplorerEntryTransfer } from "./dragTransfer";
 import { joinWorkspaceAbsolutePath, revealInFileManagerLabel } from "./workspaceFileUtils";
 import WorkspaceEditorPane from "./WorkspaceEditorPane";
 
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
+
+const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
+  gitCwd,
+  keybindings,
+  availableEditors,
+}: {
+  gitCwd: string | null;
+  keybindings: ResolvedKeybindingsConfig;
+  availableEditors: ReadonlyArray<EditorId>;
+}) {
+  const openFavoriteEditorShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "editor.openFavorite"),
+    [keybindings],
+  );
+
+  if (!gitCwd) {
+    return null;
+  }
+
+  return (
+    <Menu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <MenuTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  className="size-6 shrink-0 border-border/60 bg-background/80 text-muted-foreground hover:text-foreground"
+                  aria-label="Open workspace in external editor"
+                />
+              }
+            >
+              <ChevronDownIcon className="size-3.5" />
+            </MenuTrigger>
+          }
+        />
+        <TooltipPopup side="bottom" align="center" className="max-w-xs">
+          Open this workspace in VS Code, Cursor, or another installed editor.
+          {openFavoriteEditorShortcutLabel ? (
+            <>
+              {" "}
+              <span className="text-muted-foreground">
+                Favorite: {openFavoriteEditorShortcutLabel}
+              </span>
+            </>
+          ) : null}
+        </TooltipPopup>
+      </Tooltip>
+      <MenuPopup align="end" className="min-w-48">
+        <OpenInEditorMenuSection
+          keybindings={keybindings}
+          availableEditors={availableEditors}
+          openInCwd={gitCwd}
+        />
+      </MenuPopup>
+    </Menu>
+  );
+});
 
 type TreeRow =
   | {
@@ -434,11 +504,14 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
 });
 
 export default function ThreadWorkspaceEditor(props: {
+  availableEditors: ReadonlyArray<EditorId>;
   browserOpen: boolean;
   gitCwd: string | null;
   keybindings: ResolvedKeybindingsConfig;
+  onWorkspaceModeChange?: ((mode: ThreadWorkspaceMode) => void) | undefined;
   terminalOpen: boolean;
   threadId: ThreadId;
+  workspaceMode?: ThreadWorkspaceMode | undefined;
 }) {
   ensureMonacoConfigured();
 
@@ -455,7 +528,7 @@ export default function ThreadWorkspaceEditor(props: {
   const queryClient = useQueryClient();
   const api = readNativeApi();
   const [treeSearch, setTreeSearch] = useState("");
-  const deferredTreeSearch = useDeferredValue(treeSearch.trim().toLowerCase());
+  const deferredTreeSearch = useDeferredValue(treeSearch.trim());
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const treeSearchInputRef = useRef<HTMLInputElement | null>(null);
   const entryDialogInputRef = useRef<HTMLInputElement | null>(null);
@@ -486,6 +559,9 @@ export default function ThreadWorkspaceEditor(props: {
   const [selectedEntryPath, setSelectedEntryPath] = useState<string | null>(null);
   const [inlineEntryState, setInlineEntryState] = useState<ExplorerInlineEntryState | null>(null);
   const [dragTargetParentPath, setDragTargetParentPath] = useState<string | null>(null);
+  const onWorkspaceModeChange = props.onWorkspaceModeChange;
+  const editorWorkspaceMode: ThreadWorkspaceMode =
+    props.workspaceMode === "split" ? "split" : "editor";
   const hasRecentlyClosedFiles = useEditorStateStore(
     useCallback(
       (state) =>
@@ -639,7 +715,16 @@ export default function ThreadWorkspaceEditor(props: {
       cwd: props.gitCwd,
     }),
   );
+  const workspaceSearchQuery = useQuery(
+    projectSearchEntriesQueryOptions({
+      cwd: props.gitCwd,
+      enabled: deferredTreeSearch.length > 0,
+      limit: 400,
+      query: deferredTreeSearch,
+    }),
+  );
   const treeEntries = workspaceTreeQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
+  const searchEntries = workspaceSearchQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
   const entryByPath = useMemo(
     () => new Map(treeEntries.map((entry) => [entry.path, entry] as const)),
     [treeEntries],
@@ -793,20 +878,17 @@ export default function ThreadWorkspaceEditor(props: {
 
   const visibleRows = useMemo(() => {
     if (deferredTreeSearch.length > 0) {
-      return treeEntries
-        .filter((entry) => entry.path.toLowerCase().includes(deferredTreeSearch))
-        .toSorted(compareProjectEntries)
-        .map<TreeRow>((entry) => ({
-          depth: 0,
-          entry,
-          hasChildren: false,
-          kind: entry.kind,
-          name: basenameOfPath(entry.path),
-        }));
+      return searchEntries.map<TreeRow>((entry) => ({
+        depth: 0,
+        entry,
+        hasChildren: false,
+        kind: entry.kind,
+        name: basenameOfPath(entry.path),
+      }));
     }
 
     return buildTreeRows(treeEntries, new Set(expandedDirectoryPaths));
-  }, [deferredTreeSearch, expandedDirectoryPaths, treeEntries]);
+  }, [deferredTreeSearch, expandedDirectoryPaths, searchEntries, treeEntries]);
 
   const expandedDirectoryPathSet = useMemo(
     () => new Set(expandedDirectoryPaths),
@@ -816,6 +898,9 @@ export default function ThreadWorkspaceEditor(props: {
     () => buildExplorerRenderRows(visibleRows, inlineEntryState),
     [inlineEntryState, visibleRows],
   );
+  const searchMode = deferredTreeSearch.length > 0;
+  const explorerPending =
+    workspaceTreeQuery.isPending || (searchMode && workspaceSearchQuery.isPending);
 
   const rowVirtualizer = useVirtualizer({
     count: explorerRows.length,
@@ -1739,9 +1824,44 @@ export default function ThreadWorkspaceEditor(props: {
   ]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      {onWorkspaceModeChange ? (
+        <div className="flex items-center justify-end border-b border-border/60 bg-secondary px-3 py-2">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-xs"
+                  className="size-7 rounded-full border-border/60 bg-background/80 text-muted-foreground hover:text-foreground"
+                  aria-label={
+                    editorWorkspaceMode === "split"
+                      ? "Switch to full editor"
+                      : "Switch to split editor"
+                  }
+                  onClick={() =>
+                    onWorkspaceModeChange(editorWorkspaceMode === "split" ? "editor" : "split")
+                  }
+                >
+                  {editorWorkspaceMode === "split" ? (
+                    <Maximize2Icon className="size-3.5" />
+                  ) : (
+                    <Columns2Icon className="size-3.5" />
+                  )}
+                </Button>
+              }
+            />
+            <TooltipPopup side="bottom">
+              {editorWorkspaceMode === "split"
+                ? "Show editor in full-screen mode"
+                : "Show editor side-by-side with chat"}
+            </TooltipPopup>
+          </Tooltip>
+        </div>
+      ) : null}
       <div
-        className="grid h-full min-h-0 min-w-0"
+        className="grid min-h-0 min-w-0 flex-1"
         style={{
           gridTemplateColumns: `minmax(220px, ${treeWidth}px) 6px minmax(0, 1fr)`,
         }}
@@ -1750,54 +1870,61 @@ export default function ThreadWorkspaceEditor(props: {
           className={cn("flex min-h-0 min-w-0 flex-col border-r border-border/60", "bg-secondary")}
         >
           <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
-            <FolderIcon className="size-3.5 text-muted-foreground/70" />
-            <span className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground/80 uppercase">
+            <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+            <span className="min-w-0 truncate text-[11px] font-semibold tracking-[0.16em] text-muted-foreground/80 uppercase">
               Explorer
             </span>
-            <Badge variant="outline" size="sm" className="ml-auto text-[10px]">
-              {workspaceFileCount}
-            </Badge>
-            {workspaceTreeQuery.data?.truncated ? (
-              <Badge variant="warning" size="sm">
-                Partial
+            <div className="ml-auto flex min-w-0 items-center gap-1.5">
+              <ExternalEditorOpenMenu
+                availableEditors={props.availableEditors}
+                gitCwd={props.gitCwd}
+                keybindings={props.keybindings}
+              />
+              <Badge variant="outline" size="sm" className="text-[10px]">
+                {workspaceFileCount}
               </Badge>
-            ) : null}
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="size-6 rounded-md text-muted-foreground/75 hover:text-foreground"
-              onClick={() =>
-                startInlineEntry({
-                  kind: "create-file",
-                  parentPath:
-                    focusedExplorerEntry?.kind === "directory"
-                      ? focusedExplorerEntry.path
-                      : (focusedExplorerEntry?.parentPath ?? null),
-                  value: "",
-                })
-              }
-              title="New File"
-            >
-              <FilePlus2Icon className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="size-6 rounded-md text-muted-foreground/75 hover:text-foreground"
-              onClick={() =>
-                startInlineEntry({
-                  kind: "create-folder",
-                  parentPath:
-                    focusedExplorerEntry?.kind === "directory"
-                      ? focusedExplorerEntry.path
-                      : (focusedExplorerEntry?.parentPath ?? null),
-                  value: "",
-                })
-              }
-              title="New Folder"
-            >
-              <FolderPlusIcon className="size-3.5" />
-            </Button>
+              {workspaceTreeQuery.data?.truncated ? (
+                <Badge variant="warning" size="sm">
+                  Partial
+                </Badge>
+              ) : null}
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="size-6 shrink-0 rounded-md text-muted-foreground/75 hover:text-foreground"
+                onClick={() =>
+                  startInlineEntry({
+                    kind: "create-file",
+                    parentPath:
+                      focusedExplorerEntry?.kind === "directory"
+                        ? focusedExplorerEntry.path
+                        : (focusedExplorerEntry?.parentPath ?? null),
+                    value: "",
+                  })
+                }
+                title="New File"
+              >
+                <FilePlus2Icon className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="size-6 shrink-0 rounded-md text-muted-foreground/75 hover:text-foreground"
+                onClick={() =>
+                  startInlineEntry({
+                    kind: "create-folder",
+                    parentPath:
+                      focusedExplorerEntry?.kind === "directory"
+                        ? focusedExplorerEntry.path
+                        : (focusedExplorerEntry?.parentPath ?? null),
+                    value: "",
+                  })
+                }
+                title="New Folder"
+              >
+                <FolderPlusIcon className="size-3.5" />
+              </Button>
+            </div>
           </div>
           <div className="px-2.5 py-2">
             <div className="relative">
@@ -1806,7 +1933,7 @@ export default function ThreadWorkspaceEditor(props: {
                 ref={treeSearchInputRef}
                 value={treeSearch}
                 onChange={(event) => setTreeSearch(event.target.value)}
-                placeholder="Filter files…"
+                placeholder="Filter files (re:, in:, inre:)"
                 className="pl-8"
                 size="sm"
                 type="search"
@@ -1816,7 +1943,7 @@ export default function ThreadWorkspaceEditor(props: {
 
           <div
             ref={treeScrollRef}
-            className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1"
+            className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 py-1"
             tabIndex={0}
             onKeyDown={handleExplorerKeyDown}
             onDragOver={(event) => {
@@ -1847,7 +1974,7 @@ export default function ThreadWorkspaceEditor(props: {
               });
             }}
           >
-            {workspaceTreeQuery.isPending ? (
+            {explorerPending ? (
               <div className="space-y-1.5 px-1 py-2">
                 {Array.from({ length: 10 }, (_, index) => (
                   <div
@@ -1859,7 +1986,7 @@ export default function ThreadWorkspaceEditor(props: {
               </div>
             ) : explorerRows.length === 0 ? (
               <div className="px-2 py-6 text-center text-xs text-muted-foreground">
-                {deferredTreeSearch.length > 0 ? "No files match this filter." : "No files found."}
+                {searchMode ? "No files match this search." : "No files found."}
               </div>
             ) : (
               <div className="relative" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
@@ -1896,7 +2023,7 @@ export default function ThreadWorkspaceEditor(props: {
                           openFilePaths={openFilePaths}
                           resolvedTheme={resolvedTheme}
                           row={row.row}
-                          searchMode={deferredTreeSearch.length > 0}
+                          searchMode={searchMode}
                           selectedEntryPath={selectedEntryPath}
                         />
                       ) : (
@@ -1911,7 +2038,7 @@ export default function ThreadWorkspaceEditor(props: {
                           }
                           onCommit={submitInlineEntry}
                           resolvedTheme={resolvedTheme}
-                          searchMode={deferredTreeSearch.length > 0}
+                          searchMode={searchMode}
                           state={row.state}
                         />
                       )}

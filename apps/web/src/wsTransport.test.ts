@@ -1,9 +1,10 @@
-import { WS_METHODS } from "@ace/contracts";
+import { DEFAULT_SERVER_SETTINGS, WS_METHODS } from "@ace/contracts";
 import {
   buildWebSocketAuthProtocol,
   extractWebSocketClientSessionIdFromProtocolHeader,
   extractWebSocketConnectionIdFromProtocolHeader,
 } from "@ace/shared/wsAuth";
+import { Duration } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WsTransport } from "./wsTransport";
@@ -11,8 +12,12 @@ import { WsTransport } from "./wsTransport";
 type WsEventType = "open" | "message" | "close" | "error";
 type WsEvent = { code?: number; data?: unknown; reason?: string; type?: string };
 type WsListener = (event?: WsEvent) => void;
+type DomListener = () => void;
 
 const sockets: MockWebSocket[] = [];
+const windowListeners = new Map<string, Set<DomListener>>();
+const documentListeners = new Map<string, Set<DomListener>>();
+let visibilityState: DocumentVisibilityState = "visible";
 
 class MockWebSocket {
   static readonly CONNECTING = 0;
@@ -70,6 +75,45 @@ class MockWebSocket {
 }
 
 const originalWebSocket = globalThis.WebSocket;
+const originalDocument = globalThis.document;
+
+function addDomListener(map: Map<string, Set<DomListener>>, type: string, listener: DomListener) {
+  const listeners = map.get(type) ?? new Set<DomListener>();
+  listeners.add(listener);
+  map.set(type, listeners);
+}
+
+function removeDomListener(
+  map: Map<string, Set<DomListener>>,
+  type: string,
+  listener: DomListener,
+) {
+  map.get(type)?.delete(listener);
+}
+
+function emitDomEvent(map: Map<string, Set<DomListener>>, type: string) {
+  const listeners = map.get(type);
+  if (!listeners) {
+    return;
+  }
+  for (const listener of listeners) {
+    listener();
+  }
+}
+
+function emitWindowEvent(type: string) {
+  emitDomEvent(windowListeners, type);
+}
+
+const mockServerConfig = {
+  cwd: "/tmp/workspace",
+  keybindingsConfigPath: "/tmp/workspace/.ace-keybindings.json",
+  keybindings: [],
+  issues: [],
+  providers: [],
+  availableEditors: [],
+  settings: DEFAULT_SERVER_SETTINGS,
+} as const;
 
 function getSocket(): MockWebSocket {
   const socket = sockets.at(-1);
@@ -96,6 +140,9 @@ async function waitFor(assertion: () => void, timeoutMs = 1_000): Promise<void> 
 
 beforeEach(() => {
   sockets.length = 0;
+  windowListeners.clear();
+  documentListeners.clear();
+  visibilityState = "visible";
   const sessionStorageState = new Map<string, string>();
 
   Object.defineProperty(globalThis, "window", {
@@ -113,7 +160,27 @@ beforeEach(() => {
           sessionStorageState.set(key, value);
         },
       },
+      addEventListener: (type: string, listener: DomListener) => {
+        addDomListener(windowListeners, type, listener);
+      },
+      removeEventListener: (type: string, listener: DomListener) => {
+        removeDomListener(windowListeners, type, listener);
+      },
       desktopBridge: undefined,
+    },
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      get visibilityState() {
+        return visibilityState;
+      },
+      addEventListener: (type: string, listener: DomListener) => {
+        addDomListener(documentListeners, type, listener);
+      },
+      removeEventListener: (type: string, listener: DomListener) => {
+        removeDomListener(documentListeners, type, listener);
+      },
     },
   });
 
@@ -122,6 +189,10 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.WebSocket = originalWebSocket;
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: originalDocument,
+  });
   vi.restoreAllMocks();
 });
 
@@ -418,6 +489,147 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("probes the connection when the window regains focus", async () => {
+    const transport = new WsTransport("ws://localhost:3020", {
+      connectionProbeIntervalMs: 0,
+      connectionProbeTimeoutMs: 500,
+    });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const socket = getSocket();
+    socket.open();
+    emitWindowEvent("focus");
+
+    await waitFor(() => {
+      const probeRequest = socket.sent
+        .map((message) => JSON.parse(message) as { _tag?: string; tag?: string })
+        .find(
+          (message) => message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig,
+        );
+      expect(probeRequest).toBeDefined();
+    });
+
+    const probeRequest = socket.sent
+      .map((message) => JSON.parse(message) as { _tag?: string; id?: string; tag?: string })
+      .find(
+        (message): message is { _tag: "Request"; id: string; tag: string } =>
+          message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig,
+      );
+    if (!probeRequest) {
+      throw new Error("Expected a connection probe request");
+    }
+    socket.serverMessage(
+      JSON.stringify({
+        _tag: "Exit",
+        requestId: probeRequest.id,
+        exit: {
+          _tag: "Success",
+          value: mockServerConfig,
+        },
+      }),
+    );
+
+    await transport.dispose();
+  });
+
+  it("uses successful probes to restore connection state after disconnection", async () => {
+    const transport = new WsTransport("ws://localhost:3020", {
+      connectionProbeIntervalMs: 0,
+      connectionProbeTimeoutMs: 500,
+    });
+    const connectionListener = vi.fn();
+    const unsubscribeConnection = transport.onConnectionStateChange(connectionListener);
+
+    const unsubscribe = transport.subscribe(
+      (client) => client[WS_METHODS.subscribeServerLifecycle]({}),
+      () => undefined,
+      { retryDelay: Duration.seconds(60) },
+    );
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const socket = getSocket();
+    socket.open();
+
+    await waitFor(() => {
+      expect(socket.sent).toHaveLength(1);
+    });
+
+    const streamRequest = socket.sent
+      .map((message) => JSON.parse(message) as { _tag?: string; id?: string; tag?: string })
+      .find(
+        (message): message is { _tag: "Request"; id: string; tag: string } =>
+          message._tag === "Request" && message.tag === WS_METHODS.subscribeServerLifecycle,
+      );
+    if (!streamRequest) {
+      throw new Error("Expected a server lifecycle request");
+    }
+    socket.serverMessage(
+      JSON.stringify({
+        _tag: "Exit",
+        requestId: streamRequest.id,
+        exit: {
+          _tag: "Success",
+          value: null,
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(connectionListener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "disconnected",
+        }),
+      );
+    });
+
+    emitWindowEvent("focus");
+
+    await waitFor(() => {
+      const probeRequest = socket.sent
+        .map((message) => JSON.parse(message) as { _tag?: string; tag?: string })
+        .find(
+          (message) => message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig,
+        );
+      expect(probeRequest).toBeDefined();
+    });
+
+    const probeRequest = socket.sent
+      .map((message) => JSON.parse(message) as { _tag?: string; id?: string; tag?: string })
+      .find(
+        (message): message is { _tag: "Request"; id: string; tag: string } =>
+          message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig,
+      );
+    if (!probeRequest) {
+      throw new Error("Expected a connection probe request");
+    }
+    socket.serverMessage(
+      JSON.stringify({
+        _tag: "Exit",
+        requestId: probeRequest.id,
+        exit: {
+          _tag: "Success",
+          value: mockServerConfig,
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(connectionListener).toHaveBeenCalledWith({
+        kind: "reconnected",
+      });
+    });
+
+    unsubscribeConnection();
+    unsubscribe();
+    await transport.dispose();
+  });
+
   it("streams finite request events without re-subscribing", async () => {
     const transport = new WsTransport("ws://localhost:3020");
     const listener = vi.fn();
@@ -502,6 +714,9 @@ describe("WsTransport", () => {
     const transport = {
       disposed: false,
       clientScope: {} as never,
+      probeListenerCleanups: [],
+      connectionProbeIntervalHandle: null,
+      queuedProbe: false,
       runtime,
     } as unknown as WsTransport;
 

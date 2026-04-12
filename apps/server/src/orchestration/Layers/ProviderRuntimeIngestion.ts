@@ -95,6 +95,39 @@ function sameId(left: string | null | undefined, right: string | null | undefine
   return left === right;
 }
 
+function runtimeProcessPidFromSessionEvent(event: ProviderRuntimeEvent): number | undefined {
+  switch (event.type) {
+    case "session.started":
+    case "session.state.changed":
+    case "session.exited":
+      return event.payload.processPid;
+    default:
+      return undefined;
+  }
+}
+
+function isRuntimeProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EPERM") {
+        return true;
+      }
+      if (code === "ESRCH") {
+        return false;
+      }
+    }
+    return false;
+  }
+}
+
 function truncateDetail(value: string, limit = 180): string {
   return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
 }
@@ -217,6 +250,11 @@ interface BufferedThinkingActivity {
 type ActivityStreamingSettings = {
   readonly enableToolStreaming: boolean;
   readonly enableThinkingStreaming: boolean;
+};
+
+const ALL_ACTIVITY_STREAMING_SETTINGS: ActivityStreamingSettings = {
+  enableToolStreaming: true,
+  enableThinkingStreaming: true,
 };
 
 function extractReasoningDetail(event: Extract<ProviderRuntimeEvent, { type: "item.completed" }>) {
@@ -791,6 +829,7 @@ const make = Effect.fn("make")(function* () {
   >();
   const bufferedThinkingActivityByKey = new Map<string, BufferedThinkingActivity>();
   const lastActivityFingerprintByThread = new Map<ThreadId, string>();
+  const sessionProcessPidByThread = new Map<ThreadId, number>();
 
   const bufferedProposedPlanById = yield* Cache.make<string, { text: string; createdAt: string }>({
     capacity: BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY,
@@ -1540,6 +1579,14 @@ const make = Effect.fn("make")(function* () {
     const now = event.createdAt;
     const eventTurnId = toTurnId(event.turnId);
     const activeTurnId = thread.session?.activeTurnId ?? null;
+    const eventProcessPid = runtimeProcessPidFromSessionEvent(event);
+    const trackedSessionProcessPid = sessionProcessPidByThread.get(thread.id);
+    const shouldApplySessionExitedLifecycle =
+      event.type !== "session.exited" || eventProcessPid === undefined
+        ? true
+        : (trackedSessionProcessPid === undefined ||
+            trackedSessionProcessPid === eventProcessPid) &&
+          (event.payload.exitKind === "graceful" || !isRuntimeProcessAlive(eventProcessPid));
 
     const conflictsWithActiveTurn =
       activeTurnId !== null && eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId);
@@ -1551,15 +1598,21 @@ const make = Effect.fn("make")(function* () {
       }
       switch (event.type) {
         case "session.exited":
-          return true;
+          return shouldApplySessionExitedLifecycle;
         case "session.started":
         case "thread.started":
           return true;
         case "turn.started":
           return !conflictsWithActiveTurn;
         case "turn.completed":
-          if (conflictsWithActiveTurn || missingTurnForActiveTurn) {
+          if (conflictsWithActiveTurn) {
             return false;
+          }
+          // Some providers emit turn completion scoped to the thread but omit
+          // turnId. When we already track an active turn for this thread, treat
+          // this as completion of that active turn so lifecycle state can close.
+          if (missingTurnForActiveTurn) {
+            return true;
           }
           // Only the active turn may close the lifecycle state.
           if (activeTurnId !== null && eventTurnId !== undefined) {
@@ -1576,10 +1629,16 @@ const make = Effect.fn("make")(function* () {
         ? yield* getSourceProposedPlanReferenceForAcceptedTurnStart(thread.id, eventTurnId)
         : null;
     const serverSettings = yield* serverSettingsService.getSettings;
-    const activities = runtimeEventToActivities(event, {
+    const activityVisibilitySettings: ActivityStreamingSettings = {
       enableToolStreaming: serverSettings.enableToolStreaming,
       enableThinkingStreaming: serverSettings.enableThinkingStreaming,
-    });
+    };
+    const activities = runtimeEventToActivities(event, ALL_ACTIVITY_STREAMING_SETTINGS);
+    const visibleActivities =
+      activityVisibilitySettings.enableToolStreaming &&
+      activityVisibilitySettings.enableThinkingStreaming
+        ? activities
+        : runtimeEventToActivities(event, activityVisibilitySettings);
     const bufferedThinkingKeysForEvent = new Set(
       activities
         .map((activity) => thinkingActivityBufferKeyFromActivity(thread.id, activity))
@@ -1593,7 +1652,7 @@ const make = Effect.fn("make")(function* () {
     const shouldBreakAssistantMessageSegments = (() => {
       if (
         !eventTurnId ||
-        !activities.some(isRenderableAssistantBoundaryActivity) ||
+        !visibleActivities.some(isRenderableAssistantBoundaryActivity) ||
         (STRICT_PROVIDER_LIFECYCLE_GUARD &&
           activeTurnId !== null &&
           !sameId(activeTurnId, eventTurnId))
@@ -1657,6 +1716,16 @@ const make = Effect.fn("make")(function* () {
               : (thread.session?.lastError ?? null);
 
       if (shouldApplyThreadLifecycle) {
+        if (
+          (event.type === "session.started" || event.type === "session.state.changed") &&
+          eventProcessPid !== undefined
+        ) {
+          sessionProcessPidByThread.set(thread.id, eventProcessPid);
+        }
+        if (event.type === "session.exited") {
+          sessionProcessPidByThread.delete(thread.id);
+        }
+
         if (event.type === "turn.started" && acceptedTurnStartedSourcePlan !== null) {
           yield* markSourceProposedPlanImplemented(
             acceptedTurnStartedSourcePlan.sourceThreadId,
@@ -1862,7 +1931,7 @@ const make = Effect.fn("make")(function* () {
       }
     }
 
-    if (event.type === "session.exited") {
+    if (event.type === "session.exited" && shouldApplySessionExitedLifecycle) {
       yield* flushBufferedThinkingActivitiesForThread({ threadId: thread.id });
       yield* flushPendingStreamingAssistantDeltasForThread(thread.id);
       yield* clearTurnStateForSession(thread.id);

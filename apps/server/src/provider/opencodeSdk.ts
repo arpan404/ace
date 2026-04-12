@@ -21,6 +21,7 @@ interface OpenCodeListedModel {
   readonly tool_call: boolean;
   readonly experimental?: boolean;
   readonly status?: "alpha" | "beta" | "deprecated";
+  readonly variants?: Record<string, Record<string, unknown>>;
 }
 
 interface OpenCodeListedProvider {
@@ -48,6 +49,7 @@ interface OpenCodeCatalogEntry {
   readonly experimental: boolean;
   readonly isDefaultModel: boolean;
   readonly isConnectedProvider: boolean;
+  readonly variants: ReadonlyArray<string>;
 }
 
 interface OpenCodeProviderListCacheEntry {
@@ -106,15 +108,50 @@ function toCatalogEntry(
     experimental: model.experimental === true,
     isDefaultModel: defaults[provider.id] === model.id,
     isConnectedProvider: connectedProviderIds.has(provider.id),
+    variants: Object.keys(model.variants ?? {}).filter((variant) => variant.trim().length > 0),
   };
 }
 
+function toVariantLabel(variant: string): string {
+  return variant
+    .split(/[-_]/g)
+    .filter((part) => part.length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function toServerProviderModel(entry: OpenCodeCatalogEntry): ServerProviderModel {
+  const variantOptions = entry.variants.map((variant) => ({
+    value: variant,
+    label: toVariantLabel(variant),
+    ...(variant === "default" ? { isDefault: true } : {}),
+  }));
+  const defaultVariantExists = variantOptions.some((variant) => variant.isDefault);
+  const contextWindowOptions =
+    variantOptions.length > 0
+      ? defaultVariantExists
+        ? variantOptions
+        : variantOptions.map((variant, index) =>
+            index === 0
+              ? { value: variant.value, label: variant.label, isDefault: true }
+              : { value: variant.value, label: variant.label },
+          )
+      : [];
+
   return {
     slug: entry.slug,
     name: entry.name,
     isCustom: false,
-    capabilities: null,
+    capabilities:
+      contextWindowOptions.length > 0
+        ? {
+            reasoningEffortLevels: [],
+            supportsFastMode: false,
+            supportsThinkingToggle: false,
+            contextWindowOptions,
+            promptInjectedEffortLevels: [],
+          }
+        : null,
   };
 }
 

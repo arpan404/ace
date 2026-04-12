@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 
+import { meaningfulErrorMessage } from "../errorCause.ts";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -54,18 +55,13 @@ export function findKnownCursorAdapterError(
 }
 
 export function describeCursorAdapterCause(cause: unknown): string {
-  for (const candidate of causeChain(cause)) {
-    if (!(candidate instanceof Error)) {
-      continue;
-    }
-    if (
-      candidate.message !== "An error occurred in Effect.try" &&
-      candidate.message !== "An error occurred in Effect.tryPromise"
-    ) {
-      return candidate.message;
-    }
+  if (cause === undefined || cause === null) {
+    return "An unexpected error occurred.";
   }
-  return cause instanceof Error ? cause.message : String(cause);
+  if (typeof cause === "string") {
+    return cause.trim() || "An unexpected error occurred.";
+  }
+  return meaningfulErrorMessage(cause, cause instanceof Error ? cause.message : String(cause));
 }
 
 export function isMissingCursorSessionError(cause: unknown): boolean {

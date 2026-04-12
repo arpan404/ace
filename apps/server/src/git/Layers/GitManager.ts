@@ -1289,6 +1289,27 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     return yield* Cache.get(statusResultCache, normalizeStatusCacheKey(input.cwd));
   });
 
+  const listGitHubIssues: GitManagerShape["listGitHubIssues"] = Effect.fn("listGitHubIssues")(
+    function* (input) {
+      const issues = yield* gitHubCli.listIssues({
+        cwd: input.cwd,
+        ...(typeof input.limit === "number" ? { limit: input.limit } : {}),
+        ...(typeof input.query === "string" ? { query: input.query } : {}),
+      });
+      return { issues };
+    },
+  );
+
+  const getGitHubIssueThread: GitManagerShape["getGitHubIssueThread"] = Effect.fn(
+    "getGitHubIssueThread",
+  )(function* (input) {
+    const issue = yield* gitHubCli.getIssueThread({
+      cwd: input.cwd,
+      issueNumber: input.issueNumber,
+    });
+    return { issue };
+  });
+
   const resolvePullRequest: GitManagerShape["resolvePullRequest"] = Effect.fn("resolvePullRequest")(
     function* (input) {
       const pullRequest = yield* gitHubCli
@@ -1666,6 +1687,8 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
   return {
     status,
+    listGitHubIssues,
+    getGitHubIssueThread,
     resolvePullRequest,
     preparePullRequestThread,
     runStackedAction,

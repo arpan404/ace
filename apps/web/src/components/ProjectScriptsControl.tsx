@@ -42,13 +42,13 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
-import { Group, GroupSeparator } from "./ui/group";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
+import { TopBarCluster, TopBarClusterDivider } from "./thread/TopBarCluster";
 
 const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
   { id: "play", label: "Play" },
@@ -58,6 +58,9 @@ const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
   { id: "build", label: "Build" },
   { id: "debug", label: "Debug" },
 ];
+
+const TOP_BAR_ACTION_BUTTON_CLASS_NAME =
+  "rounded-full border-transparent bg-transparent text-foreground/80 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08]";
 
 function ScriptIcon({
   icon,
@@ -265,22 +268,28 @@ export default function ProjectScriptsControl({
   return (
     <>
       {primaryScript ? (
-        <Group aria-label="Project scripts">
+        <TopBarCluster aria-label="Project scripts" className="shrink-0">
           <Button
             size="xs"
-            variant="outline"
+            variant="ghost"
+            className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
             onClick={() => onRunScript(primaryScript)}
             title={`Run ${primaryScript.name}`}
           >
             <ScriptIcon icon={primaryScript.icon} />
-            <span className="sr-only @lg/header-actions:not-sr-only @lg/header-actions:ml-0.5">
-              {primaryScript.name}
-            </span>
+            <span className="sr-only md:not-sr-only md:ml-0.5">{primaryScript.name}</span>
           </Button>
-          <GroupSeparator className="hidden @lg/header-actions:block" />
+          <TopBarClusterDivider />
           <Menu highlightItemOnHover={false}>
             <MenuTrigger
-              render={<Button size="icon-xs" variant="outline" aria-label="Script actions" />}
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
+                  aria-label="Script actions"
+                />
+              }
             >
               <ChevronDownIcon className="size-4" />
             </MenuTrigger>
@@ -334,14 +343,20 @@ export default function ProjectScriptsControl({
               </MenuItem>
             </MenuPopup>
           </Menu>
-        </Group>
+        </TopBarCluster>
       ) : (
-        <Button size="xs" variant="outline" onClick={openAddDialog} title="Add action">
-          <PlusIcon className="size-3.5" />
-          <span className="sr-only @lg/header-actions:not-sr-only @lg/header-actions:ml-0.5">
-            Add action
-          </span>
-        </Button>
+        <TopBarCluster aria-label="Project scripts" className="shrink-0">
+          <Button
+            size="xs"
+            variant="ghost"
+            className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
+            onClick={openAddDialog}
+            title="Add action"
+          >
+            <PlusIcon className="size-3.5" />
+            <span className="sr-only md:not-sr-only md:ml-0.5">Add action</span>
+          </Button>
+        </TopBarCluster>
       )}
 
       <Dialog
@@ -381,7 +396,7 @@ export default function ProjectScriptsControl({
                         <Button
                           type="button"
                           variant="outline"
-                          className="size-9 shrink-0 hover:bg-popover active:bg-popover data-pressed:bg-popover data-pressed:shadow-xs/5 data-pressed:before:shadow-[0_1px_--theme(--color-black/4%)] dark:data-pressed:before:shadow-[0_-1px_--theme(--color-white/6%)]"
+                          className="size-9 shrink-0 hover:bg-popover active:bg-popover data-pressed:bg-popover"
                           aria-label="Choose icon"
                         />
                       }
@@ -398,8 +413,8 @@ export default function ProjectScriptsControl({
                               type="button"
                               className={`relative flex flex-col items-center gap-2 rounded-md border px-2 py-2 text-xs ${
                                 isSelected
-                                  ? "border-primary/70 bg-primary/10"
-                                  : "border-border/70 hover:bg-accent/60"
+                                  ? "border-primary bg-primary/10"
+                                  : "border-border hover:bg-accent"
                               }`}
                               onClick={() => {
                                 setIcon(entry.id);
@@ -445,7 +460,7 @@ export default function ProjectScriptsControl({
                   onChange={(event) => setCommand(event.target.value)}
                 />
               </div>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm">
+              <label className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
                 <span>Run automatically on worktree creation</span>
                 <Switch
                   checked={runOnWorktreeCreate}

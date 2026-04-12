@@ -8,6 +8,10 @@
  */
 import {
   GitActionProgressEvent,
+  GitGetGitHubIssueThreadInput,
+  GitGetGitHubIssueThreadResult,
+  GitListGitHubIssuesInput,
+  GitListGitHubIssuesResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -47,6 +51,20 @@ export interface GitManagerShape {
   readonly resolvePullRequest: (
     input: GitPullRequestRefInput,
   ) => Effect.Effect<GitResolvePullRequestResult, GitManagerServiceError>;
+
+  /**
+   * List open GitHub issues for the repository at the provided cwd.
+   */
+  readonly listGitHubIssues: (
+    input: GitListGitHubIssuesInput,
+  ) => Effect.Effect<GitListGitHubIssuesResult, GitManagerServiceError>;
+
+  /**
+   * Fetch full GitHub issue thread context by issue number.
+   */
+  readonly getGitHubIssueThread: (
+    input: GitGetGitHubIssueThreadInput,
+  ) => Effect.Effect<GitGetGitHubIssueThreadResult, GitManagerServiceError>;
 
   /**
    * Prepare a new thread workspace from a pull request in local or worktree mode.

@@ -30,12 +30,54 @@ export const BrowserSearchEngine = Schema.Literals(["duckduckgo", "google", "bra
 export type BrowserSearchEngine = typeof BrowserSearchEngine.Type;
 export const DEFAULT_BROWSER_SEARCH_ENGINE: BrowserSearchEngine = "duckduckgo";
 
+export const WorkspaceEditorOpenMode = Schema.Literals(["split", "full"]);
+export type WorkspaceEditorOpenMode = typeof WorkspaceEditorOpenMode.Type;
+export const DEFAULT_WORKSPACE_EDITOR_OPEN_MODE: WorkspaceEditorOpenMode = "split";
+
+export const BrowserOpenMode = Schema.Literals(["split", "full"]);
+export type BrowserOpenMode = typeof BrowserOpenMode.Type;
+export const DEFAULT_BROWSER_OPEN_MODE: BrowserOpenMode = "split";
+
 export const EditorLineNumbers = Schema.Literals(["off", "on", "relative"]);
 export type EditorLineNumbers = typeof EditorLineNumbers.Type;
 export const DEFAULT_EDITOR_LINE_NUMBERS: EditorLineNumbers = "on";
 export const DEFAULT_THREAD_HYDRATION_CACHE_MEMORY_MB = 100;
 
+/** UI (sans) font preset — applied via CSS `--font-ui` in the web client. */
+export const UiFontFamily = Schema.Literals([
+  "plus-jakarta",
+  "inter",
+  "system-ui",
+  "dm-sans",
+  "source-sans-3",
+]);
+export type UiFontFamily = typeof UiFontFamily.Type;
+export const DEFAULT_UI_FONT_FAMILY: UiFontFamily = "plus-jakarta";
+
+/** Monospace font preset — applied via CSS `--font-mono` in the web client. */
+export const UiMonoFontFamily = Schema.Literals([
+  "jetbrains",
+  "fira-code",
+  "ibm-plex-mono",
+  "system-mono",
+]);
+export type UiMonoFontFamily = typeof UiMonoFontFamily.Type;
+export const DEFAULT_UI_MONO_FONT_FAMILY: UiMonoFontFamily = "jetbrains";
+
+/** Base `html` font size scale (affects rem-based UI sizing). */
+export const UiFontSizeScale = Schema.Literals(["compact", "normal", "comfortable"]);
+export type UiFontSizeScale = typeof UiFontSizeScale.Type;
+export const DEFAULT_UI_FONT_SIZE_SCALE: UiFontSizeScale = "normal";
+
+/** Body letter-spacing preset. */
+export const UiLetterSpacing = Schema.Literals(["tight", "normal", "relaxed"]);
+export type UiLetterSpacing = typeof UiLetterSpacing.Type;
+export const DEFAULT_UI_LETTER_SPACING: UiLetterSpacing = "normal";
+
 export const ClientSettingsSchema = Schema.Struct({
+  browserOpenMode: BrowserOpenMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_BROWSER_OPEN_MODE),
+  ),
   browserSearchEngine: BrowserSearchEngine.pipe(
     Schema.withDecodingDefault(() => DEFAULT_BROWSER_SEARCH_ENGINE),
   ),
@@ -61,6 +103,19 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(() => DEFAULT_THREAD_HYDRATION_CACHE_MEMORY_MB),
   ),
   timestampFormat: TimestampFormat.pipe(Schema.withDecodingDefault(() => DEFAULT_TIMESTAMP_FORMAT)),
+  uiFontFamily: UiFontFamily.pipe(Schema.withDecodingDefault(() => DEFAULT_UI_FONT_FAMILY)),
+  uiMonoFontFamily: UiMonoFontFamily.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_UI_MONO_FONT_FAMILY),
+  ),
+  uiFontSizeScale: UiFontSizeScale.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_UI_FONT_SIZE_SCALE),
+  ),
+  uiLetterSpacing: UiLetterSpacing.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_UI_LETTER_SPACING),
+  ),
+  workspaceEditorOpenMode: WorkspaceEditorOpenMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_WORKSPACE_EDITOR_OPEN_MODE),
+  ),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -131,6 +186,9 @@ export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   enableToolStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   enableThinkingStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  notifyOnAgentCompletion: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  notifyOnApprovalRequired: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  notifyOnUserInputRequired: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   defaultThreadEnvMode: ThreadEnvMode.pipe(
     Schema.withDecodingDefault(() => "local" as const satisfies ThreadEnvMode),
   ),
@@ -195,7 +253,8 @@ const GitHubCopilotModelOptionsPatch = Schema.Struct({
 });
 
 const OpenCodeModelOptionsPatch = Schema.Struct({
-  ...(OpenCodeModelOptions.fields satisfies Record<string, never>),
+  variant: Schema.optionalKey(OpenCodeModelOptions.fields.variant),
+  fastMode: Schema.optionalKey(OpenCodeModelOptions.fields.fastMode),
 });
 
 const GeminiModelOptionsPatch = Schema.Struct({
@@ -276,6 +335,9 @@ export const ServerSettingsPatch = Schema.Struct({
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   enableToolStreaming: Schema.optionalKey(Schema.Boolean),
   enableThinkingStreaming: Schema.optionalKey(Schema.Boolean),
+  notifyOnAgentCompletion: Schema.optionalKey(Schema.Boolean),
+  notifyOnApprovalRequired: Schema.optionalKey(Schema.Boolean),
+  notifyOnUserInputRequired: Schema.optionalKey(Schema.Boolean),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   providers: Schema.optionalKey(

@@ -11,6 +11,14 @@ import {
 } from "./shared";
 import type { PendingApproval, PendingUserInput } from "./types";
 
+function toNonEmptyTrimmedString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function parseUserInputQuestions(
   payload: Record<string, unknown> | null,
 ): ReadonlyArray<UserInputQuestion> | null {
@@ -19,49 +27,43 @@ function parseUserInputQuestions(
     return null;
   }
   const parsed = questions
-    .map<UserInputQuestion | null>((entry) => {
+    .map<UserInputQuestion | null>((entry, index) => {
       if (!entry || typeof entry !== "object") return null;
       const question = entry as Record<string, unknown>;
-      if (
-        typeof question.id !== "string" ||
-        typeof question.header !== "string" ||
-        typeof question.question !== "string" ||
-        !Array.isArray(question.options)
-      ) {
+      const prompt = toNonEmptyTrimmedString(question.question);
+      if (!prompt) {
         return null;
       }
-      const options = question.options
+      const options = (Array.isArray(question.options) ? question.options : [])
         .map<UserInputQuestion["options"][number] | null>((option) => {
           if (!option || typeof option !== "object") return null;
           const optionRecord = option as Record<string, unknown>;
-          if (
-            typeof optionRecord.label !== "string" ||
-            typeof optionRecord.description !== "string"
-          ) {
+          const label = toNonEmptyTrimmedString(optionRecord.label);
+          if (!label) {
             return null;
           }
+          const description = toNonEmptyTrimmedString(optionRecord.description) ?? label;
           return {
-            label: optionRecord.label,
-            description: optionRecord.description,
+            label,
+            description,
           };
         })
         .filter((option): option is UserInputQuestion["options"][number] => option !== null);
-      if (options.length === 0) {
-        return null;
-      }
+      const id = toNonEmptyTrimmedString(question.id) ?? `question-${index + 1}`;
+      const header = toNonEmptyTrimmedString(question.header) ?? `Question ${index + 1}`;
       if (question.multiSelect === true) {
         return {
-          id: question.id,
-          header: question.header,
-          question: question.question,
+          id,
+          header,
+          question: prompt,
           options,
           multiSelect: true,
         };
       }
       return {
-        id: question.id,
-        header: question.header,
-        question: question.question,
+        id,
+        header,
+        question: prompt,
         options,
       };
     })

@@ -27,6 +27,8 @@ import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
 
+import ChatMarkdown from "../ChatMarkdown";
+import MermaidDiagram from "../MermaidDiagram";
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Button } from "../ui/button";
 import {
@@ -92,8 +94,30 @@ function formatFileSize(sizeBytes: number): string {
 const WORKSPACE_EDITOR_MARKER_OWNER = "ace-workspace-editor";
 const MONACO_DIAGNOSTIC_OWNERS = [WORKSPACE_EDITOR_MARKER_OWNER] as const;
 const DIAGNOSTIC_SYNC_DEBOUNCE_MS = 250;
+const MONACO_NATIVE_LSP_LANGUAGES = new Set([
+  "css",
+  "html",
+  "javascript",
+  "json",
+  "less",
+  "scss",
+  "typescript",
+]);
 
 type MonacoApi = typeof import("monaco-editor");
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function shouldUseMonacoLanguageService(languageId: string): boolean {
+  return MONACO_NATIVE_LSP_LANGUAGES.has(languageId);
+}
+
+function isUnavailableWorkspaceDiagnosticsError(error: unknown): boolean {
+  const message = toErrorMessage(error).toLowerCase();
+  return message.includes("neovim") || message.includes("workspace diagnostics backend");
+}
 
 function pluralize(count: number, singular: string): string {
   return count === 1 ? singular : `${singular}s`;
@@ -198,7 +222,7 @@ function toMonacoMarkers(
     const marker: MonacoEditor.IMarkerData = {
       endColumn,
       endLineNumber,
-      message: diagnostic.message.trim().length > 0 ? diagnostic.message : "Neovim diagnostic",
+      message: diagnostic.message.trim().length > 0 ? diagnostic.message : "Language diagnostic",
       severity: toMonacoSeverity(monacoInstance, diagnostic.severity),
       startColumn,
       startLineNumber,
@@ -244,17 +268,25 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<MonacoApi | null>(null);
   const syncRequestIdRef = useRef(0);
+  const diagnosticsBackendUnavailableRef = useRef(false);
   const activePreviewKind = useMemo<WorkspacePreviewKind | null>(
     () => (pane.activeFilePath ? detectWorkspacePreviewKind(pane.activeFilePath) : null),
     [pane.activeFilePath],
   );
+  const isBinaryPreviewMode = activePreviewKind === "image" || activePreviewKind === "video";
+  const isTextPreviewMode = activePreviewKind === "markdown" || activePreviewKind === "mermaid";
   const isPreviewMode =
-    activePreviewKind !== null && pane.activeFilePath !== null && props.gitCwd !== null;
+    (isBinaryPreviewMode || isTextPreviewMode) &&
+    pane.activeFilePath !== null &&
+    props.gitCwd !== null;
   const activeFileQuery = useQuery(
     projectReadFileQueryOptions({
       cwd: props.gitCwd,
       relativePath: pane.activeFilePath,
-      enabled: pane.activeFilePath !== null && props.gitCwd !== null && !isPreviewMode,
+      enabled:
+        pane.activeFilePath !== null &&
+        props.gitCwd !== null &&
+        (!isPreviewMode || isTextPreviewMode),
     }),
   );
 
@@ -277,9 +309,15 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     ? null
     : (activeFileQuery.data?.sizeBytes ?? new Blob([activeFileContents]).size);
   const previewUrl =
-    isPreviewMode && pane.activeFilePath && props.gitCwd
+    isBinaryPreviewMode && pane.activeFilePath && props.gitCwd
       ? buildWorkspacePreviewUrl(props.gitCwd, pane.activeFilePath)
       : null;
+  const previewModeLabel =
+    activePreviewKind === "markdown"
+      ? "Markdown preview"
+      : activePreviewKind === "mermaid"
+        ? "Mermaid preview"
+        : "Preview mode";
 
   const handleSave = useCallback(() => {
     if (!pane.activeFilePath || !activeDraft) {
@@ -351,14 +389,20 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     syncRequestIdRef.current += 1;
     const requestId = syncRequestIdRef.current;
 
+    const editor = editorRef.current;
+    const monacoInstance = monacoRef.current;
+    const activeFilePath = pane.activeFilePath;
+    const model = editor?.getModel();
+
     if (
       isPreviewMode ||
       !api ||
       !props.gitCwd ||
-      !pane.activeFilePath ||
+      !activeFilePath ||
       !activeFileReady ||
-      !editorRef.current ||
-      !monacoRef.current
+      !editor ||
+      !monacoInstance ||
+      !model
     ) {
       clearEditorMarkers();
       setDiagnosticError(null);
@@ -366,10 +410,13 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       return;
     }
 
-    const editor = editorRef.current;
-    const activeFilePath = pane.activeFilePath;
-    const model = editor.getModel();
-    if (!model || !activeFilePath) {
+    if (
+      diagnosticsBackendUnavailableRef.current ||
+      shouldUseMonacoLanguageService(model.getLanguageId())
+    ) {
+      clearModelMarkers(monacoInstance, model);
+      setDiagnosticError(null);
+      syncProblemState();
       return;
     }
 
@@ -413,15 +460,21 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             return;
           }
           clearEditorMarkers();
-          const message =
-            error instanceof Error ? error.message : "Failed to sync Neovim diagnostics.";
-          setDiagnosticError(message);
+          if (isUnavailableWorkspaceDiagnosticsError(error)) {
+            diagnosticsBackendUnavailableRef.current = true;
+            setDiagnosticError(null);
+          } else {
+            const message = toErrorMessage(error);
+            setDiagnosticError(message);
+          }
           syncProblemState();
-          console.error("Failed to sync workspace editor diagnostics", {
-            cwd: props.gitCwd,
-            relativePath: activeFilePath,
-            error,
-          });
+          if (!diagnosticsBackendUnavailableRef.current) {
+            console.error("Failed to sync workspace editor diagnostics", {
+              cwd: props.gitCwd,
+              relativePath: activeFilePath,
+              error,
+            });
+          }
         });
     }, DIAGNOSTIC_SYNC_DEBOUNCE_MS);
 
@@ -817,7 +870,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
               </p>
             </div>
           </div>
-        ) : isPreviewMode && previewUrl ? (
+        ) : isBinaryPreviewMode && previewUrl ? (
           <div className="flex h-full min-h-0 flex-col">
             <div className="min-h-0 flex-1 overflow-auto p-4">
               <div className="flex h-full min-h-[220px] items-center justify-center rounded-xl border border-border/50 bg-secondary/30">
@@ -843,7 +896,33 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
               </div>
             </div>
             <div className="flex items-center justify-between gap-2 border-t border-border/50 px-3 py-2 text-xs text-muted-foreground">
-              <span className="truncate">Preview mode</span>
+              <span className="truncate">{previewModeLabel}</span>
+              <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
+                Open in Editor
+              </Button>
+            </div>
+          </div>
+        ) : isTextPreviewMode && activeFileQuery.data?.contents !== undefined ? (
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="min-h-0 flex-1 overflow-auto p-4">
+              <div className="min-h-[220px] rounded-xl border border-border/50 bg-secondary/30 p-4">
+                {activePreviewKind === "markdown" ? (
+                  <ChatMarkdown
+                    text={activeFileQuery.data.contents}
+                    cwd={props.gitCwd ?? undefined}
+                    isStreaming={false}
+                  />
+                ) : (
+                  <MermaidDiagram
+                    source={activeFileQuery.data.contents}
+                    theme={props.resolvedTheme}
+                    className="h-full"
+                  />
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t border-border/50 px-3 py-2 text-xs text-muted-foreground">
+              <span className="truncate">{previewModeLabel}</span>
               <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
                 Open in Editor
               </Button>

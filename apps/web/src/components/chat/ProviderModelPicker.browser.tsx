@@ -108,6 +108,45 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
       },
     ],
   },
+  {
+    provider: "cursor",
+    enabled: true,
+    installed: true,
+    version: "1.0.0",
+    status: "ready",
+    auth: { status: "authenticated" },
+    checkedAt: new Date().toISOString(),
+    models: [
+      {
+        slug: "cursor-opus-high",
+        name: "Cursor Opus High",
+        isCustom: false,
+        capabilities: null,
+        cursorMetadata: {
+          familySlug: "cursor-opus",
+          familyName: "Cursor Opus",
+          reasoningEffort: "high",
+          fastMode: false,
+          thinking: false,
+          maxMode: false,
+        },
+      },
+      {
+        slug: "cursor-sonnet-high",
+        name: "Cursor Sonnet High",
+        isCustom: false,
+        capabilities: null,
+        cursorMetadata: {
+          familySlug: "cursor-sonnet",
+          familyName: "Cursor Sonnet",
+          reasoningEffort: "high",
+          fastMode: false,
+          thinking: false,
+          maxMode: false,
+        },
+      },
+    ],
+  },
 ];
 
 function buildCodexProvider(models: ServerProvider["models"]): ServerProvider {
@@ -461,6 +500,27 @@ describe("ProviderModelPicker", () => {
       }
       expect(button.className).toContain("border-input");
       expect(button.className).toContain("bg-popover");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("renders Cursor family options without a section header label", async () => {
+    const mounted = await mountPicker({
+      provider: "cursor",
+      model: "cursor-opus-high",
+      lockedProvider: "cursor",
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await vi.waitFor(() => {
+        const text = document.body.textContent ?? "";
+        expect(text).toContain("Cursor Opus");
+        expect(text).toContain("Cursor Sonnet");
+        expect(text).not.toContain("Model Family");
+      });
     } finally {
       await mounted.cleanup();
     }

@@ -57,6 +57,12 @@ export interface AgentAttentionNotificationReplyResult {
   answers: Record<string, string | string[]>;
 }
 
+export interface AgentAttentionNotificationSettings {
+  notifyOnAgentCompletion: boolean;
+  notifyOnApprovalRequired: boolean;
+  notifyOnUserInputRequired: boolean;
+}
+
 const APPROVAL_COPY_BY_KIND: Record<PendingApproval["requestKind"], string> = {
   command: "command",
   "file-change": "file change",
@@ -242,6 +248,22 @@ export function deriveAgentAttentionRequests(
   }
 
   return requests.toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+export function filterAgentAttentionRequestsBySettings(
+  requests: ReadonlyArray<AgentAttentionRequest>,
+  settings: AgentAttentionNotificationSettings,
+): AgentAttentionRequest[] {
+  return requests.filter((request) => {
+    switch (request.kind) {
+      case "approval":
+        return settings.notifyOnApprovalRequired;
+      case "user-input":
+        return settings.notifyOnUserInputRequired;
+      case "completion":
+        return settings.notifyOnAgentCompletion;
+    }
+  });
 }
 
 export function buildAgentAttentionNotificationCopy(request: AgentAttentionRequest): {

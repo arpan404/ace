@@ -532,7 +532,7 @@ describe("ProviderCommandReactor", () => {
       message: "Please investigate reconnect failures after restarting the session.",
       modelSelection: {
         provider: "codex",
-        model: "gpt-5-codex",
+        model: "gpt-5.4-mini",
       },
     });
 
@@ -639,13 +639,13 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.title).toBe("Reconnect spinner resume bug");
   });
 
-  it("uses the thread model for first-turn title generation without downgrading the provider", async () => {
+  it("uses text-generation settings for first-turn title generation", async () => {
     const harness = await createHarness({
       threadModelSelection: { provider: "githubCopilot", model: "gpt-5" },
     });
     const now = new Date().toISOString();
     const seededTitle = "hi";
-    harness.generateThreadTitle.mockReturnValue(Effect.succeed({ title: "Copilot title" }));
+    harness.generateThreadTitle.mockReturnValue(Effect.succeed({ title: "Generated title" }));
 
     await Effect.runPromise(
       harness.engine.dispatch({
@@ -678,8 +678,59 @@ describe("ProviderCommandReactor", () => {
     expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
       message: "hi",
       modelSelection: {
-        provider: "githubCopilot",
-        model: "gpt-5",
+        provider: "codex",
+        model: "gpt-5.4-mini",
+      },
+    });
+  });
+
+  it("prefers explicit text generation settings over thread model for title generation", async () => {
+    const harness = await createHarness({
+      serverSettings: {
+        textGenerationModelSelection: {
+          provider: "claudeAgent",
+          model: "claude-sonnet-4-6",
+        },
+      },
+      threadModelSelection: { provider: "githubCopilot", model: "gpt-5" },
+    });
+    const now = new Date().toISOString();
+    const seededTitle = "settings title";
+    harness.generateThreadTitle.mockReturnValue(Effect.succeed({ title: "Generated title" }));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-title-seed-settings"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        title: seededTitle,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-title-settings"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-title-settings"),
+          role: "user",
+          text: seededTitle,
+          attachments: [],
+        },
+        titleSeed: seededTitle,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
+      message: "settings title",
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-sonnet-4-6",
       },
     });
   });

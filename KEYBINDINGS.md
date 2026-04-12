@@ -27,6 +27,7 @@ See the full schema for more details: [`packages/contracts/src/keybindings.ts`](
   { "key": "mod+n", "command": "chat.new", "when": "!terminalFocus" },
   { "key": "mod+shift+o", "command": "chat.new", "when": "!terminalFocus" },
   { "key": "mod+shift+n", "command": "chat.newLocal", "when": "!terminalFocus" },
+  { "key": "mod+e", "command": "chat.toggleWorkspaceMode", "when": "!terminalFocus" },
   { "key": "mod+o", "command": "editor.openFavorite" },
   { "key": "mod+\\", "command": "editor.split", "when": "editorFocus" },
   { "key": "mod+alt+arrowleft", "command": "editor.focusPreviousWindow", "when": "editorFocus" },
@@ -60,6 +61,7 @@ Invalid rules are ignored. Invalid config files are ignored. Warnings are logged
 - `terminal.close`: close/kill the focused terminal (in focused terminal context by default)
 - `chat.new`: create a new chat thread preserving the active thread's branch/worktree state
 - `chat.newLocal`: create a new chat thread for the active project in a new environment (local/worktree determined by app settings (default `local`))
+- `chat.toggleWorkspaceMode`: toggle between chat and editor workspace modes
 - `editor.openFavorite`: open current project/worktree in the last-used editor
 - `editor.split`: split the focused workspace editor into a new window
 - `editor.closeWindow`: close the focused workspace editor window

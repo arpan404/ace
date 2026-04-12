@@ -15,6 +15,7 @@ import type {
   CheckpointRef,
   ProviderInteractionMode,
   RuntimeMode,
+  ThreadHandoff,
 } from "@ace/contracts";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
@@ -158,6 +159,7 @@ export interface Thread {
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   branch: string | null;
   worktreePath: string | null;
+  handoff?: ThreadHandoff;
   historyLoaded?: boolean;
   latestProposedPlanSummary: ProposedPlanSummary | null;
   queuedComposerMessages: QueuedComposerMessage[];
@@ -178,6 +180,7 @@ export interface SidebarThreadSummary {
   latestTurn: OrchestrationLatestTurn | null;
   branch: string | null;
   worktreePath: string | null;
+  handoff?: ThreadHandoff;
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;

@@ -17,6 +17,9 @@ const WORKSPACE_CACHE_TTL_MS = 15_000;
 const WORKSPACE_CACHE_MAX_KEYS = 4;
 const WORKSPACE_INDEX_MAX_ENTRIES = 25_000;
 const WORKSPACE_SCAN_READDIR_CONCURRENCY = 32;
+const WORKSPACE_CONTENT_SEARCH_MAX_FILE_BYTES = 1_000_000;
+const WORKSPACE_CONTENT_SEARCH_MAX_FILES = 3_000;
+const WORKSPACE_CONTENT_SEARCH_READ_CONCURRENCY = 24;
 const IGNORED_DIRECTORY_NAMES = new Set([
   ".git",
   ".convex",
@@ -28,6 +31,7 @@ const IGNORED_DIRECTORY_NAMES = new Set([
   "out",
   ".cache",
 ]);
+const IGNORED_FILE_NAMES = new Set([".DS_Store", "Thumbs.db", "Desktop.ini"]);
 
 interface WorkspaceIndex {
   scannedAt: number;
@@ -44,6 +48,27 @@ interface RankedWorkspaceEntry {
   entry: SearchableWorkspaceEntry;
   score: number;
 }
+
+type WorkspaceSearchQuery =
+  | {
+      kind: "content-regex";
+      regex: RegExp;
+    }
+  | {
+      kind: "content-substring";
+      query: string;
+    }
+  | {
+      kind: "invalid";
+    }
+  | {
+      kind: "path-fuzzy";
+      query: string;
+    }
+  | {
+      kind: "path-regex";
+      regex: RegExp;
+    };
 
 function toPosixPath(input: string): string {
   return input.replaceAll("\\", "/");
@@ -63,6 +88,14 @@ function basenameOf(input: string): string {
     return input;
   }
   return input.slice(separatorIndex + 1);
+}
+
+function isIgnoredFileName(name: string): boolean {
+  return IGNORED_FILE_NAMES.has(name) || name.startsWith("._");
+}
+
+function isIgnoredFilePath(relativePath: string): boolean {
+  return isIgnoredFileName(basenameOf(relativePath));
 }
 
 function toSearchableWorkspaceEntry(entry: ProjectEntry): SearchableWorkspaceEntry {
@@ -87,6 +120,102 @@ function normalizeQuery(input: string): string {
     .trim()
     .replace(/^[@./]+/, "")
     .toLowerCase();
+}
+
+function looksLikeRegexLiteral(input: string): boolean {
+  return /^\/.+\/[dgimsuvy]*$/i.test(input.trim());
+}
+
+function compileRegexPattern(input: string, defaultFlags: string): RegExp | null {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  if (looksLikeRegexLiteral(trimmed)) {
+    const literalMatch = trimmed.match(/^\/(.+)\/([dgimsuvy]*)$/i);
+    if (!literalMatch) {
+      return null;
+    }
+    try {
+      return new RegExp(literalMatch[1] ?? "", literalMatch[2] ?? "");
+    } catch {
+      return null;
+    }
+  }
+  try {
+    return new RegExp(trimmed, defaultFlags);
+  } catch {
+    return null;
+  }
+}
+
+function parseWorkspaceSearchQuery(query: string): WorkspaceSearchQuery {
+  const trimmed = query.trim();
+  const lowerTrimmed = trimmed.toLowerCase();
+
+  if (lowerTrimmed.startsWith("inre:")) {
+    const regex = compileRegexPattern(trimmed.slice(5), "i");
+    if (!regex) {
+      return { kind: "invalid" };
+    }
+    return {
+      kind: "content-regex",
+      regex,
+    };
+  }
+
+  if (lowerTrimmed.startsWith("in:") || lowerTrimmed.startsWith("content:")) {
+    const rawQuery = trimmed.slice(lowerTrimmed.startsWith("in:") ? 3 : 8).trim();
+    if (rawQuery.length === 0) {
+      return { kind: "invalid" };
+    }
+    if (looksLikeRegexLiteral(rawQuery)) {
+      const regex = compileRegexPattern(rawQuery, "i");
+      if (!regex) {
+        return { kind: "invalid" };
+      }
+      return {
+        kind: "content-regex",
+        regex,
+      };
+    }
+    return {
+      kind: "content-substring",
+      query: rawQuery.toLowerCase(),
+    };
+  }
+
+  if (lowerTrimmed.startsWith("re:")) {
+    const regex = compileRegexPattern(trimmed.slice(3), "i");
+    if (!regex) {
+      return { kind: "invalid" };
+    }
+    return {
+      kind: "path-regex",
+      regex,
+    };
+  }
+
+  if (looksLikeRegexLiteral(trimmed)) {
+    const regex = compileRegexPattern(trimmed, "i");
+    if (!regex) {
+      return { kind: "invalid" };
+    }
+    return {
+      kind: "path-regex",
+      regex,
+    };
+  }
+
+  return {
+    kind: "path-fuzzy",
+    query: normalizeQuery(trimmed),
+  };
+}
+
+function resetAndTestRegex(regex: RegExp, value: string): boolean {
+  regex.lastIndex = 0;
+  return regex.test(value);
 }
 
 function scoreSubsequenceMatch(value: string, query: string): number | null {
@@ -268,7 +397,10 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
 
       const listedPaths = [...listedFiles.paths]
         .map((entry) => toPosixPath(entry))
-        .filter((entry) => entry.length > 0 && !isPathInIgnoredDirectory(entry));
+        .filter(
+          (entry) =>
+            entry.length > 0 && !isPathInIgnoredDirectory(entry) && !isIgnoredFilePath(entry),
+        );
       const filePaths = yield* filterGitIgnoredPaths(cwd, listedPaths);
 
       const directorySet = new Set<string>();
@@ -365,6 +497,9 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
         const candidates: Array<{ dirent: Dirent; relativePath: string }> = [];
         for (const dirent of dirents) {
           if (!dirent.name || dirent.name === "." || dirent.name === "..") {
+            continue;
+          }
+          if (isIgnoredFileName(dirent.name)) {
             continue;
           }
           if (dirent.isDirectory() && IGNORED_DIRECTORY_NAMES.has(dirent.name)) {
@@ -473,32 +608,178 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
     },
   );
 
+  const matchFileContents = Effect.fn("WorkspaceEntries.matchFileContents")(function* (
+    cwd: string,
+    relativePath: string,
+    matcher: (contents: string) => boolean,
+  ): Effect.fn.Return<boolean, never> {
+    return yield* Effect.promise(async () => {
+      try {
+        const absolutePath = path.join(cwd, relativePath);
+        const stat = await fsPromises.stat(absolutePath);
+        if (!stat.isFile() || stat.size > WORKSPACE_CONTENT_SEARCH_MAX_FILE_BYTES) {
+          return false;
+        }
+        const contents = await fsPromises.readFile(absolutePath, "utf8");
+        if (contents.includes("\u0000")) {
+          return false;
+        }
+        return matcher(contents);
+      } catch {
+        return false;
+      }
+    });
+  });
+
+  const searchByPathRegex = (
+    index: WorkspaceIndex,
+    regex: RegExp,
+    limit: number,
+  ): {
+    entries: ProjectEntry[];
+    truncated: boolean;
+  } => {
+    const sortedEntries = [...index.entries].toSorted((left, right) =>
+      left.path.localeCompare(right.path),
+    );
+    const matches: SearchableWorkspaceEntry[] = [];
+    let matchedEntryCount = 0;
+
+    for (const entry of sortedEntries) {
+      if (!resetAndTestRegex(regex, entry.path)) {
+        continue;
+      }
+      matchedEntryCount += 1;
+      if (matches.length < limit) {
+        matches.push(entry);
+      }
+    }
+
+    return {
+      entries: matches.map(toPublicProjectEntry),
+      truncated: index.truncated || matchedEntryCount > limit,
+    };
+  };
+
+  const searchByFuzzyPath = (
+    index: WorkspaceIndex,
+    normalizedQuery: string,
+    limit: number,
+  ): {
+    entries: ProjectEntry[];
+    truncated: boolean;
+  } => {
+    const rankedEntries: RankedWorkspaceEntry[] = [];
+    let matchedEntryCount = 0;
+
+    for (const entry of index.entries) {
+      const score = scoreEntry(entry, normalizedQuery);
+      if (score === null) {
+        continue;
+      }
+      matchedEntryCount += 1;
+      insertRankedEntry(rankedEntries, { entry, score }, limit);
+    }
+
+    return {
+      entries: rankedEntries.map((candidate) => toPublicProjectEntry(candidate.entry)),
+      truncated: index.truncated || matchedEntryCount > limit,
+    };
+  };
+
+  const searchByFileContents = Effect.fn("WorkspaceEntries.searchByFileContents")(function* ({
+    cwd,
+    index,
+    limit,
+    matcher,
+  }: {
+    cwd: string;
+    index: WorkspaceIndex;
+    limit: number;
+    matcher: (contents: string) => boolean;
+  }) {
+    const fileEntries = [...index.entries]
+      .filter((entry) => entry.kind === "file")
+      .toSorted((left, right) => left.path.localeCompare(right.path));
+    const candidateEntries = fileEntries.slice(0, WORKSPACE_CONTENT_SEARCH_MAX_FILES);
+    const truncatedByCandidateLimit = fileEntries.length > candidateEntries.length;
+
+    const matchedEntries: SearchableWorkspaceEntry[] = [];
+    let matchedEntryCount = 0;
+
+    for (
+      let startIndex = 0;
+      startIndex < candidateEntries.length && matchedEntryCount <= limit;
+      startIndex += WORKSPACE_CONTENT_SEARCH_READ_CONCURRENCY
+    ) {
+      const batchEntries = candidateEntries.slice(
+        startIndex,
+        startIndex + WORKSPACE_CONTENT_SEARCH_READ_CONCURRENCY,
+      );
+      const batchMatches = yield* Effect.forEach(
+        batchEntries,
+        (entry) => matchFileContents(cwd, entry.path, matcher),
+        { concurrency: "unbounded" },
+      );
+
+      for (const [indexInBatch, matched] of batchMatches.entries()) {
+        if (!matched) {
+          continue;
+        }
+        const matchedEntry = batchEntries[indexInBatch];
+        if (!matchedEntry) {
+          continue;
+        }
+        matchedEntryCount += 1;
+        if (matchedEntries.length < limit) {
+          matchedEntries.push(matchedEntry);
+        }
+      }
+    }
+
+    return {
+      entries: matchedEntries.map(toPublicProjectEntry),
+      truncated: index.truncated || truncatedByCandidateLimit || matchedEntryCount > limit,
+    };
+  });
+
   const search: WorkspaceEntriesShape["search"] = Effect.fn("WorkspaceEntries.search")(
     function* (input) {
       const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
-      return yield* Cache.get(workspaceIndexCache, normalizedCwd).pipe(
-        Effect.map((index) => {
-          const normalizedQuery = normalizeQuery(input.query);
-          const limit = Math.max(0, Math.floor(input.limit));
-          const rankedEntries: RankedWorkspaceEntry[] = [];
-          let matchedEntryCount = 0;
+      const index = yield* Cache.get(workspaceIndexCache, normalizedCwd);
+      const limit = Math.max(0, Math.floor(input.limit));
+      const searchQuery = parseWorkspaceSearchQuery(input.query);
 
-          for (const entry of index.entries) {
-            const score = scoreEntry(entry, normalizedQuery);
-            if (score === null) {
-              continue;
-            }
+      if (searchQuery.kind === "invalid" || limit <= 0) {
+        return {
+          entries: [],
+          truncated: false,
+        };
+      }
 
-            matchedEntryCount += 1;
-            insertRankedEntry(rankedEntries, { entry, score }, limit);
-          }
+      if (searchQuery.kind === "path-regex") {
+        return searchByPathRegex(index, searchQuery.regex, limit);
+      }
 
-          return {
-            entries: rankedEntries.map((candidate) => toPublicProjectEntry(candidate.entry)),
-            truncated: index.truncated || matchedEntryCount > limit,
-          };
-        }),
-      );
+      if (searchQuery.kind === "content-substring") {
+        return yield* searchByFileContents({
+          cwd: normalizedCwd,
+          index,
+          limit,
+          matcher: (contents) => contents.toLowerCase().includes(searchQuery.query),
+        });
+      }
+
+      if (searchQuery.kind === "content-regex") {
+        return yield* searchByFileContents({
+          cwd: normalizedCwd,
+          index,
+          limit,
+          matcher: (contents) => resetAndTestRegex(searchQuery.regex, contents),
+        });
+      }
+
+      return searchByFuzzyPath(index, searchQuery.query, limit);
     },
   );
 
