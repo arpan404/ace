@@ -293,22 +293,41 @@ describe("parseStandaloneComposerSlashCommand", () => {
 
 describe("parseComposerIssuesCommand", () => {
   it("parses multiple tagged issues", () => {
-    expect(parseComposerIssuesCommand(" /issues #351 #341 ")).toEqual([351, 341]);
+    expect(parseComposerIssuesCommand(" /issues #351 #341 ")).toEqual({
+      issueNumbers: [351, 341],
+      message: "",
+    });
   });
 
   it("parses comma-separated issue tags", () => {
-    expect(parseComposerIssuesCommand("/issues #351, #341, #341")).toEqual([351, 341]);
+    expect(parseComposerIssuesCommand("/issues #351, #341, #341")).toEqual({
+      issueNumbers: [351, 341],
+      message: "",
+    });
   });
 
   it("returns an empty array when no issue tag is provided", () => {
-    expect(parseComposerIssuesCommand("/issues")).toEqual([]);
+    expect(parseComposerIssuesCommand("/issues")).toEqual({
+      issueNumbers: [],
+      message: "",
+    });
   });
 
   it("ignores non-issues slash commands", () => {
     expect(parseComposerIssuesCommand("/plan #351")).toBeNull();
   });
 
-  it("rejects malformed issue arguments", () => {
-    expect(parseComposerIssuesCommand("/issues #351 and #341")).toBeNull();
+  it("keeps trailing message text after leading issue tags", () => {
+    expect(parseComposerIssuesCommand("/issues #351 Can you explain root cause?")).toEqual({
+      issueNumbers: [351],
+      message: "Can you explain root cause?",
+    });
+  });
+
+  it("does not parse issue-style text in the message body as tagged issues", () => {
+    expect(parseComposerIssuesCommand("/issues #351 Explain if #341 is related")).toEqual({
+      issueNumbers: [351],
+      message: "Explain if #341 is related",
+    });
   });
 });

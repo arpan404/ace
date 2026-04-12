@@ -2369,7 +2369,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             typeof turnStartRequest.message.text === "string"
               ? turnStartRequest.message.text
               : "";
-          expect(messageText).toContain("Tag #77: Improve empty state copy");
+          expect(messageText).toContain("Solve #77: Improve empty state copy");
           expect(messageText).toContain("<github_issue_context>");
           expect(messageText).toContain("comment_count: 1");
           expect(messageText).toContain("Also update the timeline hint.");
@@ -2377,7 +2377,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      await expect.element(page.getByText("Tag #77: Improve empty state copy")).toBeInTheDocument();
+      await expect
+        .element(page.getByText("Solve #77: Improve empty state copy"))
+        .toBeInTheDocument();
       expect(document.body.textContent ?? "").not.toContain("<github_issue_context>");
     } finally {
       await mounted.cleanup();
@@ -2473,8 +2475,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             typeof turnStartRequest.message.text === "string"
               ? turnStartRequest.message.text
               : "";
-          expect(messageText).toContain("Tag #77: Improve empty state copy");
-          expect(messageText).toContain("Tag #78: Stabilize composer auto-scroll");
+          expect(messageText).toContain("/issues #77 #78");
           expect(messageText.match(/<github_issue_context>/g)?.length ?? 0).toBeGreaterThanOrEqual(
             2,
           );
@@ -2482,10 +2483,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      await expect.element(page.getByText("Tag #77: Improve empty state copy")).toBeInTheDocument();
-      await expect
-        .element(page.getByText("Tag #78: Stabilize composer auto-scroll"))
-        .toBeInTheDocument();
+      await expect.element(page.getByText("/issues #77 #78")).toBeInTheDocument();
       expect(document.body.textContent ?? "").not.toContain("<github_issue_context>");
     } finally {
       await mounted.cleanup();

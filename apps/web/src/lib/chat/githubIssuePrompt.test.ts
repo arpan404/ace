@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildGitHubIssueHiddenContextFromThreads,
   buildGitHubIssueContextBlock,
   buildGitHubIssuePrompt,
   buildGitHubIssuePromptFromThread,
@@ -95,5 +96,22 @@ describe("githubIssuePrompt", () => {
     expect(prompt).toContain("Solve #42: Fix timeline sizing");
     expect(prompt).toContain("Solve #7: Fix composer selection");
     expect(prompt.match(/<github_issue_context>/g)?.length).toBe(2);
+  });
+
+  it("builds hidden-only context blocks without summary labels", () => {
+    const issueThread = {
+      ...issue,
+      comments: [],
+    };
+    const secondThread = {
+      ...issue,
+      number: 7,
+      title: "Fix composer selection",
+      comments: [],
+    };
+    const hidden = buildGitHubIssueHiddenContextFromThreads([issueThread, secondThread]);
+    expect(hidden).not.toContain("Solve #42");
+    expect(hidden).not.toContain("Solve #7");
+    expect(hidden.match(/<github_issue_context>/g)?.length).toBe(2);
   });
 });

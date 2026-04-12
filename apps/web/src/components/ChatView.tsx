@@ -1675,7 +1675,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           type: "slash-command",
           command: "issues",
           label: "/issues",
-          description: "Tag GitHub issues and send context (#123 #456)",
+          description: "Attach GitHub issue context to this message",
         },
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
       const query = composerTrigger.query.trim().toLowerCase();
@@ -4574,7 +4574,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setComposerTrigger(null);
       return;
     }
-    const composerIssuesCommandIssueNumbers =
+    const composerIssuesCommandPayload =
       composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
         ? parseComposerIssuesCommand(trimmed)
         : null;
@@ -4582,7 +4582,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       composerImages.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
       /^\/issues\b/i.test(trimmed);
-    if (isIssuesCommandText && composerIssuesCommandIssueNumbers === null) {
+    if (isIssuesCommandText && composerIssuesCommandPayload === null) {
       toastManager.add({
         type: "warning",
         title: "Use valid issue tags",
@@ -4590,12 +4590,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
       });
       return;
     }
-    if (composerIssuesCommandIssueNumbers !== null) {
-      if (composerIssuesCommandIssueNumbers.length === 0) {
+    if (composerIssuesCommandPayload !== null) {
+      if (composerIssuesCommandPayload.issueNumbers.length === 0) {
         toastManager.add({
           type: "warning",
           title: "Tag at least one issue",
-          description: "Use /issues #123 #456 to send GitHub issue context.",
+          description: "Use /issues #123 #456, then add your message if needed.",
         });
         return;
       }
@@ -4610,15 +4610,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
       try {
         const payload = await buildGitHubIssueSelectionPayload({
           cwd: gitCwd,
-          issueNumbers: composerIssuesCommandIssueNumbers,
+          issueNumbers: composerIssuesCommandPayload.issueNumbers,
           queryClient,
+          includeSummaryLines: false,
         });
+        const composedPrompt =
+          payload.prompt.length > 0 ? `${trimmed}\n\n${payload.prompt}` : trimmed;
         promptRef.current = "";
         clearComposerDraftContent(activeThread.id);
         setComposerHighlightedItemId(null);
         setComposerCursor(0);
         setComposerTrigger(null);
-        await onFixGitHubIssue({ prompt: payload.prompt, images: payload.images });
+        await onFixGitHubIssue({ prompt: composedPrompt, images: payload.images });
       } catch (error) {
         toastManager.add({
           type: "error",
@@ -5617,6 +5620,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
         workspaceEntriesQuery.isFetching)) ||
     (composerTriggerKind === "issue" &&
       (issueTriggerLookupQuery.isLoading || issueTriggerLookupQuery.isFetching));
+  const showIssuesCommandExamplesHint =
+    !isComposerApprovalState &&
+    pendingUserInputs.length === 0 &&
+    /^\/issues\s*$/i.test(prompt.trimStart());
+  const showIssuesCommandExamplesPopover = showIssuesCommandExamplesHint && !composerMenuOpen;
 
   const onPromptChange = useCallback(
     (
@@ -6157,6 +6165,27 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               />
                             </div>
                           )}
+                          {showIssuesCommandExamplesPopover ? (
+                            <div className="pointer-events-none absolute inset-x-0 bottom-full z-20 mb-2 px-1">
+                              <div className="rounded-lg border border-border bg-popover px-3 py-2 shadow-sm">
+                                <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+                                  Use <span className="font-mono text-foreground">/issues</span>{" "}
+                                  with issue tags:
+                                </p>
+                                <div className="space-y-1">
+                                  <div className="rounded-md border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] text-foreground/90">
+                                    /issues #[issue_no] [message]
+                                  </div>
+                                  <div className="rounded-md border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] text-foreground/90">
+                                    /issues #123 #456 [message]
+                                  </div>
+                                  <div className="rounded-md border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] text-foreground/90">
+                                    /issues #123 Fix timeline jitter in chat view
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
 
                           <ComposerQueuedMessages
                             messages={queuedComposerMessages}

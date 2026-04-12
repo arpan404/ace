@@ -252,19 +252,28 @@ export function parseStandaloneComposerSlashCommand(
   return "default";
 }
 
-export function parseComposerIssuesCommand(text: string): number[] | null {
+export function parseComposerIssuesCommand(
+  text: string,
+): { issueNumbers: number[]; message: string } | null {
   const match = /^\/issues(?:\s+(.*))?$/i.exec(text.trim());
   if (!match) {
     return null;
   }
   const args = (match[1] ?? "").trim();
+
   if (args.length === 0) {
-    return [];
+    return {
+      issueNumbers: [],
+      message: "",
+    };
   }
 
+  const leadingTagsMatch = /^\s*(?:#\d+\s*(?:,\s*)?)+/.exec(args);
+  const tagRegion = leadingTagsMatch?.[0] ?? "";
+  const message = args.slice(tagRegion.length).trim();
   const issueNumbers: number[] = [];
   const seen = new Set<number>();
-  for (const issueMatch of args.matchAll(/#(\d+)/g)) {
+  for (const issueMatch of tagRegion.matchAll(/#(\d+)/g)) {
     const numberText = issueMatch[1];
     if (!numberText) {
       continue;
@@ -277,12 +286,10 @@ export function parseComposerIssuesCommand(text: string): number[] | null {
     issueNumbers.push(issueNumber);
   }
 
-  const invalidRemainder = args.replace(/#\d+/g, " ").replace(/[,\s]/g, "");
-  if (invalidRemainder.length > 0) {
-    return null;
-  }
-
-  return issueNumbers;
+  return {
+    issueNumbers,
+    message,
+  };
 }
 
 export function replaceTextRange(

@@ -117,6 +117,15 @@ export function buildGitHubIssuePromptFromThreads(
   return `${summary}\n\n${contexts}`;
 }
 
+export function buildGitHubIssueHiddenContextFromThreads(
+  threads: ReadonlyArray<GitHubIssueThread>,
+): string {
+  if (threads.length === 0) {
+    return "";
+  }
+  return threads.map((thread) => buildGitHubIssueThreadContextBlock(thread)).join("\n\n");
+}
+
 export function buildGitHubIssuePrompt(issue: GitHubIssue): string {
   return buildGitHubIssuePromptFromThread({ ...issue, comments: [] });
 }

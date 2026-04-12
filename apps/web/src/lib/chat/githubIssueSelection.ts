@@ -5,7 +5,10 @@ import type { ComposerImageAttachment } from "~/composerDraftStore";
 import { gitGitHubIssueThreadQueryOptions } from "~/lib/gitReactQuery";
 
 import { fetchGitHubIssueMarkdownImages } from "./githubIssueImages";
-import { buildGitHubIssuePromptFromThreads } from "./githubIssuePrompt";
+import {
+  buildGitHubIssueHiddenContextFromThreads,
+  buildGitHubIssuePromptFromThreads,
+} from "./githubIssuePrompt";
 
 function normalizeIssueNumbers(issueNumbers: ReadonlyArray<number>): number[] {
   const normalized: number[] = [];
@@ -24,6 +27,7 @@ export async function buildGitHubIssueSelectionPayload(input: {
   cwd: string;
   issueNumbers: ReadonlyArray<number>;
   queryClient: QueryClient;
+  includeSummaryLines?: boolean;
 }): Promise<{
   issueNumbers: number[];
   threads: GitHubIssueThread[];
@@ -47,7 +51,10 @@ export async function buildGitHubIssueSelectionPayload(input: {
     ),
   );
   const threads = threadResults.map((result) => result.issue);
-  const prompt = buildGitHubIssuePromptFromThreads(threads);
+  const prompt =
+    input.includeSummaryLines === false
+      ? buildGitHubIssueHiddenContextFromThreads(threads)
+      : buildGitHubIssuePromptFromThreads(threads);
 
   const issueImages = await Promise.all(
     threads.map((thread) => fetchGitHubIssueMarkdownImages(thread)),
