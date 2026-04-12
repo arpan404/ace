@@ -130,7 +130,6 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import { BotIcon, CircleAlertIcon, ListTodoIcon, XIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
-import { Spinner } from "./ui/spinner";
 import { cn, randomUUID } from "~/lib/utils";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -185,6 +184,8 @@ import { selectThreadTerminalState, useTerminalStateStore } from "../terminalSta
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatConversationExtras } from "./chat/ChatConversationExtras";
+import { GitHubIssuePreviewDialog } from "./GitHubIssuePreviewDialog";
+import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
@@ -419,6 +420,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     gitHubIssueDialogInitialSelectedIssueNumbers,
     setGitHubIssueDialogInitialSelectedIssueNumbers,
   ] = useState<number[]>([]);
+  const [issuePreviewNumber, setIssuePreviewNumber] = useState<number | null>(null);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
   const [pendingPullRequestSetupRequest, setPendingPullRequestSetupRequest] =
@@ -944,18 +946,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
     setGitHubIssueDialogInitialSelectedIssueNumbers([]);
   }, []);
 
-  const onComposerIssueTokenClick = useCallback(
-    (issueNumber: number) => {
-      if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
-        return;
-      }
-      openGitHubIssueDialog({
-        initialIssueNumber: issueNumber,
-        initialSelectedIssueNumbers: [issueNumber],
-      });
-    },
-    [openGitHubIssueDialog],
-  );
+  const onComposerIssueTokenClick = useCallback((issueNumber: number) => {
+    if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
+      return;
+    }
+    setIssuePreviewNumber(issueNumber);
+  }, []);
 
   const openOrReuseProjectDraftThread = useCallback(
     async (input: { branch: string; worktreePath: string | null; envMode: DraftThreadEnvMode }) => {
@@ -1612,13 +1608,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }),
   );
   const workspaceEntries = workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
-  const canLookupIssueTags = branchesQuery.data?.isRepo === true;
+  const canLookupIssueTags = isGitRepo;
   const issueTriggerLookupQuery = useQuery(
     gitGitHubIssuesQueryOptions({
       cwd: gitCwd,
       limit: 120,
       state: "all",
-      ...(issueTriggerQuery.length > 0 ? { query: `#${issueTriggerQuery}` } : {}),
       enabled: isIssueTrigger && canLookupIssueTags,
     }),
   );
@@ -6072,16 +6067,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 <ChatMessagesPane
                   messagesContainerRef={setMessagesScrollContainerRef}
                   messagesTimelineProps={messagesTimelineProps}
-                  loadingNotice={
-                    isThreadHistoryLoading ? (
-                      <div className="sticky top-0 z-10 mb-3 flex justify-center">
-                        <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-[11px] text-muted-foreground">
-                          <Spinner className="size-3" />
-                          <span>Loading full history...</span>
-                        </div>
-                      </div>
-                    ) : null
-                  }
+                  loadingNotice={isThreadHistoryLoading ? <ThreadHistoryLoadingNotice /> : null}
                   onMessagesClickCapture={onMessagesClickCapture}
                   onMessagesPointerCancel={onMessagesPointerCancel}
                   onMessagesPointerDown={onMessagesPointerDown}
@@ -6457,6 +6443,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   pullRequestDialogKey={pullRequestDialogState?.key ?? null}
                   pullRequestDialogProps={pullRequestDialogProps}
                 />
+                {issuePreviewNumber !== null ? (
+                  <GitHubIssuePreviewDialog
+                    open
+                    issueNumber={issuePreviewNumber}
+                    cwd={gitCwd ?? activeProject?.cwd ?? null}
+                    onOpenChange={(open) => {
+                      if (!open) setIssuePreviewNumber(null);
+                    }}
+                  />
+                ) : null}
               </div>
               {workspaceMode === "split" ? (
                 <>

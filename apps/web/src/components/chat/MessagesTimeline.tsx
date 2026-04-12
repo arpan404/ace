@@ -922,11 +922,13 @@ function buildTimelineRows(input: {
     flushPendingMetaEntries(null);
   }
 
+  const liveDurationStartAt = lastMessageBoundaryAt ?? input.activeTurnStartedAt;
+
   if (input.isWorking) {
     nextRows.push({
       kind: "working",
       id: "working-indicator-row",
-      createdAt: input.activeTurnStartedAt,
+      createdAt: liveDurationStartAt,
       mode: hasRenderableCurrentTurnOutput ? "live" : "silent-thinking",
       intentText: activeLiveIntentText,
     });

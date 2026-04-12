@@ -21,8 +21,9 @@ import {
   gitGitHubIssuesQueryOptions,
 } from "~/lib/gitReactQuery";
 import { cn } from "~/lib/utils";
-import ChatMarkdown from "./ChatMarkdown";
 import { GitHubIcon } from "./Icons";
+import { IssueMarkdown, formatIssueRelativeTime } from "./IssueMarkdown";
+import { GitHubIssueListSkeleton, GitHubIssueThreadSkeleton } from "./GitHubIssueSkeletons";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
@@ -44,35 +45,6 @@ const ISSUE_SKELETON_KEYS = [
 ] as const;
 const ISSUE_STATE_FILTERS: ReadonlyArray<GitHubIssueListStateFilter> = ["open", "all"];
 const ISSUE_LIMIT_OPTIONS = [40, 80, 120] as const;
-const HTML_IMG_TAG_REGEX = /<img\b[^>]*>/gi;
-const HTML_ATTR_REGEX = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-
-function formatIssueRelativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) {
-    return "";
-  }
-  const diffMs = Date.now() - then;
-  const days = Math.floor(diffMs / 86_400_000);
-  if (days < 1) {
-    return "today";
-  }
-  if (days === 1) {
-    return "yesterday";
-  }
-  if (days < 7) {
-    return `${days}d ago`;
-  }
-  if (days < 30) {
-    const weeks = Math.floor(days / 7);
-    return `${weeks}w ago`;
-  }
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 function toggleListValue(values: ReadonlyArray<number>, next: number): number[] {
   return values.includes(next) ? values.filter((value) => value !== next) : [...values, next];
@@ -89,35 +61,6 @@ function normalizeIssueNumbers(issueNumbers: ReadonlyArray<number>): number[] {
     normalized.push(issueNumber);
   }
   return normalized;
-}
-
-function normalizeGitHubIssueMarkdown(text: string): string {
-  return text.replace(HTML_IMG_TAG_REGEX, (tag) => {
-    let src: string | null = null;
-    let alt = "";
-    HTML_ATTR_REGEX.lastIndex = 0;
-    let attrMatch: RegExpExecArray | null;
-    while ((attrMatch = HTML_ATTR_REGEX.exec(tag)) !== null) {
-      const key = attrMatch[1];
-      if (!key) {
-        continue;
-      }
-      const doubleQuotedValue = attrMatch[2];
-      const singleQuotedValue = attrMatch[3];
-      const normalizedKey = key.toLowerCase();
-      const value = (doubleQuotedValue ?? singleQuotedValue ?? "").trim();
-      if (normalizedKey === "src" && value.length > 0) {
-        src = value;
-      } else if (normalizedKey === "alt") {
-        alt = value;
-      }
-    }
-    if (!src) {
-      return tag;
-    }
-    const escapedAlt = alt.replaceAll("[", "\\[").replaceAll("]", "\\]");
-    return `![${escapedAlt}](<${src}>)`;
-  });
 }
 
 export interface GitHubIssueDialogProps {
@@ -295,60 +238,54 @@ export function GitHubIssueDialog({
     >
       <DialogPopup
         showCloseButton={false}
-        className="flex max-h-[min(42rem,90vh)] min-h-0 max-w-[min(72rem,96vw)] gap-0 overflow-hidden p-0"
+        className="flex h-[min(42rem,90vh)] min-h-[24rem] max-w-[min(72rem,96vw)] gap-0 overflow-hidden p-0"
       >
         <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(15rem,28%)_minmax(0,1fr)] overflow-hidden">
-          <div className="flex min-h-0 flex-col border-e border-border/60 bg-muted/15 dark:bg-muted/10">
+          {/* ── Left sidebar: issue list ── */}
+          <div className="flex min-h-0 flex-col border-e border-border/60 bg-muted/10 dark:bg-muted/5">
             <div className="shrink-0 border-b border-border/60 px-4 py-3">
               <DialogHeader className="gap-0.5 p-0 text-start">
-                <DialogTitle className="flex items-center gap-2 text-base font-semibold tracking-tight">
-                  <span className="flex size-8 items-center justify-center rounded-lg bg-background/90 shadow-sm ring-1 ring-border/50 dark:bg-background/50">
-                    <GitHubIcon className="size-4 opacity-90" />
-                  </span>
-                  GitHub issues
+                <DialogTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+                  <GitHubIcon className="size-4 opacity-80" />
+                  GitHub Issues
                 </DialogTitle>
-                <p className="text-muted-foreground text-xs font-normal leading-snug">
-                  Browse, filter, tag issues, and send context to the agent.
-                </p>
               </DialogHeader>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col gap-2 px-3 pb-3 pt-2">
-              <label className="relative block shrink-0 px-1">
+            <div className="flex min-h-0 flex-1 flex-col gap-1.5 px-3 pb-2 pt-2">
+              {/* Search */}
+              <label className="relative block shrink-0">
                 <SearchIcon
                   aria-hidden
-                  className="pointer-events-none absolute start-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/75"
+                  className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/60"
                 />
                 <Input
                   ref={searchInputRef}
-                  placeholder="Search title/body"
+                  placeholder="Search issues…"
                   value={search}
-                  onChange={(event) => {
-                    setSearch(event.target.value);
-                  }}
+                  onChange={(event) => setSearch(event.target.value)}
                   className={cn(
-                    "h-8 rounded-md border-border/70 bg-background/90 ps-9 text-sm shadow-sm",
-                    "placeholder:text-muted-foreground/65",
-                    "focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/20",
+                    "h-7 rounded-md border-border/50 bg-background/80 ps-8 text-xs shadow-none",
+                    "placeholder:text-muted-foreground/50",
+                    "focus-visible:border-ring/50 focus-visible:ring-1 focus-visible:ring-ring/15",
                   )}
                   onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      event.stopPropagation();
-                    }
+                    if (event.key === "Escape") event.stopPropagation();
                   }}
                 />
               </label>
 
-              <div className="flex shrink-0 items-center gap-1.5 px-1">
-                <div className="inline-flex items-center overflow-hidden rounded-md border border-border/60 bg-background/70">
+              {/* Filters row */}
+              <div className="flex shrink-0 items-center gap-1">
+                <div className="inline-flex items-center overflow-hidden rounded-md border border-border/50 bg-background/60">
                   {ISSUE_STATE_FILTERS.map((value) => (
                     <button
                       key={value}
                       type="button"
                       className={cn(
-                        "px-2 py-1 text-[11px] font-medium capitalize transition-colors",
+                        "px-2 py-0.5 text-[10px] font-medium capitalize transition-colors",
                         stateFilter === value
-                          ? "bg-primary/12 text-foreground"
+                          ? "bg-primary/10 text-foreground"
                           : "text-muted-foreground hover:text-foreground",
                       )}
                       onClick={() => setStateFilter(value)}
@@ -357,15 +294,15 @@ export function GitHubIssueDialog({
                     </button>
                   ))}
                 </div>
-                <div className="inline-flex items-center overflow-hidden rounded-md border border-border/60 bg-background/70">
+                <div className="inline-flex items-center overflow-hidden rounded-md border border-border/50 bg-background/60">
                   {ISSUE_LIMIT_OPTIONS.map((limit) => (
                     <button
                       key={limit}
                       type="button"
                       className={cn(
-                        "px-2 py-1 text-[11px] font-medium tabular-nums transition-colors",
+                        "px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors",
                         issueLimit === limit
-                          ? "bg-primary/12 text-foreground"
+                          ? "bg-primary/10 text-foreground"
                           : "text-muted-foreground hover:text-foreground",
                       )}
                       onClick={() => setIssueLimit(limit)}
@@ -375,124 +312,118 @@ export function GitHubIssueDialog({
                     </button>
                   ))}
                 </div>
-              </div>
-
-              <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-1 text-[11px] text-muted-foreground">
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-md bg-muted/60 px-2 py-0.5 font-medium text-foreground/75",
-                    isSearchStale && "opacity-55",
-                  )}
-                >
-                  {issuesQuery.isFetching && !issuesQuery.isPending ? (
-                    <Spinner className="size-3" />
-                  ) : null}
-                  {issues.length} shown
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-md bg-muted/40 px-2 py-0.5">
-                  <CheckIcon className="size-3 opacity-70" />
-                  {selectedIssueNumbersForSolve.length} selected
-                </span>
-                <div className="ms-auto flex items-center gap-1">
-                  <Button
+                <div className="ms-auto flex items-center gap-0.5">
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 rounded-md px-2 text-[11px]"
+                    className="rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
                     onClick={() => {
                       if (allVisibleSelected) {
                         setSelectedIssueNumbers((existing) =>
-                          existing.filter((issueNumber) => !issueByNumber.has(issueNumber)),
+                          existing.filter((n) => !issueByNumber.has(n)),
                         );
-                        return;
+                      } else {
+                        setSelectedIssueNumbers((existing) => {
+                          const next = new Set(existing);
+                          for (const issue of issues) next.add(issue.number);
+                          return Array.from(next);
+                        });
                       }
-                      setSelectedIssueNumbers((existing) => {
-                        const next = new Set(existing);
-                        for (const issue of issues) {
-                          next.add(issue.number);
-                        }
-                        return Array.from(next);
-                      });
                     }}
                   >
-                    {allVisibleSelected ? "Unselect visible" : "Select visible"}
-                  </Button>
+                    {allVisibleSelected ? "Deselect" : "Select all"}
+                  </button>
                   {selectedIssueNumberSet.size > 0 ? (
-                    <Button
+                    <button
                       type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 rounded-md px-2 text-[11px]"
-                      onClick={() => {
-                        setSelectedIssueNumbers([]);
-                      }}
+                      className="rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                      onClick={() => setSelectedIssueNumbers([])}
                     >
                       Clear
-                    </Button>
+                    </button>
                   ) : null}
                 </div>
               </div>
 
-              <div className="shrink-0 px-1">
-                <div className="mb-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-                  <FilterIcon className="size-3.5 opacity-70" />
-                  Label filters
-                </div>
-                <div className="max-h-16 overflow-y-auto pe-1">
-                  <div className="flex min-h-7 flex-wrap gap-1">
-                    {availableLabels.length > 0 ? (
-                      availableLabels.map(({ label, count }) => {
+              {/* Status bar */}
+              <div className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 font-medium tabular-nums",
+                    isSearchStale && "opacity-50",
+                  )}
+                >
+                  {issuesQuery.isFetching && !issuesQuery.isPending ? (
+                    <Spinner className="size-2.5" />
+                  ) : null}
+                  {issues.length} shown
+                </span>
+                {selectedIssueNumbersForSolve.length > 0 ? (
+                  <>
+                    <span className="text-border">·</span>
+                    <span className="inline-flex items-center gap-0.5 tabular-nums">
+                      <CheckIcon className="size-2.5 opacity-60" />
+                      {selectedIssueNumbersForSolve.length} selected
+                    </span>
+                  </>
+                ) : null}
+              </div>
+
+              {/* Label filters */}
+              {availableLabels.length > 0 ? (
+                <div className="shrink-0">
+                  <button
+                    type="button"
+                    className="mb-1 flex items-center gap-1 text-[10px] text-muted-foreground/80"
+                    onClick={() => setLabelFilters((f) => (f.length > 0 ? [] : f))}
+                  >
+                    <FilterIcon className="size-3 opacity-60" />
+                    Labels
+                  </button>
+                  <div className="max-h-12 overflow-y-auto">
+                    <div className="flex flex-wrap gap-0.5">
+                      {availableLabels.map(({ label, count }) => {
                         const active = labelFilters.includes(label);
                         return (
                           <button
                             key={label}
                             type="button"
                             className={cn(
-                              "rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors",
+                              "rounded-full border px-1.5 py-px text-[9px] font-medium transition-colors",
                               active
-                                ? "border-primary/40 bg-primary/12 text-foreground"
-                                : "border-border/60 bg-background/70 text-muted-foreground hover:text-foreground",
+                                ? "border-primary/30 bg-primary/10 text-foreground"
+                                : "border-border/40 bg-background/50 text-muted-foreground hover:text-foreground",
                             )}
                             onClick={() => handleToggleLabelFilter(label)}
                           >
-                            {label} · {count}
+                            {label}
+                            <span className="ml-0.5 opacity-50">{count}</span>
                           </button>
                         );
-                      })
-                    ) : (
-                      <span className="text-[11px] text-muted-foreground/70">
-                        No labels in current results
-                      </span>
-                    )}
+                      })}
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : null}
 
               {errorMessage ? (
-                <div className="mx-1 shrink-0 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                <div className="shrink-0 rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5 text-[11px] text-destructive">
                   {errorMessage}
                 </div>
               ) : null}
 
-              <ScrollArea className="min-h-0 flex-1 px-1" scrollbarGutter scrollFade>
-                <div role="listbox" aria-label="Issues" className="pb-1">
+              {/* Issue list */}
+              <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
+                <div role="listbox" aria-label="Issues">
                   {issuesQuery.isPending && issues.length === 0 ? (
-                    <div className="flex flex-col gap-px py-1">
-                      {ISSUE_SKELETON_KEYS.map((skeletonKey) => (
-                        <div
-                          key={skeletonKey}
-                          className="h-[3.5rem] animate-pulse rounded-md bg-muted/45 dark:bg-muted/25"
-                        />
-                      ))}
-                    </div>
+                    <GitHubIssueListSkeleton count={ISSUE_SKELETON_KEYS.length} />
                   ) : issues.length === 0 ? (
-                    <p className="px-2 py-10 text-center text-sm text-muted-foreground">
+                    <p className="py-10 text-center text-xs text-muted-foreground">
                       {trimmedDebouncedSearch.length > 0 || labelFilters.length > 0
-                        ? "No issues match your current filters."
+                        ? "No matching issues."
                         : "No issues found."}
                     </p>
                   ) : (
-                    <div className="flex flex-col gap-px overflow-hidden rounded-lg border border-border/50 bg-background/35 dark:bg-background/20">
+                    <div className="flex flex-col gap-px">
                       {issues.map((issue) => {
                         const active = focusedIssue?.number === issue.number;
                         const selected = selectedIssueNumberSet.has(issue.number);
@@ -502,18 +433,16 @@ export function GitHubIssueDialog({
                             role="option"
                             aria-selected={active}
                             className={cn(
-                              "group flex items-start gap-2 border-b border-border/35 px-2.5 py-2.5 transition-colors last:border-b-0",
-                              "hover:bg-muted/50",
+                              "group flex items-start gap-2 rounded-md border border-transparent px-2 py-2 transition-colors",
+                              "hover:border-border/35 hover:bg-muted/30 dark:hover:border-border/25 dark:hover:bg-muted/15",
                               active &&
-                                "bg-primary/[0.08] ring-1 ring-inset ring-primary/25 dark:bg-primary/[0.12]",
+                                "border-border/50 bg-muted/34 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.18)] dark:border-border/40 dark:bg-muted/20",
                             )}
                           >
                             <Checkbox
                               checked={selected}
-                              className="mt-1"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                              }}
+                              className="mt-0.5 size-3.5"
+                              onClick={(event) => event.stopPropagation()}
                               onCheckedChange={() => handleToggleIssueSelection(issue.number)}
                             />
                             <button
@@ -521,36 +450,36 @@ export function GitHubIssueDialog({
                               className="min-w-0 flex-1 text-start"
                               onClick={() => setFocusedIssueNumber(issue.number)}
                             >
-                              <div className="flex min-w-0 items-center gap-2">
+                              <div className="flex min-w-0 items-center gap-1.5">
                                 {issue.state === "open" ? (
-                                  <CircleDotIcon className="size-3.5 shrink-0 text-emerald-500" />
+                                  <CircleDotIcon className="size-3 shrink-0 text-emerald-500" />
                                 ) : (
-                                  <CircleXIcon className="size-3.5 shrink-0 text-violet-500" />
+                                  <CircleXIcon className="size-3 shrink-0 text-violet-500" />
                                 )}
-                                <span className="line-clamp-2 text-[13px] leading-tight font-medium text-foreground">
+                                <span className="line-clamp-2 text-xs font-medium leading-snug text-foreground">
                                   {issue.title}
                                 </span>
                               </div>
-                              <div className="mt-1 flex min-w-0 items-center gap-2 ps-[1.1rem]">
-                                <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
+                              <div className="mt-0.5 flex items-center gap-1.5 ps-[1.125rem]">
+                                <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70 tabular-nums">
                                   #{issue.number}
                                 </span>
-                                <span className="truncate text-[11px] text-muted-foreground">
+                                <span className="truncate text-[10px] text-muted-foreground/60">
                                   {formatIssueRelativeTime(issue.updatedAt)}
                                 </span>
                               </div>
                               {issue.labels.length > 0 ? (
-                                <div className="mt-1.5 flex min-w-0 flex-wrap gap-1 ps-[1.1rem]">
+                                <div className="mt-1 flex flex-wrap gap-0.5 ps-[1.125rem]">
                                   {issue.labels.slice(0, 3).map((label) => (
                                     <span
                                       key={label.name}
-                                      className="max-w-[7.75rem] truncate rounded-full bg-muted/80 px-1.5 py-px text-[10px] font-medium text-muted-foreground"
+                                      className="max-w-[7rem] truncate rounded-full bg-muted/60 px-1.5 py-px text-[9px] font-medium text-muted-foreground dark:bg-muted/30"
                                     >
                                       {label.name}
                                     </span>
                                   ))}
                                   {issue.labels.length > 3 ? (
-                                    <span className="text-[10px] text-muted-foreground">
+                                    <span className="text-[9px] text-muted-foreground/60">
                                       +{issue.labels.length - 3}
                                     </span>
                                   ) : null}
@@ -567,178 +496,166 @@ export function GitHubIssueDialog({
             </div>
           </div>
 
+          {/* ── Right panel: issue detail ── */}
           <div className="flex min-h-0 min-w-0 flex-col bg-popover">
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              {focusedIssue ? (
-                <>
-                  <div className="shrink-0 border-b border-border/60 px-6 pb-4 pt-5">
-                    <div className="flex flex-col gap-3">
-                      <div className="flex flex-wrap items-start justify-between gap-2 gap-y-1">
-                        <h2 className="min-w-0 flex-1 text-lg font-semibold leading-snug tracking-tight text-foreground">
-                          <span className="text-muted-foreground font-mono text-base font-normal tabular-nums">
-                            #{focusedIssue.number}
-                          </span>{" "}
-                          {focusedIssue.title}
-                        </h2>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="shrink-0 gap-1.5 rounded-md"
-                          render={<a href={focusedIssue.url} target="_blank" rel="noreferrer" />}
-                        >
-                          GitHub
-                          <ExternalLinkIcon className="size-3.5 opacity-70" />
-                        </Button>
-                      </div>
-                      <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                        <Badge
-                          variant={focusedIssue.state === "open" ? "success" : "outline"}
-                          size="sm"
-                          className="h-5 rounded-full px-2 text-[11px] font-normal capitalize"
-                        >
-                          {focusedIssue.state}
-                        </Badge>
-                        <span className="text-border hidden sm:inline">·</span>
-                        <span>
-                          Opened by{" "}
-                          <span className="text-foreground/90 font-medium">
-                            {focusedIssue.author?.login ?? "unknown"}
-                          </span>
-                        </span>
-                        <span className="text-border">·</span>
-                        <span>{formatIssueRelativeTime(focusedIssue.createdAt)}</span>
-                      </div>
-                      {focusedIssue.labels.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {focusedIssue.labels.map((label) => (
-                            <Badge
-                              key={label.name}
-                              variant="secondary"
-                              size="sm"
-                              className="font-normal"
-                            >
-                              {label.name}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
+            {focusedIssue ? (
+              <>
+                {/* Issue header */}
+                <div className="shrink-0 border-b border-border/50 px-6 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <h2 className="min-w-0 flex-1 text-base font-semibold leading-snug tracking-tight text-foreground">
+                      <span className="font-mono text-sm font-normal text-muted-foreground/70 tabular-nums">
+                        #{focusedIssue.number}
+                      </span>{" "}
+                      {focusedIssue.title}
+                    </h2>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 gap-1.5 rounded-md text-xs"
+                      render={<a href={focusedIssue.url} target="_blank" rel="noreferrer" />}
+                    >
+                      GitHub
+                      <ExternalLinkIcon className="size-3 opacity-60" />
+                    </Button>
                   </div>
 
-                  <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
-                    <div className="space-y-6 px-6 py-4 pb-6">
-                      {threadQuery.isFetching && !thread ? (
-                        <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-                          <Spinner className="size-4" />
-                          Loading thread…
-                        </div>
-                      ) : thread ? (
-                        <>
-                          <section>
-                            <h3 className="text-foreground/90 mb-2 text-xs font-semibold uppercase tracking-wide">
-                              Description
-                            </h3>
-                            <div className="rounded-lg border border-border/50 bg-muted/20 px-4 py-3 dark:bg-muted/10">
-                              <ChatMarkdown
-                                text={
-                                  thread.body?.trim().length
-                                    ? normalizeGitHubIssueMarkdown(thread.body)
-                                    : "No description provided."
-                                }
-                                cwd={undefined}
-                              />
-                            </div>
-                          </section>
-                          {thread.comments.length > 0 ? (
-                            <section>
-                              <h3 className="text-foreground/90 mb-3 text-xs font-semibold uppercase tracking-wide">
-                                Comments ({thread.comments.length})
-                              </h3>
-                              <ul className="space-y-3">
-                                {thread.comments.map((comment) => (
-                                  <li
-                                    key={
-                                      comment.url ??
-                                      `${comment.createdAt}-${comment.author?.login ?? "unknown"}`
-                                    }
-                                    className="rounded-lg border border-border/45 bg-background/60 px-4 py-3 dark:bg-background/25"
-                                  >
-                                    <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-                                      <span className="font-semibold text-foreground/90">
-                                        {comment.author?.login ?? "unknown"}
-                                      </span>
-                                      <span className="text-muted-foreground">
-                                        {formatIssueRelativeTime(comment.createdAt)}
-                                      </span>
-                                      {comment.url ? (
-                                        <a
-                                          href={comment.url}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="text-muted-foreground hover:text-foreground ml-auto inline-flex items-center gap-1"
-                                        >
-                                          <ExternalLinkIcon className="size-3" />
-                                        </a>
-                                      ) : null}
-                                    </div>
-                                    <ChatMarkdown
-                                      text={
-                                        comment.body?.trim().length
-                                          ? normalizeGitHubIssueMarkdown(comment.body)
-                                          : "Empty comment."
-                                      }
-                                      cwd={undefined}
-                                    />
-                                  </li>
-                                ))}
-                              </ul>
-                            </section>
-                          ) : null}
-                        </>
-                      ) : (
-                        <p className="py-12 text-center text-sm text-muted-foreground">
-                          Could not load this issue.
-                        </p>
-                      )}
-                    </div>
-                  </ScrollArea>
-                </>
-              ) : (
-                <div className="flex flex-1 items-center justify-center px-6">
-                  <p className="text-center text-sm text-muted-foreground">
-                    Select an issue from the list
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                    <Badge
+                      variant={focusedIssue.state === "open" ? "success" : "outline"}
+                      size="sm"
+                      className="h-[18px] rounded-full px-1.5 text-[10px] font-medium capitalize"
+                    >
+                      {focusedIssue.state}
+                    </Badge>
+                    <span>
+                      Opened by{" "}
+                      <span className="font-medium text-foreground/90">
+                        {focusedIssue.author?.login ?? "unknown"}
+                      </span>
+                    </span>
+                    <span className="text-border/60">·</span>
+                    <span>{formatIssueRelativeTime(focusedIssue.createdAt)}</span>
+                    {focusedIssue.labels.length > 0 ? (
+                      <>
+                        <span className="text-border/60">·</span>
+                        {focusedIssue.labels.map((label) => (
+                          <Badge
+                            key={label.name}
+                            variant="secondary"
+                            size="sm"
+                            className="h-[18px] rounded-full px-1.5 text-[10px] font-normal"
+                          >
+                            {label.name}
+                          </Badge>
+                        ))}
+                      </>
+                    ) : null}
+                  </div>
                 </div>
-              )}
-            </div>
 
-            <DialogFooter className="shrink-0 border-t border-border/60 bg-muted/20 px-6 py-3 dark:bg-muted/10 sm:py-3">
-              <span className="me-auto text-xs text-muted-foreground">
+                {/* Issue body + comments */}
+                <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
+                  <div className="px-6 py-5">
+                    {threadQuery.isFetching && !thread ? (
+                      <GitHubIssueThreadSkeleton className="py-1" />
+                    ) : thread ? (
+                      <div className="space-y-5">
+                        {/* Description */}
+                        <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 dark:bg-muted/5">
+                          <IssueMarkdown
+                            text={
+                              thread.body?.trim().length ? thread.body : "No description provided."
+                            }
+                            cwd={cwd}
+                          />
+                        </div>
+
+                        {/* Comments */}
+                        {thread.comments.length > 0 ? (
+                          <div>
+                            <h3 className="mb-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
+                              Comments ({thread.comments.length})
+                            </h3>
+                            <div className="space-y-2">
+                              {thread.comments.map((comment) => (
+                                <div
+                                  key={
+                                    comment.url ??
+                                    `${comment.createdAt}-${comment.author?.login ?? "unknown"}`
+                                  }
+                                  className="rounded-lg border border-border/35 bg-background/50 px-4 py-3 dark:bg-background/20"
+                                >
+                                  <div className="mb-2 flex items-center gap-2 text-[11px]">
+                                    <span className="font-semibold text-foreground/85">
+                                      {comment.author?.login ?? "unknown"}
+                                    </span>
+                                    <span className="text-muted-foreground/60">
+                                      {formatIssueRelativeTime(comment.createdAt)}
+                                    </span>
+                                    {comment.url ? (
+                                      <a
+                                        href={comment.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="ml-auto text-muted-foreground/50 transition-colors hover:text-foreground"
+                                      >
+                                        <ExternalLinkIcon className="size-3" />
+                                      </a>
+                                    ) : null}
+                                  </div>
+                                  <IssueMarkdown
+                                    text={
+                                      comment.body?.trim().length ? comment.body : "Empty comment."
+                                    }
+                                    cwd={cwd}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="py-12 text-center text-xs text-muted-foreground">
+                        Could not load this issue.
+                      </p>
+                    )}
+                  </div>
+                </ScrollArea>
+              </>
+            ) : (
+              <div className="flex flex-1 items-center justify-center">
+                <p className="text-xs text-muted-foreground">Select an issue from the list</p>
+              </div>
+            )}
+
+            {/* Footer */}
+            <DialogFooter className="shrink-0 border-t border-border/50 bg-muted/10 px-6 py-2.5 dark:bg-muted/5 sm:py-2.5">
+              <span className="me-auto text-[11px] text-muted-foreground">
                 {selectedIssueNumbersForSolve.length > 1
                   ? `${selectedIssueNumbersForSolve.length} issues selected`
                   : selectedIssueNumbersForSolve.length === 1
                     ? "1 issue selected"
-                    : "Select an issue to tag"}
+                    : "Select an issue to solve"}
               </span>
               <Button
                 type="button"
                 variant="default"
                 size="sm"
                 disabled={selectedIssueNumbersForSolve.length === 0 || isSolving}
-                className="min-w-[8.5rem] rounded-md"
-                onClick={() => {
-                  void handleSolveSelectedIssues();
-                }}
+                className="min-w-[7.5rem] rounded-md text-xs"
+                onClick={() => void handleSolveSelectedIssues()}
               >
                 {isSolving ? (
                   <span className="inline-flex items-center gap-1.5">
-                    <Spinner className="size-3.5" />
-                    Sending…
+                    <Spinner className="size-3" />
+                    Solving…
                   </span>
                 ) : selectedIssueNumbersForSolve.length > 1 ? (
-                  `Send ${selectedIssueNumbersForSolve.length} issue contexts`
+                  `Solve ${selectedIssueNumbersForSolve.length} issues`
                 ) : (
-                  "Send issue context"
+                  "Solve issue"
                 )}
               </Button>
             </DialogFooter>

@@ -23,7 +23,7 @@ describe("githubIssuePrompt", () => {
   };
 
   it("builds a concise issue summary label", () => {
-    expect(buildGitHubIssueSummaryLabel(issue)).toBe("Tag #42: Fix timeline sizing");
+    expect(buildGitHubIssueSummaryLabel(issue)).toBe("Solve #42: Fix timeline sizing");
   });
 
   it("builds a normalized hidden github issue context block", () => {
@@ -56,7 +56,7 @@ describe("githubIssuePrompt", () => {
   });
 
   it("combines summary text with hidden issue context", () => {
-    expect(buildGitHubIssuePrompt(issue)).toContain("Tag #42: Fix timeline sizing\n\n");
+    expect(buildGitHubIssuePrompt(issue)).toContain("Solve #42: Fix timeline sizing\n\n");
     expect(buildGitHubIssuePrompt(issue)).toContain("<github_issue_context>");
     expect(buildGitHubIssuePrompt(issue)).toContain("</github_issue_context>");
   });
@@ -92,8 +92,8 @@ describe("githubIssuePrompt", () => {
       comments: [],
     };
     const prompt = buildGitHubIssuePromptFromThreads([issueThread, secondThread]);
-    expect(prompt).toContain("Tag #42: Fix timeline sizing");
-    expect(prompt).toContain("Tag #7: Fix composer selection");
+    expect(prompt).toContain("Solve #42: Fix timeline sizing");
+    expect(prompt).toContain("Solve #7: Fix composer selection");
     expect(prompt.match(/<github_issue_context>/g)?.length).toBe(2);
   });
 });

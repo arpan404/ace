@@ -1826,6 +1826,56 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("Thought");
   });
 
+  it("measures the live working timer from the latest user message in the active turn", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-17T19:13:00.000Z"));
+
+    try {
+      const { MessagesTimeline } = await import("./MessagesTimeline");
+      const markup = renderToStaticMarkup(
+        <MessagesTimeline
+          hasMessages
+          isWorking
+          activeTurnInProgress
+          activeTurnStartedAt="2026-03-17T19:00:00.000Z"
+          scrollContainer={null}
+          timelineEntries={[
+            {
+              id: "user-current-turn",
+              kind: "message",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              message: {
+                id: MessageId.makeUnsafe("user-current-turn"),
+                role: "user",
+                text: "Follow up on the last change.",
+                createdAt: "2026-03-17T19:12:30.000Z",
+                streaming: false,
+              },
+            },
+          ]}
+          completionDividerBeforeEntryId={null}
+          completionSummary={null}
+          turnDiffSummaryByAssistantMessageId={new Map()}
+          expandedWorkGroups={{}}
+          onToggleWorkGroup={() => {}}
+          onOpenTurnDiff={() => {}}
+          revertTurnCountByUserMessageId={new Map()}
+          onRevertUserMessage={() => {}}
+          isRevertingCheckpoint={false}
+          onImageExpand={() => {}}
+          markdownCwd={undefined}
+          resolvedTheme="light"
+          timestampFormat="locale"
+          workspaceRoot={undefined}
+        />,
+      );
+
+      expect(markup).toContain("Working for 30s");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("uses the matching group id when expanding completed tool calls", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(

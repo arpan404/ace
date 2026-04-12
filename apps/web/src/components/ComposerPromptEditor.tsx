@@ -332,6 +332,46 @@ function isComposerInlineTokenNode(candidate: unknown): candidate is ComposerInl
   );
 }
 
+/**
+ * Check whether the current Lexical selection is adjacent to an actual inline
+ * token **node** in the editor tree.  This avoids false-positives from the
+ * text-based segment parser which eagerly recognises `#N` patterns before the
+ * user has finished typing.
+ */
+function $isCursorAdjacentToInlineTokenNode(): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+  const anchor = selection.anchor;
+
+  if (anchor.type === "element") {
+    const parent = anchor.getNode();
+    if (!$isElementNode(parent)) return false;
+    const children = parent.getChildren();
+    const leftNode = anchor.offset > 0 ? children[anchor.offset - 1] : undefined;
+    const rightNode = children[anchor.offset];
+    return (
+      (leftNode !== undefined && isComposerInlineTokenNode(leftNode)) ||
+      (rightNode !== undefined && isComposerInlineTokenNode(rightNode))
+    );
+  }
+
+  if (anchor.type === "text") {
+    const textNode = anchor.getNode();
+    if (isComposerInlineTokenNode(textNode)) return true;
+    if (anchor.offset === 0) {
+      const prev = textNode.getPreviousSibling();
+      if (prev && isComposerInlineTokenNode(prev)) return true;
+    }
+    if ($isTextNode(textNode) && anchor.offset === textNode.getTextContentSize()) {
+      const next = textNode.getNextSibling();
+      if (next && isComposerInlineTokenNode(next)) return true;
+    }
+    return false;
+  }
+
+  return false;
+}
+
 function resolvedThemeFromDocument(): "light" | "dark" {
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
@@ -1211,9 +1251,7 @@ function ComposerPromptEditorInner({
         expandedCursor: nextExpandedCursor,
         terminalContextIds,
       };
-      const cursorAdjacentToMention =
-        isCollapsedCursorAdjacentToInlineToken(nextValue, nextCursor, "left") ||
-        isCollapsedCursorAdjacentToInlineToken(nextValue, nextCursor, "right");
+      const cursorAdjacentToMention = $isCursorAdjacentToInlineTokenNode();
       onChangeRef.current(
         nextValue,
         nextCursor,

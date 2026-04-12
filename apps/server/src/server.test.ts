@@ -42,6 +42,7 @@ import {
   type CheckpointDiffQueryShape,
 } from "./checkpointing/Services/CheckpointDiffQuery.ts";
 import { GitCore, type GitCoreShape } from "./git/Services/GitCore.ts";
+import { GitHubCli, type GitHubCliShape } from "./git/Services/GitHubCli.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
 import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
 import { Open, type OpenShape } from "./open.ts";
@@ -141,6 +142,7 @@ const buildAppUnderTest = (options?: {
     serverSettings?: Partial<ServerSettingsShape>;
     open?: Partial<OpenShape>;
     gitCore?: Partial<GitCoreShape>;
+    gitHubCli?: Partial<GitHubCliShape>;
     gitManager?: Partial<GitManagerShape>;
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
@@ -211,6 +213,19 @@ const buildAppUnderTest = (options?: {
       Layer.provide(
         Layer.mock(GitCore)({
           ...options?.layers?.gitCore,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(GitHubCli)({
+          execute: () =>
+            Effect.succeed({
+              stdout: "",
+              stderr: "",
+              code: 0,
+              signal: null,
+              timedOut: false,
+            }),
+          ...options?.layers?.gitHubCli,
         }),
       ),
       Layer.provide(
@@ -427,6 +442,70 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(response.status, 200);
       assert.equal(yield* response.text, "preview-ok");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("proxies GitHub issue images through authenticated server fetches", () =>
+    Effect.gen(function* () {
+      let capturedAuthorization = "";
+      const originalFetch = globalThis.fetch;
+      const mockFetch: typeof globalThis.fetch = Object.assign(
+        async (
+          _input: Parameters<typeof globalThis.fetch>[0],
+          init?: Parameters<typeof globalThis.fetch>[1],
+        ) => {
+          const headers = new Headers(init?.headers);
+          capturedAuthorization = headers.get("authorization") ?? "";
+          return new Response("image-bytes", {
+            status: 200,
+            headers: {
+              "content-type": "image/png",
+            },
+          });
+        },
+        originalFetch,
+      );
+      globalThis.fetch = mockFetch;
+
+      try {
+        yield* buildAppUnderTest({
+          layers: {
+            gitHubCli: {
+              execute: () =>
+                Effect.succeed({
+                  stdout: "ghs_test_token\n",
+                  stderr: "",
+                  code: 0,
+                  signal: null,
+                  timedOut: false,
+                }),
+            },
+          },
+        });
+
+        const response = yield* HttpClient.get(
+          `/api/github-issue-image?cwd=${encodeURIComponent(process.cwd())}&url=${encodeURIComponent("https://private-user-images.githubusercontent.com/123/example.png")}`,
+        );
+
+        assert.equal(response.status, 200);
+        assert.equal(response.headers["content-type"], "image/png");
+        assert.equal(yield* response.text, "image-bytes");
+        assert.equal(capturedAuthorization, "Bearer ghs_test_token");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects non-GitHub issue image proxy URLs", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const response = yield* HttpClient.get(
+        `/api/github-issue-image?cwd=${encodeURIComponent(process.cwd())}&url=${encodeURIComponent("https://example.com/not-allowed.png")}`,
+      );
+
+      assert.equal(response.status, 400);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

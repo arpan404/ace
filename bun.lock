@@ -6,6 +6,7 @@
       "name": "@ace/monorepo",
       "devDependencies": {
         "@types/node": "^24.12.0",
+        "dotenv": "^16.1.4",
         "oxfmt": "^0.40.0",
         "oxlint": "^1.58.0",
         "turbo": "^2.9.3",
@@ -71,6 +72,7 @@
         "@types/react": "~19.2.10",
         "babel-preset-expo": "~54.0.10",
         "typescript": "~5.9.2",
+        "vitest": "catalog:",
       },
     },
     "apps/relay": {
@@ -146,6 +148,7 @@
         "react": "^19.0.0",
         "react-dom": "^19.0.0",
         "react-markdown": "^10.1.0",
+        "rehype-raw": "^7.0.0",
         "remark-breaks": "^4.0.0",
         "remark-gfm": "^4.0.1",
         "tailwind-merge": "^3.4.0",
