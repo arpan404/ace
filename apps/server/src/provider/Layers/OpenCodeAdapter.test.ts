@@ -5,8 +5,10 @@ import {
   buildOpenCodeThreadUsageSnapshot,
   classifyOpenCodeDeltaStreamKind,
   classifyOpenCodeToolItemType,
+  isMissingOpenCodeSessionError,
   mapOpenCodeTodoStatus,
   openCodeTimestampToIso,
+  readOpenCodeResumeSessionId,
   resolveOpenCodeDeltaStreamKind,
   resolveOpenCodePartTimestamp,
 } from "./OpenCodeAdapter.ts";
@@ -76,6 +78,45 @@ describe("mapOpenCodeTodoStatus", () => {
     expect(mapOpenCodeTodoStatus("in_progress")).toBe("inProgress");
     expect(mapOpenCodeTodoStatus("completed")).toBe("completed");
     expect(mapOpenCodeTodoStatus("cancelled")).toBe("completed");
+  });
+});
+
+describe("readOpenCodeResumeSessionId", () => {
+  it("extracts session ids from both string and object cursor formats", () => {
+    expect(readOpenCodeResumeSessionId("session-abc")).toBe("session-abc");
+    expect(readOpenCodeResumeSessionId({ sessionId: "session-def" })).toBe("session-def");
+    expect(readOpenCodeResumeSessionId({ sessionID: "session-ghi" })).toBe("session-ghi");
+    expect(readOpenCodeResumeSessionId({ id: "session-jkl" })).toBe("session-jkl");
+  });
+
+  it("returns undefined for invalid or empty cursor values", () => {
+    expect(readOpenCodeResumeSessionId("")).toBeUndefined();
+    expect(readOpenCodeResumeSessionId({ sessionId: "" })).toBeUndefined();
+    expect(readOpenCodeResumeSessionId({})).toBeUndefined();
+    expect(readOpenCodeResumeSessionId(null)).toBeUndefined();
+  });
+});
+
+describe("isMissingOpenCodeSessionError", () => {
+  it("detects 404/not-found OpenCode errors", () => {
+    expect(
+      isMissingOpenCodeSessionError({
+        name: "NotFoundError",
+        data: { message: "Session not found" },
+      }),
+    ).toBe(true);
+    expect(isMissingOpenCodeSessionError({ status: 404 })).toBe(true);
+    expect(isMissingOpenCodeSessionError("session not found")).toBe(true);
+  });
+
+  it("does not treat other failures as missing-session errors", () => {
+    expect(
+      isMissingOpenCodeSessionError({
+        name: "InternalError",
+        data: { message: "Something broke" },
+      }),
+    ).toBe(false);
+    expect(isMissingOpenCodeSessionError(undefined)).toBe(false);
   });
 });
 

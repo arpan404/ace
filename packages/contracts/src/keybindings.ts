@@ -43,6 +43,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "browser.moveTabRight",
   "chat.new",
   "chat.newLocal",
+  "chat.toggleWorkspaceMode",
   "chat.togglePlanMode",
   "editor.openFavorite",
   "editor.newFile",

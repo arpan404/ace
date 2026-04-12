@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import 'dotenv/config';
+
 import { homedir } from "node:os";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";

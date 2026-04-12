@@ -443,6 +443,133 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.lastError).toBeNull();
   });
 
+  it("ignores session.exited when the reported runtime pid is still alive", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-live-pid"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: now,
+      turnId: asTurnId("turn-live-pid"),
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" && thread.session?.activeTurnId === "turn-live-pid",
+    );
+
+    harness.emit({
+      type: "session.exited",
+      eventId: asEventId("evt-session-exited-live-pid"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      payload: {
+        reason: "stale exit event",
+        processPid: process.pid,
+      },
+    });
+
+    await harness.drain();
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.session?.status).toBe("running");
+    expect(thread?.session?.activeTurnId).toBe("turn-live-pid");
+  });
+
+  it("ignores session.exited from a stale runtime pid when a newer pid was seen", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "session.started",
+      eventId: asEventId("evt-session-started-pid-tracking"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: now,
+      payload: {
+        processPid: process.pid,
+      },
+    });
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-pid-tracking"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      turnId: asTurnId("turn-pid-tracking"),
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-pid-tracking",
+    );
+
+    harness.emit({
+      type: "session.exited",
+      eventId: asEventId("evt-session-exited-stale-pid"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      payload: {
+        reason: "stale runtime exited",
+        processPid: process.pid + 1,
+      },
+    });
+
+    await harness.drain();
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.session?.status).toBe("running");
+    expect(thread?.session?.activeTurnId).toBe("turn-pid-tracking");
+  });
+
+  it("applies graceful session.exited even when the pid is still alive", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-graceful-exit"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: now,
+      turnId: asTurnId("turn-graceful-exit"),
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-graceful-exit",
+    );
+
+    harness.emit({
+      type: "session.exited",
+      eventId: asEventId("evt-session-exited-graceful-exit"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      payload: {
+        reason: "session stopped",
+        exitKind: "graceful",
+        processPid: process.pid,
+      },
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "stopped" && thread.session?.activeTurnId === null,
+    );
+  });
+
   it("does not clear active turn when session/thread started arrives mid-turn", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -663,6 +790,43 @@ describe("ProviderRuntimeIngestion", () => {
     );
   });
 
+  it("accepts turn completion without turnId for the active thread turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-no-turnid-complete"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-no-turnid-complete"),
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-no-turnid-complete",
+    );
+
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-no-turnid-complete"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      payload: {
+        state: "completed",
+      },
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "ready" && thread.session?.activeTurnId === null,
+    );
+  });
+
   it("maps canonical content delta/item completed into finalized assistant messages", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -802,7 +966,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(toolActivity?.kind).toBe("tool.started");
   });
 
-  it("keeps assistant output merged when tool activity streaming is disabled", async () => {
+  it("keeps assistant output merged when tool activity visibility is disabled", async () => {
     const harness = await createHarness({ serverSettings: { enableToolStreaming: false } });
     const now = new Date().toISOString();
 
@@ -875,11 +1039,10 @@ describe("ProviderRuntimeIngestion", () => {
         message.turnId === "turn-tool-disabled" && message.role === "assistant",
     );
     expect(assistantMessages.map((message) => message.text)).toEqual(["Before tool. After tool."]);
-    expect(
-      thread.activities.find(
-        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-tool-disabled-started",
-      ),
-    ).toBeUndefined();
+    const toolActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-tool-disabled-started",
+    );
+    expect(toolActivity?.kind).toBe("tool.started");
   });
 
   it("splits assistant messages when reasoning activity interrupts the same assistant item", async () => {
@@ -964,7 +1127,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(reasoningActivity?.kind).toBe("task.progress");
   });
 
-  it("keeps assistant output merged when thinking activity streaming is disabled", async () => {
+  it("keeps assistant output merged when thinking activity visibility is disabled", async () => {
     const harness = await createHarness({ serverSettings: { enableThinkingStreaming: false } });
     const now = new Date().toISOString();
 
@@ -1037,12 +1200,10 @@ describe("ProviderRuntimeIngestion", () => {
     expect(assistantMessages.map((message) => message.text)).toEqual([
       "Before thinking. After thinking.",
     ]);
-    expect(
-      thread.activities.find(
-        (activity: ProviderRuntimeTestActivity) =>
-          activity.id === "evt-thinking-disabled-reasoning",
-      ),
-    ).toBeUndefined();
+    const reasoningActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-thinking-disabled-reasoning",
+    );
+    expect(reasoningActivity?.kind).toBe("task.progress");
   });
 
   it("splits assistant messages when task progress interrupts the same turn", async () => {

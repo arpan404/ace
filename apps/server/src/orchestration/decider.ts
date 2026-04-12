@@ -150,6 +150,39 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const handoffSourceThread = command.handoff
+        ? yield* requireThread({
+            readModel,
+            command,
+            threadId: command.handoff.sourceThreadId,
+          })
+        : null;
+      if (command.handoff && handoffSourceThread) {
+        if (command.handoff.sourceThreadId === command.threadId) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "Handoff source thread cannot match the destination thread.",
+          });
+        }
+        if (handoffSourceThread.projectId !== command.projectId) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Handoff source thread '${command.handoff.sourceThreadId}' belongs to a different project.`,
+          });
+        }
+        if (handoffSourceThread.modelSelection.provider !== command.handoff.fromProvider) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Handoff source provider '${command.handoff.fromProvider}' does not match source thread provider '${handoffSourceThread.modelSelection.provider}'.`,
+          });
+        }
+        if (command.handoff.toProvider !== command.modelSelection.provider) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Handoff destination provider '${command.handoff.toProvider}' does not match thread provider '${command.modelSelection.provider}'.`,
+          });
+        }
+      }
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -167,6 +200,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
+          ...(command.handoff !== undefined ? { handoff: command.handoff } : {}),
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },

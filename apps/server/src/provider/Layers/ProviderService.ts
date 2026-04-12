@@ -216,7 +216,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       provider: session.provider,
       runtimeMode: session.runtimeMode,
       status: toRuntimeStatus(session),
-      ...(session.resumeCursor !== undefined ? { resumeCursor: session.resumeCursor } : {}),
+      resumeCursor: session.resumeCursor ?? null,
       runtimePayload: toRuntimePayloadFromSession(session, extra),
     });
 
@@ -268,8 +268,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     readonly operation: string;
   }) {
     const adapter = yield* registry.getByProvider(input.binding.provider);
-    const hasResumeCursor =
-      input.binding.resumeCursor !== null && input.binding.resumeCursor !== undefined;
+    const resumeCursor =
+      input.binding.resumeCursor !== null && input.binding.resumeCursor !== undefined
+        ? input.binding.resumeCursor
+        : undefined;
     const localTranscriptAuthority = usesLocalTranscriptAuthority(input.binding.provider);
     const hasActiveSession = yield* adapter.hasSession(input.binding.threadId);
     if (hasActiveSession) {
@@ -288,7 +290,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       }
     }
 
-    if (!hasResumeCursor && !localTranscriptAuthority) {
+    if (resumeCursor === undefined && !localTranscriptAuthority) {
       return yield* toValidationError(
         input.operation,
         `Cannot recover thread '${input.binding.threadId}' because no provider resume state is persisted.`,
@@ -310,9 +312,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       provider: input.binding.provider,
       ...(persistedCwd ? { cwd: persistedCwd } : {}),
       ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
-      ...(!localTranscriptAuthority && hasResumeCursor
-        ? { resumeCursor: input.binding.resumeCursor }
-        : {}),
+      ...(resumeCursor !== undefined ? { resumeCursor } : {}),
       ...(replayTurns.length > 0 ? { replayTurns } : {}),
       runtimeMode: input.binding.runtimeMode ?? "full-access",
     });
@@ -326,7 +326,14 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     yield* upsertSessionBinding(resumed, input.binding.threadId);
     yield* analytics.record("provider.session.recovered", {
       provider: resumed.provider,
-      strategy: localTranscriptAuthority ? "rebuild-local-transcript" : "resume-thread",
+      strategy:
+        resumeCursor !== undefined && replayTurns.length > 0
+          ? "resume-thread-with-local-fallback"
+          : resumeCursor !== undefined
+            ? "resume-thread"
+            : localTranscriptAuthority
+              ? "rebuild-local-transcript"
+              : "resume-thread",
       hasResumeCursor: resumed.resumeCursor !== undefined,
     });
     return { adapter, session: resumed } as const;
@@ -391,21 +398,20 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
       const localTranscriptAuthority = usesLocalTranscriptAuthority(input.provider);
       const explicitReplayTurns = input.replayTurns;
-      const shouldPreferLocalTranscript =
+      const shouldIncludePersistedTranscript =
         explicitReplayTurns === undefined &&
         localTranscriptAuthority &&
-        input.resumeCursor === undefined &&
         persistedBinding?.provider === input.provider;
-      const effectiveResumeCursor =
-        shouldPreferLocalTranscript || explicitReplayTurns !== undefined
-          ? undefined
-          : (input.resumeCursor ??
-            (persistedBinding?.provider === input.provider
-              ? persistedBinding.resumeCursor
-              : undefined));
+      const persistedResumeCursor =
+        persistedBinding?.provider === input.provider &&
+        persistedBinding.resumeCursor !== null &&
+        persistedBinding.resumeCursor !== undefined
+          ? persistedBinding.resumeCursor
+          : undefined;
+      const effectiveResumeCursor = input.resumeCursor ?? persistedResumeCursor;
       const replayTurns =
         explicitReplayTurns ??
-        (shouldPreferLocalTranscript
+        (shouldIncludePersistedTranscript
           ? projectionMessagesToReplayTurns(
               yield* projectionThreadMessageRepository.listByThreadId({
                 threadId,
@@ -639,10 +645,18 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         Effect.map((sessions) => sessions.find((session) => session.threadId === routed.threadId)),
       );
     if (refreshedSession) {
+      const shouldClearResumeCursor = usesLocalTranscriptAuthority(routed.adapter.provider);
       yield* upsertSessionBinding(refreshedSession, routed.threadId, {
         lastRuntimeEvent: "provider.rollbackConversation",
         lastRuntimeEventAt: new Date().toISOString(),
       });
+      if (shouldClearResumeCursor) {
+        yield* directory.upsert({
+          threadId: routed.threadId,
+          provider: refreshedSession.provider,
+          resumeCursor: null,
+        });
+      }
     }
     yield* analytics.record("provider.conversation.rolled_back", {
       provider: routed.adapter.provider,

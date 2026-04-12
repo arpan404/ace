@@ -1104,7 +1104,7 @@ function ComposerPromptEditorInner({
           }
           placeholder={
             terminalContexts.length > 0 ? null : (
-              <div className="pointer-events-none absolute inset-0 text-[14px] leading-relaxed text-muted-foreground/35">
+              <div className="pointer-events-none absolute inset-0 text-[14px] leading-relaxed text-muted-foreground">
                 {placeholder}
               </div>
             )

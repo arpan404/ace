@@ -51,7 +51,7 @@ function makeFakeOpenCodeClient(sessionId: string) {
       })),
     },
     session: {
-      create: vi.fn(async () => ({
+      create: vi.fn(async (_input?: unknown) => ({
         error: undefined,
         data: {
           id: sessionId,
@@ -110,12 +110,14 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
         provider: "opencode",
         threadId: asThreadId("thread-opencode-1"),
         cwd: "/repo-a",
+        threadTitle: "Repo A thread",
         runtimeMode: "full-access",
       });
       yield* adapter.startSession({
         provider: "opencode",
         threadId: asThreadId("thread-opencode-2"),
         cwd: "/repo-b",
+        threadTitle: "Repo B thread",
         runtimeMode: "full-access",
       });
 
@@ -123,6 +125,14 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
       assert.equal(mockedCreateOpenCodeSdkClient.mock.calls.length, 2);
       assert.equal(firstClient.session.create.mock.calls.length, 1);
       assert.equal(secondClient.session.create.mock.calls.length, 1);
+      assert.deepStrictEqual(firstClient.session.create.mock.calls[0]?.[0], {
+        directory: "/repo-a",
+        title: "Repo A thread",
+      });
+      assert.deepStrictEqual(secondClient.session.create.mock.calls[0]?.[0], {
+        directory: "/repo-b",
+        title: "Repo B thread",
+      });
 
       yield* adapter.stopSession(asThreadId("thread-opencode-1"));
       assert.equal(firstClient.session.delete.mock.calls.length, 1);

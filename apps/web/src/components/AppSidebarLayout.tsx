@@ -153,7 +153,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       <Sidebar
         side="left"
         collapsible="offcanvas"
-        className="border-r border-border bg-card text-foreground"
+        className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
         onClickCapture={(event) => {
           const target = event.target instanceof HTMLElement ? event.target : null;
           if (!target?.closest("button,a,[role='button'],[data-slot='sidebar-menu-button']")) {

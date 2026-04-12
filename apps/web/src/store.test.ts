@@ -961,6 +961,63 @@ describe("incremental orchestration updates", () => {
     expect(next.threadIdsByProjectId[recreatedProjectId]).toEqual([threadId]);
   });
 
+  it("retains handoff metadata from thread.created events", () => {
+    const projectId = ProjectId.makeUnsafe("project-1");
+    const threadId = ThreadId.makeUnsafe("thread-handoff");
+    const sourceThreadId = ThreadId.makeUnsafe("thread-source");
+    const state: AppState = {
+      projects: [
+        {
+          id: projectId,
+          name: "Project 1",
+          cwd: "/tmp/project-1",
+          icon: null,
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          archivedAt: null,
+          scripts: [],
+        },
+      ],
+      threads: [],
+      sidebarThreadsById: {},
+      threadIdsByProjectId: {},
+      bootstrapComplete: true,
+    };
+
+    const handoff = {
+      sourceThreadId,
+      fromProvider: "codex" as const,
+      toProvider: "claudeAgent" as const,
+      mode: "transcript" as const,
+      createdAt: "2026-02-27T00:00:01.000Z",
+    };
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.created", {
+        threadId,
+        projectId,
+        title: "Handoff thread",
+        modelSelection: {
+          provider: "claudeAgent",
+          model: DEFAULT_MODEL_BY_PROVIDER.claudeAgent,
+        },
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+        interactionMode: DEFAULT_INTERACTION_MODE,
+        branch: null,
+        worktreePath: null,
+        handoff,
+        createdAt: "2026-02-27T00:00:01.000Z",
+        updatedAt: "2026-02-27T00:00:01.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.handoff).toEqual(handoff);
+    expect(next.sidebarThreadsById[threadId]?.handoff).toEqual(handoff);
+  });
+
   it("updates only the affected thread for message events", () => {
     const thread1 = makeThread({
       id: ThreadId.makeUnsafe("thread-1"),
@@ -1285,6 +1342,48 @@ describe("incremental orchestration updates", () => {
     expect(next.threads[0]?.session?.status).toBe("running");
     expect(next.threads[0]?.latestTurn?.state).toBe("completed");
     expect(next.threads[0]?.messages).toHaveLength(1);
+  });
+
+  it("marks running latestTurn completed when session becomes ready", () => {
+    const thread = makeThread({
+      latestTurn: {
+        turnId: TurnId.makeUnsafe("turn-1"),
+        state: "running",
+        requestedAt: "2026-02-27T00:00:00.000Z",
+        startedAt: "2026-02-27T00:00:01.000Z",
+        completedAt: null,
+        assistantMessageId: MessageId.makeUnsafe("assistant-1"),
+      },
+      session: {
+        provider: "codex",
+        status: "running",
+        orchestrationStatus: "running",
+        activeTurnId: TurnId.makeUnsafe("turn-1"),
+        createdAt: "2026-02-27T00:00:01.000Z",
+        updatedAt: "2026-02-27T00:00:01.000Z",
+      },
+    });
+    const state = makeState(thread);
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.session-set", {
+        threadId: thread.id,
+        session: {
+          threadId: thread.id,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: "2026-02-27T00:00:03.000Z",
+        },
+      }),
+    );
+
+    expect(next.threads[0]?.session?.status).toBe("ready");
+    expect(next.threads[0]?.latestTurn?.state).toBe("completed");
+    expect(next.threads[0]?.latestTurn?.completedAt).toBe("2026-02-27T00:00:03.000Z");
   });
 
   it("does not regress latestTurn when an older turn diff completes late", () => {

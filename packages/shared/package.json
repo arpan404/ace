@@ -59,6 +59,22 @@
     "./wsAuth": {
       "types": "./src/wsAuth.ts",
       "import": "./src/wsAuth.ts"
+    },
+    "./wsRpcProtocol": {
+      "types": "./src/wsRpcProtocol.ts",
+      "import": "./src/wsRpcProtocol.ts"
+    },
+    "./ids": {
+      "types": "./src/ids.ts",
+      "import": "./src/ids.ts"
+    },
+    "./orchestrationCommands": {
+      "types": "./src/orchestrationCommands.ts",
+      "import": "./src/orchestrationCommands.ts"
+    },
+    "./hostConnections": {
+      "types": "./src/hostConnections.ts",
+      "import": "./src/hostConnections.ts"
     }
   },
   "scripts": {

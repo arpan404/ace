@@ -35,6 +35,16 @@ describe("ChatMarkdown", () => {
     expect(markup).not.toContain('data-streaming-markdown="true"');
   });
 
+  it("renders mermaid code fences with the diagram renderer", () => {
+    const markup = renderToStaticMarkup(
+      <ChatMarkdown text={"```mermaid\ngraph TD\nA-->B\n```"} cwd={undefined} />,
+    );
+
+    expect(markup).toContain('data-mermaid-diagram-state="loading"');
+    expect(markup).toContain("Rendering Mermaid diagram...");
+    expect(markup).not.toContain("chat-markdown-shiki");
+  });
+
   it("renders an in-app browser action for external links when available", () => {
     const markup = renderToStaticMarkup(
       <ChatMarkdown

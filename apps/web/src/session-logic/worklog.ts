@@ -2,6 +2,7 @@ import { type OrchestrationThreadActivity, type TurnId } from "@ace/contracts";
 
 import type { WorkLogEntry } from "./types";
 import {
+  asRecord,
   asTrimmedString,
   compareActivitiesByOrder,
   extractChangedFiles,
@@ -17,6 +18,53 @@ import {
 interface DerivedWorkLogEntry extends WorkLogEntry {
   activityKind: OrchestrationThreadActivity["kind"];
   collapseKey?: string;
+}
+
+export interface ActivityVisibilitySettings {
+  readonly enableToolStreaming: boolean;
+  readonly enableThinkingStreaming: boolean;
+}
+
+const THINKING_ACTIVITY_KINDS = new Set<OrchestrationThreadActivity["kind"]>([
+  "turn.plan.updated",
+  "task.started",
+  "task.progress",
+  "task.completed",
+  "reasoning.completed",
+]);
+
+const TOOL_ACTIVITY_KINDS = new Set<OrchestrationThreadActivity["kind"]>([
+  "tool.started",
+  "tool.updated",
+  "tool.completed",
+]);
+
+function shouldHideWorkLogActivityForVisibility(
+  activity: OrchestrationThreadActivity,
+  visibility: ActivityVisibilitySettings,
+): boolean {
+  if (!visibility.enableThinkingStreaming && THINKING_ACTIVITY_KINDS.has(activity.kind)) {
+    return true;
+  }
+
+  if (!visibility.enableToolStreaming && TOOL_ACTIVITY_KINDS.has(activity.kind)) {
+    return true;
+  }
+
+  return false;
+}
+
+export function filterVisibleWorkLogActivities(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  visibility: ActivityVisibilitySettings,
+): ReadonlyArray<OrchestrationThreadActivity> {
+  if (visibility.enableToolStreaming && visibility.enableThinkingStreaming) {
+    return activities;
+  }
+
+  return activities.filter(
+    (activity) => !shouldHideWorkLogActivityForVisibility(activity, visibility),
+  );
 }
 
 function ensureActivitiesOrdered(
@@ -76,6 +124,21 @@ function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): bool
   return typeof payload?.detail === "string" && payload.detail.startsWith("ExitPlanMode:");
 }
 
+const RUNTIME_DETAIL_JSON_MAX = 4000;
+
+function stringifyRuntimeDetailUnknown(value: unknown): string | null {
+  try {
+    const text = JSON.stringify(value);
+    if (text.length <= RUNTIME_DETAIL_JSON_MAX) {
+      return text;
+    }
+    return `${text.slice(0, RUNTIME_DETAIL_JSON_MAX - 1)}…`;
+  } catch {
+    const fallback = String(value).trim();
+    return fallback.length > 0 ? fallback : null;
+  }
+}
+
 function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry {
   const payload =
     activity.payload && typeof activity.payload === "object"
@@ -102,7 +165,34 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   };
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
-  if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
+  const isRuntimeDiagnostic =
+    activity.kind === "runtime.error" || activity.kind === "runtime.warning";
+  if (isRuntimeDiagnostic && payload) {
+    const parts: string[] = [];
+    const rawMessage = asTrimmedString(payload.message);
+    if (rawMessage) {
+      const cleaned = stripTrailingExitCode(sanitizeWorkLogText(rawMessage)).output;
+      if (cleaned) {
+        parts.push(cleaned);
+      }
+    }
+    const rawDetail = payload.detail;
+    if (typeof rawDetail === "string" && rawDetail.trim()) {
+      const cleaned = stripTrailingExitCode(sanitizeWorkLogText(rawDetail)).output;
+      if (cleaned && cleaned !== rawMessage) {
+        parts.push(cleaned);
+      }
+    } else if (rawDetail !== undefined && rawDetail !== null && typeof rawDetail !== "string") {
+      const serialized = stringifyRuntimeDetailUnknown(rawDetail);
+      if (serialized) {
+        parts.push(serialized);
+      }
+    }
+    const combined = parts.join("\n\n");
+    if (combined) {
+      entry.detail = combined;
+    }
+  } else if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
     const detail = stripTrailingExitCode(sanitizeWorkLogText(payload.detail)).output;
     if (detail) {
       entry.detail = detail;
@@ -137,13 +227,53 @@ function collapseDerivedWorkLogEntries(
   entries: ReadonlyArray<DerivedWorkLogEntry>,
 ): DerivedWorkLogEntry[] {
   const collapsed: DerivedWorkLogEntry[] = [];
+  const activeStableToolLifecycleIndexByKey = new Map<string, number>();
+
   for (const entry of entries) {
+    const stableToolLifecycleKey =
+      entry.collapseKey && isStableToolLifecycleCollapseKey(entry.collapseKey)
+        ? entry.collapseKey
+        : undefined;
+    if (stableToolLifecycleKey) {
+      const existingIndex = activeStableToolLifecycleIndexByKey.get(stableToolLifecycleKey);
+      if (existingIndex !== undefined) {
+        const existing = collapsed[existingIndex];
+        if (existing && shouldCollapseToolLifecycleEntries(existing, entry)) {
+          const merged = mergeDerivedWorkLogEntries(existing, entry);
+          collapsed[existingIndex] = merged;
+          if (merged.activityKind === "tool.completed") {
+            activeStableToolLifecycleIndexByKey.delete(stableToolLifecycleKey);
+          }
+          continue;
+        }
+      }
+    }
+
     const previous = collapsed.at(-1);
     if (previous && shouldCollapseToolLifecycleEntries(previous, entry)) {
-      collapsed[collapsed.length - 1] = mergeDerivedWorkLogEntries(previous, entry);
+      const merged = mergeDerivedWorkLogEntries(previous, entry);
+      collapsed[collapsed.length - 1] = merged;
+      const mergedStableToolLifecycleKey =
+        merged.collapseKey && isStableToolLifecycleCollapseKey(merged.collapseKey)
+          ? merged.collapseKey
+          : undefined;
+      if (mergedStableToolLifecycleKey) {
+        if (merged.activityKind === "tool.completed") {
+          activeStableToolLifecycleIndexByKey.delete(mergedStableToolLifecycleKey);
+        } else {
+          activeStableToolLifecycleIndexByKey.set(
+            mergedStableToolLifecycleKey,
+            collapsed.length - 1,
+          );
+        }
+      }
       continue;
     }
+
     collapsed.push(entry);
+    if (stableToolLifecycleKey && entry.activityKind !== "tool.completed") {
+      activeStableToolLifecycleIndexByKey.set(stableToolLifecycleKey, collapsed.length - 1);
+    }
   }
   return collapsed;
 }
@@ -237,6 +367,40 @@ function isToolLifecycleActivityKind(kind: OrchestrationThreadActivity["kind"]):
   return kind === "tool.started" || kind === "tool.updated" || kind === "tool.completed";
 }
 
+function isStableToolLifecycleCollapseKey(key: string): boolean {
+  return key.startsWith("tool-id:");
+}
+
+function extractToolLifecycleIdentifier(payload: Record<string, unknown> | null): string | null {
+  const directCandidates = [
+    asTrimmedString(payload?.itemId),
+    asTrimmedString(payload?.toolCallId),
+    asTrimmedString(payload?.tool_call_id),
+  ];
+  for (const candidate of directCandidates) {
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const nestedCandidates = [
+    asTrimmedString(data?.toolCallId),
+    asTrimmedString(data?.tool_call_id),
+    asTrimmedString(item?.toolCallId),
+    asTrimmedString(item?.tool_call_id),
+    asTrimmedString(item?.id),
+  ];
+  for (const candidate of nestedCandidates) {
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 function deriveActivityCollapseKey(
   entry: DerivedWorkLogEntry,
   payload: Record<string, unknown> | null,
@@ -254,12 +418,17 @@ function deriveActivityCollapseKey(
     return undefined;
   }
 
+  const toolLifecycleIdentifier = extractToolLifecycleIdentifier(payload);
+  if (toolLifecycleIdentifier) {
+    return `tool-id:${turnSegment}:${toolLifecycleIdentifier}`;
+  }
+
   const normalizedLabel = normalizeCompactToolLabel(entry.toolTitle ?? entry.label);
   const itemType = entry.itemType ?? "";
   if (normalizedLabel.length === 0 && itemType.length === 0) {
     return undefined;
   }
-  return [turnSegment, itemType, normalizedLabel].join("\u001f");
+  return `tool-fallback:${[turnSegment, itemType, normalizedLabel].join("\u001f")}`;
 }
 
 function normalizeCompactToolLabel(value: string): string {

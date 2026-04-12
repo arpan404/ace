@@ -116,19 +116,22 @@ describe("deriveHydratedThreadHistoryKeepIds", () => {
   it("dedupes overlapping ids and skips keep ids when nothing is active", () => {
     const activeThreadId = ThreadId.makeUnsafe("thread-active");
     const sourceThreadId = ThreadId.makeUnsafe("thread-source");
+    const lineageThreadId = ThreadId.makeUnsafe("thread-lineage");
 
     expect(
       deriveHydratedThreadHistoryKeepIds({
         activeThreadId,
         sourceProposedPlanThreadId: sourceThreadId,
         previousThreadId: sourceThreadId,
+        handoffSourceThreadIds: [lineageThreadId, sourceThreadId],
       }),
-    ).toEqual([activeThreadId, sourceThreadId]);
+    ).toEqual([activeThreadId, sourceThreadId, lineageThreadId]);
     expect(
       deriveHydratedThreadHistoryKeepIds({
         activeThreadId: null,
         sourceProposedPlanThreadId: sourceThreadId,
         previousThreadId: activeThreadId,
+        handoffSourceThreadIds: [lineageThreadId],
       }),
     ).toEqual([]);
   });

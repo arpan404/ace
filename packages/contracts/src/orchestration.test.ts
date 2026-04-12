@@ -224,6 +224,42 @@ it.effect("decodes thread.created runtime mode for historical events", () =>
 
     assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
     assert.strictEqual(parsed.modelSelection.provider, "codex");
+    assert.strictEqual(parsed.handoff, undefined);
+  }),
+);
+
+it.effect("decodes thread.created handoff metadata when present", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadCreatedPayload({
+      threadId: "thread-2",
+      projectId: "project-1",
+      title: "Thread title",
+      modelSelection: {
+        provider: "claudeAgent",
+        model: "claude-opus-4-6",
+      },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      handoff: {
+        sourceThreadId: "thread-1",
+        fromProvider: "codex",
+        toProvider: "claudeAgent",
+        mode: "transcript",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.deepStrictEqual(parsed.handoff, {
+      sourceThreadId: "thread-1",
+      fromProvider: "codex",
+      toProvider: "claudeAgent",
+      mode: "transcript",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
   }),
 );
 

@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["DOM", "DOM.Iterable", "ES2023"],
+    "types": ["react", "react-native"],
+    "paths": {
+      "~/*": ["./src/*"]
+    }
+  },
+  "include": ["App.tsx", "index.ts", "src"]
+}

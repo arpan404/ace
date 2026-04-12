@@ -25,16 +25,14 @@ export function deriveActivePlanState(
   latestTurnId: TurnId | undefined,
 ): ActivePlanState | null {
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
-  const candidates = ordered.filter((activity) => {
-    if (activity.kind !== "turn.plan.updated") {
-      return false;
-    }
-    if (!latestTurnId) {
-      return true;
-    }
-    return activity.turnId === latestTurnId;
-  });
-  const latest = candidates.at(-1);
+  const allCandidates = ordered.filter((activity) => activity.kind === "turn.plan.updated");
+  const candidates =
+    latestTurnId === undefined
+      ? allCandidates
+      : allCandidates.filter(
+          (activity) => activity.turnId === latestTurnId || activity.turnId === null,
+        );
+  const latest = candidates.at(-1) ?? allCandidates.at(-1);
   if (!latest) {
     return null;
   }

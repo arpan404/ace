@@ -52,6 +52,52 @@ function updateLanguageOptions(
   setOptions.call(defaults, updater(isRecord(current) ? current : {}));
 }
 
+function updateLanguageCompilerOptions(
+  namespace: unknown,
+  defaultsKey: string,
+  updater: (current: Record<string, unknown>) => Record<string, unknown>,
+): void {
+  if (!isRecord(namespace)) {
+    return;
+  }
+  const defaults = Reflect.get(namespace, defaultsKey);
+  if (!isRecord(defaults)) {
+    return;
+  }
+  const setCompilerOptions = Reflect.get(defaults, "setCompilerOptions");
+  if (typeof setCompilerOptions !== "function") {
+    return;
+  }
+  const current = Reflect.get(defaults, "compilerOptions");
+  setCompilerOptions.call(defaults, updater(isRecord(current) ? current : {}));
+}
+
+function setLanguageEagerModelSync(
+  namespace: unknown,
+  defaultsKey: string,
+  enabled: boolean,
+): void {
+  if (!isRecord(namespace)) {
+    return;
+  }
+  const defaults = Reflect.get(namespace, defaultsKey);
+  if (!isRecord(defaults)) {
+    return;
+  }
+  const setEagerModelSync = Reflect.get(defaults, "setEagerModelSync");
+  if (typeof setEagerModelSync !== "function") {
+    return;
+  }
+  setEagerModelSync.call(defaults, enabled);
+}
+
+function readEnumValue(container: unknown, key: string): unknown {
+  if (!isRecord(container)) {
+    return undefined;
+  }
+  return Reflect.get(container, key);
+}
+
 export function ensureMonacoConfigured(): void {
   if (monacoConfigured) {
     return;
@@ -86,6 +132,10 @@ export function ensureMonacoConfigured(): void {
   const typescriptNamespace = Reflect.get(monaco.languages, "typescript");
   const jsonNamespace = Reflect.get(monaco.languages, "json");
   const cssNamespace = Reflect.get(monaco.languages, "css");
+  const moduleKind = readEnumValue(typescriptNamespace, "ModuleKind");
+  const moduleResolutionKind = readEnumValue(typescriptNamespace, "ModuleResolutionKind");
+  const scriptTarget = readEnumValue(typescriptNamespace, "ScriptTarget");
+  const jsxEmit = readEnumValue(typescriptNamespace, "JsxEmit");
 
   updateLanguageDiagnosticsOptions(typescriptNamespace, "javascriptDefaults", (current) => ({
     ...current,
@@ -99,6 +149,31 @@ export function ensureMonacoConfigured(): void {
     noSuggestionDiagnostics: false,
     noSyntaxValidation: false,
   }));
+  updateLanguageCompilerOptions(typescriptNamespace, "javascriptDefaults", (current) => ({
+    ...current,
+    allowJs: true,
+    allowNonTsExtensions: true,
+    checkJs: true,
+    jsx: readEnumValue(jsxEmit, "ReactJSX") ?? current.jsx,
+    module: readEnumValue(moduleKind, "ESNext") ?? current.module,
+    moduleResolution: readEnumValue(moduleResolutionKind, "NodeJs") ?? current.moduleResolution,
+    noEmit: true,
+    resolveJsonModule: true,
+    target: readEnumValue(scriptTarget, "ESNext") ?? current.target,
+  }));
+  updateLanguageCompilerOptions(typescriptNamespace, "typescriptDefaults", (current) => ({
+    ...current,
+    allowJs: true,
+    allowNonTsExtensions: true,
+    jsx: readEnumValue(jsxEmit, "ReactJSX") ?? current.jsx,
+    module: readEnumValue(moduleKind, "ESNext") ?? current.module,
+    moduleResolution: readEnumValue(moduleResolutionKind, "NodeJs") ?? current.moduleResolution,
+    noEmit: true,
+    resolveJsonModule: true,
+    target: readEnumValue(scriptTarget, "ESNext") ?? current.target,
+  }));
+  setLanguageEagerModelSync(typescriptNamespace, "javascriptDefaults", true);
+  setLanguageEagerModelSync(typescriptNamespace, "typescriptDefaults", true);
   updateLanguageDiagnosticsOptions(jsonNamespace, "jsonDefaults", (current) => ({
     ...current,
     schemaRequest: "warning",

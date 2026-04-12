@@ -9,7 +9,7 @@ import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
 import type { ProcessRunResult } from "../../processRunner";
-import type { GitHubCliError } from "@ace/contracts";
+import type { GitHubCliError, GitHubIssue, GitHubIssueThread } from "@ace/contracts";
 
 export interface GitHubPullRequestSummary {
   readonly number: number;
@@ -50,6 +50,23 @@ export interface GitHubCliShape {
     readonly headSelector: string;
     readonly limit?: number;
   }) => Effect.Effect<ReadonlyArray<GitHubPullRequestSummary>, GitHubCliError>;
+
+  /**
+   * List open issues for the current repository.
+   */
+  readonly listIssues: (input: {
+    readonly cwd: string;
+    readonly limit?: number;
+    readonly query?: string;
+  }) => Effect.Effect<ReadonlyArray<GitHubIssue>, GitHubCliError>;
+
+  /**
+   * Fetch full issue thread details (issue body + comments) by issue number.
+   */
+  readonly getIssueThread: (input: {
+    readonly cwd: string;
+    readonly issueNumber: number;
+  }) => Effect.Effect<GitHubIssueThread, GitHubCliError>;
 
   /**
    * Resolve a pull request by URL, number, or branch-ish identifier.

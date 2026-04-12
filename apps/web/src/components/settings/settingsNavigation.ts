@@ -5,6 +5,7 @@ import {
   GlobeIcon,
   InfoIcon,
   MessageCircleIcon,
+  ServerIcon,
   Settings2Icon,
   SquarePenIcon,
   TerminalSquareIcon,
@@ -34,7 +35,7 @@ export const SETTINGS_NAV_ITEMS = [
   {
     group: "workspace",
     label: "Chat",
-    description: "Streaming and confirmation behavior",
+    description: "Streaming, notifications, and confirmation behavior",
     to: "/settings/chat",
     icon: MessageCircleIcon,
   },
@@ -65,6 +66,13 @@ export const SETTINGS_NAV_ITEMS = [
     description: "CLI status, installs, and custom models",
     to: "/settings/providers",
     icon: TerminalSquareIcon,
+  },
+  {
+    group: "system",
+    label: "Devices",
+    description: "Remote host control and pairing",
+    to: "/settings/devices",
+    icon: ServerIcon,
   },
   {
     group: "system",

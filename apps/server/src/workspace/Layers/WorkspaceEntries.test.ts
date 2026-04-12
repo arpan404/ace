@@ -80,6 +80,8 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
         yield* writeTextFile(cwd, "src/components/Composer.tsx");
         yield* writeTextFile(cwd, "src/index.ts");
         yield* writeTextFile(cwd, "README.md");
+        yield* writeTextFile(cwd, ".DS_Store");
+        yield* writeTextFile(cwd, "src/.DS_Store");
         yield* writeTextFile(cwd, ".git/HEAD");
         yield* writeTextFile(cwd, "node_modules/pkg/index.js");
 
@@ -90,8 +92,81 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
         expect(paths).toContain("src/components");
         expect(paths).toContain("src/components/Composer.tsx");
         expect(paths).toContain("README.md");
+        expect(paths).not.toContain(".DS_Store");
+        expect(paths).not.toContain("src/.DS_Store");
         expect(paths.some((entryPath) => entryPath.startsWith(".git"))).toBe(false);
         expect(paths.some((entryPath) => entryPath.startsWith("node_modules"))).toBe(false);
+        expect(result.truncated).toBe(false);
+      }),
+    );
+
+    it.effect("supports regex file path filtering", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "ace-workspace-regex-query-" });
+        yield* writeTextFile(cwd, "src/components/Composer.tsx");
+        yield* writeTextFile(cwd, "src/components/composePrompt.ts");
+        yield* writeTextFile(cwd, "docs/composition.md");
+
+        const result = yield* searchWorkspaceEntries({
+          cwd,
+          query: "re:^src/components/.+\\.tsx$",
+          limit: 10,
+        });
+        const paths = result.entries.map((entry) => entry.path);
+
+        expect(paths).toEqual(["src/components/Composer.tsx"]);
+        expect(result.truncated).toBe(false);
+      }),
+    );
+
+    it.effect("supports in-file text search", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "ace-workspace-content-query-" });
+        yield* writeTextFile(cwd, "src/components/Composer.tsx", "export const needle = 1;\n");
+        yield* writeTextFile(cwd, "src/components/composePrompt.ts", "export const value = 2;\n");
+
+        const result = yield* searchWorkspaceEntries({
+          cwd,
+          query: "in:needle",
+          limit: 10,
+        });
+        const paths = result.entries.map((entry) => entry.path);
+
+        expect(paths).toEqual(["src/components/Composer.tsx"]);
+        expect(result.truncated).toBe(false);
+      }),
+    );
+
+    it.effect("supports in-file regex search", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "ace-workspace-content-regex-query-" });
+        yield* writeTextFile(cwd, "src/components/Composer.tsx", "export const needle = 1;\n");
+        yield* writeTextFile(cwd, "src/components/composePrompt.ts", "export const needle = 2;\n");
+
+        const result = yield* searchWorkspaceEntries({
+          cwd,
+          query: "inre:needle\\s*=\\s*2",
+          limit: 10,
+        });
+        const paths = result.entries.map((entry) => entry.path);
+
+        expect(paths).toEqual(["src/components/composePrompt.ts"]);
+        expect(result.truncated).toBe(false);
+      }),
+    );
+
+    it.effect("returns no results for invalid regex search input", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "ace-workspace-invalid-regex-query-" });
+        yield* writeTextFile(cwd, "src/components/Composer.tsx", "export const needle = 1;\n");
+
+        const result = yield* searchWorkspaceEntries({
+          cwd,
+          query: "re:[unterminated",
+          limit: 10,
+        });
+
+        expect(result.entries).toEqual([]);
         expect(result.truncated).toBe(false);
       }),
     );

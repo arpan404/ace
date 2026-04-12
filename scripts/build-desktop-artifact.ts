@@ -179,9 +179,28 @@ interface StagePackageJson {
   readonly main: string;
   readonly build: Record<string, unknown>;
   readonly dependencies: Record<string, unknown>;
+  readonly overrides?: Record<string, string>;
   readonly devDependencies: {
     readonly electron: string;
   };
+}
+
+function resolveStageDependencyOverrides(
+  dependencies: Record<string, unknown>,
+): Record<string, string> {
+  const overrides: Record<string, string> = {};
+  const platformNodeVersion = dependencies["@effect/platform-node"];
+  if (typeof platformNodeVersion === "string" && platformNodeVersion.length > 0) {
+    // Keep transitive shared packages aligned with the pinned @effect catalog version.
+    overrides["@effect/platform-node-shared"] = platformNodeVersion;
+  }
+
+  const platformBunVersion = dependencies["@effect/platform-bun"];
+  if (typeof platformBunVersion === "string" && platformBunVersion.length > 0) {
+    overrides["@effect/platform-bun-shared"] = platformBunVersion;
+  }
+
+  return overrides;
 }
 
 const AzureTrustedSigningOptionsConfig = Config.all({
@@ -598,6 +617,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const appVersion = options.version ?? serverPackageJson.version;
   const commitHash = resolveGitCommitHash(repoRoot);
+  const stageDependencies = {
+    ...resolvedServerDependencies,
+    ...resolvedDesktopRuntimeDependencies,
+  };
+  const stageDependencyOverrides = resolveStageDependencyOverrides(stageDependencies);
   const mkdir = options.keepStage ? fs.makeTempDirectory : fs.makeTempDirectoryScoped;
   const stageRoot = yield* mkdir({
     prefix: `ace-desktop-${options.platform}-stage-`,
@@ -670,10 +694,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       options.mockUpdates,
       options.mockUpdateServerPort,
     ),
-    dependencies: {
-      ...resolvedServerDependencies,
-      ...resolvedDesktopRuntimeDependencies,
-    },
+    dependencies: stageDependencies,
+    ...(Object.keys(stageDependencyOverrides).length > 0
+      ? { overrides: stageDependencyOverrides }
+      : {}),
     devDependencies: {
       electron: electronVersion,
     },

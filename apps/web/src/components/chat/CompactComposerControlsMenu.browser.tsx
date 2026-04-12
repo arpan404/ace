@@ -1,4 +1,4 @@
-import { DEFAULT_MODEL_BY_PROVIDER, ModelSelection, ThreadId } from "@ace/contracts";
+import { DEFAULT_MODEL_BY_PROVIDER, ModelSelection, RuntimeMode, ThreadId } from "@ace/contracts";
 import "../../index.css";
 
 import { page } from "vitest/browser";
@@ -9,7 +9,12 @@ import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { TraitsMenuContent } from "./TraitsPicker";
 import { useComposerDraftStore } from "../../composerDraftStore";
 
-async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: string }) {
+async function mountMenu(props?: {
+  modelSelection?: ModelSelection;
+  prompt?: string;
+  runtimeMode?: RuntimeMode;
+  onRuntimeModeChange?: (mode: RuntimeMode) => void;
+}) {
   const threadId = ThreadId.makeUnsafe("thread-compact-menu");
   const provider = props?.modelSelection?.provider ?? "claudeAgent";
   const draftsByThreadId = {} as ReturnType<
@@ -113,10 +118,8 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
         ];
   const screen = await render(
     <CompactComposerControlsMenu
-      activePlan={false}
       interactionMode="default"
-      planSidebarOpen={false}
-      runtimeMode="approval-required"
+      runtimeMode={props?.runtimeMode ?? "approval-required"}
       traitsMenuContent={
         <TraitsMenuContent
           provider={provider}
@@ -129,8 +132,7 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
         />
       }
       onToggleInteractionMode={vi.fn()}
-      onTogglePlanSidebar={vi.fn()}
-      onRuntimeModeChange={vi.fn()}
+      onRuntimeModeChange={props?.onRuntimeModeChange ?? vi.fn()}
     />,
     { container: host },
   );
@@ -257,5 +259,25 @@ describe("CompactComposerControlsMenu", () => {
         'Your prompt contains "ultrathink" in the text. Remove it to change effort.',
       );
     });
+  });
+
+  it("shows access options and toggles runtime mode", async () => {
+    const onRuntimeModeChange = vi.fn();
+    await using _ = await mountMenu({
+      runtimeMode: "approval-required",
+      onRuntimeModeChange,
+    });
+
+    await page.getByLabelText("More composer controls").click();
+
+    await vi.waitFor(() => {
+      const text = document.body.textContent ?? "";
+      expect(text).toContain("Supervised");
+      expect(text).toContain("Full access");
+      expect(text).toContain("Andy");
+    });
+
+    await page.getByRole("menuitemradio", { name: "Full access" }).click();
+    expect(onRuntimeModeChange).toHaveBeenCalledWith("full-access");
   });
 });

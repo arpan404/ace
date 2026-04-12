@@ -1,8 +1,13 @@
 import { Effect, Layer, Schema } from "effect";
-import { PositiveInt, TrimmedNonEmptyString } from "@ace/contracts";
+import {
+  GitHubCliError,
+  PositiveInt,
+  TrimmedNonEmptyString,
+  type GitHubIssue,
+  type GitHubIssueThread,
+} from "@ace/contracts";
 
 import { runProcess } from "../../processRunner";
-import { GitHubCliError } from "@ace/contracts";
 import {
   GitHubCli,
   type GitHubRepositoryCloneUrls,
@@ -45,6 +50,18 @@ function normalizeGitHubCliError(operation: "execute" | "stdout", error: unknown
       return new GitHubCliError({
         operation,
         detail: "Pull request not found. Check the PR number or URL and try again.",
+        cause: error,
+      });
+    }
+
+    if (
+      lower.includes("could not resolve to an issue") ||
+      lower.includes("repository.issue") ||
+      lower.includes("issue not found")
+    ) {
+      return new GitHubCliError({
+        operation,
+        detail: "Issue not found. Check the issue number and try again.",
         cause: error,
       });
     }
@@ -109,6 +126,83 @@ const RawGitHubRepositoryCloneUrlsSchema = Schema.Struct({
   sshUrl: TrimmedNonEmptyString,
 });
 
+const RawGitHubIssueSchema = Schema.Struct({
+  number: PositiveInt,
+  title: TrimmedNonEmptyString,
+  state: Schema.optional(Schema.NullOr(Schema.String)),
+  url: TrimmedNonEmptyString,
+  body: Schema.optional(Schema.NullOr(Schema.String)),
+  labels: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        name: TrimmedNonEmptyString,
+      }),
+    ),
+  ),
+  assignees: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        login: TrimmedNonEmptyString,
+      }),
+    ),
+  ),
+  author: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        login: TrimmedNonEmptyString,
+      }),
+    ),
+  ),
+  createdAt: TrimmedNonEmptyString,
+  updatedAt: TrimmedNonEmptyString,
+});
+
+const RawGitHubIssueCommentSchema = Schema.Struct({
+  author: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        login: TrimmedNonEmptyString,
+      }),
+    ),
+  ),
+  body: Schema.optional(Schema.NullOr(Schema.String)),
+  createdAt: TrimmedNonEmptyString,
+  updatedAt: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  url: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+});
+
+const RawGitHubIssueThreadSchema = Schema.Struct({
+  number: PositiveInt,
+  title: TrimmedNonEmptyString,
+  state: Schema.optional(Schema.NullOr(Schema.String)),
+  url: TrimmedNonEmptyString,
+  body: Schema.optional(Schema.NullOr(Schema.String)),
+  labels: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        name: TrimmedNonEmptyString,
+      }),
+    ),
+  ),
+  assignees: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        login: TrimmedNonEmptyString,
+      }),
+    ),
+  ),
+  author: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        login: TrimmedNonEmptyString,
+      }),
+    ),
+  ),
+  createdAt: TrimmedNonEmptyString,
+  updatedAt: TrimmedNonEmptyString,
+  comments: Schema.optional(Schema.Array(RawGitHubIssueCommentSchema)),
+});
+
 function normalizePullRequestSummary(
   raw: Schema.Schema.Type<typeof RawGitHubPullRequestSchema>,
 ): GitHubPullRequestSummary {
@@ -143,10 +237,61 @@ function normalizeRepositoryCloneUrls(
   };
 }
 
+function normalizeIssueState(state: string | null | undefined): "open" | "closed" {
+  if (state === "CLOSED" || state === "closed") {
+    return "closed";
+  }
+  return "open";
+}
+
+function normalizeGitHubIssue(raw: Schema.Schema.Type<typeof RawGitHubIssueSchema>): GitHubIssue {
+  return {
+    number: raw.number,
+    title: raw.title,
+    state: normalizeIssueState(raw.state),
+    url: raw.url,
+    body: raw.body ?? null,
+    labels: (raw.labels ?? []).map((label) => ({ name: label.name })),
+    assignees: (raw.assignees ?? []).map((assignee) => ({ login: assignee.login })),
+    author: raw.author ? { login: raw.author.login } : null,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+  };
+}
+
+function normalizeGitHubIssueThread(
+  raw: Schema.Schema.Type<typeof RawGitHubIssueThreadSchema>,
+): GitHubIssueThread {
+  return {
+    number: raw.number,
+    title: raw.title,
+    state: normalizeIssueState(raw.state),
+    url: raw.url,
+    body: raw.body ?? null,
+    labels: (raw.labels ?? []).map((label) => ({ name: label.name })),
+    assignees: (raw.assignees ?? []).map((assignee) => ({ login: assignee.login })),
+    author: raw.author ? { login: raw.author.login } : null,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+    comments: (raw.comments ?? []).map((comment) => ({
+      author: comment.author ? { login: comment.author.login } : null,
+      body: comment.body ?? null,
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt ?? null,
+      url: comment.url ?? null,
+    })),
+  };
+}
+
 function decodeGitHubJson<S extends Schema.Top>(
   raw: string,
   schema: S,
-  operation: "listOpenPullRequests" | "getPullRequest" | "getRepositoryCloneUrls",
+  operation:
+    | "listOpenPullRequests"
+    | "listIssues"
+    | "getIssueThread"
+    | "getPullRequest"
+    | "getRepositoryCloneUrls",
   invalidDetail: string,
 ): Effect.Effect<S["Type"], GitHubCliError, S["DecodingServices"]> {
   return Schema.decodeEffect(Schema.fromJsonString(schema))(raw).pipe(
@@ -202,6 +347,56 @@ const makeGitHubCli = Effect.sync(() => {
               ),
         ),
         Effect.map((pullRequests) => pullRequests.map(normalizePullRequestSummary)),
+      ),
+    listIssues: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "issue",
+          "list",
+          "--state",
+          "open",
+          "--limit",
+          String(input.limit ?? 30),
+          ...(input.query ? ["--search", input.query] : []),
+          "--json",
+          "number,title,state,url,body,labels,assignees,author,createdAt,updatedAt",
+        ],
+      }).pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          raw.length === 0
+            ? Effect.succeed([])
+            : decodeGitHubJson(
+                raw,
+                Schema.Array(RawGitHubIssueSchema),
+                "listIssues",
+                "GitHub CLI returned invalid issue list JSON.",
+              ),
+        ),
+        Effect.map((issues) => issues.map(normalizeGitHubIssue)),
+      ),
+    getIssueThread: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: [
+          "issue",
+          "view",
+          String(input.issueNumber),
+          "--json",
+          "number,title,state,url,body,labels,assignees,author,createdAt,updatedAt,comments",
+        ],
+      }).pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          decodeGitHubJson(
+            raw,
+            RawGitHubIssueThreadSchema,
+            "getIssueThread",
+            "GitHub CLI returned invalid issue thread JSON.",
+          ),
+        ),
+        Effect.map(normalizeGitHubIssueThread),
       ),
     getPullRequest: (input) =>
       execute({

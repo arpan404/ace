@@ -1,21 +1,14 @@
-import { WsRpcGroup } from "@ace/contracts";
-import { resolveWebSocketAuthConnection } from "@ace/shared/wsAuth";
-import { Effect, Layer } from "effect";
-import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
-import * as Socket from "effect/unstable/socket/Socket";
+import {
+  createWsRpcProtocolLayer as createSharedWsRpcProtocolLayer,
+  makeWsRpcProtocolClient,
+  type WsClientConnectionIdentity,
+  type WsRpcProtocolClient,
+} from "@ace/shared/wsRpcProtocol";
 
 import { resolveServerUrl } from "../lib/utils";
 
-export const makeWsRpcProtocolClient = RpcClient.make(WsRpcGroup);
-
-type RpcClientFactory = typeof makeWsRpcProtocolClient;
-export type WsRpcProtocolClient =
-  RpcClientFactory extends Effect.Effect<infer Client, any, any> ? Client : never;
-
-export interface WsClientConnectionIdentity {
-  readonly clientSessionId: string;
-  readonly connectionId: string;
-}
+export { makeWsRpcProtocolClient };
+export type { WsClientConnectionIdentity, WsRpcProtocolClient };
 
 export function createWsRpcProtocolLayer(url?: string, identity?: WsClientConnectionIdentity) {
   const resolvedTarget = resolveServerUrl({
@@ -23,18 +16,9 @@ export function createWsRpcProtocolLayer(url?: string, identity?: WsClientConnec
     protocol: window.location.protocol === "https:" ? "wss" : "ws",
     pathname: "/ws",
   });
-  const connection = resolveWebSocketAuthConnection(resolvedTarget, {
+  return createSharedWsRpcProtocolLayer({
+    target: resolvedTarget,
     baseUrl: window.location.origin,
-    ...(identity
-      ? { clientSessionId: identity.clientSessionId, connectionId: identity.connectionId }
-      : {}),
+    ...(identity ? { identity } : {}),
   });
-  const socketOptions = connection.protocols ? { protocols: [...connection.protocols] } : undefined;
-  const socketLayer = Socket.layerWebSocket(connection.url, socketOptions).pipe(
-    Layer.provide(Socket.layerWebSocketConstructorGlobal),
-  );
-
-  return RpcClient.layerProtocolSocket({ retryTransientErrors: true }).pipe(
-    Layer.provide(Layer.mergeAll(socketLayer, RpcSerialization.layerJson)),
-  );
 }
