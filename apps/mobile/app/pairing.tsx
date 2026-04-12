@@ -1,16 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, View, Text, StyleSheet, Pressable } from "react-native";
+import { Alert, View, Text, StyleSheet, Pressable, Animated } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { X } from "lucide-react-native";
 import { useTheme } from "../src/design/ThemeContext";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withRepeat,
-  withSequence,
-  withTiming,
-} from "react-native-reanimated";
 import {
   createHostInstance,
   parseHostConnectionQrPayload,
@@ -27,26 +20,39 @@ export default function PairingScreen() {
   const [scanPaused, setScanPaused] = useState(false);
   const scanLockedRef = useRef(false);
 
-  const pulseScale = useSharedValue(1);
-  const pulseOpacity = useSharedValue(1);
+  const pulseScale = useRef(new Animated.Value(1)).current;
+  const pulseOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    pulseScale.value = withRepeat(
-      withSequence(withTiming(1.04, { duration: 1200 }), withTiming(1, { duration: 1200 })),
-      -1,
-      true,
-    );
-    pulseOpacity.value = withRepeat(
-      withSequence(withTiming(0.6, { duration: 1200 }), withTiming(1, { duration: 1200 })),
-      -1,
-      true,
-    );
+    Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(pulseScale, {
+            toValue: 1.04,
+            duration: 1200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseOpacity, {
+            toValue: 0.6,
+            duration: 1200,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(pulseScale, {
+            toValue: 1,
+            duration: 1200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseOpacity, {
+            toValue: 1,
+            duration: 1200,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]),
+    ).start();
   }, [pulseScale, pulseOpacity]);
-
-  const animatedFinderStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pulseScale.value }],
-    opacity: pulseOpacity.value,
-  }));
 
   const requestCameraPermission = async () => {
     try {
@@ -160,7 +166,9 @@ export default function PairingScreen() {
           </Pressable>
         </View>
 
-        <Animated.View style={[styles.finder, animatedFinderStyle]}>
+        <Animated.View
+          style={[styles.finder, { transform: [{ scale: pulseScale }], opacity: pulseOpacity }]}
+        >
           <View style={[styles.corner, styles.topLeft, { borderColor: theme.primary }]} />
           <View style={[styles.corner, styles.topRight, { borderColor: theme.primary }]} />
           <View style={[styles.corner, styles.bottomLeft, { borderColor: theme.primary }]} />
