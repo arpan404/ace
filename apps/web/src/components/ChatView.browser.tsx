@@ -2386,6 +2386,116 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("sends /issues command with multiple tagged issues", async () => {
+    const baseSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-issues-command-flow" as MessageId,
+      targetText: "issues command flow",
+    });
+    const emptyThreadSnapshot: OrchestrationReadModel = {
+      ...baseSnapshot,
+      threads: baseSnapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? Object.assign({}, thread, {
+              messages: [],
+              activities: [],
+              latestTurn: null,
+              updatedAt: NOW_ISO,
+            })
+          : thread,
+      ),
+    };
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: emptyThreadSnapshot,
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitGetGitHubIssueThread && body.issueNumber === 77) {
+          return {
+            issue: {
+              number: 77,
+              title: "Improve empty state copy",
+              state: "open",
+              url: "https://github.com/pingdotgg/ace/issues/77",
+              body: "Use concise copy and support issue continuation.",
+              labels: [{ name: "ux" }],
+              assignees: [{ login: "octocat" }],
+              author: { login: "hubot" },
+              createdAt: "2026-04-08T00:00:00.000Z",
+              updatedAt: "2026-04-08T00:10:00.000Z",
+              comments: [],
+            },
+          };
+        }
+        if (body._tag === WS_METHODS.gitGetGitHubIssueThread && body.issueNumber === 78) {
+          return {
+            issue: {
+              number: 78,
+              title: "Stabilize composer auto-scroll",
+              state: "open",
+              url: "https://github.com/pingdotgg/ace/issues/78",
+              body: "Keep composer anchored while streaming.",
+              labels: [{ name: "chat" }],
+              assignees: [{ login: "octocat" }],
+              author: { login: "hubot" },
+              createdAt: "2026-04-08T00:00:00.000Z",
+              updatedAt: "2026-04-08T00:10:00.000Z",
+              comments: [],
+            },
+          };
+        }
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: 1 };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      await waitForComposerEditor();
+      await page.getByTestId("composer-editor").fill("/issues #77 #78");
+
+      const sendButton = await waitForSendButton();
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          );
+          expect(turnStartRequest).toBeDefined();
+          const messageText =
+            typeof turnStartRequest === "object" &&
+            turnStartRequest &&
+            "message" in turnStartRequest &&
+            typeof turnStartRequest.message === "object" &&
+            turnStartRequest.message &&
+            "text" in turnStartRequest.message &&
+            typeof turnStartRequest.message.text === "string"
+              ? turnStartRequest.message.text
+              : "";
+          expect(messageText).toContain("Solve #77: Improve empty state copy");
+          expect(messageText).toContain("Solve #78: Stabilize composer auto-scroll");
+          expect(messageText.match(/<github_issue_context>/g)?.length ?? 0).toBeGreaterThanOrEqual(
+            2,
+          );
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await expect
+        .element(page.getByText("Solve #77: Improve empty state copy"))
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByText("Solve #78: Stabilize composer auto-scroll"))
+        .toBeInTheDocument();
+      expect(document.body.textContent ?? "").not.toContain("<github_issue_context>");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("toggles plan mode with Shift+Tab only while the composer is focused", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,

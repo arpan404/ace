@@ -45,6 +45,7 @@ const GitPullRequestReference = TrimmedNonEmptyStringSchema;
 const GitPullRequestState = Schema.Literals(["open", "closed", "merged"]);
 const GitPreparePullRequestThreadMode = Schema.Literals(["local", "worktree"]);
 const GitHubIssueState = Schema.Literals(["open", "closed"]);
+const GitHubIssueListState = Schema.Literals(["open", "closed", "all"]);
 const GitHubIssueUser = Schema.Struct({
   login: TrimmedNonEmptyStringSchema,
 });
@@ -172,6 +173,12 @@ export type GitListBranchesInput = typeof GitListBranchesInput.Type;
 export const GitListGitHubIssuesInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   limit: Schema.optional(PositiveInt),
+  state: Schema.optional(GitHubIssueListState),
+  labels: Schema.optional(
+    Schema.Array(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(64))).check(
+      Schema.isMinLength(1),
+    ),
+  ),
   query: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(200))),
 });
 export type GitListGitHubIssuesInput = typeof GitListGitHubIssuesInput.Type;

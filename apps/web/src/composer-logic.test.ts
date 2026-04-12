@@ -6,6 +6,7 @@ import {
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToInlineToken,
+  parseComposerIssuesCommand,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "./composer-logic";
@@ -55,6 +56,18 @@ describe("detectComposerTrigger", () => {
     expect(trigger).toEqual({
       kind: "slash-command",
       query: "pl",
+      rangeStart: 0,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("detects /issues while typing command name", () => {
+    const text = "/iss";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "slash-command",
+      query: "iss",
       rangeStart: 0,
       rangeEnd: text.length,
     });
@@ -246,5 +259,27 @@ describe("parseStandaloneComposerSlashCommand", () => {
 
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
+  });
+});
+
+describe("parseComposerIssuesCommand", () => {
+  it("parses multiple tagged issues", () => {
+    expect(parseComposerIssuesCommand(" /issues #351 #341 ")).toEqual([351, 341]);
+  });
+
+  it("parses comma-separated issue tags", () => {
+    expect(parseComposerIssuesCommand("/issues #351, #341, #341")).toEqual([351, 341]);
+  });
+
+  it("returns an empty array when no issue tag is provided", () => {
+    expect(parseComposerIssuesCommand("/issues")).toEqual([]);
+  });
+
+  it("ignores non-issues slash commands", () => {
+    expect(parseComposerIssuesCommand("/plan #351")).toBeNull();
+  });
+
+  it("rejects malformed issue arguments", () => {
+    expect(parseComposerIssuesCommand("/issues #351 and #341")).toBeNull();
   });
 });

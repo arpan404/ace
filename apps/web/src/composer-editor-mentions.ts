@@ -13,11 +13,16 @@ export type ComposerPromptSegment =
       path: string;
     }
   | {
+      type: "issue-reference";
+      issueNumber: number;
+    }
+  | {
       type: "terminal-context";
       context: TerminalContextDraft | null;
     };
 
 const MENTION_TOKEN_REGEX = /(^|\s)@([^\s@]+)(?=\s)/g;
+const ISSUE_REFERENCE_TOKEN_REGEX = /(^|[\s,])#(\d+)(?=$|[\s,])/g;
 
 function pushTextSegment(segments: ComposerPromptSegment[], text: string): void {
   if (!text) return;
@@ -30,6 +35,38 @@ function pushTextSegment(segments: ComposerPromptSegment[], text: string): void 
 }
 
 function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegment[] {
+  const issueCommandMatch = /^\s*\/issues(?:\s+|$)/i.exec(text);
+  if (issueCommandMatch) {
+    const segments: ComposerPromptSegment[] = [];
+    let cursor = 0;
+    ISSUE_REFERENCE_TOKEN_REGEX.lastIndex = 0;
+    const issueArguments = text.slice(issueCommandMatch[0].length);
+    for (const match of issueArguments.matchAll(ISSUE_REFERENCE_TOKEN_REGEX)) {
+      const fullMatch = match[0];
+      const prefix = match[1] ?? "";
+      const issueNumberText = match[2] ?? "";
+      const matchIndex = (match.index ?? 0) + issueCommandMatch[0].length;
+      const issueStart = matchIndex + prefix.length;
+      const issueEnd = issueStart + fullMatch.length - prefix.length;
+      if (issueStart > cursor) {
+        pushTextSegment(segments, text.slice(cursor, issueStart));
+      }
+      const issueNumber = Number.parseInt(issueNumberText, 10);
+      if (Number.isInteger(issueNumber) && issueNumber > 0) {
+        segments.push({ type: "issue-reference", issueNumber });
+      } else {
+        pushTextSegment(segments, text.slice(issueStart, issueEnd));
+      }
+      cursor = issueEnd;
+    }
+    if (cursor < text.length) {
+      pushTextSegment(segments, text.slice(cursor));
+    }
+    if (segments.length > 0) {
+      return segments;
+    }
+  }
+
   const segments: ComposerPromptSegment[] = [];
   if (!text) {
     return segments;

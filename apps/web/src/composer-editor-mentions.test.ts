@@ -38,4 +38,22 @@ describe("splitPromptIntoComposerSegments", () => {
       { type: "text", text: " please" },
     ]);
   });
+
+  it("splits /issues tagged references into issue-reference segments", () => {
+    expect(splitPromptIntoComposerSegments("/issues #351 #341")).toEqual([
+      { type: "text", text: "/issues " },
+      { type: "issue-reference", issueNumber: 351 },
+      { type: "text", text: " " },
+      { type: "issue-reference", issueNumber: 341 },
+    ]);
+  });
+
+  it("keeps extra /issues text while still tokenizing tagged issue references", () => {
+    expect(splitPromptIntoComposerSegments("/issues #351 and #341")).toEqual([
+      { type: "text", text: "/issues " },
+      { type: "issue-reference", issueNumber: 351 },
+      { type: "text", text: " and " },
+      { type: "issue-reference", issueNumber: 341 },
+    ]);
+  });
 });

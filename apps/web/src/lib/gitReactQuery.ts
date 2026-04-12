@@ -12,13 +12,19 @@ const GIT_STATUS_REFETCH_INTERVAL_MS = 15_000;
 const GIT_BRANCHES_STALE_TIME_MS = 15_000;
 const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
 const GIT_GITHUB_ISSUES_STALE_TIME_MS = 30_000;
+export type GitHubIssueListStateFilter = "open" | "closed" | "all";
 
 export const gitQueryKeys = {
   all: ["git"] as const,
   status: (cwd: string | null) => ["git", "status", cwd] as const,
   branches: (cwd: string | null) => ["git", "branches", cwd] as const,
-  githubIssues: (cwd: string | null, limit: number, query: string | null) =>
-    ["git", "github-issues", cwd, limit, query] as const,
+  githubIssues: (
+    cwd: string | null,
+    limit: number,
+    state: GitHubIssueListStateFilter,
+    labels: readonly string[],
+    query: string | null,
+  ) => ["git", "github-issues", cwd, limit, state, labels.join("|"), query] as const,
   githubIssueThread: (cwd: string | null, issueNumber: number | null) =>
     ["git", "github-issue-thread", cwd, issueNumber] as const,
 };
@@ -87,19 +93,34 @@ export function gitBranchesQueryOptions(cwd: string | null) {
 export function gitGitHubIssuesQueryOptions(input: {
   cwd: string | null;
   limit?: number;
+  state?: GitHubIssueListStateFilter;
+  labels?: readonly string[];
   query?: string;
   enabled?: boolean;
 }) {
   const limit = input.limit ?? 50;
+  const state = input.state ?? "open";
+  const labels = [...(input.labels ?? [])]
+    .map((label) => label.trim())
+    .filter((label) => label.length > 0);
+  labels.sort((left, right) => left.localeCompare(right));
   const query = input.query?.trim() ?? "";
   return queryOptions({
-    queryKey: gitQueryKeys.githubIssues(input.cwd, limit, query.length > 0 ? query : null),
+    queryKey: gitQueryKeys.githubIssues(
+      input.cwd,
+      limit,
+      state,
+      labels,
+      query.length > 0 ? query : null,
+    ),
     queryFn: async () => {
       const api = ensureNativeApi();
       if (!input.cwd) throw new Error("GitHub issues are unavailable.");
       return api.git.listGitHubIssues({
         cwd: input.cwd,
         limit,
+        state,
+        ...(labels.length > 0 ? { labels } : {}),
         ...(query.length > 0 ? { query } : {}),
       });
     },

@@ -4,6 +4,7 @@ import {
   buildGitHubIssueContextBlock,
   buildGitHubIssuePrompt,
   buildGitHubIssuePromptFromThread,
+  buildGitHubIssuePromptFromThreads,
   buildGitHubIssueSummaryLabel,
 } from "./githubIssuePrompt";
 
@@ -45,6 +46,8 @@ describe("githubIssuePrompt", () => {
         "commit_expectations:",
         "  - Use Conventional Commits (for example: fix(scope): short summary).",
         "  - Reference this issue in the commit subject or body (for example: #42 or 'Fixes #42').",
+        "  - Create commit(s) for your code changes before you finish the task.",
+        "  - When multiple issues are provided, reference all of them across your commit message subject/body.",
         "  - Stage only files you intentionally changed; keep commits focused and reviewable.",
         "  - Do not push, open a pull request, or merge unless the user explicitly asks.",
         "</github_issue_context>",
@@ -75,5 +78,22 @@ describe("githubIssuePrompt", () => {
     expect(prompt).toContain("comment_count: 1");
     expect(prompt).toContain("author: alice");
     expect(prompt).toContain("Still reproduces on Safari.");
+  });
+
+  it("builds multi-issue prompts with one summary per issue", () => {
+    const issueThread = {
+      ...issue,
+      comments: [],
+    };
+    const secondThread = {
+      ...issue,
+      number: 7,
+      title: "Fix composer selection",
+      comments: [],
+    };
+    const prompt = buildGitHubIssuePromptFromThreads([issueThread, secondThread]);
+    expect(prompt).toContain("Solve #42: Fix timeline sizing");
+    expect(prompt).toContain("Solve #7: Fix composer selection");
+    expect(prompt.match(/<github_issue_context>/g)?.length).toBe(2);
   });
 });

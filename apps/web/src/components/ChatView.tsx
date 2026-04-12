@@ -59,6 +59,7 @@ import {
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   extendReplacementRangeForTrailingSpace,
+  parseComposerIssuesCommand,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "../composer-logic";
@@ -168,6 +169,7 @@ import {
   type TerminalContextSelection,
 } from "../lib/terminalContext";
 import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
+import { buildGitHubIssueSelectionPayload } from "~/lib/chat/githubIssueSelection";
 import {
   resolveComposerFooterContentWidth,
   shouldForceCompactComposerFooterForFit,
@@ -404,6 +406,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
   const [gitHubIssueDialogOpen, setGitHubIssueDialogOpen] = useState(false);
+  const [gitHubIssueDialogInitialIssueNumber, setGitHubIssueDialogInitialIssueNumber] = useState<
+    number | null
+  >(null);
+  const [
+    gitHubIssueDialogInitialSelectedIssueNumbers,
+    setGitHubIssueDialogInitialSelectedIssueNumbers,
+  ] = useState<number[]>([]);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
   const [pendingPullRequestSetupRequest, setPendingPullRequestSetupRequest] =
@@ -908,14 +917,39 @@ export default function ChatView({ threadId }: ChatViewProps) {
     setPullRequestDialogState(null);
   }, []);
 
-  const openGitHubIssueDialog = useCallback(() => {
-    setGitHubIssueDialogOpen(true);
-    setComposerHighlightedItemId(null);
-  }, []);
+  const openGitHubIssueDialog = useCallback(
+    (options?: {
+      initialIssueNumber?: number | null;
+      initialSelectedIssueNumbers?: ReadonlyArray<number>;
+    }) => {
+      setGitHubIssueDialogInitialIssueNumber(options?.initialIssueNumber ?? null);
+      setGitHubIssueDialogInitialSelectedIssueNumbers([
+        ...(options?.initialSelectedIssueNumbers ?? []),
+      ]);
+      setGitHubIssueDialogOpen(true);
+      setComposerHighlightedItemId(null);
+    },
+    [],
+  );
 
   const closeGitHubIssueDialog = useCallback(() => {
     setGitHubIssueDialogOpen(false);
+    setGitHubIssueDialogInitialIssueNumber(null);
+    setGitHubIssueDialogInitialSelectedIssueNumbers([]);
   }, []);
+
+  const onComposerIssueTokenClick = useCallback(
+    (issueNumber: number) => {
+      if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
+        return;
+      }
+      openGitHubIssueDialog({
+        initialIssueNumber: issueNumber,
+        initialSelectedIssueNumbers: [issueNumber],
+      });
+    },
+    [openGitHubIssueDialog],
+  );
 
   const openOrReuseProjectDraftThread = useCallback(
     async (input: { branch: string; worktreePath: string | null; envMode: DraftThreadEnvMode }) => {
@@ -1603,6 +1637,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
           command: "default",
           label: "/default",
           description: "Switch this thread back to normal chat mode",
+        },
+        {
+          id: "slash:issues",
+          type: "slash-command",
+          command: "issues",
+          label: "/issues",
+          description: "Solve multiple GitHub issues (#123 #456)",
         },
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
       const query = composerTrigger.query.trim().toLowerCase();
@@ -3595,6 +3636,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   useEffect(() => {
     setExpandedWorkGroups({});
     setGitHubIssueDialogOpen(false);
+    setGitHubIssueDialogInitialIssueNumber(null);
+    setGitHubIssueDialogInitialSelectedIssueNumbers([]);
     setPullRequestDialogState(null);
     if (planSidebarOpenOnNextThreadRef.current) {
       planSidebarOpenOnNextThreadRef.current = false;
@@ -4501,6 +4544,48 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setComposerTrigger(null);
       return;
     }
+    const composerIssuesCommandIssueNumbers =
+      composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
+        ? parseComposerIssuesCommand(trimmed)
+        : null;
+    if (composerIssuesCommandIssueNumbers !== null) {
+      if (composerIssuesCommandIssueNumbers.length === 0) {
+        toastManager.add({
+          type: "warning",
+          title: "Add at least one issue tag",
+          description: "Use /issues #123 #456 to send multiple GitHub issues.",
+        });
+        return;
+      }
+      if (!gitCwd || !isGitRepo) {
+        toastManager.add({
+          type: "error",
+          title: "GitHub issues are unavailable",
+          description: "Open a Git repository to use /issues.",
+        });
+        return;
+      }
+      try {
+        const payload = await buildGitHubIssueSelectionPayload({
+          cwd: gitCwd,
+          issueNumbers: composerIssuesCommandIssueNumbers,
+          queryClient,
+        });
+        promptRef.current = "";
+        clearComposerDraftContent(activeThread.id);
+        setComposerHighlightedItemId(null);
+        setComposerCursor(0);
+        setComposerTrigger(null);
+        await onFixGitHubIssue({ prompt: payload.prompt, images: payload.images });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Failed to load GitHub issue details.",
+          description: error instanceof Error ? error.message : "Please try again.",
+        });
+      }
+      return;
+    }
     if (!hasSendableContent) {
       if (expiredTerminalContextCount > 0) {
         const toastCopy = buildExpiredTerminalContextToastCopy(
@@ -5398,8 +5483,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return;
       }
       if (item.type === "slash-command") {
-        if (item.command === "model") {
-          const replacement = "/model ";
+        if (item.command === "model" || item.command === "issues") {
+          const replacement = item.command === "model" ? "/model " : "/issues ";
           const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
             snapshot.value,
             trigger.rangeEnd,
@@ -5686,6 +5771,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ? {
         open: true,
         cwd: gitCwd ?? activeProject?.cwd ?? null,
+        initialIssueNumber: gitHubIssueDialogInitialIssueNumber,
+        initialSelectedIssueNumbers: gitHubIssueDialogInitialSelectedIssueNumbers,
         onOpenChange: (open: boolean) => {
           if (!open) {
             closeGitHubIssueDialog();
@@ -6112,6 +6199,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
                             onChange={onPromptChange}
                             onCommandKeyDown={onComposerCommandKey}
+                            onIssueTokenClick={onComposerIssueTokenClick}
                             onPaste={onComposerPaste}
                             placeholder={
                               isComposerApprovalState
