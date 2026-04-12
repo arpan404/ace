@@ -4,7 +4,7 @@ import {
 } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
-export type ComposerTriggerKind = "path" | "slash-command" | "slash-model";
+export type ComposerTriggerKind = "path" | "slash-command" | "slash-model" | "issue";
 export type ComposerSlashCommand = "model" | "plan" | "default" | "issues";
 
 export interface ComposerTrigger {
@@ -220,6 +220,14 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
 
   const tokenStart = tokenStartForCursor(text, cursor);
   const token = text.slice(tokenStart, cursor);
+  if (/^#\d*$/.test(token) && /^\s*\/issues(?:\s+.*)?$/i.test(linePrefix)) {
+    return {
+      kind: "issue",
+      query: token.slice(1),
+      rangeStart: tokenStart,
+      rangeEnd: cursor,
+    };
+  }
   if (!token.startsWith("@")) {
     return null;
   }

@@ -271,4 +271,22 @@ layer("GitHubCliLive", (it) => {
       assert.equal(error.message.includes("Pull request not found"), true);
     }),
   );
+
+  it.effect("surfaces a friendly error when repository issues are disabled", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockRejectedValueOnce(
+        new Error("the 'octocat/example' repository has disabled issues"),
+      );
+
+      const error = yield* Effect.gen(function* () {
+        const gh = yield* GitHubCli;
+        return yield* gh.listIssues({
+          cwd: "/repo",
+          state: "open",
+        });
+      }).pipe(Effect.flip);
+
+      assert.equal(error.message.includes("GitHub issues are disabled for this repository"), true);
+    }),
+  );
 });

@@ -2348,7 +2348,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const continueButton = await waitForButtonByText("continue with an open GitHub issue");
       continueButton.click();
 
-      const fixButton = await waitForButtonByText("Solve issue");
+      const fixButton = await waitForButtonByText("Send issue context");
       fixButton.click();
 
       await vi.waitFor(
@@ -2369,7 +2369,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             typeof turnStartRequest.message.text === "string"
               ? turnStartRequest.message.text
               : "";
-          expect(messageText).toContain("Solve #77: Improve empty state copy");
+          expect(messageText).toContain("Tag #77: Improve empty state copy");
           expect(messageText).toContain("<github_issue_context>");
           expect(messageText).toContain("comment_count: 1");
           expect(messageText).toContain("Also update the timeline hint.");
@@ -2377,9 +2377,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      await expect
-        .element(page.getByText("Solve #77: Improve empty state copy"))
-        .toBeInTheDocument();
+      await expect.element(page.getByText("Tag #77: Improve empty state copy")).toBeInTheDocument();
       expect(document.body.textContent ?? "").not.toContain("<github_issue_context>");
     } finally {
       await mounted.cleanup();
@@ -2475,8 +2473,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             typeof turnStartRequest.message.text === "string"
               ? turnStartRequest.message.text
               : "";
-          expect(messageText).toContain("Solve #77: Improve empty state copy");
-          expect(messageText).toContain("Solve #78: Stabilize composer auto-scroll");
+          expect(messageText).toContain("Tag #77: Improve empty state copy");
+          expect(messageText).toContain("Tag #78: Stabilize composer auto-scroll");
           expect(messageText.match(/<github_issue_context>/g)?.length ?? 0).toBeGreaterThanOrEqual(
             2,
           );
@@ -2484,13 +2482,147 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
+      await expect.element(page.getByText("Tag #77: Improve empty state copy")).toBeInTheDocument();
       await expect
-        .element(page.getByText("Solve #77: Improve empty state copy"))
-        .toBeInTheDocument();
-      await expect
-        .element(page.getByText("Solve #78: Stabilize composer auto-scroll"))
+        .element(page.getByText("Tag #78: Stabilize composer auto-scroll"))
         .toBeInTheDocument();
       expect(document.body.textContent ?? "").not.toContain("<github_issue_context>");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows #issue autocomplete for /issues and supports multi-tag selection", async () => {
+    const baseSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-issues-autocomplete-flow" as MessageId,
+      targetText: "issues autocomplete flow",
+    });
+    const emptyThreadSnapshot: OrchestrationReadModel = {
+      ...baseSnapshot,
+      threads: baseSnapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? Object.assign({}, thread, {
+              messages: [],
+              activities: [],
+              latestTurn: null,
+              updatedAt: NOW_ISO,
+            })
+          : thread,
+      ),
+    };
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: emptyThreadSnapshot,
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitListGitHubIssues) {
+          return {
+            issues: [
+              {
+                number: 3,
+                title: "Issue 3",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/3",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+              {
+                number: 35,
+                title: "Issue 35",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/35",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+              {
+                number: 356,
+                title: "Issue 356",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/356",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+              {
+                number: 3460,
+                title: "Issue 3460",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/3460",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+              {
+                number: 42,
+                title: "Issue 42",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/42",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+            ],
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      await waitForComposerEditor();
+      await page.getByTestId("composer-editor").fill("/issues #3");
+
+      await waitForComposerMenuItem("issue:3");
+      await waitForComposerMenuItem("issue:35");
+      await waitForComposerMenuItem("issue:356");
+      await waitForComposerMenuItem("issue:3460");
+
+      await vi.waitFor(
+        () => {
+          expect(document.querySelector('[data-composer-item-id="issue:42"]')).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const issue35Item = await waitForComposerMenuItem("issue:35");
+      issue35Item.click();
+
+      await vi.waitFor(
+        () => {
+          const editor = document.querySelector<HTMLElement>('[data-testid="composer-editor"]');
+          expect(editor?.textContent ?? "").toContain("/issues #35");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await page.getByTestId("composer-editor").fill("/issues #35 #3");
+      const issue356Item = await waitForComposerMenuItem("issue:356");
+      issue356Item.click();
+
+      await vi.waitFor(
+        () => {
+          const editor = document.querySelector<HTMLElement>('[data-testid="composer-editor"]');
+          expect(editor?.textContent ?? "").toContain("/issues #35 #356");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
     } finally {
       await mounted.cleanup();
     }

@@ -16,6 +16,7 @@ import {
   type ThreadId,
   type TurnId,
   type KeybindingCommand,
+  type GitHubIssue,
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
@@ -39,7 +40,11 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { gitBranchesQueryOptions, gitCreateWorktreeMutationOptions } from "~/lib/gitReactQuery";
+import {
+  gitBranchesQueryOptions,
+  gitCreateWorktreeMutationOptions,
+  gitGitHubIssuesQueryOptions,
+} from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
@@ -260,6 +265,7 @@ const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
+const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
@@ -1520,7 +1526,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     : null;
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
+  const issueTriggerQuery = composerTrigger?.kind === "issue" ? composerTrigger.query : "";
   const isPathTrigger = composerTriggerKind === "path";
+  const isIssueTrigger = composerTriggerKind === "issue";
   const [debouncedPathQuery, composerPathQueryDebouncer] = useDebouncedValue(
     pathTriggerQuery,
     { wait: COMPOSER_PATH_QUERY_DEBOUNCE_MS },
@@ -1528,6 +1536,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const effectivePathQuery = pathTriggerQuery.length > 0 ? debouncedPathQuery : "";
   const branchesQuery = useQuery(gitBranchesQueryOptions(gitCwd));
+  // Default true while loading to avoid toolbar flicker.
+  const isGitRepo = branchesQuery.data?.isRepo ?? true;
   const keybindings = useServerKeybindings();
   const availableEditors = useServerAvailableEditors();
   const modelOptionsByProvider = useMemo(
@@ -1602,6 +1612,23 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }),
   );
   const workspaceEntries = workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
+  const canLookupIssueTags = branchesQuery.data?.isRepo === true;
+  const issueTriggerLookupQuery = useQuery(
+    gitGitHubIssuesQueryOptions({
+      cwd: gitCwd,
+      limit: 120,
+      state: "all",
+      ...(issueTriggerQuery.length > 0 ? { query: `#${issueTriggerQuery}` } : {}),
+      enabled: isIssueTrigger && canLookupIssueTags,
+    }),
+  );
+  const issueTriggerMatches = useMemo(() => {
+    const issues = issueTriggerLookupQuery.data?.issues ?? EMPTY_GITHUB_ISSUES;
+    if (issueTriggerQuery.length === 0) {
+      return issues;
+    }
+    return issues.filter((issue) => String(issue.number).startsWith(issueTriggerQuery));
+  }, [issueTriggerLookupQuery.data?.issues, issueTriggerQuery]);
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
@@ -1612,6 +1639,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
         pathKind: entry.kind,
         label: basenameOfPath(entry.path),
         description: entry.parentPath ?? "",
+      }));
+    }
+
+    if (composerTrigger.kind === "issue") {
+      return issueTriggerMatches.map((issue) => ({
+        id: `issue:${issue.number}`,
+        type: "issue",
+        issueNumber: issue.number,
+        label: `#${issue.number} ${issue.title}`,
+        description: issue.state === "open" ? "Open issue" : "Closed issue",
       }));
     }
 
@@ -1643,7 +1680,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           type: "slash-command",
           command: "issues",
           label: "/issues",
-          description: "Solve multiple GitHub issues (#123 #456)",
+          description: "Tag GitHub issues and send context (#123 #456)",
         },
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
       const query = composerTrigger.query.trim().toLowerCase();
@@ -1671,7 +1708,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         label: name,
         description: `${providerLabel} · ${slug}`,
       }));
-  }, [composerTrigger, searchableModelOptions, workspaceEntries]);
+  }, [composerTrigger, issueTriggerMatches, searchableModelOptions, workspaceEntries]);
   const composerMenuOpen = Boolean(composerTrigger);
   const activeComposerMenuItem = useMemo(
     () =>
@@ -1702,8 +1739,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       worktreePath: activeThreadWorktreePath,
     });
   }, [activeProjectCwd, activeThreadWorktreePath]);
-  // Default true while loading to avoid toolbar flicker.
-  const isGitRepo = branchesQuery.data?.isRepo ?? true;
   const terminalShortcutLabelOptions = useMemo(
     () => ({
       context: {
@@ -4548,12 +4583,24 @@ export default function ChatView({ threadId }: ChatViewProps) {
       composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
         ? parseComposerIssuesCommand(trimmed)
         : null;
+    const isIssuesCommandText =
+      composerImages.length === 0 &&
+      sendableComposerTerminalContexts.length === 0 &&
+      /^\/issues\b/i.test(trimmed);
+    if (isIssuesCommandText && composerIssuesCommandIssueNumbers === null) {
+      toastManager.add({
+        type: "warning",
+        title: "Use valid issue tags",
+        description: "Use /issues followed by tags like #123 #456.",
+      });
+      return;
+    }
     if (composerIssuesCommandIssueNumbers !== null) {
       if (composerIssuesCommandIssueNumbers.length === 0) {
         toastManager.add({
           type: "warning",
-          title: "Add at least one issue tag",
-          description: "Use /issues #123 #456 to send multiple GitHub issues.",
+          title: "Tag at least one issue",
+          description: "Use /issues #123 #456 to send GitHub issue context.",
         });
         return;
       }
@@ -4580,7 +4627,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       } catch (error) {
         toastManager.add({
           type: "error",
-          title: "Failed to load GitHub issue details.",
+          title: "Failed to load GitHub issue context.",
           description: error instanceof Error ? error.message : "Please try again.",
         });
       }
@@ -5482,6 +5529,26 @@ export default function ChatView({ threadId }: ChatViewProps) {
         }
         return;
       }
+      if (item.type === "issue") {
+        const replacement = `#${item.issueNumber} `;
+        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+          snapshot.value,
+          trigger.rangeEnd,
+          replacement,
+        );
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          replacementRangeEnd,
+          replacement,
+          {
+            expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+          },
+        );
+        if (applied) {
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
       if (item.type === "slash-command") {
         if (item.command === "model" || item.command === "issues") {
           const replacement = item.command === "model" ? "/model " : "/issues ";
@@ -5549,10 +5616,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [composerHighlightedItemId, composerMenuItems],
   );
   const isComposerMenuLoading =
-    composerTriggerKind === "path" &&
-    ((pathTriggerQuery.length > 0 && composerPathQueryDebouncer.state.isPending) ||
-      workspaceEntriesQuery.isLoading ||
-      workspaceEntriesQuery.isFetching);
+    (composerTriggerKind === "path" &&
+      ((pathTriggerQuery.length > 0 && composerPathQueryDebouncer.state.isPending) ||
+        workspaceEntriesQuery.isLoading ||
+        workspaceEntriesQuery.isFetching)) ||
+    (composerTriggerKind === "issue" &&
+      (issueTriggerLookupQuery.isLoading || issueTriggerLookupQuery.isFetching));
 
   const onPromptChange = useCallback(
     (

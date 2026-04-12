@@ -73,6 +73,35 @@ describe("detectComposerTrigger", () => {
     });
   });
 
+  it("detects issue tag trigger after /issues", () => {
+    const text = "/issues #";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "issue",
+      query: "",
+      rangeStart: "/issues ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("detects issue tag prefix query after /issues", () => {
+    const text = "/issues #35";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "issue",
+      query: "35",
+      rangeStart: "/issues ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("does not detect issue trigger outside /issues command", () => {
+    const text = "#35";
+    expect(detectComposerTrigger(text, text.length)).toBeNull();
+  });
+
   it("detects @path trigger in the middle of existing text", () => {
     // User typed @ between "inspect " and "in this sentence"
     const text = "Please inspect @in this sentence";

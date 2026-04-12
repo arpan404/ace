@@ -29,7 +29,6 @@ import { Checkbox } from "./ui/checkbox";
 import { Dialog, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { ScrollArea } from "./ui/scroll-area";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 import { Spinner } from "./ui/spinner";
 
 const EMPTY_ISSUES: readonly GitHubIssue[] = [];
@@ -43,8 +42,10 @@ const ISSUE_SKELETON_KEYS = [
   "skeleton-7",
   "skeleton-8",
 ] as const;
-const ISSUE_STATE_FILTERS: ReadonlyArray<GitHubIssueListStateFilter> = ["open", "closed", "all"];
+const ISSUE_STATE_FILTERS: ReadonlyArray<GitHubIssueListStateFilter> = ["open", "all"];
 const ISSUE_LIMIT_OPTIONS = [40, 80, 120] as const;
+const HTML_IMG_TAG_REGEX = /<img\b[^>]*>/gi;
+const HTML_ATTR_REGEX = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 
 function formatIssueRelativeTime(iso: string): string {
   const then = new Date(iso).getTime();
@@ -90,6 +91,35 @@ function normalizeIssueNumbers(issueNumbers: ReadonlyArray<number>): number[] {
   return normalized;
 }
 
+function normalizeGitHubIssueMarkdown(text: string): string {
+  return text.replace(HTML_IMG_TAG_REGEX, (tag) => {
+    let src: string | null = null;
+    let alt = "";
+    HTML_ATTR_REGEX.lastIndex = 0;
+    let attrMatch: RegExpExecArray | null;
+    while ((attrMatch = HTML_ATTR_REGEX.exec(tag)) !== null) {
+      const key = attrMatch[1];
+      if (!key) {
+        continue;
+      }
+      const doubleQuotedValue = attrMatch[2];
+      const singleQuotedValue = attrMatch[3];
+      const normalizedKey = key.toLowerCase();
+      const value = (doubleQuotedValue ?? singleQuotedValue ?? "").trim();
+      if (normalizedKey === "src" && value.length > 0) {
+        src = value;
+      } else if (normalizedKey === "alt") {
+        alt = value;
+      }
+    }
+    if (!src) {
+      return tag;
+    }
+    const escapedAlt = alt.replaceAll("[", "\\[").replaceAll("]", "\\]");
+    return `![${escapedAlt}](<${src}>)`;
+  });
+}
+
 export interface GitHubIssueDialogProps {
   open: boolean;
   cwd: string | null;
@@ -120,7 +150,7 @@ export function GitHubIssueDialog({
   const [focusedIssueNumber, setFocusedIssueNumber] = useState<number | null>(null);
   const [selectedIssueNumbers, setSelectedIssueNumbers] = useState<number[]>([]);
   const [stateFilter, setStateFilter] = useState<GitHubIssueListStateFilter>("open");
-  const [issueLimit, setIssueLimit] = useState<(typeof ISSUE_LIMIT_OPTIONS)[number]>(80);
+  const [issueLimit, setIssueLimit] = useState<(typeof ISSUE_LIMIT_OPTIONS)[number]>(40);
   const [labelFilters, setLabelFilters] = useState<string[]>([]);
 
   useEffect(() => {
@@ -130,7 +160,7 @@ export function GitHubIssueDialog({
     setSearch(initialIssueNumber !== null ? `#${initialIssueNumber}` : "");
     setIsSolving(false);
     setStateFilter(initialIssueNumber !== null ? "all" : "open");
-    setIssueLimit(80);
+    setIssueLimit(40);
     setLabelFilters([]);
     setFocusedIssueNumber(initialIssueNumber);
     setSelectedIssueNumbers(normalizeIssueNumbers(initialSelectedIssueNumbers));
@@ -264,12 +294,12 @@ export function GitHubIssueDialog({
       }}
     >
       <DialogPopup
-        showCloseButton
-        className="flex max-h-[min(46rem,92vh)] min-h-0 max-w-6xl gap-0 overflow-hidden p-0"
+        showCloseButton={false}
+        className="flex max-h-[min(42rem,90vh)] min-h-0 max-w-[min(72rem,96vw)] gap-0 overflow-hidden p-0"
       >
-        <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(17rem,30%)_minmax(0,1fr)] overflow-hidden">
+        <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(15rem,28%)_minmax(0,1fr)] overflow-hidden">
           <div className="flex min-h-0 flex-col border-e border-border/60 bg-muted/15 dark:bg-muted/10">
-            <div className="shrink-0 border-b border-border/60 px-4 py-3 pe-12">
+            <div className="shrink-0 border-b border-border/60 px-4 py-3">
               <DialogHeader className="gap-0.5 p-0 text-start">
                 <DialogTitle className="flex items-center gap-2 text-base font-semibold tracking-tight">
                   <span className="flex size-8 items-center justify-center rounded-lg bg-background/90 shadow-sm ring-1 ring-border/50 dark:bg-background/50">
@@ -278,7 +308,7 @@ export function GitHubIssueDialog({
                   GitHub issues
                 </DialogTitle>
                 <p className="text-muted-foreground text-xs font-normal leading-snug">
-                  Browse, filter, and solve one or more issues.
+                  Browse, filter, tag issues, and send context to the agent.
                 </p>
               </DialogHeader>
             </div>
@@ -297,7 +327,7 @@ export function GitHubIssueDialog({
                     setSearch(event.target.value);
                   }}
                   className={cn(
-                    "h-9 rounded-md border-border/70 bg-background/90 ps-9 text-sm shadow-sm",
+                    "h-8 rounded-md border-border/70 bg-background/90 ps-9 text-sm shadow-sm",
                     "placeholder:text-muted-foreground/65",
                     "focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/20",
                   )}
@@ -309,14 +339,14 @@ export function GitHubIssueDialog({
                 />
               </label>
 
-              <div className="flex shrink-0 items-center gap-2 px-1">
+              <div className="flex shrink-0 items-center gap-1.5 px-1">
                 <div className="inline-flex items-center overflow-hidden rounded-md border border-border/60 bg-background/70">
                   {ISSUE_STATE_FILTERS.map((value) => (
                     <button
                       key={value}
                       type="button"
                       className={cn(
-                        "px-2.5 py-1 text-[11px] font-medium capitalize transition-colors",
+                        "px-2 py-1 text-[11px] font-medium capitalize transition-colors",
                         stateFilter === value
                           ? "bg-primary/12 text-foreground"
                           : "text-muted-foreground hover:text-foreground",
@@ -327,35 +357,24 @@ export function GitHubIssueDialog({
                     </button>
                   ))}
                 </div>
-                <Select
-                  value={String(issueLimit)}
-                  onValueChange={(value) => {
-                    if (typeof value !== "string") {
-                      return;
-                    }
-                    const parsed = Number.parseInt(value, 10);
-                    if (!Number.isInteger(parsed)) {
-                      return;
-                    }
-                    if (
-                      !ISSUE_LIMIT_OPTIONS.includes(parsed as (typeof ISSUE_LIMIT_OPTIONS)[number])
-                    ) {
-                      return;
-                    }
-                    setIssueLimit(parsed as (typeof ISSUE_LIMIT_OPTIONS)[number]);
-                  }}
-                >
-                  <SelectTrigger className="h-8 min-w-[6.25rem] rounded-md text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectPopup>
-                    {ISSUE_LIMIT_OPTIONS.map((limit) => (
-                      <SelectItem key={limit} value={String(limit)} hideIndicator>
-                        Show {limit}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
+                <div className="inline-flex items-center overflow-hidden rounded-md border border-border/60 bg-background/70">
+                  {ISSUE_LIMIT_OPTIONS.map((limit) => (
+                    <button
+                      key={limit}
+                      type="button"
+                      className={cn(
+                        "px-2 py-1 text-[11px] font-medium tabular-nums transition-colors",
+                        issueLimit === limit
+                          ? "bg-primary/12 text-foreground"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                      onClick={() => setIssueLimit(limit)}
+                      aria-label={`Show ${limit} issues`}
+                    >
+                      {limit}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-1 text-[11px] text-muted-foreground">
@@ -374,6 +393,44 @@ export function GitHubIssueDialog({
                   <CheckIcon className="size-3 opacity-70" />
                   {selectedIssueNumbersForSolve.length} selected
                 </span>
+                <div className="ms-auto flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 rounded-md px-2 text-[11px]"
+                    onClick={() => {
+                      if (allVisibleSelected) {
+                        setSelectedIssueNumbers((existing) =>
+                          existing.filter((issueNumber) => !issueByNumber.has(issueNumber)),
+                        );
+                        return;
+                      }
+                      setSelectedIssueNumbers((existing) => {
+                        const next = new Set(existing);
+                        for (const issue of issues) {
+                          next.add(issue.number);
+                        }
+                        return Array.from(next);
+                      });
+                    }}
+                  >
+                    {allVisibleSelected ? "Unselect visible" : "Select visible"}
+                  </Button>
+                  {selectedIssueNumberSet.size > 0 ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 rounded-md px-2 text-[11px]"
+                      onClick={() => {
+                        setSelectedIssueNumbers([]);
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  ) : null}
+                </div>
               </div>
 
               <div className="shrink-0 px-1">
@@ -381,31 +438,33 @@ export function GitHubIssueDialog({
                   <FilterIcon className="size-3.5 opacity-70" />
                   Label filters
                 </div>
-                <div className="flex flex-wrap gap-1">
-                  {availableLabels.length > 0 ? (
-                    availableLabels.map(({ label, count }) => {
-                      const active = labelFilters.includes(label);
-                      return (
-                        <button
-                          key={label}
-                          type="button"
-                          className={cn(
-                            "rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors",
-                            active
-                              ? "border-primary/40 bg-primary/12 text-foreground"
-                              : "border-border/60 bg-background/70 text-muted-foreground hover:text-foreground",
-                          )}
-                          onClick={() => handleToggleLabelFilter(label)}
-                        >
-                          {label} · {count}
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <span className="text-[11px] text-muted-foreground/70">
-                      No labels in current results
-                    </span>
-                  )}
+                <div className="max-h-16 overflow-y-auto pe-1">
+                  <div className="flex min-h-7 flex-wrap gap-1">
+                    {availableLabels.length > 0 ? (
+                      availableLabels.map(({ label, count }) => {
+                        const active = labelFilters.includes(label);
+                        return (
+                          <button
+                            key={label}
+                            type="button"
+                            className={cn(
+                              "rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors",
+                              active
+                                ? "border-primary/40 bg-primary/12 text-foreground"
+                                : "border-border/60 bg-background/70 text-muted-foreground hover:text-foreground",
+                            )}
+                            onClick={() => handleToggleLabelFilter(label)}
+                          >
+                            {label} · {count}
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground/70">
+                        No labels in current results
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -512,7 +571,7 @@ export function GitHubIssueDialog({
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               {focusedIssue ? (
                 <>
-                  <div className="shrink-0 border-b border-border/60 px-6 pb-4 pt-5 pe-14">
+                  <div className="shrink-0 border-b border-border/60 px-6 pb-4 pt-5">
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-wrap items-start justify-between gap-2 gap-y-1">
                         <h2 className="min-w-0 flex-1 text-lg font-semibold leading-snug tracking-tight text-foreground">
@@ -583,7 +642,7 @@ export function GitHubIssueDialog({
                               <ChatMarkdown
                                 text={
                                   thread.body?.trim().length
-                                    ? thread.body
+                                    ? normalizeGitHubIssueMarkdown(thread.body)
                                     : "No description provided."
                                 }
                                 cwd={undefined}
@@ -625,7 +684,7 @@ export function GitHubIssueDialog({
                                     <ChatMarkdown
                                       text={
                                         comment.body?.trim().length
-                                          ? comment.body
+                                          ? normalizeGitHubIssueMarkdown(comment.body)
                                           : "Empty comment."
                                       }
                                       cwd={undefined}
@@ -654,53 +713,13 @@ export function GitHubIssueDialog({
             </div>
 
             <DialogFooter className="shrink-0 border-t border-border/60 bg-muted/20 px-6 py-3 dark:bg-muted/10 sm:py-3">
-              <div className="me-auto flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="rounded-md text-xs"
-                  onClick={() => {
-                    if (allVisibleSelected) {
-                      setSelectedIssueNumbers((existing) =>
-                        existing.filter((issueNumber) => !issueByNumber.has(issueNumber)),
-                      );
-                      return;
-                    }
-                    setSelectedIssueNumbers((existing) => {
-                      const next = new Set(existing);
-                      for (const issue of issues) {
-                        next.add(issue.number);
-                      }
-                      return Array.from(next);
-                    });
-                  }}
-                >
-                  {allVisibleSelected ? "Unselect visible" : "Select visible"}
-                </Button>
-                {selectedIssueNumberSet.size > 0 ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-md text-xs"
-                    onClick={() => {
-                      setSelectedIssueNumbers([]);
-                    }}
-                  >
-                    Clear selection
-                  </Button>
-                ) : null}
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="rounded-md"
-                onClick={() => onOpenChange(false)}
-              >
-                Close
-              </Button>
+              <span className="me-auto text-xs text-muted-foreground">
+                {selectedIssueNumbersForSolve.length > 1
+                  ? `${selectedIssueNumbersForSolve.length} issues selected`
+                  : selectedIssueNumbersForSolve.length === 1
+                    ? "1 issue selected"
+                    : "Select an issue to tag"}
+              </span>
               <Button
                 type="button"
                 variant="default"
@@ -717,9 +736,9 @@ export function GitHubIssueDialog({
                     Sending…
                   </span>
                 ) : selectedIssueNumbersForSolve.length > 1 ? (
-                  `Solve ${selectedIssueNumbersForSolve.length} issues`
+                  `Send ${selectedIssueNumbersForSolve.length} issue contexts`
                 ) : (
-                  "Solve issue"
+                  "Send issue context"
                 )}
               </Button>
             </DialogFooter>

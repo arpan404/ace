@@ -61,7 +61,7 @@ function commitExpectationLines(issueNumber: number): string[] {
 }
 
 export function buildGitHubIssueSummaryLabel(issue: Pick<GitHubIssue, "number" | "title">): string {
-  return `Solve #${issue.number}: ${normalizeIssueTitle(issue.title)}`;
+  return `Tag #${issue.number}: ${normalizeIssueTitle(issue.title)}`;
 }
 
 export function buildGitHubIssueContextBlock(issue: GitHubIssue): string {

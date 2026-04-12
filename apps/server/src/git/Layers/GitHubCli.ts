@@ -66,6 +66,19 @@ function normalizeGitHubCliError(operation: "execute" | "stdout", error: unknown
       });
     }
 
+    if (
+      lower.includes("has disabled issues") ||
+      lower.includes("issues are disabled") ||
+      lower.includes("disabled for this repository")
+    ) {
+      return new GitHubCliError({
+        operation,
+        detail:
+          "GitHub issues are disabled for this repository. Enable Issues in repository settings or choose another repository.",
+        cause: error,
+      });
+    }
+
     return new GitHubCliError({
       operation,
       detail: `GitHub CLI command failed: ${error.message}`,
