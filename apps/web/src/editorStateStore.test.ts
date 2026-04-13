@@ -29,6 +29,7 @@ describe("editorStateStore actions", () => {
       activePaneId: "pane-1",
       draftsByFilePath: {},
       expandedDirectoryPaths: [],
+      explorerOpen: true,
       paneRatios: [1],
       panes: [{ activeFilePath: null, id: "pane-1", openFilePaths: [] }],
       rows: [{ id: "row-1", paneIds: ["pane-1"], paneRatios: [1] }],

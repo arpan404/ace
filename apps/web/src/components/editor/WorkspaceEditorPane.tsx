@@ -49,6 +49,7 @@ interface WorkspaceEditorPaneProps {
   canClosePane: boolean;
   canReopenClosedTab: boolean;
   canSplitPane: boolean;
+  diagnosticsCwd: string | null;
   dirtyFilePaths: ReadonlySet<string>;
   draftsByFilePath: Record<string, { draftContents: string; savedContents: string }>;
   editorOptions: MonacoEditor.IStandaloneEditorConstructionOptions;
@@ -450,7 +451,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     if (
       isPreviewMode ||
       !api ||
-      !props.gitCwd ||
+      !props.diagnosticsCwd ||
       !activeFilePath ||
       !activeFileReady ||
       !editor ||
@@ -476,7 +477,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     const timeoutId = window.setTimeout(() => {
       void api.workspaceEditor
         .syncBuffer({
-          cwd: props.gitCwd!,
+          cwd: props.diagnosticsCwd!,
           relativePath: activeFilePath,
           contents: activeFileContents,
         })
@@ -524,6 +525,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           if (!diagnosticsBackendUnavailableRef.current) {
             console.error("Failed to sync workspace editor diagnostics", {
               cwd: props.gitCwd,
+              diagnosticsCwd: props.diagnosticsCwd,
               relativePath: activeFilePath,
               error,
             });
@@ -542,6 +544,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     editorMountVersion,
     isPreviewMode,
     pane.activeFilePath,
+    props.diagnosticsCwd,
     props.gitCwd,
     syncProblemState,
   ]);

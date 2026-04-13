@@ -38,12 +38,10 @@ import {
   closeOtherBrowserTabs,
   closeTabsToRight,
   closeBrowserTab,
-  createBrowserSettingsTab,
   createBrowserSessionState,
   duplicateBrowserTab,
   isBrowserInternalTabUrl,
   isBrowserNewTabUrl,
-  isBrowserSettingsTabUrl,
   moveBrowserTab,
   normalizeBrowserSessionState,
   reorderBrowserTab,
@@ -202,7 +200,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     browserSession.tabs[0];
   const activeTabIsInternal = activeTab ? isBrowserInternalTabUrl(activeTab.url) : false;
   const activeTabIsNewTab = activeTab ? isBrowserNewTabUrl(activeTab.url) : false;
-  const activeTabIsSettings = activeTab ? isBrowserSettingsTabUrl(activeTab.url) : false;
   const activeTabId = activeTab?.id ?? null;
   const activeTabIsPinned = activeTab ? isPinnedBrowserPage(pinnedPages, activeTab.url) : false;
   const activeTabUrl = activeTab?.url ?? "";
@@ -289,19 +286,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     focusAddressBar();
   }, [focusAddressBar, updateBrowserSession]);
 
-  const openBrowserSettingsTab = useCallback(() => {
-    const existing = browserSession.tabs.find((tab) => isBrowserSettingsTabUrl(tab.url));
-    if (existing) {
-      updateBrowserSession((current) => setActiveBrowserTab(current, existing.id));
-      return;
-    }
-    updateBrowserSession((current) => ({
-      ...current,
-      activeTabId: "browser-settings",
-      tabs: [...current.tabs, createBrowserSettingsTab("browser-settings")],
-    }));
-  }, [browserSession.tabs, updateBrowserSession]);
-
   const activateTab = useCallback(
     (tabId: string) => {
       updateBrowserSession((current) => setActiveBrowserTab(current, tabId));
@@ -386,7 +370,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const openUrl = useCallback(
     (rawUrl: string, options?: { newTab?: boolean }) => {
       const nextUrl = normalizeBrowserInput(rawUrl, browserSearchEngine);
-      if (!activeTab || options?.newTab || activeTabIsSettings) {
+      if (!activeTab || options?.newTab) {
         updateBrowserSession((current) => addBrowserTab(current, { activate: true, url: nextUrl }));
         if (rawUrl.trim().length === 0) {
           focusAddressBar();
@@ -399,14 +383,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       }
       webviewHandlesRef.current.get(activeTab.id)?.navigate(nextUrl);
     },
-    [
-      activeTab,
-      activeTabIsInternal,
-      activeTabIsSettings,
-      browserSearchEngine,
-      focusAddressBar,
-      updateBrowserSession,
-    ],
+    [activeTab, activeTabIsInternal, browserSearchEngine, focusAddressBar, updateBrowserSession],
   );
 
   const applySuggestion = useCallback(
@@ -420,11 +397,11 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         return;
       }
       setDraftUrl(resolveBrowserSuggestionDraftValue(suggestion));
-      openUrl(suggestion.url, { newTab: activeTabIsSettings });
+      openUrl(suggestion.url);
       setIsAddressBarFocused(false);
       setSelectedSuggestionIndex(0);
     },
-    [activeTabIsSettings, openUrl, updateBrowserSession],
+    [openUrl, updateBrowserSession],
   );
 
   const copyBrowserAddress = useCallback(async (url: string) => {
@@ -445,7 +422,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const showBrowserContextMenuFallback = useCallback(
     async (tabId: string, position: { x: number; y: number }) => {
       const tab = browserSession.tabs.find((item) => item.id === tabId);
-      if (!tab || isBrowserSettingsTabUrl(tab.url)) {
+      if (!tab) {
         return;
       }
 
@@ -1349,7 +1326,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     activeTabIsInternal,
     activeTabIsNewTab,
     activeTabIsPinned,
-    activeTabIsSettings,
     addressBarSuggestions,
     addressInputRef,
     applySuggestion,
@@ -1386,7 +1362,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     isRepairingStorage,
     moveTab,
     openActiveTabExternally,
-    openBrowserSettingsTab,
     openDevTools,
     openNewTab,
     openPinnedPage,

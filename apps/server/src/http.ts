@@ -22,6 +22,7 @@ import {
   listRelayDevicesForHost,
   revokeRelayDeviceForHost,
 } from "./relayClient";
+import { meaningfulErrorMessage } from "./provider/errorCause";
 import { GitHubCli } from "./git/Services/GitHubCli";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
 import { WorkspacePaths } from "./workspace/Services/WorkspacePaths";
@@ -800,10 +801,7 @@ const relayPairingListDevicesRouteLayer = HttpRouter.add(
     ).pipe(
       Effect.catch((error) =>
         Effect.succeed({
-          error:
-            error instanceof Error && error.message.trim().length > 0
-              ? error.message
-              : "Could not list relay devices.",
+          error: meaningfulErrorMessage(error, "Could not list relay devices."),
         } as const),
       ),
     );
@@ -867,10 +865,7 @@ const relayPairingCreateDeviceRouteLayer = HttpRouter.add(
     ).pipe(
       Effect.catch((error) =>
         Effect.succeed({
-          error:
-            error instanceof Error && error.message.trim().length > 0
-              ? error.message
-              : "Could not create relay device.",
+          error: meaningfulErrorMessage(error, "Could not create relay device."),
         } as const),
       ),
     );
@@ -935,10 +930,7 @@ const relayPairingRevokeDeviceRouteLayer = HttpRouter.add(
     ).pipe(
       Effect.catch((error) =>
         Effect.succeed({
-          error:
-            error instanceof Error && error.message.trim().length > 0
-              ? error.message
-              : "Could not revoke relay device.",
+          error: meaningfulErrorMessage(error, "Could not revoke relay device."),
         } as const),
       ),
     );

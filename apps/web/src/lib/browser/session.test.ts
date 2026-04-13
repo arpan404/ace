@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   BROWSER_NEW_TAB_TITLE,
   BROWSER_NEW_TAB_URL,
-  BROWSER_SETTINGS_TAB_URL,
   DEFAULT_BROWSER_PANEL_HEIGHT,
   addBrowserTab,
   clampBrowserPanelHeight,
@@ -13,9 +12,7 @@ import {
   createBrowserNewTab,
   createBrowserSessionState,
   duplicateBrowserTab,
-  createBrowserSettingsTab,
   isBrowserNewTabUrl,
-  isBrowserSettingsTabUrl,
   normalizeBrowserSessionState,
   moveBrowserTab,
   reorderBrowserTab,
@@ -213,16 +210,16 @@ describe("browser session", () => {
     expect(normalized.tabs[1]?.url).toBe("https://example.com/");
   });
 
-  it("preserves the settings tab while repairing invalid stored URLs", () => {
+  it("normalizes the legacy settings tab URL to the new tab page", () => {
     const normalized = normalizeBrowserSessionState(
       {
-        activeTabId: "settings-tab",
+        activeTabId: "legacy-tab",
         panelHeight: DEFAULT_BROWSER_PANEL_HEIGHT,
         tabs: [
           {
-            id: "settings-tab",
+            id: "legacy-tab",
             title: "Broken title",
-            url: BROWSER_SETTINGS_TAB_URL,
+            url: "ace://browser/settings",
           },
           {
             id: "bad-tab",
@@ -234,12 +231,12 @@ describe("browser session", () => {
       "https://example.com/",
     );
 
-    expect(normalized.activeTabId).toBe("settings-tab");
+    expect(normalized.activeTabId).toBe("legacy-tab");
     expect(normalized.tabs).toEqual([
       {
-        id: "settings-tab",
-        title: "Browser settings",
-        url: BROWSER_SETTINGS_TAB_URL,
+        id: "legacy-tab",
+        title: BROWSER_NEW_TAB_TITLE,
+        url: BROWSER_NEW_TAB_URL,
       },
       {
         id: "bad-tab",
@@ -247,18 +244,6 @@ describe("browser session", () => {
         url: "https://example.com/",
       },
     ]);
-  });
-
-  it("creates a dedicated browser settings tab", () => {
-    const tab = createBrowserSettingsTab("settings-tab");
-
-    expect(tab).toEqual({
-      id: "settings-tab",
-      title: "Browser settings",
-      url: BROWSER_SETTINGS_TAB_URL,
-    });
-    expect(isBrowserSettingsTabUrl(tab.url)).toBe(true);
-    expect(resolveBrowserTabTitle(tab.url)).toBe("Browser settings");
   });
 
   it("creates a dedicated new-tab page", () => {

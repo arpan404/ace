@@ -1,4 +1,4 @@
-import { ArchiveIcon, ArchiveX } from "lucide-react";
+import { ArchiveIcon, ArchiveX, LoaderCircleIcon } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -57,6 +57,7 @@ import { useStore } from "../../store";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { BROWSER_SEARCH_ENGINE_OPTIONS } from "../../lib/browser/types";
 import { cn, newCommandId } from "../../lib/utils";
+import { useInAppBrowserState } from "../../hooks/useInAppBrowserState";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
@@ -979,6 +980,23 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const isProvidersPage = page === "providers";
   const isAdvancedPage = page === "advanced";
   const isAboutPage = page === "about";
+  const browserPinnedPageImportRef = useRef<HTMLInputElement | null>(null);
+  const {
+    browserHistoryCount,
+    browserSearchEngine,
+    clearHistory,
+    exportPinnedPages,
+    importPinnedPages,
+    isRepairingStorage,
+    openPinnedPage,
+    pinnedPages,
+    removePinnedPage,
+    repairBrowserStorage,
+    selectSearchEngine,
+  } = useInAppBrowserState({
+    mode: "full",
+    open: false,
+  });
   const lspToolsInstalled = lspToolsStatus?.tools.every((tool) => tool.installed) ?? false;
 
   const refreshLspToolsStatus = useCallback(() => {
@@ -1903,32 +1921,121 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             title="Search engine"
             description="Choose the default engine for new-tab search, address-bar suggestions, and quick browser entry."
             resetAction={
-              settings.browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine ? (
+              browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine ? (
                 <SettingResetButton
                   label="browser search engine"
-                  onClick={() =>
-                    updateSettings({
-                      browserSearchEngine: DEFAULT_UNIFIED_SETTINGS.browserSearchEngine,
-                    })
-                  }
+                  onClick={() => selectSearchEngine(DEFAULT_UNIFIED_SETTINGS.browserSearchEngine)}
                 />
               ) : null
             }
-            status="Pinned pages, history cleanup, and storage repair stay inside the browser tab settings."
           >
             <div className="mt-4 flex flex-wrap gap-2">
               {BROWSER_SEARCH_ENGINE_OPTIONS.map((engine) => (
                 <Button
                   key={engine.value}
                   size="sm"
-                  variant={settings.browserSearchEngine === engine.value ? "default" : "outline"}
-                  onClick={() => updateSettings({ browserSearchEngine: engine.value })}
+                  variant={browserSearchEngine === engine.value ? "default" : "outline"}
+                  onClick={() => selectSearchEngine(engine.value)}
                 >
                   {engine.label}
                 </Button>
               ))}
             </div>
           </SettingsRow>
+          <SettingsRow
+            title="Pinned pages"
+            description="Keep frequently revisited pages at the top of browser suggestions."
+            status={
+              pinnedPages.length === 0
+                ? "No pinned pages yet."
+                : `${pinnedPages.length} pinned ${pinnedPages.length === 1 ? "page" : "pages"}.`
+            }
+            control={
+              <div className="flex items-center gap-2">
+                <input
+                  ref={browserPinnedPageImportRef}
+                  type="file"
+                  accept="application/json"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (file) {
+                      void importPinnedPages(file);
+                    }
+                    event.currentTarget.value = "";
+                  }}
+                />
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => browserPinnedPageImportRef.current?.click()}
+                >
+                  Import
+                </Button>
+                <Button size="xs" variant="outline" onClick={exportPinnedPages}>
+                  Export
+                </Button>
+              </div>
+            }
+          >
+            {pinnedPages.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {pinnedPages.map((page) => (
+                  <div
+                    key={page.url}
+                    className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/20 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-[12px] font-medium text-foreground">
+                        {page.title}
+                      </div>
+                      <div className="truncate text-[11px] text-muted-foreground">{page.url}</div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button size="xs" variant="ghost" onClick={() => openPinnedPage(page.url)}>
+                        Open
+                      </Button>
+                      <Button size="xs" variant="ghost" onClick={() => removePinnedPage(page.url)}>
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </SettingsRow>
+          <SettingsRow
+            title="History"
+            description="Address-bar suggestions use browser history first."
+            status={`${browserHistoryCount} saved ${browserHistoryCount === 1 ? "entry" : "entries"}.`}
+            control={
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={clearHistory}
+                disabled={browserHistoryCount === 0}
+              >
+                Clear history
+              </Button>
+            }
+          />
+          <SettingsRow
+            title="Repair storage"
+            description="Clear cookies, cache, and service workers for the in-app browser partition."
+            control={
+              <Button
+                size="xs"
+                variant="destructive-outline"
+                onClick={() => {
+                  void repairBrowserStorage();
+                }}
+                disabled={isRepairingStorage}
+              >
+                {isRepairingStorage ? <LoaderCircleIcon className="size-4 animate-spin" /> : null}
+                Repair browser storage
+              </Button>
+            }
+          />
         </SettingsSection>
       ) : null}
 

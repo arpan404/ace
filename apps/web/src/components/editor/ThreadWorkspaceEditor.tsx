@@ -16,6 +16,8 @@ import {
   FolderIcon,
   FolderPlusIcon,
   Maximize2Icon,
+  PanelLeftCloseIcon,
+  PanelLeftIcon,
   SearchIcon,
 } from "lucide-react";
 import {
@@ -561,6 +563,7 @@ export default function ThreadWorkspaceEditor(props: {
   browserOpen: boolean;
   gitCwd: string | null;
   keybindings: ResolvedKeybindingsConfig;
+  lspCwd?: string | null;
   onWorkspaceModeChange?: ((mode: ThreadWorkspaceMode) => void) | undefined;
   terminalOpen: boolean;
   threadId: ThreadId;
@@ -602,6 +605,7 @@ export default function ThreadWorkspaceEditor(props: {
   const reopenClosedFile = useEditorStateStore((state) => state.reopenClosedFile);
   const setActiveFile = useEditorStateStore((state) => state.setActiveFile);
   const setActivePane = useEditorStateStore((state) => state.setActivePane);
+  const setExplorerOpen = useEditorStateStore((state) => state.setExplorerOpen);
   const setPaneRatios = useEditorStateStore((state) => state.setPaneRatios);
   const setRowRatios = useEditorStateStore((state) => state.setRowRatios);
   const setTreeWidth = useEditorStateStore((state) => state.setTreeWidth);
@@ -638,6 +642,7 @@ export default function ThreadWorkspaceEditor(props: {
     activePaneId,
     draftsByFilePath,
     expandedDirectoryPaths,
+    explorerOpen,
     paneRatios,
     panes,
     rows,
@@ -658,6 +663,7 @@ export default function ThreadWorkspaceEditor(props: {
     return "Reveal Workspace in File Manager";
   }, [revealEntryLabel]);
   const panesById = useMemo(() => new Map(panes.map((pane) => [pane.id, pane] as const)), [panes]);
+  const diagnosticsCwd = props.gitCwd ?? props.lspCwd ?? null;
   const openWorkspaceFilePaths = useMemo(
     () => Array.from(new Set(panes.flatMap((pane) => pane.openFilePaths))).sort(),
     [panes],
@@ -711,7 +717,7 @@ export default function ThreadWorkspaceEditor(props: {
     const previous = previousWorkspaceBufferStateRef.current;
     const nextFilePaths = new Set(openWorkspaceFilePaths);
     const removedFilePaths =
-      previous.cwd && previous.cwd !== props.gitCwd
+      previous.cwd && previous.cwd !== diagnosticsCwd
         ? Array.from(previous.filePaths)
         : previous.cwd
           ? Array.from(previous.filePaths).filter((filePath) => !nextFilePaths.has(filePath))
@@ -740,10 +746,10 @@ export default function ThreadWorkspaceEditor(props: {
     }
 
     previousWorkspaceBufferStateRef.current = {
-      cwd: props.gitCwd,
+      cwd: diagnosticsCwd,
       filePaths: nextFilePaths,
     };
-  }, [api, openWorkspaceFilePaths, props.gitCwd]);
+  }, [api, diagnosticsCwd, openWorkspaceFilePaths]);
 
   useEffect(
     () => () => {
@@ -1949,8 +1955,35 @@ export default function ThreadWorkspaceEditor(props: {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      {onWorkspaceModeChange ? (
-        <div className="flex items-center justify-end border-b border-border/60 bg-secondary px-3 py-2">
+      <div className="flex items-center justify-between border-b border-border/60 bg-secondary px-3 py-2">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-xs"
+                className="size-7 rounded-full border-border/60 bg-background/80 text-muted-foreground hover:text-foreground"
+                aria-label={
+                  explorerOpen ? "Collapse workspace sidebar" : "Expand workspace sidebar"
+                }
+                onClick={() => {
+                  setExplorerOpen(props.threadId, !explorerOpen);
+                }}
+              >
+                {explorerOpen ? (
+                  <PanelLeftCloseIcon className="size-3.5" />
+                ) : (
+                  <PanelLeftIcon className="size-3.5" />
+                )}
+              </Button>
+            }
+          />
+          <TooltipPopup side="bottom">
+            {explorerOpen ? "Collapse workspace explorer" : "Expand workspace explorer"}
+          </TooltipPopup>
+        </Tooltip>
+        {onWorkspaceModeChange ? (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -1982,210 +2015,222 @@ export default function ThreadWorkspaceEditor(props: {
                 : "Show editor side-by-side with chat"}
             </TooltipPopup>
           </Tooltip>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       <div
         className="grid min-h-0 min-w-0 flex-1"
         style={{
-          gridTemplateColumns: `minmax(220px, ${treeWidth}px) 6px minmax(0, 1fr)`,
+          gridTemplateColumns: explorerOpen
+            ? `minmax(220px, ${treeWidth}px) 6px minmax(0, 1fr)`
+            : "minmax(0, 1fr)",
         }}
       >
-        <aside
-          className={cn("flex min-h-0 min-w-0 flex-col border-r border-border/60", "bg-secondary")}
-        >
-          <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
-            <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
-            <span className="min-w-0 truncate text-[11px] font-semibold tracking-[0.16em] text-muted-foreground/80 uppercase">
-              Explorer
-            </span>
-            <div className="ml-auto flex min-w-0 items-center gap-1.5">
-              <ExternalEditorOpenMenu
-                availableEditors={props.availableEditors}
-                gitCwd={props.gitCwd}
-                keybindings={props.keybindings}
-              />
-              <Badge variant="outline" size="sm" className="text-[10px]">
-                {workspaceFileCount}
-              </Badge>
-              {workspaceTreeQuery.data?.truncated ? (
-                <Badge variant="warning" size="sm">
-                  Partial
-                </Badge>
-              ) : null}
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="size-6 shrink-0 rounded-md text-muted-foreground/75 hover:text-foreground"
-                onClick={() =>
-                  startInlineEntry({
-                    kind: "create-file",
-                    parentPath:
-                      focusedExplorerEntry?.kind === "directory"
-                        ? focusedExplorerEntry.path
-                        : (focusedExplorerEntry?.parentPath ?? null),
-                    value: "",
-                  })
-                }
-                title="New File"
-              >
-                <FilePlus2Icon className="size-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="size-6 shrink-0 rounded-md text-muted-foreground/75 hover:text-foreground"
-                onClick={() =>
-                  startInlineEntry({
-                    kind: "create-folder",
-                    parentPath:
-                      focusedExplorerEntry?.kind === "directory"
-                        ? focusedExplorerEntry.path
-                        : (focusedExplorerEntry?.parentPath ?? null),
-                    value: "",
-                  })
-                }
-                title="New Folder"
-              >
-                <FolderPlusIcon className="size-3.5" />
-              </Button>
-            </div>
-          </div>
-          <div className="px-2.5 py-2">
-            <div className="relative">
-              <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
-              <Input
-                ref={treeSearchInputRef}
-                value={treeSearch}
-                onChange={(event) => setTreeSearch(event.target.value)}
-                placeholder="Filter files (re:, in:, inre:)"
-                className="pl-8"
-                size="sm"
-                type="search"
-              />
-            </div>
-          </div>
-
-          <div
-            ref={treeScrollRef}
-            className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 py-1"
-            tabIndex={0}
-            onKeyDown={handleExplorerKeyDown}
-            onDragOver={(event) => {
-              if (!readExplorerEntryTransferPath(event.dataTransfer)) {
-                return;
-              }
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-              setDragTargetParentPath(null);
-            }}
-            onDrop={(event) => {
-              const path = readExplorerEntryTransferPath(event.dataTransfer);
-              if (!path) {
-                return;
-              }
-              event.preventDefault();
-              moveExplorerEntry(path, null);
-            }}
-            onContextMenu={(event) => {
-              if (event.target !== event.currentTarget) {
-                return;
-              }
-              event.preventDefault();
-              setSelectedEntryPath(null);
-              void openExplorerContextMenu(null, {
-                x: event.clientX,
-                y: event.clientY,
-              });
-            }}
-          >
-            {explorerPending ? (
-              <div className="space-y-1.5 px-1 py-2">
-                {Array.from({ length: 10 }, (_, index) => (
-                  <div
-                    key={index}
-                    className="h-7 rounded-md bg-foreground/5"
-                    style={{ opacity: 1 - index * 0.06 }}
+        {explorerOpen ? (
+          <>
+            <aside
+              className={cn(
+                "flex min-h-0 min-w-0 flex-col border-r border-border/60",
+                "bg-secondary",
+              )}
+            >
+              <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
+                <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+                <span className="min-w-0 truncate text-[11px] font-semibold tracking-[0.16em] text-muted-foreground/80 uppercase">
+                  Explorer
+                </span>
+                <div className="ml-auto flex min-w-0 items-center gap-1.5">
+                  <ExternalEditorOpenMenu
+                    availableEditors={props.availableEditors}
+                    gitCwd={props.gitCwd}
+                    keybindings={props.keybindings}
                   />
-                ))}
+                  <Badge variant="outline" size="sm" className="text-[10px]">
+                    {workspaceFileCount}
+                  </Badge>
+                  {workspaceTreeQuery.data?.truncated ? (
+                    <Badge variant="warning" size="sm">
+                      Partial
+                    </Badge>
+                  ) : null}
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="size-6 shrink-0 rounded-md text-muted-foreground/75 hover:text-foreground"
+                    onClick={() =>
+                      startInlineEntry({
+                        kind: "create-file",
+                        parentPath:
+                          focusedExplorerEntry?.kind === "directory"
+                            ? focusedExplorerEntry.path
+                            : (focusedExplorerEntry?.parentPath ?? null),
+                        value: "",
+                      })
+                    }
+                    title="New File"
+                  >
+                    <FilePlus2Icon className="size-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="size-6 shrink-0 rounded-md text-muted-foreground/75 hover:text-foreground"
+                    onClick={() =>
+                      startInlineEntry({
+                        kind: "create-folder",
+                        parentPath:
+                          focusedExplorerEntry?.kind === "directory"
+                            ? focusedExplorerEntry.path
+                            : (focusedExplorerEntry?.parentPath ?? null),
+                        value: "",
+                      })
+                    }
+                    title="New Folder"
+                  >
+                    <FolderPlusIcon className="size-3.5" />
+                  </Button>
+                </div>
               </div>
-            ) : explorerRows.length === 0 ? (
-              <div className="px-2 py-6 text-center text-xs text-muted-foreground">
-                {searchMode ? "No files match this search." : "No files found."}
+              <div className="px-2.5 py-2">
+                <div className="relative">
+                  <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+                  <Input
+                    ref={treeSearchInputRef}
+                    value={treeSearch}
+                    onChange={(event) => setTreeSearch(event.target.value)}
+                    placeholder="Filter files (re:, in:, inre:)"
+                    className="pl-8"
+                    size="sm"
+                    type="search"
+                  />
+                </div>
               </div>
-            ) : (
-              <div className="relative" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const row = explorerRows[virtualRow.index];
-                  if (!row) {
-                    return null;
-                  }
-                  return (
-                    <div
-                      key={row.key}
-                      className="absolute top-0 left-0 w-full"
-                      style={{ transform: `translateY(${virtualRow.start}px)` }}
-                    >
-                      {row.kind === "entry" ? (
-                        <FileTreeRow
-                          activeFilePaths={activeFilePathSet}
-                          dragTargetPath={dragTargetParentPath}
-                          expandedDirectoryPaths={expandedDirectoryPathSet}
-                          focusedFilePath={activePane?.activeFilePath ?? null}
-                          onDropEntry={(sourcePath, targetParentPath) => {
-                            moveExplorerEntry(sourcePath, targetParentPath);
-                          }}
-                          onFocusEntry={setSelectedEntryPath}
-                          onHoverDropTarget={setDragTargetParentPath}
-                          onOpenFile={handleOpenFile}
-                          onOpenRowContextMenu={(entry, position) => {
-                            void openExplorerContextMenu(entry, position);
-                          }}
-                          onSelectEntry={setSelectedEntryPath}
-                          onToggleDirectory={(directoryPath) =>
-                            toggleDirectory(props.threadId, directoryPath)
-                          }
-                          openFilePaths={openFilePaths}
-                          resolvedTheme={resolvedTheme}
-                          row={row.row}
-                          searchMode={searchMode}
-                          selectedEntryPath={selectedEntryPath}
-                        />
-                      ) : (
-                        <InlineExplorerRow
-                          depth={row.depth}
-                          inputRef={entryDialogInputRef}
-                          onCancel={cancelInlineEntry}
-                          onChangeValue={(value) =>
-                            setInlineEntryState((current) =>
-                              current ? { ...current, value } : current,
-                            )
-                          }
-                          onCommit={submitInlineEntry}
-                          resolvedTheme={resolvedTheme}
-                          searchMode={searchMode}
-                          state={row.state}
-                        />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </aside>
 
-        <div
-          aria-label="Resize workspace sidebar"
-          role="separator"
-          aria-orientation="vertical"
-          className="relative cursor-col-resize hover:bg-primary/35"
-          onPointerDown={handleTreeResizeStart}
-          onPointerMove={handleTreeResizeMove}
-          onPointerUp={handleTreeResizeEnd}
-          onPointerCancel={handleTreeResizeEnd}
-        >
-          <div className="mx-auto h-full w-px bg-border/60" />
-        </div>
+              <div
+                ref={treeScrollRef}
+                className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 py-1"
+                tabIndex={0}
+                onKeyDown={handleExplorerKeyDown}
+                onDragOver={(event) => {
+                  if (!readExplorerEntryTransferPath(event.dataTransfer)) {
+                    return;
+                  }
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragTargetParentPath(null);
+                }}
+                onDrop={(event) => {
+                  const path = readExplorerEntryTransferPath(event.dataTransfer);
+                  if (!path) {
+                    return;
+                  }
+                  event.preventDefault();
+                  moveExplorerEntry(path, null);
+                }}
+                onContextMenu={(event) => {
+                  if (event.target !== event.currentTarget) {
+                    return;
+                  }
+                  event.preventDefault();
+                  setSelectedEntryPath(null);
+                  void openExplorerContextMenu(null, {
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
+              >
+                {explorerPending ? (
+                  <div className="space-y-1.5 px-1 py-2">
+                    {Array.from({ length: 10 }, (_, index) => (
+                      <div
+                        key={index}
+                        className="h-7 rounded-md bg-foreground/5"
+                        style={{ opacity: 1 - index * 0.06 }}
+                      />
+                    ))}
+                  </div>
+                ) : explorerRows.length === 0 ? (
+                  <div className="px-2 py-6 text-center text-xs text-muted-foreground">
+                    {searchMode ? "No files match this search." : "No files found."}
+                  </div>
+                ) : (
+                  <div
+                    className="relative"
+                    style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+                  >
+                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const row = explorerRows[virtualRow.index];
+                      if (!row) {
+                        return null;
+                      }
+                      return (
+                        <div
+                          key={row.key}
+                          className="absolute top-0 left-0 w-full"
+                          style={{ transform: `translateY(${virtualRow.start}px)` }}
+                        >
+                          {row.kind === "entry" ? (
+                            <FileTreeRow
+                              activeFilePaths={activeFilePathSet}
+                              dragTargetPath={dragTargetParentPath}
+                              expandedDirectoryPaths={expandedDirectoryPathSet}
+                              focusedFilePath={activePane?.activeFilePath ?? null}
+                              onDropEntry={(sourcePath, targetParentPath) => {
+                                moveExplorerEntry(sourcePath, targetParentPath);
+                              }}
+                              onFocusEntry={setSelectedEntryPath}
+                              onHoverDropTarget={setDragTargetParentPath}
+                              onOpenFile={handleOpenFile}
+                              onOpenRowContextMenu={(entry, position) => {
+                                void openExplorerContextMenu(entry, position);
+                              }}
+                              onSelectEntry={setSelectedEntryPath}
+                              onToggleDirectory={(directoryPath) =>
+                                toggleDirectory(props.threadId, directoryPath)
+                              }
+                              openFilePaths={openFilePaths}
+                              resolvedTheme={resolvedTheme}
+                              row={row.row}
+                              searchMode={searchMode}
+                              selectedEntryPath={selectedEntryPath}
+                            />
+                          ) : (
+                            <InlineExplorerRow
+                              depth={row.depth}
+                              inputRef={entryDialogInputRef}
+                              onCancel={cancelInlineEntry}
+                              onChangeValue={(value) =>
+                                setInlineEntryState((current) =>
+                                  current ? { ...current, value } : current,
+                                )
+                              }
+                              onCommit={submitInlineEntry}
+                              resolvedTheme={resolvedTheme}
+                              searchMode={searchMode}
+                              state={row.state}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </aside>
+
+            <div
+              aria-label="Resize workspace sidebar"
+              role="separator"
+              aria-orientation="vertical"
+              className="relative cursor-col-resize hover:bg-primary/35"
+              onPointerDown={handleTreeResizeStart}
+              onPointerMove={handleTreeResizeMove}
+              onPointerUp={handleTreeResizeEnd}
+              onPointerCancel={handleTreeResizeEnd}
+            >
+              <div className="mx-auto h-full w-px bg-border/60" />
+            </div>
+          </>
+        ) : null}
 
         <section className="min-h-0 min-w-0 overflow-hidden bg-background">
           <div className="flex h-full min-h-0 flex-col">
@@ -2221,6 +2266,7 @@ export default function ThreadWorkspaceEditor(props: {
                             canClosePane={panes.length > 1}
                             canReopenClosedTab={hasRecentlyClosedFiles}
                             canSplitPane={panes.length < MAX_THREAD_EDITOR_PANES}
+                            diagnosticsCwd={diagnosticsCwd}
                             dirtyFilePaths={activeDirtyPaths}
                             draftsByFilePath={draftsByFilePath}
                             editorOptions={editorOptions}

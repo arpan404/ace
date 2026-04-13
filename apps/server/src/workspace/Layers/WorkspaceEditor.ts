@@ -43,6 +43,7 @@ interface LspDiagnosticsWaiter {
 }
 
 interface LspSession {
+  readonly cwd: string;
   readonly diagnosticsByUri: Map<string, readonly WorkspaceEditorDiagnostic[]>;
   readonly diagnosticsRevisionByUri: Map<string, number>;
   readonly diagnosticsWaitersByUri: Map<string, Set<LspDiagnosticsWaiter>>;
@@ -74,7 +75,7 @@ const LSP_SERVERS = [
     id: "typescript",
     command: "typescript-language-server",
     args: ["--stdio"],
-    languageIds: new Set(["typescript", "javascript"]),
+    languageIds: new Set(["typescript", "typescriptreact", "javascript", "javascriptreact"]),
     envBinKey: "ACE_LSP_TYPESCRIPT_SERVER_BIN",
     envArgsJsonKey: "ACE_LSP_TYPESCRIPT_SERVER_ARGS_JSON",
   },
@@ -104,6 +105,24 @@ const LSP_SERVERS = [
   },
 ] as const satisfies readonly LspServerDefinition[];
 
+const TYPESCRIPT_INFERRED_PROJECT_COMPILER_OPTIONS = {
+  allowArbitraryExtensions: true,
+  allowImportingTsExtensions: true,
+  module: "nodenext",
+  moduleResolution: "nodenext",
+  resolveJsonModule: true,
+  target: "esnext",
+  types: ["node", "bun"],
+} as const;
+
+const TYPESCRIPT_LANGUAGE_PREFERENCES = {
+  includeCompletionsForImportStatements: true,
+  includeCompletionsForModuleExports: true,
+  includePackageJsonAutoImports: "on",
+  preferTypeOnlyAutoImports: true,
+  quotePreference: "auto",
+} as const;
+
 function toWorkspaceDiagnosticSeverity(severity: unknown): WorkspaceEditorDiagnostic["severity"] {
   if (severity === 2) {
     return "warning";
@@ -121,15 +140,17 @@ function resolveLanguageIdFromPath(relativePath: string): string | null {
   const extension = extname(relativePath).toLowerCase();
   switch (extension) {
     case ".ts":
-    case ".tsx":
     case ".mts":
     case ".cts":
       return "typescript";
+    case ".tsx":
+      return "typescriptreact";
     case ".js":
-    case ".jsx":
     case ".mjs":
     case ".cjs":
       return "javascript";
+    case ".jsx":
+      return "javascriptreact";
     case ".json":
       return "json";
     case ".css":
@@ -277,7 +298,7 @@ function parseLspDiagnostics(
 }
 
 function isResponseMessage(message: unknown): message is {
-  readonly id: number;
+  readonly id: number | string;
   readonly result?: unknown;
   readonly error?: { readonly message?: unknown };
 } {
@@ -285,7 +306,122 @@ function isResponseMessage(message: unknown): message is {
     return false;
   }
   const id = Reflect.get(message, "id");
-  return typeof id === "number";
+  if (typeof id !== "number" && typeof id !== "string") {
+    return false;
+  }
+  const method = Reflect.get(message, "method");
+  if (typeof method === "string") {
+    return false;
+  }
+  return Reflect.has(message, "result") || Reflect.has(message, "error");
+}
+
+function isRequestMessage(message: unknown): message is {
+  readonly id: number | string;
+  readonly method: string;
+  readonly params?: unknown;
+} {
+  if (typeof message !== "object" || message === null) {
+    return false;
+  }
+  const method = Reflect.get(message, "method");
+  if (typeof method !== "string") {
+    return false;
+  }
+  const id = Reflect.get(message, "id");
+  return typeof id === "number" || typeof id === "string";
+}
+
+function resolveWorkspaceConfigurationValue(
+  languageServerId: LspServerId,
+  section: string | null,
+): unknown {
+  if (languageServerId !== "typescript" || !section) {
+    return null;
+  }
+  switch (section) {
+    case "typescript":
+    case "javascript":
+      return {
+        preferences: TYPESCRIPT_LANGUAGE_PREFERENCES,
+      };
+    case "typescript.preferences":
+    case "javascript.preferences":
+      return TYPESCRIPT_LANGUAGE_PREFERENCES;
+    default:
+      return null;
+  }
+}
+
+async function sendLspResponse(
+  session: LspSession,
+  id: number | string,
+  payload:
+    | { readonly result: unknown }
+    | { readonly error: { readonly code: number; readonly message: string } },
+): Promise<void> {
+  if (session.dead) {
+    return;
+  }
+  await writeLspPacket(session, {
+    jsonrpc: "2.0",
+    id,
+    ...payload,
+  });
+}
+
+async function handleServerRequest(
+  session: LspSession,
+  method: string,
+  id: number | string,
+  params: unknown,
+): Promise<void> {
+  switch (method) {
+    case "workspace/configuration": {
+      const items =
+        typeof params === "object" && params !== null ? Reflect.get(params, "items") : undefined;
+      const result = Array.isArray(items)
+        ? items.map((item) => {
+            const section =
+              typeof item === "object" && item !== null ? Reflect.get(item, "section") : undefined;
+            return resolveWorkspaceConfigurationValue(
+              session.languageServer.id,
+              typeof section === "string" ? section : null,
+            );
+          })
+        : [];
+      await sendLspResponse(session, id, { result });
+      return;
+    }
+    case "workspace/workspaceFolders": {
+      await sendLspResponse(session, id, {
+        result: [{ name: basename(session.cwd), uri: pathToFileURL(session.cwd).toString() }],
+      });
+      return;
+    }
+    case "window/workDoneProgress/create":
+    case "client/registerCapability":
+    case "client/unregisterCapability":
+      await sendLspResponse(session, id, { result: null });
+      return;
+    default:
+      await sendLspResponse(session, id, {
+        error: {
+          code: -32601,
+          message: `Method not found: ${method}`,
+        },
+      });
+  }
+}
+
+function handleServerNotification(session: LspSession, method: string, params: unknown): void {
+  if (method === "window/logMessage") {
+    const message =
+      typeof params === "object" && params !== null ? Reflect.get(params, "message") : undefined;
+    if (typeof message === "string" && message.trim().length > 0) {
+      appendStderrTail(session, `${message}\n`);
+    }
+  }
 }
 
 function parseContentLength(headerBlock: string): number | null {
@@ -540,6 +676,9 @@ function createSessionKey(cwd: string, serverId: LspServerId): string {
 
 function handleServerMessage(session: LspSession, message: unknown): void {
   if (isResponseMessage(message)) {
+    if (typeof message.id !== "number") {
+      return;
+    }
     const pending = session.pendingRequests.get(message.id);
     if (!pending) {
       return;
@@ -560,11 +699,24 @@ function handleServerMessage(session: LspSession, message: unknown): void {
   if (typeof message !== "object" || message === null) {
     return;
   }
+  if (isRequestMessage(message)) {
+    void handleServerRequest(session, message.method, message.id, message.params).catch((error) => {
+      appendStderrTail(
+        session,
+        `Failed to handle LSP server request (${message.method}): ${String(error)}\n`,
+      );
+    });
+    return;
+  }
   const method = Reflect.get(message, "method");
-  if (method !== "textDocument/publishDiagnostics") {
+  if (typeof method !== "string") {
     return;
   }
   const params = Reflect.get(message, "params");
+  if (method !== "textDocument/publishDiagnostics") {
+    handleServerNotification(session, method, params);
+    return;
+  }
   if (typeof params !== "object" || params === null) {
     return;
   }
@@ -656,6 +808,7 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
     });
 
     const session: LspSession = {
+      cwd,
       dead: false,
       diagnosticsByUri: new Map(),
       diagnosticsRevisionByUri: new Map(),
@@ -713,12 +866,42 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
               workspace: {},
             },
             clientInfo: { name: "ace" },
+            initializationOptions:
+              languageServer.id === "typescript"
+                ? {
+                    hostInfo: "ace",
+                    preferences: {
+                      includePackageJsonAutoImports: "on",
+                    },
+                  }
+                : undefined,
             processId: process.pid,
+            rootPath: cwd,
             rootUri,
             workspaceFolders: [{ name: basename(cwd), uri: rootUri }],
           },
           LSP_REQUEST_TIMEOUT_MS,
-        ).then(() => sendLspNotification(session, "initialized", {})),
+        )
+          .then(() => sendLspNotification(session, "initialized", {}))
+          .then(async () => {
+            if (languageServer.id !== "typescript") {
+              return;
+            }
+            await sendLspRequest(
+              session,
+              "workspace/executeCommand",
+              {
+                command: "typescript.tsserverRequest",
+                arguments: [
+                  "compilerOptionsForInferredProjects",
+                  {
+                    options: TYPESCRIPT_INFERRED_PROJECT_COMPILER_OPTIONS,
+                  },
+                ],
+              },
+              LSP_REQUEST_TIMEOUT_MS,
+            ).catch(() => undefined);
+          }),
       catch: (cause) =>
         new WorkspaceEditorError({
           cause,

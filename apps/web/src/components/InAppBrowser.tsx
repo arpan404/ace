@@ -22,7 +22,6 @@ import {
   PictureInPicture2Icon,
   PlusIcon,
   RefreshCwIcon,
-  Settings2Icon,
   XIcon,
 } from "lucide-react";
 import {
@@ -49,17 +48,9 @@ import type { BrowserTabState } from "~/lib/browser/session";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import {
-  BrowserNewTabPanel,
-  BrowserSettingsPanel,
-  BrowserSuggestionList,
-} from "./browser/BrowserChrome";
+import { BrowserNewTabPanel, BrowserSuggestionList } from "./browser/BrowserChrome";
 import { BrowserFavicon, BrowserTabWebview } from "./browser/BrowserWebviewSurface";
-import {
-  isBrowserInternalTabUrl,
-  isBrowserNewTabUrl,
-  isBrowserSettingsTabUrl,
-} from "~/lib/browser/session";
+import { isBrowserInternalTabUrl, isBrowserNewTabUrl } from "~/lib/browser/session";
 
 export type {
   ActiveBrowserRuntimeState,
@@ -220,20 +211,16 @@ export function InAppBrowser(props: InAppBrowserProps) {
     activeTabIsInternal,
     activeTabIsNewTab,
     activeTabIsPinned,
-    activeTabIsSettings,
     addressBarSuggestions,
     addressInputRef,
     applySuggestion,
-    browserHistoryCount,
     browserResetKey,
     browserSearchEngine,
     browserSession,
     browserShellStyle,
     browserStatusLabel,
-    clearHistory,
     closeTab,
     draftUrl,
-    exportPinnedPages,
     goBack,
     goForward,
     handleAddressBarKeyDown,
@@ -246,10 +233,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
     handlePipResizePointerMove,
     handleTabSnapshotChange,
     handleWebviewContextMenuFallbackRequest,
-    importPinnedPages,
-    isRepairingStorage,
     openActiveTabExternally,
-    openBrowserSettingsTab,
     openNewTab,
     openPinnedPage,
     openTabContextMenu,
@@ -258,9 +242,6 @@ export function InAppBrowser(props: InAppBrowserProps) {
     reorderTabs,
     registerWebviewHandle,
     reload,
-    removePinnedPage,
-    repairBrowserStorage,
-    selectSearchEngine,
     selectedSuggestionIndex,
     setDraftUrl,
     setIsAddressBarFocused,
@@ -578,9 +559,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                     >
                       {browserSession.tabs.map((tab) => {
                         const isActive = activeTab?.id === tab.id;
-                        const icon = isBrowserSettingsTabUrl(tab.url) ? (
-                          <Settings2Icon className="size-3 text-muted-foreground" />
-                        ) : isBrowserNewTabUrl(tab.url) ? (
+                        const icon = isBrowserNewTabUrl(tab.url) ? (
                           <PlusIcon className="size-3 text-muted-foreground" />
                         ) : (
                           <BrowserFavicon
@@ -624,21 +603,6 @@ export function InAppBrowser(props: InAppBrowserProps) {
                   <ArrowRightIcon className="size-3.5" />
                 </Button>
               </div>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
-                      onClick={openBrowserSettingsTab}
-                      aria-label="Open browser settings tab"
-                    >
-                      <Settings2Icon className="size-3.5" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">Browser settings</TooltipPopup>
-              </Tooltip>
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -901,25 +865,6 @@ export function InAppBrowser(props: InAppBrowserProps) {
               pinnedPages={pinnedPages}
               onOpenPinnedPage={openPinnedPage}
               onSubmitQuery={openUrl}
-            />
-          ) : null}
-          {activeTabIsSettings ? (
-            <BrowserSettingsPanel
-              browserSearchEngine={browserSearchEngine}
-              historyCount={browserHistoryCount}
-              isRepairingStorage={isRepairingStorage}
-              pinnedPages={pinnedPages}
-              onClearHistory={clearHistory}
-              onExportPinnedPages={exportPinnedPages}
-              onImportPinnedPages={(file) => {
-                void importPinnedPages(file);
-              }}
-              onOpenPinnedPage={openPinnedPage}
-              onRemovePinnedPage={removePinnedPage}
-              onRepairStorage={() => {
-                void repairBrowserStorage();
-              }}
-              onSelectSearchEngine={selectSearchEngine}
             />
           ) : null}
           {browserSession.tabs

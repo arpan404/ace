@@ -59,7 +59,7 @@ export function NewThreadLanding() {
           )}
         >
           <div className="flex items-start gap-3">
-            <SidebarTrigger className="size-9 shrink-0 rounded-xl border border-border bg-muted/60 md:hidden [&_svg]:size-4" />
+            <SidebarTrigger className="size-9 shrink-0 rounded-xl border border-border bg-muted/60 [&_svg]:size-4" />
             <div className="min-w-0">
               <p className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
                 Start

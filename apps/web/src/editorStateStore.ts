@@ -30,6 +30,7 @@ export interface ThreadEditorPaneState {
 interface PersistedThreadEditorState {
   activePaneId: string;
   expandedDirectoryPaths: string[];
+  explorerOpen: boolean;
   paneRatios: number[];
   panes: ThreadEditorPaneState[];
   rows: ThreadEditorRowState[];
@@ -39,6 +40,7 @@ interface PersistedThreadEditorState {
 interface LegacyPersistedThreadEditorState {
   activeFilePath: string | null;
   expandedDirectoryPaths: string[];
+  explorerOpen?: boolean;
   openFilePaths: string[];
   treeWidth: number;
 }
@@ -46,6 +48,7 @@ interface LegacyPersistedThreadEditorState {
 interface RowlessPersistedThreadEditorState {
   activePaneId: string;
   expandedDirectoryPaths: string[];
+  explorerOpen?: boolean;
   paneRatios: number[];
   panes: ThreadEditorPaneState[];
   treeWidth: number;
@@ -89,6 +92,7 @@ interface EditorStoreState {
   runtimeStateByThreadId: Record<string, RuntimeThreadEditorState>;
   setActiveFile: (threadId: ThreadId, filePath: string | null, paneId?: string) => void;
   setActivePane: (threadId: ThreadId, paneId: string) => void;
+  setExplorerOpen: (threadId: ThreadId, open: boolean) => void;
   setPaneRatios: (threadId: ThreadId, rowId: string, ratios: readonly number[]) => void;
   setRowRatios: (threadId: ThreadId, ratios: readonly number[]) => void;
   setTreeWidth: (threadId: ThreadId, width: number) => void;
@@ -227,6 +231,7 @@ function threadStatesEqual(
 ): boolean {
   return (
     left.activePaneId === right.activePaneId &&
+    left.explorerOpen === right.explorerOpen &&
     left.treeWidth === right.treeWidth &&
     stringArraysEqual(left.expandedDirectoryPaths, right.expandedDirectoryPaths) &&
     numberArraysEqual(left.paneRatios, right.paneRatios) &&
@@ -269,6 +274,7 @@ function createDefaultThreadEditorState(): PersistedThreadEditorState {
   return {
     activePaneId: DEFAULT_THREAD_EDITOR_PANE_ID,
     expandedDirectoryPaths: [],
+    explorerOpen: true,
     paneRatios: [1],
     panes: [createDefaultPane()],
     rows: [createDefaultRow()],
@@ -444,6 +450,7 @@ function normalizePersistedThreadState(
   return {
     activePaneId: activePaneId ?? panes[0]?.id ?? DEFAULT_THREAD_EDITOR_PANE_ID,
     expandedDirectoryPaths: normalizePathList(threadState?.expandedDirectoryPaths ?? []),
+    explorerOpen: threadState?.explorerOpen !== false,
     paneRatios: normalizePaneRatios(threadState?.paneRatios ?? [], rows.length),
     panes,
     rows,
@@ -1262,6 +1269,17 @@ export const useEditorStateStore = create<EditorStoreState>()(
             activePaneId: paneId,
           });
         }),
+      setExplorerOpen: (threadId, open) =>
+        set((state) => {
+          const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
+          if (current.explorerOpen === open) {
+            return state;
+          }
+          return writeThreadState(state, threadId, {
+            ...current,
+            explorerOpen: open,
+          });
+        }),
       setPaneRatios: (threadId, rowId, ratios) =>
         set((state) => {
           const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
@@ -1475,7 +1493,7 @@ export const useEditorStateStore = create<EditorStoreState>()(
         threadStateByThreadId: state.threadStateByThreadId,
       }),
       storage: createJSONStorage(createEditorStateStorage),
-      version: 2,
+      version: 3,
     },
   ),
 );

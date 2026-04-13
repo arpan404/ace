@@ -6151,6 +6151,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               <ThreadWorkspaceEditor
                 availableEditors={availableEditors}
                 gitCwd={gitCwd}
+                lspCwd={activeProject?.cwd ?? null}
                 keybindings={keybindings}
                 browserOpen={browserOpen}
                 workspaceMode={workspaceMode}
@@ -6629,6 +6630,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                       <ThreadWorkspaceEditor
                         availableEditors={availableEditors}
                         gitCwd={gitCwd}
+                        lspCwd={activeProject?.cwd ?? null}
                         keybindings={keybindings}
                         browserOpen={browserOpen}
                         workspaceMode={workspaceMode}

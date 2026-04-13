@@ -119,7 +119,6 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
-  SidebarTrigger,
 } from "./ui/sidebar";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { isNonEmpty as isNonEmptyString } from "effect/String";
@@ -2336,11 +2335,10 @@ export default function Sidebar() {
 
   const wordmark = (
     <div className="flex min-w-0 items-center gap-2">
-      <SidebarTrigger className="shrink-0 md:hidden" />
       <Tooltip>
         <TooltipTrigger
           render={
-            <div className="ml-1 flex min-w-0 flex-1 items-center gap-1 cursor-pointer">
+            <div className="flex min-w-0 flex-1 cursor-pointer items-center gap-1">
               <span className="truncate text-sm font-medium tracking-tight text-foreground">
                 {APP_BASE_NAME}
               </span>

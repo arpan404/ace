@@ -132,6 +132,110 @@ process.stdin.on("data", (chunk) => {
 });
 `;
 
+const FAKE_LSP_SERVER_WITH_CONFIGURATION_REQUEST_SOURCE = `
+let pendingInitializeId = null;
+let pendingConfigurationRequestId = null;
+let buffer = Buffer.alloc(0);
+
+function write(packet) {
+  const body = Buffer.from(JSON.stringify(packet), "utf8");
+  const header = Buffer.from("Content-Length: " + String(body.byteLength) + "\\r\\n\\r\\n", "utf8");
+  process.stdout.write(Buffer.concat([header, body]));
+}
+
+function publishDiagnostics(uri, text) {
+  const column = String(text).indexOf("ERROR");
+  const diagnostics = column >= 0
+    ? [
+        {
+          range: {
+            start: { line: 0, character: column },
+            end: { line: 0, character: column + 5 }
+          },
+          severity: 1,
+          message: "Found ERROR marker"
+        }
+      ]
+    : [];
+  write({
+    jsonrpc: "2.0",
+    method: "textDocument/publishDiagnostics",
+    params: { uri, diagnostics }
+  });
+}
+
+function handleMessage(message) {
+  if (typeof message.method === "string" && message.method === "initialize") {
+    pendingInitializeId = message.id;
+    pendingConfigurationRequestId = 9001;
+    write({
+      jsonrpc: "2.0",
+      id: pendingConfigurationRequestId,
+      method: "workspace/configuration",
+      params: {
+        items: [{ section: "typescript.preferences" }]
+      }
+    });
+    return;
+  }
+  if (typeof message.id === "number" && message.id === pendingConfigurationRequestId) {
+    write({ jsonrpc: "2.0", id: pendingInitializeId, result: { capabilities: {} } });
+    pendingConfigurationRequestId = null;
+    return;
+  }
+  if (message.method === "initialized") {
+    return;
+  }
+  if (message.method === "shutdown") {
+    write({ jsonrpc: "2.0", id: message.id, result: null });
+    return;
+  }
+  if (message.method === "exit") {
+    process.exit(0);
+    return;
+  }
+  if (message.method === "textDocument/didOpen") {
+    const document = message.params && message.params.textDocument;
+    if (document && typeof document.uri === "string") {
+      publishDiagnostics(document.uri, document.text || "");
+    }
+  }
+}
+
+function tryReadMessages() {
+  while (true) {
+    const marker = Buffer.from("\\r\\n\\r\\n", "utf8");
+    const headerEnd = buffer.indexOf(marker);
+    if (headerEnd < 0) {
+      return;
+    }
+    const headerText = buffer.subarray(0, headerEnd).toString("utf8");
+    const contentLengthLine = headerText
+      .split("\\r\\n")
+      .find((line) => line.toLowerCase().startsWith("content-length:"));
+    if (!contentLengthLine) {
+      buffer = Buffer.alloc(0);
+      return;
+    }
+    const contentLength = Number(contentLengthLine.split(":")[1].trim());
+    const bodyStart = headerEnd + marker.length;
+    const bodyEnd = bodyStart + contentLength;
+    if (buffer.length < bodyEnd) {
+      return;
+    }
+    const body = buffer.subarray(bodyStart, bodyEnd).toString("utf8");
+    buffer = buffer.subarray(bodyEnd);
+    const message = JSON.parse(body);
+    handleMessage(message);
+  }
+}
+
+process.stdin.on("data", (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  tryReadMessages();
+});
+`;
+
 const withLspEnv = <A, E, R>(serverScriptPath: string, effect: Effect.Effect<A, E, R>) =>
   Effect.acquireUseRelease(
     Effect.sync(() => {
@@ -210,6 +314,46 @@ describe("WorkspaceEditorLive", () => {
         relativePath: "src/example.ts",
       });
       expect(result.closed).toEqual({
+        relativePath: "src/example.ts",
+      });
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("responds to server requests while initializing the LSP session", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceEditor = yield* WorkspaceEditor;
+      const workspaceDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "ace-workspace-editor-init-request-",
+      });
+      const serverScriptPath = path.join(workspaceDir, "fake-lsp-config-request.cjs");
+      yield* fileSystem.writeFileString(
+        serverScriptPath,
+        FAKE_LSP_SERVER_WITH_CONFIGURATION_REQUEST_SOURCE,
+      );
+
+      const result = yield* withLspEnv(
+        serverScriptPath,
+        workspaceEditor.syncBuffer({
+          cwd: workspaceDir,
+          relativePath: "src/example.ts",
+          contents: "ERROR();\n",
+        }),
+      );
+
+      expect(result).toEqual({
+        diagnostics: [
+          {
+            endColumn: 5,
+            endLine: 0,
+            message: "Found ERROR marker",
+            severity: "error",
+            source: "lsp",
+            startColumn: 0,
+            startLine: 0,
+          },
+        ],
         relativePath: "src/example.ts",
       });
     }).pipe(Effect.provide(TestLayer)),

@@ -15,6 +15,7 @@ import { SidebarTrigger } from "../ui/sidebar";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
 import { TopBarCluster, interleaveTopBarItems } from "../thread/TopBarCluster";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
+import { isMacPlatform } from "~/lib/utils";
 
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
@@ -81,6 +82,10 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleDiff,
   onWorkspaceModeChange,
 }: ChatHeaderProps) {
+  const sidebarToggleShortcutLabel =
+    typeof navigator !== "undefined" && isMacPlatform(navigator.platform)
+      ? "\u21e7\u2318B"
+      : "Ctrl+Shift+B";
   const editorWorkspaceActive = workspaceMode === "editor" || workspaceMode === "split";
   const workspaceActionItems: ReactNode[] = [
     activeProjectScripts ? (
@@ -228,7 +233,14 @@ export const ChatHeader = memo(function ChatHeader({
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2.5">
       <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
-        <SidebarTrigger className="size-7 shrink-0 md:hidden" />
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <SidebarTrigger className="size-8 shrink-0 rounded-lg border border-border/60 bg-background/60 text-foreground/75 shadow-sm transition-colors hover:bg-accent hover:text-foreground" />
+            }
+          />
+          <TooltipPopup side="bottom">Toggle sidebar ({sidebarToggleShortcutLabel})</TooltipPopup>
+        </Tooltip>
         {workspaceMode === "editor" ? (
           <span
             className="min-w-0 truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80"
