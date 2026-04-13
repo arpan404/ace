@@ -93,9 +93,12 @@ const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
 const GET_IS_DEVELOPMENT_BUILD_CHANNEL = "desktop:get-is-development-build";
 const GET_WINDOW_SHOWN_AT_CHANNEL = "desktop:get-window-shown-at";
+const GET_TITLEBAR_LEFT_INSET_CHANNEL = "desktop:get-titlebar-left-inset";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
 const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
+const MAC_TRAFFIC_LIGHT_POSITION = { x: 16, y: 18 };
+const MAC_TITLEBAR_LEFT_INSET_PX = 90;
 const BASE_DIR = process.env.ACE_HOME?.trim() || resolveDesktopBaseDir();
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "ace";
@@ -652,6 +655,22 @@ function resolveAboutCommitHash(): string | null {
 
 function resolveBackendEntry(): string {
   return Path.join(resolveAppRoot(), "apps/server/dist/bin.mjs");
+}
+
+function resolveTitlebarLeftInset(window: BrowserWindow | null | undefined): number {
+  if (process.platform !== "darwin") {
+    return 0;
+  }
+
+  if (!window) {
+    return MAC_TITLEBAR_LEFT_INSET_PX;
+  }
+
+  if (window.isFullScreen() || window.isSimpleFullScreen() === true) {
+    return 0;
+  }
+
+  return MAC_TITLEBAR_LEFT_INSET_PX;
 }
 
 function getDesktopCliUnavailableMessage(): string {
@@ -1493,6 +1512,13 @@ function registerIpcHandlers(): void {
     event.returnValue = mainWindowShownAtMs;
   });
 
+  ipcMain.removeAllListeners(GET_TITLEBAR_LEFT_INSET_CHANNEL);
+  ipcMain.on(GET_TITLEBAR_LEFT_INSET_CHANNEL, (event) => {
+    const owner =
+      BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? mainWindow;
+    event.returnValue = resolveTitlebarLeftInset(owner);
+  });
+
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
   ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
@@ -1786,7 +1812,7 @@ function createWindow(): BrowserWindow {
     ...getIconOption(),
     title: APP_DISPLAY_NAME,
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 18 },
+    trafficLightPosition: MAC_TRAFFIC_LIGHT_POSITION,
     webPreferences: {
       preload: Path.join(__dirname, "preload.js"),
       contextIsolation: true,

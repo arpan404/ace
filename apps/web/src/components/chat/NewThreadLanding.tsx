@@ -3,6 +3,7 @@ import { ArrowRightIcon, PlusIcon, SquarePenIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { isElectron } from "~/env";
+import { MAC_TITLEBAR_LEFT_INSET_STYLE } from "~/lib/desktopChrome";
 import { cn } from "~/lib/utils";
 import { useHandleNewThread } from "~/hooks/useHandleNewThread";
 import { useSettings } from "~/hooks/useSettings";
@@ -10,10 +11,11 @@ import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
 import { useStore } from "~/store";
 
 import { Button } from "../ui/button";
-import { SidebarTrigger } from "../ui/sidebar";
+import { SidebarTrigger, useSidebar } from "../ui/sidebar";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
 
 export function NewThreadLanding() {
+  const { state: sidebarState } = useSidebar();
   const projects = useStore((store) => store.projects);
   const activeProjects = useMemo(
     () => projects.filter((project) => project.archivedAt === null),
@@ -78,6 +80,7 @@ export function NewThreadLanding() {
             "drag-region flex min-h-[52px] shrink-0 items-center justify-between border-b border-border bg-background",
             "px-5",
           )}
+          style={sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined}
         >
           <div className="flex min-w-0 items-baseline gap-2.5">
             <span className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">

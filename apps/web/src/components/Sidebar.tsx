@@ -57,6 +57,10 @@ import { APP_BASE_NAME, APP_VERSION, IS_DEV_BUILD } from "../branding";
 import { reportBackgroundError } from "../lib/async";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
+import {
+  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+  MAC_TITLEBAR_LEFT_INSET_STYLE,
+} from "../lib/desktopChrome";
 import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
@@ -119,6 +123,8 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  SidebarTrigger,
+  useSidebar,
 } from "./ui/sidebar";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { isNonEmpty as isNonEmptyString } from "effect/String";
@@ -800,6 +806,7 @@ function projectIconsEqual(left: Project["icon"], right: Project["icon"]): boole
 }
 
 export default function Sidebar() {
+  const { isMobile, state } = useSidebar();
   const projects = useStore((store) => store.projects);
   const sidebarThreadsById = useStore((store) => store.sidebarThreadsById);
   const threadIdsByProjectId = useStore((store) => store.threadIdsByProjectId);
@@ -833,6 +840,10 @@ export default function Sidebar() {
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
   const keybindings = useServerKeybindings();
+  const sidebarToggleShortcutLabel =
+    typeof navigator !== "undefined" && isMacPlatform(navigator.platform)
+      ? "\u21e7\u2318B"
+      : "Ctrl+Shift+B";
   const [addingProject, setAddingProject] = useState(false);
   const [newCwd, setNewCwd] = useState("");
   const [isPickingFolder, setIsPickingFolder] = useState(false);
@@ -853,10 +864,12 @@ export default function Sidebar() {
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const confirmArchiveButtonRefs = useRef(new Map<ThreadId, HTMLButtonElement>());
+  const sidebarHeaderRowRef = useRef<HTMLDivElement | null>(null);
   const dragInProgressRef = useRef(false);
   const suppressProjectClickAfterDragRef = useRef(false);
   const suppressProjectClickForContextMenuRef = useRef(false);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
+  const [isSidebarHeaderCompact, setIsSidebarHeaderCompact] = useState(false);
   const selectedThreadIds = useThreadSelectionStore((s) => s.selectedThreadIds);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
@@ -2248,6 +2261,25 @@ export default function Sidebar() {
     shortcutLabelForCommand(keybindings, "chat.newLocal", sidebarShortcutLabelOptions) ??
     shortcutLabelForCommand(keybindings, "chat.new", sidebarShortcutLabelOptions);
 
+  useEffect(() => {
+    const headerRow = sidebarHeaderRowRef.current;
+    if (!headerRow || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const updateCompactState = () => {
+      setIsSidebarHeaderCompact(headerRow.clientWidth < 168);
+    };
+
+    updateCompactState();
+    const observer = new ResizeObserver(updateCompactState);
+    observer.observe(headerRow);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
   const handleDesktopUpdateButtonClick = useCallback(() => {
     const bridge = window.desktopBridge;
     if (!bridge || !desktopUpdateState) return;
@@ -2333,16 +2365,17 @@ export default function Sidebar() {
     });
   }, []);
 
+  const showWordmarkDevBadge = IS_DEV_BUILD && !isSidebarHeaderCompact;
   const wordmark = (
     <div className="flex min-w-0 items-center gap-2">
       <Tooltip>
         <TooltipTrigger
           render={
-            <div className="flex min-w-0 flex-1 cursor-pointer items-center gap-1">
-              <span className="truncate text-sm font-medium tracking-tight text-foreground">
+            <div className="flex min-w-0 cursor-pointer items-center gap-1">
+              <span className="min-w-0 truncate text-sm font-medium tracking-tight text-foreground">
                 {APP_BASE_NAME}
               </span>
-              {IS_DEV_BUILD ? (
+              {showWordmarkDevBadge ? (
                 <Badge
                   variant="info"
                   size="sm"
@@ -2482,8 +2515,31 @@ export default function Sidebar() {
       </Dialog>
 
       {isElectron ? (
-        <SidebarHeader className="drag-region h-[52px] flex-row items-center gap-2 px-4 py-0 pl-[90px]">
-          {wordmark}
+        <SidebarHeader
+          className="drag-region h-[52px] px-4 py-0"
+          style={MAC_TITLEBAR_LEFT_INSET_STYLE}
+        >
+          <div ref={sidebarHeaderRowRef} className="relative flex h-full min-w-0 items-center">
+            <div
+              className={`flex min-w-0 flex-1 items-center justify-center ${
+                !isMobile && state === "expanded" ? "pr-10" : ""
+              }`}
+            >
+              {wordmark}
+            </div>
+            {!isMobile && state === "expanded" ? (
+              <div className="absolute inset-y-0 right-0 flex items-center">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={<SidebarTrigger className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME} />}
+                  />
+                  <TooltipPopup side="bottom">
+                    Toggle sidebar ({sidebarToggleShortcutLabel})
+                  </TooltipPopup>
+                </Tooltip>
+              </div>
+            ) : null}
+          </div>
         </SidebarHeader>
       ) : (
         <SidebarHeader className="gap-3 px-3.5 py-3 sm:gap-2.5 sm:px-4 sm:py-3.5">

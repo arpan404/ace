@@ -11,10 +11,11 @@ import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
-import { SidebarTrigger } from "../ui/sidebar";
+import { SidebarTrigger, useSidebar } from "../ui/sidebar";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
 import { TopBarCluster, interleaveTopBarItems } from "../thread/TopBarCluster";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
+import { DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME } from "~/lib/desktopChrome";
 import { isMacPlatform } from "~/lib/utils";
 
 interface ChatHeaderProps {
@@ -82,10 +83,12 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleDiff,
   onWorkspaceModeChange,
 }: ChatHeaderProps) {
+  const { isMobile, state } = useSidebar();
   const sidebarToggleShortcutLabel =
     typeof navigator !== "undefined" && isMacPlatform(navigator.platform)
       ? "\u21e7\u2318B"
       : "Ctrl+Shift+B";
+  const showSidebarToggle = isMobile || state === "collapsed";
   const editorWorkspaceActive = workspaceMode === "editor" || workspaceMode === "split";
   const workspaceActionItems: ReactNode[] = [
     activeProjectScripts ? (
@@ -233,14 +236,14 @@ export const ChatHeader = memo(function ChatHeader({
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2.5">
       <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <SidebarTrigger className="size-8 shrink-0 rounded-lg border border-border/60 bg-background/60 text-foreground/75 shadow-sm transition-colors hover:bg-accent hover:text-foreground" />
-            }
-          />
-          <TooltipPopup side="bottom">Toggle sidebar ({sidebarToggleShortcutLabel})</TooltipPopup>
-        </Tooltip>
+        {showSidebarToggle ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={<SidebarTrigger className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME} />}
+            />
+            <TooltipPopup side="bottom">Toggle sidebar ({sidebarToggleShortcutLabel})</TooltipPopup>
+          </Tooltip>
+        ) : null}
         {workspaceMode === "editor" ? (
           <span
             className="min-w-0 truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80"

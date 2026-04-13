@@ -48,6 +48,7 @@ import {
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import { MAC_TITLEBAR_LEFT_INSET_STYLE } from "../lib/desktopChrome";
 import {
   normalizeThreadWorkspaceLayoutMode,
   normalizeThreadWorkspaceMode,
@@ -131,6 +132,7 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import { BotIcon, CircleAlertIcon, ListTodoIcon, XIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
+import { useSidebar } from "./ui/sidebar";
 import { cn, randomUUID } from "~/lib/utils";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -290,6 +292,7 @@ interface PendingPullRequestSetupRequest {
 }
 
 export default function ChatView({ threadId }: ChatViewProps) {
+  const { state: sidebarState } = useSidebar();
   const serverThread = useThreadById(threadId);
   const threads = useStore((store) => store.threads);
   const setStoreThreadError = useStore((store) => store.setError);
@@ -6085,6 +6088,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
             ? "drag-region flex min-h-[52px] items-center px-4 sm:px-6"
             : "px-4 py-3 sm:px-6 sm:py-3.5",
         )}
+        style={
+          isElectron && sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined
+        }
       >
         <ChatHeader
           activeThreadId={activeThread.id}

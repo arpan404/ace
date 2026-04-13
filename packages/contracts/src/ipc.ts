@@ -224,6 +224,7 @@ export interface DesktopBridge {
   getWsUrl: () => string | null;
   getIsDevelopmentBuild?: () => boolean;
   getWindowShownAt?: () => number | null;
+  getTitlebarLeftInset?: () => number | null;
   pickFolder: () => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   repairBrowserStorage: () => Promise<boolean>;

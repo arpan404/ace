@@ -6,7 +6,18 @@
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type {
+  Event as OpenCodeSdkEvent,
+  Message as OpenCodeSdkMessage,
+  OpencodeClient,
+  Part as OpenCodeSdkPart,
+  PermissionRequest as OpenCodeSdkPermissionRequest,
+  QuestionRequest as OpenCodeSdkQuestionRequest,
+  ReasoningPart as OpenCodeSdkReasoningPart,
+  StepFinishPart as OpenCodeSdkStepFinishPart,
+  TextPart as OpenCodeSdkTextPart,
+  ToolPart as OpenCodeSdkToolPart,
+} from "@opencode-ai/sdk/v2/client";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   EventId,
@@ -47,7 +58,7 @@ import {
   parseOpenCodeModelSlug,
   resolveOpenCodeModelForPrompt,
 } from "../opencodeSdk.ts";
-import { asFiniteNumber as asNumber, asObject as asRecord, asString } from "../unknown.ts";
+import { asFiniteNumber as asNumber, asObject as asRecord } from "../unknown.ts";
 import { type OpenCodeAdapterShape, OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
 
 const PROVIDER = "opencode" as const;
@@ -96,8 +107,12 @@ type OpenCodeSessionContext = {
     {
       readonly requestId: RuntimeRequestId;
       readonly turnId?: TurnId;
+      readonly questionIds: ReadonlyArray<string>;
     }
   >;
+  readonly messageRoleById: Map<string, OpenCodeMessageRole>;
+  readonly partById: Map<string, OpenCodeSdkPart>;
+  readonly emittedAssistantTextLengthByPartId: Map<string, number>;
   sseAbort: AbortController | null;
   pendingBootstrapReset: boolean;
   stopped: boolean;
@@ -131,6 +146,32 @@ type OpenCodeReasoningItemState = {
   lastText: string;
   completed: boolean;
 };
+
+type OpenCodeMessageRole = Extract<OpenCodeSdkMessage["role"], "assistant" | "user">;
+
+function resolveTurnSnapshot(
+  context: OpenCodeSessionContext,
+  turnId: TurnId,
+): { id: TurnId; items: Array<unknown> } {
+  const existing = context.turns.find((turn) => turn.id === turnId);
+  if (existing) {
+    return existing;
+  }
+  const created = { id: turnId, items: [] as Array<unknown> };
+  context.turns.push(created);
+  return created;
+}
+
+function appendTurnItem(
+  context: OpenCodeSessionContext,
+  turnId: TurnId | undefined,
+  item: unknown,
+): void {
+  if (!turnId) {
+    return;
+  }
+  resolveTurnSnapshot(context, turnId).items.push(item);
+}
 
 async function stopContext(ctx: OpenCodeSessionContext): Promise<void> {
   if (ctx.stopped) {
@@ -328,25 +369,60 @@ function safeJsonStringify(value: unknown): string | undefined {
   }
 }
 
-function unwrapOpenCodeSseEvent(
-  raw: unknown,
-): { type: string; properties?: Record<string, unknown> } | null {
+function unwrapOpenCodeSseEvent(raw: unknown): OpenCodeSdkEvent | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
-  if (typeof r.type === "string" && "properties" in r && r.properties) {
-    return { type: r.type, properties: r.properties as Record<string, unknown> };
+  if (
+    typeof r.type === "string" &&
+    "properties" in r &&
+    r.properties &&
+    typeof r.properties === "object"
+  ) {
+    return r as OpenCodeSdkEvent;
   }
   const globalPayload = r.payload;
   if (globalPayload && typeof globalPayload === "object") {
     const p = globalPayload as Record<string, unknown>;
-    if (typeof p.type === "string") {
-      if ("properties" in p && p.properties && typeof p.properties === "object") {
-        return { type: p.type, properties: p.properties as Record<string, unknown> };
-      }
-      return { type: p.type };
+    if (
+      typeof p.type === "string" &&
+      "properties" in p &&
+      p.properties &&
+      typeof p.properties === "object"
+    ) {
+      return p as OpenCodeSdkEvent;
     }
   }
   return null;
+}
+
+function readOpenCodeEventSessionId(event: OpenCodeSdkEvent): string | undefined {
+  const props = event.properties as Record<string, unknown>;
+  return typeof props.sessionID === "string"
+    ? props.sessionID
+    : typeof props.sessionId === "string"
+      ? props.sessionId
+      : undefined;
+}
+
+function readOpenCodeMessageRole(message: OpenCodeSdkMessage): OpenCodeMessageRole | undefined {
+  switch (message.role) {
+    case "assistant":
+    case "user":
+      return message.role;
+    default:
+      return undefined;
+  }
+}
+
+function messageRoleForPart(
+  context: OpenCodeSessionContext,
+  part: Pick<OpenCodeSdkPart, "messageID" | "type">,
+): OpenCodeMessageRole | undefined {
+  const known = context.messageRoleById.get(part.messageID);
+  if (known) {
+    return known;
+  }
+  return part.type === "tool" ? "assistant" : undefined;
 }
 
 function classifyOpenCodePermission(
@@ -416,25 +492,31 @@ export function mapOpenCodeTodoStatus(
   }
 }
 
-function buildOpenCodeToolDetail(
-  state: Record<string, unknown> | null | undefined,
-): string | undefined {
-  if (!state) {
-    return undefined;
+function buildOpenCodeToolDetail(state: OpenCodeSdkToolPart["state"]): string | undefined {
+  switch (state.status) {
+    case "running":
+      return state.title;
+    case "completed":
+      return state.output;
+    case "error":
+      return state.error;
+    case "pending":
+    default:
+      return undefined;
   }
-  const title = nonEmptyString(state.title);
-  if (title) {
-    return title;
+}
+
+function openCodeToolStateCreatedAt(state: OpenCodeSdkToolPart["state"]): string | undefined {
+  switch (state.status) {
+    case "running":
+      return openCodeTimestampToIso(state.time.start);
+    case "completed":
+    case "error":
+      return openCodeTimestampToIso(state.time.end);
+    case "pending":
+    default:
+      return undefined;
   }
-  const output = nonEmptyString(state.output);
-  if (output) {
-    return output;
-  }
-  const error = nonEmptyString(state.error);
-  if (error) {
-    return error;
-  }
-  return undefined;
 }
 
 export function appendOnlyDelta(previous: string, next: string): string | undefined {
@@ -482,19 +564,20 @@ function mapApprovalDecision(decision: ProviderApprovalDecision): "once" | "alwa
   }
 }
 
-function mapQuestions(questions: ReadonlyArray<Record<string, unknown>>): UserInputQuestion[] {
+function mapQuestions(
+  questions: ReadonlyArray<OpenCodeSdkQuestionRequest["questions"][number]>,
+): UserInputQuestion[] {
   return questions.map((q, index) => {
-    const header = typeof q.header === "string" ? q.header : `Question ${String(index + 1)}`;
-    const question = typeof q.question === "string" ? q.question : header;
-    const options = Array.isArray(q.options)
-      ? q.options.map((opt) => {
-          const o = opt as Record<string, unknown>;
-          return {
-            label: typeof o.label === "string" ? o.label : "Option",
-            description: typeof o.description === "string" ? o.description : "",
-          };
-        })
-      : [];
+    const header =
+      typeof q.header === "string" && q.header.trim().length > 0
+        ? q.header
+        : `Question ${String(index + 1)}`;
+    const question =
+      typeof q.question === "string" && q.question.trim().length > 0 ? q.question : header;
+    const options = q.options.map((option) => ({
+      label: option.label,
+      description: option.description,
+    }));
     return {
       id: `q-${String(index)}`,
       header,
@@ -503,6 +586,46 @@ function mapQuestions(questions: ReadonlyArray<Record<string, unknown>>): UserIn
       ...(q.multiple === true ? { multiSelect: true } : {}),
     };
   });
+}
+
+export function readOpenCodeEventRequestId(
+  properties: Record<string, unknown>,
+): string | undefined {
+  return typeof properties.id === "string"
+    ? properties.id
+    : typeof properties.requestID === "string"
+      ? properties.requestID
+      : undefined;
+}
+
+export function mapOpenCodePermissionReplyDecision(
+  reply: unknown,
+): ProviderRuntimeEventByType<"request.resolved">["payload"]["decision"] {
+  switch (reply) {
+    case "once":
+      return "accept";
+    case "always":
+      return "acceptForSession";
+    default:
+      return "decline";
+  }
+}
+
+export function mapOpenCodeQuestionAnswers(
+  questionIds: ReadonlyArray<string>,
+  rawAnswers: unknown,
+): ProviderRuntimeEventByType<"user-input.resolved">["payload"]["answers"] {
+  if (questionIds.length === 0) {
+    return {};
+  }
+  const answerLists = Array.isArray(rawAnswers)
+    ? rawAnswers.map((answer) =>
+        Array.isArray(answer) ? answer.map((value) => String(value)) : [String(answer ?? "")],
+      )
+    : [];
+  return Object.fromEntries(
+    questionIds.map((questionId, index) => [questionId, answerLists[index] ?? [""]]),
+  );
 }
 
 function resolveOpenCodeModel(
@@ -806,16 +929,52 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     );
   };
 
+  const emitAssistantTextFromSnapshotPart = (
+    ctx: OpenCodeSessionContext,
+    part: OpenCodeSdkTextPart,
+    turnId: TurnId | undefined,
+  ) => {
+    const turn = ctx.activeTurn;
+    if (!turnId || !turn) {
+      return;
+    }
+    const previousLengthRaw = ctx.emittedAssistantTextLengthByPartId.get(part.id) ?? 0;
+    const previousLength = part.text.length < previousLengthRaw ? 0 : previousLengthRaw;
+    if (part.text.length <= previousLength) {
+      return;
+    }
+    const delta = part.text.slice(previousLength);
+    if (delta.length === 0) {
+      return;
+    }
+    ctx.emittedAssistantTextLengthByPartId.set(part.id, part.text.length);
+    ensureAssistantStarted(ctx);
+    turn.assistantText += delta;
+    emit(
+      baseEvent(ctx, {
+        type: "content.delta",
+        ...(openCodeTimestampToIso(part.time?.start)
+          ? { createdAt: openCodeTimestampToIso(part.time?.start) }
+          : {}),
+        turnId,
+        itemId: turn.assistantItemId,
+        payload: {
+          streamKind: "assistant_text",
+          delta,
+        },
+      }),
+    );
+  };
+
   const handleOpenCodeReasoningPart = (
     ctx: OpenCodeSessionContext,
-    part: Record<string, unknown>,
-    partId: string,
+    part: OpenCodeSdkReasoningPart,
   ) => {
-    const text = asString(part.text) ?? "";
-    const time = asRecord(part.time);
+    const partId = part.id;
+    const text = part.text;
     const reasoningStartedAt =
-      resolveOpenCodePartTimestamp(part, "start") ?? resolveOpenCodePartTimestamp(part, "end");
-    const reasoningCompletedAt = resolveOpenCodePartTimestamp(part, "end");
+      openCodeTimestampToIso(part.time.start) ?? openCodeTimestampToIso(part.time.end);
+    const reasoningCompletedAt = openCodeTimestampToIso(part.time.end);
     const state = ensureReasoningItem(ctx, partId, reasoningStartedAt);
     if (!state) {
       return;
@@ -831,7 +990,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     }
     emitReasoningDelta(ctx, partId, reasoningDeltaInput);
 
-    if (time && "end" in time && !state.reasoning.completed) {
+    if (part.time.end !== undefined && !state.reasoning.completed) {
       state.reasoning.completed = true;
       emit(
         baseEvent(ctx, {
@@ -848,25 +1007,22 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     }
   };
 
-  const handleOpenCodeToolPart = (
-    ctx: OpenCodeSessionContext,
-    part: Record<string, unknown>,
-    partId: string,
-  ) => {
+  const handleOpenCodeToolPart = (ctx: OpenCodeSessionContext, part: OpenCodeSdkToolPart) => {
     const turn = ctx.activeTurn;
     if (!turn) {
       return;
     }
-    const toolName = nonEmptyString(part.tool) ?? "Tool";
-    const state = asRecord(part.state);
-    const stateStatus = asString(state?.status) ?? "pending";
+    const partId = part.id;
+    const toolName = part.tool;
+    const state = part.state;
+    const stateStatus = state.status;
     const itemType = classifyOpenCodeToolItemType(toolName);
     const detail = buildOpenCodeToolDetail(state);
     const data = {
       partId,
       tool: toolName,
-      ...(asString(part.messageID) ? { messageId: asString(part.messageID) } : {}),
-      ...(asString(part.callID) ? { callId: asString(part.callID) } : {}),
+      messageId: part.messageID,
+      callId: part.callID,
       ...(state ? { state } : {}),
       ...(part.metadata !== undefined ? { metadata: part.metadata } : {}),
     };
@@ -883,6 +1039,9 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       emit(
         baseEvent(ctx, {
           type: "item.started",
+          ...(openCodeToolStateCreatedAt(state)
+            ? { createdAt: openCodeToolStateCreatedAt(state) }
+            : {}),
           turnId: turn.id,
           itemId: toolItem.itemId,
           payload: {
@@ -908,6 +1067,9 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         emit(
           baseEvent(ctx, {
             type: "item.completed",
+            ...(openCodeToolStateCreatedAt(state)
+              ? { createdAt: openCodeToolStateCreatedAt(state) }
+              : {}),
             turnId: turn.id,
             itemId: toolItem.itemId,
             payload: {
@@ -926,6 +1088,9 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     emit(
       baseEvent(ctx, {
         type: "item.updated",
+        ...(openCodeToolStateCreatedAt(state)
+          ? { createdAt: openCodeToolStateCreatedAt(state) }
+          : {}),
         turnId: turn.id,
         itemId: toolItem.itemId,
         payload: {
@@ -943,74 +1108,114 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     if (ctx.stopped) return;
     const event = unwrapOpenCodeSseEvent(raw);
     if (!event) return;
-    const props = event.properties ?? {};
-    const sessionId =
-      typeof props.sessionID === "string"
-        ? props.sessionID
-        : typeof props.sessionId === "string"
-          ? props.sessionId
-          : undefined;
+    const sessionId = readOpenCodeEventSessionId(event);
     if (sessionId && sessionId !== ctx.opencodeSessionId) {
       return;
     }
 
     switch (event.type) {
-      case "message.part.delta": {
-        const delta = typeof props.delta === "string" ? props.delta : "";
-        const turnId = ctx.activeTurn?.id;
-        if (!turnId || !ctx.activeTurn) return;
-        if (delta.length > 0) {
-          const partId = asString(props.partID);
-          const streamKind = resolveOpenCodeDeltaStreamKind({
-            field: props.field,
-            isReasoningPart: partId ? ctx.activeTurn.reasoningItems.has(partId) : false,
-          });
-          if (streamKind === "assistant_text") {
-            ensureAssistantStarted(ctx);
-            ctx.activeTurn.assistantText += delta;
-            emit(
-              baseEvent(ctx, {
-                type: "content.delta",
-                turnId,
-                itemId: ctx.activeTurn.assistantItemId,
-                payload: {
-                  streamKind,
-                  delta,
-                },
-              }),
-            );
-            return;
+      case "message.updated": {
+        const role = readOpenCodeMessageRole(event.properties.info);
+        if (!role) {
+          return;
+        }
+        const messageId = event.properties.info.id;
+        ctx.messageRoleById.set(messageId, role);
+        if (role === "assistant") {
+          const turnId = ctx.activeTurn?.id;
+          for (const part of ctx.partById.values()) {
+            if (part.messageID !== messageId || part.type !== "text") {
+              continue;
+            }
+            emitAssistantTextFromSnapshotPart(ctx, part, turnId);
           }
-
-          emitReasoningDelta(ctx, partId ?? `delta:${randomUUID()}`, {
-            text: delta,
-            streamKind,
-          });
         }
         return;
       }
-      case "message.part.updated": {
-        const part = asRecord(props.part);
-        const partType = asString(part?.type);
-        const partId = asString(part?.id);
-        if (!part || !partType || !partId) {
+      case "message.removed": {
+        ctx.messageRoleById.delete(event.properties.messageID);
+        for (const [partId, part] of ctx.partById) {
+          if (part.messageID !== event.properties.messageID) {
+            continue;
+          }
+          ctx.partById.delete(partId);
+          ctx.emittedAssistantTextLengthByPartId.delete(partId);
+        }
+        return;
+      }
+      case "message.part.removed": {
+        ctx.partById.delete(event.properties.partID);
+        ctx.emittedAssistantTextLengthByPartId.delete(event.properties.partID);
+        return;
+      }
+      case "message.part.delta": {
+        const { delta, field, partID } = event.properties;
+        const turnId = ctx.activeTurn?.id;
+        if (!turnId || !ctx.activeTurn) return;
+        if (delta.length === 0) {
           return;
         }
-        switch (partType) {
+        const part = ctx.partById.get(partID);
+        const role = part ? messageRoleForPart(ctx, part) : undefined;
+        if (role === "user") {
+          return;
+        }
+        const streamKind = resolveOpenCodeDeltaStreamKind({
+          field,
+          isReasoningPart:
+            (part ? part.type === "reasoning" : false) || ctx.activeTurn.reasoningItems.has(partID),
+        });
+        if (streamKind === "assistant_text") {
+          ensureAssistantStarted(ctx);
+          ctx.activeTurn.assistantText += delta;
+          const previousLength = ctx.emittedAssistantTextLengthByPartId.get(partID) ?? 0;
+          ctx.emittedAssistantTextLengthByPartId.set(partID, previousLength + delta.length);
+          emit(
+            baseEvent(ctx, {
+              type: "content.delta",
+              turnId,
+              itemId: ctx.activeTurn.assistantItemId,
+              payload: {
+                streamKind,
+                delta,
+              },
+            }),
+          );
+          return;
+        }
+
+        emitReasoningDelta(ctx, partID, {
+          text: delta,
+          streamKind,
+        });
+        return;
+      }
+      case "message.part.updated": {
+        const part = event.properties.part;
+        ctx.partById.set(part.id, part);
+        const turnId = ctx.activeTurn?.id;
+        appendTurnItem(ctx, turnId, part);
+        switch (part.type) {
+          case "text": {
+            if (messageRoleForPart(ctx, part) !== "assistant") {
+              return;
+            }
+            emitAssistantTextFromSnapshotPart(ctx, part, turnId);
+            return;
+          }
           case "reasoning":
-            handleOpenCodeReasoningPart(ctx, part, partId);
+            handleOpenCodeReasoningPart(ctx, part);
             return;
           case "tool":
-            handleOpenCodeToolPart(ctx, part, partId);
+            handleOpenCodeToolPart(ctx, part);
             return;
           case "step-finish": {
             if (!ctx.activeTurn) {
               return;
             }
             ctx.activeTurn.usage = part.tokens;
-            const totalCostUsd = asNumber(part.cost);
-            if (totalCostUsd !== undefined) {
-              ctx.activeTurn.totalCostUsd = totalCostUsd;
+            if (Number.isFinite(part.cost)) {
+              ctx.activeTurn.totalCostUsd = part.cost;
             }
             return;
           }
@@ -1023,28 +1228,25 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         if (!turnId) {
           return;
         }
-        const todos = Array.isArray(props.todos)
-          ? props.todos
-              .map((entry) => {
-                const todo = asRecord(entry);
-                const step = nonEmptyString(todo?.content);
-                if (!step) {
-                  return null;
-                }
-                return {
-                  step,
-                  status: mapOpenCodeTodoStatus(todo?.status),
-                };
-              })
-              .filter(
-                (
-                  entry,
-                ): entry is {
-                  readonly step: string;
-                  readonly status: "pending" | "inProgress" | "completed";
-                } => entry !== null,
-              )
-          : [];
+        const todos = event.properties.todos
+          .map((todo) => {
+            const step = nonEmptyString(todo.content);
+            if (!step) {
+              return null;
+            }
+            return {
+              step,
+              status: mapOpenCodeTodoStatus(todo.status),
+            };
+          })
+          .filter(
+            (
+              entry,
+            ): entry is {
+              readonly step: string;
+              readonly status: "pending" | "inProgress" | "completed";
+            } => entry !== null,
+          );
         emit(
           baseEvent(ctx, {
             type: "turn.plan.updated",
@@ -1057,8 +1259,8 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         return;
       }
       case "session.status": {
-        const status = asRecord(props.status);
-        if (asString(status?.type) !== "retry") {
+        const status = event.properties.status;
+        if (status.type !== "retry") {
           return;
         }
         emit(
@@ -1066,7 +1268,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             type: "runtime.warning",
             ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
             payload: {
-              message: nonEmptyString(status?.message) ?? "OpenCode is retrying the request.",
+              message: nonEmptyString(status.message) ?? "OpenCode is retrying the request.",
               ...(safeJsonStringify(status) ? { detail: safeJsonStringify(status) } : {}),
             },
           }),
@@ -1079,15 +1281,15 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             type: "thread.state.changed",
             payload: {
               state: "compacted",
-              detail: props,
+              detail: event.properties,
             },
           }),
         );
         return;
       }
       case "session.updated": {
-        const info = asRecord(props.info);
-        const title = nonEmptyString(info?.title);
+        const info = event.properties.info;
+        const title = nonEmptyString(info.title);
         if (!title) {
           return;
         }
@@ -1096,7 +1298,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             type: "thread.metadata.updated",
             payload: {
               name: title,
-              ...(info ? { metadata: info } : {}),
+              metadata: info as Record<string, unknown>,
             },
           }),
         );
@@ -1107,7 +1309,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         return;
       }
       case "session.error": {
-        const err = props.error;
+        const err = event.properties.error;
         const msg = toMessage(err, "OpenCode session error");
         completeTurn(ctx, "failed", msg);
         emit(
@@ -1123,14 +1325,10 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         return;
       }
       case "permission.asked": {
-        const requestId =
-          typeof props.id === "string"
-            ? props.id
-            : typeof props.requestID === "string"
-              ? props.requestID
-              : undefined;
+        const request: OpenCodeSdkPermissionRequest = event.properties;
+        const requestId = request.id;
         if (!requestId) return;
-        const permission = typeof props.permission === "string" ? props.permission : "permission";
+        const permission = request.permission;
         const runtimeRequestId = RuntimeRequestId.makeUnsafe(requestId);
         ctx.pendingApprovals.set(requestId, {
           requestId: runtimeRequestId,
@@ -1144,36 +1342,98 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             requestId: runtimeRequestId,
             payload: {
               requestType: classifyOpenCodePermission(permission),
-              detail: permission,
-              args: props,
+              detail: request.patterns.length > 0 ? request.patterns.join("\n") : permission,
+              args: request.metadata,
+            },
+          }),
+        );
+        return;
+      }
+      case "permission.replied": {
+        const requestId = event.properties.requestID;
+        if (!requestId) {
+          return;
+        }
+        const pending = ctx.pendingApprovals.get(requestId);
+        if (!pending) {
+          return;
+        }
+        ctx.pendingApprovals.delete(requestId);
+        emit(
+          baseEvent(ctx, {
+            type: "request.resolved",
+            ...(pending.turnId ? { turnId: pending.turnId } : {}),
+            requestId: pending.requestId,
+            payload: {
+              requestType: pending.requestType,
+              decision: mapOpenCodePermissionReplyDecision(event.properties.reply),
             },
           }),
         );
         return;
       }
       case "question.asked": {
-        const requestId =
-          typeof props.id === "string"
-            ? props.id
-            : typeof props.requestID === "string"
-              ? props.requestID
-              : undefined;
+        const request: OpenCodeSdkQuestionRequest = event.properties;
+        const requestId = request.id;
         if (!requestId) return;
         const runtimeRequestId = RuntimeRequestId.makeUnsafe(requestId);
+        const questions = mapQuestions(request.questions);
         ctx.pendingUserInputs.set(requestId, {
           requestId: runtimeRequestId,
           ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
+          questionIds: questions.map((question) => question.id),
         });
-        const qs = Array.isArray(props.questions)
-          ? props.questions.map((q) => q as Record<string, unknown>)
-          : [];
         emit(
           baseEvent(ctx, {
             type: "user-input.requested",
             ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
             requestId: runtimeRequestId,
             payload: {
-              questions: mapQuestions(qs),
+              questions,
+            },
+          }),
+        );
+        return;
+      }
+      case "question.replied": {
+        const requestId = event.properties.requestID;
+        if (!requestId) {
+          return;
+        }
+        const pending = ctx.pendingUserInputs.get(requestId);
+        if (!pending) {
+          return;
+        }
+        ctx.pendingUserInputs.delete(requestId);
+        emit(
+          baseEvent(ctx, {
+            type: "user-input.resolved",
+            ...(pending.turnId ? { turnId: pending.turnId } : {}),
+            requestId: pending.requestId,
+            payload: {
+              answers: mapOpenCodeQuestionAnswers(pending.questionIds, event.properties.answers),
+            },
+          }),
+        );
+        return;
+      }
+      case "question.rejected": {
+        const requestId = event.properties.requestID;
+        if (!requestId) {
+          return;
+        }
+        const pending = ctx.pendingUserInputs.get(requestId);
+        if (!pending) {
+          return;
+        }
+        ctx.pendingUserInputs.delete(requestId);
+        emit(
+          baseEvent(ctx, {
+            type: "user-input.resolved",
+            ...(pending.turnId ? { turnId: pending.turnId } : {}),
+            requestId: pending.requestId,
+            payload: {
+              answers: {},
             },
           }),
         );
@@ -1293,6 +1553,20 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             opencodeSessionId = await createSession();
           }
 
+          const raceWinner = sessions.get(input.threadId);
+          if (raceWinner) {
+            if (!resumedExistingSession) {
+              await client.session
+                .delete({
+                  sessionID: opencodeSessionId,
+                  directory: cwd,
+                })
+                .catch(() => undefined);
+            }
+            await server.close().catch(() => undefined);
+            return raceWinner.session;
+          }
+
           const createdAt = isoNow();
           const model =
             input.modelSelection && input.modelSelection.provider === PROVIDER
@@ -1329,6 +1603,9 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             activeTurn: null,
             pendingApprovals: new Map(),
             pendingUserInputs: new Map(),
+            messageRoleById: new Map(),
+            partById: new Map(),
+            emittedAssistantTextLengthByPartId: new Map(),
             sseAbort: null,
             pendingBootstrapReset: (input.replayTurns?.length ?? 0) > 0 && !resumedExistingSession,
             stopped: false,
@@ -1754,7 +2031,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
   return {
     provider: PROVIDER,
     capabilities: {
-      sessionModelSwitch: "restart-session",
+      sessionModelSwitch: "in-session",
     },
     startSession,
     sendTurn,

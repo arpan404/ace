@@ -116,6 +116,7 @@
     "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   --ui-font-size: 15px;
   --ui-letter-spacing: -0.018em;
+  --desktop-titlebar-left-inset: 0px;
   /* HSL triplets — used by sidebar primitives with hsl(var(--sidebar-*)) */
   --sidebar: 0 0% 97%;
   --sidebar-foreground: 0 0% 14%;

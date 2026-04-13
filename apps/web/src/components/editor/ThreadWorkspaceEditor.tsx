@@ -32,6 +32,7 @@ import {
 } from "react";
 
 import {
+  resolveEditorStateScopeId,
   type ThreadEditorRowState,
   MAX_THREAD_EDITOR_PANES,
   selectThreadEditorState,
@@ -558,7 +559,7 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
   );
 });
 
-export default function ThreadWorkspaceEditor(props: {
+export default function ThreadWorkspaceEditor(inputProps: {
   availableEditors: ReadonlyArray<EditorId>;
   browserOpen: boolean;
   gitCwd: string | null;
@@ -570,6 +571,11 @@ export default function ThreadWorkspaceEditor(props: {
   workspaceMode?: ThreadWorkspaceMode | undefined;
 }) {
   ensureMonacoConfigured();
+  const editorStateScopeId = useMemo(
+    () => resolveEditorStateScopeId({ gitCwd: inputProps.gitCwd, threadId: inputProps.threadId }),
+    [inputProps.gitCwd, inputProps.threadId],
+  );
+  const props = { ...inputProps, threadId: editorStateScopeId as ThreadId };
 
   const { resolvedTheme } = useTheme();
   const { updateSettings } = useUpdateSettings();
