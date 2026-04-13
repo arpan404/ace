@@ -14,7 +14,6 @@ import type {
   PermissionRequest as OpenCodeSdkPermissionRequest,
   QuestionRequest as OpenCodeSdkQuestionRequest,
   ReasoningPart as OpenCodeSdkReasoningPart,
-  StepFinishPart as OpenCodeSdkStepFinishPart,
   TextPart as OpenCodeSdkTextPart,
   ToolPart as OpenCodeSdkToolPart,
 } from "@opencode-ai/sdk/v2/client";
@@ -52,7 +51,7 @@ import {
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
 } from "../Errors.ts";
-import { startOpenCodeServer, type OpenCodeServerHandle } from "../opencodeRuntime.ts";
+import { startOpenCodeServerIsolated, type OpenCodeServerHandle } from "../opencodeRuntime.ts";
 import {
   createOpenCodeSdkClient,
   parseOpenCodeModelSlug,
@@ -678,6 +677,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       readonly turnId?: TurnId;
       readonly itemId?: RuntimeItemId;
       readonly requestId?: RuntimeRequestId;
+      readonly raw?: unknown;
       readonly payload: ProviderRuntimeEventByType<TType>["payload"];
     },
   ): ProviderRuntimeEventByType<TType> => {
@@ -702,6 +702,14 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       ...(input.turnId ? { turnId: input.turnId } : {}),
       ...(input.itemId ? { itemId: input.itemId } : {}),
       ...(input.requestId ? { requestId: input.requestId } : {}),
+      ...(input.raw !== undefined
+        ? {
+            raw: {
+              source: "opencode.sdk.event" as const,
+              payload: input.raw,
+            },
+          }
+        : {}),
       sessionSequence,
       payload: input.payload,
     } as unknown as ProviderRuntimeEventByType<TType>;
@@ -1112,6 +1120,14 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     if (sessionId && sessionId !== ctx.opencodeSessionId) {
       return;
     }
+    const sseEvent = <TType extends ProviderRuntimeEvent["type"]>(input: {
+      readonly type: TType;
+      readonly createdAt?: string | undefined;
+      readonly turnId?: TurnId;
+      readonly itemId?: RuntimeItemId;
+      readonly requestId?: RuntimeRequestId;
+      readonly payload: ProviderRuntimeEventByType<TType>["payload"];
+    }): ProviderRuntimeEventByType<TType> => baseEvent(ctx, { ...input, raw: event });
 
     switch (event.type) {
       case "message.updated": {
@@ -1171,7 +1187,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           const previousLength = ctx.emittedAssistantTextLengthByPartId.get(partID) ?? 0;
           ctx.emittedAssistantTextLengthByPartId.set(partID, previousLength + delta.length);
           emit(
-            baseEvent(ctx, {
+            sseEvent({
               type: "content.delta",
               turnId,
               itemId: ctx.activeTurn.assistantItemId,
@@ -1248,7 +1264,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             } => entry !== null,
           );
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "turn.plan.updated",
             turnId,
             payload: {
@@ -1264,7 +1280,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           return;
         }
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "runtime.warning",
             ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
             payload: {
@@ -1277,7 +1293,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       }
       case "session.compacted": {
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "thread.state.changed",
             payload: {
               state: "compacted",
@@ -1294,7 +1310,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           return;
         }
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "thread.metadata.updated",
             payload: {
               name: title,
@@ -1313,7 +1329,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         const msg = toMessage(err, "OpenCode session error");
         completeTurn(ctx, "failed", msg);
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "runtime.error",
             payload: {
               message: msg,
@@ -1336,7 +1352,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
         });
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "request.opened",
             ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
             requestId: runtimeRequestId,
@@ -1360,7 +1376,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         }
         ctx.pendingApprovals.delete(requestId);
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "request.resolved",
             ...(pending.turnId ? { turnId: pending.turnId } : {}),
             requestId: pending.requestId,
@@ -1384,7 +1400,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           questionIds: questions.map((question) => question.id),
         });
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "user-input.requested",
             ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
             requestId: runtimeRequestId,
@@ -1406,7 +1422,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         }
         ctx.pendingUserInputs.delete(requestId);
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "user-input.resolved",
             ...(pending.turnId ? { turnId: pending.turnId } : {}),
             requestId: pending.requestId,
@@ -1428,7 +1444,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         }
         ctx.pendingUserInputs.delete(requestId);
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "user-input.resolved",
             ...(pending.turnId ? { turnId: pending.turnId } : {}),
             requestId: pending.requestId,
@@ -1489,7 +1505,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
 
         const settings = await runPromise(serverSettingsService.getSettings);
         const binaryPath = settings.providers.opencode.binaryPath;
-        const server = await startOpenCodeServer(binaryPath);
+        const server = await startOpenCodeServerIsolated(binaryPath);
         const cwd = input.cwd ?? serverConfig.cwd;
         const client = createOpenCodeSdkClient({
           baseUrl: server.url,

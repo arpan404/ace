@@ -3,7 +3,11 @@ import { EventEmitter } from "node:events";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { setOpenCodeRuntimeDependencies, startOpenCodeServer } from "./opencodeRuntime";
+import {
+  setOpenCodeRuntimeDependencies,
+  startOpenCodeServer,
+  startOpenCodeServerIsolated,
+} from "./opencodeRuntime";
 
 function makeRunningServerProcess(url: string, pid: number): ChildProcess {
   const stdout = new EventEmitter();
@@ -97,6 +101,48 @@ describe("startOpenCodeServer", () => {
       expect(spawnMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(killSpy).toHaveBeenCalledWith(-pid, "SIGTERM");
+    } finally {
+      restoreDependencies();
+    }
+  });
+});
+
+describe("startOpenCodeServerIsolated", () => {
+  it("creates dedicated server processes for concurrent sessions", async () => {
+    const firstPid = 9011;
+    const secondPid = 9012;
+    const firstChild = makeRunningServerProcess("http://127.0.0.1:5011", firstPid);
+    const secondChild = makeRunningServerProcess("http://127.0.0.1:5012", secondPid);
+    const spawnMock = vi.fn().mockReturnValueOnce(firstChild).mockReturnValueOnce(secondChild);
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    const restoreDependencies = setOpenCodeRuntimeDependencies({
+      spawn: spawnMock as unknown as typeof import("node:child_process").spawn,
+      fetch: fetchMock as unknown as typeof globalThis.fetch,
+    });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(((targetPid, signal) => {
+      if (targetPid === -firstPid) {
+        emitProcessExit(firstChild, signal as NodeJS.Signals);
+      }
+      if (targetPid === -secondPid) {
+        emitProcessExit(secondChild, signal as NodeJS.Signals);
+      }
+      return true;
+    }) as typeof process.kill);
+
+    try {
+      const first = await startOpenCodeServerIsolated("/bin/opencode");
+      const second = await startOpenCodeServerIsolated("/bin/opencode");
+
+      expect(spawnMock).toHaveBeenCalledTimes(2);
+      expect(first.url).toBe("http://127.0.0.1:5011");
+      expect(second.url).toBe("http://127.0.0.1:5012");
+
+      await first.close();
+      await second.close();
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(killSpy).toHaveBeenCalledWith(-firstPid, "SIGTERM");
+      expect(killSpy).toHaveBeenCalledWith(-secondPid, "SIGTERM");
     } finally {
       restoreDependencies();
     }

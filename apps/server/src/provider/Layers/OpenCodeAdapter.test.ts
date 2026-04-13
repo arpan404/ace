@@ -7,7 +7,10 @@ import {
   classifyOpenCodeToolItemType,
   isMissingOpenCodeSessionError,
   mapOpenCodeTodoStatus,
+  mapOpenCodePermissionReplyDecision,
+  mapOpenCodeQuestionAnswers,
   openCodeTimestampToIso,
+  readOpenCodeEventRequestId,
   readOpenCodeResumeSessionId,
   resolveOpenCodeDeltaStreamKind,
   resolveOpenCodePartTimestamp,
@@ -78,6 +81,45 @@ describe("mapOpenCodeTodoStatus", () => {
     expect(mapOpenCodeTodoStatus("in_progress")).toBe("inProgress");
     expect(mapOpenCodeTodoStatus("completed")).toBe("completed");
     expect(mapOpenCodeTodoStatus("cancelled")).toBe("completed");
+  });
+});
+
+describe("readOpenCodeEventRequestId", () => {
+  it("prefers id but falls back to requestID", () => {
+    expect(readOpenCodeEventRequestId({ id: "req-1", requestID: "req-2" })).toBe("req-1");
+    expect(readOpenCodeEventRequestId({ requestID: "req-2" })).toBe("req-2");
+  });
+
+  it("returns undefined for missing ids", () => {
+    expect(readOpenCodeEventRequestId({})).toBeUndefined();
+    expect(readOpenCodeEventRequestId({ id: 123 })).toBeUndefined();
+  });
+});
+
+describe("mapOpenCodePermissionReplyDecision", () => {
+  it("maps OpenCode permission replies to canonical decisions", () => {
+    expect(mapOpenCodePermissionReplyDecision("once")).toBe("accept");
+    expect(mapOpenCodePermissionReplyDecision("always")).toBe("acceptForSession");
+    expect(mapOpenCodePermissionReplyDecision("reject")).toBe("decline");
+  });
+});
+
+describe("mapOpenCodeQuestionAnswers", () => {
+  it("maps positional OpenCode answers to question-id keyed answers", () => {
+    expect(mapOpenCodeQuestionAnswers(["q-0", "q-1"], [["a"], ["b1", "b2"]])).toEqual({
+      "q-0": ["a"],
+      "q-1": ["b1", "b2"],
+    });
+  });
+
+  it("fills missing answers with empty string arrays for deterministic shape", () => {
+    expect(mapOpenCodeQuestionAnswers(["q-0", "q-1"], [["a"]])).toEqual({
+      "q-0": ["a"],
+      "q-1": [""],
+    });
+    expect(mapOpenCodeQuestionAnswers(["q-0"], undefined)).toEqual({
+      "q-0": [""],
+    });
   });
 });
 

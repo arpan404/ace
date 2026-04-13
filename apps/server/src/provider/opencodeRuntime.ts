@@ -423,3 +423,25 @@ export async function startOpenCodeServer(binaryPath: string): Promise<OpenCodeS
     throw cause;
   }
 }
+
+/**
+ * Start `opencode serve` and return a dedicated server handle.
+ * Unlike `startOpenCodeServer`, this never shares process state across callers.
+ */
+export async function startOpenCodeServerIsolated(
+  binaryPath: string,
+): Promise<OpenCodeServerHandle> {
+  const server = await spawnOpenCodeServer(binaryPath);
+  let closed = false;
+  return {
+    url: server.url,
+    binaryPath: server.binaryPath,
+    close: async () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      await server.closeProcess();
+    },
+  };
+}
