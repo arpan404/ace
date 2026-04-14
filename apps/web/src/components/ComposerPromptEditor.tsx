@@ -59,7 +59,10 @@ import {
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToInlineToken,
 } from "~/composer-logic";
-import { splitPromptIntoComposerSegments } from "~/composer-editor-mentions";
+import {
+  createMarkedIssueReferenceToken,
+  splitPromptIntoComposerSegments,
+} from "~/composer-editor-mentions";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   type TerminalContextDraft,
@@ -198,7 +201,7 @@ class ComposerIssueReferenceNode extends TextNode {
   }
 
   constructor(issueNumber: number, key?: NodeKey) {
-    super(`#${issueNumber}`, key);
+    super(createMarkedIssueReferenceToken(issueNumber), key);
     this.__issueNumber = issueNumber;
   }
 
@@ -424,6 +427,9 @@ function getComposerInlineTokenTextLength(_node: ComposerInlineTokenNode): 1 {
 }
 
 function getComposerInlineTokenExpandedTextLength(node: ComposerInlineTokenNode): number {
+  if (node instanceof ComposerIssueReferenceNode) {
+    return String(node.__issueNumber).length + 1;
+  }
   return node.getTextContentSize();
 }
 

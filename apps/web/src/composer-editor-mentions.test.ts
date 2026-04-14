@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createMarkedIssueReferenceToken,
   extractIssueReferenceNumbers,
   splitPromptIntoComposerSegments,
+  stripIssueReferenceMarkers,
 } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
@@ -42,8 +44,18 @@ describe("splitPromptIntoComposerSegments", () => {
     ]);
   });
 
-  it("splits tagged issue references in normal message text", () => {
+  it("keeps plain # references as text when they were not selected from issue picker", () => {
     expect(splitPromptIntoComposerSegments("Please check #351 and #341.")).toEqual([
+      { type: "text", text: "Please check #351 and #341." },
+    ]);
+  });
+
+  it("splits only marked issue references", () => {
+    expect(
+      splitPromptIntoComposerSegments(
+        `Please check ${createMarkedIssueReferenceToken(351)} and ${createMarkedIssueReferenceToken(341)}.`,
+      ),
+    ).toEqual([
       { type: "text", text: "Please check " },
       { type: "issue-reference", issueNumber: 351 },
       { type: "text", text: " and " },
@@ -52,8 +64,12 @@ describe("splitPromptIntoComposerSegments", () => {
     ]);
   });
 
-  it("keeps /issues text while still tokenizing tagged issue references", () => {
-    expect(splitPromptIntoComposerSegments("/issues #351 and #341")).toEqual([
+  it("keeps /issues text while still tokenizing marked issue references", () => {
+    expect(
+      splitPromptIntoComposerSegments(
+        `/issues ${createMarkedIssueReferenceToken(351)} and ${createMarkedIssueReferenceToken(341)}`,
+      ),
+    ).toEqual([
       { type: "text", text: "/issues " },
       { type: "issue-reference", issueNumber: 351 },
       { type: "text", text: " and " },
@@ -61,8 +77,12 @@ describe("splitPromptIntoComposerSegments", () => {
     ]);
   });
 
-  it("tokenizes mentions and issue references in the same message", () => {
-    expect(splitPromptIntoComposerSegments("Inspect @AGENTS.md for #42 please")).toEqual([
+  it("tokenizes mentions and marked issue references in the same message", () => {
+    expect(
+      splitPromptIntoComposerSegments(
+        `Inspect @AGENTS.md for ${createMarkedIssueReferenceToken(42)} please`,
+      ),
+    ).toEqual([
       { type: "text", text: "Inspect " },
       { type: "mention", path: "AGENTS.md" },
       { type: "text", text: " for " },
@@ -73,15 +93,23 @@ describe("splitPromptIntoComposerSegments", () => {
 });
 
 describe("extractIssueReferenceNumbers", () => {
-  it("extracts unique issue numbers from free-form text", () => {
-    expect(extractIssueReferenceNumbers("Fix #351, #341, and #351.")).toEqual([351, 341]);
+  it("extracts unique issue numbers from marked issue tokens", () => {
+    expect(
+      extractIssueReferenceNumbers(
+        `Fix ${createMarkedIssueReferenceToken(351)}, ${createMarkedIssueReferenceToken(341)}, and ${createMarkedIssueReferenceToken(351)}.`,
+      ),
+    ).toEqual([351, 341]);
   });
 
-  it("respects common punctuation boundaries around issue tags", () => {
-    expect(extractIssueReferenceNumbers("See (#42), then #108.")).toEqual([42, 108]);
+  it("returns empty when plain # references are not marked", () => {
+    expect(extractIssueReferenceNumbers("See (#42), then #108.")).toEqual([]);
   });
 
-  it("ignores hash-like references embedded in words", () => {
-    expect(extractIssueReferenceNumbers("c#351 should not tag, but #352 should")).toEqual([352]);
+  it("strips issue markers from prompt text", () => {
+    expect(
+      stripIssueReferenceMarkers(
+        `Fix ${createMarkedIssueReferenceToken(351)} and ${createMarkedIssueReferenceToken(42)}`,
+      ),
+    ).toBe("Fix #351 and #42");
   });
 });

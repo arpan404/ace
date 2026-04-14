@@ -22,8 +22,19 @@ export type ComposerPromptSegment =
     };
 
 const MENTION_TOKEN_REGEX = /(^|\s)@([^\s@]+)(?=\s)/g;
-const ISSUE_REFERENCE_TOKEN_REGEX =
-  /(^|(?:\s|,|\(|\[|\{))#(\d+)(?=$|(?:\s|,|\.|;|:|!|\?|\)|\]|\}))/g;
+export const COMPOSER_ISSUE_REFERENCE_MARKER = "\u2063";
+const ISSUE_REFERENCE_TOKEN_REGEX = new RegExp(
+  `(^|(?:\\s|,|\\(|\\[|\\{))#(\\d+)${COMPOSER_ISSUE_REFERENCE_MARKER}(?=$|(?:\\s|,|\\.|;|:|!|\\?|\\)|\\]|\\}))`,
+  "g",
+);
+
+export function createMarkedIssueReferenceToken(issueNumber: number): string {
+  return `#${issueNumber}${COMPOSER_ISSUE_REFERENCE_MARKER}`;
+}
+
+export function stripIssueReferenceMarkers(text: string): string {
+  return text.replaceAll(COMPOSER_ISSUE_REFERENCE_MARKER, "");
+}
 
 function pushTextSegment(segments: ComposerPromptSegment[], text: string): void {
   if (!text) return;
