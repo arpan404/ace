@@ -22,7 +22,9 @@ export const BROWSER_SEARCH_ENGINE_OPTIONS: Array<{
 export type BrowserWebview = HTMLElement & {
   canGoBack: () => boolean;
   canGoForward: () => boolean;
+  capturePage?: (rect?: BrowserDesignSelectionRect) => Promise<BrowserCapturedImage>;
   closeDevTools: () => void;
+  executeJavaScript?: <T = unknown>(code: string, userGesture?: boolean) => Promise<T>;
   getTitle: () => string;
   getURL: () => string;
   goBack: () => void;
@@ -33,6 +35,45 @@ export type BrowserWebview = HTMLElement & {
   openDevTools: (options?: { mode?: "detach" | "left" | "right" | "bottom" | "undocked" }) => void;
   reload: () => void;
   stop: () => void;
+};
+
+export type BrowserCapturedImage = {
+  toDataURL: () => string;
+};
+
+export type BrowserDesignSelectionRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type BrowserDesignElementDescriptor = {
+  tagName: string | null;
+  id: string | null;
+  className: string | null;
+  selector: string | null;
+  textSnippet: string | null;
+  htmlSnippet: string | null;
+};
+
+export type BrowserDesignCaptureResult = {
+  requestId: string;
+  selection: BrowserDesignSelectionRect;
+  imageDataUrl: string;
+  imageMimeType: string;
+  imageSizeBytes: number;
+  targetElement: BrowserDesignElementDescriptor | null;
+  mainContainer: BrowserDesignElementDescriptor | null;
+};
+
+export type BrowserDesignCaptureSubmission = BrowserDesignCaptureResult & {
+  instructions: string;
+};
+
+export type BrowserDesignRequestSubmission = BrowserDesignCaptureSubmission & {
+  pageUrl: string;
+  pagePath: string;
 };
 
 export type BrowserTabRuntimeState = {

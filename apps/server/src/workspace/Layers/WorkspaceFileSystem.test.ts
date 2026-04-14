@@ -101,7 +101,12 @@ it.layer(TestLayer)("WorkspaceFileSystemLive", (it) => {
           .readFileString(path.join(cwd, "plans/effect-rpc.md"))
           .pipe(Effect.orDie);
 
-        expect(result).toEqual({ relativePath: "plans/effect-rpc.md" });
+        expect(result).toEqual(
+          expect.objectContaining({
+            relativePath: "plans/effect-rpc.md",
+            version: expect.any(String),
+          }),
+        );
         expect(saved).toBe("# Plan\n");
       }),
     );
@@ -138,6 +143,55 @@ it.layer(TestLayer)("WorkspaceFileSystemLive", (it) => {
           expect.arrayContaining([expect.objectContaining({ path: "plans/effect-rpc.md" })]),
         );
         expect(afterWrite.truncated).toBe(false);
+      }),
+    );
+
+    it.effect("detects version conflicts and supports overwrite saves", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+
+        const initialWrite = yield* workspaceFileSystem.writeFile({
+          cwd,
+          relativePath: "src/editor.ts",
+          contents: "export const value = 1;\n",
+        });
+        const diskWrite = yield* workspaceFileSystem.writeFile({
+          cwd,
+          relativePath: "src/editor.ts",
+          contents: "export const value = 2;\n",
+        });
+
+        const conflictError = yield* workspaceFileSystem
+          .writeFile({
+            cwd,
+            relativePath: "src/editor.ts",
+            contents: "export const value = 3;\n",
+            expectedVersion: initialWrite.version,
+          })
+          .pipe(Effect.flip);
+        expect(conflictError._tag).toBe("WorkspaceFileSystemError");
+        if (conflictError._tag !== "WorkspaceFileSystemError") {
+          throw new Error(`Unexpected error: ${conflictError.message}`);
+        }
+        expect(conflictError.conflict).toBe(true);
+        expect(conflictError.currentContents).toBe("export const value = 2;\n");
+        expect(conflictError.currentVersion).toBe(diskWrite.version);
+
+        const overwriteResult = yield* workspaceFileSystem.writeFile({
+          cwd,
+          relativePath: "src/editor.ts",
+          contents: "export const value = 3;\n",
+          expectedVersion: initialWrite.version,
+          overwrite: true,
+        });
+        expect(overwriteResult.version).toEqual(expect.any(String));
+
+        const readAfterOverwrite = yield* workspaceFileSystem.readFile({
+          cwd,
+          relativePath: "src/editor.ts",
+        });
+        expect(readAfterOverwrite.contents).toBe("export const value = 3;\n");
       }),
     );
 
@@ -185,6 +239,7 @@ it.layer(TestLayer)("WorkspaceFileSystemLive", (it) => {
           relativePath: "src/editor.ts",
           contents: "export const value = 1;\n",
           sizeBytes: Buffer.byteLength("export const value = 1;\n"),
+          version: expect.any(String),
         });
       }),
     );

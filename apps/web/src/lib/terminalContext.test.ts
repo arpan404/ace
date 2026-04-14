@@ -2,11 +2,14 @@ import { ThreadId } from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
+  appendBrowserDesignContextToPrompt,
   appendTerminalContextsToPrompt,
   buildTerminalContextPreviewTitle,
   buildTerminalContextBlock,
   countInlineTerminalContextPlaceholders,
   deriveDisplayedUserMessageState,
+  extractBrowserDesignRequestId,
+  extractTrailingBrowserDesignContext,
   ensureInlineTerminalContextPlaceholders,
   extractTrailingGitHubIssueContext,
   extractTrailingTerminalContexts,
@@ -177,6 +180,55 @@ describe("terminalContext", () => {
           body: "12 | git status\n13 | On branch main",
         },
       ],
+    });
+  });
+
+  it("extracts hidden browser design context blocks from message text", () => {
+    const prompt = appendBrowserDesignContextToPrompt("Fix spacing in this card", {
+      requestId: "DR-3A91F6C2",
+      pageUrl: "https://example.com/dashboard?view=card",
+      pagePath: "/dashboard?view=card",
+      selection: { x: 42, y: 88, width: 320, height: 180 },
+      targetElement: {
+        tagName: "button",
+        id: "save-button",
+        className: "btn btn-primary",
+        selector: "#save-button",
+        textSnippet: "Save changes",
+        htmlSnippet: "<button id='save-button'>Save changes</button>",
+      },
+      mainContainer: {
+        tagName: "main",
+        id: null,
+        className: "layout-main",
+        selector: "main.layout-main",
+        textSnippet: "Dashboard",
+        htmlSnippet: "<main class='layout-main'>...</main>",
+      },
+    });
+
+    expect(extractTrailingBrowserDesignContext(prompt)).toEqual({
+      promptText: "Fix spacing in this card",
+      context: { requestId: "DR-3A91F6C2" },
+    });
+    expect(extractBrowserDesignRequestId(prompt)).toBe("DR-3A91F6C2");
+  });
+
+  it("hides trailing browser design blocks from rendered user message text", () => {
+    const prompt = appendBrowserDesignContextToPrompt("Tighten the hero spacing", {
+      requestId: "DR-1A2B3C4D",
+      pageUrl: "https://example.com",
+      pagePath: "/",
+      selection: { x: 10, y: 16, width: 400, height: 220 },
+      targetElement: null,
+      mainContainer: null,
+    });
+    expect(deriveDisplayedUserMessageState(prompt)).toEqual({
+      visibleText: "Tighten the hero spacing",
+      copyText: prompt,
+      contextCount: 0,
+      previewTitle: null,
+      contexts: [],
     });
   });
 

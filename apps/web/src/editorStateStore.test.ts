@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   DEFAULT_THREAD_EDITOR_TREE_WIDTH,
+  resolveEditorStateScopeId,
   selectThreadEditorState,
   useEditorStateStore,
 } from "./editorStateStore";
@@ -29,6 +30,7 @@ describe("editorStateStore actions", () => {
       activePaneId: "pane-1",
       draftsByFilePath: {},
       expandedDirectoryPaths: [],
+      explorerOpen: true,
       paneRatios: [1],
       panes: [{ activeFilePath: null, id: "pane-1", openFilePaths: [] }],
       rows: [{ id: "row-1", paneIds: ["pane-1"], paneRatios: [1] }],
@@ -76,6 +78,52 @@ describe("editorStateStore actions", () => {
     );
 
     expect(editorStateAfterUnrelatedUpdate).toBe(editorStateBeforeUnrelatedUpdate);
+  });
+
+  it("shares editor state across threads in the same project", () => {
+    const store = useEditorStateStore.getState();
+    const firstProjectScope = resolveEditorStateScopeId({
+      gitCwd: "/tmp/project",
+      threadId: THREAD_ID,
+    });
+    const secondProjectScope = resolveEditorStateScopeId({
+      gitCwd: "/tmp/project",
+      threadId: OTHER_THREAD_ID,
+    });
+
+    store.openFile(firstProjectScope, "src/main.ts");
+
+    const editorState = selectThreadEditorState(
+      useEditorStateStore.getState().threadStateByThreadId,
+      useEditorStateStore.getState().runtimeStateByThreadId,
+      secondProjectScope,
+    );
+
+    expect(editorState.panes).toEqual([
+      { activeFilePath: "src/main.ts", id: "pane-1", openFilePaths: ["src/main.ts"] },
+    ]);
+  });
+
+  it("keeps editor state isolated when project changes", () => {
+    const store = useEditorStateStore.getState();
+    const firstProjectScope = resolveEditorStateScopeId({
+      gitCwd: "/tmp/project-a",
+      threadId: THREAD_ID,
+    });
+    const secondProjectScope = resolveEditorStateScopeId({
+      gitCwd: "/tmp/project-b",
+      threadId: THREAD_ID,
+    });
+
+    store.openFile(firstProjectScope, "src/main.ts");
+
+    const editorState = selectThreadEditorState(
+      useEditorStateStore.getState().threadStateByThreadId,
+      useEditorStateStore.getState().runtimeStateByThreadId,
+      secondProjectScope,
+    );
+
+    expect(editorState.panes).toEqual([{ activeFilePath: null, id: "pane-1", openFilePaths: [] }]);
   });
 
   it("splits the active pane into a new window carrying the active file", () => {

@@ -523,7 +523,6 @@ const make = Effect.gen(function* () {
     }
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
-      preferFreshSession: true,
       ...(input.replayTurns !== undefined ? { replayTurns: input.replayTurns } : {}),
     });
     if (input.modelSelection !== undefined) {

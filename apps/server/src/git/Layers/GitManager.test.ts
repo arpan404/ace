@@ -556,7 +556,7 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
           cwd: input.cwd,
           args: ["repo", "view", input.repository, "--json", "nameWithOwner,url,sshUrl"],
         }).pipe(Effect.map((result) => JSON.parse(result.stdout))),
-      listIssues: () => Effect.succeed([]),
+      listIssues: (_input) => Effect.succeed([]),
       getIssueThread: () =>
         Effect.fail(
           new GitHubCliError({

@@ -164,4 +164,30 @@ describe("ProviderRuntimeEvent", () => {
     expect(parsed.payload.usage.maxTokens).toBe(200000);
     expect(parsed.payload.usage.usedTokens).toBe(31251);
   });
+
+  it("accepts OpenCode raw event source payloads", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "runtime.warning",
+      eventId: "event-opencode-raw-1",
+      provider: "opencode",
+      createdAt: "2026-02-28T00:00:05.000Z",
+      threadId: "thread-opencode-1",
+      payload: {
+        message: "OpenCode retrying request",
+      },
+      raw: {
+        source: "opencode.sdk.event",
+        payload: {
+          type: "session.status",
+          properties: {
+            sessionID: "session-1",
+            status: { type: "retry", message: "retrying", attempt: 1, next: 1 },
+          },
+        },
+      },
+    });
+
+    expect(parsed.type).toBe("runtime.warning");
+    expect(parsed.raw?.source).toBe("opencode.sdk.event");
+  });
 });

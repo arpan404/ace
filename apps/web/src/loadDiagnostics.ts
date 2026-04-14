@@ -189,7 +189,7 @@ export function logLoadDiagnostic(input: {
     ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
   };
 
-  const prefix = `[ace:load +${sinceStartMs.toFixed(1)}ms] [${entry.phase}] ${entry.message}`;
+  const prefix = `[ace:load] [${entry.phase}] ${entry.message}`;
   if (detail) {
     console[consoleMethod(entry.level)](prefix, detail);
   } else {
@@ -356,11 +356,10 @@ export function formatLoadDiagnosticsReport(entries = state.entries): string {
   return entries
     .map((entry) =>
       [
-        `${entry.timestamp} +${entry.sinceStartMs.toFixed(1)}ms`,
+        `${entry.timestamp}`,
         `[${entry.level}]`,
         `[${entry.phase}]`,
         entry.message,
-        entry.durationMs !== undefined ? `(duration ${entry.durationMs.toFixed(1)}ms)` : null,
         entry.detail ? `\n${entry.detail}` : null,
       ]
         .filter(Boolean)

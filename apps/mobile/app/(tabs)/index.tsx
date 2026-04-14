@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, RefreshControl } from "react-native";
 import { useRouter } from "expo-router";
-import { Plus, Activity, ChevronRight, MessageSquare, Server } from "lucide-react-native";
+import { Plus, ChevronRight, MessageSquare, Server } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { useHostStore } from "../../src/store/HostStore";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";

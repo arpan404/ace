@@ -184,7 +184,7 @@ function resolveWsRpc(tag: string): unknown {
     return { entries: [], truncated: false };
   }
   if (tag === WS_METHODS.projectsReadFile) {
-    return { relativePath: "README.md", contents: "", sizeBytes: 0 };
+    return { relativePath: "README.md", contents: "", sizeBytes: 0, version: "fixture-version" };
   }
   return {};
 }

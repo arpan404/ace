@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 
 import { isElectron } from "~/env";
+import { MAC_TITLEBAR_LEFT_INSET_STYLE } from "~/lib/desktopChrome";
 import { cn } from "~/lib/utils";
+import { useSidebar } from "./ui/sidebar";
 
 import { Skeleton } from "./ui/skeleton";
 
@@ -20,7 +22,9 @@ export function DiffPanelShell(props: {
   header: ReactNode;
   children: ReactNode;
 }) {
+  const { state: sidebarState } = useSidebar();
   const shouldUseDragRegion = isElectron && props.mode !== "sheet";
+  const shouldApplyMacTitlebarInset = shouldUseDragRegion && sidebarState === "collapsed";
 
   return (
     <div
@@ -32,10 +36,20 @@ export function DiffPanelShell(props: {
       )}
     >
       {shouldUseDragRegion ? (
-        <div className={getDiffPanelHeaderRowClassName(props.mode)}>{props.header}</div>
+        <div
+          className={getDiffPanelHeaderRowClassName(props.mode)}
+          style={shouldApplyMacTitlebarInset ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined}
+        >
+          {props.header}
+        </div>
       ) : (
         <div className="border-b border-border/40">
-          <div className={getDiffPanelHeaderRowClassName(props.mode)}>{props.header}</div>
+          <div
+            className={getDiffPanelHeaderRowClassName(props.mode)}
+            style={shouldApplyMacTitlebarInset ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined}
+          >
+            {props.header}
+          </div>
         </div>
       )}
       {props.children}

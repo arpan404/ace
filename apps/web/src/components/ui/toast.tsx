@@ -23,6 +23,7 @@ type ThreadToastData = {
   threadId?: ThreadId | null;
   tooltipStyle?: boolean;
   dismissAfterVisibleMs?: number;
+  progressPercent?: number | null;
 };
 
 const toastManager = Toast.createToastManager<ThreadToastData>();
@@ -37,6 +38,31 @@ const TOAST_ICONS = {
   success: CircleCheckIcon,
   warning: TriangleAlertIcon,
 } as const;
+
+function resolveToastProgressPercent(data: ThreadToastData | undefined): number | null {
+  if (typeof data?.progressPercent !== "number" || !Number.isFinite(data.progressPercent)) {
+    return null;
+  }
+  return Math.max(0, Math.min(100, Math.round(data.progressPercent)));
+}
+
+function ToastProgressBar({ percent }: { percent: number }) {
+  return (
+    <div
+      aria-label={`Progress ${percent}%`}
+      aria-valuemax={100}
+      aria-valuemin={0}
+      aria-valuenow={percent}
+      className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+      role="progressbar"
+    >
+      <div
+        className="h-full rounded-full bg-info transition-[width] duration-200 ease-out"
+        style={{ width: `${percent}%` }}
+      />
+    </div>
+  );
+}
 
 function CopyErrorButton({ text }: { text: string }) {
   const { copyToClipboard, isCopied } = useCopyToClipboard();
@@ -218,6 +244,7 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
             visibleIndex,
             visibleToastLayout.items.length,
           );
+          const progressPercent = resolveToastProgressPercent(toast.data);
 
           return (
             <Toast.Root
@@ -319,6 +346,9 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
                       className="min-w-0 select-text break-words text-muted-foreground"
                       data-slot="toast-description"
                     />
+                    {progressPercent !== null ? (
+                      <ToastProgressBar percent={progressPercent} />
+                    ) : null}
                   </div>
                 </div>
                 {toast.actionProps && (
@@ -360,6 +390,7 @@ function AnchoredToasts() {
             const Icon = toast.type ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS] : null;
             const tooltipStyle = toast.data?.tooltipStyle ?? false;
             const positionerProps = toast.positionerProps;
+            const progressPercent = resolveToastProgressPercent(toast.data);
 
             if (!positionerProps?.anchor) {
               return null;
@@ -411,6 +442,9 @@ function AnchoredToasts() {
                             className="min-w-0 select-text break-words text-muted-foreground"
                             data-slot="toast-description"
                           />
+                          {progressPercent !== null ? (
+                            <ToastProgressBar percent={progressPercent} />
+                          ) : null}
                         </div>
                       </div>
                       {toast.actionProps && (

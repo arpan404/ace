@@ -87,21 +87,6 @@ export function normalizeWsUrl(input: string): string {
   throw new Error("Invalid host URL. Use ws://, wss://, http://, https://, or host:port.");
 }
 
-function parseHostPayloadJson(rawPayload: string): QrHostPayload | null {
-  if (!rawPayload.startsWith("{")) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(rawPayload) as unknown;
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-    return parsed as QrHostPayload;
-  } catch {
-    return null;
-  }
-}
-
 function parseAceSchemePayload(rawPayload: string): QrHostPayload | null {
   if (!rawPayload.startsWith("ace://")) {
     return null;
@@ -263,23 +248,6 @@ export function parseHostConnectionQrPayload(rawPayload: string): HostConnection
       return { kind: "pairing", pairing };
     }
     const draft = resolveDraftFromPayload(fromAceScheme);
-    if (draft) {
-      return { kind: "direct", draft };
-    }
-    return null;
-  }
-
-  const fromJson = parseHostPayloadJson(trimmed);
-  if (fromJson) {
-    const relay = resolveRelayFromPayload(fromJson);
-    if (relay) {
-      return { kind: "relay", relay };
-    }
-    const pairing = resolvePairingFromPayload(fromJson);
-    if (pairing) {
-      return { kind: "pairing", pairing };
-    }
-    const draft = resolveDraftFromPayload(fromJson);
     if (draft) {
       return { kind: "direct", draft };
     }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildPairingPayload,
+  buildRelayConnectionString,
   parseHostConnectionQrPayload,
   parseHostDraftFromQrPayload,
   requestPairingClaim,
@@ -31,23 +31,33 @@ describe("hostConnections", () => {
     });
   });
 
-  it("builds and parses pairing payloads", () => {
-    const payload = buildPairingPayload({
+  it("parses relay connection strings", () => {
+    const payload = buildRelayConnectionString({
       name: "Primary host",
-      sessionId: "session-123",
-      secret: "secret-456",
-      claimUrl: "https://example.com/api/pairing/claims",
+      relayUrl: "https://relay.example.com/v1/resolve",
+      hostToken: "host-token",
+      apiKey: "api-key",
     });
     const parsed = parseHostConnectionQrPayload(payload);
     expect(parsed).toEqual({
-      kind: "pairing",
-      pairing: {
+      kind: "relay",
+      relay: {
         name: "Primary host",
-        sessionId: "session-123",
-        secret: "secret-456",
-        claimUrl: "https://example.com/api/pairing/claims",
+        relayUrl: "https://relay.example.com/v1/resolve",
+        hostToken: "host-token",
+        apiKey: "api-key",
       },
     });
+  });
+
+  it("rejects legacy JSON payloads", () => {
+    const parsed = parseHostConnectionQrPayload(
+      JSON.stringify({
+        wsUrl: "ws://localhost:3773/ws",
+        token: "abc",
+      }),
+    );
+    expect(parsed).toBeNull();
   });
 
   it("requests claim and waits for pairing approval", async () => {

@@ -2348,7 +2348,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const continueButton = await waitForButtonByText("continue with an open GitHub issue");
       continueButton.click();
 
-      const fixButton = await waitForButtonByText("Solve issue");
+      const fixButton = await waitForButtonByText("Send issue context");
       fixButton.click();
 
       await vi.waitFor(
@@ -2381,6 +2381,429 @@ describe("ChatView timeline estimator parity (full app)", () => {
         .element(page.getByText("Solve #77: Improve empty state copy"))
         .toBeInTheDocument();
       expect(document.body.textContent ?? "").not.toContain("<github_issue_context>");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("sends /issues command with multiple tagged issues", async () => {
+    const baseSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-issues-command-flow" as MessageId,
+      targetText: "issues command flow",
+    });
+    const emptyThreadSnapshot: OrchestrationReadModel = {
+      ...baseSnapshot,
+      threads: baseSnapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? Object.assign({}, thread, {
+              messages: [],
+              activities: [],
+              latestTurn: null,
+              updatedAt: NOW_ISO,
+            })
+          : thread,
+      ),
+    };
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: emptyThreadSnapshot,
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitGetGitHubIssueThread && body.issueNumber === 77) {
+          return {
+            issue: {
+              number: 77,
+              title: "Improve empty state copy",
+              state: "open",
+              url: "https://github.com/pingdotgg/ace/issues/77",
+              body: "Use concise copy and support issue continuation.",
+              labels: [{ name: "ux" }],
+              assignees: [{ login: "octocat" }],
+              author: { login: "hubot" },
+              createdAt: "2026-04-08T00:00:00.000Z",
+              updatedAt: "2026-04-08T00:10:00.000Z",
+              comments: [],
+            },
+          };
+        }
+        if (body._tag === WS_METHODS.gitGetGitHubIssueThread && body.issueNumber === 78) {
+          return {
+            issue: {
+              number: 78,
+              title: "Stabilize composer auto-scroll",
+              state: "open",
+              url: "https://github.com/pingdotgg/ace/issues/78",
+              body: "Keep composer anchored while streaming.",
+              labels: [{ name: "chat" }],
+              assignees: [{ login: "octocat" }],
+              author: { login: "hubot" },
+              createdAt: "2026-04-08T00:00:00.000Z",
+              updatedAt: "2026-04-08T00:10:00.000Z",
+              comments: [],
+            },
+          };
+        }
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: 1 };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      await waitForComposerEditor();
+      await page.getByTestId("composer-editor").fill("/issues #77 #78");
+
+      const sendButton = await waitForSendButton();
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          );
+          expect(turnStartRequest).toBeDefined();
+          const messageText =
+            typeof turnStartRequest === "object" &&
+            turnStartRequest &&
+            "message" in turnStartRequest &&
+            typeof turnStartRequest.message === "object" &&
+            turnStartRequest.message &&
+            "text" in turnStartRequest.message &&
+            typeof turnStartRequest.message.text === "string"
+              ? turnStartRequest.message.text
+              : "";
+          expect(messageText).toContain("/issues #77 #78");
+          expect(messageText.match(/<github_issue_context>/g)?.length ?? 0).toBeGreaterThanOrEqual(
+            2,
+          );
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await expect.element(page.getByText("/issues #77 #78")).toBeInTheDocument();
+      expect(document.body.textContent ?? "").not.toContain("<github_issue_context>");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("attaches hidden issue context for inline #issue tags in regular messages", async () => {
+    const baseSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-inline-issue-tag-flow" as MessageId,
+      targetText: "inline issue tag flow",
+    });
+    const emptyThreadSnapshot: OrchestrationReadModel = {
+      ...baseSnapshot,
+      threads: baseSnapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? Object.assign({}, thread, {
+              messages: [],
+              activities: [],
+              latestTurn: null,
+              updatedAt: NOW_ISO,
+            })
+          : thread,
+      ),
+    };
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: emptyThreadSnapshot,
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitGetGitHubIssueThread && body.issueNumber === 77) {
+          return {
+            issue: {
+              number: 77,
+              title: "Improve empty state copy",
+              state: "open",
+              url: "https://github.com/pingdotgg/ace/issues/77",
+              body: "Use concise copy and support issue continuation.",
+              labels: [{ name: "ux" }],
+              assignees: [{ login: "octocat" }],
+              author: { login: "hubot" },
+              createdAt: "2026-04-08T00:00:00.000Z",
+              updatedAt: "2026-04-08T00:10:00.000Z",
+              comments: [],
+            },
+          };
+        }
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: 1 };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      await waitForComposerEditor();
+      const userPrompt = "Please fix #77 and keep timeline hints concise.";
+      await page.getByTestId("composer-editor").fill(userPrompt);
+
+      const sendButton = await waitForSendButton();
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          );
+          expect(turnStartRequest).toBeDefined();
+          const messageText =
+            typeof turnStartRequest === "object" &&
+            turnStartRequest &&
+            "message" in turnStartRequest &&
+            typeof turnStartRequest.message === "object" &&
+            turnStartRequest.message &&
+            "text" in turnStartRequest.message &&
+            typeof turnStartRequest.message.text === "string"
+              ? turnStartRequest.message.text
+              : "";
+          expect(messageText).toContain(userPrompt);
+          expect(messageText).toContain("<github_issue_context>");
+          expect(messageText).toContain("issue_number: 77");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent ?? "").toContain(userPrompt);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      expect(document.body.textContent ?? "").not.toContain("<github_issue_context>");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows #issue autocomplete while typing and supports multi-tag selection", async () => {
+    const baseSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-issues-autocomplete-flow" as MessageId,
+      targetText: "issues autocomplete flow",
+    });
+    const emptyThreadSnapshot: OrchestrationReadModel = {
+      ...baseSnapshot,
+      threads: baseSnapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? Object.assign({}, thread, {
+              messages: [],
+              activities: [],
+              latestTurn: null,
+              updatedAt: NOW_ISO,
+            })
+          : thread,
+      ),
+    };
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: emptyThreadSnapshot,
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitListGitHubIssues) {
+          return {
+            issues: [
+              {
+                number: 3,
+                title: "Issue 3",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/3",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+              {
+                number: 35,
+                title: "Issue 35",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/35",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+              {
+                number: 356,
+                title: "Issue 356",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/356",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+              {
+                number: 3460,
+                title: "Issue 3460",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/3460",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+              {
+                number: 42,
+                title: "Issue 42",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/42",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+            ],
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      await waitForComposerEditor();
+      await page.getByTestId("composer-editor").fill("Please review #3");
+
+      await waitForComposerMenuItem("issue:3");
+      await waitForComposerMenuItem("issue:35");
+      await waitForComposerMenuItem("issue:356");
+      await waitForComposerMenuItem("issue:3460");
+
+      await vi.waitFor(
+        () => {
+          expect(document.querySelector('[data-composer-item-id="issue:42"]')).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const issue35Item = await waitForComposerMenuItem("issue:35");
+      issue35Item.click();
+
+      await vi.waitFor(
+        () => {
+          const editor = document.querySelector<HTMLElement>('[data-testid="composer-editor"]');
+          expect(editor?.textContent ?? "").toContain("Please review #35");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await page.getByTestId("composer-editor").fill("Please review #35 and #3");
+      const issue356Item = await waitForComposerMenuItem("issue:356");
+      issue356Item.click();
+
+      await vi.waitFor(
+        () => {
+          const editor = document.querySelector<HTMLElement>('[data-testid="composer-editor"]');
+          expect(editor?.textContent ?? "").toContain("Please review #35 and #356");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("dismisses issue suggestions on Escape and keeps typing uninterrupted", async () => {
+    const baseSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-issues-escape-dismiss" as MessageId,
+      targetText: "issues escape dismiss",
+    });
+    const emptyThreadSnapshot: OrchestrationReadModel = {
+      ...baseSnapshot,
+      threads: baseSnapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? Object.assign({}, thread, {
+              messages: [],
+              activities: [],
+              latestTurn: null,
+              updatedAt: NOW_ISO,
+            })
+          : thread,
+      ),
+    };
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: emptyThreadSnapshot,
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitListGitHubIssues) {
+          return {
+            issues: [
+              {
+                number: 3,
+                title: "Issue 3",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/3",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+              {
+                number: 35,
+                title: "Issue 35",
+                state: "open",
+                url: "https://github.com/pingdotgg/ace/issues/35",
+                body: "",
+                labels: [],
+                assignees: [],
+                author: { login: "hubot" },
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:10:00.000Z",
+              },
+            ],
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const composerEditor = await waitForComposerEditor();
+      await page.getByTestId("composer-editor").fill("Please review #3");
+      await waitForComposerMenuItem("issue:3");
+
+      composerEditor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(document.querySelector('[data-composer-item-id="issue:3"]')).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await page.getByTestId("composer-editor").fill("Please review #35");
+      await vi.waitFor(
+        () => {
+          const editor = document.querySelector<HTMLElement>('[data-testid="composer-editor"]');
+          expect(editor?.textContent ?? "").toContain("Please review #35");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      expect(document.querySelector('[data-composer-item-id="issue:35"]')).toBeNull();
     } finally {
       await mounted.cleanup();
     }

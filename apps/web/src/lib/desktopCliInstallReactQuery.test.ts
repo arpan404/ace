@@ -14,6 +14,7 @@ const baseState: DesktopCliInstallState = {
   commandPath: "/tmp/.ace/bin/ace",
   pathTargets: ["/tmp/.zprofile"],
   checkedAt: "2026-04-07T00:00:00.000Z",
+  progressPercent: null,
   restartRequired: false,
   message: "The `ace` command is already ready to use.",
 };

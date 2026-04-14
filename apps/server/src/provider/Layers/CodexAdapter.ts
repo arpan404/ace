@@ -39,6 +39,11 @@ import {
   asString,
 } from "../unknown.ts";
 import { meaningfulErrorMessage } from "../errorCause.ts";
+import {
+  buildBootstrapPromptFromReplayTurns,
+  cloneReplayTurns,
+  type TranscriptReplayTurn,
+} from "../providerTranscriptBootstrap.ts";
 import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import {
   CodexAppServerManager,
@@ -50,12 +55,18 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "codex" as const;
+const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
 
 export interface CodexAdapterLiveOptions {
   readonly manager?: CodexAppServerManager;
   readonly makeManager?: (services?: ServiceMap.ServiceMap<never>) => CodexAppServerManager;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
+}
+
+interface CodexReplayBootstrapState {
+  readonly replayTurns: Array<TranscriptReplayTurn>;
+  pendingBootstrapReset: boolean;
 }
 
 const toMessage = meaningfulErrorMessage;
@@ -1385,6 +1396,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     }),
   );
   const serverSettingsService = yield* ServerSettingsService;
+  const replayBootstrapByThreadId = new Map<ThreadId, CodexReplayBootstrapState>();
 
   const startSession: CodexAdapterShape["startSession"] = Effect.fn("startSession")(
     function* (input) {
@@ -1426,7 +1438,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           : {}),
       };
 
-      return yield* Effect.tryPromise({
+      const session = yield* Effect.tryPromise({
         try: () => manager.startSession(managerInput),
         catch: (cause) =>
           new ProviderAdapterProcessError({
@@ -1436,6 +1448,12 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             cause,
           }),
       });
+      const replayTurns = cloneReplayTurns(input.replayTurns);
+      replayBootstrapByThreadId.set(input.threadId, {
+        replayTurns,
+        pendingBootstrapReset: replayTurns.length > 0,
+      });
+      return session;
     },
   );
 
@@ -1477,12 +1495,22 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       (attachment) => resolveAttachment(input, attachment),
       { concurrency: 1 },
     );
+    const replayBootstrap = replayBootstrapByThreadId.get(input.threadId);
+    const latestPrompt = input.input ?? "Please analyze the attached files.";
+    const promptText =
+      replayBootstrap?.pendingBootstrapReset === true
+        ? buildBootstrapPromptFromReplayTurns(
+            replayBootstrap.replayTurns,
+            latestPrompt,
+            ROLLBACK_BOOTSTRAP_MAX_CHARS,
+          ).text
+        : input.input;
 
     return yield* Effect.tryPromise({
       try: () => {
         const managerInput = {
           threadId: input.threadId,
-          ...(input.input !== undefined ? { input: input.input } : {}),
+          ...(promptText !== undefined ? { input: promptText } : {}),
           ...(input.modelSelection?.provider === "codex"
             ? { model: input.modelSelection.model }
             : {}),
@@ -1498,7 +1526,12 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             : {}),
           ...(codexAttachments.length > 0 ? { attachments: codexAttachments } : {}),
         };
-        return manager.sendTurn(managerInput);
+        return manager.sendTurn(managerInput).then((result) => {
+          if (replayBootstrap?.pendingBootstrapReset) {
+            replayBootstrap.pendingBootstrapReset = false;
+          }
+          return result;
+        });
       },
       catch: (cause) => toRequestError(input.threadId, "turn/start", cause),
     }).pipe(
@@ -1566,6 +1599,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
 
   const stopSession: CodexAdapterShape["stopSession"] = (threadId) =>
     Effect.sync(() => {
+      replayBootstrapByThreadId.delete(threadId);
       manager.stopSession(threadId);
     });
 
@@ -1577,6 +1611,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
 
   const stopAll: CodexAdapterShape["stopAll"] = () =>
     Effect.sync(() => {
+      replayBootstrapByThreadId.clear();
       manager.stopAll();
     });
 

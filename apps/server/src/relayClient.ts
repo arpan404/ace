@@ -59,13 +59,21 @@ async function relayRequest<TResponse>(
     readonly parse: (payload: unknown) => TResponse;
   },
 ): Promise<TResponse> {
-  const response = await fetch(buildRelayUrl(path), {
-    method: options?.method ?? "GET",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    ...(options?.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-  });
+  const endpoint = buildRelayUrl(path);
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: options?.method ?? "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      ...(options?.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+    });
+  } catch (error) {
+    throw new Error(`Could not reach relay server at ${resolveRelayServerBaseUrl()}.`, {
+      cause: error,
+    });
+  }
   const payload = await parseRelayApiResponse(response);
   if (!response.ok) {
     const message = parseRelayApiError(payload);

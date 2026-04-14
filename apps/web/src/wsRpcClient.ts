@@ -95,6 +95,8 @@ export interface WsRpcClient {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
     readonly pickFolder: RpcUnaryNoArgMethod<typeof WS_METHODS.serverPickFolder>;
     readonly refreshProviders: RpcUnaryNoArgMethod<typeof WS_METHODS.serverRefreshProviders>;
+    readonly getLspToolsStatus: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetLspToolsStatus>;
+    readonly installLspTools: RpcUnaryMethod<typeof WS_METHODS.serverInstallLspTools>;
     readonly searchOpenCodeModels: RpcUnaryMethod<typeof WS_METHODS.serverSearchOpenCodeModels>;
     readonly upsertKeybinding: RpcUnaryMethod<typeof WS_METHODS.serverUpsertKeybinding>;
     readonly getSettings: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetSettings>;
@@ -224,6 +226,10 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
       pickFolder: () => transport.request((client) => client[WS_METHODS.serverPickFolder]({})),
       refreshProviders: () =>
         transport.request((client) => client[WS_METHODS.serverRefreshProviders]({})),
+      getLspToolsStatus: () =>
+        transport.request((client) => client[WS_METHODS.serverGetLspToolsStatus]({})),
+      installLspTools: (input) =>
+        transport.request((client) => client[WS_METHODS.serverInstallLspTools](input)),
       searchOpenCodeModels: (input) =>
         transport.request((client) => client[WS_METHODS.serverSearchOpenCodeModels](input)),
       upsertKeybinding: (input) =>

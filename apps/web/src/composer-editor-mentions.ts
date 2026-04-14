@@ -13,11 +13,17 @@ export type ComposerPromptSegment =
       path: string;
     }
   | {
+      type: "issue-reference";
+      issueNumber: number;
+    }
+  | {
       type: "terminal-context";
       context: TerminalContextDraft | null;
     };
 
 const MENTION_TOKEN_REGEX = /(^|\s)@([^\s@]+)(?=\s)/g;
+const ISSUE_REFERENCE_TOKEN_REGEX =
+  /(^|(?:\s|,|\(|\[|\{))#(\d+)(?=$|(?:\s|,|\.|;|:|!|\?|\)|\]|\}))/g;
 
 function pushTextSegment(segments: ComposerPromptSegment[], text: string): void {
   if (!text) return;
@@ -29,13 +35,12 @@ function pushTextSegment(segments: ComposerPromptSegment[], text: string): void 
   segments.push({ type: "text", text });
 }
 
-function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegment[] {
-  const segments: ComposerPromptSegment[] = [];
+function appendMentionSegments(segments: ComposerPromptSegment[], text: string): void {
   if (!text) {
-    return segments;
+    return;
   }
-
   let cursor = 0;
+  MENTION_TOKEN_REGEX.lastIndex = 0;
   for (const match of text.matchAll(MENTION_TOKEN_REGEX)) {
     const fullMatch = match[0];
     const prefix = match[1] ?? "";
@@ -60,8 +65,62 @@ function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegmen
   if (cursor < text.length) {
     pushTextSegment(segments, text.slice(cursor));
   }
+}
+
+function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegment[] {
+  const segments: ComposerPromptSegment[] = [];
+  if (!text) {
+    return segments;
+  }
+
+  let cursor = 0;
+  ISSUE_REFERENCE_TOKEN_REGEX.lastIndex = 0;
+  for (const match of text.matchAll(ISSUE_REFERENCE_TOKEN_REGEX)) {
+    const fullMatch = match[0];
+    const prefix = match[1] ?? "";
+    const issueNumberText = match[2] ?? "";
+    const matchIndex = match.index ?? 0;
+    const issueStart = matchIndex + prefix.length;
+    const issueEnd = issueStart + fullMatch.length - prefix.length;
+
+    if (issueStart > cursor) {
+      appendMentionSegments(segments, text.slice(cursor, issueStart));
+    }
+
+    const issueNumber = Number.parseInt(issueNumberText, 10);
+    if (Number.isInteger(issueNumber) && issueNumber > 0) {
+      segments.push({ type: "issue-reference", issueNumber });
+    } else {
+      appendMentionSegments(segments, text.slice(issueStart, issueEnd));
+    }
+
+    cursor = issueEnd;
+  }
+
+  if (cursor < text.length) {
+    appendMentionSegments(segments, text.slice(cursor));
+  }
 
   return segments;
+}
+
+export function extractIssueReferenceNumbers(text: string): number[] {
+  if (!text) {
+    return [];
+  }
+  const issueNumbers: number[] = [];
+  const seen = new Set<number>();
+  ISSUE_REFERENCE_TOKEN_REGEX.lastIndex = 0;
+  for (const match of text.matchAll(ISSUE_REFERENCE_TOKEN_REGEX)) {
+    const issueNumberText = match[2] ?? "";
+    const issueNumber = Number.parseInt(issueNumberText, 10);
+    if (!Number.isInteger(issueNumber) || issueNumber <= 0 || seen.has(issueNumber)) {
+      continue;
+    }
+    seen.add(issueNumber);
+    issueNumbers.push(issueNumber);
+  }
+  return issueNumbers;
 }
 
 export function splitPromptIntoComposerSegments(

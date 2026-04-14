@@ -55,7 +55,7 @@ import {
 import { newCommandId, randomUUID } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
-import { useEditorStateStore } from "~/editorStateStore";
+import { resolveEditorStateScopeId, useEditorStateStore } from "~/editorStateStore";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 interface GitActionsControlProps {
@@ -773,7 +773,10 @@ export default function GitActionsControl({
       if (workspaceMode === "chat") {
         onWorkspaceModeChange("editor");
       }
-      openFileInWorkspace(activeThreadId, relativePath);
+      openFileInWorkspace(
+        resolveEditorStateScopeId({ gitCwd, threadId: activeThreadId }),
+        relativePath,
+      );
     },
     [
       activeThreadId,

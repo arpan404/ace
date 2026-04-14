@@ -73,10 +73,16 @@ function compareTimelineEntriesByOrder(
             sequence: right.sequence,
           },
         )
-      : left.timelineEntry.createdAt.localeCompare(right.timelineEntry.createdAt) ||
-        compareCompatibleTimelineSequence(left.sequence, right.sequence);
+      : compareCompatibleTimelineSequence(left.sequence, right.sequence) ||
+        left.timelineEntry.createdAt.localeCompare(right.timelineEntry.createdAt);
   if (orderComparison !== 0) {
     return orderComparison;
+  }
+  if (left.timelineEntry.kind === "work" && right.timelineEntry.kind === "message") {
+    return -1;
+  }
+  if (left.timelineEntry.kind === "message" && right.timelineEntry.kind === "work") {
+    return 1;
   }
 
   return (
@@ -237,11 +243,25 @@ export function deriveCompletionDividerBeforeEntryId(
   timelineEntries: ReadonlyArray<TimelineEntry>,
   latestTurn: Pick<
     OrchestrationLatestTurn,
-    "assistantMessageId" | "startedAt" | "completedAt"
+    "turnId" | "assistantMessageId" | "startedAt" | "completedAt"
   > | null,
 ): string | null {
   if (!latestTurn?.startedAt || !latestTurn.completedAt) {
     return null;
+  }
+
+  let latestAssistantMessageForTurn: string | null = null;
+  for (const timelineEntry of timelineEntries) {
+    if (timelineEntry.kind !== "message" || timelineEntry.message.role !== "assistant") {
+      continue;
+    }
+    if (timelineEntry.message.turnId !== latestTurn.turnId) {
+      continue;
+    }
+    latestAssistantMessageForTurn = timelineEntry.id;
+  }
+  if (latestAssistantMessageForTurn) {
+    return latestAssistantMessageForTurn;
   }
 
   if (latestTurn.assistantMessageId) {

@@ -20,7 +20,6 @@ const LEVEL_ACCENT_CLASS: Record<string, string> = {
 export function LoadDiagnosticsConsole() {
   const { enabled, expanded, entries } = useLoadDiagnostics();
   const latestEntry = entries.at(-1) ?? null;
-  const latestAgeMs = latestEntry?.sinceStartMs ?? 0;
   const visibleEntries = useMemo(() => entries.slice(-80).toReversed(), [entries]);
 
   if (!enabled) {
@@ -49,9 +48,6 @@ export function LoadDiagnosticsConsole() {
               : "Waiting for boot events"}
           </span>
         </span>
-        <span className="rounded-full border border-white/10 bg-white/6 px-2 py-1 font-mono text-[11px] text-white/70">
-          +{latestAgeMs.toFixed(0)}ms
-        </span>
       </button>
     );
   }
@@ -67,10 +63,7 @@ export function LoadDiagnosticsConsole() {
             <h2 className="mt-1 font-mono text-sm text-white/95">
               {latestEntry ? latestEntry.message : "Collecting startup diagnostics"}
             </h2>
-            <p className="mt-1 text-xs text-white/55">
-              {entries.length} events recorded
-              {latestEntry ? ` · latest +${latestEntry.sinceStartMs.toFixed(1)}ms` : ""}
-            </p>
+            <p className="mt-1 text-xs text-white/55">{entries.length} events recorded</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Button
@@ -139,17 +132,9 @@ export function LoadDiagnosticsConsole() {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="font-mono text-[11px] text-white/60">
-                        +{entry.sinceStartMs.toFixed(1)}ms
-                      </span>
                       <span className="rounded-full border border-white/8 bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.18em] text-white/45 uppercase">
                         {entry.phase}
                       </span>
-                      {entry.durationMs !== undefined ? (
-                        <span className="font-mono text-[11px] text-white/45">
-                          {entry.durationMs.toFixed(1)}ms
-                        </span>
-                      ) : null}
                     </div>
                     <p className="mt-1 text-sm leading-relaxed text-white/92">{entry.message}</p>
                     {entry.detail ? (

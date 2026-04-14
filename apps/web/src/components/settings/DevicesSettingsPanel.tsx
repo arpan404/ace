@@ -341,7 +341,7 @@ export function DevicesSettingsPanel() {
       toastManager.add({
         type: "error",
         title: "Invalid connection string.",
-        description: "Use a relay connection string, ws/http URL, host:port, or legacy JSON.",
+        description: "Use a relay connection string, ws/http URL, or host:port.",
       });
       return;
     }
@@ -513,6 +513,24 @@ export function DevicesSettingsPanel() {
     ],
   );
 
+  const relayDevicesStatusRow = useMemo(() => {
+    if (relayDeviceError) {
+      return <SettingsRow title="Remote devices" description={relayDeviceError} />;
+    }
+    if (loadingRelayDevices && relayDevices.length === 0) {
+      return <SettingsRow title="Remote devices" description="Loading relay devices…" />;
+    }
+    if (!loadingRelayDevices && relayDevices.length === 0) {
+      return (
+        <SettingsRow
+          title="Remote devices"
+          description="No remote device access keys yet. Add one above."
+        />
+      );
+    }
+    return null;
+  }, [loadingRelayDevices, relayDeviceError, relayDevices.length]);
+
   return (
     <SettingsPageContainer>
       <SettingsSection title="Host this device" icon={<LaptopIcon className="size-3.5" />}>
@@ -569,9 +587,10 @@ export function DevicesSettingsPanel() {
           <div className="mt-3 grid gap-2">
             <Input
               value={relayDraft.name}
-              onChange={(event) =>
-                setRelayDraft((previous) => ({ ...previous, name: event.currentTarget.value }))
-              }
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setRelayDraft((previous) => ({ ...previous, name: value }));
+              }}
               placeholder="Remote device name (optional)"
             />
             <div className="flex flex-wrap gap-2">
@@ -594,20 +613,7 @@ export function DevicesSettingsPanel() {
           </div>
         </SettingsRow>
 
-        {relayDeviceError ? (
-          <SettingsRow title="Remote devices" description={relayDeviceError} />
-        ) : null}
-
-        {loadingRelayDevices && relayDevices.length === 0 ? (
-          <SettingsRow title="Remote devices" description="Loading relay devices…" />
-        ) : null}
-
-        {!loadingRelayDevices && relayDevices.length === 0 ? (
-          <SettingsRow
-            title="Remote devices"
-            description="No remote device access keys yet. Add one above."
-          />
-        ) : null}
+        {relayDevicesStatusRow}
 
         {relayDevices.map((device) => {
           const revoked = device.revokedAt !== undefined;
@@ -715,24 +721,27 @@ export function DevicesSettingsPanel() {
           <div className="mt-3 grid gap-2">
             <Input
               value={hostDraft.name}
-              onChange={(event) =>
-                setHostDraft((previous) => ({ ...previous, name: event.currentTarget.value }))
-              }
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setHostDraft((previous) => ({ ...previous, name: value }));
+              }}
               placeholder="Host name (optional)"
             />
             <Input
               value={hostDraft.wsUrl}
-              onChange={(event) =>
-                setHostDraft((previous) => ({ ...previous, wsUrl: event.currentTarget.value }))
-              }
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setHostDraft((previous) => ({ ...previous, wsUrl: value }));
+              }}
               placeholder="ws://192.168.x.x:3773/ws"
             />
             <Input
               type="password"
               value={hostDraft.authToken}
-              onChange={(event) =>
-                setHostDraft((previous) => ({ ...previous, authToken: event.currentTarget.value }))
-              }
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setHostDraft((previous) => ({ ...previous, authToken: value }));
+              }}
               placeholder="Auth token (optional)"
             />
           </div>
@@ -740,8 +749,11 @@ export function DevicesSettingsPanel() {
             <Textarea
               className="min-h-20 font-mono text-[11px] leading-relaxed"
               value={importPayload}
-              onChange={(event) => setImportPayload(event.currentTarget.value)}
-              placeholder="Paste relay connection string, ws/http URL, host:port, or legacy JSON"
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setImportPayload(value);
+              }}
+              placeholder="Paste relay connection string, ws/http URL, or host:port"
             />
             <div className="flex justify-end">
               <Button

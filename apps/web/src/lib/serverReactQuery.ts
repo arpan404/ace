@@ -3,7 +3,7 @@ import { infiniteQueryOptions } from "@tanstack/react-query";
 
 import { ensureNativeApi } from "~/nativeApi";
 
-const DEFAULT_OPENCODE_MODEL_PAGE_SIZE = 10;
+const DEFAULT_OPENCODE_MODEL_PAGE_SIZE = 50;
 
 export const serverQueryKeys = {
   searchOpenCodeModels: (query: string, limit: number) =>

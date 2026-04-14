@@ -26,11 +26,15 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           notifyOnAgentCompletion: false,
           notifyOnApprovalRequired: false,
           notifyOnUserInputRequired: true,
+          providerCliMaxOpen: 8,
+          providerCliIdleTtlSeconds: 120,
         }),
         {
           notifyOnAgentCompletion: false,
           notifyOnApprovalRequired: false,
           notifyOnUserInputRequired: true,
+          providerCliMaxOpen: 8,
+          providerCliIdleTtlSeconds: 120,
         },
       );
 
@@ -88,6 +92,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
             binaryPath: "/opt/homebrew/bin/codex",
           },
         },
+        providerCliMaxOpen: 7,
         textGenerationModelSelection: {
           options: {
             fastMode: false,
@@ -120,6 +125,11 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           fastMode: false,
         },
       });
+      assert.equal(next.providerCliMaxOpen, 7);
+      assert.equal(
+        next.providerCliIdleTtlSeconds,
+        DEFAULT_SERVER_SETTINGS.providerCliIdleTtlSeconds,
+      );
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
@@ -261,6 +271,28 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepEqual(JSON.parse(raw), {
         notifyOnAgentCompletion: false,
         notifyOnApprovalRequired: false,
+      });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("persists provider CLI lifecycle settings as non-default server settings", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+      const serverConfig = yield* ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+
+      const next = yield* serverSettings.updateSettings({
+        providerCliMaxOpen: 9,
+        providerCliIdleTtlSeconds: 45,
+      });
+
+      assert.equal(next.providerCliMaxOpen, 9);
+      assert.equal(next.providerCliIdleTtlSeconds, 45);
+
+      const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      assert.deepEqual(JSON.parse(raw), {
+        providerCliMaxOpen: 9,
+        providerCliIdleTtlSeconds: 45,
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );

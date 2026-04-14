@@ -8,14 +8,62 @@ import { useSettings } from "../hooks/useSettings";
 import { resolveDesktopMenuSettingsRoute } from "../lib/desktopMenu";
 import { resolveSidebarNewThreadEnvMode } from "../lib/sidebar";
 import { resolveThreadCreationOptions } from "../lib/threadCreation";
+import { isMacPlatform } from "../lib/utils";
 import { useUiStateStore } from "../uiStateStore";
 import ThreadSidebar from "./Sidebar";
-import { Sidebar, SidebarProvider, SidebarRail } from "./ui/sidebar";
+import { Sidebar, SidebarProvider, SidebarRail, useSidebar } from "./ui/sidebar";
 import { toastManager } from "./ui/toast";
 
 const THREAD_SIDEBAR_WIDTH_STORAGE_KEY = "chat_thread_sidebar_width";
 const THREAD_SIDEBAR_MIN_WIDTH = 13 * 16;
 const THREAD_MAIN_CONTENT_MIN_WIDTH = 40 * 16;
+
+function isEditableHotkeyTarget(target: EventTarget | null): boolean {
+  const element = target instanceof HTMLElement ? target : null;
+  if (!element) {
+    return false;
+  }
+  if (element.isContentEditable) {
+    return true;
+  }
+  return (
+    element.closest(
+      'input, textarea, select, [contenteditable="true"], [role="textbox"], [data-lexical-editor="true"]',
+    ) !== null
+  );
+}
+
+function SidebarToggleHotkeyHandler() {
+  const { isMobile, toggleSidebar } = useSidebar();
+
+  useEffect(() => {
+    if (isMobile) {
+      return;
+    }
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || event.altKey) {
+        return;
+      }
+      const isMac = isMacPlatform(navigator.platform);
+      const matchesToggleShortcut = isMac
+        ? event.metaKey && !event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "b"
+        : event.ctrlKey && !event.metaKey && event.shiftKey && event.key.toLowerCase() === "b";
+      if (!matchesToggleShortcut || isEditableHotkeyTarget(event.target)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      toggleSidebar();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isMobile, toggleSidebar]);
+
+  return null;
+}
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
@@ -150,6 +198,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
 
   return (
     <SidebarProvider defaultOpen>
+      <SidebarToggleHotkeyHandler />
       <Sidebar
         side="left"
         collapsible="offcanvas"

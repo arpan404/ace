@@ -8,8 +8,6 @@ export const BROWSER_SESSION_STORAGE_KEY = "ace:browser:session:v1";
 export const LEGACY_BROWSER_LAST_URL_STORAGE_KEY = "ace:browser:last-url";
 export const BROWSER_NEW_TAB_URL = "ace://browser/new-tab";
 export const BROWSER_NEW_TAB_TITLE = "New tab";
-export const BROWSER_SETTINGS_TAB_URL = "ace://browser/settings";
-export const BROWSER_SETTINGS_TAB_TITLE = "Browser settings";
 export const DEFAULT_BROWSER_PANEL_HEIGHT = 360;
 export const MIN_BROWSER_PANEL_HEIGHT = 288;
 
@@ -34,21 +32,13 @@ export function isBrowserNewTabUrl(url: string): boolean {
   return url === BROWSER_NEW_TAB_URL;
 }
 
-export function isBrowserSettingsTabUrl(url: string): boolean {
-  return url === BROWSER_SETTINGS_TAB_URL;
-}
-
 export function isBrowserInternalTabUrl(url: string): boolean {
-  return isBrowserNewTabUrl(url) || isBrowserSettingsTabUrl(url);
+  return isBrowserNewTabUrl(url);
 }
 
 export function resolveBrowserTabTitle(url: string, title?: string | null): string {
   if (isBrowserNewTabUrl(url)) {
     return BROWSER_NEW_TAB_TITLE;
-  }
-
-  if (isBrowserSettingsTabUrl(url)) {
-    return BROWSER_SETTINGS_TAB_TITLE;
   }
 
   const normalizedTitle = title?.trim();
@@ -67,14 +57,6 @@ export function resolveBrowserTabTitle(url: string, title?: string | null): stri
   }
 
   return "New tab";
-}
-
-export function createBrowserSettingsTab(id = randomUUID()): BrowserTabState {
-  return {
-    id,
-    title: BROWSER_SETTINGS_TAB_TITLE,
-    url: BROWSER_SETTINGS_TAB_URL,
-  };
 }
 
 export function createBrowserNewTab(id = randomUUID()): BrowserTabState {
@@ -120,6 +102,9 @@ export function createBrowserTabState(
 function normalizeStoredBrowserTabUrl(url: string, fallbackUrl: string): string {
   if (isBrowserInternalTabUrl(url)) {
     return url;
+  }
+  if (url === "ace://browser/settings") {
+    return BROWSER_NEW_TAB_URL;
   }
 
   return normalizeBrowserHttpUrl(url) ?? fallbackUrl;

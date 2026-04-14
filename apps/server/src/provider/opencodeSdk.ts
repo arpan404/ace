@@ -6,8 +6,7 @@
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client";
 import type { ServerProviderModel } from "@ace/contracts";
 
-export const OPENCODE_PROVIDER_MODEL_LIMIT = 10;
-export const OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT = 10;
+export const OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT = 100;
 
 const OPENCODE_PROVIDER_LIST_CACHE_TTL_MS = 30_000;
 
@@ -19,6 +18,18 @@ interface OpenCodeListedModel {
   readonly attachment: boolean;
   readonly reasoning: boolean;
   readonly tool_call: boolean;
+  readonly cost?: {
+    readonly input: number;
+    readonly output: number;
+    readonly cache_read?: number;
+    readonly cache_write?: number;
+    readonly context_over_200k?: {
+      readonly input: number;
+      readonly output: number;
+      readonly cache_read?: number;
+      readonly cache_write?: number;
+    };
+  };
   readonly experimental?: boolean;
   readonly status?: "alpha" | "beta" | "deprecated";
   readonly variants?: Record<string, Record<string, unknown>>;
@@ -27,6 +38,7 @@ interface OpenCodeListedModel {
 interface OpenCodeListedProvider {
   readonly id: string;
   readonly name: string;
+  readonly env: ReadonlyArray<string>;
   readonly models: Record<string, OpenCodeListedModel>;
 }
 
@@ -34,6 +46,11 @@ interface OpenCodeProviderListResponse {
   readonly all: ReadonlyArray<OpenCodeListedProvider>;
   readonly default: Record<string, string>;
   readonly connected: ReadonlyArray<string>;
+}
+
+interface OpenCodeConfigProvidersResponse {
+  readonly providers: ReadonlyArray<OpenCodeListedProvider>;
+  readonly default: Record<string, string>;
 }
 
 interface OpenCodeCatalogEntry {
@@ -58,6 +75,12 @@ interface OpenCodeProviderListCacheEntry {
   pending?: Promise<OpenCodeProviderListResponse>;
 }
 
+interface OpenCodeConfigProvidersCacheEntry {
+  value?: OpenCodeConfigProvidersResponse;
+  expiresAt: number;
+  pending?: Promise<OpenCodeConfigProvidersResponse>;
+}
+
 export interface OpenCodeModelListResult {
   readonly models: ReadonlyArray<ServerProviderModel>;
   readonly totalModels: number;
@@ -72,6 +95,7 @@ export interface OpenCodeModelSearchResult {
 }
 
 const openCodeProviderListCache = new Map<string, OpenCodeProviderListCacheEntry>();
+const openCodeConfigProvidersCache = new Map<string, OpenCodeConfigProvidersCacheEntry>();
 
 export function createOpenCodeSdkClient(input: {
   readonly baseUrl: string;
@@ -293,8 +317,80 @@ async function loadOpenCodeProviderList(baseUrl: string): Promise<OpenCodeProvid
   return request;
 }
 
+async function loadOpenCodeConfigProviders(
+  baseUrl: string,
+): Promise<OpenCodeConfigProvidersResponse> {
+  const now = Date.now();
+  const cached = openCodeConfigProvidersCache.get(baseUrl);
+  if (cached?.value && cached.expiresAt > now) {
+    return cached.value;
+  }
+  if (cached?.pending) {
+    return cached.pending;
+  }
+
+  const request = (async () => {
+    const client = createOpenCodeSdkClient({ baseUrl });
+    const listed = await client.config.providers();
+    if (listed.error) {
+      throw new Error(
+        typeof listed.error === "object" && listed.error && "message" in listed.error
+          ? String((listed.error as { message?: string }).message)
+          : "OpenCode config providers failed",
+      );
+    }
+
+    const body = listed.data as OpenCodeConfigProvidersResponse | undefined;
+    if (!body || !Array.isArray(body.providers)) {
+      throw new Error("Unexpected OpenCode config providers response.");
+    }
+
+    openCodeConfigProvidersCache.set(baseUrl, {
+      value: body,
+      expiresAt: Date.now() + OPENCODE_PROVIDER_LIST_CACHE_TTL_MS,
+    });
+
+    return body;
+  })().finally(() => {
+    const latest = openCodeConfigProvidersCache.get(baseUrl);
+    if (!latest) {
+      return;
+    }
+    if (latest.pending) {
+      openCodeConfigProvidersCache.set(baseUrl, {
+        ...(latest.value ? { value: latest.value } : {}),
+        expiresAt: latest.expiresAt,
+      });
+    }
+  });
+
+  openCodeConfigProvidersCache.set(baseUrl, {
+    ...(cached?.value ? { value: cached.value } : {}),
+    expiresAt: cached?.expiresAt ?? 0,
+    pending: request,
+  });
+
+  return request;
+}
+
+function toProviderListResponseFromConfigProviders(
+  data: OpenCodeConfigProvidersResponse,
+  connectedProviderIds?: ReadonlyArray<string>,
+): OpenCodeProviderListResponse {
+  const configuredProviderIds = new Set(data.providers.map((provider) => provider.id));
+  const connected =
+    connectedProviderIds && connectedProviderIds.length > 0
+      ? connectedProviderIds.filter((providerId) => configuredProviderIds.has(providerId))
+      : data.providers.map((provider) => provider.id);
+  return {
+    all: data.providers,
+    default: data.default ?? {},
+    connected,
+  };
+}
+
 /**
- * Flatten `/provider` listing into picker slugs `providerId/modelId`.
+ * Flatten OpenCode provider listing into picker slugs `providerId/modelId`.
  */
 export function openCodeModelsFromProviderList(
   data: OpenCodeProviderListResponse,
@@ -304,6 +400,13 @@ export function openCodeModelsFromProviderList(
 ): OpenCodeModelListResult {
   const maxModels = options?.maxModels ?? Number.POSITIVE_INFINITY;
   const entries = collectCatalogEntries(data);
+  if (entries.length === 0) {
+    return {
+      models: [],
+      totalModels: 0,
+      truncated: false,
+    };
+  }
   const latestModel = [...entries]
     .filter((entry) => entry.status !== "deprecated" && !entry.experimental)
     .toSorted(compareCatalogEntriesByReleaseDate)[0];
@@ -442,17 +545,22 @@ export async function probeOpenCodeSdk(baseUrl: string): Promise<OpenCodeProbeSu
       ? String((health.data as { version?: string }).version ?? "unknown")
       : "unknown";
 
-  const body = await loadOpenCodeProviderList(baseUrl);
-  const modelList = openCodeModelsFromProviderList(body, {
-    maxModels: OPENCODE_PROVIDER_MODEL_LIMIT,
-  });
+  const [providerList, configProviders] = await Promise.all([
+    loadOpenCodeProviderList(baseUrl),
+    loadOpenCodeConfigProviders(baseUrl),
+  ]);
+  const modelCatalog = toProviderListResponseFromConfigProviders(
+    configProviders,
+    providerList.connected ?? [],
+  );
+  const modelList = openCodeModelsFromProviderList(modelCatalog);
   return {
     version,
     models: modelList.models,
     totalModelCount: modelList.totalModels,
     modelsTruncated: modelList.truncated,
-    defaultModels: body.default ?? {},
-    connectedProviderIds: body.connected ?? [],
+    defaultModels: modelCatalog.default,
+    connectedProviderIds: providerList.connected ?? [],
   };
 }
 
@@ -464,6 +572,9 @@ export async function searchOpenCodeModels(
     readonly offset: number;
   },
 ): Promise<OpenCodeModelSearchResult> {
-  const body = await loadOpenCodeProviderList(baseUrl);
-  return searchOpenCodeModelsFromProviderList(body, options);
+  const configProviders = await loadOpenCodeConfigProviders(baseUrl);
+  return searchOpenCodeModelsFromProviderList(
+    toProviderListResponseFromConfigProviders(configProviders),
+    options,
+  );
 }

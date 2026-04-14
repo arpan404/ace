@@ -16,6 +16,7 @@ import {
   Notification as ElectronNotification,
   protocol,
   session,
+  systemPreferences,
   shell,
 } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
@@ -26,13 +27,14 @@ import type {
   DesktopCliInstallState,
   DesktopMenuAction,
   DesktopNotificationInput,
+  DesktopNotificationPermission,
   DesktopTheme,
   DesktopUpdateActionResult,
   DesktopUpdateCheckResult,
   DesktopUpdateState,
 } from "@ace/contracts";
 import {
-  ensureAceCliInstalled,
+  ensureAceCliInstalledWithProgress,
   inspectAceCliInstall,
   type AceCliInstallOptions,
   type AceCliInstallResult,
@@ -68,6 +70,10 @@ import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runti
 import { appendDesktopBootstrapWsUrl } from "./rendererBootstrapUrl";
 import { buildWebContentsContextMenuTemplate } from "./webContentsContextMenu";
 import { buildApplicationMenuTemplate } from "./applicationMenu";
+import {
+  startDesktopBackgroundNotificationService,
+  type DesktopBackgroundNotificationService,
+} from "./backgroundNotificationService";
 
 syncShellEnvironment();
 
@@ -93,9 +99,16 @@ const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
 const GET_IS_DEVELOPMENT_BUILD_CHANNEL = "desktop:get-is-development-build";
 const GET_WINDOW_SHOWN_AT_CHANNEL = "desktop:get-window-shown-at";
+const GET_TITLEBAR_LEFT_INSET_CHANNEL = "desktop:get-titlebar-left-inset";
+const GET_NOTIFICATION_PERMISSION_CHANNEL = "desktop:get-notification-permission";
+const REQUEST_NOTIFICATION_PERMISSION_CHANNEL = "desktop:request-notification-permission";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
 const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
+const ORCHESTRATION_EVENT_CHANNEL = "desktop:orchestration-event";
+const SERVER_CONFIG_EVENT_CHANNEL = "desktop:server-config-event";
+const MAC_TRAFFIC_LIGHT_POSITION = { x: 16, y: 18 };
+const MAC_TITLEBAR_LEFT_INSET_PX = 90;
 const BASE_DIR = process.env.ACE_HOME?.trim() || resolveDesktopBaseDir();
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "ace";
@@ -113,6 +126,7 @@ const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
+const DAEMON_LOGIN_ITEM_ARG = "--daemon-login-item";
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -124,12 +138,32 @@ type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 type LinuxDesktopNamedApp = Electron.App & {
   setDesktopName?: (desktopName: string) => void;
 };
+interface DaemonStartOutput {
+  readonly status: "started" | "already-running";
+  readonly daemon: {
+    readonly pid: number;
+    readonly port: number;
+    readonly authToken: string;
+    readonly wsUrl: string;
+  };
+}
+interface DaemonStatusOutput {
+  readonly status: "running" | "stopped" | "stale";
+  readonly state: {
+    readonly pid: number;
+  } | null;
+}
+interface DaemonStopOutput {
+  readonly status: "already-stopped" | "cleared-stale-state" | "stopped";
+  readonly pid?: number;
+}
 
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 let backendAuthToken = "";
 let backendWsUrl = "";
+let backendManagedByDaemon = false;
 let mainWindowShownAtMs: number | null = null;
 let restartAttempt = 0;
 let restartTimer: ReturnType<typeof setTimeout> | null = null;
@@ -139,6 +173,7 @@ let aboutCommitHashCache: string | null | undefined;
 let desktopLogSink: RotatingFileSink | null = null;
 let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
+let desktopBackgroundNotificationService: DesktopBackgroundNotificationService | null = null;
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
 const activeDesktopNotifications = new Map<string, Electron.Notification>();
@@ -306,6 +341,43 @@ function withReadyPrimaryWindow(effect: (window: BrowserWindow) => void): void {
   run();
 }
 
+function isDesktopWindowFocusedForNotifications(): boolean {
+  const targetWindow =
+    mainWindow ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  if (!targetWindow || targetWindow.isDestroyed()) {
+    return false;
+  }
+  if (!targetWindow.isVisible() || targetWindow.isMinimized()) {
+    return false;
+  }
+  return targetWindow.isFocused();
+}
+
+function stopDesktopBackgroundNotifications(): void {
+  const service = desktopBackgroundNotificationService;
+  desktopBackgroundNotificationService = null;
+  if (!service) {
+    return;
+  }
+  void service.stop();
+}
+
+function startDesktopBackgroundNotifications(): void {
+  stopDesktopBackgroundNotifications();
+  desktopBackgroundNotificationService = startDesktopBackgroundNotificationService({
+    onOrchestrationEvent: (_event) => {
+      // Will be called via IPC from web app
+    },
+    onServerConfigEvent: (_event) => {
+      // Will be called via IPC from web app
+    },
+    isAppFocused: isDesktopWindowFocusedForNotifications,
+    showNotification: showDesktopNotification,
+    closeNotification: closeDesktopNotification,
+    log: (message) => writeDesktopLogHeader(`notification-service ${message}`),
+  });
+}
+
 function closeDesktopNotification(id: string): boolean {
   const existingNotification = activeDesktopNotifications.get(id);
   if (!existingNotification) {
@@ -318,6 +390,10 @@ function closeDesktopNotification(id: string): boolean {
 }
 
 function showDesktopNotification(input: DesktopNotificationInput): boolean {
+  const permission = getDesktopNotificationPermission();
+  if (permission === "denied" || permission === "unsupported") {
+    return false;
+  }
   if (!ElectronNotification.isSupported()) {
     return false;
   }
@@ -368,6 +444,95 @@ function showDesktopNotification(input: DesktopNotificationInput): boolean {
     activeDesktopNotifications.delete(input.id);
     return false;
   }
+}
+
+function mapDesktopNotificationPermissionState(
+  rawState: string,
+): DesktopNotificationPermission | null {
+  const normalized = rawState.trim().toLowerCase();
+  if (
+    normalized === "granted" ||
+    normalized === "authorized" ||
+    normalized === "ephemeral" ||
+    normalized === "enabled"
+  ) {
+    return "granted";
+  }
+  if (normalized === "denied" || normalized === "disabled") {
+    return "denied";
+  }
+  if (
+    normalized === "default" ||
+    normalized === "not-determined" ||
+    normalized === "provisional" ||
+    normalized === "unknown"
+  ) {
+    return "default";
+  }
+  if (normalized === "notsupported" || normalized === "not-supported") {
+    return "unsupported";
+  }
+  return null;
+}
+
+function getDesktopNotificationPermission(): DesktopNotificationPermission {
+  if (!ElectronNotification.isSupported()) {
+    return "unsupported";
+  }
+
+  if (process.platform === "darwin" || process.platform === "win32") {
+    const notificationStateProvider = systemPreferences as unknown as {
+      getNotificationState?: (...args: string[]) => string;
+    };
+    const readNotificationState = notificationStateProvider.getNotificationState;
+    if (typeof readNotificationState === "function") {
+      const resolveState = (rawState: string | null): DesktopNotificationPermission | null =>
+        rawState ? mapDesktopNotificationPermissionState(rawState) : null;
+      try {
+        const globalState = resolveState(readNotificationState());
+        if (globalState) {
+          return globalState;
+        }
+      } catch {
+        // Fall through and try app-scoped state.
+      }
+      try {
+        const appScopedState = resolveState(readNotificationState(APP_USER_MODEL_ID));
+        if (appScopedState) {
+          return appScopedState;
+        }
+      } catch {
+        // Fall through to platform defaults when OS-level state cannot be read.
+      }
+    }
+
+    // On macOS, treat unknown state conservatively so the UI can still prompt/check.
+    if (process.platform === "darwin") {
+      return "default";
+    }
+  }
+
+  return "granted";
+}
+
+async function requestDesktopNotificationPermission(): Promise<DesktopNotificationPermission> {
+  const initialPermission = getDesktopNotificationPermission();
+  if (initialPermission !== "default") {
+    return initialPermission;
+  }
+
+  const probeNotificationId = `ace-notification-permission-request:${Date.now().toString(36)}`;
+  showDesktopNotification({
+    id: probeNotificationId,
+    title: "ace notifications",
+    body: "Enable notifications to get alerts when agent work completes or needs input.",
+  });
+
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 300);
+  });
+  closeDesktopNotification(probeNotificationId);
+  return getDesktopNotificationPermission();
 }
 
 function resolveBrowserShortcutAction(input: Electron.Input): BrowserShortcutAction | null {
@@ -654,6 +819,22 @@ function resolveBackendEntry(): string {
   return Path.join(resolveAppRoot(), "apps/server/dist/bin.mjs");
 }
 
+function resolveTitlebarLeftInset(window: BrowserWindow | null | undefined): number {
+  if (process.platform !== "darwin") {
+    return 0;
+  }
+
+  if (!window) {
+    return MAC_TITLEBAR_LEFT_INSET_PX;
+  }
+
+  if (window.isFullScreen() || window.isSimpleFullScreen() === true) {
+    return 0;
+  }
+
+  return MAC_TITLEBAR_LEFT_INSET_PX;
+}
+
 function getDesktopCliUnavailableMessage(): string {
   if (!app.isPackaged) {
     return "CLI install is only available in packaged desktop builds.";
@@ -706,6 +887,267 @@ function resolveBackendCwd(): string {
     return resolveAppRoot();
   }
   return OS.homedir();
+}
+
+function runDaemonCliCommand(
+  backendEntry: string,
+  args: ReadonlyArray<string>,
+): ChildProcess.SpawnSyncReturns<string> {
+  return ChildProcess.spawnSync(process.execPath, [backendEntry, ...args], {
+    cwd: resolveBackendCwd(),
+    env: {
+      ...backendChildEnv(),
+      ELECTRON_RUN_AS_NODE: "1",
+    },
+    encoding: "utf8",
+    windowsHide: true,
+  });
+}
+
+function formatDaemonCommandFailure(
+  command: string,
+  result: ChildProcess.SpawnSyncReturns<string>,
+): string {
+  const stderr = result.stderr?.trim() || "";
+  const stdout = result.stdout?.trim() || "";
+  return `${command} command failed (${String(result.status)}). ${stderr || stdout || "No output."}`;
+}
+
+function parseDaemonStartOutput(raw: string): DaemonStartOutput {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Daemon start returned invalid JSON output: ${formatErrorMessage(error)}`, {
+      cause: error,
+    });
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("Daemon start returned malformed payload.");
+  }
+  const payload = parsed as {
+    status?: unknown;
+    daemon?: {
+      pid?: unknown;
+      port?: unknown;
+      authToken?: unknown;
+      wsUrl?: unknown;
+    };
+  };
+  if (payload.status !== "started" && payload.status !== "already-running") {
+    throw new Error("Daemon start returned unexpected status.");
+  }
+  if (
+    typeof payload.daemon?.pid !== "number" ||
+    typeof payload.daemon.port !== "number" ||
+    typeof payload.daemon.authToken !== "string" ||
+    typeof payload.daemon.wsUrl !== "string"
+  ) {
+    throw new Error("Daemon start returned incomplete daemon details.");
+  }
+  return {
+    status: payload.status,
+    daemon: {
+      pid: payload.daemon.pid,
+      port: payload.daemon.port,
+      authToken: payload.daemon.authToken,
+      wsUrl: payload.daemon.wsUrl,
+    },
+  };
+}
+
+function parseDaemonStatusOutput(raw: string): DaemonStatusOutput {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Daemon status returned invalid JSON output: ${formatErrorMessage(error)}`, {
+      cause: error,
+    });
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("Daemon status returned malformed payload.");
+  }
+  const payload = parsed as {
+    status?: unknown;
+    state?: unknown;
+  };
+  if (payload.status !== "running" && payload.status !== "stopped" && payload.status !== "stale") {
+    throw new Error("Daemon status returned unexpected status.");
+  }
+  if (payload.state === null || payload.state === undefined) {
+    return {
+      status: payload.status,
+      state: null,
+    };
+  }
+  if (
+    typeof payload.state !== "object" ||
+    payload.state === null ||
+    typeof (payload.state as { readonly pid?: unknown }).pid !== "number"
+  ) {
+    throw new Error("Daemon status returned malformed state payload.");
+  }
+  return {
+    status: payload.status,
+    state: {
+      pid: (payload.state as { readonly pid: number }).pid,
+    },
+  };
+}
+
+function parseDaemonStopOutput(raw: string): DaemonStopOutput {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`Daemon stop returned invalid JSON output: ${formatErrorMessage(error)}`, {
+      cause: error,
+    });
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("Daemon stop returned malformed payload.");
+  }
+  const payload = parsed as {
+    status?: unknown;
+    pid?: unknown;
+  };
+  if (
+    payload.status !== "already-stopped" &&
+    payload.status !== "cleared-stale-state" &&
+    payload.status !== "stopped"
+  ) {
+    throw new Error("Daemon stop returned unexpected status.");
+  }
+  if (payload.pid !== undefined && typeof payload.pid !== "number") {
+    throw new Error("Daemon stop returned malformed pid.");
+  }
+  return {
+    status: payload.status,
+    ...(typeof payload.pid === "number" ? { pid: payload.pid } : {}),
+  };
+}
+
+function startOrConnectBackendDaemon(): void {
+  const backendEntry = resolveBackendEntry();
+  if (!FS.existsSync(backendEntry)) {
+    throw new Error(`Missing server entry at ${backendEntry}`);
+  }
+
+  const daemonArgs = [
+    "daemon",
+    "start",
+    "--mode",
+    "desktop",
+    "--base-dir",
+    BASE_DIR,
+    "--port",
+    String(backendPort),
+    "--auth-token",
+    backendAuthToken,
+    "--json",
+  ];
+  if (isDevelopment && typeof process.env.VITE_DEV_SERVER_URL === "string") {
+    daemonArgs.push("--dev-url", process.env.VITE_DEV_SERVER_URL);
+  }
+
+  const runStartCommand = (): DaemonStartOutput => {
+    const daemonResult = runDaemonCliCommand(backendEntry, daemonArgs);
+    if (daemonResult.error) {
+      throw daemonResult.error;
+    }
+    if (daemonResult.status !== 0) {
+      throw new Error(formatDaemonCommandFailure("Daemon start", daemonResult));
+    }
+    return parseDaemonStartOutput(daemonResult.stdout.trim());
+  };
+
+  let parsed: DaemonStartOutput;
+  try {
+    parsed = runStartCommand();
+  } catch (startError) {
+    const statusResult = runDaemonCliCommand(backendEntry, [
+      "daemon",
+      "status",
+      "--base-dir",
+      BASE_DIR,
+      "--json",
+    ]);
+    if (statusResult.error) {
+      throw startError;
+    }
+    if (statusResult.status !== 0) {
+      throw startError;
+    }
+    const status = parseDaemonStatusOutput(statusResult.stdout.trim());
+    if (status.status !== "stale" || status.state === null) {
+      throw startError;
+    }
+
+    writeDesktopLogHeader(
+      `daemon stale detected pid=${String(status.state.pid)}; attempting recovery`,
+    );
+    const stopResult = runDaemonCliCommand(backendEntry, [
+      "daemon",
+      "stop",
+      "--base-dir",
+      BASE_DIR,
+      "--json",
+    ]);
+    if (stopResult.error) {
+      throw new Error(
+        `Failed to stop stale daemon process before recovery: ${formatErrorMessage(stopResult.error)}`,
+        {
+          cause: startError,
+        },
+      );
+    }
+    if (stopResult.status !== 0) {
+      throw new Error(formatDaemonCommandFailure("Daemon stop", stopResult), {
+        cause: startError,
+      });
+    }
+    parsed = runStartCommand();
+  }
+
+  backendManagedByDaemon = true;
+  backendPort = parsed.daemon.port;
+  backendAuthToken = parsed.daemon.authToken;
+  backendWsUrl = parsed.daemon.wsUrl;
+  writeDesktopLogHeader(
+    `daemon backend ${parsed.status} pid=${String(parsed.daemon.pid)} port=${String(parsed.daemon.port)}`,
+  );
+}
+
+async function stopDaemonForUpdateInstall(timeoutMs = 10_000): Promise<void> {
+  const backendEntry = resolveBackendEntry();
+  if (!FS.existsSync(backendEntry)) {
+    throw new Error(`Missing server entry at ${backendEntry}`);
+  }
+
+  const stopResult = runDaemonCliCommand(backendEntry, [
+    "daemon",
+    "stop",
+    "--base-dir",
+    BASE_DIR,
+    "--timeout-ms",
+    String(timeoutMs),
+    "--json",
+  ]);
+  if (stopResult.error) {
+    throw new Error(
+      `Failed to stop daemon for app update install: ${formatErrorMessage(stopResult.error)}`,
+      { cause: stopResult.error },
+    );
+  }
+  if (stopResult.status !== 0) {
+    throw new Error(formatDaemonCommandFailure("Daemon stop", stopResult));
+  }
+
+  const output = parseDaemonStopOutput(stopResult.stdout.trim());
+  writeDesktopLogHeader(
+    `daemon stop for update status=${output.status}${output.pid ? ` pid=${String(output.pid)}` : ""}`,
+  );
 }
 
 function resolveDesktopStaticDir(): string | null {
@@ -766,7 +1208,10 @@ function handleFatalStartupError(stage: string, error: unknown): void {
     isQuitting = true;
     dialog.showErrorBox("ace failed to start", `Stage: ${stage}\n${message}${detail}`);
   }
-  stopBackend();
+  stopDesktopBackgroundNotifications();
+  if (!backendManagedByDaemon) {
+    stopBackend();
+  }
   restoreStdIoCapture?.();
   app.quit();
 }
@@ -950,6 +1395,104 @@ function configureAppIdentity(): void {
   configureMacDockIcon();
 }
 
+function quoteDesktopAutostartExecArgument(value: string): string {
+  return `"${value.replace(/(["\\`$])/g, "\\$1")}"`;
+}
+
+function ensureLinuxDaemonAutostartEntry(): void {
+  const autostartDir = Path.join(OS.homedir(), ".config", "autostart");
+  const entryPath = Path.join(
+    autostartDir,
+    isDevelopment ? "ace-dev-daemon.desktop" : "ace-daemon.desktop",
+  );
+  const execCommand = [process.execPath, DAEMON_LOGIN_ITEM_ARG]
+    .map(quoteDesktopAutostartExecArgument)
+    .join(" ");
+  const entryContents = [
+    "[Desktop Entry]",
+    "Type=Application",
+    "Version=1.0",
+    "Name=ace daemon",
+    "Comment=Start the ace background daemon at login",
+    `Exec=${execCommand}`,
+    "Terminal=false",
+    "NoDisplay=true",
+    "X-GNOME-Autostart-enabled=true",
+    "",
+  ].join("\n");
+  FS.mkdirSync(autostartDir, { recursive: true });
+  const previousContents = FS.existsSync(entryPath) ? FS.readFileSync(entryPath, "utf8") : null;
+  if (previousContents !== entryContents) {
+    FS.writeFileSync(entryPath, entryContents, "utf8");
+  }
+  writeDesktopLogHeader(
+    `daemon autostart entry ready path=${sanitizeLogValue(entryPath)} changed=${String(previousContents !== entryContents)}`,
+  );
+}
+
+function ensureDaemonAutostartRegistration(): void {
+  if (!app.isPackaged) {
+    return;
+  }
+
+  try {
+    if (process.platform === "linux") {
+      ensureLinuxDaemonAutostartEntry();
+      return;
+    }
+
+    if (process.platform === "win32") {
+      const query = {
+        path: process.execPath,
+        args: [DAEMON_LOGIN_ITEM_ARG],
+      };
+      const current = app.getLoginItemSettings(query);
+      if (!current.openAtLogin) {
+        app.setLoginItemSettings({
+          openAtLogin: true,
+          ...query,
+        });
+      }
+      const next = app.getLoginItemSettings(query);
+      writeDesktopLogHeader(`daemon autostart login item openAtLogin=${String(next.openAtLogin)}`);
+      return;
+    }
+
+    const current = app.getLoginItemSettings();
+    if (!current.openAtLogin) {
+      app.setLoginItemSettings({
+        openAtLogin: true,
+      });
+    }
+    const next = app.getLoginItemSettings();
+    writeDesktopLogHeader(`daemon autostart login item openAtLogin=${String(next.openAtLogin)}`);
+  } catch (error) {
+    writeDesktopLogHeader(
+      `daemon autostart registration failed error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
+  }
+}
+
+function shouldRunHeadlessDaemonBootstrap(): boolean {
+  if (!app.isPackaged) {
+    return false;
+  }
+
+  if (process.argv.includes(DAEMON_LOGIN_ITEM_ARG)) {
+    return true;
+  }
+
+  if (process.platform !== "darwin") {
+    return false;
+  }
+
+  try {
+    return app.getLoginItemSettings().wasOpenedAtLogin === true;
+  } catch {
+    return false;
+  }
+}
+
 function getInAppBrowserSession(): Electron.Session {
   return session.fromPartition(IN_APP_BROWSER_PARTITION);
 }
@@ -1055,19 +1598,43 @@ async function installDesktopCli(
     } satisfies DesktopCliInstallActionResult;
   }
 
-  cliInstallInFlight = true;
-  setCliInstallState(
-    createPendingDesktopCliInstallState({
-      ...desktopCliMetadataOptions(),
-      status: "installing",
+  const inspectedState = inspectAceCliInstall(options);
+  if (reason === "startup" && inspectedState.ready) {
+    const nextState = createDesktopCliInstallStateFromInspect(inspectedState, {
       checkedAt,
-      message: "Installing the `ace` CLI.",
-    }),
-  );
+      message: "The `ace` command is already ready to use.",
+    });
+    setCliInstallState(nextState);
+    return {
+      accepted: true,
+      completed: true,
+      state: nextState,
+    } satisfies DesktopCliInstallActionResult;
+  }
+
+  const setInstallProgressState = (progressPercent: number | null, message: string) => {
+    setCliInstallState(
+      createPendingDesktopCliInstallState({
+        ...desktopCliMetadataOptions(),
+        status: "installing",
+        checkedAt,
+        progressPercent,
+        message,
+      }),
+    );
+  };
+
+  cliInstallInFlight = true;
+  setInstallProgressState(0, "Installing the `ace` CLI. (0%)");
   writeDesktopLogHeader(`cli install start reason=${reason}`);
 
   try {
-    const result = ensureAceCliInstalled(options);
+    const result = ensureAceCliInstalledWithProgress(options, (progress) => {
+      setInstallProgressState(
+        progress.percent,
+        `${progress.message} (${String(progress.percent)}%)`,
+      );
+    });
     const nextState = createDesktopCliInstallStateFromResult(result, {
       checkedAt: new Date().toISOString(),
       message: getDesktopCliReadyMessage(result),
@@ -1101,6 +1668,32 @@ async function installDesktopCli(
   } finally {
     cliInstallInFlight = false;
   }
+}
+
+function scheduleStartupCliInstall(window: BrowserWindow): void {
+  if (!app.isPackaged) {
+    return;
+  }
+
+  let started = false;
+  const startInstall = () => {
+    if (started) {
+      return;
+    }
+    started = true;
+    writeDesktopLogHeader("startup cli install trigger");
+    void installDesktopCli("startup");
+  };
+
+  const fallback = setTimeout(() => {
+    writeDesktopLogHeader("startup cli install fallback trigger");
+    startInstall();
+  }, 2_000);
+
+  window.webContents.once("did-finish-load", () => {
+    clearTimeout(fallback);
+    startInstall();
+  });
 }
 
 function shouldEnableAutoUpdates(): boolean {
@@ -1173,7 +1766,15 @@ async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed
   updateInstallInFlight = true;
   clearUpdatePollTimer();
   try {
-    await stopBackendAndWaitForExit();
+    setUpdateState({
+      message: "Preparing update: stopping background services.",
+      errorContext: null,
+    });
+    if (backendManagedByDaemon) {
+      await stopDaemonForUpdateInstall();
+    } else {
+      await stopBackendAndWaitForExit();
+    }
     // Destroy all windows before launching the NSIS installer to avoid the installer finding live windows it needs to close.
     for (const win of BrowserWindow.getAllWindows()) {
       win.destroy();
@@ -1493,6 +2094,23 @@ function registerIpcHandlers(): void {
     event.returnValue = mainWindowShownAtMs;
   });
 
+  ipcMain.removeAllListeners(GET_TITLEBAR_LEFT_INSET_CHANNEL);
+  ipcMain.on(GET_TITLEBAR_LEFT_INSET_CHANNEL, (event) => {
+    const owner =
+      BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? mainWindow;
+    event.returnValue = resolveTitlebarLeftInset(owner);
+  });
+
+  ipcMain.removeHandler(GET_NOTIFICATION_PERMISSION_CHANNEL);
+  ipcMain.handle(GET_NOTIFICATION_PERMISSION_CHANNEL, async () =>
+    getDesktopNotificationPermission(),
+  );
+
+  ipcMain.removeHandler(REQUEST_NOTIFICATION_PERMISSION_CHANNEL);
+  ipcMain.handle(REQUEST_NOTIFICATION_PERMISSION_CHANNEL, async () =>
+    requestDesktopNotificationPermission(),
+  );
+
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
   ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
@@ -1684,6 +2302,20 @@ function registerIpcHandlers(): void {
       state: updateState,
     } satisfies DesktopUpdateCheckResult;
   });
+
+  ipcMain.removeAllListeners(ORCHESTRATION_EVENT_CHANNEL);
+  ipcMain.on(ORCHESTRATION_EVENT_CHANNEL, (_event, rawEvent) => {
+    if (desktopBackgroundNotificationService && rawEvent) {
+      desktopBackgroundNotificationService.handleOrchestrationEvent(rawEvent);
+    }
+  });
+
+  ipcMain.removeAllListeners(SERVER_CONFIG_EVENT_CHANNEL);
+  ipcMain.on(SERVER_CONFIG_EVENT_CHANNEL, (_event, rawEvent) => {
+    if (desktopBackgroundNotificationService && rawEvent) {
+      desktopBackgroundNotificationService.handleServerConfigEvent(rawEvent);
+    }
+  });
 }
 
 function getIconOption(): { icon: string } | Record<string, never> {
@@ -1786,7 +2418,7 @@ function createWindow(): BrowserWindow {
     ...getIconOption(),
     title: APP_DISPLAY_NAME,
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 18 },
+    trafficLightPosition: MAC_TRAFFIC_LIGHT_POSITION,
     webPreferences: {
       preload: Path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -1866,18 +2498,22 @@ async function bootstrap(): Promise<void> {
   const baseUrl = `ws://127.0.0.1:${backendPort}`;
   backendWsUrl = `${baseUrl}/?token=${encodeURIComponent(backendAuthToken)}`;
   writeDesktopLogHeader(`bootstrap resolved websocket endpoint baseUrl=${baseUrl}`);
+  startOrConnectBackendDaemon();
+  writeDesktopLogHeader("bootstrap daemon start/connect completed");
+  startDesktopBackgroundNotifications();
+  writeDesktopLogHeader("bootstrap desktop background notification service started");
 
   registerIpcHandlers();
   writeDesktopLogHeader("bootstrap ipc handlers registered");
   mainWindow = createWindow();
+  scheduleStartupCliInstall(mainWindow);
   writeDesktopLogHeader("bootstrap main window created");
-  startBackend();
-  writeDesktopLogHeader("bootstrap backend start requested");
 }
 
 app.on("before-quit", () => {
   isQuitting = true;
   updateInstallInFlight = false;
+  stopDesktopBackgroundNotifications();
   for (const notification of activeDesktopNotifications.values()) {
     notification.close();
   }
@@ -1885,7 +2521,9 @@ app.on("before-quit", () => {
   writeDesktopLogHeader("before-quit received");
   flushInAppBrowserSessionStorage();
   clearUpdatePollTimer();
-  stopBackend();
+  if (!backendManagedByDaemon) {
+    stopBackend();
+  }
   restoreStdIoCapture?.();
 });
 
@@ -1894,12 +2532,24 @@ app
   .then(() => {
     writeDesktopLogHeader("app ready");
     configureAppIdentity();
+    ensureDaemonAutostartRegistration();
+    if (shouldRunHeadlessDaemonBootstrap()) {
+      writeDesktopLogHeader("headless login launch detected; starting daemon only");
+      try {
+        startOrConnectBackendDaemon();
+        writeDesktopLogHeader("headless login daemon start/connect completed");
+      } catch (error) {
+        writeDesktopLogHeader(
+          `headless login daemon bootstrap failed error=${sanitizeLogValue(formatErrorMessage(error))}`,
+        );
+      }
+      isQuitting = true;
+      app.quit();
+      return;
+    }
     configureApplicationMenu();
     registerDesktopProtocol();
     configureAutoUpdater();
-    if (app.isPackaged) {
-      void installDesktopCli("startup");
-    }
     void bootstrap().catch((error) => {
       handleFatalStartupError("bootstrap", error);
     });
@@ -1925,8 +2575,11 @@ if (process.platform !== "win32") {
     if (isQuitting) return;
     isQuitting = true;
     writeDesktopLogHeader("SIGINT received");
+    stopDesktopBackgroundNotifications();
     clearUpdatePollTimer();
-    stopBackend();
+    if (!backendManagedByDaemon) {
+      stopBackend();
+    }
     restoreStdIoCapture?.();
     app.quit();
   });
@@ -1935,8 +2588,11 @@ if (process.platform !== "win32") {
     if (isQuitting) return;
     isQuitting = true;
     writeDesktopLogHeader("SIGTERM received");
+    stopDesktopBackgroundNotifications();
     clearUpdatePollTimer();
-    stopBackend();
+    if (!backendManagedByDaemon) {
+      stopBackend();
+    }
     restoreStdIoCapture?.();
     app.quit();
   });

@@ -1,8 +1,11 @@
-import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
+import {
+  splitPromptIntoComposerSegments,
+  type ComposerPromptSegment,
+} from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
-export type ComposerTriggerKind = "path" | "slash-command" | "slash-model";
-export type ComposerSlashCommand = "model" | "plan" | "default";
+export type ComposerTriggerKind = "path" | "slash-command" | "slash-model" | "issue";
+export type ComposerSlashCommand = "model" | "plan" | "default" | "issues";
 
 export interface ComposerTrigger {
   kind: ComposerTriggerKind;
@@ -11,10 +14,8 @@ export interface ComposerTrigger {
   rangeEnd: number;
 }
 
-const SLASH_COMMANDS: readonly ComposerSlashCommand[] = ["model", "plan", "default"];
-const isInlineTokenSegment = (
-  segment: { type: "text"; text: string } | { type: "mention" } | { type: "terminal-context" },
-): boolean => segment.type !== "text";
+const SLASH_COMMANDS: readonly ComposerSlashCommand[] = ["model", "plan", "default", "issues"];
+const isInlineTokenSegment = (segment: ComposerPromptSegment): boolean => segment.type !== "text";
 
 function clampCursor(text: string, cursor: number): number {
   if (!Number.isFinite(cursor)) return text.length;
@@ -39,6 +40,19 @@ function tokenStartForCursor(text: string, cursor: number): number {
   return index + 1;
 }
 
+function expandedSegmentLength(segment: ComposerPromptSegment): number {
+  if (segment.type === "text") {
+    return segment.text.length;
+  }
+  if (segment.type === "mention") {
+    return segment.path.length + 1;
+  }
+  if (segment.type === "issue-reference") {
+    return String(segment.issueNumber).length + 1;
+  }
+  return 1;
+}
+
 export function expandCollapsedComposerCursor(text: string, cursorInput: number): number {
   const collapsedCursor = clampCursor(text, cursorInput);
   const segments = splitPromptIntoComposerSegments(text);
@@ -50,21 +64,14 @@ export function expandCollapsedComposerCursor(text: string, cursorInput: number)
   let expandedCursor = 0;
 
   for (const segment of segments) {
-    if (segment.type === "mention") {
-      const expandedLength = segment.path.length + 1;
-      if (remaining <= 1) {
-        return expandedCursor + (remaining === 0 ? 0 : expandedLength);
+    if (segment.type !== "text") {
+      const collapsedLength = 1;
+      const nextExpandedLength = expandedSegmentLength(segment);
+      if (remaining <= collapsedLength) {
+        return expandedCursor + (remaining === 0 ? 0 : nextExpandedLength);
       }
-      remaining -= 1;
-      expandedCursor += expandedLength;
-      continue;
-    }
-    if (segment.type === "terminal-context") {
-      if (remaining <= 1) {
-        return expandedCursor + remaining;
-      }
-      remaining -= 1;
-      expandedCursor += 1;
+      remaining -= collapsedLength;
+      expandedCursor += nextExpandedLength;
       continue;
     }
 
@@ -79,9 +86,7 @@ export function expandCollapsedComposerCursor(text: string, cursorInput: number)
   return expandedCursor;
 }
 
-function collapsedSegmentLength(
-  segment: { type: "text"; text: string } | { type: "mention" } | { type: "terminal-context" },
-): number {
+function collapsedSegmentLength(segment: ComposerPromptSegment): number {
   if (segment.type === "text") {
     return segment.text.length;
   }
@@ -89,9 +94,7 @@ function collapsedSegmentLength(
 }
 
 function clampCollapsedComposerCursorForSegments(
-  segments: ReadonlyArray<
-    { type: "text"; text: string } | { type: "mention" } | { type: "terminal-context" }
-  >,
+  segments: ReadonlyArray<ComposerPromptSegment>,
   cursorInput: number,
 ): number {
   const collapsedLength = segments.reduce(
@@ -122,23 +125,15 @@ export function collapseExpandedComposerCursor(text: string, cursorInput: number
   let collapsedCursor = 0;
 
   for (const segment of segments) {
-    if (segment.type === "mention") {
-      const expandedLength = segment.path.length + 1;
+    if (segment.type !== "text") {
+      const segmentLength = expandedSegmentLength(segment);
       if (remaining === 0) {
         return collapsedCursor;
       }
-      if (remaining <= expandedLength) {
+      if (remaining <= segmentLength) {
         return collapsedCursor + 1;
       }
-      remaining -= expandedLength;
-      collapsedCursor += 1;
-      continue;
-    }
-    if (segment.type === "terminal-context") {
-      if (remaining <= 1) {
-        return collapsedCursor + remaining;
-      }
-      remaining -= 1;
+      remaining -= segmentLength;
       collapsedCursor += 1;
       continue;
     }
@@ -225,6 +220,14 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
 
   const tokenStart = tokenStartForCursor(text, cursor);
   const token = text.slice(tokenStart, cursor);
+  if (/^#\d*$/.test(token)) {
+    return {
+      kind: "issue",
+      query: token.slice(1),
+      rangeStart: tokenStart,
+      rangeEnd: cursor,
+    };
+  }
   if (!token.startsWith("@")) {
     return null;
   }
@@ -239,7 +242,7 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
 
 export function parseStandaloneComposerSlashCommand(
   text: string,
-): Exclude<ComposerSlashCommand, "model"> | null {
+): Extract<ComposerSlashCommand, "plan" | "default"> | null {
   const match = /^\/(plan|default)\s*$/i.exec(text.trim());
   if (!match) {
     return null;
@@ -247,6 +250,46 @@ export function parseStandaloneComposerSlashCommand(
   const command = match[1]?.toLowerCase();
   if (command === "plan") return "plan";
   return "default";
+}
+
+export function parseComposerIssuesCommand(
+  text: string,
+): { issueNumbers: number[]; message: string } | null {
+  const match = /^\/issues(?:\s+(.*))?$/i.exec(text.trim());
+  if (!match) {
+    return null;
+  }
+  const args = (match[1] ?? "").trim();
+
+  if (args.length === 0) {
+    return {
+      issueNumbers: [],
+      message: "",
+    };
+  }
+
+  const leadingTagsMatch = /^\s*(?:#\d+\s*(?:,\s*)?)+/.exec(args);
+  const tagRegion = leadingTagsMatch?.[0] ?? "";
+  const message = args.slice(tagRegion.length).trim();
+  const issueNumbers: number[] = [];
+  const seen = new Set<number>();
+  for (const issueMatch of tagRegion.matchAll(/#(\d+)/g)) {
+    const numberText = issueMatch[1];
+    if (!numberText) {
+      continue;
+    }
+    const issueNumber = Number.parseInt(numberText, 10);
+    if (!Number.isInteger(issueNumber) || issueNumber <= 0 || seen.has(issueNumber)) {
+      continue;
+    }
+    seen.add(issueNumber);
+    issueNumbers.push(issueNumber);
+  }
+
+  return {
+    issueNumbers,
+    message,
+  };
 }
 
 export function replaceTextRange(

@@ -105,7 +105,7 @@ const fakeGeminiAdapter: GeminiAdapterShape = {
 
 const fakeOpenCodeAdapter: OpenCodeAdapterShape = {
   provider: "opencode",
-  capabilities: { sessionModelSwitch: "restart-session" },
+  capabilities: { sessionModelSwitch: "in-session" },
   startSession: vi.fn(),
   sendTurn: vi.fn(),
   interruptTurn: vi.fn(),

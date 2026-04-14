@@ -52,6 +52,7 @@ function makeThread(input: {
   activities?: OrchestrationThreadActivity[];
   latestTurn?: Thread["latestTurn"];
   messages?: Thread["messages"];
+  session?: Thread["session"];
 }): Thread {
   return {
     id: ThreadId.makeUnsafe(input.id),
@@ -64,7 +65,7 @@ function makeThread(input: {
     },
     runtimeMode: "full-access",
     interactionMode: "default",
-    session: null,
+    session: input.session ?? null,
     messages: input.messages ?? [],
     proposedPlans: [],
     error: null,
@@ -217,6 +218,68 @@ describe("deriveAgentAttentionRequests", () => {
       body: "Finished wiring the notification bridge and inline reply handling.",
       deepLink: "/thread-complete",
     });
+  });
+
+  it("suppresses completion notifications while a session is still running", () => {
+    const requests = deriveAgentAttentionRequests([
+      makeThread({
+        id: "thread-running",
+        title: "Ship it",
+        latestTurn: {
+          turnId: TurnId.makeUnsafe("turn-running"),
+          state: "completed",
+          requestedAt: "2026-04-06T08:00:00.000Z",
+          startedAt: "2026-04-06T08:00:01.000Z",
+          completedAt: "2026-04-06T08:00:09.000Z",
+          assistantMessageId: MessageId.makeUnsafe("msg-running"),
+        },
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: TurnId.makeUnsafe("turn-running"),
+          createdAt: "2026-04-06T08:00:00.000Z",
+          updatedAt: "2026-04-06T08:00:09.000Z",
+        },
+        messages: [
+          {
+            id: MessageId.makeUnsafe("msg-running"),
+            role: "assistant",
+            text: "Interim note before continuing tool calls.",
+            turnId: TurnId.makeUnsafe("turn-running"),
+            createdAt: "2026-04-06T08:00:02.000Z",
+            completedAt: "2026-04-06T08:00:09.000Z",
+            streaming: false,
+          },
+        ],
+      }),
+    ]);
+
+    expect(requests).toEqual([]);
+  });
+
+  it("normalizes markdown and whitespace in notification copy", () => {
+    const [request] = deriveAgentAttentionRequests([
+      makeThread({
+        id: "thread-formatting",
+        title: "Formatting",
+        activities: [
+          makeActivity({
+            id: "approval-formatting",
+            kind: "approval.requested",
+            summary: "approval requested",
+            tone: "approval",
+            payload: {
+              requestId: "req-formatting",
+              requestKind: "command",
+              detail: "Run `[lint](/docs)`   then\n`bun run typecheck`",
+            },
+          }),
+        ],
+      }),
+    ]);
+
+    expect(request?.body).toBe("Run lint then bun run typecheck");
   });
 });
 
@@ -472,6 +535,94 @@ describe("agent attention notification helpers", () => {
         notificationSessionStartedAt: "2026-04-06T08:00:03.000Z",
       }),
     ).toEqual([]);
+  });
+
+  it("suppresses approval and input requests created before the current background session", () => {
+    const requests = deriveAgentAttentionRequests([
+      makeThread({
+        id: "thread-stale",
+        title: "Build fixes",
+        activities: [
+          makeActivity({
+            id: "approval-stale",
+            createdAt: "2026-04-06T08:00:00.000Z",
+            kind: "approval.requested",
+            summary: "Command approval requested",
+            tone: "approval",
+            payload: {
+              requestId: "req-stale-approval",
+              requestKind: "command",
+              detail: "bun run lint",
+            },
+          }),
+          makeActivity({
+            id: "input-recent",
+            createdAt: "2026-04-06T08:25:00.000Z",
+            kind: "user-input.requested",
+            summary: "Structured input requested",
+            tone: "info",
+            payload: {
+              requestId: "req-recent-input",
+              questions: [
+                {
+                  id: "scope",
+                  header: "Scope",
+                  question: "Which scope should the agent handle first?",
+                  options: [
+                    {
+                      label: "Server",
+                      description: "Start with the server",
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        ],
+      }),
+    ]);
+
+    expect(
+      collectAgentAttentionRequestsToNotify({
+        requests,
+        notifiedRequestKeys: new Set<string>(),
+        isAppFocused: false,
+        notificationSessionStartedAt: "2026-04-06T08:30:00.000Z",
+      }).map((request) => request.key),
+    ).toEqual([]);
+  });
+
+  it("can allow recent historical requests when an explicit threshold is provided", () => {
+    const requests = deriveAgentAttentionRequests([
+      makeThread({
+        id: "thread-recent",
+        title: "Build fixes",
+        activities: [
+          makeActivity({
+            id: "approval-recent",
+            createdAt: "2026-04-06T08:24:30.000Z",
+            kind: "approval.requested",
+            summary: "Command approval requested",
+            tone: "approval",
+            payload: {
+              requestId: "req-recent-approval",
+              requestKind: "command",
+              detail: "bun run lint",
+            },
+          }),
+        ],
+      }),
+    ]);
+
+    expect(
+      collectAgentAttentionRequestsToNotify({
+        requests,
+        notifiedRequestKeys: new Set<string>(),
+        isAppFocused: false,
+        notificationSessionStartedAt: "2026-04-06T08:30:00.000Z",
+        historicalRequestThresholdMs: 10 * 60 * 1000,
+      }).map((request) => request.key),
+    ).toEqual(["thread-recent:req-recent-approval"]);
   });
 
   it("detects focus and permission prompt eligibility correctly", async () => {

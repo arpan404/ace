@@ -3,8 +3,12 @@ import type {
   OrchestrationReadModel,
   OrchestrationThread,
 } from "@ace/contracts";
+import { updateSnapshotViewCacheStats } from "../runtimeProfile";
 
-const MAX_CACHED_SNAPSHOT_VIEWS = 32;
+const MAX_CACHED_SNAPSHOT_VIEWS = Math.max(
+  4,
+  Number.parseInt(process.env.ACE_SNAPSHOT_VIEW_CACHE_MAX_ENTRIES ?? "8", 10) || 8,
+);
 
 const SIDEBAR_ACTIVITY_KINDS = new Set<OrchestrationThread["activities"][number]["kind"]>([
   "approval.requested",
@@ -116,12 +120,17 @@ export function createReadModelSnapshotViewCache(
 ): ReadModelSnapshotViewCache {
   let cachedSnapshotSequence = -1;
   const cache = new Map<string, OrchestrationReadModel>();
+  updateSnapshotViewCacheStats({
+    maxEntries: Math.max(1, maxEntries),
+    currentEntries: 0,
+  });
 
   return {
     getSnapshot: (readModel, input) => {
       if (cachedSnapshotSequence !== readModel.snapshotSequence) {
         cache.clear();
         cachedSnapshotSequence = readModel.snapshotSequence;
+        updateSnapshotViewCacheStats({ currentEntries: cache.size });
       }
 
       const key = snapshotViewCacheKey(input);
@@ -135,11 +144,13 @@ export function createReadModelSnapshotViewCache(
         evictOldestCacheEntry(cache);
       }
       cache.set(key, snapshotView);
+      updateSnapshotViewCacheStats({ currentEntries: cache.size });
       return snapshotView;
     },
     clear: () => {
       cache.clear();
       cachedSnapshotSequence = -1;
+      updateSnapshotViewCacheStats({ currentEntries: 0 });
     },
   };
 }

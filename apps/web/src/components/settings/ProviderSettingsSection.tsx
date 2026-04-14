@@ -119,9 +119,9 @@ export function ProviderSettingsSection({
             <TooltipTrigger
               render={
                 <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1.5 px-2 text-xs"
                   disabled={isRefreshingProviders}
                   onClick={() => void refreshProviders()}
                   aria-label="Refresh provider status"
@@ -131,6 +131,7 @@ export function ProviderSettingsSection({
                   ) : (
                     <RefreshCwIcon className="size-3" />
                   )}
+                  Refresh
                 </Button>
               }
             />

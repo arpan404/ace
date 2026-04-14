@@ -10,17 +10,10 @@ import {
   type TextStyle,
   type ViewStyle,
   View,
+  Animated,
 } from "react-native";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withSpring,
-} from "react-native-reanimated";
 import { useTheme } from "./ThemeContext";
 import { canUseNativeGlass } from "./glassAvailability";
-
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 interface LiquidScreenProps {
   children: React.ReactNode;
@@ -43,22 +36,6 @@ interface PageHeaderProps {
   subtitle?: string;
   trailing?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
-}
-
-function withAlpha(color: string, alpha: number) {
-  if (!color.startsWith("#")) {
-    return color;
-  }
-  const normalized = color.slice(1);
-  if (normalized.length !== 6 && normalized.length !== 8) {
-    return color;
-  }
-  const value = normalized.length === 8 ? normalized.slice(0, 6) : normalized;
-  const r = Number.parseInt(value.slice(0, 2), 16);
-  const g = Number.parseInt(value.slice(2, 4), 16);
-  const b = Number.parseInt(value.slice(4, 6), 16);
-  const a = Math.max(0, Math.min(1, alpha));
-  return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
 }
 
 export function LiquidScreen({ children, style }: LiquidScreenProps) {
@@ -98,45 +75,49 @@ export function GlassGroup({ children, style }: GlassGroupProps) {
 }
 
 export function GlassRow({ children, style, scaleOnPress = true, ...props }: GlassRowProps) {
-  const { isDark, theme } = useTheme();
-  const scale = useSharedValue(1);
-
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: scale.value }],
-    };
-  });
+  const { isDark } = useTheme();
+  const scale = useRef(new Animated.Value(1)).current;
 
   return (
-    <AnimatedPressable
-      {...props}
-      onPressIn={(e) => {
-        if (scaleOnPress) {
-          scale.value = withTiming(0.97, { duration: 100 });
-        }
-        if (props.onPressIn) props.onPressIn(e);
-      }}
-      onPressOut={(e) => {
-        if (scaleOnPress) {
-          scale.value = withSpring(1, { damping: 15, stiffness: 300 });
-        }
-        if (props.onPressOut) props.onPressOut(e);
-      }}
-      style={({ pressed }) => [
-        styles.row,
-        animatedStyle,
-        {
-          backgroundColor: pressed
-            ? isDark
-              ? "rgba(255,255,255,0.05)"
-              : "rgba(0,0,0,0.04)"
-            : "transparent",
-        },
-        style,
-      ]}
-    >
-      {children}
-    </AnimatedPressable>
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable
+        {...props}
+        onPressIn={(e) => {
+          if (scaleOnPress) {
+            Animated.timing(scale, {
+              toValue: 0.97,
+              duration: 100,
+              useNativeDriver: true,
+            }).start();
+          }
+          if (props.onPressIn) props.onPressIn(e);
+        }}
+        onPressOut={(e) => {
+          if (scaleOnPress) {
+            Animated.spring(scale, {
+              toValue: 1,
+              friction: 4,
+              tension: 40,
+              useNativeDriver: true,
+            }).start();
+          }
+          if (props.onPressOut) props.onPressOut(e);
+        }}
+        style={({ pressed }) => [
+          styles.row,
+          {
+            backgroundColor: pressed
+              ? isDark
+                ? "rgba(255,255,255,0.05)"
+                : "rgba(0,0,0,0.04)"
+              : "transparent",
+          },
+          style,
+        ]}
+      >
+        {children}
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -208,37 +189,41 @@ export function GlassActionButton({
   onPress: ((event: GestureResponderEvent) => void) | undefined;
 }) {
   const { isDark, theme } = useTheme();
-  const scale = useSharedValue(1);
-
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: scale.value }],
-    };
-  });
+  const scale = useRef(new Animated.Value(1)).current;
 
   return (
-    <AnimatedPressable
-      onPress={onPress}
-      onPressIn={() => {
-        scale.value = withTiming(0.92, { duration: 100 });
-      }}
-      onPressOut={() => {
-        scale.value = withSpring(1, { damping: 15, stiffness: 300 });
-      }}
-      style={({ pressed }) => [
-        styles.actionButton,
-        animatedStyle,
-        {
-          backgroundColor: pressed
-            ? isDark
-              ? "rgba(255,255,255,0.15)"
-              : "rgba(0,0,0,0.08)"
-            : theme.secondary,
-        },
-      ]}
-    >
-      {children}
-    </AnimatedPressable>
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={() => {
+          Animated.timing(scale, {
+            toValue: 0.92,
+            duration: 100,
+            useNativeDriver: true,
+          }).start();
+        }}
+        onPressOut={() => {
+          Animated.spring(scale, {
+            toValue: 1,
+            friction: 4,
+            tension: 40,
+            useNativeDriver: true,
+          }).start();
+        }}
+        style={({ pressed }) => [
+          styles.actionButton,
+          {
+            backgroundColor: pressed
+              ? isDark
+                ? "rgba(255,255,255,0.15)"
+                : "rgba(0,0,0,0.08)"
+              : theme.secondary,
+          },
+        ]}
+      >
+        {children}
+      </Pressable>
+    </Animated.View>
   );
 }
 

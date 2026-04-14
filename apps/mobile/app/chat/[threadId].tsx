@@ -10,27 +10,31 @@ import {
   Platform,
   Pressable,
   ActivityIndicator,
+  Animated,
 } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
 import { Send } from "lucide-react-native";
 import Markdown from "react-native-markdown-display";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { randomUUID } from "@ace/shared/ids";
 import { useTheme } from "../../src/design/ThemeContext";
 import { connectionManager } from "../../src/rpc/ConnectionManager";
-import type { OrchestrationThread, OrchestrationMessage } from "@ace/contracts";
+import type {
+  OrchestrationThread,
+  OrchestrationMessage,
+  ThreadId,
+  CommandId,
+  MessageId,
+} from "@ace/contracts";
 import { LiquidScreen } from "../../src/design/LiquidGlass";
 import { formatErrorMessage } from "../../src/errors";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withSpring,
-} from "react-native-reanimated";
-
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+import { upsertThreadMessage } from "../../src/chat/threadMessages";
 
 export default function ChatScreen() {
-  const { threadId, hostId } = useLocalSearchParams<{ threadId: string; hostId: string }>();
+  const { threadId, hostId } = useLocalSearchParams<{
+    threadId: string;
+    hostId: string;
+  }>();
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const [thread, setThread] = useState<OrchestrationThread | null>(null);
@@ -39,24 +43,27 @@ export default function ChatScreen() {
   const [sending, setSending] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [connections, setConnections] = useState(() => connectionManager.getConnections());
   const flatListRef = useRef<FlatList<OrchestrationMessage>>(null);
+  const resolvedThreadId = threadId ? (threadId as ThreadId) : null;
 
-  const conn = connectionManager.getConnections().find((c) => c.host.id === hostId);
+  const conn = connections.find((connection) => connection.host.id === hostId);
+  const connStatusKind = conn?.status.kind;
   const canSend = inputText.trim().length > 0 && !sending;
-  const sendScale = useSharedValue(1);
+  const sendScale = useRef(new Animated.Value(1)).current;
 
-  const sendAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: sendScale.value }],
-  }));
+  useEffect(() => connectionManager.onStatusChange(setConnections), []);
 
   useEffect(() => {
-    if (!threadId) {
+    if (!resolvedThreadId) {
       setLoadError("Thread id is missing.");
+      setThread(null);
       setLoading(false);
       return;
     }
-    if (!conn || conn.status.kind !== "connected") {
+    if (!conn || connStatusKind !== "connected") {
       setLoadError("Host connection is unavailable.");
+      setThread(null);
       setLoading(false);
       return;
     }
@@ -66,7 +73,7 @@ export default function ChatScreen() {
     setLoadError(null);
 
     void conn.client.orchestration
-      .getThread(threadId)
+      .getThread(resolvedThreadId)
       .then((nextThread) => {
         if (!mounted) {
           return;
@@ -78,7 +85,7 @@ export default function ChatScreen() {
           return;
         }
         const message = formatErrorMessage(error);
-        console.error(`Failed to load thread ${threadId}: ${message}`);
+        console.error(`Failed to load thread ${resolvedThreadId}: ${message}`);
         setLoadError(message);
       })
       .finally(() => {
@@ -89,7 +96,7 @@ export default function ChatScreen() {
       });
 
     const cleanup = conn.client.orchestration.onDomainEvent((event) => {
-      if (event.type !== "thread.message-sent" || event.payload.threadId !== threadId) {
+      if (event.type !== "thread.message-sent" || event.payload.threadId !== resolvedThreadId) {
         return;
       }
 
@@ -109,10 +116,15 @@ export default function ChatScreen() {
         if (!prev) {
           return prev;
         }
-        if (prev.messages.some((message) => message.id === incomingMessage.id)) {
-          return prev;
-        }
-        return { ...prev, messages: [...prev.messages, incomingMessage] };
+
+        return {
+          ...prev,
+          updatedAt:
+            prev.updatedAt.localeCompare(incomingMessage.updatedAt) < 0
+              ? incomingMessage.updatedAt
+              : prev.updatedAt,
+          messages: upsertThreadMessage(prev.messages, incomingMessage),
+        };
       });
     });
 
@@ -120,13 +132,13 @@ export default function ChatScreen() {
       mounted = false;
       cleanup();
     };
-  }, [conn, threadId]);
+  }, [conn, connStatusKind, resolvedThreadId]);
 
   const handleSend = async () => {
     if (!canSend) {
       return;
     }
-    if (!conn || conn.status.kind !== "connected" || !threadId) {
+    if (!conn || conn.status.kind !== "connected" || !resolvedThreadId || !thread) {
       Alert.alert("Connection unavailable", "Reconnect the host before sending a message.");
       return;
     }
@@ -137,14 +149,25 @@ export default function ChatScreen() {
     setInputText("");
 
     try {
+      const createdAt = new Date().toISOString();
       await conn.client.orchestration.dispatchCommand({
-        kind: "msg",
-        threadId,
-        text: textToSend,
+        type: "thread.turn.start",
+        commandId: randomUUID() as CommandId,
+        threadId: resolvedThreadId,
+        message: {
+          messageId: randomUUID() as MessageId,
+          role: "user",
+          text: textToSend,
+          attachments: [],
+        },
+        modelSelection: thread.modelSelection,
+        runtimeMode: thread.runtimeMode,
+        interactionMode: thread.interactionMode,
+        createdAt,
       });
     } catch (error) {
       const message = formatErrorMessage(error);
-      console.error(`Failed to send message to thread ${threadId}: ${message}`);
+      console.error(`Failed to send message to thread ${resolvedThreadId}: ${message}`);
       setSendError(message);
       setInputText(textToSend);
       Alert.alert("Failed to send message", message);
@@ -175,7 +198,10 @@ export default function ChatScreen() {
                 fontSize: 16,
                 lineHeight: 22,
               },
-              link: { color: isUser ? "#ffffff" : theme.primary, textDecorationLine: "underline" },
+              link: {
+                color: isUser ? "#ffffff" : theme.primary,
+                textDecorationLine: "underline",
+              },
               code_inline: {
                 backgroundColor: isUser
                   ? "rgba(0,0,0,0.15)"
@@ -208,10 +234,16 @@ export default function ChatScreen() {
         <Text
           style={[
             styles.messageTime,
-            { color: theme.mutedForeground, alignSelf: isUser ? "flex-end" : "flex-start" },
+            {
+              color: theme.mutedForeground,
+              alignSelf: isUser ? "flex-end" : "flex-start",
+            },
           ]}
         >
-          {new Date(item.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          {new Date(item.createdAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
         </Text>
       </View>
     );
@@ -243,8 +275,11 @@ export default function ChatScreen() {
         options={{
           headerShown: true,
           title: thread?.messages.at(-1)?.text.substring(0, 20) || "Thread",
-          headerTitleStyle: { color: theme.foreground, fontSize: 17, fontWeight: "600" },
-          headerBackTitleVisible: false,
+          headerTitleStyle: {
+            color: theme.foreground,
+            fontSize: 17,
+            fontWeight: "600",
+          },
           headerStyle: { backgroundColor: theme.background },
           headerShadowVisible: false,
           headerTintColor: theme.primary,
@@ -267,7 +302,10 @@ export default function ChatScreen() {
         <View
           style={[
             styles.inputWrap,
-            { paddingBottom: Math.max(insets.bottom, 12), backgroundColor: theme.background },
+            {
+              paddingBottom: Math.max(insets.bottom, 12),
+              backgroundColor: theme.background,
+            },
           ]}
         >
           {sendError ? (
@@ -276,7 +314,10 @@ export default function ChatScreen() {
           <View
             style={[
               styles.inputBar,
-              { backgroundColor: isDark ? theme.card : "#ffffff", borderColor: theme.border },
+              {
+                backgroundColor: isDark ? theme.card : "#ffffff",
+                borderColor: theme.border,
+              },
             ]}
           >
             <TextInput
@@ -286,33 +327,46 @@ export default function ChatScreen() {
               value={inputText}
               onChangeText={setInputText}
               multiline
-              maxHeight={120}
             />
-            <AnimatedPressable
-              onPress={handleSend}
-              onPressIn={() => {
-                if (canSend) sendScale.value = withTiming(0.85, { duration: 100 });
-              }}
-              onPressOut={() => {
-                sendScale.value = withSpring(1, { damping: 15, stiffness: 300 });
-              }}
-              style={[
-                styles.sendButton,
-                sendAnimatedStyle,
-                { backgroundColor: canSend ? theme.primary : theme.secondary },
-              ]}
-              disabled={!canSend}
-            >
-              {sending ? (
-                <ActivityIndicator size="small" color={theme.primaryForeground} />
-              ) : (
-                <Send
-                  size={16}
-                  color={canSend ? theme.primaryForeground : theme.mutedForeground}
-                  style={{ marginLeft: 2 }}
-                />
-              )}
-            </AnimatedPressable>
+            <Animated.View style={{ transform: [{ scale: sendScale }] }}>
+              <Pressable
+                onPress={handleSend}
+                onPressIn={() => {
+                  if (canSend) {
+                    Animated.timing(sendScale, {
+                      toValue: 0.85,
+                      duration: 100,
+                      useNativeDriver: true,
+                    }).start();
+                  }
+                }}
+                onPressOut={() => {
+                  Animated.spring(sendScale, {
+                    toValue: 1,
+                    friction: 4,
+                    tension: 40,
+                    useNativeDriver: true,
+                  }).start();
+                }}
+                style={[
+                  styles.sendButton,
+                  {
+                    backgroundColor: canSend ? theme.primary : theme.secondary,
+                  },
+                ]}
+                disabled={!canSend}
+              >
+                {sending ? (
+                  <ActivityIndicator size="small" color={theme.primaryForeground} />
+                ) : (
+                  <Send
+                    size={16}
+                    color={canSend ? theme.primaryForeground : theme.mutedForeground}
+                    style={{ marginLeft: 2 }}
+                  />
+                )}
+              </Pressable>
+            </Animated.View>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -378,6 +432,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     minHeight: 36,
+    maxHeight: 120,
     paddingTop: 8,
     paddingBottom: 8,
     fontSize: 16,

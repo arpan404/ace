@@ -4,7 +4,7 @@ Use this when you want to open ace from another device (phone, tablet, another l
 
 ## CLI ↔ Env option map
 
-The ace CLI accepts the following configuration options, available either as CLI flags or environment variables:
+The ace server command (`ace serve`) accepts the following configuration options, available either as CLI flags or environment variables:
 
 | CLI flag                | Env var               | Notes                                                                                |
 | ----------------------- | --------------------- | ------------------------------------------------------------------------------------ |
@@ -18,6 +18,12 @@ The ace CLI accepts the following configuration options, available either as CLI
 | `--bootstrap-fd <fd>`   | `ACE_BOOTSTRAP_FD`    | Read a one-shot bootstrap envelope from an inherited file descriptor during startup. |
 
 > TIP: Use the `--help` flag to see all available options and their descriptions.
+
+Other useful CLI commands:
+
+- `ace daemon start|status|stop` for a persistent background server
+- `ace remote add|list|remove` for saved remote host entries
+- `ace project add|list|remove` for project catalog management without launching server runtime
 
 ## Security First
 

@@ -330,6 +330,86 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
 
+  it("passes handoff replay turns when starting the destination thread session", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-source-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-source-1"),
+          role: "user",
+          text: "source thread context",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    harness.startSession.mockClear();
+    harness.sendTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-create-handoff"),
+        threadId: ThreadId.makeUnsafe("thread-2"),
+        projectId: asProjectId("project-1"),
+        title: "Handoff Thread",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        handoff: {
+          sourceThreadId: ThreadId.makeUnsafe("thread-1"),
+          fromProvider: "codex",
+          toProvider: "codex",
+          mode: "transcript",
+          createdAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-handoff-1"),
+        threadId: ThreadId.makeUnsafe("thread-2"),
+        message: {
+          messageId: asMessageId("user-message-handoff-1"),
+          role: "user",
+          text: "summarize prior context",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    const startInput = harness.startSession.mock.calls[0]?.[1] as
+      | { replayTurns?: Array<{ prompt: string }> }
+      | undefined;
+    expect(startInput?.replayTurns?.length).toBeGreaterThan(0);
+    expect(startInput?.replayTurns?.[0]?.prompt).toContain(
+      "Handoff context from a prior provider session.",
+    );
+    expect(
+      startInput?.replayTurns?.some((turn) => turn.prompt.includes("source thread context")),
+    ).toBe(true);
+  });
+
   it("surfaces overlapping turn starts without re-entering the provider adapter", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

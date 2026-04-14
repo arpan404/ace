@@ -1,5 +1,5 @@
 import { ServerProvider as ServerProviderSchema, type ServerProvider } from "@ace/contracts";
-import { Duration, Effect, FileSystem, Option, PubSub, Ref, Schema, Scope, Stream } from "effect";
+import { Effect, FileSystem, Option, PubSub, Ref, Schema, Scope, Stream } from "effect";
 import * as Semaphore from "effect/Semaphore";
 
 import { ServerConfig } from "../config";
@@ -65,7 +65,6 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   readonly streamSettings: Stream.Stream<Settings>;
   readonly haveSettingsChanged: (previous: Settings, next: Settings) => boolean;
   readonly checkProvider: Effect.Effect<ServerProvider, ServerSettingsError>;
-  readonly refreshInterval?: Duration.Input;
 }): Effect.fn.Return<ServerProviderShape, ServerSettingsError, Scope.Scope> {
   const providerLabel = input.label ?? "Provider";
   const readCachedSnapshot = (settings: Settings) =>
@@ -142,11 +141,13 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     `Loading ${providerLabel} provider settings`,
     input.getSettings,
   );
-  const initialSnapshot = yield* readCachedSnapshot(initialSettings).pipe(
-    Effect.map(Option.getOrElse(() => input.initialSnapshot(initialSettings))),
+  const cachedInitialSnapshot = yield* readCachedSnapshot(initialSettings);
+  const initialSnapshot = Option.getOrElse(cachedInitialSnapshot, () =>
+    input.initialSnapshot(initialSettings),
   );
   const snapshotRef = yield* Ref.make(initialSnapshot);
   const settingsRef = yield* Ref.make(initialSettings);
+  const hasVerifiedSnapshotRef = yield* Ref.make(Option.isSome(cachedInitialSnapshot));
 
   const runHealthCheck = withStartupTiming(
     "providers",
@@ -167,7 +168,12 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   ) {
     const forceRefresh = options?.forceRefresh === true;
     const previousSettings = yield* Ref.get(settingsRef);
-    if (!forceRefresh && !input.haveSettingsChanged(previousSettings, nextSettings)) {
+    const hasVerifiedSnapshot = yield* Ref.get(hasVerifiedSnapshotRef);
+    if (
+      !forceRefresh &&
+      hasVerifiedSnapshot &&
+      !input.haveSettingsChanged(previousSettings, nextSettings)
+    ) {
       yield* Ref.set(settingsRef, nextSettings);
       return yield* Ref.get(snapshotRef);
     }
@@ -175,6 +181,7 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     const nextSnapshot = yield* runHealthCheck;
     yield* Ref.set(settingsRef, nextSettings);
     yield* Ref.set(snapshotRef, nextSnapshot);
+    yield* Ref.set(hasVerifiedSnapshotRef, true);
     yield* PubSub.publish(changesPubSub, nextSnapshot);
     yield* writeCachedSnapshot(nextSettings, nextSnapshot);
     return nextSnapshot;
@@ -189,17 +196,6 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
 
   yield* Stream.runForEach(input.streamSettings, (nextSettings) =>
     Effect.asVoid(applySnapshot(nextSettings)),
-  ).pipe(Effect.forkScoped);
-
-  yield* Effect.forkScoped(
-    applySnapshot(initialSettings, { forceRefresh: true }).pipe(Effect.ignoreCause({ log: true })),
-  );
-
-  yield* Effect.forever(
-    Effect.sleep(input.refreshInterval ?? "60 seconds").pipe(
-      Effect.flatMap(() => refreshSnapshot()),
-      Effect.ignoreCause({ log: true }),
-    ),
   ).pipe(Effect.forkScoped);
 
   return {

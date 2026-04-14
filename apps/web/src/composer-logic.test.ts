@@ -6,6 +6,7 @@ import {
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToInlineToken,
+  parseComposerIssuesCommand,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "./composer-logic";
@@ -58,6 +59,67 @@ describe("detectComposerTrigger", () => {
       rangeStart: 0,
       rangeEnd: text.length,
     });
+  });
+
+  it("detects /issues while typing command name", () => {
+    const text = "/iss";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "slash-command",
+      query: "iss",
+      rangeStart: 0,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("detects issue tag trigger after /issues", () => {
+    const text = "/issues #";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "issue",
+      query: "",
+      rangeStart: "/issues ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("detects issue tag prefix query after /issues", () => {
+    const text = "/issues #35";
+    const trigger = detectComposerTrigger(text, text.length);
+
+    expect(trigger).toEqual({
+      kind: "issue",
+      query: "35",
+      rangeStart: "/issues ".length,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("detects issue trigger outside /issues command", () => {
+    const text = "#35";
+    expect(detectComposerTrigger(text, text.length)).toEqual({
+      kind: "issue",
+      query: "35",
+      rangeStart: 0,
+      rangeEnd: text.length,
+    });
+  });
+
+  it("detects issue trigger in the middle of normal message text", () => {
+    const text = "Please check #356 before release";
+    const cursorAfterIssue = "Please check #356".length;
+    expect(detectComposerTrigger(text, cursorAfterIssue)).toEqual({
+      kind: "issue",
+      query: "356",
+      rangeStart: "Please check ".length,
+      rangeEnd: cursorAfterIssue,
+    });
+  });
+
+  it("does not detect hash-like fragments embedded in words", () => {
+    expect(detectComposerTrigger("c#35", "c#35".length)).toBeNull();
   });
 
   it("detects @path trigger in the middle of existing text", () => {
@@ -246,5 +308,46 @@ describe("parseStandaloneComposerSlashCommand", () => {
 
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
+  });
+});
+
+describe("parseComposerIssuesCommand", () => {
+  it("parses multiple tagged issues", () => {
+    expect(parseComposerIssuesCommand(" /issues #351 #341 ")).toEqual({
+      issueNumbers: [351, 341],
+      message: "",
+    });
+  });
+
+  it("parses comma-separated issue tags", () => {
+    expect(parseComposerIssuesCommand("/issues #351, #341, #341")).toEqual({
+      issueNumbers: [351, 341],
+      message: "",
+    });
+  });
+
+  it("returns an empty array when no issue tag is provided", () => {
+    expect(parseComposerIssuesCommand("/issues")).toEqual({
+      issueNumbers: [],
+      message: "",
+    });
+  });
+
+  it("ignores non-issues slash commands", () => {
+    expect(parseComposerIssuesCommand("/plan #351")).toBeNull();
+  });
+
+  it("keeps trailing message text after leading issue tags", () => {
+    expect(parseComposerIssuesCommand("/issues #351 Can you explain root cause?")).toEqual({
+      issueNumbers: [351],
+      message: "Can you explain root cause?",
+    });
+  });
+
+  it("does not parse issue-style text in the message body as tagged issues", () => {
+    expect(parseComposerIssuesCommand("/issues #351 Explain if #341 is related")).toEqual({
+      issueNumbers: [351],
+      message: "Explain if #341 is related",
+    });
   });
 });

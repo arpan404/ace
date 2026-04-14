@@ -75,10 +75,16 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { meaningfulErrorMessage } from "../errorCause.ts";
+import {
+  buildBootstrapPromptFromReplayTurns,
+  cloneReplayTurns,
+  type TranscriptReplayTurn,
+} from "../providerTranscriptBootstrap.ts";
 import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "claudeAgent" as const;
+const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
 type ClaudeTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
 type ClaudeToolResultStreamKind = Extract<
   RuntimeContentStreamKind,
@@ -156,6 +162,8 @@ interface ClaudeSessionContext {
   resumeSessionId: string | undefined;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
+  readonly replayTurns: Array<TranscriptReplayTurn>;
+  pendingBootstrapReset: boolean;
   readonly turns: Array<{
     id: TurnId;
     items: Array<unknown>;
@@ -2792,6 +2800,8 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         resumeSessionId: sessionId,
         pendingApprovals,
         pendingUserInputs,
+        replayTurns: cloneReplayTurns(input.replayTurns),
+        pendingBootstrapReset: (input.replayTurns?.length ?? 0) > 0,
         turns: [],
         inFlightTools,
         turnState: undefined,
@@ -2949,7 +2959,16 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       providerRefs: {},
     });
 
-    const message = yield* buildUserMessageEffect(input, {
+    const latestPrompt = input.input ?? "Please analyze the attached files.";
+    const promptText = context.pendingBootstrapReset
+      ? buildBootstrapPromptFromReplayTurns(
+          context.replayTurns,
+          latestPrompt,
+          ROLLBACK_BOOTSTRAP_MAX_CHARS,
+        ).text
+      : input.input;
+    const messageInput = promptText === input.input ? input : { ...input, input: promptText };
+    const message = yield* buildUserMessageEffect(messageInput, {
       fileSystem,
       attachmentsDir: serverConfig.attachmentsDir,
     });
@@ -2958,6 +2977,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       type: "message",
       message,
     }).pipe(Effect.mapError((cause) => toRequestError(input.threadId, "turn/start", cause)));
+    context.pendingBootstrapReset = false;
 
     return {
       threadId: context.session.threadId,

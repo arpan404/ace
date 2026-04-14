@@ -210,6 +210,51 @@ validationLayer("CodexAdapterLive validation", (it) => {
       });
     }),
   );
+
+  it.effect("bootstraps first turn from replay turns and then sends raw prompts", () =>
+    Effect.gen(function* () {
+      validationManager.startSessionImpl.mockClear();
+      validationManager.sendTurnImpl.mockClear();
+      const adapter = yield* CodexAdapter;
+
+      yield* adapter.startSession({
+        provider: "codex",
+        threadId: asThreadId("thread-handoff"),
+        replayTurns: [
+          {
+            prompt: "Old question",
+            attachmentNames: [],
+            assistantResponse: "Old answer",
+          },
+        ],
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: asThreadId("thread-handoff"),
+        input: "New question",
+        attachments: [],
+      });
+      yield* adapter.sendTurn({
+        threadId: asThreadId("thread-handoff"),
+        input: "Follow-up",
+        attachments: [],
+      });
+
+      const firstPrompt = validationManager.sendTurnImpl.mock.calls[0]?.[0]?.input;
+      const secondPrompt = validationManager.sendTurnImpl.mock.calls[1]?.[0]?.input;
+      assert.equal(typeof firstPrompt, "string");
+      assert.equal(
+        firstPrompt?.includes("Continue this conversation using the transcript context below."),
+        true,
+      );
+      assert.equal(
+        firstPrompt?.includes("Latest user request (answer this now):\nNew question"),
+        true,
+      );
+      assert.equal(secondPrompt, "Follow-up");
+    }),
+  );
 });
 
 const sessionErrorManager = new FakeCodexManager();

@@ -6,6 +6,8 @@ import {
   type OrchestrationEvent,
   type OrchestrationGetSnapshotInput,
   type OrchestrationReadModel,
+  type ProviderKind,
+  type ServerProvider,
   type ThreadId,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
@@ -21,6 +23,7 @@ import {
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   type TerminalEvent,
+  ServerLspToolsError,
   WorkspaceEditorCloseBufferError,
   WorkspaceEditorSyncBufferError,
   WS_METHODS,
@@ -46,15 +49,21 @@ import { createReadModelSnapshotViewCache } from "./orchestration/readModelSnaps
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
+import { ProviderService } from "./provider/Services/ProviderService";
 import { startOpenCodeServer } from "./provider/opencodeRuntime";
 import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./provider/opencodeSdk";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
+import { getLspToolsStatus, installLspTools } from "./lspTools";
+import { collectRuntimeProfileSnapshot } from "./runtimeProfile";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceEditor } from "./workspace/Services/WorkspaceEditor";
-import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
+import {
+  WorkspaceFileSystem,
+  WorkspaceFileSystemError,
+} from "./workspace/Services/WorkspaceFileSystem";
 import {
   WorkspacePathOutsideRootError,
   WorkspaceRootNotDirectoryError,
@@ -66,6 +75,14 @@ const WS_UPGRADE_RATE_LIMIT_WINDOW_MS = 60_000;
 const WS_UPGRADE_RATE_LIMIT_MAX_ATTEMPTS = 30;
 const WS_CLIENT_SESSION_TTL_MS = 15 * 60_000;
 const WS_CLIENT_SESSION_PRUNE_INTERVAL_MS = 60_000;
+const PROVIDER_AUTO_REFRESH_TICK_MS = 60_000;
+const PROVIDER_AUTO_REFRESH_READY_TTL_MS = 2 * 60 * 60_000;
+const PROVIDER_AUTO_REFRESH_WARNING_TTL_MS = 45 * 60_000;
+const PROVIDER_AUTO_REFRESH_ERROR_TTL_MS = 15 * 60_000;
+const ORCHESTRATION_EVENT_REORDER_MAX_PENDING = Math.max(
+  128,
+  Number.parseInt(process.env.ACE_ORCHESTRATION_EVENT_REORDER_MAX_PENDING ?? "1024", 10) || 1024,
+);
 
 type WsClientSessionRecord = {
   readonly connectionId: string;
@@ -91,6 +108,11 @@ function pruneWsClientSessionsIfNeeded(now = Date.now()): void {
   }
   pruneWsClientSessions(now);
   nextWsClientSessionPruneAt = now + WS_CLIENT_SESSION_PRUNE_INTERVAL_MS;
+}
+
+function hasActiveWsClientSessions(now = Date.now()): boolean {
+  pruneWsClientSessionsIfNeeded(now);
+  return wsClientSessions.size > 0;
 }
 
 function registerWsClientSession(
@@ -162,6 +184,72 @@ function resolveWsRateLimitKey(headers: Record<string, string | undefined>): str
   }
 
   return headers["user-agent"]?.trim() || "ws-upgrade:unknown";
+}
+
+function providerRefreshJitterFactor(provider: ProviderKind): number {
+  let hash = 0;
+  for (let index = 0; index < provider.length; index += 1) {
+    hash = (hash << 5) - hash + provider.charCodeAt(index);
+    hash |= 0;
+  }
+  const normalized = Math.abs(hash % 100) / 100;
+  return 0.8 + normalized * 0.5;
+}
+
+function providerRefreshBaseTtlMs(status: ServerProvider["status"]): number {
+  switch (status) {
+    case "ready":
+      return PROVIDER_AUTO_REFRESH_READY_TTL_MS;
+    case "warning":
+      return PROVIDER_AUTO_REFRESH_WARNING_TTL_MS;
+    case "error":
+      return PROVIDER_AUTO_REFRESH_ERROR_TTL_MS;
+    case "disabled":
+      return Number.MAX_SAFE_INTEGER;
+  }
+}
+
+function isPendingProviderSnapshot(provider: ServerProvider): boolean {
+  return (
+    provider.status === "warning" &&
+    provider.message !== undefined &&
+    provider.message.toLowerCase().startsWith("checking ")
+  );
+}
+
+function providerRefreshDueAt(provider: ServerProvider): number {
+  if (isPendingProviderSnapshot(provider)) {
+    return 0;
+  }
+  const checkedAtMs = Date.parse(provider.checkedAt);
+  const baseTtlMs = providerRefreshBaseTtlMs(provider.status);
+  const ttlMs = Math.round(baseTtlMs * providerRefreshJitterFactor(provider.provider));
+  if (!Number.isFinite(checkedAtMs)) {
+    return 0;
+  }
+  return checkedAtMs + ttlMs;
+}
+
+function selectDueProviderForRefresh(
+  providers: ReadonlyArray<ServerProvider>,
+  now = Date.now(),
+): ProviderKind | null {
+  const dueProviders = providers
+    .filter((provider) => provider.enabled && provider.status !== "disabled")
+    .map((provider) => ({ provider: provider.provider, dueAt: providerRefreshDueAt(provider) }))
+    .filter((provider) => provider.dueAt <= now);
+
+  if (dueProviders.length === 0) {
+    return null;
+  }
+
+  const oldestDueAt = dueProviders.reduce(
+    (oldest, provider) => (provider.dueAt < oldest ? provider.dueAt : oldest),
+    dueProviders[0]!.dueAt,
+  );
+  const oldestDueProviders = dueProviders.filter((provider) => provider.dueAt === oldestDueAt);
+  const selectedIndex = Math.floor(Math.random() * oldestDueProviders.length);
+  return oldestDueProviders[selectedIndex]?.provider ?? null;
 }
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -241,6 +329,52 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         settings,
       };
     });
+
+    const loadRuntimeProfile = Effect.gen(function* () {
+      const providerServiceOption = yield* Effect.serviceOption(ProviderService);
+      const providerSessions = Option.isSome(providerServiceOption)
+        ? yield* providerServiceOption.value.listSessions()
+        : [];
+      const sessionCountByProvider = new Map<ProviderKind, number>();
+      for (const session of providerSessions) {
+        const currentCount = sessionCountByProvider.get(session.provider) ?? 0;
+        sessionCountByProvider.set(session.provider, currentCount + 1);
+      }
+      const providerSessionCounts = [...sessionCountByProvider.entries()]
+        .map(([provider, sessionCount]) => ({ provider, sessionCount }))
+        .toSorted((left, right) => left.provider.localeCompare(right.provider));
+      return collectRuntimeProfileSnapshot({
+        providerSessions: providerSessionCounts,
+      });
+    });
+
+    const refreshOneProviderWhenDue = Effect.gen(function* () {
+      if (!hasActiveWsClientSessions()) {
+        return;
+      }
+      const providers = yield* providerRegistry.getProviders;
+      const providerToRefresh = selectDueProviderForRefresh(providers);
+      if (!providerToRefresh) {
+        return;
+      }
+      const providerServiceOption = yield* Effect.serviceOption(ProviderService);
+      if (Option.isSome(providerServiceOption)) {
+        const providerSessions = yield* providerServiceOption.value.listSessions();
+        if (providerSessions.some((session) => session.provider === providerToRefresh)) {
+          return;
+        }
+      }
+      yield* providerRegistry.refresh(providerToRefresh);
+    });
+
+    yield* Effect.forkScoped(
+      Effect.forever(
+        Effect.sleep(PROVIDER_AUTO_REFRESH_TICK_MS).pipe(
+          Effect.flatMap(() => refreshOneProviderWhenDue),
+          Effect.ignoreCause({ log: true }),
+        ),
+      ),
+    );
 
     const filterCurrentClientStream = <TValue, TError, TContext>(
       input: {
@@ -377,41 +511,57 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               pendingBySequence: new Map<number, OrchestrationEvent>(),
             });
 
-            return filterCurrentClientStream(
-              normalizeStreamIdentity(input),
-              source.pipe(
-                Stream.mapEffect((event) =>
-                  Ref.modify(
-                    state,
-                    ({
-                      nextSequence,
-                      pendingBySequence,
-                    }): [Array<OrchestrationEvent>, SequenceState] => {
-                      if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
-                        return [[], { nextSequence, pendingBySequence }];
-                      }
-
-                      const updatedPending = new Map(pendingBySequence);
-                      updatedPending.set(event.sequence, event);
-
-                      const emit: Array<OrchestrationEvent> = [];
-                      let expected = nextSequence;
-                      for (;;) {
-                        const expectedEvent = updatedPending.get(expected);
-                        if (!expectedEvent) {
-                          break;
-                        }
-                        emit.push(expectedEvent);
-                        updatedPending.delete(expected);
-                        expected += 1;
-                      }
-
-                      return [emit, { nextSequence: expected, pendingBySequence: updatedPending }];
-                    },
-                  ),
-                ),
-                Stream.flatMap((events) => Stream.fromIterable(events)),
+            return source.pipe(
+              Stream.filter(() =>
+                isCurrentWsClientSession(input.clientSessionId, input.connectionId),
               ),
+              Stream.mapEffect((event) =>
+                Ref.modify(
+                  state,
+                  ({
+                    nextSequence,
+                    pendingBySequence,
+                  }): [Array<OrchestrationEvent>, SequenceState] => {
+                    if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
+                      return [[], { nextSequence, pendingBySequence }];
+                    }
+
+                    pendingBySequence.set(event.sequence, event);
+
+                    const emit: Array<OrchestrationEvent> = [];
+                    let expected = nextSequence;
+                    for (;;) {
+                      const expectedEvent = pendingBySequence.get(expected);
+                      if (!expectedEvent) {
+                        break;
+                      }
+                      emit.push(expectedEvent);
+                      pendingBySequence.delete(expected);
+                      expected += 1;
+                    }
+
+                    if (pendingBySequence.size > ORCHESTRATION_EVENT_REORDER_MAX_PENDING) {
+                      let newestPendingEvent: OrchestrationEvent | null = null;
+                      for (const pendingEvent of pendingBySequence.values()) {
+                        if (
+                          newestPendingEvent === null ||
+                          pendingEvent.sequence > newestPendingEvent.sequence
+                        ) {
+                          newestPendingEvent = pendingEvent;
+                        }
+                      }
+                      pendingBySequence.clear();
+                      if (newestPendingEvent !== null) {
+                        emit.push(newestPendingEvent);
+                        expected = newestPendingEvent.sequence + 1;
+                      }
+                    }
+
+                    return [emit, { nextSequence: expected, pendingBySequence }];
+                  },
+                ),
+              ),
+              Stream.flatMap((events) => Stream.fromIterable(events)),
             );
           }),
         ),
@@ -419,6 +569,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.serverPickFolder]: (_input) => open.pickFolder(),
       [WS_METHODS.serverRefreshProviders]: (_input) =>
         providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
+      [WS_METHODS.serverGetRuntimeProfile]: (_input) => loadRuntimeProfile,
       [WS_METHODS.serverSearchOpenCodeModels]: (input) =>
         Effect.gen(function* () {
           const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
@@ -446,6 +597,28 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               await server.close();
             }
           }).pipe(Effect.orDie);
+        }),
+      [WS_METHODS.serverGetLspToolsStatus]: (_input) =>
+        Effect.tryPromise({
+          try: () => getLspToolsStatus(config.stateDir),
+          catch: (cause) =>
+            new ServerLspToolsError({
+              message: "Unable to load language server installation status.",
+              cause,
+            }),
+        }),
+      [WS_METHODS.serverInstallLspTools]: (input) =>
+        Effect.tryPromise({
+          try: () =>
+            installLspTools(
+              config.stateDir,
+              input.reinstall === undefined ? {} : { reinstall: input.reinstall },
+            ),
+          catch: (cause) =>
+            new ServerLspToolsError({
+              message: "Unable to install language server tools.",
+              cause,
+            }),
         }),
       [WS_METHODS.serverUpsertKeybinding]: (rule) =>
         Effect.gen(function* () {
@@ -544,8 +717,18 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           Effect.mapError((cause) => {
             const message = Schema.is(WorkspacePathOutsideRootError)(cause)
               ? "Workspace file path must stay within the project root."
-              : "Failed to write workspace file";
+              : cause.detail;
             return new ProjectWriteFileError({
+              conflict: Schema.is(WorkspaceFileSystemError)(cause) ? cause.conflict : undefined,
+              currentContents: Schema.is(WorkspaceFileSystemError)(cause)
+                ? cause.currentContents
+                : undefined,
+              currentVersion: Schema.is(WorkspaceFileSystemError)(cause)
+                ? cause.currentVersion
+                : undefined,
+              expectedVersion: Schema.is(WorkspaceFileSystemError)(cause)
+                ? cause.expectedVersion
+                : undefined,
               message,
               cause,
             });

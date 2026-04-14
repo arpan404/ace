@@ -6,7 +6,17 @@
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type {
+  Event as OpenCodeSdkEvent,
+  Message as OpenCodeSdkMessage,
+  OpencodeClient,
+  Part as OpenCodeSdkPart,
+  PermissionRequest as OpenCodeSdkPermissionRequest,
+  QuestionRequest as OpenCodeSdkQuestionRequest,
+  ReasoningPart as OpenCodeSdkReasoningPart,
+  TextPart as OpenCodeSdkTextPart,
+  ToolPart as OpenCodeSdkToolPart,
+} from "@opencode-ai/sdk/v2/client";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   EventId,
@@ -41,17 +51,19 @@ import {
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
 } from "../Errors.ts";
-import { startOpenCodeServer, type OpenCodeServerHandle } from "../opencodeRuntime.ts";
+import { startOpenCodeServerIsolated, type OpenCodeServerHandle } from "../opencodeRuntime.ts";
 import {
   createOpenCodeSdkClient,
   parseOpenCodeModelSlug,
   resolveOpenCodeModelForPrompt,
 } from "../opencodeSdk.ts";
-import { asFiniteNumber as asNumber, asObject as asRecord, asString } from "../unknown.ts";
+import { asFiniteNumber as asNumber, asObject as asRecord } from "../unknown.ts";
 import { type OpenCodeAdapterShape, OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
 
 const PROVIDER = "opencode" as const;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
+const MIN_OPENCODE_IDLE_SESSION_TTL_MS = 15_000;
+const MAX_TURN_ITEMS_PER_TURN = 512;
 
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
@@ -96,9 +108,17 @@ type OpenCodeSessionContext = {
     {
       readonly requestId: RuntimeRequestId;
       readonly turnId?: TurnId;
+      readonly questionIds: ReadonlyArray<string>;
     }
   >;
+  readonly messageRoleById: Map<string, OpenCodeMessageRole>;
+  readonly partById: Map<string, OpenCodeSdkPart>;
+  readonly emittedAssistantTextLengthByPartId: Map<string, number>;
+  readonly assistantDeltaPartIds: Set<string>;
+  readonly reasoningDeltaPartIds: Set<string>;
   sseAbort: AbortController | null;
+  idleStopTimer: ReturnType<typeof setTimeout> | null;
+  lastActivityAtMs: number;
   pendingBootstrapReset: boolean;
   stopped: boolean;
 };
@@ -122,6 +142,7 @@ type OpenCodeToolItemType = Extract<
 type OpenCodeToolItemState = {
   readonly itemId: RuntimeItemId;
   readonly itemType: OpenCodeToolItemType;
+  statusRank: number;
   completed: boolean;
   detail?: string;
 };
@@ -132,26 +153,129 @@ type OpenCodeReasoningItemState = {
   completed: boolean;
 };
 
+type OpenCodeMessageRole = Extract<OpenCodeSdkMessage["role"], "assistant" | "user">;
+
+function resolveTurnSnapshot(
+  context: OpenCodeSessionContext,
+  turnId: TurnId,
+): { id: TurnId; items: Array<unknown> } {
+  const existing = context.turns.find((turn) => turn.id === turnId);
+  if (existing) {
+    return existing;
+  }
+  const created = { id: turnId, items: [] as Array<unknown> };
+  context.turns.push(created);
+  return created;
+}
+
+function appendTurnItem(
+  context: OpenCodeSessionContext,
+  turnId: TurnId | undefined,
+  item: unknown,
+): void {
+  if (!turnId) {
+    return;
+  }
+  const turnSnapshot = resolveTurnSnapshot(context, turnId);
+  const itemId = readTurnItemId(item);
+  if (itemId === undefined) {
+    turnSnapshot.items.push(item);
+  } else {
+    const existingItemIndex = turnSnapshot.items.findIndex(
+      (candidate) => readTurnItemId(candidate) === itemId,
+    );
+    if (existingItemIndex === -1) {
+      turnSnapshot.items.push(item);
+    } else {
+      turnSnapshot.items[existingItemIndex] = item;
+    }
+  }
+
+  if (turnSnapshot.items.length > MAX_TURN_ITEMS_PER_TURN) {
+    turnSnapshot.items.splice(0, turnSnapshot.items.length - MAX_TURN_ITEMS_PER_TURN);
+  }
+}
+
+function readTurnItemId(item: unknown): string | undefined {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    return undefined;
+  }
+  const { id } = item as { id?: unknown };
+  return typeof id === "string" && id.length > 0 ? id : undefined;
+}
+
+function clearIdleStopTimer(ctx: OpenCodeSessionContext): void {
+  if (ctx.idleStopTimer !== null) {
+    clearTimeout(ctx.idleStopTimer);
+    ctx.idleStopTimer = null;
+  }
+}
+
+function canAutoStopSession(ctx: OpenCodeSessionContext): boolean {
+  return (
+    ctx.activeTurn === null && ctx.pendingApprovals.size === 0 && ctx.pendingUserInputs.size === 0
+  );
+}
+
 async function stopContext(ctx: OpenCodeSessionContext): Promise<void> {
   if (ctx.stopped) {
     return;
   }
   ctx.stopped = true;
+  clearIdleStopTimer(ctx);
   ctx.sseAbort?.abort();
+  ctx.sseAbort = null;
 
-  const deleted = await ctx.client.session.delete({
-    sessionID: ctx.opencodeSessionId,
-    directory: ctx.cwd,
-  });
-  if (deleted.error) {
-    throw new ProviderAdapterRequestError({
+  let deleteError: ProviderAdapterRequestError | undefined;
+  try {
+    const deleted = await ctx.client.session.delete({
+      sessionID: ctx.opencodeSessionId,
+      directory: ctx.cwd,
+    });
+    if (deleted.error && !isMissingOpenCodeSessionError(deleted.error)) {
+      deleteError = new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method: "session.delete",
+        detail: toMessage(deleted.error, "Failed to delete OpenCode session"),
+      });
+    }
+  } catch (cause) {
+    if (!isMissingOpenCodeSessionError(cause)) {
+      deleteError = new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method: "session.delete",
+        detail: toMessage(cause, "Failed to delete OpenCode session"),
+        cause,
+      });
+    }
+  }
+
+  let closeError: ProviderAdapterRequestError | undefined;
+  try {
+    await ctx.server.close();
+  } catch (cause) {
+    closeError = new ProviderAdapterRequestError({
       provider: PROVIDER,
-      method: "session.delete",
-      detail: toMessage(deleted.error, "Failed to delete OpenCode session"),
+      method: "session.close",
+      detail: toMessage(cause, "Failed to close OpenCode server process"),
+      cause,
     });
   }
 
-  await ctx.server.close();
+  if (deleteError && closeError) {
+    throw new ProviderAdapterRequestError({
+      provider: PROVIDER,
+      method: "session.stop",
+      detail: `${deleteError.message} Cleanup also failed: ${closeError.message}`,
+      cause: new AggregateError([deleteError, closeError]),
+    });
+  }
+  if (closeError) {
+    throw closeError;
+  }
+  if (deleteError) {
+    throw deleteError;
+  }
 }
 
 type OpenCodeDeltaStreamKind = Extract<
@@ -218,6 +342,22 @@ export function buildOpenCodeThreadUsageSnapshot(
 
 function isoNow(): string {
   return new Date().toISOString();
+}
+
+function resolveOpenCodeIdleSessionTtlMs(
+  rawValue = process.env.ACE_OPENCODE_IDLE_SESSION_TTL_MS,
+): number | null {
+  if (rawValue === undefined) {
+    return null;
+  }
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  if (parsed <= 0) {
+    return null;
+  }
+  return Math.max(MIN_OPENCODE_IDLE_SESSION_TTL_MS, parsed);
 }
 
 function parseIsoTimestampMs(value: string): number | undefined {
@@ -298,6 +438,42 @@ export function openCodeTimestampToIso(value: unknown): string | undefined {
   return Number.isFinite(parsedMs) ? new Date(parsedMs).toISOString() : undefined;
 }
 
+export function openCodeTimestampToEpochMs(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (Math.abs(value) < 1_000_000_000) {
+      return undefined;
+    }
+    return Math.abs(value) >= 1_000_000_000_000 ? value : value * 1_000;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
+    return openCodeTimestampToEpochMs(Number(trimmed));
+  }
+  const parsedMs = Date.parse(trimmed);
+  return Number.isFinite(parsedMs) ? parsedMs : undefined;
+}
+
+function isWithinActiveTurnWindow(
+  ctx: OpenCodeSessionContext,
+  timestampMs: number | undefined,
+): boolean {
+  const turn = ctx.activeTurn;
+  if (!turn) {
+    return false;
+  }
+  if (timestampMs === undefined) {
+    return true;
+  }
+  // Event streams can drift slightly; tolerate a small negative skew.
+  return timestampMs >= turn.startedAtMs - 2_000;
+}
+
 export function resolveOpenCodePartTimestamp(
   part: Record<string, unknown>,
   boundary: "start" | "end",
@@ -328,25 +504,60 @@ function safeJsonStringify(value: unknown): string | undefined {
   }
 }
 
-function unwrapOpenCodeSseEvent(
-  raw: unknown,
-): { type: string; properties?: Record<string, unknown> } | null {
+function unwrapOpenCodeSseEvent(raw: unknown): OpenCodeSdkEvent | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
-  if (typeof r.type === "string" && "properties" in r && r.properties) {
-    return { type: r.type, properties: r.properties as Record<string, unknown> };
+  if (
+    typeof r.type === "string" &&
+    "properties" in r &&
+    r.properties &&
+    typeof r.properties === "object"
+  ) {
+    return r as OpenCodeSdkEvent;
   }
   const globalPayload = r.payload;
   if (globalPayload && typeof globalPayload === "object") {
     const p = globalPayload as Record<string, unknown>;
-    if (typeof p.type === "string") {
-      if ("properties" in p && p.properties && typeof p.properties === "object") {
-        return { type: p.type, properties: p.properties as Record<string, unknown> };
-      }
-      return { type: p.type };
+    if (
+      typeof p.type === "string" &&
+      "properties" in p &&
+      p.properties &&
+      typeof p.properties === "object"
+    ) {
+      return p as OpenCodeSdkEvent;
     }
   }
   return null;
+}
+
+function readOpenCodeEventSessionId(event: OpenCodeSdkEvent): string | undefined {
+  const props = event.properties as Record<string, unknown>;
+  return typeof props.sessionID === "string"
+    ? props.sessionID
+    : typeof props.sessionId === "string"
+      ? props.sessionId
+      : undefined;
+}
+
+function readOpenCodeMessageRole(message: OpenCodeSdkMessage): OpenCodeMessageRole | undefined {
+  switch (message.role) {
+    case "assistant":
+    case "user":
+      return message.role;
+    default:
+      return undefined;
+  }
+}
+
+function messageRoleForPart(
+  context: OpenCodeSessionContext,
+  part: Pick<OpenCodeSdkPart, "messageID" | "type">,
+): OpenCodeMessageRole | undefined {
+  const known = context.messageRoleById.get(part.messageID);
+  if (known) {
+    return known;
+  }
+  return part.type === "tool" ? "assistant" : undefined;
 }
 
 function classifyOpenCodePermission(
@@ -416,25 +627,61 @@ export function mapOpenCodeTodoStatus(
   }
 }
 
-function buildOpenCodeToolDetail(
-  state: Record<string, unknown> | null | undefined,
-): string | undefined {
-  if (!state) {
-    return undefined;
+function buildOpenCodeToolDetail(state: OpenCodeSdkToolPart["state"]): string | undefined {
+  switch (state.status) {
+    case "running":
+      return state.title;
+    case "completed":
+      return state.output;
+    case "error":
+      return state.error;
+    case "pending":
+    default:
+      return undefined;
   }
-  const title = nonEmptyString(state.title);
-  if (title) {
-    return title;
+}
+
+function openCodeToolStateCreatedAt(state: OpenCodeSdkToolPart["state"]): string | undefined {
+  switch (state.status) {
+    case "running":
+      return openCodeTimestampToIso(state.time.start);
+    case "completed":
+    case "error":
+      return openCodeTimestampToIso(state.time.end);
+    case "pending":
+    default:
+      return undefined;
   }
-  const output = nonEmptyString(state.output);
-  if (output) {
-    return output;
+}
+
+export function rankOpenCodeToolStateStatus(
+  status: OpenCodeSdkToolPart["state"]["status"],
+): number {
+  switch (status) {
+    case "pending":
+      return 0;
+    case "running":
+      return 1;
+    case "completed":
+    case "error":
+      return 2;
+    default:
+      return 0;
   }
-  const error = nonEmptyString(state.error);
-  if (error) {
-    return error;
+}
+
+export function shouldEmitOpenCodeSnapshotDelta(input: {
+  hasNativeDelta: boolean;
+  previousLength: number;
+  nextLength: number;
+}): boolean {
+  if (input.hasNativeDelta) {
+    return false;
   }
-  return undefined;
+  if (input.nextLength < input.previousLength) {
+    return false;
+  }
+  return input.nextLength > input.previousLength;
 }
 
 export function appendOnlyDelta(previous: string, next: string): string | undefined {
@@ -482,19 +729,20 @@ function mapApprovalDecision(decision: ProviderApprovalDecision): "once" | "alwa
   }
 }
 
-function mapQuestions(questions: ReadonlyArray<Record<string, unknown>>): UserInputQuestion[] {
+function mapQuestions(
+  questions: ReadonlyArray<OpenCodeSdkQuestionRequest["questions"][number]>,
+): UserInputQuestion[] {
   return questions.map((q, index) => {
-    const header = typeof q.header === "string" ? q.header : `Question ${String(index + 1)}`;
-    const question = typeof q.question === "string" ? q.question : header;
-    const options = Array.isArray(q.options)
-      ? q.options.map((opt) => {
-          const o = opt as Record<string, unknown>;
-          return {
-            label: typeof o.label === "string" ? o.label : "Option",
-            description: typeof o.description === "string" ? o.description : "",
-          };
-        })
-      : [];
+    const header =
+      typeof q.header === "string" && q.header.trim().length > 0
+        ? q.header
+        : `Question ${String(index + 1)}`;
+    const question =
+      typeof q.question === "string" && q.question.trim().length > 0 ? q.question : header;
+    const options = q.options.map((option) => ({
+      label: option.label,
+      description: option.description,
+    }));
     return {
       id: `q-${String(index)}`,
       header,
@@ -503,6 +751,46 @@ function mapQuestions(questions: ReadonlyArray<Record<string, unknown>>): UserIn
       ...(q.multiple === true ? { multiSelect: true } : {}),
     };
   });
+}
+
+export function readOpenCodeEventRequestId(
+  properties: Record<string, unknown>,
+): string | undefined {
+  return typeof properties.id === "string"
+    ? properties.id
+    : typeof properties.requestID === "string"
+      ? properties.requestID
+      : undefined;
+}
+
+export function mapOpenCodePermissionReplyDecision(
+  reply: unknown,
+): ProviderRuntimeEventByType<"request.resolved">["payload"]["decision"] {
+  switch (reply) {
+    case "once":
+      return "accept";
+    case "always":
+      return "acceptForSession";
+    default:
+      return "decline";
+  }
+}
+
+export function mapOpenCodeQuestionAnswers(
+  questionIds: ReadonlyArray<string>,
+  rawAnswers: unknown,
+): ProviderRuntimeEventByType<"user-input.resolved">["payload"]["answers"] {
+  if (questionIds.length === 0) {
+    return {};
+  }
+  const answerLists = Array.isArray(rawAnswers)
+    ? rawAnswers.map((answer) =>
+        Array.isArray(answer) ? answer.map((value) => String(value)) : [String(answer ?? "")],
+      )
+    : [];
+  return Object.fromEntries(
+    questionIds.map((questionId, index) => [questionId, answerLists[index] ?? [""]]),
+  );
 }
 
 function resolveOpenCodeModel(
@@ -535,8 +823,40 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
   const runPromise = Effect.runPromiseWith(services);
   const serverConfig = yield* ServerConfig;
   const serverSettingsService = yield* ServerSettingsService;
+  const idleSessionTtlMs = resolveOpenCodeIdleSessionTtlMs();
 
   const sessions = new Map<ThreadId, OpenCodeSessionContext>();
+
+  const markSessionActive = (ctx: OpenCodeSessionContext): void => {
+    ctx.lastActivityAtMs = Date.now();
+    clearIdleStopTimer(ctx);
+  };
+
+  const scheduleIdleStop = (ctx: OpenCodeSessionContext, reason: string): void => {
+    clearIdleStopTimer(ctx);
+    if (idleSessionTtlMs === null || ctx.stopped || !canAutoStopSession(ctx)) {
+      return;
+    }
+
+    ctx.idleStopTimer = setTimeout(() => {
+      const latest = sessions.get(ctx.threadId);
+      if (latest !== ctx || ctx.stopped || !canAutoStopSession(ctx)) {
+        return;
+      }
+      sessions.delete(ctx.threadId);
+      runLoggedEffect({
+        runPromise,
+        effect: Effect.tryPromise(() => stopContext(ctx)),
+        message: "Failed to stop idle OpenCode session.",
+        metadata: {
+          threadId: ctx.threadId,
+          idleTtlMs: idleSessionTtlMs,
+          reason,
+        },
+      });
+    }, idleSessionTtlMs);
+    ctx.idleStopTimer.unref?.();
+  };
 
   const emit = (event: ProviderRuntimeEvent): void => {
     runLoggedEffect({
@@ -555,6 +875,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       readonly turnId?: TurnId;
       readonly itemId?: RuntimeItemId;
       readonly requestId?: RuntimeRequestId;
+      readonly raw?: unknown;
       readonly payload: ProviderRuntimeEventByType<TType>["payload"];
     },
   ): ProviderRuntimeEventByType<TType> => {
@@ -579,6 +900,14 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       ...(input.turnId ? { turnId: input.turnId } : {}),
       ...(input.itemId ? { itemId: input.itemId } : {}),
       ...(input.requestId ? { requestId: input.requestId } : {}),
+      ...(input.raw !== undefined
+        ? {
+            raw: {
+              source: "opencode.sdk.event" as const,
+              payload: input.raw,
+            },
+          }
+        : {}),
       sessionSequence,
       payload: input.payload,
     } as unknown as ProviderRuntimeEventByType<TType>;
@@ -589,6 +918,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     state: "completed" | "failed" | "interrupted",
     errorMessage?: string,
   ) => {
+    markSessionActive(ctx);
     const activeTurn = ctx.activeTurn;
     const turnId = activeTurn?.id;
     ctx.activeTurn = null;
@@ -706,6 +1036,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         payload: { state: "ready" },
       }),
     );
+    scheduleIdleStop(ctx, "turn-completed");
   };
 
   const ensureAssistantStarted = (ctx: OpenCodeSessionContext) => {
@@ -806,16 +1137,70 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     );
   };
 
+  const emitAssistantTextFromSnapshotPart = (
+    ctx: OpenCodeSessionContext,
+    part: OpenCodeSdkTextPart,
+    turnId: TurnId | undefined,
+  ) => {
+    const turn = ctx.activeTurn;
+    if (!turnId || !turn) {
+      return;
+    }
+    const hasNativeDelta = ctx.assistantDeltaPartIds.has(part.id);
+    const hasPriorSnapshot = ctx.emittedAssistantTextLengthByPartId.has(part.id);
+    const partStartedAtMs = openCodeTimestampToEpochMs(part.time?.start);
+    if (partStartedAtMs === undefined && !hasPriorSnapshot) {
+      // Ignore timeless snapshots we haven't streamed yet to avoid replaying stale history.
+      return;
+    }
+    if (!isWithinActiveTurnWindow(ctx, partStartedAtMs)) {
+      return;
+    }
+    const previousLength = ctx.emittedAssistantTextLengthByPartId.get(part.id) ?? 0;
+    if (
+      !shouldEmitOpenCodeSnapshotDelta({
+        hasNativeDelta,
+        previousLength,
+        nextLength: part.text.length,
+      })
+    ) {
+      return;
+    }
+    const delta = part.text.slice(previousLength);
+    if (delta.length === 0) {
+      return;
+    }
+    ctx.emittedAssistantTextLengthByPartId.set(part.id, part.text.length);
+    ensureAssistantStarted(ctx);
+    turn.assistantText += delta;
+    emit(
+      baseEvent(ctx, {
+        type: "content.delta",
+        ...(openCodeTimestampToIso(part.time?.start)
+          ? { createdAt: openCodeTimestampToIso(part.time?.start) }
+          : {}),
+        turnId,
+        itemId: turn.assistantItemId,
+        payload: {
+          streamKind: "assistant_text",
+          delta,
+        },
+      }),
+    );
+  };
+
   const handleOpenCodeReasoningPart = (
     ctx: OpenCodeSessionContext,
-    part: Record<string, unknown>,
-    partId: string,
+    part: OpenCodeSdkReasoningPart,
   ) => {
-    const text = asString(part.text) ?? "";
-    const time = asRecord(part.time);
+    if (!isWithinActiveTurnWindow(ctx, openCodeTimestampToEpochMs(part.time.start))) {
+      return;
+    }
+    const partId = part.id;
+    const text = part.text;
     const reasoningStartedAt =
-      resolveOpenCodePartTimestamp(part, "start") ?? resolveOpenCodePartTimestamp(part, "end");
-    const reasoningCompletedAt = resolveOpenCodePartTimestamp(part, "end");
+      openCodeTimestampToIso(part.time.start) ?? openCodeTimestampToIso(part.time.end);
+    const reasoningCompletedAt = openCodeTimestampToIso(part.time.end);
     const state = ensureReasoningItem(ctx, partId, reasoningStartedAt);
     if (!state) {
       return;
@@ -826,12 +1211,14 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       isSnapshot: true,
     };
     const reasoningDeltaCreatedAt = reasoningStartedAt ?? reasoningCompletedAt;
-    if (reasoningDeltaCreatedAt) {
+    if (!ctx.reasoningDeltaPartIds.has(partId) && reasoningDeltaCreatedAt) {
       reasoningDeltaInput.createdAt = reasoningDeltaCreatedAt;
     }
-    emitReasoningDelta(ctx, partId, reasoningDeltaInput);
+    if (!ctx.reasoningDeltaPartIds.has(partId)) {
+      emitReasoningDelta(ctx, partId, reasoningDeltaInput);
+    }
 
-    if (time && "end" in time && !state.reasoning.completed) {
+    if (part.time.end !== undefined && !state.reasoning.completed) {
       state.reasoning.completed = true;
       emit(
         baseEvent(ctx, {
@@ -848,25 +1235,38 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     }
   };
 
-  const handleOpenCodeToolPart = (
-    ctx: OpenCodeSessionContext,
-    part: Record<string, unknown>,
-    partId: string,
-  ) => {
+  const handleOpenCodeToolPart = (ctx: OpenCodeSessionContext, part: OpenCodeSdkToolPart) => {
     const turn = ctx.activeTurn;
     if (!turn) {
       return;
     }
-    const toolName = nonEmptyString(part.tool) ?? "Tool";
-    const state = asRecord(part.state);
-    const stateStatus = asString(state?.status) ?? "pending";
+    const toolStartedAtMs = (() => {
+      switch (part.state.status) {
+        case "running":
+          return openCodeTimestampToEpochMs(part.state.time.start);
+        case "completed":
+        case "error":
+          return openCodeTimestampToEpochMs(part.state.time.start);
+        case "pending":
+        default:
+          return undefined;
+      }
+    })();
+    if (!isWithinActiveTurnWindow(ctx, toolStartedAtMs)) {
+      return;
+    }
+    const partId = part.id;
+    const toolName = part.tool;
+    const state = part.state;
+    const stateStatus = state.status;
+    const stateRank = rankOpenCodeToolStateStatus(stateStatus);
     const itemType = classifyOpenCodeToolItemType(toolName);
     const detail = buildOpenCodeToolDetail(state);
     const data = {
       partId,
       tool: toolName,
-      ...(asString(part.messageID) ? { messageId: asString(part.messageID) } : {}),
-      ...(asString(part.callID) ? { callId: asString(part.callID) } : {}),
+      messageId: part.messageID,
+      callId: part.callID,
       ...(state ? { state } : {}),
       ...(part.metadata !== undefined ? { metadata: part.metadata } : {}),
     };
@@ -876,6 +1276,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       toolItem = {
         itemId: RuntimeItemId.makeUnsafe(`opencode-tool:${partId}`),
         itemType,
+        statusRank: stateRank,
         completed: false,
         ...(detail ? { detail } : {}),
       };
@@ -883,6 +1284,9 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       emit(
         baseEvent(ctx, {
           type: "item.started",
+          ...(openCodeToolStateCreatedAt(state)
+            ? { createdAt: openCodeToolStateCreatedAt(state) }
+            : {}),
           turnId: turn.id,
           itemId: toolItem.itemId,
           payload: {
@@ -895,6 +1299,10 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         }),
       );
     } else {
+      if (stateRank < toolItem.statusRank) {
+        return;
+      }
+      toolItem.statusRank = stateRank;
       if (detail) {
         toolItem.detail = detail;
       } else {
@@ -908,6 +1316,9 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         emit(
           baseEvent(ctx, {
             type: "item.completed",
+            ...(openCodeToolStateCreatedAt(state)
+              ? { createdAt: openCodeToolStateCreatedAt(state) }
+              : {}),
             turnId: turn.id,
             itemId: toolItem.itemId,
             payload: {
@@ -926,6 +1337,9 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     emit(
       baseEvent(ctx, {
         type: "item.updated",
+        ...(openCodeToolStateCreatedAt(state)
+          ? { createdAt: openCodeToolStateCreatedAt(state) }
+          : {}),
         turnId: turn.id,
         itemId: toolItem.itemId,
         payload: {
@@ -943,74 +1357,123 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     if (ctx.stopped) return;
     const event = unwrapOpenCodeSseEvent(raw);
     if (!event) return;
-    const props = event.properties ?? {};
-    const sessionId =
-      typeof props.sessionID === "string"
-        ? props.sessionID
-        : typeof props.sessionId === "string"
-          ? props.sessionId
-          : undefined;
+    const sessionId = readOpenCodeEventSessionId(event);
     if (sessionId && sessionId !== ctx.opencodeSessionId) {
       return;
     }
+    markSessionActive(ctx);
+    const sseEvent = <TType extends ProviderRuntimeEvent["type"]>(input: {
+      readonly type: TType;
+      readonly createdAt?: string | undefined;
+      readonly turnId?: TurnId;
+      readonly itemId?: RuntimeItemId;
+      readonly requestId?: RuntimeRequestId;
+      readonly payload: ProviderRuntimeEventByType<TType>["payload"];
+    }): ProviderRuntimeEventByType<TType> => baseEvent(ctx, { ...input, raw: event });
 
     switch (event.type) {
-      case "message.part.delta": {
-        const delta = typeof props.delta === "string" ? props.delta : "";
-        const turnId = ctx.activeTurn?.id;
-        if (!turnId || !ctx.activeTurn) return;
-        if (delta.length > 0) {
-          const partId = asString(props.partID);
-          const streamKind = resolveOpenCodeDeltaStreamKind({
-            field: props.field,
-            isReasoningPart: partId ? ctx.activeTurn.reasoningItems.has(partId) : false,
-          });
-          if (streamKind === "assistant_text") {
-            ensureAssistantStarted(ctx);
-            ctx.activeTurn.assistantText += delta;
-            emit(
-              baseEvent(ctx, {
-                type: "content.delta",
-                turnId,
-                itemId: ctx.activeTurn.assistantItemId,
-                payload: {
-                  streamKind,
-                  delta,
-                },
-              }),
-            );
-            return;
+      case "message.updated": {
+        const role = readOpenCodeMessageRole(event.properties.info);
+        if (!role) {
+          return;
+        }
+        const messageId = event.properties.info.id;
+        ctx.messageRoleById.set(messageId, role);
+        return;
+      }
+      case "message.removed": {
+        ctx.messageRoleById.delete(event.properties.messageID);
+        for (const [partId, part] of ctx.partById) {
+          if (part.messageID !== event.properties.messageID) {
+            continue;
           }
-
-          emitReasoningDelta(ctx, partId ?? `delta:${randomUUID()}`, {
-            text: delta,
-            streamKind,
-          });
+          ctx.partById.delete(partId);
+          ctx.emittedAssistantTextLengthByPartId.delete(partId);
+          ctx.assistantDeltaPartIds.delete(partId);
+          ctx.reasoningDeltaPartIds.delete(partId);
         }
         return;
       }
-      case "message.part.updated": {
-        const part = asRecord(props.part);
-        const partType = asString(part?.type);
-        const partId = asString(part?.id);
-        if (!part || !partType || !partId) {
+      case "message.part.removed": {
+        ctx.partById.delete(event.properties.partID);
+        ctx.emittedAssistantTextLengthByPartId.delete(event.properties.partID);
+        ctx.assistantDeltaPartIds.delete(event.properties.partID);
+        ctx.reasoningDeltaPartIds.delete(event.properties.partID);
+        return;
+      }
+      case "message.part.delta": {
+        const { delta, field, partID } = event.properties;
+        const turnId = ctx.activeTurn?.id;
+        if (!turnId || !ctx.activeTurn) return;
+        if (delta.length === 0) {
           return;
         }
-        switch (partType) {
+        const part = ctx.partById.get(partID);
+        const role = part ? messageRoleForPart(ctx, part) : undefined;
+        if (role === "user") {
+          return;
+        }
+        const streamKind = resolveOpenCodeDeltaStreamKind({
+          field,
+          isReasoningPart:
+            (part ? part.type === "reasoning" : false) || ctx.activeTurn.reasoningItems.has(partID),
+        });
+        if (streamKind === "assistant_text") {
+          ctx.assistantDeltaPartIds.add(partID);
+          ensureAssistantStarted(ctx);
+          ctx.activeTurn.assistantText += delta;
+          const previousLength = ctx.emittedAssistantTextLengthByPartId.get(partID) ?? 0;
+          ctx.emittedAssistantTextLengthByPartId.set(partID, previousLength + delta.length);
+          emit(
+            sseEvent({
+              type: "content.delta",
+              turnId,
+              itemId: ctx.activeTurn.assistantItemId,
+              payload: {
+                streamKind,
+                delta,
+              },
+            }),
+          );
+          return;
+        }
+
+        ctx.reasoningDeltaPartIds.add(partID);
+        const reasoningDeltaCreatedAt =
+          part?.type === "reasoning" ? resolveOpenCodePartTimestamp(part, "start") : undefined;
+        emitReasoningDelta(ctx, partID, {
+          text: delta,
+          streamKind,
+          ...(reasoningDeltaCreatedAt ? { createdAt: reasoningDeltaCreatedAt } : {}),
+        });
+        return;
+      }
+      case "message.part.updated": {
+        const part = event.properties.part;
+        ctx.partById.set(part.id, part);
+        const turnId = ctx.activeTurn?.id;
+        appendTurnItem(ctx, turnId, part);
+        switch (part.type) {
+          case "text": {
+            if (messageRoleForPart(ctx, part) !== "assistant") {
+              return;
+            }
+            emitAssistantTextFromSnapshotPart(ctx, part, turnId);
+            return;
+          }
           case "reasoning":
-            handleOpenCodeReasoningPart(ctx, part, partId);
+            handleOpenCodeReasoningPart(ctx, part);
             return;
           case "tool":
-            handleOpenCodeToolPart(ctx, part, partId);
+            handleOpenCodeToolPart(ctx, part);
             return;
           case "step-finish": {
             if (!ctx.activeTurn) {
               return;
             }
             ctx.activeTurn.usage = part.tokens;
-            const totalCostUsd = asNumber(part.cost);
-            if (totalCostUsd !== undefined) {
-              ctx.activeTurn.totalCostUsd = totalCostUsd;
+            if (Number.isFinite(part.cost)) {
+              ctx.activeTurn.totalCostUsd = part.cost;
             }
             return;
           }
@@ -1023,30 +1486,27 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         if (!turnId) {
           return;
         }
-        const todos = Array.isArray(props.todos)
-          ? props.todos
-              .map((entry) => {
-                const todo = asRecord(entry);
-                const step = nonEmptyString(todo?.content);
-                if (!step) {
-                  return null;
-                }
-                return {
-                  step,
-                  status: mapOpenCodeTodoStatus(todo?.status),
-                };
-              })
-              .filter(
-                (
-                  entry,
-                ): entry is {
-                  readonly step: string;
-                  readonly status: "pending" | "inProgress" | "completed";
-                } => entry !== null,
-              )
-          : [];
+        const todos = event.properties.todos
+          .map((todo) => {
+            const step = nonEmptyString(todo.content);
+            if (!step) {
+              return null;
+            }
+            return {
+              step,
+              status: mapOpenCodeTodoStatus(todo.status),
+            };
+          })
+          .filter(
+            (
+              entry,
+            ): entry is {
+              readonly step: string;
+              readonly status: "pending" | "inProgress" | "completed";
+            } => entry !== null,
+          );
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "turn.plan.updated",
             turnId,
             payload: {
@@ -1057,16 +1517,16 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         return;
       }
       case "session.status": {
-        const status = asRecord(props.status);
-        if (asString(status?.type) !== "retry") {
+        const status = event.properties.status;
+        if (status.type !== "retry") {
           return;
         }
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "runtime.warning",
             ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
             payload: {
-              message: nonEmptyString(status?.message) ?? "OpenCode is retrying the request.",
+              message: nonEmptyString(status.message) ?? "OpenCode is retrying the request.",
               ...(safeJsonStringify(status) ? { detail: safeJsonStringify(status) } : {}),
             },
           }),
@@ -1075,28 +1535,28 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       }
       case "session.compacted": {
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "thread.state.changed",
             payload: {
               state: "compacted",
-              detail: props,
+              detail: event.properties,
             },
           }),
         );
         return;
       }
       case "session.updated": {
-        const info = asRecord(props.info);
-        const title = nonEmptyString(info?.title);
+        const info = event.properties.info;
+        const title = nonEmptyString(info.title);
         if (!title) {
           return;
         }
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "thread.metadata.updated",
             payload: {
               name: title,
-              ...(info ? { metadata: info } : {}),
+              metadata: info as Record<string, unknown>,
             },
           }),
         );
@@ -1107,11 +1567,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         return;
       }
       case "session.error": {
-        const err = props.error;
+        const err = event.properties.error;
         const msg = toMessage(err, "OpenCode session error");
         completeTurn(ctx, "failed", msg);
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "runtime.error",
             payload: {
               message: msg,
@@ -1123,14 +1583,10 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         return;
       }
       case "permission.asked": {
-        const requestId =
-          typeof props.id === "string"
-            ? props.id
-            : typeof props.requestID === "string"
-              ? props.requestID
-              : undefined;
+        const request: OpenCodeSdkPermissionRequest = event.properties;
+        const requestId = request.id;
         if (!requestId) return;
-        const permission = typeof props.permission === "string" ? props.permission : "permission";
+        const permission = request.permission;
         const runtimeRequestId = RuntimeRequestId.makeUnsafe(requestId);
         ctx.pendingApprovals.set(requestId, {
           requestId: runtimeRequestId,
@@ -1138,45 +1594,110 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
         });
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "request.opened",
             ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
             requestId: runtimeRequestId,
             payload: {
               requestType: classifyOpenCodePermission(permission),
-              detail: permission,
-              args: props,
+              detail: request.patterns.length > 0 ? request.patterns.join("\n") : permission,
+              args: request.metadata,
             },
           }),
         );
         return;
       }
+      case "permission.replied": {
+        const requestId = event.properties.requestID;
+        if (!requestId) {
+          return;
+        }
+        const pending = ctx.pendingApprovals.get(requestId);
+        if (!pending) {
+          return;
+        }
+        ctx.pendingApprovals.delete(requestId);
+        emit(
+          sseEvent({
+            type: "request.resolved",
+            ...(pending.turnId ? { turnId: pending.turnId } : {}),
+            requestId: pending.requestId,
+            payload: {
+              requestType: pending.requestType,
+              decision: mapOpenCodePermissionReplyDecision(event.properties.reply),
+            },
+          }),
+        );
+        scheduleIdleStop(ctx, "permission-replied");
+        return;
+      }
       case "question.asked": {
-        const requestId =
-          typeof props.id === "string"
-            ? props.id
-            : typeof props.requestID === "string"
-              ? props.requestID
-              : undefined;
+        const request: OpenCodeSdkQuestionRequest = event.properties;
+        const requestId = request.id;
         if (!requestId) return;
         const runtimeRequestId = RuntimeRequestId.makeUnsafe(requestId);
+        const questions = mapQuestions(request.questions);
         ctx.pendingUserInputs.set(requestId, {
           requestId: runtimeRequestId,
           ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
+          questionIds: questions.map((question) => question.id),
         });
-        const qs = Array.isArray(props.questions)
-          ? props.questions.map((q) => q as Record<string, unknown>)
-          : [];
         emit(
-          baseEvent(ctx, {
+          sseEvent({
             type: "user-input.requested",
             ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
             requestId: runtimeRequestId,
             payload: {
-              questions: mapQuestions(qs),
+              questions,
             },
           }),
         );
+        return;
+      }
+      case "question.replied": {
+        const requestId = event.properties.requestID;
+        if (!requestId) {
+          return;
+        }
+        const pending = ctx.pendingUserInputs.get(requestId);
+        if (!pending) {
+          return;
+        }
+        ctx.pendingUserInputs.delete(requestId);
+        emit(
+          sseEvent({
+            type: "user-input.resolved",
+            ...(pending.turnId ? { turnId: pending.turnId } : {}),
+            requestId: pending.requestId,
+            payload: {
+              answers: mapOpenCodeQuestionAnswers(pending.questionIds, event.properties.answers),
+            },
+          }),
+        );
+        scheduleIdleStop(ctx, "question-replied");
+        return;
+      }
+      case "question.rejected": {
+        const requestId = event.properties.requestID;
+        if (!requestId) {
+          return;
+        }
+        const pending = ctx.pendingUserInputs.get(requestId);
+        if (!pending) {
+          return;
+        }
+        ctx.pendingUserInputs.delete(requestId);
+        emit(
+          sseEvent({
+            type: "user-input.resolved",
+            ...(pending.turnId ? { turnId: pending.turnId } : {}),
+            requestId: pending.requestId,
+            payload: {
+              answers: {},
+            },
+          }),
+        );
+        scheduleIdleStop(ctx, "question-rejected");
         return;
       }
       default:
@@ -1224,12 +1745,14 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         }
         const existing = sessions.get(input.threadId);
         if (existing) {
+          markSessionActive(existing);
+          scheduleIdleStop(existing, "session-reused");
           return existing.session;
         }
 
         const settings = await runPromise(serverSettingsService.getSettings);
         const binaryPath = settings.providers.opencode.binaryPath;
-        const server = await startOpenCodeServer(binaryPath);
+        const server = await startOpenCodeServerIsolated(binaryPath);
         const cwd = input.cwd ?? serverConfig.cwd;
         const client = createOpenCodeSdkClient({
           baseUrl: server.url,
@@ -1293,6 +1816,20 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             opencodeSessionId = await createSession();
           }
 
+          const raceWinner = sessions.get(input.threadId);
+          if (raceWinner) {
+            if (!resumedExistingSession) {
+              await client.session
+                .delete({
+                  sessionID: opencodeSessionId,
+                  directory: cwd,
+                })
+                .catch(() => undefined);
+            }
+            await server.close().catch(() => undefined);
+            return raceWinner.session;
+          }
+
           const createdAt = isoNow();
           const model =
             input.modelSelection && input.modelSelection.provider === PROVIDER
@@ -1329,7 +1866,14 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             activeTurn: null,
             pendingApprovals: new Map(),
             pendingUserInputs: new Map(),
+            messageRoleById: new Map(),
+            partById: new Map(),
+            emittedAssistantTextLengthByPartId: new Map(),
+            assistantDeltaPartIds: new Set(),
+            reasoningDeltaPartIds: new Set(),
             sseAbort: null,
+            idleStopTimer: null,
+            lastActivityAtMs: Date.now(),
             pendingBootstrapReset: (input.replayTurns?.length ?? 0) > 0 && !resumedExistingSession,
             stopped: false,
           };
@@ -1348,6 +1892,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
               payload: { providerThreadId: opencodeSessionId },
             }),
           );
+          scheduleIdleStop(ctx, "session-started");
           return ctx.session;
         } catch (cause) {
           try {
@@ -1754,7 +2299,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
   return {
     provider: PROVIDER,
     capabilities: {
-      sessionModelSwitch: "restart-session",
+      sessionModelSwitch: "in-session",
     },
     startSession,
     sendTurn,

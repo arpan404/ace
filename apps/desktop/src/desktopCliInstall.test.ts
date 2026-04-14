@@ -27,6 +27,7 @@ describe("desktopCliInstall", () => {
       commandPath: "/tmp/.ace/bin/ace",
       pathTargets: ["/tmp/.zprofile", "/tmp/.zshrc"],
       checkedAt: "2026-04-07T00:00:00.000Z",
+      progressPercent: null,
       restartRequired: false,
       message: "CLI install is only available in packaged desktop builds.",
     });
@@ -51,6 +52,7 @@ describe("desktopCliInstall", () => {
       commandPath: "/tmp/.ace/bin/ace",
       pathTargets: ["/tmp/.bash_profile", "/tmp/.bashrc"],
       checkedAt: null,
+      progressPercent: null,
       restartRequired: false,
       message: "Installing the ace CLI.",
     });
@@ -75,6 +77,7 @@ describe("desktopCliInstall", () => {
       commandPath: "/tmp/.ace/bin/ace",
       pathTargets: ["/tmp/.zprofile"],
       checkedAt: "2026-04-07T00:00:00.000Z",
+      progressPercent: null,
       restartRequired: false,
       message: null,
     });
@@ -111,6 +114,7 @@ describe("desktopCliInstall", () => {
       commandPath: "/tmp/.ace/bin/ace",
       pathTargets: ["/tmp/.zprofile"],
       checkedAt: "2026-04-07T00:00:00.000Z",
+      progressPercent: null,
       restartRequired: true,
       message: "CLI installed. Open a new terminal window to use ace.",
     });

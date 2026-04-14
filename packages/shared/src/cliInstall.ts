@@ -47,6 +47,21 @@ export interface AceCliInstallResult extends AceCliInstallStatus {
   readonly restartRequired: boolean;
 }
 
+export type AceCliInstallProgressStep =
+  | "inspect"
+  | "write-launcher"
+  | "persist-path"
+  | "sync-process-path"
+  | "verify";
+
+export interface AceCliInstallProgress {
+  readonly step: AceCliInstallProgressStep;
+  readonly message: string;
+  readonly completedSteps: number;
+  readonly totalSteps: number;
+  readonly percent: number;
+}
+
 function resolvePathValue(env: NodeJS.ProcessEnv): string {
   return env.PATH ?? env.Path ?? env.path ?? "";
 }
@@ -173,6 +188,14 @@ function readFileIfExists(filePath: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function shimTargetsCurrentInstall(commandPath: string, target: AceCliInstallTarget): boolean {
+  const shim = readFileIfExists(commandPath);
+  if (!shim) {
+    return false;
+  }
+  return shim.includes(target.launchCommand) && shim.includes(target.cliEntry);
 }
 
 function hasManagedPathBlock(filePath: string): boolean {
@@ -373,6 +396,7 @@ export function inspectAceCliInstall(options: AceCliInstallOptions): AceCliInsta
           (target) => hasManagedPathBlock(target) || fileIncludesPathReference(target, binDir),
         );
   const shimInstalled = FS.existsSync(commandPath);
+  const shimTargetsCurrent = shimTargetsCurrentInstall(commandPath, options.target);
   const launchCommandExists = FS.existsSync(options.target.launchCommand);
   const cliEntryExists = FS.existsSync(options.target.cliEntry);
 
@@ -390,16 +414,34 @@ export function inspectAceCliInstall(options: AceCliInstallOptions): AceCliInsta
     shell,
     ready:
       shimInstalled &&
+      shimTargetsCurrent &&
       launchCommandExists &&
       cliEntryExists &&
       (pathInCurrentProcess || pathPersisted),
   };
 }
 
-export function ensureAceCliInstalled(options: AceCliInstallOptions): AceCliInstallResult {
+export function ensureAceCliInstalledWithProgress(
+  options: AceCliInstallOptions,
+  onProgress?: (progress: AceCliInstallProgress) => void,
+): AceCliInstallResult {
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
+  const totalSteps = 5;
+  let completedSteps = 0;
+  const emitProgress = (step: AceCliInstallProgressStep, message: string) => {
+    completedSteps += 1;
+    onProgress?.({
+      step,
+      message,
+      completedSteps,
+      totalSteps,
+      percent: Math.round((completedSteps / totalSteps) * 100),
+    });
+  };
+
   const before = inspectAceCliInstall(options);
+  emitProgress("inspect", "Inspecting current ace CLI installation.");
 
   const launcherContent =
     platform === "win32"
@@ -409,6 +451,10 @@ export function ensureAceCliInstalled(options: AceCliInstallOptions): AceCliInst
     before.commandPath,
     launcherContent,
     platform === "win32" ? undefined : 0o755,
+  );
+  emitProgress(
+    "write-launcher",
+    shimChanged ? "Writing ace command shim." : "ace command shim already up to date.",
   );
 
   let pathChanged = false;
@@ -430,16 +476,26 @@ export function ensureAceCliInstalled(options: AceCliInstallOptions): AceCliInst
       }
     }
   }
+  emitProgress(
+    "persist-path",
+    pathChanged ? "Updating persistent PATH targets." : "Persistent PATH already configured.",
+  );
 
   if (!pathHasEntry(resolvePathValue(env), before.binDir, platform)) {
     setPathValue(env, prependPathEntry(resolvePathValue(env), before.binDir, platform));
   }
+  emitProgress("sync-process-path", "Syncing current process PATH.");
 
   const after = inspectAceCliInstall(options);
+  emitProgress("verify", "Verifying ace CLI installation.");
   return {
     ...after,
     changed: shimChanged || pathChanged,
     pathChanged,
     restartRequired: pathChanged,
   };
+}
+
+export function ensureAceCliInstalled(options: AceCliInstallOptions): AceCliInstallResult {
+  return ensureAceCliInstalledWithProgress(options);
 }

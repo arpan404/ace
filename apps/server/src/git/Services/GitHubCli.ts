@@ -57,6 +57,8 @@ export interface GitHubCliShape {
   readonly listIssues: (input: {
     readonly cwd: string;
     readonly limit?: number;
+    readonly state?: "open" | "closed" | "all";
+    readonly labels?: ReadonlyArray<string>;
     readonly query?: string;
   }) => Effect.Effect<ReadonlyArray<GitHubIssue>, GitHubCliError>;
 

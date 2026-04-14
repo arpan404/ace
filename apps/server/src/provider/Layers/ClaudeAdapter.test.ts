@@ -539,6 +539,71 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("bootstraps the first turn from replay turns once", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        replayTurns: [
+          {
+            prompt: "Prior question",
+            attachmentNames: [],
+            assistantResponse: "Prior answer",
+          },
+        ],
+        runtimeMode: "full-access",
+      });
+
+      const createInput = harness.getLastCreateQueryInput();
+      const promptIterator = createInput?.prompt[Symbol.asyncIterator]();
+      assert.isDefined(promptIterator);
+
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "Current question",
+        attachments: [],
+      });
+      const firstPromptText = yield* Effect.promise(async () => {
+        const next = await promptIterator?.next();
+        const content = next?.done ? undefined : next.value.message.content;
+        if (typeof content === "string") {
+          return content;
+        }
+        const first = content?.[0];
+        return first && first.type === "text" ? first.text : undefined;
+      });
+      assert.equal(
+        firstPromptText?.includes("Continue this conversation using the transcript context below."),
+        true,
+      );
+      assert.equal(
+        firstPromptText?.includes("Latest user request (answer this now):\nCurrent question"),
+        true,
+      );
+
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "Second question",
+        attachments: [],
+      });
+      const secondPromptText = yield* Effect.promise(async () => {
+        const next = await promptIterator?.next();
+        const content = next?.done ? undefined : next.value.message.content;
+        if (typeof content === "string") {
+          return content;
+        }
+        const first = content?.[0];
+        return first && first.type === "text" ? first.text : undefined;
+      });
+      assert.equal(secondPromptText, "Second question");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("embeds image attachments in Claude user messages", () => {
     const baseDir = mkdtempSync(path.join(os.tmpdir(), "claude-attachments-"));
     const harness = makeHarness({
