@@ -2687,7 +2687,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       const imageAttachment: QueuedComposerImageAttachment = {
         type: "image",
         id: randomUUID(),
-        name: `${submission.requestId.toLowerCase()}.${fileExtension}`,
+        name: `redesign-capture.${fileExtension}`,
         mimeType: normalizedMimeType,
         sizeBytes: submission.imageSizeBytes,
         dataUrl: submission.imageDataUrl,
@@ -2721,7 +2721,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
       toastManager.add({
         type: "success",
-        title: `Queued design request ${submission.requestId}.`,
+        title: "Queued redesign request.",
       });
     },
     [
