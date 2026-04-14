@@ -237,11 +237,25 @@ export function deriveCompletionDividerBeforeEntryId(
   timelineEntries: ReadonlyArray<TimelineEntry>,
   latestTurn: Pick<
     OrchestrationLatestTurn,
-    "assistantMessageId" | "startedAt" | "completedAt"
+    "turnId" | "assistantMessageId" | "startedAt" | "completedAt"
   > | null,
 ): string | null {
   if (!latestTurn?.startedAt || !latestTurn.completedAt) {
     return null;
+  }
+
+  let latestAssistantMessageForTurn: string | null = null;
+  for (const timelineEntry of timelineEntries) {
+    if (timelineEntry.kind !== "message" || timelineEntry.message.role !== "assistant") {
+      continue;
+    }
+    if (timelineEntry.message.turnId !== latestTurn.turnId) {
+      continue;
+    }
+    latestAssistantMessageForTurn = timelineEntry.id;
+  }
+  if (latestAssistantMessageForTurn) {
+    return latestAssistantMessageForTurn;
   }
 
   if (latestTurn.assistantMessageId) {

@@ -1,6 +1,7 @@
 import { ProjectId, ThreadId, TurnId } from "@ace/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../../store";
+import { appendBrowserDesignContextToPrompt } from "../terminalContext";
 
 import {
   buildExpiredTerminalContextToastCopy,
@@ -96,6 +97,25 @@ describe("formatQueuedComposerMessagePreview", () => {
         terminalContextCount: 1,
       }),
     ).toBe("2 images · 1 terminal context");
+  });
+
+  it("surfaces browser design request ids while hiding hidden context blocks", () => {
+    const prompt = appendBrowserDesignContextToPrompt("Increase spacing between cards", {
+      requestId: "DR-7F2A9C11",
+      pageUrl: "https://example.com/dashboard",
+      pagePath: "/dashboard",
+      selection: { x: 24, y: 32, width: 420, height: 240 },
+      targetElement: null,
+      mainContainer: null,
+    });
+
+    expect(
+      formatQueuedComposerMessagePreview({
+        prompt,
+        imageCount: 1,
+        terminalContextCount: 0,
+      }),
+    ).toBe("DR-7F2A9C11 · Increase spacing between cards");
   });
 });
 

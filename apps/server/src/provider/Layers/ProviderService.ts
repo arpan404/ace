@@ -10,6 +10,8 @@
  * @module ProviderServiceLive
  */
 import {
+  DEFAULT_PROVIDER_CLI_IDLE_TTL_SECONDS,
+  DEFAULT_PROVIDER_CLI_MAX_OPEN,
   ModelSelection,
   NonNegativeInt,
   type ProviderKind,
@@ -55,6 +57,20 @@ const LOCAL_TRANSCRIPT_AUTHORITATIVE_PROVIDERS = new Set<ProviderKind>([
   "gemini",
   "opencode",
 ]);
+const PROVIDER_CLI_POLICY_SWEEP_INTERVAL_MS = 1_000;
+
+type ProviderCliPoolPolicy = {
+  readonly maxOpen: number;
+  readonly idleTtlMs: number;
+};
+
+type SessionActivityState = {
+  provider: ProviderKind;
+  lastAssistantActivityAtMs: number;
+  turnInProgress: boolean;
+  pendingRequestCount: number;
+  pendingUserInputCount: number;
+};
 
 function usesLocalTranscriptAuthority(provider: ProviderKind): boolean {
   return LOCAL_TRANSCRIPT_AUTHORITATIVE_PROVIDERS.has(provider);
@@ -144,6 +160,21 @@ function readPersistedCwd(
   if (typeof rawCwd !== "string") return undefined;
   const trimmed = rawCwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseIsoTimestampMs(value: string): number | undefined {
+  const timestampMs = Date.parse(value);
+  return Number.isFinite(timestampMs) ? timestampMs : undefined;
+}
+
+function isSessionBusy(session: ProviderSession, state: SessionActivityState | undefined): boolean {
+  return (
+    session.status === "running" ||
+    session.status === "connecting" ||
+    state?.turnInProgress === true ||
+    (state?.pendingRequestCount ?? 0) > 0 ||
+    (state?.pendingUserInputCount ?? 0) > 0
+  );
 }
 
 const makeProviderService = Effect.fn("makeProviderService")(function* (
@@ -241,8 +272,275 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       }),
     },
   );
+  const sessionActivityByThreadId = new Map<ThreadId, SessionActivityState>();
+
+  const listActiveSessions = Effect.forEach(adapters, (adapter) => adapter.listSessions()).pipe(
+    Effect.map((sessionsByProvider) => sessionsByProvider.flatMap((sessions) => sessions)),
+  );
+
+  const resolveCliPoolPolicyForOperation = Effect.fn("resolveCliPoolPolicyForOperation")(function* (
+    operation: string,
+  ) {
+    const settings = yield* serverSettings.getSettings.pipe(
+      Effect.mapError((error) =>
+        toValidationError(operation, `Failed to load provider settings: ${error.message}`, error),
+      ),
+    );
+    return {
+      maxOpen: settings.providerCliMaxOpen,
+      idleTtlMs: settings.providerCliIdleTtlSeconds * 1_000,
+    } satisfies ProviderCliPoolPolicy;
+  });
+
+  const resolveCliPoolPolicyForBackground = serverSettings.getSettings.pipe(
+    Effect.map((settings) => ({
+      maxOpen: settings.providerCliMaxOpen,
+      idleTtlMs: settings.providerCliIdleTtlSeconds * 1_000,
+    })),
+    Effect.catch((error) =>
+      Effect.logWarning("failed to read provider CLI pool settings; using defaults", {
+        error: error.message,
+        maxOpen: DEFAULT_PROVIDER_CLI_MAX_OPEN,
+        idleTtlSeconds: DEFAULT_PROVIDER_CLI_IDLE_TTL_SECONDS,
+      }).pipe(
+        Effect.as({
+          maxOpen: DEFAULT_PROVIDER_CLI_MAX_OPEN,
+          idleTtlMs: DEFAULT_PROVIDER_CLI_IDLE_TTL_SECONDS * 1_000,
+        } satisfies ProviderCliPoolPolicy),
+      ),
+    ),
+  );
+
+  const ensureSessionActivity = (
+    threadId: ThreadId,
+    provider: ProviderKind,
+    seedAtMs: number,
+  ): SessionActivityState => {
+    const existing = sessionActivityByThreadId.get(threadId);
+    if (existing) {
+      if (existing.provider !== provider) {
+        existing.provider = provider;
+      }
+      return existing;
+    }
+    const created: SessionActivityState = {
+      provider,
+      lastAssistantActivityAtMs: seedAtMs,
+      turnInProgress: false,
+      pendingRequestCount: 0,
+      pendingUserInputCount: 0,
+    };
+    sessionActivityByThreadId.set(threadId, created);
+    return created;
+  };
+
+  const markSessionObserved = (session: ProviderSession, observedAtMs: number): void => {
+    const state = ensureSessionActivity(session.threadId, session.provider, observedAtMs);
+    if (
+      session.status === "running" ||
+      session.status === "connecting" ||
+      session.activeTurnId !== undefined
+    ) {
+      state.turnInProgress = true;
+    }
+  };
+
+  const markTurnStarted = (threadId: ThreadId, provider: ProviderKind): void => {
+    const state = ensureSessionActivity(threadId, provider, Date.now());
+    state.turnInProgress = true;
+  };
+
+  const sessionIdleReferenceMs = (
+    session: ProviderSession,
+    state: SessionActivityState | undefined,
+    fallbackNowMs: number,
+  ): number =>
+    state?.lastAssistantActivityAtMs ??
+    parseIsoTimestampMs(session.updatedAt) ??
+    parseIsoTimestampMs(session.createdAt) ??
+    fallbackNowMs;
+
+  const recordRuntimeEventActivity = (event: ProviderRuntimeEvent): void => {
+    const eventAtMs = parseIsoTimestampMs(event.createdAt) ?? Date.now();
+    const state = ensureSessionActivity(event.threadId, event.provider, eventAtMs);
+
+    switch (event.type) {
+      case "turn.started":
+        state.turnInProgress = true;
+        return;
+      case "turn.completed":
+      case "turn.aborted":
+        state.turnInProgress = false;
+        state.lastAssistantActivityAtMs = Math.max(state.lastAssistantActivityAtMs, eventAtMs);
+        return;
+      case "item.completed":
+        if (event.payload.itemType === "assistant_message") {
+          state.lastAssistantActivityAtMs = Math.max(state.lastAssistantActivityAtMs, eventAtMs);
+        }
+        return;
+      case "request.opened":
+        state.pendingRequestCount += 1;
+        return;
+      case "request.resolved":
+        state.pendingRequestCount = Math.max(0, state.pendingRequestCount - 1);
+        return;
+      case "user-input.requested":
+        state.pendingUserInputCount += 1;
+        return;
+      case "user-input.resolved":
+        state.pendingUserInputCount = Math.max(0, state.pendingUserInputCount - 1);
+        return;
+      case "session.exited":
+        state.turnInProgress = false;
+        state.pendingRequestCount = 0;
+        state.pendingUserInputCount = 0;
+        return;
+      default:
+        return;
+    }
+  };
+
+  const stopSessionPreservingBinding = Effect.fn("stopSessionPreservingBinding")(function* (input: {
+    readonly session: ProviderSession;
+    readonly reason: string;
+  }) {
+    const adapter = yield* registry.getByProvider(input.session.provider);
+    const hasSession = yield* adapter
+      .hasSession(input.session.threadId)
+      .pipe(Effect.orElseSucceed(() => false));
+    if (hasSession) {
+      yield* adapter.stopSession(input.session.threadId);
+    }
+    const stoppedAt = new Date().toISOString();
+    yield* directory.upsert({
+      threadId: input.session.threadId,
+      provider: input.session.provider,
+      runtimeMode: input.session.runtimeMode,
+      status: "stopped",
+      runtimePayload: {
+        activeTurnId: null,
+        lastRuntimeEvent: input.reason,
+        lastRuntimeEventAt: stoppedAt,
+      },
+    });
+    const state = sessionActivityByThreadId.get(input.session.threadId);
+    if (state) {
+      state.turnInProgress = false;
+      state.pendingRequestCount = 0;
+      state.pendingUserInputCount = 0;
+    }
+    yield* analytics.record("provider.session.policy_stopped", {
+      provider: input.session.provider,
+      reason: input.reason,
+    });
+  });
+
+  const evictIdleSessionsToLimit = Effect.fn("evictIdleSessionsToLimit")(function* (input: {
+    readonly sessions: ReadonlyArray<ProviderSession>;
+    readonly maxOpen: number;
+    readonly reason: string;
+    readonly excludeThreadId?: ThreadId;
+  }) {
+    if (input.sessions.length <= input.maxOpen) {
+      return;
+    }
+    const nowMs = Date.now();
+    const idleCandidates = input.sessions
+      .filter((session) => {
+        if (input.excludeThreadId && session.threadId === input.excludeThreadId) {
+          return false;
+        }
+        const state = sessionActivityByThreadId.get(session.threadId);
+        return !isSessionBusy(session, state);
+      })
+      .map((session) => ({
+        session,
+        lastAssistantActivityAtMs: sessionIdleReferenceMs(
+          session,
+          sessionActivityByThreadId.get(session.threadId),
+          nowMs,
+        ),
+      }))
+      .toSorted((left, right) => left.lastAssistantActivityAtMs - right.lastAssistantActivityAtMs);
+
+    let remaining = input.sessions.length;
+    for (const candidate of idleCandidates) {
+      if (remaining <= input.maxOpen) {
+        break;
+      }
+      yield* stopSessionPreservingBinding({
+        session: candidate.session,
+        reason: input.reason,
+      });
+      remaining -= 1;
+    }
+  });
+
+  const enforceCliPoolPolicy = Effect.fn("enforceCliPoolPolicy")(function* () {
+    const policy = yield* resolveCliPoolPolicyForBackground;
+    let sessions = yield* listActiveSessions;
+    const activeThreadIds = new Set(sessions.map((session) => session.threadId));
+    for (const threadId of sessionActivityByThreadId.keys()) {
+      if (!activeThreadIds.has(threadId)) {
+        sessionActivityByThreadId.delete(threadId);
+      }
+    }
+    const nowMs = Date.now();
+    for (const session of sessions) {
+      markSessionObserved(session, nowMs);
+      const state = sessionActivityByThreadId.get(session.threadId);
+      if (isSessionBusy(session, state)) {
+        continue;
+      }
+      const idleForMs = nowMs - sessionIdleReferenceMs(session, state, nowMs);
+      if (idleForMs < policy.idleTtlMs) {
+        continue;
+      }
+      yield* stopSessionPreservingBinding({
+        session,
+        reason: "provider.idle_ttl_expired",
+      });
+    }
+    sessions = yield* listActiveSessions;
+    yield* evictIdleSessionsToLimit({
+      sessions,
+      maxOpen: policy.maxOpen,
+      reason: "provider.max_open_enforced",
+    });
+  });
+
+  const enforceCliPoolPolicySafely = enforceCliPoolPolicy().pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("provider CLI lifecycle policy sweep failed", {
+        cause,
+      }),
+    ),
+  );
+
+  const prepareForNewSession = Effect.fn("prepareForNewSession")(function* (input: {
+    readonly threadId: ThreadId;
+    readonly operation: string;
+  }) {
+    const policy = yield* resolveCliPoolPolicyForOperation(input.operation);
+    const sessions = yield* listActiveSessions;
+    for (const session of sessions) {
+      markSessionObserved(session, Date.now());
+    }
+    if (sessions.some((session) => session.threadId === input.threadId)) {
+      return;
+    }
+    yield* evictIdleSessionsToLimit({
+      sessions,
+      maxOpen: Math.max(0, policy.maxOpen - 1),
+      reason: "provider.max_open_prestart",
+      excludeThreadId: input.threadId,
+    });
+  });
+
   const processRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
-    publishRuntimeEvent(event);
+    Effect.sync(() => {
+      recordRuntimeEventActivity(event);
+    }).pipe(Effect.flatMap(() => publishRuntimeEvent(event)));
 
   const worker = Effect.forever(
     Queue.take(runtimeEventQueue).pipe(Effect.flatMap(processRuntimeEvent)),
@@ -263,6 +561,22 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     ).pipe(Effect.asVoid),
   );
 
+  yield* withStartupTiming(
+    "providers",
+    "Starting provider CLI policy sweep",
+    Effect.forkScoped(
+      enforceCliPoolPolicySafely.pipe(
+        Effect.flatMap(() =>
+          Effect.forever(
+            Effect.sleep(PROVIDER_CLI_POLICY_SWEEP_INTERVAL_MS).pipe(
+              Effect.flatMap(() => enforceCliPoolPolicySafely),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
   const recoverSessionForThread = Effect.fn("recoverSessionForThread")(function* (input: {
     readonly binding: ProviderRuntimeBinding;
     readonly operation: string;
@@ -280,6 +594,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         (session) => session.threadId === input.binding.threadId,
       );
       if (existing) {
+        markSessionObserved(existing, Date.now());
         yield* upsertSessionBinding(existing, input.binding.threadId);
         yield* analytics.record("provider.session.recovered", {
           provider: existing.provider,
@@ -307,6 +622,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         )
       : [];
 
+    yield* prepareForNewSession({
+      threadId: input.binding.threadId,
+      operation: input.operation,
+    });
     const resumed = yield* adapter.startSession({
       threadId: input.binding.threadId,
       provider: input.binding.provider,
@@ -323,6 +642,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
     }
 
+    markSessionObserved(resumed, Date.now());
     yield* upsertSessionBinding(resumed, input.binding.threadId);
     yield* analytics.record("provider.session.recovered", {
       provider: resumed.provider,
@@ -419,6 +739,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             )
           : []);
       const adapter = yield* registry.getByProvider(input.provider);
+      yield* prepareForNewSession({
+        threadId,
+        operation: "ProviderService.startSession",
+      });
       const session = yield* adapter.startSession({
         ...input,
         ...(effectiveResumeCursor !== undefined ? { resumeCursor: effectiveResumeCursor } : {}),
@@ -432,6 +756,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         );
       }
 
+      markSessionObserved(session, Date.now());
       yield* upsertSessionBinding(session, threadId, {
         modelSelection: input.modelSelection,
       });
@@ -472,6 +797,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       allowRecovery: true,
     });
     const turn = yield* routed.adapter.sendTurn(input);
+    markTurnStarted(input.threadId, routed.adapter.provider);
     yield* directory.upsert({
       threadId: input.threadId,
       provider: routed.adapter.provider,
@@ -507,6 +833,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         allowRecovery: true,
       });
       yield* routed.adapter.interruptTurn(routed.threadId, input.turnId);
+      const state = sessionActivityByThreadId.get(input.threadId);
+      if (state) {
+        state.turnInProgress = false;
+      }
       yield* analytics.record("provider.turn.interrupted", {
         provider: routed.adapter.provider,
       });
@@ -565,6 +895,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         yield* routed.adapter.stopSession(routed.threadId);
       }
       yield* directory.remove(input.threadId);
+      sessionActivityByThreadId.delete(input.threadId);
       yield* analytics.record("provider.session.stopped", {
         provider: routed.adapter.provider,
       });
@@ -577,6 +908,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         adapter.listSessions(),
       );
       const activeSessions = sessionsByProvider.flatMap((sessions) => sessions);
+      for (const session of activeSessions) {
+        markSessionObserved(session, Date.now());
+      }
       const persistedBindings = yield* directory.listThreadIds().pipe(
         Effect.flatMap((threadIds) =>
           Effect.forEach(
@@ -645,6 +979,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         Effect.map((sessions) => sessions.find((session) => session.threadId === routed.threadId)),
       );
     if (refreshedSession) {
+      markSessionObserved(refreshedSession, Date.now());
       const shouldClearResumeCursor = usesLocalTranscriptAuthority(routed.adapter.provider);
       yield* upsertSessionBinding(refreshedSession, routed.threadId, {
         lastRuntimeEvent: "provider.rollbackConversation",
@@ -692,6 +1027,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         ),
       ),
     ).pipe(Effect.asVoid);
+    sessionActivityByThreadId.clear();
     yield* analytics.record("provider.sessions.stopped_all", {
       sessionCount: threadIds.length,
     });

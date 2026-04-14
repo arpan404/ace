@@ -166,6 +166,7 @@ import {
   useComposerThreadDraft,
 } from "../composerDraftStore";
 import {
+  appendBrowserDesignContextToPrompt,
   appendTerminalContextsToPrompt,
   deriveDisplayedUserMessageState,
   formatTerminalContextLabel,
@@ -254,6 +255,7 @@ import {
   subscribeToBrowserLaunchRequests,
   takePendingBrowserLaunchRequest,
 } from "~/lib/browser/launcher";
+import { type BrowserDesignRequestSubmission } from "~/lib/browser/types";
 import {
   decodeScopedTerminalGroupId,
   encodeScopedTerminalGroupId,
@@ -2614,6 +2616,64 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [
       buildQueuedComposerImages,
+      interactionMode,
+      persistQueuedComposerState,
+      queuedComposerMessages,
+      queuedSteerRequest,
+      runtimeMode,
+      selectedModelSelection,
+    ],
+  );
+  const queueBrowserDesignRequest = useCallback(
+    async (submission: BrowserDesignRequestSubmission) => {
+      const trimmedInstructions = submission.instructions.trim();
+      if (!trimmedInstructions) {
+        throw new Error("Add design instructions before queueing the request.");
+      }
+      const normalizedMimeType =
+        submission.imageMimeType.trim().length > 0 ? submission.imageMimeType : "image/png";
+      const fileExtension = /^image\/([a-z0-9.+-]+)$/i.exec(normalizedMimeType)?.[1] ?? "png";
+      const imageAttachment: QueuedComposerImageAttachment = {
+        type: "image",
+        id: randomUUID(),
+        name: `${submission.requestId.toLowerCase()}.${fileExtension}`,
+        mimeType: normalizedMimeType,
+        sizeBytes: submission.imageSizeBytes,
+        dataUrl: submission.imageDataUrl,
+        previewUrl: submission.imageDataUrl,
+      };
+      const promptWithContext = appendBrowserDesignContextToPrompt(trimmedInstructions, {
+        requestId: submission.requestId,
+        pageUrl: submission.pageUrl,
+        pagePath: submission.pagePath,
+        selection: submission.selection,
+        targetElement: submission.targetElement,
+        mainContainer: submission.mainContainer,
+      });
+      const queuedMessage: QueuedComposerMessage = {
+        id: newMessageId(),
+        prompt: promptWithContext,
+        images: [imageAttachment],
+        terminalContexts: [],
+        modelSelection: selectedModelSelection,
+        runtimeMode,
+        interactionMode,
+      };
+      const persisted = await persistQueuedComposerState(
+        [...queuedComposerMessages, queuedMessage],
+        queuedSteerRequest,
+        queuedComposerMessages,
+        queuedSteerRequest,
+      );
+      if (!persisted) {
+        throw new Error("Failed to queue the design request.");
+      }
+      toastManager.add({
+        type: "success",
+        title: `Queued design request ${submission.requestId}.`,
+      });
+    },
+    [
       interactionMode,
       persistQueuedComposerState,
       queuedComposerMessages,
@@ -6392,6 +6452,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             forwardShortcutLabel: browserForwardShortcutLabel,
             reloadShortcutLabel: browserReloadShortcutLabel,
             viewportRef: chatViewportRef,
+            onQueueDesignRequest: queueBrowserDesignRequest,
           },
         }
       : null;

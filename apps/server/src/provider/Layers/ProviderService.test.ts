@@ -237,10 +237,13 @@ function makeFakeCodexAdapter(
 const sleep = (ms: number) =>
   Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
-function makeProviderServiceLayer() {
+function makeProviderServiceLayer(options?: {
+  readonly serverSettingsLayer?: ReturnType<typeof ServerSettingsService.layerTest>;
+}) {
   const codex = makeFakeCodexAdapter();
   const claude = makeFakeCodexAdapter("claudeAgent");
   const cursor = makeFakeCodexAdapter("cursor", "restart-session");
+  const serverSettingsLayer = options?.serverSettingsLayer ?? defaultServerSettingsLayer;
   const registry: typeof ProviderAdapterRegistry.Service = {
     getByProvider: (provider) =>
       provider === "codex"
@@ -268,7 +271,7 @@ function makeProviderServiceLayer() {
         Layer.provide(providerAdapterLayer),
         Layer.provide(directoryLayer),
         Layer.provide(projectionMessageRepositoryLayer),
-        Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(serverSettingsLayer),
         Layer.provideMerge(AnalyticsService.layerTest),
       ),
       directoryLayer,
@@ -1257,6 +1260,104 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
         yield* provider.stopSession({ threadId });
       }),
+  );
+});
+
+const lifecycle = makeProviderServiceLayer({
+  serverSettingsLayer: ServerSettingsService.layerTest({
+    providerCliMaxOpen: 1,
+    providerCliIdleTtlSeconds: 1,
+  }),
+});
+lifecycle.layer("ProviderServiceLive CLI lifecycle policy", (it) => {
+  it.effect("evicts an idle session before opening a new one when at max capacity", () =>
+    Effect.gen(function* () {
+      lifecycle.codex.stopSession.mockClear();
+      lifecycle.claude.startSession.mockClear();
+
+      const provider = yield* ProviderService;
+      yield* provider.startSession(asThreadId("thread-evict-oldest"), {
+        provider: "codex",
+        threadId: asThreadId("thread-evict-oldest"),
+        runtimeMode: "full-access",
+      });
+
+      yield* provider.startSession(asThreadId("thread-evict-new"), {
+        provider: "claudeAgent",
+        threadId: asThreadId("thread-evict-new"),
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(lifecycle.codex.stopSession.mock.calls.length, 1);
+      assert.equal(lifecycle.claude.startSession.mock.calls.length, 1);
+      const sessions = yield* provider.listSessions();
+      assert.equal(sessions.length, 1);
+      assert.equal(sessions[0]?.threadId, asThreadId("thread-evict-new"));
+    }),
+  );
+
+  it.effect("allows burst above max when all open sessions are busy", () =>
+    Effect.gen(function* () {
+      lifecycle.codex.stopSession.mockClear();
+
+      const provider = yield* ProviderService;
+      const session = yield* provider.startSession(asThreadId("thread-busy-1"), {
+        provider: "codex",
+        threadId: asThreadId("thread-busy-1"),
+        runtimeMode: "full-access",
+      });
+      yield* provider.sendTurn({
+        threadId: session.threadId,
+        input: "run",
+        attachments: [],
+      });
+
+      yield* provider.startSession(asThreadId("thread-busy-2"), {
+        provider: "claudeAgent",
+        threadId: asThreadId("thread-busy-2"),
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(lifecycle.codex.stopSession.mock.calls.length, 0);
+      const sessions = yield* provider.listSessions();
+      assert.equal(sessions.length, 2);
+    }),
+  );
+
+  it.effect("stops idle sessions after TTL and preserves persisted provider binding", () =>
+    Effect.gen(function* () {
+      lifecycle.codex.stopSession.mockClear();
+
+      const provider = yield* ProviderService;
+      const directory = yield* ProviderSessionDirectory;
+      const session = yield* provider.startSession(asThreadId("thread-idle-expire"), {
+        provider: "codex",
+        threadId: asThreadId("thread-idle-expire"),
+        runtimeMode: "full-access",
+      });
+
+      lifecycle.codex.emit({
+        type: "item.completed",
+        eventId: asEventId("evt-assistant-idle-expire"),
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        threadId: session.threadId,
+        payload: {
+          itemType: "assistant_message",
+          status: "completed",
+        },
+      } as LegacyProviderRuntimeEvent);
+
+      yield* sleep(2_200);
+
+      assert.equal(lifecycle.codex.stopSession.mock.calls.length, 1);
+      const binding = yield* directory.getBinding(session.threadId);
+      assert.equal(Option.isSome(binding), true);
+      if (Option.isSome(binding)) {
+        assert.equal(binding.value.status, "stopped");
+        assert.equal(binding.value.provider, "codex");
+      }
+    }),
   );
 });
 

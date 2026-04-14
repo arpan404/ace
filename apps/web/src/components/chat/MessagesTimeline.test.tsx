@@ -288,6 +288,79 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-thread-row="true"');
   });
 
+  it("hides design-capture attachments while showing the request id", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const designPrompt = [
+      "Increase spacing around this card title",
+      "",
+      "<browser_design_context>",
+      JSON.stringify(
+        {
+          requestId: "DR-4A9D2B6E",
+          pageUrl: "https://example.com/dashboard",
+          pagePath: "/dashboard",
+          selection: { x: 24, y: 18, width: 360, height: 210 },
+          targetElement: null,
+          mainContainer: null,
+        },
+        null,
+        2,
+      ),
+      "</browser_design_context>",
+    ].join("\n");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "entry-design-1",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("msg-design-1"),
+              role: "user",
+              text: designPrompt,
+              attachments: [
+                {
+                  type: "image",
+                  id: "attachment-design-1",
+                  name: "design-capture.png",
+                  mimeType: "image/png",
+                  sizeBytes: 1200,
+                  previewUrl: "https://example.com/design-capture.png",
+                },
+              ],
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("DR-4A9D2B6E");
+    expect(markup).not.toContain("design-capture.png");
+    expect(markup).not.toContain("<img");
+  });
+
   it("uses custom restore copy for the revert action tooltip", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const messageId = MessageId.makeUnsafe("user-rebuildable-provider");

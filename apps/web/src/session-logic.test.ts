@@ -1947,9 +1947,44 @@ describe("deriveTimelineEntries", () => {
 
     expect(
       deriveCompletionDividerBeforeEntryId(entries, {
+        turnId: TurnId.makeUnsafe("turn-1"),
         assistantMessageId: MessageId.makeUnsafe("assistant-final"),
         startedAt: "2026-02-23T00:00:00.000Z",
         completedAt: "2026-02-23T00:00:02.000Z",
+      }),
+    ).toBe("assistant-final");
+  });
+
+  it("anchors the completion divider to the latest assistant message in the active turn", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("assistant-progress"),
+          role: "assistant",
+          text: "progress update",
+          turnId: TurnId.makeUnsafe("turn-active"),
+          createdAt: "2026-02-23T00:00:01.000Z",
+          streaming: false,
+        },
+        {
+          id: MessageId.makeUnsafe("assistant-final"),
+          role: "assistant",
+          text: "final answer",
+          turnId: TurnId.makeUnsafe("turn-active"),
+          createdAt: "2026-02-23T00:00:03.000Z",
+          streaming: false,
+        },
+      ],
+      [],
+      [],
+    );
+
+    expect(
+      deriveCompletionDividerBeforeEntryId(entries, {
+        turnId: TurnId.makeUnsafe("turn-active"),
+        assistantMessageId: MessageId.makeUnsafe("assistant-progress"),
+        startedAt: "2026-02-23T00:00:00.000Z",
+        completedAt: "2026-02-23T00:00:04.000Z",
       }),
     ).toBe("assistant-final");
   });

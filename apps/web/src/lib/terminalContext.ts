@@ -37,6 +37,31 @@ export interface ParsedTerminalContextEntry {
   body: string;
 }
 
+export interface BrowserDesignSelectionRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface BrowserDesignElementDescriptor {
+  tagName: string | null;
+  id: string | null;
+  className: string | null;
+  selector: string | null;
+  textSnippet: string | null;
+  htmlSnippet: string | null;
+}
+
+export interface BrowserDesignPromptContext {
+  requestId: string;
+  pageUrl: string;
+  pagePath: string;
+  selection: BrowserDesignSelectionRect;
+  targetElement: BrowserDesignElementDescriptor | null;
+  mainContainer: BrowserDesignElementDescriptor | null;
+}
+
 export const INLINE_TERMINAL_CONTEXT_PLACEHOLDER = "\uFFFC";
 
 const DISPLAYED_USER_MESSAGE_STATE_CACHE_MAX_ENTRIES = 500;
@@ -58,6 +83,8 @@ const TRAILING_TERMINAL_CONTEXT_BLOCK_PATTERN =
   /\n*<terminal_context>\n([\s\S]*?)\n<\/terminal_context>\s*$/;
 const TRAILING_GITHUB_ISSUE_CONTEXT_BLOCK_PATTERN =
   /\n*<github_issue_context>\n([\s\S]*?)\n<\/github_issue_context>\s*$/;
+const TRAILING_BROWSER_DESIGN_CONTEXT_BLOCK_PATTERN =
+  /\n*<browser_design_context>\n([\s\S]*?)\n<\/browser_design_context>\s*$/;
 
 export function normalizeTerminalContextText(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/^\n+|\n+$/g, "");
@@ -229,6 +256,23 @@ export function appendTerminalContextsToPrompt(
   return trimmedPrompt.length > 0 ? `${trimmedPrompt}\n\n${contextBlock}` : contextBlock;
 }
 
+export function buildBrowserDesignContextBlock(context: BrowserDesignPromptContext): string {
+  return [
+    "<browser_design_context>",
+    JSON.stringify(context, null, 2),
+    "</browser_design_context>",
+  ].join("\n");
+}
+
+export function appendBrowserDesignContextToPrompt(
+  prompt: string,
+  context: BrowserDesignPromptContext,
+): string {
+  const trimmedPrompt = prompt.trim();
+  const contextBlock = buildBrowserDesignContextBlock(context);
+  return trimmedPrompt.length > 0 ? `${trimmedPrompt}\n\n${contextBlock}` : contextBlock;
+}
+
 export function extractTrailingTerminalContexts(prompt: string): ExtractedTerminalContexts {
   const match = TRAILING_TERMINAL_CONTEXT_BLOCK_PATTERN.exec(prompt);
   if (!match) {
@@ -271,6 +315,36 @@ export function extractTrailingGitHubIssueContext(prompt: string): {
   };
 }
 
+export function extractTrailingBrowserDesignContext(prompt: string): {
+  promptText: string;
+  context: { requestId: string | null } | null;
+} {
+  const match = TRAILING_BROWSER_DESIGN_CONTEXT_BLOCK_PATTERN.exec(prompt);
+  if (!match) {
+    return {
+      promptText: prompt,
+      context: null,
+    };
+  }
+  const rawContext = match[1] ?? "";
+  let requestId: string | null = null;
+  try {
+    const decoded = JSON.parse(rawContext);
+    if (decoded && typeof decoded === "object" && "requestId" in decoded) {
+      const value = decoded.requestId;
+      if (typeof value === "string" && value.trim().length > 0) {
+        requestId = value.trim();
+      }
+    }
+  } catch {
+    // Keep requestId null when the hidden context payload is malformed.
+  }
+  return {
+    promptText: prompt.slice(0, match.index).replace(/\n+$/, ""),
+    context: { requestId },
+  };
+}
+
 function stripTrailingGitHubIssueContexts(prompt: string): string {
   let promptText = prompt;
   while (true) {
@@ -282,6 +356,39 @@ function stripTrailingGitHubIssueContexts(prompt: string): string {
   }
 }
 
+function stripTrailingBrowserDesignContexts(prompt: string): string {
+  let promptText = prompt;
+  while (true) {
+    const extracted = extractTrailingBrowserDesignContext(promptText);
+    if (extracted.context === null) {
+      return promptText;
+    }
+    promptText = extracted.promptText;
+  }
+}
+
+function stripTrailingHiddenContextBlocks(prompt: string): string {
+  let promptText = prompt;
+  while (true) {
+    const withoutIssueContexts = stripTrailingGitHubIssueContexts(promptText);
+    const withoutBrowserDesignContexts = stripTrailingBrowserDesignContexts(withoutIssueContexts);
+    if (withoutBrowserDesignContexts === promptText) {
+      return promptText;
+    }
+    promptText = withoutBrowserDesignContexts;
+  }
+}
+
+export function extractBrowserDesignRequestId(prompt: string): string | null {
+  const withoutIssueContext = stripTrailingGitHubIssueContexts(prompt);
+  return extractTrailingBrowserDesignContext(withoutIssueContext).context?.requestId ?? null;
+}
+
+export function hasBrowserDesignContext(prompt: string): boolean {
+  const withoutIssueContext = stripTrailingGitHubIssueContexts(prompt);
+  return extractTrailingBrowserDesignContext(withoutIssueContext).context !== null;
+}
+
 export function deriveDisplayedUserMessageState(prompt: string): DisplayedUserMessageState {
   if (!shouldBypassNonEssentialCaching()) {
     const cached = displayedUserMessageStateCache.get(prompt);
@@ -290,9 +397,9 @@ export function deriveDisplayedUserMessageState(prompt: string): DisplayedUserMe
     }
   }
 
-  const promptWithoutTrailingIssueContext = stripTrailingGitHubIssueContexts(prompt);
+  const promptWithoutTrailingIssueContext = stripTrailingHiddenContextBlocks(prompt);
   const extractedContexts = extractTrailingTerminalContexts(promptWithoutTrailingIssueContext);
-  const visibleText = stripTrailingGitHubIssueContexts(extractedContexts.promptText);
+  const visibleText = stripTrailingHiddenContextBlocks(extractedContexts.promptText);
   const displayedState = {
     visibleText,
     copyText: prompt,

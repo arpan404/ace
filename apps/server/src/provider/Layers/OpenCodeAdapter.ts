@@ -62,7 +62,6 @@ import { type OpenCodeAdapterShape, OpenCodeAdapter } from "../Services/OpenCode
 
 const PROVIDER = "opencode" as const;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
-const DEFAULT_OPENCODE_IDLE_SESSION_TTL_MS = 5 * 60_000;
 const MIN_OPENCODE_IDLE_SESSION_TTL_MS = 15_000;
 
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
@@ -176,15 +175,25 @@ function appendTurnItem(
   resolveTurnSnapshot(context, turnId).items.push(item);
 }
 
+function clearIdleStopTimer(ctx: OpenCodeSessionContext): void {
+  if (ctx.idleStopTimer !== null) {
+    clearTimeout(ctx.idleStopTimer);
+    ctx.idleStopTimer = null;
+  }
+}
+
+function canAutoStopSession(ctx: OpenCodeSessionContext): boolean {
+  return (
+    ctx.activeTurn === null && ctx.pendingApprovals.size === 0 && ctx.pendingUserInputs.size === 0
+  );
+}
+
 async function stopContext(ctx: OpenCodeSessionContext): Promise<void> {
   if (ctx.stopped) {
     return;
   }
   ctx.stopped = true;
-  if (ctx.idleStopTimer !== null) {
-    clearTimeout(ctx.idleStopTimer);
-    ctx.idleStopTimer = null;
-  }
+  clearIdleStopTimer(ctx);
   ctx.sseAbort?.abort();
   ctx.sseAbort = null;
 
@@ -310,11 +319,11 @@ function resolveOpenCodeIdleSessionTtlMs(
   rawValue = process.env.ACE_OPENCODE_IDLE_SESSION_TTL_MS,
 ): number | null {
   if (rawValue === undefined) {
-    return DEFAULT_OPENCODE_IDLE_SESSION_TTL_MS;
+    return null;
   }
   const parsed = Number.parseInt(rawValue, 10);
   if (!Number.isFinite(parsed)) {
-    return DEFAULT_OPENCODE_IDLE_SESSION_TTL_MS;
+    return null;
   }
   if (parsed <= 0) {
     return null;
@@ -759,16 +768,6 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
 
   const sessions = new Map<ThreadId, OpenCodeSessionContext>();
 
-  const clearIdleStopTimer = (ctx: OpenCodeSessionContext): void => {
-    if (ctx.idleStopTimer !== null) {
-      clearTimeout(ctx.idleStopTimer);
-      ctx.idleStopTimer = null;
-    }
-  };
-
-  const canAutoStopSession = (ctx: OpenCodeSessionContext): boolean =>
-    ctx.activeTurn === null && ctx.pendingApprovals.size === 0 && ctx.pendingUserInputs.size === 0;
-
   const markSessionActive = (ctx: OpenCodeSessionContext): void => {
     ctx.lastActivityAtMs = Date.now();
     clearIdleStopTimer(ctx);
@@ -860,6 +859,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     state: "completed" | "failed" | "interrupted",
     errorMessage?: string,
   ) => {
+    markSessionActive(ctx);
     const activeTurn = ctx.activeTurn;
     const turnId = activeTurn?.id;
     ctx.activeTurn = null;
@@ -977,6 +977,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         payload: { state: "ready" },
       }),
     );
+    scheduleIdleStop(ctx, "turn-completed");
   };
 
   const ensureAssistantStarted = (ctx: OpenCodeSessionContext) => {
@@ -1287,6 +1288,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     if (sessionId && sessionId !== ctx.opencodeSessionId) {
       return;
     }
+    markSessionActive(ctx);
     const sseEvent = <TType extends ProviderRuntimeEvent["type"]>(input: {
       readonly type: TType;
       readonly createdAt?: string | undefined;
@@ -1544,6 +1546,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             },
           }),
         );
+        scheduleIdleStop(ctx, "permission-replied");
         return;
       }
       case "question.asked": {
@@ -1589,6 +1592,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             },
           }),
         );
+        scheduleIdleStop(ctx, "question-replied");
         return;
       }
       case "question.rejected": {
@@ -1611,6 +1615,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             },
           }),
         );
+        scheduleIdleStop(ctx, "question-rejected");
         return;
       }
       default:
@@ -1658,6 +1663,8 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         }
         const existing = sessions.get(input.threadId);
         if (existing) {
+          markSessionActive(existing);
+          scheduleIdleStop(existing, "session-reused");
           return existing.session;
         }
 
@@ -1781,6 +1788,8 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             partById: new Map(),
             emittedAssistantTextLengthByPartId: new Map(),
             sseAbort: null,
+            idleStopTimer: null,
+            lastActivityAtMs: Date.now(),
             pendingBootstrapReset: (input.replayTurns?.length ?? 0) > 0 && !resumedExistingSession,
             stopped: false,
           };
@@ -1799,6 +1808,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
               payload: { providerThreadId: opencodeSessionId },
             }),
           );
+          scheduleIdleStop(ctx, "session-started");
           return ctx.session;
         } catch (cause) {
           try {

@@ -594,6 +594,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
+      ...(settings.providerCliMaxOpen !== DEFAULT_UNIFIED_SETTINGS.providerCliMaxOpen
+        ? ["Provider CLI max open"]
+        : []),
+      ...(settings.providerCliIdleTtlSeconds !== DEFAULT_UNIFIED_SETTINGS.providerCliIdleTtlSeconds
+        ? ["Provider CLI idle timeout"]
+        : []),
       ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
         ? ["Archive confirmation"]
         : []),
@@ -615,6 +621,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.defaultThreadEnvMode,
+      settings.providerCliIdleTtlSeconds,
+      settings.providerCliMaxOpen,
       settings.diffWordWrap,
       settings.editorLineNumbers,
       settings.editorMinimap,
@@ -2374,25 +2382,109 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       ) : null}
 
       {isProvidersPage ? (
-        <ProviderSettingsSection
-          addCustomModel={addCustomModel}
-          codexHomePath={codexHomePath}
-          customModelErrorByProvider={customModelErrorByProvider}
-          customModelInputByProvider={customModelInputByProvider}
-          isRefreshingProviders={isRefreshingProviders}
-          lastCheckedAt={lastCheckedAt}
-          modelListRefs={modelListRefs}
-          openProviderDetails={openProviderDetails}
-          providerCards={providerCards}
-          refreshProviders={refreshProviders}
-          removeCustomModel={removeCustomModel}
-          setCustomModelErrorByProvider={setCustomModelErrorByProvider}
-          setCustomModelInputByProvider={setCustomModelInputByProvider}
-          setOpenProviderDetails={setOpenProviderDetails}
-          settings={settings}
-          textGenProvider={textGenProvider}
-          updateSettings={updateSettings}
-        />
+        <>
+          <SettingsSection title="CLI lifecycle">
+            <SettingsRow
+              title="Max open CLIs"
+              description="Soft cap on concurrently open provider CLI sessions. If all open sessions are busy, ace can burst above this cap and trim later when sessions go idle."
+              resetAction={
+                settings.providerCliMaxOpen !== DEFAULT_UNIFIED_SETTINGS.providerCliMaxOpen ? (
+                  <SettingResetButton
+                    label="provider CLI max open"
+                    onClick={() =>
+                      updateSettings({
+                        providerCliMaxOpen: DEFAULT_UNIFIED_SETTINGS.providerCliMaxOpen,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    className="w-full sm:w-28"
+                    aria-label="Maximum open provider CLI sessions"
+                    value={String(settings.providerCliMaxOpen)}
+                    onChange={(event) => {
+                      const nextValue = Number.parseInt(event.target.value, 10);
+                      if (!Number.isFinite(nextValue)) {
+                        return;
+                      }
+                      updateSettings({
+                        providerCliMaxOpen: Math.max(1, nextValue),
+                      });
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground">sessions</span>
+                </div>
+              }
+            />
+
+            <SettingsRow
+              title="Idle timeout"
+              description="Close unused provider CLI sessions when idle longer than this timeout since the most recent assistant completion."
+              resetAction={
+                settings.providerCliIdleTtlSeconds !==
+                DEFAULT_UNIFIED_SETTINGS.providerCliIdleTtlSeconds ? (
+                  <SettingResetButton
+                    label="provider CLI idle timeout"
+                    onClick={() =>
+                      updateSettings({
+                        providerCliIdleTtlSeconds:
+                          DEFAULT_UNIFIED_SETTINGS.providerCliIdleTtlSeconds,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    className="w-full sm:w-28"
+                    aria-label="Provider CLI idle timeout in seconds"
+                    value={String(settings.providerCliIdleTtlSeconds)}
+                    onChange={(event) => {
+                      const nextValue = Number.parseInt(event.target.value, 10);
+                      if (!Number.isFinite(nextValue)) {
+                        return;
+                      }
+                      updateSettings({
+                        providerCliIdleTtlSeconds: Math.max(1, nextValue),
+                      });
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground">sec</span>
+                </div>
+              }
+            />
+          </SettingsSection>
+
+          <ProviderSettingsSection
+            addCustomModel={addCustomModel}
+            codexHomePath={codexHomePath}
+            customModelErrorByProvider={customModelErrorByProvider}
+            customModelInputByProvider={customModelInputByProvider}
+            isRefreshingProviders={isRefreshingProviders}
+            lastCheckedAt={lastCheckedAt}
+            modelListRefs={modelListRefs}
+            openProviderDetails={openProviderDetails}
+            providerCards={providerCards}
+            refreshProviders={refreshProviders}
+            removeCustomModel={removeCustomModel}
+            setCustomModelErrorByProvider={setCustomModelErrorByProvider}
+            setCustomModelInputByProvider={setCustomModelInputByProvider}
+            setOpenProviderDetails={setOpenProviderDetails}
+            settings={settings}
+            textGenProvider={textGenProvider}
+            updateSettings={updateSettings}
+          />
+        </>
       ) : null}
 
       {isAdvancedPage ? (
