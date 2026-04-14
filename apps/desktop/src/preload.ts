@@ -23,9 +23,14 @@ const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
 const GET_IS_DEVELOPMENT_BUILD_CHANNEL = "desktop:get-is-development-build";
 const GET_WINDOW_SHOWN_AT_CHANNEL = "desktop:get-window-shown-at";
+const GET_TITLEBAR_LEFT_INSET_CHANNEL = "desktop:get-titlebar-left-inset";
+const GET_NOTIFICATION_PERMISSION_CHANNEL = "desktop:get-notification-permission";
+const REQUEST_NOTIFICATION_PERMISSION_CHANNEL = "desktop:request-notification-permission";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
 const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
+const ORCHESTRATION_EVENT_CHANNEL = "desktop:orchestration-event";
+const SERVER_CONFIG_EVENT_CHANNEL = "desktop:server-config-event";
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getWsUrl: () => {
@@ -36,6 +41,22 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   getWindowShownAt: () => {
     const result = ipcRenderer.sendSync(GET_WINDOW_SHOWN_AT_CHANNEL);
     return typeof result === "number" && Number.isFinite(result) ? result : null;
+  },
+  getTitlebarLeftInset: () => {
+    const result = ipcRenderer.sendSync(GET_TITLEBAR_LEFT_INSET_CHANNEL);
+    return typeof result === "number" && Number.isFinite(result) && result >= 0 ? result : null;
+  },
+  getNotificationPermission: async () => {
+    const result = await ipcRenderer.invoke(GET_NOTIFICATION_PERMISSION_CHANNEL);
+    return result === "granted" || result === "denied" || result === "default"
+      ? result
+      : "unsupported";
+  },
+  requestNotificationPermission: async () => {
+    const result = await ipcRenderer.invoke(REQUEST_NOTIFICATION_PERMISSION_CHANNEL);
+    return result === "granted" || result === "denied" || result === "default"
+      ? result
+      : "unsupported";
   },
   pickFolder: () => ipcRenderer.invoke(PICK_FOLDER_CHANNEL),
   confirm: (message) => ipcRenderer.invoke(CONFIRM_CHANNEL, message),
@@ -160,5 +181,11 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     return () => {
       ipcRenderer.removeListener(BROWSER_SHORTCUT_ACTION_CHANNEL, wrappedListener);
     };
+  },
+  sendOrchestrationEvent: (event: unknown) => {
+    ipcRenderer.send(ORCHESTRATION_EVENT_CHANNEL, event);
+  },
+  sendServerConfigEvent: (event: unknown) => {
+    ipcRenderer.send(SERVER_CONFIG_EVENT_CHANNEL, event);
   },
 } satisfies DesktopBridge);

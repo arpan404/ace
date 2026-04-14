@@ -162,6 +162,19 @@ function buildCodexProvider(models: ServerProvider["models"]): ServerProvider {
   };
 }
 
+function buildOpenCodeProvider(models: ServerProvider["models"]): ServerProvider {
+  return {
+    provider: "opencode",
+    enabled: true,
+    installed: true,
+    version: "1.4.3",
+    status: "ready",
+    auth: { status: "authenticated" },
+    checkedAt: new Date().toISOString(),
+    models,
+  };
+}
+
 function buildCodexModel(index: number): ServerProvider["models"][number] {
   return {
     slug: `codex-model-${index}`,
@@ -444,6 +457,96 @@ describe("ProviderModelPicker", () => {
         expect(text).toContain("Disabled");
         expect(text).not.toContain("Claude Sonnet 4.6");
       });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("groups OpenCode models by provider and filters via the top search field", async () => {
+    const mounted = await mountPicker({
+      provider: "opencode",
+      model: "github-copilot/claude-sonnet-4-6",
+      lockedProvider: "opencode",
+      providers: [
+        buildOpenCodeProvider([
+          {
+            slug: "github-copilot/claude-sonnet-4-6",
+            name: "GitHub Copilot: Claude Sonnet 4.6",
+            isCustom: false,
+            capabilities: null,
+          },
+          {
+            slug: "opencode-go/codex-5.3",
+            name: "OpenCode Go: Codex 5.3",
+            isCustom: false,
+            capabilities: null,
+          },
+          {
+            slug: "lmstudio/qwen3.5-30b",
+            name: "LMStudio: Qwen 3.5 30B",
+            isCustom: false,
+            capabilities: null,
+          },
+          {
+            slug: "lmstudio/nemotron",
+            name: "LMStudio: Nemotron",
+            isCustom: false,
+            capabilities: null,
+          },
+        ]),
+      ],
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await vi.waitFor(() => {
+        const popup = document.querySelector('[data-slot="menu-popup"]');
+        if (!(popup instanceof HTMLElement)) {
+          throw new Error("Expected OpenCode popup to be mounted.");
+        }
+        const text = popup.textContent ?? "";
+        expect(text).toContain("GitHub Copilot");
+        expect(text).toContain("OpenCode Go");
+        expect(text).toContain("LMStudio");
+        expect(text).toContain("Claude Sonnet 4.6");
+        expect(text).toContain("Codex 5.3");
+        expect(text).toContain("Qwen 3.5 30B");
+        expect(text).toContain("Nemotron");
+      });
+      const popup = document.querySelector('[data-slot="menu-popup"]');
+      if (!(popup instanceof HTMLElement)) {
+        throw new Error("Expected OpenCode popup to remain mounted.");
+      }
+      const initialPopupHeight = popup.getBoundingClientRect().height;
+
+      const searchInput = document.querySelector('input[type="search"]');
+      if (!(searchInput instanceof HTMLInputElement)) {
+        throw new Error("Expected OpenCode model search input to be mounted.");
+      }
+      expect(searchInput.className).toContain("border-0");
+      expect(searchInput.parentElement?.className ?? "").toContain("border-b");
+
+      await page.getByRole("searchbox").fill("nemotron");
+
+      await vi.waitFor(() => {
+        const popup = document.querySelector('[data-slot="menu-popup"]');
+        if (!(popup instanceof HTMLElement)) {
+          throw new Error("Expected OpenCode popup to remain mounted.");
+        }
+        const text = popup.textContent ?? "";
+        expect(text).toContain("LMStudio");
+        expect(text).toContain("Nemotron");
+        expect(text).not.toContain("Claude Sonnet 4.6");
+        expect(text).not.toContain("Codex 5.3");
+      });
+
+      const filteredPopup = document.querySelector('[data-slot="menu-popup"]');
+      if (!(filteredPopup instanceof HTMLElement)) {
+        throw new Error("Expected OpenCode popup to remain mounted after filtering.");
+      }
+      const filteredPopupHeight = filteredPopup.getBoundingClientRect().height;
+      expect(Math.abs(filteredPopupHeight - initialPopupHeight)).toBeLessThanOrEqual(1);
     } finally {
       await mounted.cleanup();
     }

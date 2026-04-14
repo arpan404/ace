@@ -92,10 +92,14 @@ import {
 import {
   ServerConfigStreamEvent,
   ServerConfig,
+  ServerInstallLspToolsInput,
+  ServerLspToolsError,
+  ServerLspToolsStatus,
   ServerSearchOpenCodeModelsInput,
   ServerSearchOpenCodeModelsResult,
   ServerLifecycleStreamEvent,
   ServerProviderUpdatedPayload,
+  ServerRuntimeProfile,
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server";
@@ -147,7 +151,10 @@ export const WS_METHODS = {
   serverGetConfig: "server.getConfig",
   serverPickFolder: "server.pickFolder",
   serverRefreshProviders: "server.refreshProviders",
+  serverGetRuntimeProfile: "server.getRuntimeProfile",
   serverSearchOpenCodeModels: "server.searchOpenCodeModels",
+  serverGetLspToolsStatus: "server.getLspToolsStatus",
+  serverInstallLspTools: "server.installLspTools",
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
@@ -193,9 +200,26 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
   success: ServerProviderUpdatedPayload,
 });
 
+export const WsServerGetRuntimeProfileRpc = Rpc.make(WS_METHODS.serverGetRuntimeProfile, {
+  payload: Schema.Struct({}),
+  success: ServerRuntimeProfile,
+});
+
 export const WsServerSearchOpenCodeModelsRpc = Rpc.make(WS_METHODS.serverSearchOpenCodeModels, {
   payload: ServerSearchOpenCodeModelsInput,
   success: ServerSearchOpenCodeModelsResult,
+});
+
+export const WsServerGetLspToolsStatusRpc = Rpc.make(WS_METHODS.serverGetLspToolsStatus, {
+  payload: Schema.Struct({}),
+  success: ServerLspToolsStatus,
+  error: ServerLspToolsError,
+});
+
+export const WsServerInstallLspToolsRpc = Rpc.make(WS_METHODS.serverInstallLspTools, {
+  payload: ServerInstallLspToolsInput,
+  success: ServerLspToolsStatus,
+  error: ServerLspToolsError,
 });
 
 export const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
@@ -460,7 +484,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerPickFolderRpc,
   WsServerRefreshProvidersRpc,
+  WsServerGetRuntimeProfileRpc,
   WsServerSearchOpenCodeModelsRpc,
+  WsServerGetLspToolsStatusRpc,
+  WsServerInstallLspToolsRpc,
   WsServerUpsertKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,

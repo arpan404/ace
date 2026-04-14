@@ -293,6 +293,71 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("retries unary requests after transient websocket disconnects", async () => {
+    const transport = new WsTransport("ws://localhost:3020", {
+      connectionProbeIntervalMs: 0,
+    });
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const firstSocket = getSocket();
+    firstSocket.open();
+
+    const requestPromise = transport.request((client) => client[WS_METHODS.serverGetConfig]({}));
+
+    await waitFor(() => {
+      const request = firstSocket.sent
+        .map((message) => JSON.parse(message) as { _tag?: string; tag?: string })
+        .find(
+          (message) => message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig,
+        );
+      expect(request).toBeDefined();
+    });
+
+    firstSocket.close(1006, "abnormal closure");
+
+    await waitFor(() => {
+      expect(sockets.length).toBeGreaterThan(1);
+    });
+
+    const retrySocket = getSocket();
+    retrySocket.open();
+
+    await waitFor(() => {
+      const request = retrySocket.sent
+        .map((message) => JSON.parse(message) as { _tag?: string; tag?: string })
+        .find(
+          (message) => message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig,
+        );
+      expect(request).toBeDefined();
+    });
+
+    const retryRequest = retrySocket.sent
+      .map((message) => JSON.parse(message) as { _tag?: string; id?: string; tag?: string })
+      .find(
+        (message): message is { _tag: "Request"; id: string; tag: string } =>
+          message._tag === "Request" && message.tag === WS_METHODS.serverGetConfig,
+      );
+    if (!retryRequest) {
+      throw new Error("Expected a retried unary request");
+    }
+    retrySocket.serverMessage(
+      JSON.stringify({
+        _tag: "Exit",
+        requestId: retryRequest.id,
+        exit: {
+          _tag: "Success",
+          value: mockServerConfig,
+        },
+      }),
+    );
+
+    await expect(requestPromise).resolves.toEqual(mockServerConfig);
+    await transport.dispose();
+  });
+
   it("delivers stream chunks to subscribers", async () => {
     const transport = new WsTransport("ws://localhost:3020");
     const listener = vi.fn();

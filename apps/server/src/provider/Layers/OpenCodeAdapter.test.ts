@@ -7,10 +7,16 @@ import {
   classifyOpenCodeToolItemType,
   isMissingOpenCodeSessionError,
   mapOpenCodeTodoStatus,
+  mapOpenCodePermissionReplyDecision,
+  mapOpenCodeQuestionAnswers,
   openCodeTimestampToIso,
+  openCodeTimestampToEpochMs,
+  rankOpenCodeToolStateStatus,
+  readOpenCodeEventRequestId,
   readOpenCodeResumeSessionId,
   resolveOpenCodeDeltaStreamKind,
   resolveOpenCodePartTimestamp,
+  shouldEmitOpenCodeSnapshotDelta,
 } from "./OpenCodeAdapter.ts";
 
 describe("classifyOpenCodeToolItemType", () => {
@@ -34,6 +40,54 @@ describe("appendOnlyDelta", () => {
 
   it("falls back to the full next value when the stream resets", () => {
     expect(appendOnlyDelta("hello world", "world")).toBe("world");
+  });
+});
+
+describe("shouldEmitOpenCodeSnapshotDelta", () => {
+  it("suppresses snapshot deltas after native stream deltas were seen", () => {
+    expect(
+      shouldEmitOpenCodeSnapshotDelta({
+        hasNativeDelta: true,
+        previousLength: 4,
+        nextLength: 8,
+      }),
+    ).toBe(false);
+  });
+
+  it("suppresses regressive snapshots and only emits append-only growth", () => {
+    expect(
+      shouldEmitOpenCodeSnapshotDelta({
+        hasNativeDelta: false,
+        previousLength: 8,
+        nextLength: 4,
+      }),
+    ).toBe(false);
+    expect(
+      shouldEmitOpenCodeSnapshotDelta({
+        hasNativeDelta: false,
+        previousLength: 8,
+        nextLength: 8,
+      }),
+    ).toBe(false);
+    expect(
+      shouldEmitOpenCodeSnapshotDelta({
+        hasNativeDelta: false,
+        previousLength: 8,
+        nextLength: 12,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("rankOpenCodeToolStateStatus", () => {
+  it("keeps tool statuses monotonic so stale snapshots cannot regress timeline order", () => {
+    expect(rankOpenCodeToolStateStatus("pending")).toBeLessThan(
+      rankOpenCodeToolStateStatus("running"),
+    );
+    expect(rankOpenCodeToolStateStatus("running")).toBeLessThan(
+      rankOpenCodeToolStateStatus("completed"),
+    );
+    expect(rankOpenCodeToolStateStatus("error")).toBe(rankOpenCodeToolStateStatus("completed"));
   });
 });
 
@@ -78,6 +132,45 @@ describe("mapOpenCodeTodoStatus", () => {
     expect(mapOpenCodeTodoStatus("in_progress")).toBe("inProgress");
     expect(mapOpenCodeTodoStatus("completed")).toBe("completed");
     expect(mapOpenCodeTodoStatus("cancelled")).toBe("completed");
+  });
+});
+
+describe("readOpenCodeEventRequestId", () => {
+  it("prefers id but falls back to requestID", () => {
+    expect(readOpenCodeEventRequestId({ id: "req-1", requestID: "req-2" })).toBe("req-1");
+    expect(readOpenCodeEventRequestId({ requestID: "req-2" })).toBe("req-2");
+  });
+
+  it("returns undefined for missing ids", () => {
+    expect(readOpenCodeEventRequestId({})).toBeUndefined();
+    expect(readOpenCodeEventRequestId({ id: 123 })).toBeUndefined();
+  });
+});
+
+describe("mapOpenCodePermissionReplyDecision", () => {
+  it("maps OpenCode permission replies to canonical decisions", () => {
+    expect(mapOpenCodePermissionReplyDecision("once")).toBe("accept");
+    expect(mapOpenCodePermissionReplyDecision("always")).toBe("acceptForSession");
+    expect(mapOpenCodePermissionReplyDecision("reject")).toBe("decline");
+  });
+});
+
+describe("mapOpenCodeQuestionAnswers", () => {
+  it("maps positional OpenCode answers to question-id keyed answers", () => {
+    expect(mapOpenCodeQuestionAnswers(["q-0", "q-1"], [["a"], ["b1", "b2"]])).toEqual({
+      "q-0": ["a"],
+      "q-1": ["b1", "b2"],
+    });
+  });
+
+  it("fills missing answers with empty string arrays for deterministic shape", () => {
+    expect(mapOpenCodeQuestionAnswers(["q-0", "q-1"], [["a"]])).toEqual({
+      "q-0": ["a"],
+      "q-1": [""],
+    });
+    expect(mapOpenCodeQuestionAnswers(["q-0"], undefined)).toEqual({
+      "q-0": [""],
+    });
   });
 });
 
@@ -129,6 +222,18 @@ describe("openCodeTimestampToIso", () => {
   it("ignores values that do not look like absolute timestamps", () => {
     expect(openCodeTimestampToIso(42)).toBeUndefined();
     expect(openCodeTimestampToIso("not-a-time")).toBeUndefined();
+  });
+});
+
+describe("openCodeTimestampToEpochMs", () => {
+  it("normalizes OpenCode second and millisecond epochs", () => {
+    expect(openCodeTimestampToEpochMs(1_742_533_200)).toBe(1_742_533_200_000);
+    expect(openCodeTimestampToEpochMs("1742533200456")).toBe(1_742_533_200_456);
+  });
+
+  it("returns undefined for non-absolute and invalid timestamps", () => {
+    expect(openCodeTimestampToEpochMs(42)).toBeUndefined();
+    expect(openCodeTimestampToEpochMs("not-a-time")).toBeUndefined();
   });
 });
 

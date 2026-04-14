@@ -1,4 +1,5 @@
 import { Effect, FileSystem, Layer, Path } from "effect";
+import { createHash } from "node:crypto";
 import { PROJECT_READ_FILE_MAX_BYTES } from "@ace/contracts";
 
 import {
@@ -10,6 +11,10 @@ import { WorkspaceEntries } from "../Services/WorkspaceEntries.ts";
 import { WorkspacePaths } from "../Services/WorkspacePaths.ts";
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function computeFileVersion(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
 
 export const makeWorkspaceFileSystem = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
@@ -147,6 +152,58 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
           }),
       ),
     );
+
+    const existingStat = yield* statOrNull(target.absolutePath);
+    if (existingStat && existingStat.type !== "File") {
+      return yield* new WorkspaceFileSystemError({
+        cwd: input.cwd,
+        relativePath: input.relativePath,
+        operation: "workspaceFileSystem.writeFile",
+        detail: "Only regular files can be written in the workspace editor.",
+      });
+    }
+
+    const existingBytes =
+      existingStat && existingStat.type === "File"
+        ? yield* fileSystem.readFile(target.absolutePath).pipe(
+            Effect.mapError(
+              (cause) =>
+                new WorkspaceFileSystemError({
+                  cwd: input.cwd,
+                  relativePath: input.relativePath,
+                  operation: "workspaceFileSystem.readFile",
+                  detail: cause.message,
+                  cause,
+                }),
+            ),
+          )
+        : null;
+    const currentVersion = existingBytes ? computeFileVersion(existingBytes) : undefined;
+    const currentContents = existingBytes
+      ? (() => {
+          try {
+            return utf8Decoder.decode(existingBytes);
+          } catch {
+            return undefined;
+          }
+        })()
+      : undefined;
+
+    if (input.expectedVersion !== undefined && input.overwrite !== true) {
+      if (input.expectedVersion !== currentVersion) {
+        return yield* new WorkspaceFileSystemError({
+          conflict: true,
+          currentContents,
+          currentVersion,
+          cwd: input.cwd,
+          relativePath: input.relativePath,
+          operation: "workspaceFileSystem.writeFileConflict",
+          detail: "The file changed on disk after you opened it.",
+          expectedVersion: input.expectedVersion,
+        });
+      }
+    }
+
     yield* fileSystem.writeFileString(target.absolutePath, input.contents).pipe(
       Effect.mapError(
         (cause) =>
@@ -160,7 +217,10 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
       ),
     );
     yield* workspaceEntries.invalidate(input.cwd);
-    return { relativePath: target.relativePath };
+    return {
+      relativePath: target.relativePath,
+      version: computeFileVersion(Buffer.from(input.contents, "utf8")),
+    };
   });
 
   const readFile: WorkspaceFileSystemShape["readFile"] = Effect.fn("WorkspaceFileSystem.readFile")(
@@ -238,6 +298,7 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
         relativePath: target.relativePath,
         contents,
         sizeBytes: bytes.byteLength,
+        version: computeFileVersion(bytes),
       };
     },
   );

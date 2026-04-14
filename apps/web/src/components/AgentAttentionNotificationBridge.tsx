@@ -63,7 +63,7 @@ export function AgentAttentionNotificationBridge() {
   );
   const [notificationPermission, setNotificationPermission] =
     useState<AgentAttentionNotificationPermission>(() =>
-      desktopNotificationBridge ? "granted" : readAgentAttentionNotificationPermission(),
+      desktopNotificationBridge ? "default" : readAgentAttentionNotificationPermission(),
     );
   const activeBrowserNotificationsRef = useRef(new Map<string, Notification>());
   const activeDesktopNotificationIdsRef = useRef(new Set<string>());
@@ -72,6 +72,7 @@ export function AgentAttentionNotificationBridge() {
   const attentionRequestByKeyRef = useRef(attentionRequestByKey);
   const hasPromptedForPermissionRef = useRef(false);
   const notificationSessionStartedAtRef = useRef(new Date().toISOString());
+  const lastKnownFocusStateRef = useRef(isAppFocused);
 
   useEffect(() => {
     attentionRequestByKeyRef.current = attentionRequestByKey;
@@ -83,10 +84,27 @@ export function AgentAttentionNotificationBridge() {
     }
 
     const syncWindowState = () => {
-      setIsAppFocused(isAppWindowFocused(document));
-      setNotificationPermission(
-        desktopNotificationBridge ? "granted" : readAgentAttentionNotificationPermission(),
-      );
+      const nextIsFocused = isAppWindowFocused(document);
+      if (lastKnownFocusStateRef.current && !nextIsFocused) {
+        notificationSessionStartedAtRef.current = new Date().toISOString();
+      }
+      lastKnownFocusStateRef.current = nextIsFocused;
+      setIsAppFocused(nextIsFocused);
+      if (
+        desktopNotificationBridge &&
+        typeof window.desktopBridge?.getNotificationPermission === "function"
+      ) {
+        void window.desktopBridge
+          .getNotificationPermission()
+          .then((permission) => {
+            setNotificationPermission(permission);
+          })
+          .catch(() => {
+            setNotificationPermission("unsupported");
+          });
+        return;
+      }
+      setNotificationPermission(readAgentAttentionNotificationPermission());
     };
 
     syncWindowState();
@@ -245,46 +263,60 @@ export function AgentAttentionNotificationBridge() {
       return;
     }
 
+    let canceled = false;
     for (const request of collectAgentAttentionRequestsToNotify({
       requests: attentionRequests,
       notifiedRequestKeys: notifiedRequestKeysRef.current,
       isAppFocused,
       notificationSessionStartedAt: notificationSessionStartedAtRef.current,
     })) {
-      const notificationInput = buildAgentAttentionDesktopNotificationInput(request);
       void desktopNotificationBridge
-        .showNotification(notificationInput)
+        .showNotification(buildAgentAttentionDesktopNotificationInput(request))
         .then((shown) => {
-          if (!shown) {
-            if (!failedDesktopNotificationRequestKeysRef.current.has(request.key)) {
-              failedDesktopNotificationRequestKeysRef.current.add(request.key);
-              toastManager.add({
-                type: "error",
-                title: "Unable to send agent notification",
-                description: "Desktop notifications are unavailable in the current app session.",
-              });
-            }
+          if (canceled) {
+            return;
+          }
+          if (shown) {
+            activeDesktopNotificationIdsRef.current.add(request.key);
+            notifiedRequestKeysRef.current.add(request.key);
+            failedDesktopNotificationRequestKeysRef.current.delete(request.key);
             return;
           }
 
-          failedDesktopNotificationRequestKeysRef.current.delete(request.key);
-          notifiedRequestKeysRef.current.add(request.key);
-          activeDesktopNotificationIdsRef.current.add(request.key);
-        })
-        .catch((error) => {
-          if (!failedDesktopNotificationRequestKeysRef.current.has(request.key)) {
-            failedDesktopNotificationRequestKeysRef.current.add(request.key);
-            toastManager.add({
-              type: "error",
-              title: "Unable to send agent notification",
-              description: describeNotificationError(
-                error,
-                "Unknown error creating a desktop notification.",
-              ),
-            });
+          activeDesktopNotificationIdsRef.current.delete(request.key);
+          if (failedDesktopNotificationRequestKeysRef.current.has(request.key)) {
+            return;
           }
+          failedDesktopNotificationRequestKeysRef.current.add(request.key);
+          toastManager.add({
+            type: "warning",
+            title: "Unable to send desktop notification",
+            description:
+              "Desktop notifications may be blocked by operating system settings for this app.",
+          });
+        })
+        .catch((error: unknown) => {
+          if (canceled) {
+            return;
+          }
+          if (failedDesktopNotificationRequestKeysRef.current.has(request.key)) {
+            return;
+          }
+          failedDesktopNotificationRequestKeysRef.current.add(request.key);
+          toastManager.add({
+            type: "error",
+            title: "Unable to send desktop notification",
+            description: describeNotificationError(
+              error,
+              "Unknown error creating a desktop notification.",
+            ),
+          });
         });
     }
+
+    return () => {
+      canceled = true;
+    };
   }, [attentionRequests, desktopNotificationBridge, isAppFocused]);
 
   useEffect(() => {
@@ -400,7 +432,7 @@ export function AgentAttentionNotificationBridge() {
               toastManager.add({
                 type: "warning",
                 title: "Notifications not enabled",
-                description: "Browser notifications remain disabled for this session.",
+                description: "Notifications remain disabled for this session.",
               });
             })
             .catch((error) => {
@@ -409,7 +441,7 @@ export function AgentAttentionNotificationBridge() {
                 title: "Unable to enable notifications",
                 description: describeNotificationError(
                   error,
-                  "Unknown error requesting browser notification permission.",
+                  "Unknown error requesting notification permission.",
                 ),
               });
             });

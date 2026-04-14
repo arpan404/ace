@@ -47,6 +47,7 @@ export function createUnsupportedDesktopCliInstallState(
     status: "unsupported",
     ...metadata,
     checkedAt: input.checkedAt ?? null,
+    progressPercent: null,
     restartRequired: false,
     message: input.message,
   };
@@ -56,6 +57,7 @@ export function createPendingDesktopCliInstallState(
   input: DesktopCliInstallMetadataInput & {
     readonly status: Extract<DesktopCliInstallState["status"], "checking" | "installing">;
     readonly checkedAt?: string | null;
+    readonly progressPercent?: number | null;
     readonly message?: string | null;
   },
 ): DesktopCliInstallState {
@@ -65,6 +67,7 @@ export function createPendingDesktopCliInstallState(
     status: input.status,
     ...metadata,
     checkedAt: input.checkedAt ?? null,
+    progressPercent: input.progressPercent ?? null,
     restartRequired: false,
     message: input.message ?? null,
   };
@@ -85,6 +88,7 @@ export function createDesktopCliInstallStateFromInspect(
     commandPath: installState.commandPath,
     pathTargets: [...installState.pathTargets],
     checkedAt: input.checkedAt,
+    progressPercent: null,
     restartRequired: input.restartRequired ?? false,
     message: input.message ?? null,
   };

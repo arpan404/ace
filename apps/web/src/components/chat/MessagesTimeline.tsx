@@ -38,6 +38,8 @@ import { normalizeCompactToolLabel } from "~/lib/chat/messagesTimeline";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import {
   deriveDisplayedUserMessageState,
+  extractBrowserDesignRequestId,
+  hasBrowserDesignContext,
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
 import { cn } from "~/lib/utils";
@@ -730,6 +732,7 @@ function buildTimelineRows(input: {
   });
   let hasRenderableCurrentTurnOutput = false;
   let lastMessageBoundaryAt: string | null = null;
+  let activeTurnUserMessageCreatedAt: string | null = null;
   let pendingMetaRowId: string | null = null;
   let pendingMetaCreatedAt: string | null = null;
   let pendingMetaEntries: TimelineMetaGroupEntry[] = [];
@@ -895,6 +898,12 @@ function buildTimelineRows(input: {
     const durationStart = lastMessageBoundaryAt ?? timelineEntry.message.createdAt;
     if (timelineEntry.message.role === "user") {
       lastMessageBoundaryAt = timelineEntry.message.createdAt;
+      if (
+        Number.isNaN(activeTurnStartedAtMs) ||
+        isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
+      ) {
+        activeTurnUserMessageCreatedAt = timelineEntry.message.createdAt;
+      }
     }
 
     nextRows.push({
@@ -922,11 +931,14 @@ function buildTimelineRows(input: {
     flushPendingMetaEntries(null);
   }
 
+  const liveDurationStartAt =
+    activeTurnUserMessageCreatedAt ?? input.activeTurnStartedAt ?? lastMessageBoundaryAt;
+
   if (input.isWorking) {
     nextRows.push({
       kind: "working",
       id: "working-indicator-row",
-      createdAt: input.activeTurnStartedAt,
+      createdAt: liveDurationStartAt,
       mode: hasRenderableCurrentTurnOutput ? "live" : "silent-thinking",
       intentText: activeLiveIntentText,
     });
@@ -1042,6 +1054,9 @@ function estimateTimelineRowHeight(
   let height: number;
   switch (row.kind) {
     case "message": {
+      const hiddenDesignAttachment =
+        row.message.role === "user" && hasBrowserDesignContext(row.message.text);
+      const visibleAttachments = hiddenDesignAttachment ? undefined : row.message.attachments;
       const assistantRenderHint =
         row.message.role === "assistant"
           ? resolveAssistantMessageRenderHint(row.message)
@@ -1057,7 +1072,7 @@ function estimateTimelineRowHeight(
           ? "(empty response)"
           : renderedMessageText;
       const messageHeightInput =
-        row.message.attachments === undefined
+        visibleAttachments === undefined
           ? {
               role: row.message.role,
               text: messageText,
@@ -1066,7 +1081,7 @@ function estimateTimelineRowHeight(
           : {
               role: row.message.role,
               text: messageText,
-              attachments: row.message.attachments,
+              attachments: visibleAttachments,
               ...(row.message.role === "assistant" ? { assistantRenderHint } : {}),
             };
       const messageHeight = estimateTimelineMessageHeight(messageHeightInput, {
@@ -1117,6 +1132,11 @@ function getTimelineRowHeightCacheKey(
   const widthCacheKey = toTimelineWidthCacheKey(input.timelineWidthPx);
   switch (row.kind) {
     case "message": {
+      const hiddenDesignAttachment =
+        row.message.role === "user" && hasBrowserDesignContext(row.message.text);
+      const visibleAttachmentCount = hiddenDesignAttachment
+        ? 0
+        : (row.message.attachments?.length ?? 0);
       const assistantRenderHint =
         row.message.role === "assistant"
           ? resolveAssistantMessageRenderHint(row.message)
@@ -1131,7 +1151,7 @@ function getTimelineRowHeightCacheKey(
         row.message.role,
         renderedMessageText.length,
         assistantRenderHint,
-        row.message.attachments?.length ?? 0,
+        visibleAttachmentCount,
         row.message.streaming ? 1 : 0,
         row.message.completedAt ?? "incomplete",
         row.completionSummary ? 1 : 0,
@@ -1421,7 +1441,10 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
   revertActionTitle: string;
   timestampFormat: TimestampFormat;
 }) {
-  const userImages = props.message.attachments ?? [];
+  const designRequestId = extractBrowserDesignRequestId(props.message.text);
+  const userImages = hasBrowserDesignContext(props.message.text)
+    ? []
+    : (props.message.attachments ?? []);
   const displayedUserMessage = deriveDisplayedUserMessageState(props.message.text);
   const terminalContexts = displayedUserMessage.contexts;
 
@@ -1429,6 +1452,11 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
     <div className="flex justify-end">
       <div className="group relative max-w-[80%] px-0 py-0" data-user-message-bubble="true">
         <div className="rounded-2xl border border-primary bg-primary/[0.08] px-3 py-2">
+          {designRequestId ? (
+            <div className="mb-1.5 inline-flex items-center rounded-full border border-primary/35 bg-primary/12 px-2 py-0.5 font-mono text-[10px] font-medium text-primary/85">
+              {designRequestId}
+            </div>
+          ) : null}
           {userImages.length > 0 && (
             <div className="mb-2 grid max-w-105 grid-cols-2 gap-1.5">
               {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (

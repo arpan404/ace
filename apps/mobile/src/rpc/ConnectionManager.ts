@@ -12,14 +12,31 @@ export interface ManagedConnection {
   cleanup: () => void;
 }
 
-class ConnectionManager {
+function shouldRecreateConnection(current: HostInstance, next: HostInstance): boolean {
+  return (
+    current.wsUrl !== next.wsUrl ||
+    current.authToken !== next.authToken ||
+    current.clientSessionId !== next.clientSessionId
+  );
+}
+
+export class ConnectionManager {
   private connections = new Map<string, ManagedConnection>();
   private statusListeners = new Set<(connections: ManagedConnection[]) => void>();
 
   async connect(host: HostInstance): Promise<MobileWsClient> {
     const existing = this.connections.get(host.id);
     if (existing) {
-      return existing.client;
+      if (shouldRecreateConnection(existing.host, host)) {
+        existing.cleanup();
+        this.connections.delete(host.id);
+      } else {
+        if (existing.host !== host) {
+          existing.host = host;
+          this.notify();
+        }
+        return existing.client;
+      }
     }
 
     const client = createMobileWsClient({
@@ -74,13 +91,22 @@ class ConnectionManager {
 
   onStatusChange(listener: (connections: ManagedConnection[]) => void): () => void {
     this.statusListeners.add(listener);
+    try {
+      listener(this.getConnections());
+    } catch {
+      // Listener errors must not break subscriber registration.
+    }
     return () => this.statusListeners.delete(listener);
   }
 
   private notify(): void {
     const conns = this.getConnections();
     for (const listener of this.statusListeners) {
-      listener(conns);
+      try {
+        listener(conns);
+      } catch {
+        // Listener errors must not break other listeners.
+      }
     }
   }
 }

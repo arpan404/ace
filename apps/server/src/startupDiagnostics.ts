@@ -20,12 +20,8 @@ export function logStartupEvent(input: {
   readonly level?: "debug" | "info" | "warning" | "error";
   readonly detail?: Record<string, unknown>;
 }) {
-  const elapsedMs = startupElapsedMs();
-  const message = `[ace:start +${elapsedMs}ms] [${input.phase}] ${input.message}`;
-  const detail = {
-    elapsedMs,
-    ...input.detail,
-  };
+  const message = `[ace:start] [${input.phase}] ${input.message}`;
+  const detail = input.detail;
 
   switch (input.level) {
     case "debug":
@@ -55,19 +51,14 @@ export function withStartupTiming<A, E, R>(
       message: `${label} started`,
       ...(startDetail ? { detail: startDetail } : {}),
     });
-    const phaseStartMs = nowMs();
     const exit = yield* Effect.exit(effect);
-    const durationMs = roundMs(nowMs() - phaseStartMs);
 
     if (Exit.isSuccess(exit)) {
       const endDetail = options?.endDetail?.(exit.value);
       yield* logStartupEvent({
         phase,
         message: `${label} finished`,
-        detail: {
-          durationMs,
-          ...endDetail,
-        },
+        ...(endDetail ? { detail: endDetail } : {}),
       });
       return exit.value;
     }
@@ -77,7 +68,6 @@ export function withStartupTiming<A, E, R>(
       level: "error",
       message: `${label} failed`,
       detail: {
-        durationMs,
         cause: exit.cause,
       },
     });

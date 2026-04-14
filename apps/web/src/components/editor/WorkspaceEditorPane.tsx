@@ -49,6 +49,7 @@ interface WorkspaceEditorPaneProps {
   canClosePane: boolean;
   canReopenClosedTab: boolean;
   canSplitPane: boolean;
+  diagnosticsCwd: string | null;
   dirtyFilePaths: ReadonlySet<string>;
   draftsByFilePath: Record<string, { draftContents: string; savedContents: string }>;
   editorOptions: MonacoEditor.IStandaloneEditorConstructionOptions;
@@ -94,6 +95,7 @@ function formatFileSize(sizeBytes: number): string {
 const WORKSPACE_EDITOR_MARKER_OWNER = "ace-workspace-editor";
 const MONACO_DIAGNOSTIC_OWNERS = [WORKSPACE_EDITOR_MARKER_OWNER] as const;
 const DIAGNOSTIC_SYNC_DEBOUNCE_MS = 250;
+const WORKSPACE_FILE_REFETCH_INTERVAL_MS = 1_200;
 const MONACO_NATIVE_LSP_LANGUAGES = new Set([
   "css",
   "html",
@@ -106,6 +108,48 @@ const MONACO_NATIVE_LSP_LANGUAGES = new Set([
 
 type MonacoApi = typeof import("monaco-editor");
 
+function resolveMonacoLanguageFromFilePath(filePath: string | null): string | undefined {
+  if (!filePath) {
+    return undefined;
+  }
+  const normalizedPath = filePath.toLowerCase();
+  if (
+    normalizedPath.endsWith(".ts") ||
+    normalizedPath.endsWith(".tsx") ||
+    normalizedPath.endsWith(".mts") ||
+    normalizedPath.endsWith(".cts")
+  ) {
+    return "typescript";
+  }
+  if (
+    normalizedPath.endsWith(".js") ||
+    normalizedPath.endsWith(".jsx") ||
+    normalizedPath.endsWith(".mjs") ||
+    normalizedPath.endsWith(".cjs")
+  ) {
+    return "javascript";
+  }
+  if (normalizedPath.endsWith(".json")) {
+    return "json";
+  }
+  if (normalizedPath.endsWith(".css")) {
+    return "css";
+  }
+  if (normalizedPath.endsWith(".scss")) {
+    return "scss";
+  }
+  if (normalizedPath.endsWith(".less")) {
+    return "less";
+  }
+  if (normalizedPath.endsWith(".html") || normalizedPath.endsWith(".htm")) {
+    return "html";
+  }
+  if (normalizedPath.endsWith(".md")) {
+    return "markdown";
+  }
+  return undefined;
+}
+
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -116,7 +160,11 @@ function shouldUseMonacoLanguageService(languageId: string): boolean {
 
 function isUnavailableWorkspaceDiagnosticsError(error: unknown): boolean {
   const message = toErrorMessage(error).toLowerCase();
-  return message.includes("neovim") || message.includes("workspace diagnostics backend");
+  return (
+    message.includes("neovim") ||
+    message.includes("unable to spawn") ||
+    message.includes("failed to initialize")
+  );
 }
 
 function pluralize(count: number, singular: string): string {
@@ -279,6 +327,13 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     (isBinaryPreviewMode || isTextPreviewMode) &&
     pane.activeFilePath !== null &&
     props.gitCwd !== null;
+  const activeDraftInStore =
+    !isPreviewMode && pane.activeFilePath
+      ? (props.draftsByFilePath[pane.activeFilePath] ?? null)
+      : null;
+  const hasUnsavedBufferEdits = activeDraftInStore
+    ? activeDraftInStore.draftContents !== activeDraftInStore.savedContents
+    : false;
   const activeFileQuery = useQuery(
     projectReadFileQueryOptions({
       cwd: props.gitCwd,
@@ -287,6 +342,8 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         pane.activeFilePath !== null &&
         props.gitCwd !== null &&
         (!isPreviewMode || isTextPreviewMode),
+      refetchInterval: hasUnsavedBufferEdits ? false : WORKSPACE_FILE_REFETCH_INTERVAL_MS,
+      staleTime: 0,
     }),
   );
 
@@ -318,6 +375,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       : activePreviewKind === "mermaid"
         ? "Mermaid preview"
         : "Preview mode";
+  const activeMonacoLanguage = resolveMonacoLanguageFromFilePath(props.pane.activeFilePath);
 
   const handleSave = useCallback(() => {
     if (!pane.activeFilePath || !activeDraft) {
@@ -397,7 +455,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     if (
       isPreviewMode ||
       !api ||
-      !props.gitCwd ||
+      !props.diagnosticsCwd ||
       !activeFilePath ||
       !activeFileReady ||
       !editor ||
@@ -423,7 +481,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     const timeoutId = window.setTimeout(() => {
       void api.workspaceEditor
         .syncBuffer({
-          cwd: props.gitCwd!,
+          cwd: props.diagnosticsCwd!,
           relativePath: activeFilePath,
           contents: activeFileContents,
         })
@@ -471,6 +529,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           if (!diagnosticsBackendUnavailableRef.current) {
             console.error("Failed to sync workspace editor diagnostics", {
               cwd: props.gitCwd,
+              diagnosticsCwd: props.diagnosticsCwd,
               relativePath: activeFilePath,
               error,
             });
@@ -489,6 +548,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     editorMountVersion,
     isPreviewMode,
     pane.activeFilePath,
+    props.diagnosticsCwd,
     props.gitCwd,
     syncProblemState,
   ]);
@@ -524,6 +584,10 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     },
     [clearEditorMarkers],
   );
+
+  useEffect(() => {
+    diagnosticsBackendUnavailableRef.current = false;
+  }, [pane.activeFilePath, props.diagnosticsCwd]);
 
   const readDraggedTab = useCallback((event: ReactDragEvent<HTMLElement>) => {
     return readEditorTabTransfer(event.dataTransfer);
@@ -981,6 +1045,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 props.onUpdateDraft(props.pane.activeFilePath, value);
               }}
               options={props.editorOptions}
+              {...(activeMonacoLanguage ? { language: activeMonacoLanguage } : {})}
             />
           </div>
         )}

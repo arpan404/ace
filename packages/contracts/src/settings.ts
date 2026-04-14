@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
-import { NonNegativeInt, TrimmedNonEmptyString, TrimmedString } from "./baseSchemas";
+import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString, TrimmedString } from "./baseSchemas";
 import {
   ClaudeModelOptions,
   CodexModelOptions,
@@ -125,6 +125,8 @@ export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientS
 
 export const ThreadEnvMode = Schema.Literals(["local", "worktree"]);
 export type ThreadEnvMode = typeof ThreadEnvMode.Type;
+export const DEFAULT_PROVIDER_CLI_MAX_OPEN = 5;
+export const DEFAULT_PROVIDER_CLI_IDLE_TTL_SECONDS = 300;
 
 const makeBinaryPathSetting = (fallback: string) =>
   TrimmedString.pipe(
@@ -191,6 +193,12 @@ export const ServerSettings = Schema.Struct({
   notifyOnUserInputRequired: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   defaultThreadEnvMode: ThreadEnvMode.pipe(
     Schema.withDecodingDefault(() => "local" as const satisfies ThreadEnvMode),
+  ),
+  providerCliMaxOpen: PositiveInt.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_CLI_MAX_OPEN),
+  ),
+  providerCliIdleTtlSeconds: PositiveInt.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_CLI_IDLE_TTL_SECONDS),
   ),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(() => ({
@@ -339,6 +347,8 @@ export const ServerSettingsPatch = Schema.Struct({
   notifyOnApprovalRequired: Schema.optionalKey(Schema.Boolean),
   notifyOnUserInputRequired: Schema.optionalKey(Schema.Boolean),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
+  providerCliMaxOpen: Schema.optionalKey(PositiveInt),
+  providerCliIdleTtlSeconds: Schema.optionalKey(PositiveInt),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   providers: Schema.optionalKey(
     Schema.Struct({

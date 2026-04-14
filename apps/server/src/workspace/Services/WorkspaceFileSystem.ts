@@ -26,10 +26,14 @@ import { WorkspacePathOutsideRootError } from "./WorkspacePaths.ts";
 export class WorkspaceFileSystemError extends Schema.TaggedErrorClass<WorkspaceFileSystemError>()(
   "WorkspaceFileSystemError",
   {
+    conflict: Schema.optional(Schema.Boolean),
+    currentContents: Schema.optional(Schema.String),
+    currentVersion: Schema.optional(Schema.String),
     cwd: Schema.String,
     relativePath: Schema.optional(Schema.String),
     operation: Schema.String,
     detail: Schema.String,
+    expectedVersion: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect),
   },
 ) {}

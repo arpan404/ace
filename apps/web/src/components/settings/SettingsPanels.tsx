@@ -1,7 +1,12 @@
-import { ArchiveIcon, ArchiveX } from "lucide-react";
+import { ArchiveIcon, ArchiveX, LoaderCircleIcon } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
-import { type DesktopCliInstallState, type ProviderKind, ThreadId } from "@ace/contracts";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type DesktopCliInstallState,
+  type ProviderKind,
+  type ServerLspToolsStatus,
+  ThreadId,
+} from "@ace/contracts";
 import {
   DEFAULT_UI_FONT_FAMILY,
   DEFAULT_UI_FONT_SIZE_SCALE,
@@ -52,6 +57,12 @@ import { useStore } from "../../store";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { BROWSER_SEARCH_ENGINE_OPTIONS } from "../../lib/browser/types";
 import { cn, newCommandId } from "../../lib/utils";
+import { useInAppBrowserState } from "../../hooks/useInAppBrowserState";
+import {
+  readAgentAttentionNotificationPermission,
+  requestAgentAttentionNotificationPermission,
+  type AgentAttentionNotificationPermission,
+} from "../../lib/agentAttentionNotifications";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
@@ -129,6 +140,21 @@ const UI_FONT_FAMILY_VALUE_SET = new Set(UI_FONT_FAMILY_OPTIONS.map((o) => o.val
 const UI_MONO_FONT_VALUE_SET = new Set(UI_MONO_FONT_OPTIONS.map((o) => o.value));
 const UI_FONT_SIZE_VALUE_SET = new Set(UI_FONT_SIZE_OPTIONS.map((o) => o.value));
 const UI_LETTER_SPACING_VALUE_SET = new Set(UI_LETTER_SPACING_OPTIONS.map((o) => o.value));
+
+function resolveNotificationSettingsUrl(): string | null {
+  if (typeof navigator === "undefined") {
+    return null;
+  }
+
+  const platform = navigator.userAgent.toLowerCase();
+  if (platform.includes("mac")) {
+    return "x-apple.systempreferences:com.apple.preference.notifications";
+  }
+  if (platform.includes("windows")) {
+    return "ms-settings:notifications";
+  }
+  return null;
+}
 
 type InstallProviderSettings = {
   provider: ProviderKind;
@@ -304,8 +330,8 @@ function AboutVersionSection() {
     actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates";
   const description =
     action === "download" || action === "install"
-      ? "Update available."
-      : "Current version of the application.";
+      ? "Update available for desktop, web UI, server daemon, and CLI."
+      : "Current desktop, web UI, daemon runtime, and CLI version.";
 
   return (
     <SettingsRow
@@ -568,6 +594,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
+      ...(settings.providerCliMaxOpen !== DEFAULT_UNIFIED_SETTINGS.providerCliMaxOpen
+        ? ["Provider CLI max open"]
+        : []),
+      ...(settings.providerCliIdleTtlSeconds !== DEFAULT_UNIFIED_SETTINGS.providerCliIdleTtlSeconds
+        ? ["Provider CLI idle timeout"]
+        : []),
       ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
         ? ["Archive confirmation"]
         : []),
@@ -589,6 +621,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.defaultThreadEnvMode,
+      settings.providerCliIdleTtlSeconds,
+      settings.providerCliMaxOpen,
       settings.diffWordWrap,
       settings.editorLineNumbers,
       settings.editorMinimap,
@@ -651,6 +685,11 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const { themePreset, setThemePreset } = useAppearancePrefs();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
+  const [notificationPermission, setNotificationPermission] =
+    useState<AgentAttentionNotificationPermission>(() =>
+      isElectron ? "default" : readAgentAttentionNotificationPermission(),
+    );
+  const [isUpdatingNotificationPermission, setIsUpdatingNotificationPermission] = useState(false);
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
   const [openProviderDetails, setOpenProviderDetails] = useState<Record<ProviderKind, boolean>>({
@@ -699,6 +738,9 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     Partial<Record<ProviderKind, string | null>>
   >({});
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
+  const [lspToolsStatus, setLspToolsStatus] = useState<ServerLspToolsStatus | null>(null);
+  const [lspToolsError, setLspToolsError] = useState<string | null>(null);
+  const [isInstallingLspTools, setIsInstallingLspTools] = useState(false);
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
   const refreshProviders = useCallback(() => {
@@ -713,6 +755,220 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       .finally(() => {
         refreshingRef.current = false;
         setIsRefreshingProviders(false);
+      });
+  }, []);
+  const canOpenNotificationSystemSettings = useMemo(
+    () => isElectron && resolveNotificationSettingsUrl() !== null,
+    [],
+  );
+  const hasAnyAgentAttentionNotificationsEnabled =
+    settings.notifyOnAgentCompletion ||
+    settings.notifyOnApprovalRequired ||
+    settings.notifyOnUserInputRequired;
+  const setAgentAttentionNotificationToggles = useCallback(
+    (enabled: boolean) => {
+      updateSettings({
+        notifyOnAgentCompletion: enabled,
+        notifyOnApprovalRequired: enabled,
+        notifyOnUserInputRequired: enabled,
+      });
+    },
+    [updateSettings],
+  );
+  const notificationsPermissionDisabled =
+    notificationPermission === "denied" || notificationPermission === "unsupported";
+  const notificationPermissionDescription = useMemo(() => {
+    switch (notificationPermission) {
+      case "granted":
+        return "OS notifications are enabled for ace.";
+      case "denied":
+        return canOpenNotificationSystemSettings
+          ? "OS notifications are blocked. Open system settings to allow them for ace."
+          : "OS notifications are blocked for this app/profile.";
+      case "default":
+        return "OS notification permission is pending. The first notification may trigger a system prompt.";
+      default:
+        return "Notifications are not supported in this runtime.";
+    }
+  }, [canOpenNotificationSystemSettings, notificationPermission]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+    const syncPermission = () => {
+      if (isElectron && typeof window.desktopBridge?.getNotificationPermission === "function") {
+        void window.desktopBridge
+          .getNotificationPermission()
+          .then((permission) => {
+            setNotificationPermission(permission);
+          })
+          .catch(() => {
+            setNotificationPermission("unsupported");
+          });
+        return;
+      }
+      setNotificationPermission(readAgentAttentionNotificationPermission());
+    };
+    syncPermission();
+    document.addEventListener("visibilitychange", syncPermission);
+    window.addEventListener("focus", syncPermission);
+    return () => {
+      document.removeEventListener("visibilitychange", syncPermission);
+      window.removeEventListener("focus", syncPermission);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!notificationsPermissionDisabled || !hasAnyAgentAttentionNotificationsEnabled) {
+      return;
+    }
+    setAgentAttentionNotificationToggles(false);
+  }, [
+    hasAnyAgentAttentionNotificationsEnabled,
+    notificationsPermissionDisabled,
+    setAgentAttentionNotificationToggles,
+  ]);
+
+  const enableNotifications = useCallback(() => {
+    if (isElectron) {
+      const bridge = window.desktopBridge;
+      const probeId = `ace-notification-permission-probe:${Date.now().toString(36)}`;
+      setIsUpdatingNotificationPermission(true);
+      const permissionRequest =
+        typeof bridge?.requestNotificationPermission === "function"
+          ? bridge.requestNotificationPermission()
+          : requestAgentAttentionNotificationPermission();
+      void permissionRequest
+        .then((permission) => {
+          setNotificationPermission(permission);
+          if (permission === "denied") {
+            if (canOpenNotificationSystemSettings) {
+              toastManager.add({
+                type: "warning",
+                title: "Notifications blocked by system settings",
+                description: "Open system settings and allow notifications for ace.",
+              });
+            } else {
+              toastManager.add({
+                type: "warning",
+                title: "Notifications blocked",
+                description: "Enable OS notifications for ace in system settings.",
+              });
+            }
+            return false;
+          }
+          if (permission === "unsupported") {
+            toastManager.add({
+              type: "warning",
+              title: "Notifications unavailable",
+              description: "This runtime does not support desktop notifications.",
+            });
+            return false;
+          }
+          return (
+            bridge?.showNotification({
+              id: probeId,
+              title: "ace notifications",
+              body: "You'll get alerts when agent work completes or needs input.",
+            }) ?? Promise.resolve(false)
+          );
+        })
+        .then((opened) => {
+          if (opened === true) {
+            setAgentAttentionNotificationToggles(true);
+          } else {
+            if (canOpenNotificationSystemSettings) {
+              toastManager.add({
+                type: "warning",
+                title: "Notifications blocked by system settings",
+                description: "Open system settings and allow notifications for ace.",
+              });
+            } else {
+              toastManager.add({
+                type: "warning",
+                title: "Unable to enable notifications",
+                description: "Notifications are unavailable in the current desktop session.",
+              });
+            }
+          }
+          if (typeof bridge?.getNotificationPermission === "function") {
+            void bridge
+              .getNotificationPermission()
+              .then((permission) => setNotificationPermission(permission))
+              .catch(() => {
+                // Keep the renderer-derived permission state when desktop introspection fails.
+              });
+          }
+        })
+        .catch((error: unknown) => {
+          toastManager.add({
+            type: "error",
+            title: "Unable to request notification permission",
+            description:
+              error instanceof Error ? error.message : "Unknown notification permission error.",
+          });
+        })
+        .finally(() => {
+          setIsUpdatingNotificationPermission(false);
+        });
+      return;
+    }
+    setIsUpdatingNotificationPermission(true);
+    void requestAgentAttentionNotificationPermission()
+      .then((permission) => {
+        setNotificationPermission(permission);
+        if (permission === "granted") {
+          setAgentAttentionNotificationToggles(true);
+        }
+      })
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Unable to request notification permission",
+          description:
+            error instanceof Error ? error.message : "Unknown notification permission error.",
+        });
+      })
+      .finally(() => {
+        setIsUpdatingNotificationPermission(false);
+      });
+  }, [canOpenNotificationSystemSettings, setAgentAttentionNotificationToggles]);
+
+  const disableNotifications = useCallback(() => {
+    setAgentAttentionNotificationToggles(false);
+  }, [setAgentAttentionNotificationToggles]);
+
+  const openNotificationSettings = useCallback(() => {
+    const targetUrl = resolveNotificationSettingsUrl();
+    if (!targetUrl) {
+      return;
+    }
+    setIsUpdatingNotificationPermission(true);
+    void (window.desktopBridge?.openExternal(targetUrl) ?? Promise.resolve(false))
+      .then((opened) => {
+        if (!opened) {
+          toastManager.add({
+            type: "warning",
+            title: "Unable to open notification settings",
+            description: "Open your operating system notification settings manually.",
+          });
+        }
+        if (isElectron && typeof window.desktopBridge?.getNotificationPermission === "function") {
+          void window.desktopBridge
+            .getNotificationPermission()
+            .then((permission) => {
+              setNotificationPermission(permission);
+            })
+            .catch(() => {
+              setNotificationPermission("unsupported");
+            });
+        } else {
+          setNotificationPermission(readAgentAttentionNotificationPermission());
+        }
+      })
+      .finally(() => {
+        setIsUpdatingNotificationPermission(false);
       });
   }, []);
 
@@ -971,6 +1227,61 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const isProvidersPage = page === "providers";
   const isAdvancedPage = page === "advanced";
   const isAboutPage = page === "about";
+  const browserPinnedPageImportRef = useRef<HTMLInputElement | null>(null);
+  const {
+    browserHistoryCount,
+    browserSearchEngine,
+    clearHistory,
+    exportPinnedPages,
+    importPinnedPages,
+    isRepairingStorage,
+    openPinnedPage,
+    pinnedPages,
+    removePinnedPage,
+    repairBrowserStorage,
+    selectSearchEngine,
+  } = useInAppBrowserState({
+    mode: "full",
+    open: false,
+  });
+  const lspToolsInstalled = lspToolsStatus?.tools.every((tool) => tool.installed) ?? false;
+
+  const refreshLspToolsStatus = useCallback(() => {
+    void ensureNativeApi()
+      .server.getLspToolsStatus()
+      .then((status) => {
+        setLspToolsStatus(status);
+        setLspToolsError(null);
+      })
+      .catch((error: unknown) => {
+        setLspToolsError(
+          error instanceof Error ? error.message : "Unable to load LSP tool status.",
+        );
+      });
+  }, []);
+
+  const installLspToolsFromSettings = useCallback((reinstall: boolean) => {
+    setIsInstallingLspTools(true);
+    setLspToolsError(null);
+    void ensureNativeApi()
+      .server.installLspTools({ reinstall })
+      .then((status) => {
+        setLspToolsStatus(status);
+        toastManager.add({
+          type: "success",
+          title: "Language server tools are ready.",
+        });
+      })
+      .catch((error: unknown) => {
+        setLspToolsError(error instanceof Error ? error.message : "Unable to install LSP tools.");
+      })
+      .finally(() => setIsInstallingLspTools(false));
+  }, []);
+
+  useEffect(() => {
+    if (!isEditorPage || lspToolsStatus) return;
+    refreshLspToolsStatus();
+  }, [isEditorPage, lspToolsStatus, refreshLspToolsStatus]);
 
   return (
     <SettingsPageContainer>
@@ -1498,6 +1809,49 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
           <SettingsSection title="Background notifications">
             <SettingsRow
+              title="Permission"
+              description={notificationPermissionDescription}
+              control={
+                notificationPermission === "granted" ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isUpdatingNotificationPermission}
+                    onClick={
+                      hasAnyAgentAttentionNotificationsEnabled
+                        ? disableNotifications
+                        : enableNotifications
+                    }
+                  >
+                    {isUpdatingNotificationPermission
+                      ? "Updating..."
+                      : hasAnyAgentAttentionNotificationsEnabled
+                        ? "Disable notifications"
+                        : "Enable notifications"}
+                  </Button>
+                ) : notificationPermission === "default" ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isUpdatingNotificationPermission}
+                    onClick={enableNotifications}
+                  >
+                    {isUpdatingNotificationPermission ? "Checking..." : "Enable notifications"}
+                  </Button>
+                ) : notificationPermission === "denied" && canOpenNotificationSystemSettings ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isUpdatingNotificationPermission}
+                    onClick={openNotificationSettings}
+                  >
+                    {isUpdatingNotificationPermission ? "Opening..." : "Open system settings"}
+                  </Button>
+                ) : null
+              }
+            />
+
+            <SettingsRow
               title="Agent completion"
               description="Send a notification after a turn finishes while the app is not focused."
               resetAction={
@@ -1516,6 +1870,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               control={
                 <Switch
                   checked={settings.notifyOnAgentCompletion}
+                  disabled={notificationsPermissionDisabled}
                   onCheckedChange={(checked) =>
                     updateSettings({ notifyOnAgentCompletion: Boolean(checked) })
                   }
@@ -1543,6 +1898,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               control={
                 <Switch
                   checked={settings.notifyOnApprovalRequired}
+                  disabled={notificationsPermissionDisabled}
                   onCheckedChange={(checked) =>
                     updateSettings({ notifyOnApprovalRequired: Boolean(checked) })
                   }
@@ -1571,6 +1927,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               control={
                 <Switch
                   checked={settings.notifyOnUserInputRequired}
+                  disabled={notificationsPermissionDisabled}
                   onCheckedChange={(checked) =>
                     updateSettings({ notifyOnUserInputRequired: Boolean(checked) })
                   }
@@ -1783,6 +2140,49 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             />
 
             <SettingsRow
+              title="Language server tools"
+              description="Install and repair built-in language servers used by the workspace editor."
+              status={
+                <div className="space-y-1 text-[11px] text-muted-foreground">
+                  {lspToolsStatus?.tools.map((tool) => (
+                    <div key={tool.id} className="flex items-center gap-2">
+                      <span>{tool.label}</span>
+                      <span className={tool.installed ? "text-emerald-500" : "text-amber-500"}>
+                        {tool.installed
+                          ? `Installed${tool.version ? ` (${tool.version})` : ""}`
+                          : "Missing"}
+                      </span>
+                    </div>
+                  ))}
+                  {lspToolsError ? <div className="text-destructive">{lspToolsError}</div> : null}
+                </div>
+              }
+              control={
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={refreshLspToolsStatus}
+                    disabled={isInstallingLspTools}
+                  >
+                    Refresh
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => installLspToolsFromSettings(lspToolsInstalled)}
+                    disabled={isInstallingLspTools}
+                  >
+                    {isInstallingLspTools
+                      ? "Installing..."
+                      : lspToolsInstalled
+                        ? "Reinstall"
+                        : "Install"}
+                  </Button>
+                </div>
+              }
+            />
+
+            <SettingsRow
               title="Workspace editor shortcuts"
               description="These commands resolve through the same keybindings.json file that drives the rest of the app."
               status={
@@ -1814,32 +2214,121 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             title="Search engine"
             description="Choose the default engine for new-tab search, address-bar suggestions, and quick browser entry."
             resetAction={
-              settings.browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine ? (
+              browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine ? (
                 <SettingResetButton
                   label="browser search engine"
-                  onClick={() =>
-                    updateSettings({
-                      browserSearchEngine: DEFAULT_UNIFIED_SETTINGS.browserSearchEngine,
-                    })
-                  }
+                  onClick={() => selectSearchEngine(DEFAULT_UNIFIED_SETTINGS.browserSearchEngine)}
                 />
               ) : null
             }
-            status="Pinned pages, history cleanup, and storage repair stay inside the browser tab settings."
           >
             <div className="mt-4 flex flex-wrap gap-2">
               {BROWSER_SEARCH_ENGINE_OPTIONS.map((engine) => (
                 <Button
                   key={engine.value}
                   size="sm"
-                  variant={settings.browserSearchEngine === engine.value ? "default" : "outline"}
-                  onClick={() => updateSettings({ browserSearchEngine: engine.value })}
+                  variant={browserSearchEngine === engine.value ? "default" : "outline"}
+                  onClick={() => selectSearchEngine(engine.value)}
                 >
                   {engine.label}
                 </Button>
               ))}
             </div>
           </SettingsRow>
+          <SettingsRow
+            title="Pinned pages"
+            description="Keep frequently revisited pages at the top of browser suggestions."
+            status={
+              pinnedPages.length === 0
+                ? "No pinned pages yet."
+                : `${pinnedPages.length} pinned ${pinnedPages.length === 1 ? "page" : "pages"}.`
+            }
+            control={
+              <div className="flex items-center gap-2">
+                <input
+                  ref={browserPinnedPageImportRef}
+                  type="file"
+                  accept="application/json"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (file) {
+                      void importPinnedPages(file);
+                    }
+                    event.currentTarget.value = "";
+                  }}
+                />
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => browserPinnedPageImportRef.current?.click()}
+                >
+                  Import
+                </Button>
+                <Button size="xs" variant="outline" onClick={exportPinnedPages}>
+                  Export
+                </Button>
+              </div>
+            }
+          >
+            {pinnedPages.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {pinnedPages.map((page) => (
+                  <div
+                    key={page.url}
+                    className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/20 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-[12px] font-medium text-foreground">
+                        {page.title}
+                      </div>
+                      <div className="truncate text-[11px] text-muted-foreground">{page.url}</div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button size="xs" variant="ghost" onClick={() => openPinnedPage(page.url)}>
+                        Open
+                      </Button>
+                      <Button size="xs" variant="ghost" onClick={() => removePinnedPage(page.url)}>
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </SettingsRow>
+          <SettingsRow
+            title="History"
+            description="Address-bar suggestions use browser history first."
+            status={`${browserHistoryCount} saved ${browserHistoryCount === 1 ? "entry" : "entries"}.`}
+            control={
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={clearHistory}
+                disabled={browserHistoryCount === 0}
+              >
+                Clear history
+              </Button>
+            }
+          />
+          <SettingsRow
+            title="Repair storage"
+            description="Clear cookies, cache, and service workers for the in-app browser partition."
+            control={
+              <Button
+                size="xs"
+                variant="destructive-outline"
+                onClick={() => {
+                  void repairBrowserStorage();
+                }}
+                disabled={isRepairingStorage}
+              >
+                {isRepairingStorage ? <LoaderCircleIcon className="size-4 animate-spin" /> : null}
+                Repair browser storage
+              </Button>
+            }
+          />
         </SettingsSection>
       ) : null}
 
@@ -1919,25 +2408,109 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       ) : null}
 
       {isProvidersPage ? (
-        <ProviderSettingsSection
-          addCustomModel={addCustomModel}
-          codexHomePath={codexHomePath}
-          customModelErrorByProvider={customModelErrorByProvider}
-          customModelInputByProvider={customModelInputByProvider}
-          isRefreshingProviders={isRefreshingProviders}
-          lastCheckedAt={lastCheckedAt}
-          modelListRefs={modelListRefs}
-          openProviderDetails={openProviderDetails}
-          providerCards={providerCards}
-          refreshProviders={refreshProviders}
-          removeCustomModel={removeCustomModel}
-          setCustomModelErrorByProvider={setCustomModelErrorByProvider}
-          setCustomModelInputByProvider={setCustomModelInputByProvider}
-          setOpenProviderDetails={setOpenProviderDetails}
-          settings={settings}
-          textGenProvider={textGenProvider}
-          updateSettings={updateSettings}
-        />
+        <>
+          <SettingsSection title="CLI lifecycle">
+            <SettingsRow
+              title="Max open CLIs"
+              description="Soft cap on concurrently open provider CLI sessions. If all open sessions are busy, ace can burst above this cap and trim later when sessions go idle."
+              resetAction={
+                settings.providerCliMaxOpen !== DEFAULT_UNIFIED_SETTINGS.providerCliMaxOpen ? (
+                  <SettingResetButton
+                    label="provider CLI max open"
+                    onClick={() =>
+                      updateSettings({
+                        providerCliMaxOpen: DEFAULT_UNIFIED_SETTINGS.providerCliMaxOpen,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    className="w-full sm:w-28"
+                    aria-label="Maximum open provider CLI sessions"
+                    value={String(settings.providerCliMaxOpen)}
+                    onChange={(event) => {
+                      const nextValue = Number.parseInt(event.target.value, 10);
+                      if (!Number.isFinite(nextValue)) {
+                        return;
+                      }
+                      updateSettings({
+                        providerCliMaxOpen: Math.max(1, nextValue),
+                      });
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground">sessions</span>
+                </div>
+              }
+            />
+
+            <SettingsRow
+              title="Idle timeout"
+              description="Close unused provider CLI sessions when idle longer than this timeout since the most recent assistant completion."
+              resetAction={
+                settings.providerCliIdleTtlSeconds !==
+                DEFAULT_UNIFIED_SETTINGS.providerCliIdleTtlSeconds ? (
+                  <SettingResetButton
+                    label="provider CLI idle timeout"
+                    onClick={() =>
+                      updateSettings({
+                        providerCliIdleTtlSeconds:
+                          DEFAULT_UNIFIED_SETTINGS.providerCliIdleTtlSeconds,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    className="w-full sm:w-28"
+                    aria-label="Provider CLI idle timeout in seconds"
+                    value={String(settings.providerCliIdleTtlSeconds)}
+                    onChange={(event) => {
+                      const nextValue = Number.parseInt(event.target.value, 10);
+                      if (!Number.isFinite(nextValue)) {
+                        return;
+                      }
+                      updateSettings({
+                        providerCliIdleTtlSeconds: Math.max(1, nextValue),
+                      });
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground">sec</span>
+                </div>
+              }
+            />
+          </SettingsSection>
+
+          <ProviderSettingsSection
+            addCustomModel={addCustomModel}
+            codexHomePath={codexHomePath}
+            customModelErrorByProvider={customModelErrorByProvider}
+            customModelInputByProvider={customModelInputByProvider}
+            isRefreshingProviders={isRefreshingProviders}
+            lastCheckedAt={lastCheckedAt}
+            modelListRefs={modelListRefs}
+            openProviderDetails={openProviderDetails}
+            providerCards={providerCards}
+            refreshProviders={refreshProviders}
+            removeCustomModel={removeCustomModel}
+            setCustomModelErrorByProvider={setCustomModelErrorByProvider}
+            setCustomModelInputByProvider={setCustomModelInputByProvider}
+            setOpenProviderDetails={setOpenProviderDetails}
+            settings={settings}
+            textGenProvider={textGenProvider}
+            updateSettings={updateSettings}
+          />
+        </>
       ) : null}
 
       {isAdvancedPage ? (

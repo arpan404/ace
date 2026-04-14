@@ -1,6 +1,6 @@
 import Mime from "@effect/platform-node/Mime";
 import Os from "node:os";
-import { Effect, FileSystem, Layer, Option, Path } from "effect";
+import { Data, Effect, FileSystem, Layer, Option, Path } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import {
@@ -22,11 +22,14 @@ import {
   listRelayDevicesForHost,
   revokeRelayDeviceForHost,
 } from "./relayClient";
+import { meaningfulErrorMessage } from "./provider/errorCause";
+import { GitHubCli } from "./git/Services/GitHubCli";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
 import { WorkspacePaths } from "./workspace/Services/WorkspacePaths";
 
 const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
 const WORKSPACE_FILE_PREVIEW_MAX_BYTES = 50 * 1024 * 1024;
+const GITHUB_ISSUE_IMAGE_ROUTE = "/api/github-issue-image";
 const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#6b728080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-fallback="project-favicon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>`;
 const SECURITY_HEADERS = {
   "Content-Security-Policy":
@@ -39,6 +42,10 @@ const PAIRING_CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 } as const;
+
+class GitHubIssueImageFetchError extends Data.TaggedError("GitHubIssueImageFetchError")<{
+  readonly cause: unknown;
+}> {}
 
 const withSecurityHeaders = <T extends Parameters<typeof HttpServerResponse.setHeaders>[0]>(
   response: T,
@@ -232,6 +239,26 @@ function resolveAdvertisedWsUrl(rawWsUrl: string, advertisedHost: string): strin
   return parsedWsUrl.toString();
 }
 
+function resolveAllowedGitHubIssueImageUrl(rawUrl: string): URL | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:") {
+    return null;
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname === "github.com") {
+    return parsed.pathname.startsWith("/user-attachments/") ? parsed : null;
+  }
+  if (hostname.endsWith(".githubusercontent.com") || hostname.endsWith(".githubassets.com")) {
+    return parsed;
+  }
+  return null;
+}
+
 export const attachmentsRouteLayer = HttpRouter.add(
   "GET",
   `${ATTACHMENTS_ROUTE_PREFIX}/*`,
@@ -412,6 +439,80 @@ export const workspaceFileRouteLayer = HttpRouter.add(
           withSecurityHeaders(HttpServerResponse.text("Internal Server Error", { status: 500 })),
         ),
       ),
+    );
+  }),
+);
+
+export const githubIssueImageRouteLayer = HttpRouter.add(
+  "GET",
+  GITHUB_ISSUE_IMAGE_ROUTE,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withSecurityHeaders(HttpServerResponse.text("Bad Request", { status: 400 }));
+    }
+
+    const cwd = requestUrl.value.searchParams.get("cwd");
+    const rawUrl = requestUrl.value.searchParams.get("url");
+    if (!cwd || !rawUrl) {
+      return withSecurityHeaders(
+        HttpServerResponse.text("Missing cwd or url parameter", { status: 400 }),
+      );
+    }
+
+    const allowedUrl = resolveAllowedGitHubIssueImageUrl(rawUrl);
+    if (!allowedUrl) {
+      return withSecurityHeaders(HttpServerResponse.text("Unsupported image URL", { status: 400 }));
+    }
+
+    const gitHubCli = yield* GitHubCli;
+    const authToken = yield* gitHubCli
+      .execute({
+        cwd,
+        args: ["auth", "token"],
+        timeoutMs: 5_000,
+      })
+      .pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.catch(() => Effect.succeed("")),
+      );
+
+    const fetchRemote = (token: string) =>
+      Effect.tryPromise({
+        try: () =>
+          fetch(allowedUrl, {
+            headers: {
+              Accept: "image/*,*/*;q=0.8",
+              ...(token.length > 0 ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            redirect: "follow",
+          }),
+        catch: (cause) => new GitHubIssueImageFetchError({ cause }),
+      });
+
+    const response = yield* fetchRemote(authToken).pipe(
+      Effect.flatMap((result) =>
+        !result.ok && authToken.length > 0 ? fetchRemote("") : Effect.succeed(result),
+      ),
+      Effect.catch(() => Effect.succeed(null)),
+    );
+
+    if (!response || !response.ok) {
+      return withSecurityHeaders(HttpServerResponse.text("Unable to load image", { status: 502 }));
+    }
+
+    const contentType =
+      response.headers.get("content-type") ?? Mime.getType(allowedUrl.pathname) ?? "image/*";
+    const data = new Uint8Array(yield* Effect.promise(() => response.arrayBuffer()));
+    return withSecurityHeaders(
+      HttpServerResponse.uint8Array(data, {
+        status: 200,
+        contentType,
+        headers: {
+          "Cache-Control": "private, no-store",
+        },
+      }),
     );
   }),
 );
@@ -700,10 +801,7 @@ const relayPairingListDevicesRouteLayer = HttpRouter.add(
     ).pipe(
       Effect.catch((error) =>
         Effect.succeed({
-          error:
-            error instanceof Error && error.message.trim().length > 0
-              ? error.message
-              : "Could not list relay devices.",
+          error: meaningfulErrorMessage(error, "Could not list relay devices."),
         } as const),
       ),
     );
@@ -767,10 +865,7 @@ const relayPairingCreateDeviceRouteLayer = HttpRouter.add(
     ).pipe(
       Effect.catch((error) =>
         Effect.succeed({
-          error:
-            error instanceof Error && error.message.trim().length > 0
-              ? error.message
-              : "Could not create relay device.",
+          error: meaningfulErrorMessage(error, "Could not create relay device."),
         } as const),
       ),
     );
@@ -835,10 +930,7 @@ const relayPairingRevokeDeviceRouteLayer = HttpRouter.add(
     ).pipe(
       Effect.catch((error) =>
         Effect.succeed({
-          error:
-            error instanceof Error && error.message.trim().length > 0
-              ? error.message
-              : "Could not revoke relay device.",
+          error: meaningfulErrorMessage(error, "Could not revoke relay device."),
         } as const),
       ),
     );

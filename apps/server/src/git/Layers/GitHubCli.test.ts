@@ -158,6 +158,46 @@ layer("GitHubCliLive", (it) => {
     }),
   );
 
+  it.effect("passes state and label filters when listing issues", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockResolvedValueOnce({
+        stdout: "[]",
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      });
+
+      yield* Effect.gen(function* () {
+        const gh = yield* GitHubCli;
+        return yield* gh.listIssues({
+          cwd: "/repo",
+          state: "all",
+          labels: ["bug", "performance"],
+        });
+      });
+
+      expect(mockedRunProcess).toHaveBeenCalledWith(
+        "gh",
+        [
+          "issue",
+          "list",
+          "--state",
+          "all",
+          "--limit",
+          "30",
+          "--label",
+          "bug",
+          "--label",
+          "performance",
+          "--json",
+          "number,title,state,url,body,labels,assignees,author,createdAt,updatedAt",
+        ],
+        expect.objectContaining({ cwd: "/repo" }),
+      );
+    }),
+  );
+
   it.effect("parses full issue thread details with comments", () =>
     Effect.gen(function* () {
       mockedRunProcess.mockResolvedValueOnce({
@@ -229,6 +269,24 @@ layer("GitHubCliLive", (it) => {
       }).pipe(Effect.flip);
 
       assert.equal(error.message.includes("Pull request not found"), true);
+    }),
+  );
+
+  it.effect("surfaces a friendly error when repository issues are disabled", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockRejectedValueOnce(
+        new Error("the 'octocat/example' repository has disabled issues"),
+      );
+
+      const error = yield* Effect.gen(function* () {
+        const gh = yield* GitHubCli;
+        return yield* gh.listIssues({
+          cwd: "/repo",
+          state: "open",
+        });
+      }).pipe(Effect.flip);
+
+      assert.equal(error.message.includes("GitHub issues are disabled for this repository"), true);
     }),
   );
 });

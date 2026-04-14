@@ -44,6 +44,8 @@ import type {
 } from "./workspaceEditor";
 import type {
   ServerConfig,
+  ServerInstallLspToolsInput,
+  ServerLspToolsStatus,
   ServerSearchOpenCodeModelsInput,
   ServerSearchOpenCodeModelsResult,
   ServerProviderUpdatedPayload,
@@ -187,6 +189,7 @@ export interface DesktopCliInstallState {
   commandPath: string | null;
   pathTargets: ReadonlyArray<string>;
   checkedAt: string | null;
+  progressPercent: number | null;
   restartRequired: boolean;
   message: string | null;
 }
@@ -218,10 +221,15 @@ export interface DesktopNotificationReplyEvent {
   deepLink?: string;
 }
 
+export type DesktopNotificationPermission = "granted" | "denied" | "default" | "unsupported";
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   getIsDevelopmentBuild?: () => boolean;
   getWindowShownAt?: () => number | null;
+  getTitlebarLeftInset?: () => number | null;
+  getNotificationPermission?: () => Promise<DesktopNotificationPermission>;
+  requestNotificationPermission?: () => Promise<DesktopNotificationPermission>;
   pickFolder: () => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   repairBrowserStorage: () => Promise<boolean>;
@@ -247,6 +255,8 @@ export interface DesktopBridge {
   onBrowserOpenUrl?: (listener: (url: string) => void) => () => void;
   onBrowserContextMenuShown?: (listener: () => void) => () => void;
   onBrowserShortcutAction?: (listener: (action: BrowserShortcutAction) => void) => () => void;
+  sendOrchestrationEvent?: (event: unknown) => void;
+  sendServerConfigEvent?: (event: unknown) => void;
 }
 
 export interface NativeApi {
@@ -315,6 +325,8 @@ export interface NativeApi {
   server: {
     getConfig: () => Promise<ServerConfig>;
     refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
+    getLspToolsStatus: () => Promise<ServerLspToolsStatus>;
+    installLspTools: (input?: ServerInstallLspToolsInput) => Promise<ServerLspToolsStatus>;
     searchOpenCodeModels: (
       input: ServerSearchOpenCodeModelsInput,
     ) => Promise<ServerSearchOpenCodeModelsResult>;

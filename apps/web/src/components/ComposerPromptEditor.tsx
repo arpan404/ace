@@ -22,6 +22,7 @@ import {
   KEY_ARROW_RIGHT_COMMAND,
   KEY_ARROW_UP_COMMAND,
   KEY_ENTER_COMMAND,
+  KEY_ESCAPE_COMMAND,
   KEY_TAB_COMMAND,
   COMMAND_PRIORITY_HIGH,
   KEY_BACKSPACE_COMMAND,
@@ -78,6 +79,15 @@ type SerializedComposerMentionNode = Spread<
   {
     path: string;
     type: "composer-mention";
+    version: 1;
+  },
+  SerializedTextNode
+>;
+
+type SerializedComposerIssueReferenceNode = Spread<
+  {
+    issueNumber: number;
+    type: "composer-issue-reference";
     version: 1;
   },
   SerializedTextNode
@@ -170,6 +180,82 @@ function $createComposerMentionNode(path: string): ComposerMentionNode {
   return $applyNodeReplacement(new ComposerMentionNode(path));
 }
 
+class ComposerIssueReferenceNode extends TextNode {
+  __issueNumber: number;
+
+  static override getType(): string {
+    return "composer-issue-reference";
+  }
+
+  static override clone(node: ComposerIssueReferenceNode): ComposerIssueReferenceNode {
+    return new ComposerIssueReferenceNode(node.__issueNumber, node.__key);
+  }
+
+  static override importJSON(
+    serializedNode: SerializedComposerIssueReferenceNode,
+  ): ComposerIssueReferenceNode {
+    return $createComposerIssueReferenceNode(serializedNode.issueNumber);
+  }
+
+  constructor(issueNumber: number, key?: NodeKey) {
+    super(`#${issueNumber}`, key);
+    this.__issueNumber = issueNumber;
+  }
+
+  override exportJSON(): SerializedComposerIssueReferenceNode {
+    return {
+      ...super.exportJSON(),
+      issueNumber: this.__issueNumber,
+      type: "composer-issue-reference",
+      version: 1,
+    };
+  }
+
+  override createDOM(_config: EditorConfig): HTMLElement {
+    const dom = document.createElement("span");
+    dom.className =
+      "inline-flex max-w-full cursor-pointer select-none items-center rounded-md border border-sky-500/45 bg-sky-500/12 px-1.5 py-px font-medium text-[12px] leading-[1.1] text-sky-700 align-middle dark:text-sky-300";
+    dom.contentEditable = "false";
+    dom.setAttribute("spellcheck", "false");
+    dom.dataset.composerIssueNumber = String(this.__issueNumber);
+    dom.textContent = `#${this.__issueNumber}`;
+    return dom;
+  }
+
+  override updateDOM(
+    prevNode: ComposerIssueReferenceNode,
+    dom: HTMLElement,
+    _config: EditorConfig,
+  ): boolean {
+    dom.contentEditable = "false";
+    if (prevNode.__issueNumber !== this.__issueNumber || prevNode.__text !== this.__text) {
+      dom.dataset.composerIssueNumber = String(this.__issueNumber);
+      dom.textContent = `#${this.__issueNumber}`;
+    }
+    return false;
+  }
+
+  override canInsertTextBefore(): false {
+    return false;
+  }
+
+  override canInsertTextAfter(): false {
+    return false;
+  }
+
+  override isTextEntity(): true {
+    return true;
+  }
+
+  override isToken(): true {
+    return true;
+  }
+}
+
+function $createComposerIssueReferenceNode(issueNumber: number): ComposerIssueReferenceNode {
+  return $applyNodeReplacement(new ComposerIssueReferenceNode(issueNumber));
+}
+
 function ComposerTerminalContextDecorator(props: { context: TerminalContextDraft }) {
   return <ComposerPendingTerminalContextChip context={props.context} />;
 }
@@ -234,12 +320,57 @@ function $createComposerTerminalContextNode(
   return $applyNodeReplacement(new ComposerTerminalContextNode(context));
 }
 
-type ComposerInlineTokenNode = ComposerMentionNode | ComposerTerminalContextNode;
+type ComposerInlineTokenNode =
+  | ComposerMentionNode
+  | ComposerIssueReferenceNode
+  | ComposerTerminalContextNode;
 
 function isComposerInlineTokenNode(candidate: unknown): candidate is ComposerInlineTokenNode {
   return (
-    candidate instanceof ComposerMentionNode || candidate instanceof ComposerTerminalContextNode
+    candidate instanceof ComposerMentionNode ||
+    candidate instanceof ComposerIssueReferenceNode ||
+    candidate instanceof ComposerTerminalContextNode
   );
+}
+
+/**
+ * Check whether the current Lexical selection is adjacent to an actual inline
+ * token **node** in the editor tree.  This avoids false-positives from the
+ * text-based segment parser which eagerly recognises `#N` patterns before the
+ * user has finished typing.
+ */
+function $isCursorAdjacentToInlineTokenNode(): boolean {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
+  const anchor = selection.anchor;
+
+  if (anchor.type === "element") {
+    const parent = anchor.getNode();
+    if (!$isElementNode(parent)) return false;
+    const children = parent.getChildren();
+    const leftNode = anchor.offset > 0 ? children[anchor.offset - 1] : undefined;
+    const rightNode = children[anchor.offset];
+    return (
+      (leftNode !== undefined && isComposerInlineTokenNode(leftNode)) ||
+      (rightNode !== undefined && isComposerInlineTokenNode(rightNode))
+    );
+  }
+
+  if (anchor.type === "text") {
+    const textNode = anchor.getNode();
+    if (isComposerInlineTokenNode(textNode)) return true;
+    if (anchor.offset === 0) {
+      const prev = textNode.getPreviousSibling();
+      if (prev && isComposerInlineTokenNode(prev)) return true;
+    }
+    if ($isTextNode(textNode) && anchor.offset === textNode.getTextContentSize()) {
+      const next = textNode.getNextSibling();
+      if (next && isComposerInlineTokenNode(next)) return true;
+    }
+    return false;
+  }
+
+  return false;
 }
 
 function resolvedThemeFromDocument(): "light" | "dark" {
@@ -391,7 +522,7 @@ function getAbsoluteOffsetForPoint(node: LexicalNode, pointOffset: number): numb
   }
 
   if ($isTextNode(node)) {
-    if (node instanceof ComposerMentionNode) {
+    if (node instanceof ComposerMentionNode || node instanceof ComposerIssueReferenceNode) {
       return getAbsoluteOffsetForInlineTokenPoint(node, offset, pointOffset);
     }
     return offset + Math.min(pointOffset, node.getTextContentSize());
@@ -438,7 +569,7 @@ function getExpandedAbsoluteOffsetForPoint(node: LexicalNode, pointOffset: numbe
   }
 
   if ($isTextNode(node)) {
-    if (node instanceof ComposerMentionNode) {
+    if (node instanceof ComposerMentionNode || node instanceof ComposerIssueReferenceNode) {
       return getExpandedAbsoluteOffsetForInlineTokenPoint(node, offset, pointOffset);
     }
     return offset + Math.min(pointOffset, node.getTextContentSize());
@@ -469,7 +600,7 @@ function findSelectionPointAtOffset(
   node: LexicalNode,
   remainingRef: { value: number },
 ): { key: string; offset: number; type: "text" | "element" } | null {
-  if (node instanceof ComposerMentionNode) {
+  if (node instanceof ComposerMentionNode || node instanceof ComposerIssueReferenceNode) {
     return findSelectionPointForInlineToken(node, remainingRef);
   }
   if (node instanceof ComposerTerminalContextNode) {
@@ -603,6 +734,10 @@ function $setComposerEditorPrompt(
       paragraph.append($createComposerMentionNode(segment.path));
       continue;
     }
+    if (segment.type === "issue-reference") {
+      paragraph.append($createComposerIssueReferenceNode(segment.issueNumber));
+      continue;
+    }
     if (segment.type === "terminal-context") {
       if (segment.context) {
         paragraph.append($createComposerTerminalContextNode(segment.context));
@@ -651,9 +786,10 @@ interface ComposerPromptEditorProps {
     terminalContextIds: string[],
   ) => void;
   onCommandKeyDown?: (
-    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab",
+    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape",
     event: KeyboardEvent,
   ) => boolean;
+  onIssueTokenClick?: (issueNumber: number) => void;
   onPaste: ClipboardEventHandler<HTMLElement>;
 }
 
@@ -663,7 +799,7 @@ interface ComposerPromptEditorInnerProps extends ComposerPromptEditorProps {
 
 function ComposerCommandKeyPlugin(props: {
   onCommandKeyDown?: (
-    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab",
+    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape",
     event: KeyboardEvent,
   ) => boolean;
 }) {
@@ -671,7 +807,7 @@ function ComposerCommandKeyPlugin(props: {
 
   useEffect(() => {
     const handleCommand = (
-      key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab",
+      key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape",
       event: KeyboardEvent | null,
     ): boolean => {
       if (!props.onCommandKeyDown || !event) {
@@ -705,12 +841,18 @@ function ComposerCommandKeyPlugin(props: {
       (event) => handleCommand("Tab", event),
       COMMAND_PRIORITY_HIGH,
     );
+    const unregisterEscape = editor.registerCommand(
+      KEY_ESCAPE_COMMAND,
+      (event) => handleCommand("Escape", event),
+      COMMAND_PRIORITY_HIGH,
+    );
 
     return () => {
       unregisterArrowDown();
       unregisterArrowUp();
       unregisterEnter();
       unregisterTab();
+      unregisterEscape();
     };
   }, [editor, props]);
 
@@ -878,6 +1020,48 @@ function ComposerInlineTokenBackspacePlugin() {
   return null;
 }
 
+function ComposerIssueTokenClickPlugin(props: {
+  onIssueTokenClick?: (issueNumber: number) => void;
+}) {
+  const [editor] = useLexicalComposerContext();
+  const onIssueTokenClickRef = useRef(props.onIssueTokenClick);
+
+  useEffect(() => {
+    onIssueTokenClickRef.current = props.onIssueTokenClick;
+  }, [props.onIssueTokenClick]);
+
+  useEffect(() => {
+    const handleClick = (event: Event) => {
+      const onIssueTokenClick = onIssueTokenClickRef.current;
+      if (!onIssueTokenClick) {
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const issueTokenElement = target.closest<HTMLElement>("[data-composer-issue-number]");
+      if (!issueTokenElement) {
+        return;
+      }
+      const issueNumberValue = issueTokenElement.dataset.composerIssueNumber;
+      const issueNumber = Number.parseInt(issueNumberValue ?? "", 10);
+      if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      onIssueTokenClick(issueNumber);
+    };
+    return editor.registerRootListener((nextRoot, prevRoot) => {
+      prevRoot?.removeEventListener("click", handleClick);
+      nextRoot?.addEventListener("click", handleClick);
+    });
+  }, [editor]);
+
+  return null;
+}
+
 function ComposerPromptEditorInner({
   value,
   cursor,
@@ -888,6 +1072,7 @@ function ComposerPromptEditorInner({
   onRemoveTerminalContext,
   onChange,
   onCommandKeyDown,
+  onIssueTokenClick,
   onPaste,
   editorRef,
 }: ComposerPromptEditorInnerProps) {
@@ -1073,9 +1258,7 @@ function ComposerPromptEditorInner({
         expandedCursor: nextExpandedCursor,
         terminalContextIds,
       };
-      const cursorAdjacentToMention =
-        isCollapsedCursorAdjacentToInlineToken(nextValue, nextCursor, "left") ||
-        isCollapsedCursorAdjacentToInlineToken(nextValue, nextCursor, "right");
+      const cursorAdjacentToMention = $isCursorAdjacentToInlineTokenNode();
       onChangeRef.current(
         nextValue,
         nextCursor,
@@ -1116,6 +1299,7 @@ function ComposerPromptEditorInner({
         <ComposerInlineTokenArrowPlugin />
         <ComposerInlineTokenSelectionNormalizePlugin />
         <ComposerInlineTokenBackspacePlugin />
+        <ComposerIssueTokenClickPlugin {...(onIssueTokenClick ? { onIssueTokenClick } : {})} />
         <HistoryPlugin />
       </div>
     </ComposerTerminalContextActionsContext.Provider>
@@ -1136,6 +1320,7 @@ export const ComposerPromptEditor = forwardRef<
     onRemoveTerminalContext,
     onChange,
     onCommandKeyDown,
+    onIssueTokenClick,
     onPaste,
   },
   ref,
@@ -1146,7 +1331,7 @@ export const ComposerPromptEditor = forwardRef<
     () => ({
       namespace: "ace-composer-editor",
       editable: true,
-      nodes: [ComposerMentionNode, ComposerTerminalContextNode],
+      nodes: [ComposerMentionNode, ComposerIssueReferenceNode, ComposerTerminalContextNode],
       editorState: () => {
         $setComposerEditorPrompt(initialValueRef.current, initialTerminalContextsRef.current);
       },
@@ -1170,6 +1355,7 @@ export const ComposerPromptEditor = forwardRef<
         onPaste={onPaste}
         editorRef={ref}
         {...(onCommandKeyDown ? { onCommandKeyDown } : {})}
+        {...(onIssueTokenClick ? { onIssueTokenClick } : {})}
         {...(className ? { className } : {})}
       />
     </LexicalComposer>

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { selectThreadTerminalState, useTerminalStateStore } from "./terminalStateStore";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
+const WORKSPACE_SCOPE_ID = ThreadId.makeUnsafe("workspace-shell:project-1");
 
 describe("terminalStateStore actions", () => {
   beforeEach(() => {
@@ -270,5 +271,18 @@ describe("terminalStateStore actions", () => {
     expect(terminalState.terminalGroups).toEqual([
       { id: "group-default", terminalIds: ["default", "terminal-2"] },
     ]);
+  });
+
+  it("keeps workspace-scoped terminal state while pruning orphaned thread states", () => {
+    const store = useTerminalStateStore.getState();
+    store.setTerminalOpen(THREAD_ID, true);
+    store.setTerminalOpen(WORKSPACE_SCOPE_ID, true);
+
+    store.removeOrphanedTerminalStates(new Set<ThreadId>([]));
+
+    expect(useTerminalStateStore.getState().terminalStateByThreadId[THREAD_ID]).toBeUndefined();
+    expect(
+      useTerminalStateStore.getState().terminalStateByThreadId[WORKSPACE_SCOPE_ID],
+    ).toBeDefined();
   });
 });

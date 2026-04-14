@@ -8,7 +8,7 @@ vi.mock("../opencodeRuntime.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../opencodeRuntime.ts")>();
   return {
     ...actual,
-    startOpenCodeServer: vi.fn(),
+    startOpenCodeServerIsolated: vi.fn(),
   };
 });
 
@@ -24,11 +24,11 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
 import { createOpenCodeSdkClient } from "../opencodeSdk.ts";
-import { startOpenCodeServer } from "../opencodeRuntime.ts";
+import { startOpenCodeServerIsolated } from "../opencodeRuntime.ts";
 import { OpenCodeAdapterLive } from "./OpenCodeAdapter.ts";
 
 const mockedCreateOpenCodeSdkClient = vi.mocked(createOpenCodeSdkClient);
-const mockedStartOpenCodeServer = vi.mocked(startOpenCodeServer);
+const mockedStartOpenCodeServerIsolated = vi.mocked(startOpenCodeServerIsolated);
 
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 
@@ -71,7 +71,7 @@ function makeFakeOpenCodeClient(sessionId: string) {
 
 afterEach(() => {
   mockedCreateOpenCodeSdkClient.mockReset();
-  mockedStartOpenCodeServer.mockReset();
+  mockedStartOpenCodeServerIsolated.mockReset();
 });
 
 const layer = it.layer(
@@ -83,6 +83,13 @@ const layer = it.layer(
 );
 
 layer("OpenCodeAdapterLive session lifecycle", (it) => {
+  it.effect("reports in-session model switching capability", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      assert.deepStrictEqual(adapter.capabilities, { sessionModelSwitch: "in-session" });
+    }),
+  );
+
   it.effect("acquires and releases an OpenCode server handle per T3 session", () =>
     Effect.gen(function* () {
       const firstServerClose = vi.fn(async () => undefined);
@@ -90,7 +97,7 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
       const firstClient = makeFakeOpenCodeClient("opencode-session-1");
       const secondClient = makeFakeOpenCodeClient("opencode-session-2");
 
-      mockedStartOpenCodeServer
+      mockedStartOpenCodeServerIsolated
         .mockResolvedValueOnce({
           binaryPath: "/bin/opencode",
           url: "http://127.0.0.1:4011",
@@ -121,7 +128,7 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
         runtimeMode: "full-access",
       });
 
-      assert.equal(mockedStartOpenCodeServer.mock.calls.length, 2);
+      assert.equal(mockedStartOpenCodeServerIsolated.mock.calls.length, 2);
       assert.equal(mockedCreateOpenCodeSdkClient.mock.calls.length, 2);
       assert.equal(firstClient.session.create.mock.calls.length, 1);
       assert.equal(secondClient.session.create.mock.calls.length, 1);

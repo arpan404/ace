@@ -195,6 +195,59 @@ export const ServerProviderUpdatedPayload = Schema.Struct({
 });
 export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.Type;
 
+export const ServerRuntimeProfileProcess = Schema.Struct({
+  pid: NonNegativeInt,
+  platform: TrimmedNonEmptyString,
+  nodeVersion: TrimmedNonEmptyString,
+  uptimeSeconds: Schema.Number,
+  rssBytes: NonNegativeInt,
+  heapUsedBytes: NonNegativeInt,
+  heapTotalBytes: NonNegativeInt,
+  externalBytes: NonNegativeInt,
+  arrayBuffersBytes: NonNegativeInt,
+});
+export type ServerRuntimeProfileProcess = typeof ServerRuntimeProfileProcess.Type;
+
+export const ServerRuntimeProfileSnapshotViewCache = Schema.Struct({
+  maxEntries: NonNegativeInt,
+  currentEntries: NonNegativeInt,
+});
+export type ServerRuntimeProfileSnapshotViewCache =
+  typeof ServerRuntimeProfileSnapshotViewCache.Type;
+
+export const ServerRuntimeProfileProviderRuntimeIngestionCaches = Schema.Struct({
+  activeAssistantStreams: NonNegativeInt,
+  assistantOutputSeenStreams: NonNegativeInt,
+  pendingAssistantDeltaStreams: NonNegativeInt,
+  bufferedThinkingActivities: NonNegativeInt,
+  lastActivityFingerprints: NonNegativeInt,
+  trackedSessionPids: NonNegativeInt,
+  queueCapacity: NonNegativeInt,
+});
+export type ServerRuntimeProfileProviderRuntimeIngestionCaches =
+  typeof ServerRuntimeProfileProviderRuntimeIngestionCaches.Type;
+
+export const ServerRuntimeProfileCaches = Schema.Struct({
+  snapshotView: ServerRuntimeProfileSnapshotViewCache,
+  providerRuntimeIngestion: ServerRuntimeProfileProviderRuntimeIngestionCaches,
+});
+export type ServerRuntimeProfileCaches = typeof ServerRuntimeProfileCaches.Type;
+
+export const ServerRuntimeProfileProviderSessionCount = Schema.Struct({
+  provider: ProviderKind,
+  sessionCount: NonNegativeInt,
+});
+export type ServerRuntimeProfileProviderSessionCount =
+  typeof ServerRuntimeProfileProviderSessionCount.Type;
+
+export const ServerRuntimeProfile = Schema.Struct({
+  generatedAt: IsoDateTime,
+  process: ServerRuntimeProfileProcess,
+  caches: ServerRuntimeProfileCaches,
+  providerSessions: Schema.Array(ServerRuntimeProfileProviderSessionCount),
+});
+export type ServerRuntimeProfile = typeof ServerRuntimeProfile.Type;
+
 export const ServerSearchOpenCodeModelsInput = Schema.Struct({
   query: Schema.String,
   limit: NonNegativeInt,
@@ -209,3 +262,41 @@ export const ServerSearchOpenCodeModelsResult = Schema.Struct({
   hasMore: Schema.Boolean,
 });
 export type ServerSearchOpenCodeModelsResult = typeof ServerSearchOpenCodeModelsResult.Type;
+
+export const ServerLspToolId = Schema.Literals([
+  "typescript-language-server",
+  "vscode-json-language-server",
+  "vscode-css-language-server",
+  "vscode-html-language-server",
+]);
+export type ServerLspToolId = typeof ServerLspToolId.Type;
+
+export const ServerLspToolStatus = Schema.Struct({
+  id: ServerLspToolId,
+  label: TrimmedNonEmptyString,
+  command: TrimmedNonEmptyString,
+  packageName: TrimmedNonEmptyString,
+  installed: Schema.Boolean,
+  version: Schema.NullOr(TrimmedNonEmptyString),
+  binaryPath: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type ServerLspToolStatus = typeof ServerLspToolStatus.Type;
+
+export const ServerLspToolsStatus = Schema.Struct({
+  installDir: TrimmedNonEmptyString,
+  tools: Schema.Array(ServerLspToolStatus),
+});
+export type ServerLspToolsStatus = typeof ServerLspToolsStatus.Type;
+
+export const ServerInstallLspToolsInput = Schema.Struct({
+  reinstall: Schema.optional(Schema.Boolean),
+});
+export type ServerInstallLspToolsInput = typeof ServerInstallLspToolsInput.Type;
+
+export class ServerLspToolsError extends Schema.TaggedErrorClass<ServerLspToolsError>()(
+  "ServerLspToolsError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}

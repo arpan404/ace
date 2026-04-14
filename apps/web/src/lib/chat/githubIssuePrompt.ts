@@ -53,6 +53,8 @@ function commitExpectationLines(issueNumber: number): string[] {
     "commit_expectations:",
     "  - Use Conventional Commits (for example: fix(scope): short summary).",
     `  - Reference this issue in the commit subject or body (for example: #${issueNumber} or 'Fixes #${issueNumber}').`,
+    "  - Create commit(s) for your code changes before you finish the task.",
+    "  - When multiple issues are provided, reference all of them across your commit message subject/body.",
     "  - Stage only files you intentionally changed; keep commits focused and reviewable.",
     "  - Do not push, open a pull request, or merge unless the user explicitly asks.",
   ];
@@ -99,6 +101,29 @@ export function buildGitHubIssueThreadContextBlock(thread: GitHubIssueThread): s
 
 export function buildGitHubIssuePromptFromThread(thread: GitHubIssueThread): string {
   return `${buildGitHubIssueSummaryLabel(thread)}\n\n${buildGitHubIssueThreadContextBlock(thread)}`;
+}
+
+export function buildGitHubIssuePromptFromThreads(
+  threads: ReadonlyArray<GitHubIssueThread>,
+): string {
+  if (threads.length === 0) {
+    return "";
+  }
+  if (threads.length === 1) {
+    return buildGitHubIssuePromptFromThread(threads[0]!);
+  }
+  const summary = threads.map((thread) => buildGitHubIssueSummaryLabel(thread)).join("\n");
+  const contexts = threads.map((thread) => buildGitHubIssueThreadContextBlock(thread)).join("\n\n");
+  return `${summary}\n\n${contexts}`;
+}
+
+export function buildGitHubIssueHiddenContextFromThreads(
+  threads: ReadonlyArray<GitHubIssueThread>,
+): string {
+  if (threads.length === 0) {
+    return "";
+  }
+  return threads.map((thread) => buildGitHubIssueThreadContextBlock(thread)).join("\n\n");
 }
 
 export function buildGitHubIssuePrompt(issue: GitHubIssue): string {

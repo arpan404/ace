@@ -1294,6 +1294,8 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       const issues = yield* gitHubCli.listIssues({
         cwd: input.cwd,
         ...(typeof input.limit === "number" ? { limit: input.limit } : {}),
+        ...(typeof input.state === "string" ? { state: input.state } : {}),
+        ...(Array.isArray(input.labels) && input.labels.length > 0 ? { labels: input.labels } : {}),
         ...(typeof input.query === "string" ? { query: input.query } : {}),
       });
       return { issues };

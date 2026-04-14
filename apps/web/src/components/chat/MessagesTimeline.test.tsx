@@ -288,6 +288,79 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-thread-row="true"');
   });
 
+  it("hides design-capture attachments while showing the request id", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const designPrompt = [
+      "Increase spacing around this card title",
+      "",
+      "<browser_design_context>",
+      JSON.stringify(
+        {
+          requestId: "DR-4A9D2B6E",
+          pageUrl: "https://example.com/dashboard",
+          pagePath: "/dashboard",
+          selection: { x: 24, y: 18, width: 360, height: 210 },
+          targetElement: null,
+          mainContainer: null,
+        },
+        null,
+        2,
+      ),
+      "</browser_design_context>",
+    ].join("\n");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "entry-design-1",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("msg-design-1"),
+              role: "user",
+              text: designPrompt,
+              attachments: [
+                {
+                  type: "image",
+                  id: "attachment-design-1",
+                  name: "design-capture.png",
+                  mimeType: "image/png",
+                  sizeBytes: 1200,
+                  previewUrl: "https://example.com/design-capture.png",
+                },
+              ],
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("DR-4A9D2B6E");
+    expect(markup).not.toContain("design-capture.png");
+    expect(markup).not.toContain("<img");
+  });
+
   it("uses custom restore copy for the revert action tooltip", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const messageId = MessageId.makeUnsafe("user-rebuildable-provider");
@@ -1824,6 +1897,69 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Inspecting the provider transcript before responding");
     expect(markup).toContain("Getting started for");
     expect(markup).not.toContain("Thought");
+  });
+
+  it("measures the live working timer from the latest user message in the active turn", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-17T19:13:00.000Z"));
+
+    try {
+      const { MessagesTimeline } = await import("./MessagesTimeline");
+      const markup = renderToStaticMarkup(
+        <MessagesTimeline
+          hasMessages
+          isWorking
+          activeTurnInProgress
+          activeTurnStartedAt="2026-03-17T19:00:00.000Z"
+          scrollContainer={null}
+          timelineEntries={[
+            {
+              id: "user-current-turn",
+              kind: "message",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              message: {
+                id: MessageId.makeUnsafe("user-current-turn"),
+                role: "user",
+                text: "Follow up on the last change.",
+                createdAt: "2026-03-17T19:12:30.000Z",
+                streaming: false,
+              },
+            },
+            {
+              id: "assistant-current-turn",
+              kind: "message",
+              createdAt: "2026-03-17T19:12:42.000Z",
+              message: {
+                id: MessageId.makeUnsafe("assistant-current-turn"),
+                role: "assistant",
+                text: "Still working through the remaining checks.",
+                createdAt: "2026-03-17T19:12:42.000Z",
+                completedAt: "2026-03-17T19:12:45.000Z",
+                streaming: false,
+              },
+            },
+          ]}
+          completionDividerBeforeEntryId={null}
+          completionSummary={null}
+          turnDiffSummaryByAssistantMessageId={new Map()}
+          expandedWorkGroups={{}}
+          onToggleWorkGroup={() => {}}
+          onOpenTurnDiff={() => {}}
+          revertTurnCountByUserMessageId={new Map()}
+          onRevertUserMessage={() => {}}
+          isRevertingCheckpoint={false}
+          onImageExpand={() => {}}
+          markdownCwd={undefined}
+          resolvedTheme="light"
+          timestampFormat="locale"
+          workspaceRoot={undefined}
+        />,
+      );
+
+      expect(markup).toContain("Working for 30s");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses the matching group id when expanding completed tool calls", async () => {

@@ -4,6 +4,8 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { normalizePaneRatios } from "./lib/paneRatios";
 import { resolveStorage } from "./lib/storage";
 
+export type EditorStateScopeId = string;
+
 interface EditorDraftState {
   draftContents: string;
   savedContents: string;
@@ -30,6 +32,7 @@ export interface ThreadEditorPaneState {
 interface PersistedThreadEditorState {
   activePaneId: string;
   expandedDirectoryPaths: string[];
+  explorerOpen: boolean;
   paneRatios: number[];
   panes: ThreadEditorPaneState[];
   rows: ThreadEditorRowState[];
@@ -39,6 +42,7 @@ interface PersistedThreadEditorState {
 interface LegacyPersistedThreadEditorState {
   activeFilePath: string | null;
   expandedDirectoryPaths: string[];
+  explorerOpen?: boolean;
   openFilePaths: string[];
   treeWidth: number;
 }
@@ -46,6 +50,7 @@ interface LegacyPersistedThreadEditorState {
 interface RowlessPersistedThreadEditorState {
   activePaneId: string;
   expandedDirectoryPaths: string[];
+  explorerOpen?: boolean;
   paneRatios: number[];
   panes: ThreadEditorPaneState[];
   treeWidth: number;
@@ -64,17 +69,17 @@ interface PersistedEditorStoreSnapshot {
 }
 
 interface EditorStoreState {
-  closeFile: (threadId: ThreadId, filePath: string, paneId?: string) => void;
-  closeFilesToRight: (threadId: ThreadId, filePath: string, paneId?: string) => void;
-  closeOtherFiles: (threadId: ThreadId, filePath: string, paneId?: string) => void;
-  closePane: (threadId: ThreadId, paneId: string) => void;
-  discardDraft: (threadId: ThreadId, filePath: string) => void;
-  expandDirectories: (threadId: ThreadId, directoryPaths: readonly string[]) => void;
-  hydrateFile: (threadId: ThreadId, filePath: string, contents: string) => void;
-  isDirty: (threadId: ThreadId, filePath: string) => boolean;
-  markFileSaved: (threadId: ThreadId, filePath: string, contents: string) => void;
+  closeFile: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
+  closeFilesToRight: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
+  closeOtherFiles: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
+  closePane: (threadId: EditorStateScopeId, paneId: string) => void;
+  discardDraft: (threadId: EditorStateScopeId, filePath: string) => void;
+  expandDirectories: (threadId: EditorStateScopeId, directoryPaths: readonly string[]) => void;
+  hydrateFile: (threadId: EditorStateScopeId, filePath: string, contents: string) => void;
+  isDirty: (threadId: EditorStateScopeId, filePath: string) => boolean;
+  markFileSaved: (threadId: EditorStateScopeId, filePath: string, contents: string) => void;
   moveFile: (
-    threadId: ThreadId,
+    threadId: EditorStateScopeId,
     input: {
       filePath: string;
       sourcePaneId: string;
@@ -82,24 +87,25 @@ interface EditorStoreState {
       targetIndex?: number;
     },
   ) => void;
-  openFile: (threadId: ThreadId, filePath: string, paneId?: string) => void;
-  removeEntry: (threadId: ThreadId, relativePath: string) => void;
-  renameEntry: (threadId: ThreadId, previousPath: string, nextPath: string) => void;
-  reopenClosedFile: (threadId: ThreadId, paneId?: string) => string | null;
+  openFile: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
+  removeEntry: (threadId: EditorStateScopeId, relativePath: string) => void;
+  renameEntry: (threadId: EditorStateScopeId, previousPath: string, nextPath: string) => void;
+  reopenClosedFile: (threadId: EditorStateScopeId, paneId?: string) => string | null;
   runtimeStateByThreadId: Record<string, RuntimeThreadEditorState>;
-  setActiveFile: (threadId: ThreadId, filePath: string | null, paneId?: string) => void;
-  setActivePane: (threadId: ThreadId, paneId: string) => void;
-  setPaneRatios: (threadId: ThreadId, rowId: string, ratios: readonly number[]) => void;
-  setRowRatios: (threadId: ThreadId, ratios: readonly number[]) => void;
-  setTreeWidth: (threadId: ThreadId, width: number) => void;
+  setActiveFile: (threadId: EditorStateScopeId, filePath: string | null, paneId?: string) => void;
+  setActivePane: (threadId: EditorStateScopeId, paneId: string) => void;
+  setExplorerOpen: (threadId: EditorStateScopeId, open: boolean) => void;
+  setPaneRatios: (threadId: EditorStateScopeId, rowId: string, ratios: readonly number[]) => void;
+  setRowRatios: (threadId: EditorStateScopeId, ratios: readonly number[]) => void;
+  setTreeWidth: (threadId: EditorStateScopeId, width: number) => void;
   splitPane: (
-    threadId: ThreadId,
+    threadId: EditorStateScopeId,
     options?: { direction?: "down" | "right"; filePath?: string | null; sourcePaneId?: string },
   ) => string | null;
-  syncTree: (threadId: ThreadId, validPaths: readonly string[]) => void;
+  syncTree: (threadId: EditorStateScopeId, validPaths: readonly string[]) => void;
   threadStateByThreadId: Record<string, PersistedThreadEditorState>;
-  toggleDirectory: (threadId: ThreadId, directoryPath: string) => void;
-  updateDraft: (threadId: ThreadId, filePath: string, draftContents: string) => void;
+  toggleDirectory: (threadId: EditorStateScopeId, directoryPath: string) => void;
+  updateDraft: (threadId: EditorStateScopeId, filePath: string, draftContents: string) => void;
 }
 
 export interface ThreadEditorState extends PersistedThreadEditorState {
@@ -120,9 +126,21 @@ const DEFAULT_THREAD_EDITOR_PANE_ID = "pane-1";
 const DEFAULT_THREAD_EDITOR_ROW_ID = "row-1";
 export const MAX_THREAD_EDITOR_PANES = 4;
 const MAX_RECENTLY_CLOSED_EDITOR_ENTRIES = 32;
+const PROJECT_EDITOR_SCOPE_PREFIX = "project:";
 const DEFAULT_THREAD_EDITOR_STATE = createDefaultThreadEditorState();
 const DEFAULT_RUNTIME_THREAD_EDITOR_STATE = createDefaultRuntimeThreadEditorState();
-const threadEditorStateCache = new Map<ThreadId, ThreadEditorStateCacheEntry>();
+const threadEditorStateCache = new Map<EditorStateScopeId, ThreadEditorStateCacheEntry>();
+
+export function resolveEditorStateScopeId(input: {
+  gitCwd: string | null | undefined;
+  threadId: ThreadId;
+}): EditorStateScopeId {
+  const normalizedGitCwd = input.gitCwd?.trim();
+  if (normalizedGitCwd) {
+    return `${PROJECT_EDITOR_SCOPE_PREFIX}${normalizedGitCwd}`;
+  }
+  return input.threadId;
+}
 
 function normalizePathList(paths: readonly string[]): string[] {
   const unique: string[] = [];
@@ -227,6 +245,7 @@ function threadStatesEqual(
 ): boolean {
   return (
     left.activePaneId === right.activePaneId &&
+    left.explorerOpen === right.explorerOpen &&
     left.treeWidth === right.treeWidth &&
     stringArraysEqual(left.expandedDirectoryPaths, right.expandedDirectoryPaths) &&
     numberArraysEqual(left.paneRatios, right.paneRatios) &&
@@ -269,6 +288,7 @@ function createDefaultThreadEditorState(): PersistedThreadEditorState {
   return {
     activePaneId: DEFAULT_THREAD_EDITOR_PANE_ID,
     expandedDirectoryPaths: [],
+    explorerOpen: true,
     paneRatios: [1],
     panes: [createDefaultPane()],
     rows: [createDefaultRow()],
@@ -444,6 +464,7 @@ function normalizePersistedThreadState(
   return {
     activePaneId: activePaneId ?? panes[0]?.id ?? DEFAULT_THREAD_EDITOR_PANE_ID,
     expandedDirectoryPaths: normalizePathList(threadState?.expandedDirectoryPaths ?? []),
+    explorerOpen: threadState?.explorerOpen !== false,
     paneRatios: normalizePaneRatios(threadState?.paneRatios ?? [], rows.length),
     panes,
     rows,
@@ -502,7 +523,7 @@ function createNextRowId(rows: readonly ThreadEditorRowState[]): string {
 
 function getPersistedThreadState(
   stateByThreadId: Record<string, PersistedThreadEditorState>,
-  threadId: ThreadId,
+  threadId: EditorStateScopeId,
 ): PersistedThreadEditorState {
   const threadState = stateByThreadId[threadId];
   return threadState
@@ -512,7 +533,7 @@ function getPersistedThreadState(
 
 function getRuntimeThreadState(
   stateByThreadId: Record<string, RuntimeThreadEditorState>,
-  threadId: ThreadId,
+  threadId: EditorStateScopeId,
 ): RuntimeThreadEditorState {
   return stateByThreadId[threadId] ?? createDefaultRuntimeThreadEditorState();
 }
@@ -583,7 +604,7 @@ function splitPaneRatios(
 
 function writeThreadState(
   state: EditorStoreState,
-  threadId: ThreadId,
+  threadId: EditorStateScopeId,
   nextThreadState: PersistedThreadEditorState,
 ): EditorStoreState {
   return {
@@ -598,7 +619,7 @@ function writeThreadState(
 export function selectThreadEditorState(
   threadStateByThreadId: Record<string, PersistedThreadEditorState>,
   runtimeStateByThreadId: Record<string, RuntimeThreadEditorState>,
-  threadId: ThreadId,
+  threadId: EditorStateScopeId,
 ): ThreadEditorState {
   const persistedThreadStateInput = threadStateByThreadId[threadId];
   const runtimeThreadStateInput = runtimeStateByThreadId[threadId];
@@ -1262,6 +1283,17 @@ export const useEditorStateStore = create<EditorStoreState>()(
             activePaneId: paneId,
           });
         }),
+      setExplorerOpen: (threadId, open) =>
+        set((state) => {
+          const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
+          if (current.explorerOpen === open) {
+            return state;
+          }
+          return writeThreadState(state, threadId, {
+            ...current,
+            explorerOpen: open,
+          });
+        }),
       setPaneRatios: (threadId, rowId, ratios) =>
         set((state) => {
           const current = getPersistedThreadState(state.threadStateByThreadId, threadId);
@@ -1475,7 +1507,7 @@ export const useEditorStateStore = create<EditorStoreState>()(
         threadStateByThreadId: state.threadStateByThreadId,
       }),
       storage: createJSONStorage(createEditorStateStorage),
-      version: 2,
+      version: 3,
     },
   ),
 );

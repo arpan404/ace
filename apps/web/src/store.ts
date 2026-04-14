@@ -1388,7 +1388,7 @@ export function hydrateThreadFromReadModel(
   }
 
   primeHydratedThreadCache(readModelThread);
-  const nextThread = mapThread(readModelThread, { hydrateThreadId: readModelThread.id });
+  const nextThread = { ...mapThread(readModelThread), historyLoaded: true };
   const existingThread = state.threads.find((thread) => thread.id === nextThread.id);
   const threads = existingThread
     ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))

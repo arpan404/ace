@@ -159,6 +159,42 @@ async function stopProcess(
   child: ReturnType<typeof spawn>,
   options?: OpenCodeProcessOptions,
 ): Promise<void> {
+  const processGroupPid =
+    options?.processGroup === true && process.platform !== "win32" ? child.pid : undefined;
+  if (processGroupPid !== undefined) {
+    const isProcessGroupAlive = (): boolean => {
+      try {
+        process.kill(-processGroupPid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const waitForProcessGroupExit = async (timeoutMs: number): Promise<boolean> => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        if (!isProcessGroupAlive()) {
+          return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return !isProcessGroupAlive();
+    };
+
+    if (!isProcessGroupAlive()) {
+      return;
+    }
+    killChildProcess(child, "SIGTERM", options);
+    if (await waitForProcessGroupExit(STOP_TIMEOUT_MS)) {
+      return;
+    }
+    killChildProcess(child, "SIGKILL", options);
+    if (await waitForProcessGroupExit(STOP_TIMEOUT_MS)) {
+      return;
+    }
+    throw new Error("Timed out stopping OpenCode server process group.");
+  }
+
   if (child.exitCode !== null || child.signalCode !== null) {
     return;
   }
@@ -422,4 +458,26 @@ export async function startOpenCodeServer(binaryPath: string): Promise<OpenCodeS
     }
     throw cause;
   }
+}
+
+/**
+ * Start `opencode serve` and return a dedicated server handle.
+ * Unlike `startOpenCodeServer`, this never shares process state across callers.
+ */
+export async function startOpenCodeServerIsolated(
+  binaryPath: string,
+): Promise<OpenCodeServerHandle> {
+  const server = await spawnOpenCodeServer(binaryPath);
+  let closed = false;
+  return {
+    url: server.url,
+    binaryPath: server.binaryPath,
+    close: async () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      await server.closeProcess();
+    },
+  };
 }

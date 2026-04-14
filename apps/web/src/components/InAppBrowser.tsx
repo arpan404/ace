@@ -22,7 +22,7 @@ import {
   PictureInPicture2Icon,
   PlusIcon,
   RefreshCwIcon,
-  Settings2Icon,
+  SparklesIcon,
   XIcon,
 } from "lucide-react";
 import {
@@ -49,17 +49,11 @@ import type { BrowserTabState } from "~/lib/browser/session";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import {
-  BrowserNewTabPanel,
-  BrowserSettingsPanel,
-  BrowserSuggestionList,
-} from "./browser/BrowserChrome";
+import { BrowserNewTabPanel, BrowserSuggestionList } from "./browser/BrowserChrome";
 import { BrowserFavicon, BrowserTabWebview } from "./browser/BrowserWebviewSurface";
-import {
-  isBrowserInternalTabUrl,
-  isBrowserNewTabUrl,
-  isBrowserSettingsTabUrl,
-} from "~/lib/browser/session";
+import { isBrowserInternalTabUrl, isBrowserNewTabUrl } from "~/lib/browser/session";
+import type { BrowserDesignRequestSubmission } from "~/lib/browser/types";
+import { toastManager } from "./ui/toast";
 
 export type {
   ActiveBrowserRuntimeState,
@@ -195,6 +189,7 @@ interface InAppBrowserProps {
   forwardShortcutLabel?: string | null;
   reloadShortcutLabel?: string | null;
   viewportRef?: RefObject<HTMLDivElement | null>;
+  onQueueDesignRequest?: (submission: BrowserDesignRequestSubmission) => Promise<void>;
 }
 
 export function InAppBrowser(props: InAppBrowserProps) {
@@ -212,6 +207,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
     forwardShortcutLabel,
     reloadShortcutLabel,
     viewportRef,
+    onQueueDesignRequest,
   } = props;
   const {
     activateTab,
@@ -220,20 +216,16 @@ export function InAppBrowser(props: InAppBrowserProps) {
     activeTabIsInternal,
     activeTabIsNewTab,
     activeTabIsPinned,
-    activeTabIsSettings,
     addressBarSuggestions,
     addressInputRef,
     applySuggestion,
-    browserHistoryCount,
     browserResetKey,
     browserSearchEngine,
     browserSession,
     browserShellStyle,
     browserStatusLabel,
-    clearHistory,
     closeTab,
     draftUrl,
-    exportPinnedPages,
     goBack,
     goForward,
     handleAddressBarKeyDown,
@@ -246,10 +238,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
     handlePipResizePointerMove,
     handleTabSnapshotChange,
     handleWebviewContextMenuFallbackRequest,
-    importPinnedPages,
-    isRepairingStorage,
     openActiveTabExternally,
-    openBrowserSettingsTab,
     openNewTab,
     openPinnedPage,
     openTabContextMenu,
@@ -258,9 +247,6 @@ export function InAppBrowser(props: InAppBrowserProps) {
     reorderTabs,
     registerWebviewHandle,
     reload,
-    removePinnedPage,
-    repairBrowserStorage,
-    selectSearchEngine,
     selectedSuggestionIndex,
     setDraftUrl,
     setIsAddressBarFocused,
@@ -299,6 +285,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
   const tabNodeMapRef = useRef(new Map<string, HTMLDivElement>());
   const [canScrollTabsLeft, setCanScrollTabsLeft] = useState(false);
   const [canScrollTabsRight, setCanScrollTabsRight] = useState(false);
+  const [designCaptureArmed, setDesignCaptureArmed] = useState(false);
   const handleTabDragStart = useCallback((_event: DragStartEvent) => {
     suppressTabClickAfterDragRef.current = true;
   }, []);
@@ -390,6 +377,41 @@ export function InAppBrowser(props: InAppBrowserProps) {
     };
   }, [activeTab, syncTabStripOverflow]);
 
+  useEffect(() => {
+    if (!open) {
+      setDesignCaptureArmed(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (activeTabIsInternal && designCaptureArmed) {
+      setDesignCaptureArmed(false);
+    }
+  }, [activeTabIsInternal, designCaptureArmed]);
+  const designCaptureAvailable = Boolean(onQueueDesignRequest) && !activeTabIsInternal;
+
+  const queueDesignRequest = useCallback(
+    async (submission: Omit<BrowserDesignRequestSubmission, "pagePath" | "pageUrl">) => {
+      if (!activeTab || activeTabIsInternal || !onQueueDesignRequest) {
+        throw new Error("Design request queue is unavailable for this tab.");
+      }
+      let pagePath = "/";
+      try {
+        const parsedUrl = new URL(activeTab.url);
+        pagePath = `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}` || "/";
+      } catch {
+        pagePath = "/";
+      }
+      await onQueueDesignRequest({
+        ...submission,
+        pageUrl: activeTab.url,
+        pagePath,
+      });
+      setDesignCaptureArmed(false);
+    },
+    [activeTab, activeTabIsInternal, onQueueDesignRequest],
+  );
+
   if (!open) {
     return null;
   }
@@ -448,6 +470,28 @@ export function InAppBrowser(props: InAppBrowserProps) {
                 ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-0.5" data-browser-control>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className={cn(
+                    "rounded-md transition-all duration-150",
+                    designCaptureArmed &&
+                      "bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary",
+                  )}
+                  onClick={() => {
+                    if (!designCaptureAvailable) {
+                      return;
+                    }
+                    setDesignCaptureArmed((current) => !current);
+                  }}
+                  disabled={!designCaptureAvailable}
+                  aria-label={
+                    designCaptureArmed ? "Cancel design capture" : "Capture design request"
+                  }
+                  data-browser-control
+                >
+                  <SparklesIcon className="size-3.5" />
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon-xs"
@@ -578,9 +622,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
                     >
                       {browserSession.tabs.map((tab) => {
                         const isActive = activeTab?.id === tab.id;
-                        const icon = isBrowserSettingsTabUrl(tab.url) ? (
-                          <Settings2Icon className="size-3 text-muted-foreground" />
-                        ) : isBrowserNewTabUrl(tab.url) ? (
+                        const icon = isBrowserNewTabUrl(tab.url) ? (
                           <PlusIcon className="size-3 text-muted-foreground" />
                         ) : (
                           <BrowserFavicon
@@ -630,21 +672,6 @@ export function InAppBrowser(props: InAppBrowserProps) {
                     <Button
                       variant="outline"
                       size="icon-xs"
-                      onClick={openBrowserSettingsTab}
-                      aria-label="Open browser settings tab"
-                    >
-                      <Settings2Icon className="size-3.5" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">Browser settings</TooltipPopup>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
                       onClick={openNewTab}
                       aria-label="Open a new browser tab"
                     >
@@ -658,6 +685,39 @@ export function InAppBrowser(props: InAppBrowserProps) {
 
             <div className="flex items-center gap-2 border-b border-border bg-card px-3 py-1.5 sm:px-5">
               <div className="flex shrink-0 items-center gap-1.5">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="outline"
+                        size="icon-xs"
+                        className={cn(
+                          designCaptureArmed &&
+                            "border-primary/45 bg-primary/10 text-primary hover:bg-primary/14",
+                        )}
+                        onClick={() => {
+                          if (!designCaptureAvailable) {
+                            return;
+                          }
+                          setDesignCaptureArmed((current) => !current);
+                        }}
+                        disabled={!designCaptureAvailable}
+                        aria-label={
+                          designCaptureArmed ? "Cancel design capture" : "Capture design request"
+                        }
+                      >
+                        <SparklesIcon className="size-3.5" />
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="bottom">
+                    {designCaptureArmed
+                      ? "Cancel design capture"
+                      : designCaptureAvailable
+                        ? "Capture a page area for a queued design request"
+                        : "Design capture is unavailable for this tab"}
+                  </TooltipPopup>
+                </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -903,31 +963,31 @@ export function InAppBrowser(props: InAppBrowserProps) {
               onSubmitQuery={openUrl}
             />
           ) : null}
-          {activeTabIsSettings ? (
-            <BrowserSettingsPanel
-              browserSearchEngine={browserSearchEngine}
-              historyCount={browserHistoryCount}
-              isRepairingStorage={isRepairingStorage}
-              pinnedPages={pinnedPages}
-              onClearHistory={clearHistory}
-              onExportPinnedPages={exportPinnedPages}
-              onImportPinnedPages={(file) => {
-                void importPinnedPages(file);
-              }}
-              onOpenPinnedPage={openPinnedPage}
-              onRemovePinnedPage={removePinnedPage}
-              onRepairStorage={() => {
-                void repairBrowserStorage();
-              }}
-              onSelectSearchEngine={selectSearchEngine}
-            />
-          ) : null}
           {browserSession.tabs
             .filter((tab) => !isBrowserInternalTabUrl(tab.url))
             .map((tab) => (
               <BrowserTabWebview
                 key={`${browserResetKey}:${tab.id}`}
                 active={!activeTabIsInternal && activeTab?.id === tab.id}
+                designCaptureArmed={
+                  designCaptureArmed && !activeTabIsInternal && activeTab?.id === tab.id
+                }
+                onDesignCaptureCancel={() => {
+                  setDesignCaptureArmed(false);
+                }}
+                onDesignCaptureError={(message) => {
+                  setDesignCaptureArmed(false);
+                  toastManager.add({
+                    type: "error",
+                    title: "Design capture failed.",
+                    description: message,
+                  });
+                }}
+                {...(onQueueDesignRequest
+                  ? {
+                      onDesignCaptureSubmit: queueDesignRequest,
+                    }
+                  : {})}
                 onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
                 tab={tab}
                 onHandleChange={registerWebviewHandle}

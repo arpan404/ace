@@ -5,10 +5,13 @@ import { useEffect, useState } from "react";
 import { useSettingsRestore } from "../components/settings/SettingsPanels";
 import { getSettingsNavItem } from "../components/settings/settingsNavigation";
 import { Button } from "../components/ui/button";
-import { SidebarInset, SidebarTrigger } from "../components/ui/sidebar";
+import { SidebarInset, SidebarTrigger, useSidebar } from "../components/ui/sidebar";
 import { isElectron } from "../env";
+import { MAC_TITLEBAR_LEFT_INSET_STYLE } from "../lib/desktopChrome";
+import { cn } from "../lib/utils";
 
 function SettingsContentLayout() {
+  const { state: sidebarState } = useSidebar();
   const pathname = useLocation({ select: (location) => location.pathname });
   const [restoreSignal, setRestoreSignal] = useState(0);
   const { changedSettingLabels, restoreDefaults } = useSettingsRestore(() =>
@@ -67,7 +70,12 @@ function SettingsContentLayout() {
         )}
 
         {isElectron && (
-          <div className="drag-region flex min-h-[52px] shrink-0 items-center border-b border-border px-5 py-2">
+          <div
+            className={cn(
+              "drag-region flex min-h-[52px] shrink-0 items-center border-b border-border px-5 py-2",
+            )}
+            style={sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined}
+          >
             <div className="min-w-0">
               <p className="text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
                 Settings

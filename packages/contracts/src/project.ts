@@ -4,6 +4,12 @@ import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchema
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
 const PROJECT_READ_FILE_MAX_BYTES = 2 * 1024 * 1024;
+const PROJECT_FILE_VERSION_MAX_LENGTH = 128;
+
+export const ProjectFileVersion = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(PROJECT_FILE_VERSION_MAX_LENGTH),
+);
+export type ProjectFileVersion = typeof ProjectFileVersion.Type;
 
 export const ProjectSearchEntriesInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
@@ -59,17 +65,24 @@ export const ProjectWriteFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
   contents: Schema.String,
+  expectedVersion: Schema.optional(ProjectFileVersion),
+  overwrite: Schema.optional(Schema.Boolean),
 });
 export type ProjectWriteFileInput = typeof ProjectWriteFileInput.Type;
 
 export const ProjectWriteFileResult = Schema.Struct({
   relativePath: TrimmedNonEmptyString,
+  version: ProjectFileVersion,
 });
 export type ProjectWriteFileResult = typeof ProjectWriteFileResult.Type;
 
 export class ProjectWriteFileError extends Schema.TaggedErrorClass<ProjectWriteFileError>()(
   "ProjectWriteFileError",
   {
+    conflict: Schema.optional(Schema.Boolean),
+    currentContents: Schema.optional(Schema.String),
+    currentVersion: Schema.optional(ProjectFileVersion),
+    expectedVersion: Schema.optional(ProjectFileVersion),
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect),
   },
@@ -148,6 +161,7 @@ export const ProjectReadFileResult = Schema.Struct({
   relativePath: TrimmedNonEmptyString,
   contents: Schema.String,
   sizeBytes: NonNegativeInt,
+  version: ProjectFileVersion,
 });
 export type ProjectReadFileResult = typeof ProjectReadFileResult.Type;
 
