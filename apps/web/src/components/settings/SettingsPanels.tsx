@@ -310,8 +310,8 @@ function AboutVersionSection() {
     actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates";
   const description =
     action === "download" || action === "install"
-      ? "Update available."
-      : "Current version of the application.";
+      ? "Update available for desktop, web UI, server daemon, and CLI."
+      : "Current desktop, web UI, daemon runtime, and CLI version.";
 
   return (
     <SettingsRow

@@ -189,6 +189,7 @@ export interface DesktopCliInstallState {
   commandPath: string | null;
   pathTargets: ReadonlyArray<string>;
   checkedAt: string | null;
+  progressPercent: number | null;
   restartRequired: boolean;
   message: string | null;
 }

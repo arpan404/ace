@@ -10,6 +10,16 @@ import { version } from "../package.json" with { type: "json" };
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
+const rewriteServeAlias = () => {
+  const args = process.argv.slice(2);
+  if (args[0] !== "--serve") {
+    return;
+  }
+  process.argv = [process.argv[0]!, process.argv[1]!, "serve", ...args.slice(1)];
+};
+
+rewriteServeAlias();
+
 Command.run(cli, { version }).pipe(
   Effect.scoped,
   Effect.provide(CliRuntimeLayer),

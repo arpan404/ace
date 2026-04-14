@@ -18,7 +18,7 @@ ace is a fast, minimal GUI for coding agents (Codex, Claude, GitHub Copilot, Cur
 ### 2. Run ace
 
 ```bash
-npx ace
+npx ace serve
 ```
 
 ## Local development
@@ -38,12 +38,13 @@ Useful commands:
 
 OpenCode model behavior:
 
-- Provider status fetches a featured OpenCode model snapshot (top 10 models).
+- Provider status/model selection uses provider-grouped OpenCode catalog data.
 - You can select from fetched OpenCode models and add custom OpenCode model slugs in Settings.
 
 ## Desktop app
 
 Download the latest desktop build from [GitHub Releases](https://github.com/arpan404/ace/releases).
+Packaged desktop builds auto-install the `ace` CLI in the background and register daemon autostart at login.
 
 ## Remote control modes
 

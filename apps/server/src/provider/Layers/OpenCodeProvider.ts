@@ -91,7 +91,7 @@ export const checkOpenCodeProviderStatus = Effect.fn("checkOpenCodeProviderStatu
         ? "OpenCode is usable. Provider OAuth status is unknown — ensure API keys or auth are configured for your models."
         : undefined,
       probe.modelsTruncated
-        ? `Showing featured OpenCode models, including the newest available release. Search the picker to browse the full catalog in 10-model pages.`
+        ? "Showing a featured OpenCode model subset. Use the picker search to find the full catalog."
         : undefined,
     ]);
 

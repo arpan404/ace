@@ -3,11 +3,12 @@ import { resolveSelectableModel } from "@ace/shared/model";
 import { memo, useMemo, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, SearchIcon } from "lucide-react";
 import { Button, buttonVariants } from "../ui/button";
 import {
   Menu,
   MenuGroup,
+  MenuGroupLabel,
   MenuItem,
   MenuPopup,
   MenuRadioGroup,
@@ -49,6 +50,133 @@ const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
 export const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
 const UNAVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => !option.available);
 const MODEL_MENU_MAX_HEIGHT = "24rem";
+const OPENCODE_MODEL_MENU_STABLE_HEIGHT_STYLE = {
+  minHeight: `min(var(--available-height), ${MODEL_MENU_MAX_HEIGHT})`,
+};
+type ProviderModelOption = Readonly<{ slug: string; name: string }>;
+
+function toOpenCodeProviderLabel(providerId: string): string {
+  return providerId
+    .split(/[-_]/g)
+    .filter((part) => part.length > 0)
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (lower === "ai") {
+        return "AI";
+      }
+      if (lower.length <= 2) {
+        return lower.toUpperCase();
+      }
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
+}
+
+function splitOpenCodeModelOption(option: ProviderModelOption): {
+  providerId: string;
+  providerLabel: string;
+  modelLabel: string;
+} {
+  const name = option.name.trim();
+  const separatorIndex = name.indexOf(":");
+  const providerLabelFromName = separatorIndex > 0 ? name.slice(0, separatorIndex).trim() : "";
+  const modelLabelFromName = separatorIndex > 0 ? name.slice(separatorIndex + 1).trim() : name;
+  const slashIndex = option.slug.indexOf("/");
+  const providerId = slashIndex > 0 ? option.slug.slice(0, slashIndex).trim() : "";
+  const providerLabel =
+    providerLabelFromName || (providerId ? toOpenCodeProviderLabel(providerId) : "Other");
+  return {
+    providerId: providerId || providerLabel.toLowerCase(),
+    providerLabel,
+    modelLabel: modelLabelFromName || option.name || option.slug,
+  };
+}
+
+const OpenCodeModelMenuContent = memo(function OpenCodeModelMenuContent(props: {
+  options: ReadonlyArray<ProviderModelOption>;
+  selectedModel: string;
+  onModelChange: (value: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const groupedOptions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const groups = new Map<
+      string,
+      {
+        providerLabel: string;
+        options: Array<ProviderModelOption & { modelLabel: string }>;
+      }
+    >();
+
+    for (const option of props.options) {
+      const parsed = splitOpenCodeModelOption(option);
+      const searchText =
+        `${parsed.providerLabel} ${parsed.modelLabel} ${option.slug} ${option.name}`.toLowerCase();
+      if (normalizedQuery.length > 0 && !searchText.includes(normalizedQuery)) {
+        continue;
+      }
+      const group = groups.get(parsed.providerId);
+      if (group) {
+        group.options.push({ ...option, modelLabel: parsed.modelLabel });
+        continue;
+      }
+      groups.set(parsed.providerId, {
+        providerLabel: parsed.providerLabel,
+        options: [{ ...option, modelLabel: parsed.modelLabel }],
+      });
+    }
+
+    return [...groups.entries()].map(([providerId, group]) => ({
+      providerId,
+      providerLabel: group.providerLabel,
+      options: group.options,
+    }));
+  }, [props.options, query]);
+
+  return (
+    <>
+      <div className="px-2 pb-1 pt-1">
+        <div className="flex items-center gap-1.5 border-b border-border/40 pb-1">
+          <SearchIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground/70" />
+          <input
+            type="search"
+            role="searchbox"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") {
+                event.stopPropagation();
+              }
+            }}
+            placeholder="Search models"
+            className="h-7 w-full border-0 bg-transparent px-0 text-sm text-foreground outline-none placeholder:text-muted-foreground/60"
+          />
+        </div>
+      </div>
+
+      {groupedOptions.length === 0 ? (
+        <MenuItem disabled>
+          {query.trim().length > 0 ? "No models match your search." : "No models available."}
+        </MenuItem>
+      ) : (
+        groupedOptions.map((group) => (
+          <MenuGroup key={`opencode-group:${group.providerId}`}>
+            <MenuGroupLabel className="px-2 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+              {group.providerLabel}
+            </MenuGroupLabel>
+            <MenuRadioGroup value={props.selectedModel} onValueChange={props.onModelChange}>
+              {group.options.map((modelOption) => (
+                <MenuRadioItem key={`opencode-model:${modelOption.slug}`} value={modelOption.slug}>
+                  {modelOption.modelLabel}
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </MenuGroup>
+        ))
+      )}
+    </>
+  );
+});
 
 const CursorModelMenuContent = memo(function CursorModelMenuContent(props: {
   models: ReadonlyArray<NonNullable<ServerProvider["models"]>[number]>;
@@ -209,6 +337,15 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     if (options.length === 0) {
       return <MenuItem disabled>No models available.</MenuItem>;
     }
+    if (provider === "opencode") {
+      return (
+        <OpenCodeModelMenuContent
+          options={options}
+          selectedModel={value}
+          onModelChange={(nextValue) => handleModelChange(provider, nextValue, options)}
+        />
+      );
+    }
     return (
       <MenuGroup>
         <MenuRadioGroup
@@ -273,7 +410,13 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
         </span>
       </MenuTrigger>
-      <MenuPopup align="start" listMaxHeight={MODEL_MENU_MAX_HEIGHT}>
+      <MenuPopup
+        align="start"
+        listMaxHeight={MODEL_MENU_MAX_HEIGHT}
+        {...(props.lockedProvider === "opencode"
+          ? { style: OPENCODE_MODEL_MENU_STABLE_HEIGHT_STYLE }
+          : {})}
+      >
         {props.lockedProvider !== null ? (
           props.lockedProvider === "cursor" ? (
             renderCursorModelMenu("cursor")
@@ -321,7 +464,13 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                     />
                     {option.label}
                   </MenuSubTrigger>
-                  <MenuSubPopup listMaxHeight={MODEL_MENU_MAX_HEIGHT} sideOffset={4}>
+                  <MenuSubPopup
+                    listMaxHeight={MODEL_MENU_MAX_HEIGHT}
+                    sideOffset={4}
+                    {...(option.value === "opencode"
+                      ? { style: OPENCODE_MODEL_MENU_STABLE_HEIGHT_STYLE }
+                      : {})}
+                  >
                     {option.value === "cursor"
                       ? renderCursorModelMenu("cursor")
                       : renderStandardModelMenu(

@@ -100,6 +100,7 @@
         "effect": "catalog:",
         "node-pty": "^1.1.0",
         "open": "^10.1.0",
+        "picocolors": "^1.1.1",
         "typescript-language-server": "^4.4.0",
         "vscode-langservers-extracted": "^4.10.0",
       },

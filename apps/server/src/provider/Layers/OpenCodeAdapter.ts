@@ -338,6 +338,42 @@ export function openCodeTimestampToIso(value: unknown): string | undefined {
   return Number.isFinite(parsedMs) ? new Date(parsedMs).toISOString() : undefined;
 }
 
+export function openCodeTimestampToEpochMs(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (Math.abs(value) < 1_000_000_000) {
+      return undefined;
+    }
+    return Math.abs(value) >= 1_000_000_000_000 ? value : value * 1_000;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
+    return openCodeTimestampToEpochMs(Number(trimmed));
+  }
+  const parsedMs = Date.parse(trimmed);
+  return Number.isFinite(parsedMs) ? parsedMs : undefined;
+}
+
+function isWithinActiveTurnWindow(
+  ctx: OpenCodeSessionContext,
+  timestampMs: number | undefined,
+): boolean {
+  const turn = ctx.activeTurn;
+  if (!turn) {
+    return false;
+  }
+  if (timestampMs === undefined) {
+    return true;
+  }
+  // Event streams can drift slightly; tolerate a small negative skew.
+  return timestampMs >= turn.startedAtMs - 2_000;
+}
+
 export function resolveOpenCodePartTimestamp(
   part: Record<string, unknown>,
   boundary: "start" | "end",
@@ -946,6 +982,15 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     if (!turnId || !turn) {
       return;
     }
+    const hasPriorDelta = ctx.emittedAssistantTextLengthByPartId.has(part.id);
+    const partStartedAtMs = openCodeTimestampToEpochMs(part.time?.start);
+    if (partStartedAtMs === undefined && !hasPriorDelta) {
+      // Ignore timeless snapshots we haven't streamed yet to avoid replaying stale history.
+      return;
+    }
+    if (!isWithinActiveTurnWindow(ctx, partStartedAtMs)) {
+      return;
+    }
     const previousLengthRaw = ctx.emittedAssistantTextLengthByPartId.get(part.id) ?? 0;
     const previousLength = part.text.length < previousLengthRaw ? 0 : previousLengthRaw;
     if (part.text.length <= previousLength) {
@@ -978,6 +1023,9 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     ctx: OpenCodeSessionContext,
     part: OpenCodeSdkReasoningPart,
   ) => {
+    if (!isWithinActiveTurnWindow(ctx, openCodeTimestampToEpochMs(part.time.start))) {
+      return;
+    }
     const partId = part.id;
     const text = part.text;
     const reasoningStartedAt =
@@ -1018,6 +1066,21 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
   const handleOpenCodeToolPart = (ctx: OpenCodeSessionContext, part: OpenCodeSdkToolPart) => {
     const turn = ctx.activeTurn;
     if (!turn) {
+      return;
+    }
+    const toolStartedAtMs = (() => {
+      switch (part.state.status) {
+        case "running":
+          return openCodeTimestampToEpochMs(part.state.time.start);
+        case "completed":
+        case "error":
+          return openCodeTimestampToEpochMs(part.state.time.start);
+        case "pending":
+        default:
+          return undefined;
+      }
+    })();
+    if (!isWithinActiveTurnWindow(ctx, toolStartedAtMs)) {
       return;
     }
     const partId = part.id;
@@ -1137,15 +1200,6 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         }
         const messageId = event.properties.info.id;
         ctx.messageRoleById.set(messageId, role);
-        if (role === "assistant") {
-          const turnId = ctx.activeTurn?.id;
-          for (const part of ctx.partById.values()) {
-            if (part.messageID !== messageId || part.type !== "text") {
-              continue;
-            }
-            emitAssistantTextFromSnapshotPart(ctx, part, turnId);
-          }
-        }
         return;
       }
       case "message.removed": {

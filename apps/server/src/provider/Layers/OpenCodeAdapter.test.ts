@@ -10,6 +10,7 @@ import {
   mapOpenCodePermissionReplyDecision,
   mapOpenCodeQuestionAnswers,
   openCodeTimestampToIso,
+  openCodeTimestampToEpochMs,
   readOpenCodeEventRequestId,
   readOpenCodeResumeSessionId,
   resolveOpenCodeDeltaStreamKind,
@@ -171,6 +172,18 @@ describe("openCodeTimestampToIso", () => {
   it("ignores values that do not look like absolute timestamps", () => {
     expect(openCodeTimestampToIso(42)).toBeUndefined();
     expect(openCodeTimestampToIso("not-a-time")).toBeUndefined();
+  });
+});
+
+describe("openCodeTimestampToEpochMs", () => {
+  it("normalizes OpenCode second and millisecond epochs", () => {
+    expect(openCodeTimestampToEpochMs(1_742_533_200)).toBe(1_742_533_200_000);
+    expect(openCodeTimestampToEpochMs("1742533200456")).toBe(1_742_533_200_456);
+  });
+
+  it("returns undefined for non-absolute and invalid timestamps", () => {
+    expect(openCodeTimestampToEpochMs(42)).toBeUndefined();
+    expect(openCodeTimestampToEpochMs("not-a-time")).toBeUndefined();
   });
 });
 

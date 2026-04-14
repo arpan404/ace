@@ -4,7 +4,13 @@ import * as Path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ensureAceCliInstalled, pathHasEntry, resolveAceCliBinDir } from "./cliInstall";
+import {
+  ensureAceCliInstalled,
+  ensureAceCliInstalledWithProgress,
+  inspectAceCliInstall,
+  pathHasEntry,
+  resolveAceCliBinDir,
+} from "./cliInstall";
 
 function makeTempDir(prefix: string): string {
   return FS.mkdtempSync(Path.join(OS.tmpdir(), prefix));
@@ -124,5 +130,103 @@ describe("ensureAceCliInstalled", () => {
     expect(env.PATH?.startsWith(`${Path.join(baseDir, "bin")};`)).toBe(true);
     expect(FS.readFileSync(commandPath, "utf8")).toContain("@echo off");
     expect(FS.readFileSync(commandPath, "utf8")).toContain("ELECTRON_RUN_AS_NODE");
+  });
+
+  it("treats a shim targeting a different binary as not ready and repairs it", () => {
+    const homeDir = makeTempDir("ace-cli-install-mismatch-");
+    const baseDir = Path.join(homeDir, ".ace");
+    const appDir = Path.join(homeDir, "Applications", "ace");
+    const launchCommand = Path.join(appDir, "ace");
+    const cliEntry = Path.join(appDir, "apps", "server", "dist", "bin.mjs");
+    FS.mkdirSync(Path.dirname(cliEntry), { recursive: true });
+    FS.writeFileSync(launchCommand, "");
+    FS.writeFileSync(cliEntry, "");
+
+    const env = {
+      PATH: "/usr/bin:/bin",
+      SHELL: "/bin/zsh",
+    } satisfies NodeJS.ProcessEnv;
+
+    const binDir = resolveAceCliBinDir({ baseDir, homeDir });
+    FS.mkdirSync(binDir, { recursive: true });
+    const commandPath = Path.join(binDir, "ace");
+    FS.writeFileSync(
+      commandPath,
+      "#!/bin/sh\nset -eu\nexec '/tmp/old-ace' '/tmp/old-bin.mjs' \"$@\"\n",
+      "utf8",
+    );
+    FS.chmodSync(commandPath, 0o755);
+
+    const before = inspectAceCliInstall({
+      baseDir,
+      platform: "darwin",
+      homeDir,
+      env,
+      shell: "/bin/zsh",
+      target: {
+        launchCommand,
+        cliEntry,
+        environment: {
+          ELECTRON_RUN_AS_NODE: "1",
+        },
+      },
+    });
+    expect(before.ready).toBe(false);
+
+    const result = ensureAceCliInstalled({
+      baseDir,
+      platform: "darwin",
+      homeDir,
+      env,
+      shell: "/bin/zsh",
+      target: {
+        launchCommand,
+        cliEntry,
+        environment: {
+          ELECTRON_RUN_AS_NODE: "1",
+        },
+      },
+    });
+    expect(result.ready).toBe(true);
+    expect(FS.readFileSync(commandPath, "utf8")).toContain(launchCommand);
+    expect(FS.readFileSync(commandPath, "utf8")).toContain(cliEntry);
+  });
+
+  it("emits step progress that reaches 100%", () => {
+    const homeDir = makeTempDir("ace-cli-install-progress-");
+    const baseDir = Path.join(homeDir, ".ace");
+    const appDir = Path.join(homeDir, "Applications", "ace");
+    const launchCommand = Path.join(appDir, "ace");
+    const cliEntry = Path.join(appDir, "apps", "server", "dist", "bin.mjs");
+    FS.mkdirSync(Path.dirname(cliEntry), { recursive: true });
+    FS.writeFileSync(launchCommand, "");
+    FS.writeFileSync(cliEntry, "");
+    const env = {
+      PATH: "/usr/bin:/bin",
+      SHELL: "/bin/zsh",
+    } satisfies NodeJS.ProcessEnv;
+
+    const updates: number[] = [];
+    ensureAceCliInstalledWithProgress(
+      {
+        baseDir,
+        platform: "darwin",
+        homeDir,
+        env,
+        shell: "/bin/zsh",
+        target: {
+          launchCommand,
+          cliEntry,
+          environment: {
+            ELECTRON_RUN_AS_NODE: "1",
+          },
+        },
+      },
+      (progress) => {
+        updates.push(progress.percent);
+      },
+    );
+
+    expect(updates).toEqual([20, 40, 60, 80, 100]);
   });
 });
