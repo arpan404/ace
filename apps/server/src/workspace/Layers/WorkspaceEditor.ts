@@ -237,6 +237,18 @@ function buildLspEnvironment(stateDir: string): NodeJS.ProcessEnv {
   if (nextPathEntries.length > 0) {
     nextEnv.PATH = Array.from(new Set(nextPathEntries)).join(delimiter);
   }
+  const nodeModulesDirs = collectNodeModuleBinDirectories([
+    join(stateDir, "lsp-tools"),
+    process.cwd(),
+  ]);
+  if (nodeModulesDirs.length > 0) {
+    const currentNodePath = nextEnv.NODE_PATH ?? nextEnv.NodePath ?? "";
+    const nodePathEntries = [
+      ...nodeModulesDirs,
+      ...currentNodePath.split(delimiter).filter(Boolean),
+    ];
+    nextEnv.NODE_PATH = Array.from(new Set(nodePathEntries)).join(delimiter);
+  }
   return nextEnv;
 }
 
@@ -790,6 +802,13 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
   ): Effect.fn.Return<LspSession, WorkspaceEditorError> {
     const { command, args } = resolveServerCommand(languageServer);
     const env = buildLspEnvironment(serverConfig.stateDir);
+
+    yield* Effect.logDebug(
+      `[WorkspaceEditor] Creating LSP session for ${languageServer.id} in ${cwd}`,
+    );
+    yield* Effect.logDebug(`[WorkspaceEditor] Command: ${command}, Args: ${JSON.stringify(args)}`);
+    yield* Effect.logDebug(`[WorkspaceEditor] PATH: ${env.PATH?.slice(0, 200)}...`);
+
     const proc = spawn(command, [...args], {
       cwd,
       env,
@@ -806,6 +825,8 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
           operation: "workspaceEditor.spawnLspServer",
         }),
     });
+
+    yield* Effect.logDebug(`[WorkspaceEditor] Spawn succeeded for ${languageServer.id}`);
 
     const session: LspSession = {
       cwd,
@@ -911,6 +932,8 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
         }),
     });
 
+    yield* Effect.logDebug(`[WorkspaceEditor] Initialize completed for ${languageServer.id}`);
+
     return session;
   });
 
@@ -967,6 +990,8 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
 
   const syncBuffer: WorkspaceEditorShape["syncBuffer"] = Effect.fn("WorkspaceEditor.syncBuffer")(
     function* (input) {
+      yield* Effect.logDebug(`[WorkspaceEditor] syncBuffer: ${input.relativePath} in ${input.cwd}`);
+
       const normalizedWorkspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.cwd);
       const target = yield* workspacePaths.resolveRelativePathWithinRoot({
         workspaceRoot: normalizedWorkspaceRoot,
@@ -974,6 +999,7 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
       });
       const languageId = resolveLanguageIdFromPath(target.relativePath);
       if (!languageId) {
+        yield* Effect.logDebug(`[WorkspaceEditor] No languageId for ${target.relativePath}`);
         return {
           diagnostics: [],
           relativePath: target.relativePath,
@@ -981,12 +1007,14 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
       }
       const languageServer = resolveServerForLanguageId(languageId);
       if (!languageServer) {
+        yield* Effect.logDebug(`[WorkspaceEditor] No languageServer for ${languageId}`);
         return {
           diagnostics: [],
           relativePath: target.relativePath,
         } satisfies WorkspaceEditorSyncBufferResult;
       }
 
+      yield* Effect.logDebug(`[WorkspaceEditor] Using LSP server: ${languageServer.id}`);
       const session = yield* getOrCreateSession(normalizedWorkspaceRoot, languageServer);
       const uri = pathToFileURL(target.absolutePath).toString();
       const diagnostics = yield* session.mutex.withPermits(1)(
@@ -1037,6 +1065,7 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
 
   const closeBuffer: WorkspaceEditorShape["closeBuffer"] = Effect.fn("WorkspaceEditor.closeBuffer")(
     function* (input) {
+      yield* Effect.logDebug(`[WorkspaceEditor] closeBuffer: ${input.relativePath}`);
       const normalizedWorkspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.cwd);
       const target = yield* workspacePaths.resolveRelativePathWithinRoot({
         workspaceRoot: normalizedWorkspaceRoot,

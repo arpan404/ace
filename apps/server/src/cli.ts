@@ -1,9 +1,12 @@
 import * as ChildProcess from "node:child_process";
 import * as Crypto from "node:crypto";
+import * as Os from "node:os";
 import * as Readline from "node:readline/promises";
 
 import pc from "picocolors";
+import { WS_METHODS, type ServerRuntimeProfile } from "@ace/contracts";
 import { NetService } from "@ace/shared/Net";
+import { createWsRpcProtocolLayer, makeWsRpcProtocolClient } from "@ace/shared/wsRpcProtocol";
 import {
   addCliProject,
   listCliProjects,
@@ -28,7 +31,17 @@ import {
   waitForProcessExit,
   writeDaemonState,
 } from "./daemon";
-import { Config, Data, Effect, LogLevel, Option, Schema } from "effect";
+import {
+  Config,
+  Data,
+  Effect,
+  Exit,
+  LogLevel,
+  ManagedRuntime,
+  Option,
+  Schema,
+  Scope,
+} from "effect";
 import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
 
 import {
@@ -42,11 +55,22 @@ import {
 } from "./config";
 import { readBootstrapEnvelope } from "./bootstrap";
 import { resolveBaseDir } from "./os-jank";
+import {
+  buildProcessTree,
+  deriveCpuPercentsFromCpuSeconds,
+  sampleProcessTable,
+  type ProcessProfileSample,
+} from "./processProfile";
 import { runServer } from "./server";
 import { version as serverPackageVersion } from "../package.json" with { type: "json" };
 
 const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }));
 const DEFAULT_DAEMON_RESTART_TIMEOUT_MS = 8_000;
+const DEFAULT_PROFILE_INTERVAL_MS = 1_000;
+const PROFILE_RUNTIME_RPC_CONNECT_TIMEOUT_MS = 1_500;
+const PROFILE_RUNTIME_RPC_READ_TIMEOUT_MS = 1_000;
+const PROFILE_DASHBOARD_MAX_ROWS = 14;
+const PROFILE_RENDER_DECIMALS = 1;
 
 const BootstrapEnvelopeSchema = Schema.Struct({
   mode: Schema.optional(RuntimeMode),
@@ -363,6 +387,18 @@ const dataCommandFlags = {
   devUrl: devUrlFlag,
 } as const;
 
+const profileIntervalMsFlag = Flag.integer("interval-ms").pipe(
+  Flag.withSchema(Schema.Int.check(Schema.isGreaterThanOrEqualTo(250))),
+  Flag.withDescription("Dashboard refresh interval in milliseconds."),
+  Flag.withDefault(DEFAULT_PROFILE_INTERVAL_MS),
+);
+
+const profilePidFlag = Flag.integer("pid").pipe(
+  Flag.withSchema(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+  Flag.withDescription("Profile a specific process pid instead of the ace daemon pid."),
+  Flag.optional,
+);
+
 const jsonFlag = Flag.boolean("json").pipe(
   Flag.withDescription("Print structured JSON output."),
   Flag.withDefault(false),
@@ -379,6 +415,9 @@ const writeStdout = (output: string) =>
   });
 
 const writeJson = (value: unknown) => writeStdout(`${JSON.stringify(value, null, 2)}\n`);
+
+const formatErrorMessage = (error: unknown): string =>
+  error instanceof Error && error.message.trim().length > 0 ? error.message : String(error);
 
 const formatRows = (
   headers: ReadonlyArray<string>,
@@ -436,6 +475,219 @@ const formatRemoteConnectionRows = (
   ]);
   return formatRows(headers, rows);
 };
+
+interface RuntimeProfileWsClient {
+  readonly readSnapshot: () => Promise<ServerRuntimeProfile>;
+  readonly close: () => Promise<void>;
+}
+
+function withPromiseTimeout<T>(input: {
+  readonly timeoutMs: number;
+  readonly operationLabel: string;
+  readonly operation: () => Promise<T>;
+}): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(
+      () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        reject(
+          new Error(
+            `${input.operationLabel} timed out after ${String(Math.max(1, input.timeoutMs))}ms.`,
+          ),
+        );
+      },
+      Math.max(1, input.timeoutMs),
+    );
+
+    input
+      .operation()
+      .then((value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
+async function createRuntimeProfileWsClient(wsUrl: string): Promise<RuntimeProfileWsClient> {
+  const runtime = ManagedRuntime.make(createWsRpcProtocolLayer({ target: wsUrl }));
+  const scope = runtime.runSync(Scope.make());
+  try {
+    const client = await withPromiseTimeout({
+      timeoutMs: PROFILE_RUNTIME_RPC_CONNECT_TIMEOUT_MS,
+      operationLabel: "Connecting to daemon runtime profile RPC",
+      operation: () => runtime.runPromise(Scope.provide(scope)(makeWsRpcProtocolClient)),
+    });
+    return {
+      readSnapshot: () =>
+        withPromiseTimeout({
+          timeoutMs: PROFILE_RUNTIME_RPC_READ_TIMEOUT_MS,
+          operationLabel: "Reading daemon runtime profile snapshot",
+          operation: () => runtime.runPromise(client[WS_METHODS.serverGetRuntimeProfile]({})),
+        }),
+      close: async () => {
+        try {
+          await runtime.runPromise(Scope.close(scope, Exit.void));
+        } finally {
+          runtime.dispose();
+        }
+      },
+    };
+  } catch (error) {
+    try {
+      await runtime.runPromise(Scope.close(scope, Exit.void));
+    } finally {
+      runtime.dispose();
+    }
+    throw error;
+  }
+}
+
+function formatByteCount(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"] as const;
+  let value = Math.max(0, bytes);
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const decimals = unitIndex === 0 ? 0 : PROFILE_RENDER_DECIMALS;
+  return `${value.toFixed(decimals)} ${units[unitIndex]}`;
+}
+
+function formatCpuPercent(cpuPercent: number | null): string {
+  if (cpuPercent === null || !Number.isFinite(cpuPercent)) {
+    return "-";
+  }
+  return `${cpuPercent.toFixed(PROFILE_RENDER_DECIMALS)}%`;
+}
+
+function formatUptimeSeconds(uptimeSeconds: number): string {
+  const total = Math.max(0, Math.floor(uptimeSeconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  if (hours > 0) {
+    return `${String(hours)}h ${String(minutes)}m ${String(seconds)}s`;
+  }
+  if (minutes > 0) {
+    return `${String(minutes)}m ${String(seconds)}s`;
+  }
+  return `${String(seconds)}s`;
+}
+
+function formatProcessCommand(sample: ProcessProfileSample, maxLength = 84): string {
+  const raw = sample.command.trim().length > 0 ? sample.command.trim() : sample.executable;
+  if (raw.length <= maxLength) {
+    return raw;
+  }
+  return `${raw.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+function buildProfileProcessRows(input: {
+  readonly targetPid: number;
+  readonly samples: ReadonlyArray<ProcessProfileSample>;
+}): ReadonlyArray<ReadonlyArray<string>> {
+  return input.samples
+    .slice(0, PROFILE_DASHBOARD_MAX_ROWS)
+    .map((sample) => [
+      sample.pid === input.targetPid ? `*${String(sample.pid)}` : String(sample.pid),
+      String(sample.ppid),
+      formatByteCount(sample.rssBytes),
+      formatCpuPercent(sample.cpuPercent),
+      formatProcessCommand(sample),
+    ]);
+}
+
+function formatProviderSessionCounts(snapshot: ServerRuntimeProfile | null): string {
+  if (!snapshot || snapshot.providerSessions.length === 0) {
+    return "-";
+  }
+  return snapshot.providerSessions
+    .map((entry) => `${entry.provider}:${String(entry.sessionCount)}`)
+    .join("  ");
+}
+
+function renderProfileDashboard(input: {
+  readonly targetPid: number;
+  readonly intervalMs: number;
+  readonly sampledAt: string;
+  readonly processTree: {
+    readonly processes: ReadonlyArray<ProcessProfileSample>;
+    readonly totalRssBytes: number;
+    readonly totalCpuPercent: number | null;
+  };
+  readonly runtimeProfile: ServerRuntimeProfile | null;
+  readonly runtimeProfileError: string | null;
+}): string {
+  const rows = buildProfileProcessRows({
+    targetPid: input.targetPid,
+    samples: input.processTree.processes,
+  });
+  const processTable = formatRows(["PID", "PPID", "RSS", "CPU", "COMMAND"], rows);
+  const runtimeProfile = input.runtimeProfile;
+  const processMemoryLine = runtimeProfile
+    ? `Process memory: rss ${formatByteCount(runtimeProfile.process.rssBytes)} | heap ${formatByteCount(
+        runtimeProfile.process.heapUsedBytes,
+      )}/${formatByteCount(runtimeProfile.process.heapTotalBytes)} | external ${formatByteCount(
+        runtimeProfile.process.externalBytes,
+      )} | arrayBuffers ${formatByteCount(runtimeProfile.process.arrayBuffersBytes)}`
+    : "Process memory: unavailable";
+  const cacheLine = runtimeProfile
+    ? `Caches: snapshot-view ${String(runtimeProfile.caches.snapshotView.currentEntries)}/${String(
+        runtimeProfile.caches.snapshotView.maxEntries,
+      )} | assistant-streams ${String(
+        runtimeProfile.caches.providerRuntimeIngestion.activeAssistantStreams,
+      )} | pending-deltas ${String(
+        runtimeProfile.caches.providerRuntimeIngestion.pendingAssistantDeltaStreams,
+      )} | thinking ${String(runtimeProfile.caches.providerRuntimeIngestion.bufferedThinkingActivities)}`
+    : "Caches: unavailable";
+  const runtimeLine = runtimeProfile
+    ? `Runtime: ${runtimeProfile.process.platform} ${runtimeProfile.process.nodeVersion} | uptime ${formatUptimeSeconds(
+        runtimeProfile.process.uptimeSeconds,
+      )}`
+    : "Runtime: unavailable";
+  const errorLine =
+    input.runtimeProfileError === null
+      ? ""
+      : `\n${pc.yellow(`Runtime profile unavailable: ${input.runtimeProfileError}`)}`;
+
+  return [
+    `ace profile ${pc.dim(`(refresh ${String(input.intervalMs)}ms)`)} | sampled ${input.sampledAt}`,
+    `Target pid: ${String(input.targetPid)} | Processes: ${String(input.processTree.processes.length)} | Total rss: ${formatByteCount(input.processTree.totalRssBytes)} | Total cpu: ${formatCpuPercent(input.processTree.totalCpuPercent)}`,
+    processMemoryLine,
+    cacheLine,
+    `Provider sessions: ${formatProviderSessionCounts(runtimeProfile)}`,
+    runtimeLine,
+    "",
+    processTable.trimEnd(),
+    errorLine,
+    "",
+    pc.dim("Press Ctrl+C to stop."),
+  ].join("\n");
+}
+
+function clearTerminalViewport(): void {
+  if (!process.stdout.isTTY) {
+    return;
+  }
+  process.stdout.write("\x1b[2J\x1b[H");
+}
 
 const runCliProjectCommand = <A, E, R>(flags: CliDataFlags, effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
@@ -541,6 +793,40 @@ const formatDaemonStatus = (status: DaemonStatusPayload): string => {
   ];
   return `${lines.join("\n")}\n`;
 };
+
+interface ProfileTarget {
+  readonly pid: number;
+  readonly daemonState: AceServerDaemonState | null;
+}
+
+const resolveProfileTarget = Effect.fn("resolveProfileTarget")(function* (input: {
+  readonly baseDir: string;
+  readonly pid: Option.Option<number>;
+}) {
+  const daemonStatus = yield* readDaemonStatusPayload(input.baseDir);
+  if (Option.isSome(input.pid)) {
+    const selectedPid = input.pid.value;
+    const daemonState =
+      daemonStatus.state && daemonStatus.state.pid === selectedPid && daemonStatus.processAlive
+        ? daemonStatus.state
+        : null;
+    return {
+      pid: selectedPid,
+      daemonState,
+    } satisfies ProfileTarget;
+  }
+
+  if (!daemonStatus.state || !daemonStatus.processAlive) {
+    return yield* new DaemonCommandError({
+      message:
+        "No running ace daemon found. Start one with `ace daemon start` or pass `--pid <pid>`.",
+    });
+  }
+  return {
+    pid: daemonStatus.state.pid,
+    daemonState: daemonStatus.state,
+  } satisfies ProfileTarget;
+});
 
 const resolveDaemonEntry = Effect.gen(function* () {
   const entryPath = process.argv[1]?.trim();
@@ -1108,6 +1394,169 @@ const daemonCommand = Command.make("daemon").pipe(
   ]),
 );
 
+const profileCommand = Command.make("profile", {
+  ...dataCommandFlags,
+  pid: profilePidFlag,
+  intervalMs: profileIntervalMsFlag,
+  json: jsonFlag,
+}).pipe(
+  Command.withAlias("p"),
+  Command.withDescription(
+    "Live process/resource profiler for ace daemon subprocesses and runtime memory/cache stats.",
+  ),
+  Command.withHandler(({ pid, intervalMs, json, ...flags }) =>
+    runDaemonCommand(
+      flags,
+      Effect.gen(function* () {
+        const config = yield* ServerConfig;
+        const target = yield* resolveProfileTarget({
+          baseDir: config.baseDir,
+          pid,
+        });
+        const cpuCoreCount = Math.max(1, Os.cpus().length);
+        const runtimeProfileWsUrl = target.daemonState?.wsUrl;
+        let runtimeProfileClient: RuntimeProfileWsClient | null = null;
+        let runtimeProfileUnavailableReason: string | null = null;
+        if (runtimeProfileWsUrl) {
+          runtimeProfileClient = yield* Effect.tryPromise({
+            try: () => createRuntimeProfileWsClient(runtimeProfileWsUrl),
+            catch: (cause) =>
+              new DaemonCommandError({
+                message: "Failed to connect to daemon runtime profile RPC endpoint.",
+                cause,
+              }),
+          }).pipe(
+            Effect.catch((error) =>
+              Effect.sync(() => {
+                runtimeProfileUnavailableReason = formatErrorMessage(error);
+                return null as RuntimeProfileWsClient | null;
+              }),
+            ),
+          );
+        }
+
+        yield* Effect.addFinalizer(() => {
+          const client = runtimeProfileClient;
+          if (!client) {
+            return Effect.void;
+          }
+          return Effect.promise(() =>
+            client.close().catch(() => {
+              // noop
+            }),
+          );
+        });
+
+        let previousCpuSecondsByPid = new Map<number, number>();
+        let previousSampleAtMs = Date.now();
+        for (;;) {
+          const sampledAtMs = Date.now();
+          const sampledAt = new Date(sampledAtMs).toISOString();
+          const sampledProcesses = yield* Effect.tryPromise({
+            try: () => sampleProcessTable(),
+            catch: (cause) =>
+              new DaemonCommandError({
+                message: "Failed to sample operating-system process table for profiling.",
+                cause,
+              }),
+          });
+          const elapsedMs = Math.max(1, sampledAtMs - previousSampleAtMs);
+          const cpuDerived = deriveCpuPercentsFromCpuSeconds({
+            samples: sampledProcesses,
+            previousCpuSecondsByPid,
+            elapsedMs,
+            cpuCoreCount,
+          });
+          previousCpuSecondsByPid = cpuDerived.nextCpuSecondsByPid;
+          previousSampleAtMs = sampledAtMs;
+
+          const processTree = buildProcessTree(cpuDerived.samples, target.pid);
+          if (!processTree.found) {
+            const message = `Profile target pid=${String(target.pid)} no longer exists.`;
+            if (json) {
+              return yield* writeJson({
+                sampledAt,
+                targetPid: target.pid,
+                status: "terminated",
+                message,
+              });
+            }
+            return yield* writeStdout(`${pc.yellow(message)}\n`);
+          }
+
+          let runtimeProfile: ServerRuntimeProfile | null = null;
+          let runtimeProfileError: string | null = runtimeProfileUnavailableReason;
+          if (runtimeProfileClient) {
+            const currentRuntimeProfileClient = runtimeProfileClient;
+            const profileSnapshot = yield* Effect.tryPromise({
+              try: () => currentRuntimeProfileClient.readSnapshot(),
+              catch: (cause) =>
+                new DaemonCommandError({
+                  message: "Failed to read daemon runtime profile snapshot.",
+                  cause,
+                }),
+            }).pipe(
+              Effect.catch((error) =>
+                Effect.gen(function* () {
+                  runtimeProfileUnavailableReason = formatErrorMessage(error);
+                  runtimeProfileError = runtimeProfileUnavailableReason;
+                  const clientToClose = runtimeProfileClient;
+                  runtimeProfileClient = null;
+                  if (clientToClose) {
+                    yield* Effect.promise(() =>
+                      clientToClose.close().catch(() => {
+                        // noop
+                      }),
+                    );
+                  }
+                  return null as ServerRuntimeProfile | null;
+                }),
+              ),
+            );
+            runtimeProfile = profileSnapshot;
+            if (profileSnapshot !== null) {
+              runtimeProfileUnavailableReason = null;
+              runtimeProfileError = null;
+            }
+          }
+
+          if (json) {
+            yield* writeStdout(
+              `${JSON.stringify({
+                sampledAt,
+                targetPid: target.pid,
+                processTree: {
+                  processCount: processTree.processes.length,
+                  totalRssBytes: processTree.totalRssBytes,
+                  totalCpuPercent: processTree.totalCpuPercent,
+                  processes: processTree.processes.slice(0, PROFILE_DASHBOARD_MAX_ROWS),
+                },
+                runtimeProfile,
+                ...(runtimeProfileError ? { runtimeProfileError } : {}),
+              })}\n`,
+            );
+            yield* Effect.sleep(`${intervalMs} millis`);
+            continue;
+          }
+
+          clearTerminalViewport();
+          yield* writeStdout(
+            `${renderProfileDashboard({
+              targetPid: target.pid,
+              intervalMs,
+              sampledAt,
+              processTree,
+              runtimeProfile,
+              runtimeProfileError,
+            })}\n`,
+          );
+          yield* Effect.sleep(`${intervalMs} millis`);
+        }
+      }),
+    ),
+  ),
+);
+
 const rootBannerLines = [
   " █████╗  ██████╗███████╗",
   "██╔══██╗██╔════╝██╔════╝",
@@ -1132,6 +1581,7 @@ const formatRootCliGuide = (): string =>
     `${pc.bold("ace CLI")} ${pc.dim("unified local + remote control")}`,
     `${pc.bold("Quick start")}`,
     `  ${pc.cyan("ace serve")}              run server in foreground`,
+    `  ${pc.cyan("ace --profile")}          live ace-specific process/memory profiler`,
     `  ${pc.cyan("ace daemon start")}       run reusable background daemon`,
     `  ${pc.cyan("ace --restart")}          restart background daemon`,
     `  ${pc.cyan("ace interactive")}        launch quick interactive command picker`,
@@ -1322,6 +1772,7 @@ const rootCommand = Command.make("ace").pipe(
 export const cli = rootCommand.pipe(
   Command.withSubcommands([
     serveCommand,
+    profileCommand,
     projectCommand,
     remoteCommand,
     daemonCommand,

@@ -1603,6 +1603,33 @@ describe("deriveTimelineEntries", () => {
     ]);
   });
 
+  it("places work entries before assistant rows when sequence and timestamp tie", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("assistant-complete"),
+          role: "assistant",
+          text: "",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 9,
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "work-tool",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 9,
+          label: "Run command",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual(["work-tool", "assistant-complete"]);
+  });
+
   it("orders mixed message and work rows by createdAt when their sequence domains differ", () => {
     const entries = deriveTimelineEntries(
       [

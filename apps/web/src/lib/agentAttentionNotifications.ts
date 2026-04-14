@@ -68,7 +68,7 @@ const APPROVAL_COPY_BY_KIND: Record<PendingApproval["requestKind"], string> = {
   "file-change": "file change",
   "file-read": "file read",
 };
-const DEFAULT_HISTORICAL_REQUEST_THRESHOLD_MS = 10 * 60 * 1000;
+const DEFAULT_HISTORICAL_REQUEST_THRESHOLD_MS = 0;
 
 function buildAgentAttentionRequestKey(threadId: ThreadId, requestId: ApprovalRequestId): string {
   return `${threadId}:${requestId}`;

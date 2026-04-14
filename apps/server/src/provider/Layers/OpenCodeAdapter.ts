@@ -63,6 +63,7 @@ import { type OpenCodeAdapterShape, OpenCodeAdapter } from "../Services/OpenCode
 const PROVIDER = "opencode" as const;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
 const MIN_OPENCODE_IDLE_SESSION_TTL_MS = 15_000;
+const MAX_TURN_ITEMS_PER_TURN = 512;
 
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
@@ -113,6 +114,8 @@ type OpenCodeSessionContext = {
   readonly messageRoleById: Map<string, OpenCodeMessageRole>;
   readonly partById: Map<string, OpenCodeSdkPart>;
   readonly emittedAssistantTextLengthByPartId: Map<string, number>;
+  readonly assistantDeltaPartIds: Set<string>;
+  readonly reasoningDeltaPartIds: Set<string>;
   sseAbort: AbortController | null;
   idleStopTimer: ReturnType<typeof setTimeout> | null;
   lastActivityAtMs: number;
@@ -139,6 +142,7 @@ type OpenCodeToolItemType = Extract<
 type OpenCodeToolItemState = {
   readonly itemId: RuntimeItemId;
   readonly itemType: OpenCodeToolItemType;
+  statusRank: number;
   completed: boolean;
   detail?: string;
 };
@@ -172,7 +176,32 @@ function appendTurnItem(
   if (!turnId) {
     return;
   }
-  resolveTurnSnapshot(context, turnId).items.push(item);
+  const turnSnapshot = resolveTurnSnapshot(context, turnId);
+  const itemId = readTurnItemId(item);
+  if (itemId === undefined) {
+    turnSnapshot.items.push(item);
+  } else {
+    const existingItemIndex = turnSnapshot.items.findIndex(
+      (candidate) => readTurnItemId(candidate) === itemId,
+    );
+    if (existingItemIndex === -1) {
+      turnSnapshot.items.push(item);
+    } else {
+      turnSnapshot.items[existingItemIndex] = item;
+    }
+  }
+
+  if (turnSnapshot.items.length > MAX_TURN_ITEMS_PER_TURN) {
+    turnSnapshot.items.splice(0, turnSnapshot.items.length - MAX_TURN_ITEMS_PER_TURN);
+  }
+}
+
+function readTurnItemId(item: unknown): string | undefined {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    return undefined;
+  }
+  const { id } = item as { id?: unknown };
+  return typeof id === "string" && id.length > 0 ? id : undefined;
 }
 
 function clearIdleStopTimer(ctx: OpenCodeSessionContext): void {
@@ -623,6 +652,36 @@ function openCodeToolStateCreatedAt(state: OpenCodeSdkToolPart["state"]): string
     default:
       return undefined;
   }
+}
+
+export function rankOpenCodeToolStateStatus(
+  status: OpenCodeSdkToolPart["state"]["status"],
+): number {
+  switch (status) {
+    case "pending":
+      return 0;
+    case "running":
+      return 1;
+    case "completed":
+    case "error":
+      return 2;
+    default:
+      return 0;
+  }
+}
+
+export function shouldEmitOpenCodeSnapshotDelta(input: {
+  hasNativeDelta: boolean;
+  previousLength: number;
+  nextLength: number;
+}): boolean {
+  if (input.hasNativeDelta) {
+    return false;
+  }
+  if (input.nextLength < input.previousLength) {
+    return false;
+  }
+  return input.nextLength > input.previousLength;
 }
 
 export function appendOnlyDelta(previous: string, next: string): string | undefined {
@@ -1087,18 +1146,24 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     if (!turnId || !turn) {
       return;
     }
-    const hasPriorDelta = ctx.emittedAssistantTextLengthByPartId.has(part.id);
+    const hasNativeDelta = ctx.assistantDeltaPartIds.has(part.id);
+    const hasPriorSnapshot = ctx.emittedAssistantTextLengthByPartId.has(part.id);
     const partStartedAtMs = openCodeTimestampToEpochMs(part.time?.start);
-    if (partStartedAtMs === undefined && !hasPriorDelta) {
+    if (partStartedAtMs === undefined && !hasPriorSnapshot) {
       // Ignore timeless snapshots we haven't streamed yet to avoid replaying stale history.
       return;
     }
     if (!isWithinActiveTurnWindow(ctx, partStartedAtMs)) {
       return;
     }
-    const previousLengthRaw = ctx.emittedAssistantTextLengthByPartId.get(part.id) ?? 0;
-    const previousLength = part.text.length < previousLengthRaw ? 0 : previousLengthRaw;
-    if (part.text.length <= previousLength) {
+    const previousLength = ctx.emittedAssistantTextLengthByPartId.get(part.id) ?? 0;
+    if (
+      !shouldEmitOpenCodeSnapshotDelta({
+        hasNativeDelta,
+        previousLength,
+        nextLength: part.text.length,
+      })
+    ) {
       return;
     }
     const delta = part.text.slice(previousLength);
@@ -1146,10 +1211,12 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       isSnapshot: true,
     };
     const reasoningDeltaCreatedAt = reasoningStartedAt ?? reasoningCompletedAt;
-    if (reasoningDeltaCreatedAt) {
+    if (!ctx.reasoningDeltaPartIds.has(partId) && reasoningDeltaCreatedAt) {
       reasoningDeltaInput.createdAt = reasoningDeltaCreatedAt;
     }
-    emitReasoningDelta(ctx, partId, reasoningDeltaInput);
+    if (!ctx.reasoningDeltaPartIds.has(partId)) {
+      emitReasoningDelta(ctx, partId, reasoningDeltaInput);
+    }
 
     if (part.time.end !== undefined && !state.reasoning.completed) {
       state.reasoning.completed = true;
@@ -1192,6 +1259,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     const toolName = part.tool;
     const state = part.state;
     const stateStatus = state.status;
+    const stateRank = rankOpenCodeToolStateStatus(stateStatus);
     const itemType = classifyOpenCodeToolItemType(toolName);
     const detail = buildOpenCodeToolDetail(state);
     const data = {
@@ -1208,6 +1276,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       toolItem = {
         itemId: RuntimeItemId.makeUnsafe(`opencode-tool:${partId}`),
         itemType,
+        statusRank: stateRank,
         completed: false,
         ...(detail ? { detail } : {}),
       };
@@ -1230,6 +1299,10 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         }),
       );
     } else {
+      if (stateRank < toolItem.statusRank) {
+        return;
+      }
+      toolItem.statusRank = stateRank;
       if (detail) {
         toolItem.detail = detail;
       } else {
@@ -1316,12 +1389,16 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           }
           ctx.partById.delete(partId);
           ctx.emittedAssistantTextLengthByPartId.delete(partId);
+          ctx.assistantDeltaPartIds.delete(partId);
+          ctx.reasoningDeltaPartIds.delete(partId);
         }
         return;
       }
       case "message.part.removed": {
         ctx.partById.delete(event.properties.partID);
         ctx.emittedAssistantTextLengthByPartId.delete(event.properties.partID);
+        ctx.assistantDeltaPartIds.delete(event.properties.partID);
+        ctx.reasoningDeltaPartIds.delete(event.properties.partID);
         return;
       }
       case "message.part.delta": {
@@ -1342,6 +1419,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             (part ? part.type === "reasoning" : false) || ctx.activeTurn.reasoningItems.has(partID),
         });
         if (streamKind === "assistant_text") {
+          ctx.assistantDeltaPartIds.add(partID);
           ensureAssistantStarted(ctx);
           ctx.activeTurn.assistantText += delta;
           const previousLength = ctx.emittedAssistantTextLengthByPartId.get(partID) ?? 0;
@@ -1360,9 +1438,13 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           return;
         }
 
+        ctx.reasoningDeltaPartIds.add(partID);
+        const reasoningDeltaCreatedAt =
+          part?.type === "reasoning" ? resolveOpenCodePartTimestamp(part, "start") : undefined;
         emitReasoningDelta(ctx, partID, {
           text: delta,
           streamKind,
+          ...(reasoningDeltaCreatedAt ? { createdAt: reasoningDeltaCreatedAt } : {}),
         });
         return;
       }
@@ -1787,6 +1869,8 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             messageRoleById: new Map(),
             partById: new Map(),
             emittedAssistantTextLengthByPartId: new Map(),
+            assistantDeltaPartIds: new Set(),
+            reasoningDeltaPartIds: new Set(),
             sseAbort: null,
             idleStopTimer: null,
             lastActivityAtMs: Date.now(),

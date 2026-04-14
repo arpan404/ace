@@ -72,6 +72,7 @@ export function AgentAttentionNotificationBridge() {
   const attentionRequestByKeyRef = useRef(attentionRequestByKey);
   const hasPromptedForPermissionRef = useRef(false);
   const notificationSessionStartedAtRef = useRef(new Date().toISOString());
+  const lastKnownFocusStateRef = useRef(isAppFocused);
 
   useEffect(() => {
     attentionRequestByKeyRef.current = attentionRequestByKey;
@@ -83,7 +84,12 @@ export function AgentAttentionNotificationBridge() {
     }
 
     const syncWindowState = () => {
-      setIsAppFocused(isAppWindowFocused(document));
+      const nextIsFocused = isAppWindowFocused(document);
+      if (lastKnownFocusStateRef.current && !nextIsFocused) {
+        notificationSessionStartedAtRef.current = new Date().toISOString();
+      }
+      lastKnownFocusStateRef.current = nextIsFocused;
+      setIsAppFocused(nextIsFocused);
       if (
         desktopNotificationBridge &&
         typeof window.desktopBridge?.getNotificationPermission === "function"

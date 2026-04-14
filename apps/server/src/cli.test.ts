@@ -49,6 +49,12 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
     ),
   );
 
+  it.effect("recognizes profile command", () =>
+    Command.runWith(cli, { version: "0.0.0" })(["profile", "--help"]).pipe(
+      Effect.provide(CliRuntimeLayer),
+    ),
+  );
+
   it.effect("applies daemon restart defaults from existing daemon state", () =>
     Effect.sync(() => {
       const existingState: AceServerDaemonState = {

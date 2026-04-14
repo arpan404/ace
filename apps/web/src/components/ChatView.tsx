@@ -218,10 +218,12 @@ import {
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
   buildTemporaryWorktreeBranchName,
+  appendHiddenBrowserDesignContextFromOriginalPrompt,
   cloneComposerImageForRetry,
   collectUserMessageBlobPreviewUrls,
   deriveComposerSendState,
   deriveHydratedThreadHistoryKeepIds,
+  deriveQueuedComposerMessageDraftForEditing,
   formatOutgoingPrompt,
   queuedComposerImageToDraftAttachment,
   revokeComposerImagePreviewUrls,
@@ -491,6 +493,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
   const sendInFlightRef = useRef(false);
+  const queuedDesignMessageEditRef = useRef<QueuedComposerMessage | null>(null);
   const [handoffInFlight, setHandoffInFlight] = useState(false);
   const dragDepthRef = useRef(0);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
@@ -498,6 +501,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
     messagesScrollRef.current = element;
     setMessagesScrollElement(element);
   }, []);
+  useEffect(() => {
+    if (
+      prompt.length === 0 &&
+      composerImages.length === 0 &&
+      composerTerminalContexts.length === 0 &&
+      !sendInFlightRef.current
+    ) {
+      queuedDesignMessageEditRef.current = null;
+    }
+  }, [composerImages.length, composerTerminalContexts.length, prompt]);
 
   const threadTerminalState = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadId, threadId),
@@ -2450,17 +2463,20 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (!nextMessage) {
         return;
       }
-      let restoredImages: ComposerImageAttachment[];
-      try {
-        restoredImages = await Promise.all(
-          nextMessage.images.map((image) => queuedComposerImageToDraftAttachment(image)),
-        );
-      } catch (error) {
-        setThreadError(
-          threadId,
-          error instanceof Error ? error.message : "Failed to restore queued images.",
-        );
-        return;
+      const messageDraft = deriveQueuedComposerMessageDraftForEditing(nextMessage);
+      let restoredImages: ComposerImageAttachment[] = [];
+      if (messageDraft.includeImages) {
+        try {
+          restoredImages = await Promise.all(
+            nextMessage.images.map((image) => queuedComposerImageToDraftAttachment(image)),
+          );
+        } catch (error) {
+          setThreadError(
+            threadId,
+            error instanceof Error ? error.message : "Failed to restore queued images.",
+          );
+          return;
+        }
       }
       const nextMessages = queuedComposerMessagesRef.current.filter(
         (message) => message.id !== messageId,
@@ -2477,7 +2493,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
       ) {
         return;
       }
-      restoreQueuedComposerMessageToDraft(nextMessage, restoredImages);
+      queuedDesignMessageEditRef.current = messageDraft.includeImages ? null : nextMessage;
+      restoreQueuedComposerMessageToDraft(
+        {
+          ...nextMessage,
+          prompt: messageDraft.prompt,
+          images: messageDraft.includeImages ? nextMessage.images : [],
+          terminalContexts: messageDraft.includeTerminalContexts
+            ? nextMessage.terminalContexts
+            : [],
+        },
+        restoredImages,
+      );
     },
     [
       persistQueuedComposerState,
@@ -2489,6 +2516,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const queueCurrentComposerMessage = useCallback(
     async (mode: "queue" | "steer" = "queue") => {
+      const hiddenDesignMessage = queuedDesignMessageEditRef.current;
       const { sendableTerminalContexts, expiredTerminalContextCount, hasSendableContent } =
         deriveComposerSendState({
           prompt: promptRef.current,
@@ -2520,19 +2548,41 @@ export default function ChatView({ threadId }: ChatViewProps) {
         );
         return false;
       }
+      const promptForQueue =
+        hiddenDesignMessage === null
+          ? promptRef.current
+          : appendHiddenBrowserDesignContextFromOriginalPrompt(
+              promptRef.current,
+              hiddenDesignMessage.prompt,
+            );
+      const mergedQueuedImages =
+        hiddenDesignMessage === null
+          ? queuedImages
+          : [...hiddenDesignMessage.images, ...queuedImages].filter(
+              (image, index, allImages) =>
+                allImages.findIndex((candidate) => candidate.id === image.id) === index,
+            );
+      const queuedTerminalContexts = sendableTerminalContexts.map((context) => ({
+        id: context.id,
+        createdAt: context.createdAt,
+        terminalId: context.terminalId,
+        terminalLabel: context.terminalLabel,
+        lineStart: context.lineStart,
+        lineEnd: context.lineEnd,
+        text: context.text,
+      }));
+      const mergedQueuedTerminalContexts =
+        hiddenDesignMessage === null
+          ? queuedTerminalContexts
+          : [...hiddenDesignMessage.terminalContexts, ...queuedTerminalContexts].filter(
+              (context, index, allContexts) =>
+                allContexts.findIndex((candidate) => candidate.id === context.id) === index,
+            );
       const queuedMessage: QueuedComposerMessage = {
         id: newMessageId(),
-        prompt: promptRef.current,
-        images: queuedImages,
-        terminalContexts: sendableTerminalContexts.map((context) => ({
-          id: context.id,
-          createdAt: context.createdAt,
-          terminalId: context.terminalId,
-          terminalLabel: context.terminalLabel,
-          lineStart: context.lineStart,
-          lineEnd: context.lineEnd,
-          text: context.text,
-        })),
+        prompt: promptForQueue,
+        images: mergedQueuedImages,
+        terminalContexts: mergedQueuedTerminalContexts,
         modelSelection: selectedModelSelection,
         runtimeMode,
         interactionMode,
@@ -2574,6 +2624,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
       promptRef.current = "";
       clearComposerDraftContent(threadId);
+      queuedDesignMessageEditRef.current = null;
       setComposerHighlightedItemId(null);
       setComposerCursor(0);
       setComposerTrigger(null);
@@ -5019,6 +5070,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
     const promptForSend = promptRef.current;
+    const hiddenDesignMessage = queuedDesignMessageEditRef.current;
     const {
       trimmedPrompt: trimmed,
       sendableTerminalContexts: sendableComposerTerminalContexts,
@@ -5132,7 +5184,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (!activeProject) return;
     let promptWithIssueContext = promptForSend;
     let imagesWithIssueContext: Array<ComposerImageAttachment | QueuedComposerImageAttachment> =
-      composerImages;
+      hiddenDesignMessage === null
+        ? composerImages
+        : [...hiddenDesignMessage.images, ...composerImages].filter(
+            (image, index, allImages) =>
+              allImages.findIndex((candidate) => candidate.id === image.id) === index,
+          );
     if (composerIssuesCommandPayload === null && gitCwd && isGitRepo) {
       const inlineIssueNumbers = extractIssueReferenceNumbers(promptForSend);
       if (inlineIssueNumbers.length > 0) {
@@ -5166,6 +5223,26 @@ export default function ChatView({ threadId }: ChatViewProps) {
         }
       }
     }
+    const promptWithHiddenDesignContext =
+      hiddenDesignMessage === null
+        ? promptWithIssueContext
+        : appendHiddenBrowserDesignContextFromOriginalPrompt(
+            promptWithIssueContext,
+            hiddenDesignMessage.prompt,
+          );
+    const terminalContextsForDispatch =
+      hiddenDesignMessage === null
+        ? sendableComposerTerminalContexts
+        : [
+            ...hiddenDesignMessage.terminalContexts.map((context) => ({
+              ...context,
+              threadId: activeThread.id,
+            })),
+            ...sendableComposerTerminalContexts,
+          ].filter(
+            (context, index, allContexts) =>
+              allContexts.findIndex((candidate) => candidate.id === context.id) === index,
+          );
     if (expiredTerminalContextCount > 0) {
       const toastCopy = buildExpiredTerminalContextToastCopy(
         expiredTerminalContextCount,
@@ -5179,20 +5256,26 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     promptRef.current = "";
     clearComposerDraftContent(activeThread.id);
+    queuedDesignMessageEditRef.current = null;
     setComposerHighlightedItemId(null);
     setComposerCursor(0);
     setComposerTrigger(null);
 
     await dispatchComposerMessage(
       {
-        prompt: promptWithIssueContext,
+        prompt: promptWithHiddenDesignContext,
         images: imagesWithIssueContext,
-        terminalContexts: sendableComposerTerminalContexts,
+        terminalContexts: terminalContextsForDispatch,
         modelSelection: selectedModelSelection,
         runtimeMode,
         interactionMode,
       },
-      { restorePrompt: promptForSend },
+      {
+        restorePrompt: promptForSend,
+        onFailure: () => {
+          queuedDesignMessageEditRef.current = hiddenDesignMessage;
+        },
+      },
     );
   };
 

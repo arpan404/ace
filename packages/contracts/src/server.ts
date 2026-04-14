@@ -195,6 +195,59 @@ export const ServerProviderUpdatedPayload = Schema.Struct({
 });
 export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.Type;
 
+export const ServerRuntimeProfileProcess = Schema.Struct({
+  pid: NonNegativeInt,
+  platform: TrimmedNonEmptyString,
+  nodeVersion: TrimmedNonEmptyString,
+  uptimeSeconds: Schema.Number,
+  rssBytes: NonNegativeInt,
+  heapUsedBytes: NonNegativeInt,
+  heapTotalBytes: NonNegativeInt,
+  externalBytes: NonNegativeInt,
+  arrayBuffersBytes: NonNegativeInt,
+});
+export type ServerRuntimeProfileProcess = typeof ServerRuntimeProfileProcess.Type;
+
+export const ServerRuntimeProfileSnapshotViewCache = Schema.Struct({
+  maxEntries: NonNegativeInt,
+  currentEntries: NonNegativeInt,
+});
+export type ServerRuntimeProfileSnapshotViewCache =
+  typeof ServerRuntimeProfileSnapshotViewCache.Type;
+
+export const ServerRuntimeProfileProviderRuntimeIngestionCaches = Schema.Struct({
+  activeAssistantStreams: NonNegativeInt,
+  assistantOutputSeenStreams: NonNegativeInt,
+  pendingAssistantDeltaStreams: NonNegativeInt,
+  bufferedThinkingActivities: NonNegativeInt,
+  lastActivityFingerprints: NonNegativeInt,
+  trackedSessionPids: NonNegativeInt,
+  queueCapacity: NonNegativeInt,
+});
+export type ServerRuntimeProfileProviderRuntimeIngestionCaches =
+  typeof ServerRuntimeProfileProviderRuntimeIngestionCaches.Type;
+
+export const ServerRuntimeProfileCaches = Schema.Struct({
+  snapshotView: ServerRuntimeProfileSnapshotViewCache,
+  providerRuntimeIngestion: ServerRuntimeProfileProviderRuntimeIngestionCaches,
+});
+export type ServerRuntimeProfileCaches = typeof ServerRuntimeProfileCaches.Type;
+
+export const ServerRuntimeProfileProviderSessionCount = Schema.Struct({
+  provider: ProviderKind,
+  sessionCount: NonNegativeInt,
+});
+export type ServerRuntimeProfileProviderSessionCount =
+  typeof ServerRuntimeProfileProviderSessionCount.Type;
+
+export const ServerRuntimeProfile = Schema.Struct({
+  generatedAt: IsoDateTime,
+  process: ServerRuntimeProfileProcess,
+  caches: ServerRuntimeProfileCaches,
+  providerSessions: Schema.Array(ServerRuntimeProfileProviderSessionCount),
+});
+export type ServerRuntimeProfile = typeof ServerRuntimeProfile.Type;
+
 export const ServerSearchOpenCodeModelsInput = Schema.Struct({
   query: Schema.String,
   limit: NonNegativeInt,

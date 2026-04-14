@@ -160,7 +160,11 @@ function shouldUseMonacoLanguageService(languageId: string): boolean {
 
 function isUnavailableWorkspaceDiagnosticsError(error: unknown): boolean {
   const message = toErrorMessage(error).toLowerCase();
-  return message.includes("neovim") || message.includes("workspace diagnostics backend");
+  return (
+    message.includes("neovim") ||
+    message.includes("unable to spawn") ||
+    message.includes("failed to initialize")
+  );
 }
 
 function pluralize(count: number, singular: string): string {
@@ -580,6 +584,10 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     },
     [clearEditorMarkers],
   );
+
+  useEffect(() => {
+    diagnosticsBackendUnavailableRef.current = false;
+  }, [pane.activeFilePath, props.diagnosticsCwd]);
 
   const readDraggedTab = useCallback((event: ReactDragEvent<HTMLElement>) => {
     return readEditorTabTransfer(event.dataTransfer);

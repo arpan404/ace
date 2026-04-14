@@ -11,10 +11,12 @@ import {
   mapOpenCodeQuestionAnswers,
   openCodeTimestampToIso,
   openCodeTimestampToEpochMs,
+  rankOpenCodeToolStateStatus,
   readOpenCodeEventRequestId,
   readOpenCodeResumeSessionId,
   resolveOpenCodeDeltaStreamKind,
   resolveOpenCodePartTimestamp,
+  shouldEmitOpenCodeSnapshotDelta,
 } from "./OpenCodeAdapter.ts";
 
 describe("classifyOpenCodeToolItemType", () => {
@@ -38,6 +40,54 @@ describe("appendOnlyDelta", () => {
 
   it("falls back to the full next value when the stream resets", () => {
     expect(appendOnlyDelta("hello world", "world")).toBe("world");
+  });
+});
+
+describe("shouldEmitOpenCodeSnapshotDelta", () => {
+  it("suppresses snapshot deltas after native stream deltas were seen", () => {
+    expect(
+      shouldEmitOpenCodeSnapshotDelta({
+        hasNativeDelta: true,
+        previousLength: 4,
+        nextLength: 8,
+      }),
+    ).toBe(false);
+  });
+
+  it("suppresses regressive snapshots and only emits append-only growth", () => {
+    expect(
+      shouldEmitOpenCodeSnapshotDelta({
+        hasNativeDelta: false,
+        previousLength: 8,
+        nextLength: 4,
+      }),
+    ).toBe(false);
+    expect(
+      shouldEmitOpenCodeSnapshotDelta({
+        hasNativeDelta: false,
+        previousLength: 8,
+        nextLength: 8,
+      }),
+    ).toBe(false);
+    expect(
+      shouldEmitOpenCodeSnapshotDelta({
+        hasNativeDelta: false,
+        previousLength: 8,
+        nextLength: 12,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("rankOpenCodeToolStateStatus", () => {
+  it("keeps tool statuses monotonic so stale snapshots cannot regress timeline order", () => {
+    expect(rankOpenCodeToolStateStatus("pending")).toBeLessThan(
+      rankOpenCodeToolStateStatus("running"),
+    );
+    expect(rankOpenCodeToolStateStatus("running")).toBeLessThan(
+      rankOpenCodeToolStateStatus("completed"),
+    );
+    expect(rankOpenCodeToolStateStatus("error")).toBe(rankOpenCodeToolStateStatus("completed"));
   });
 });
 

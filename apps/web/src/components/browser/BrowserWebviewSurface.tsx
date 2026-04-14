@@ -609,14 +609,15 @@ export function BrowserTabWebview(props: {
       event.preventDefault();
       event.stopPropagation();
       const finalSelection = selectionRect;
-      setSelectionRect(null);
       if (
         !finalSelection ||
         finalSelection.width < MIN_CAPTURE_SIZE_PX ||
         finalSelection.height < MIN_CAPTURE_SIZE_PX
       ) {
+        setSelectionRect(null);
         return;
       }
+      setSelectionRect(finalSelection);
       const requestId = generateDesignRequestId();
       const host = overlayRef.current;
       const viewportWidth = host?.clientWidth ?? 0;
@@ -731,7 +732,7 @@ export function BrowserTabWebview(props: {
           )}
           {selectionRect && (
             <div
-              className="pointer-events-none absolute border-2 border-primary bg-primary/15 shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]"
+              className="pointer-events-none absolute border-2 border-primary/95 bg-primary/18 shadow-[0_0_0_9999px_rgba(0,0,0,0.22)]"
               style={{
                 left: `${selectionRect.x}px`,
                 top: `${selectionRect.y}px`,
@@ -752,9 +753,6 @@ export function BrowserTabWebview(props: {
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="rounded-full border border-primary/35 bg-primary/12 px-2 py-0.5 font-mono text-[10px] font-medium text-primary/85">
                   {designDraft.capture.requestId}
-                </span>
-                <span className="text-[10px] text-muted-foreground">
-                  {Math.max(0, Math.round(designDraft.capture.imageSizeBytes / 1024))} KB
                 </span>
               </div>
               <textarea
@@ -778,7 +776,7 @@ export function BrowserTabWebview(props: {
                   className="rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-opacity disabled:opacity-50"
                   disabled={isSubmittingDesignRequest || designInstructions.trim().length === 0}
                 >
-                  {isSubmittingDesignRequest ? "Queueing..." : "Queue request"}
+                  {isSubmittingDesignRequest ? "Redesigning..." : "Redesign"}
                 </button>
               </div>
             </form>

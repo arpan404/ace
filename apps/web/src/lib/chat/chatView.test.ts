@@ -1,13 +1,16 @@
-import { ProjectId, ThreadId, TurnId } from "@ace/contracts";
+import { MessageId, ProjectId, ThreadId, TurnId } from "@ace/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../../store";
 import { appendBrowserDesignContextToPrompt } from "../terminalContext";
+import { type QueuedComposerMessage } from "../../types";
 
 import {
   buildExpiredTerminalContextToastCopy,
   createLocalDispatchSnapshot,
+  appendHiddenBrowserDesignContextFromOriginalPrompt,
   deriveComposerSendState,
   deriveHydratedThreadHistoryKeepIds,
+  deriveQueuedComposerMessageDraftForEditing,
   formatQueuedComposerMessagePreview,
   hasServerAcknowledgedLocalDispatch,
   waitForStartedServerThread,
@@ -116,6 +119,82 @@ describe("formatQueuedComposerMessagePreview", () => {
         terminalContextCount: 0,
       }),
     ).toBe("DR-7F2A9C11 · Increase spacing between cards");
+  });
+});
+
+describe("deriveQueuedComposerMessageDraftForEditing", () => {
+  const makeQueuedMessage = (prompt: string): QueuedComposerMessage => ({
+    id: MessageId.makeUnsafe("queued-message-1"),
+    prompt,
+    images: [
+      {
+        type: "image",
+        id: "image-1",
+        name: "selection.png",
+        mimeType: "image/png",
+        sizeBytes: 1200,
+        dataUrl: "data:image/png;base64,ZmFrZQ==",
+        previewUrl: "data:image/png;base64,ZmFrZQ==",
+      },
+    ],
+    terminalContexts: [
+      {
+        id: "ctx-1",
+        createdAt: "2026-03-29T00:00:00.000Z",
+        terminalId: "default",
+        terminalLabel: "Terminal 1",
+        lineStart: 1,
+        lineEnd: 1,
+        text: "npm run dev",
+      },
+    ],
+    modelSelection: { provider: "codex", model: "gpt-5.4" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+  });
+
+  it("keeps full content for normal queued messages", () => {
+    expect(
+      deriveQueuedComposerMessageDraftForEditing(makeQueuedMessage("Refactor this section")),
+    ).toEqual({
+      prompt: "Refactor this section",
+      includeImages: true,
+      includeTerminalContexts: true,
+    });
+  });
+
+  it("hides browser design image and metadata when restoring queued drafts", () => {
+    const prompt = appendBrowserDesignContextToPrompt("Make this card cleaner", {
+      requestId: "DR-7F2A9C11",
+      pageUrl: "https://example.com/dashboard",
+      pagePath: "/dashboard",
+      selection: { x: 24, y: 32, width: 420, height: 240 },
+      targetElement: null,
+      mainContainer: null,
+    });
+
+    expect(deriveQueuedComposerMessageDraftForEditing(makeQueuedMessage(prompt))).toEqual({
+      prompt: "Make this card cleaner",
+      includeImages: false,
+      includeTerminalContexts: false,
+    });
+  });
+});
+
+describe("appendHiddenBrowserDesignContextFromOriginalPrompt", () => {
+  it("rebuilds a prompt with original hidden browser design context", () => {
+    const originalPrompt = appendBrowserDesignContextToPrompt("Initial request", {
+      requestId: "DR-7F2A9C11",
+      pageUrl: "https://example.com/dashboard",
+      pagePath: "/dashboard",
+      selection: { x: 24, y: 32, width: 420, height: 240 },
+      targetElement: null,
+      mainContainer: null,
+    });
+
+    expect(
+      appendHiddenBrowserDesignContextFromOriginalPrompt("Updated request copy", originalPrompt),
+    ).toContain("Updated request copy\n\n<browser_design_context>");
   });
 });
 

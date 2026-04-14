@@ -9,7 +9,13 @@ import {
 } from "@ace/contracts";
 import { applyClaudePromptEffortPrefix } from "@ace/shared/model";
 import { getProviderModelCapabilities } from "../../providerModels";
-import { type ChatMessage, type SessionPhase, type Thread, type ThreadSession } from "../../types";
+import {
+  type ChatMessage,
+  type QueuedComposerMessage,
+  type SessionPhase,
+  type Thread,
+  type ThreadSession,
+} from "../../types";
 import { randomUUID } from "~/lib/utils";
 import { type ComposerImageAttachment, type DraftThreadState } from "../../composerDraftStore";
 import { Schema } from "effect";
@@ -18,6 +24,7 @@ import {
   deriveDisplayedUserMessageState,
   extractBrowserDesignRequestId,
   filterTerminalContextsWithText,
+  hasBrowserDesignContext,
   stripInlineTerminalContextPlaceholders,
   type TerminalContextDraft,
 } from "../terminalContext";
@@ -25,6 +32,8 @@ import { type QueuedComposerImageAttachment } from "../../types";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "ace:last-invoked-script-by-project";
 const WORKTREE_BRANCH_PREFIX = "ace";
+const TRAILING_BROWSER_DESIGN_CONTEXT_BLOCK_PATTERN =
+  /(?:\n\s*)?<browser_design_context>\s*[\s\S]*?\s*<\/browser_design_context>\s*$/u;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
@@ -225,6 +234,41 @@ export function formatQueuedComposerMessagePreview(options: {
   }
 
   return parts.length > 0 ? parts.join(" · ") : "Queued message";
+}
+
+export function deriveQueuedComposerMessageDraftForEditing(message: QueuedComposerMessage): {
+  prompt: string;
+  includeImages: boolean;
+  includeTerminalContexts: boolean;
+} {
+  if (!hasBrowserDesignContext(message.prompt)) {
+    return {
+      prompt: message.prompt,
+      includeImages: true,
+      includeTerminalContexts: true,
+    };
+  }
+
+  return {
+    prompt: deriveDisplayedUserMessageState(message.prompt).visibleText,
+    includeImages: false,
+    includeTerminalContexts: false,
+  };
+}
+
+export function appendHiddenBrowserDesignContextFromOriginalPrompt(
+  visiblePrompt: string,
+  originalPrompt: string,
+): string {
+  const match = TRAILING_BROWSER_DESIGN_CONTEXT_BLOCK_PATTERN.exec(originalPrompt);
+  if (!match) {
+    return visiblePrompt;
+  }
+  const contextBlock = match[0].trim();
+  const trimmedVisiblePrompt = visiblePrompt.trim();
+  return trimmedVisiblePrompt.length > 0
+    ? `${trimmedVisiblePrompt}\n\n${contextBlock}`
+    : contextBlock;
 }
 
 export function buildExpiredTerminalContextToastCopy(

@@ -29,12 +29,30 @@ export interface WsTransportConnectionState {
   readonly error?: string;
 }
 
-const DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS = Duration.millis(250);
+const DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS = 250;
+const DEFAULT_SUBSCRIPTION_RETRY_MULTIPLIER = 2;
+const DEFAULT_SUBSCRIPTION_MAX_RETRY_DELAY_MS = 30_000;
 const DEFAULT_CONNECTION_PROBE_INTERVAL_MS = 15_000;
 const DEFAULT_CONNECTION_PROBE_TIMEOUT_MS = 4_000;
 const DEFAULT_REQUEST_RETRY_LIMIT = 3;
 const DEFAULT_REQUEST_RETRY_DELAY_MS = 220;
 const WS_CLIENT_SESSION_STORAGE_KEY = "ace.wsClientSessionId";
+
+function resolveRetryDelayMs(retryDelay: Duration.Input | undefined): number {
+  const parsedDuration = retryDelay
+    ? Duration.fromInput(retryDelay)
+    : Option.some(Duration.millis(DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS));
+  return Option.match(parsedDuration, {
+    onNone: () => DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS,
+    onSome: (duration) => {
+      const millis = Duration.toMillis(duration);
+      if (!Number.isFinite(millis) || millis <= 0) {
+        return DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS;
+      }
+      return millis;
+    },
+  });
+}
 
 function createConnectionId(): string {
   return globalThis.crypto.randomUUID();
@@ -344,11 +362,15 @@ export class WsTransport {
     }
 
     let active = true;
-    const retryDelayMs = options?.retryDelay ?? DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS;
+    let retryCount = 0;
+    let sawValueSinceRetry = false;
+    const baseRetryDelayMs = resolveRetryDelayMs(options?.retryDelay);
+    const maxRetryDelayMs = Math.max(baseRetryDelayMs, DEFAULT_SUBSCRIPTION_MAX_RETRY_DELAY_MS);
     const cancel = this.runtime.runCallback(
       Effect.promise(() => this.clientPromise).pipe(
         Effect.flatMap((client) =>
           Effect.sync(() => {
+            sawValueSinceRetry = false;
             this.noteConnected();
           }).pipe(
             Effect.andThen(
@@ -357,6 +379,7 @@ export class WsTransport {
                   if (!active) {
                     return;
                   }
+                  sawValueSinceRetry = true;
                   try {
                     listener(value);
                   } catch {
@@ -378,12 +401,22 @@ export class WsTransport {
           if (!active || this.disposed) {
             return Effect.interrupt;
           }
+          if (sawValueSinceRetry) {
+            retryCount = 0;
+          }
+          retryCount++;
+          const delayMs = Math.min(
+            baseRetryDelayMs * Math.pow(DEFAULT_SUBSCRIPTION_RETRY_MULTIPLIER, retryCount - 1),
+            maxRetryDelayMs,
+          );
           this.noteDisconnected(error);
           return Effect.sync(() => {
-            console.warn("WebSocket RPC subscription disconnected", {
+            console.warn("WebSocket RPC subscription disconnected, retrying", {
               error: formatErrorMessage(error),
+              retryCount,
+              delayMs,
             });
-          }).pipe(Effect.andThen(Effect.sleep(retryDelayMs)));
+          }).pipe(Effect.andThen(Effect.sleep(Duration.millis(delayMs))));
         }),
         Effect.forever,
       ),

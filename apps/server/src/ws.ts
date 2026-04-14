@@ -49,12 +49,14 @@ import { createReadModelSnapshotViewCache } from "./orchestration/readModelSnaps
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
+import { ProviderService } from "./provider/Services/ProviderService";
 import { startOpenCodeServer } from "./provider/opencodeRuntime";
 import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./provider/opencodeSdk";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
 import { getLspToolsStatus, installLspTools } from "./lspTools";
+import { collectRuntimeProfileSnapshot } from "./runtimeProfile";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceEditor } from "./workspace/Services/WorkspaceEditor";
@@ -77,6 +79,10 @@ const PROVIDER_AUTO_REFRESH_TICK_MS = 60_000;
 const PROVIDER_AUTO_REFRESH_READY_TTL_MS = 2 * 60 * 60_000;
 const PROVIDER_AUTO_REFRESH_WARNING_TTL_MS = 45 * 60_000;
 const PROVIDER_AUTO_REFRESH_ERROR_TTL_MS = 15 * 60_000;
+const ORCHESTRATION_EVENT_REORDER_MAX_PENDING = Math.max(
+  128,
+  Number.parseInt(process.env.ACE_ORCHESTRATION_EVENT_REORDER_MAX_PENDING ?? "1024", 10) || 1024,
+);
 
 type WsClientSessionRecord = {
   readonly connectionId: string;
@@ -324,6 +330,24 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       };
     });
 
+    const loadRuntimeProfile = Effect.gen(function* () {
+      const providerServiceOption = yield* Effect.serviceOption(ProviderService);
+      const providerSessions = Option.isSome(providerServiceOption)
+        ? yield* providerServiceOption.value.listSessions()
+        : [];
+      const sessionCountByProvider = new Map<ProviderKind, number>();
+      for (const session of providerSessions) {
+        const currentCount = sessionCountByProvider.get(session.provider) ?? 0;
+        sessionCountByProvider.set(session.provider, currentCount + 1);
+      }
+      const providerSessionCounts = [...sessionCountByProvider.entries()]
+        .map(([provider, sessionCount]) => ({ provider, sessionCount }))
+        .toSorted((left, right) => left.provider.localeCompare(right.provider));
+      return collectRuntimeProfileSnapshot({
+        providerSessions: providerSessionCounts,
+      });
+    });
+
     const refreshOneProviderWhenDue = Effect.gen(function* () {
       if (!hasActiveWsClientSessions()) {
         return;
@@ -332,6 +356,13 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       const providerToRefresh = selectDueProviderForRefresh(providers);
       if (!providerToRefresh) {
         return;
+      }
+      const providerServiceOption = yield* Effect.serviceOption(ProviderService);
+      if (Option.isSome(providerServiceOption)) {
+        const providerSessions = yield* providerServiceOption.value.listSessions();
+        if (providerSessions.some((session) => session.provider === providerToRefresh)) {
+          return;
+        }
       }
       yield* providerRegistry.refresh(providerToRefresh);
     });
@@ -480,41 +511,57 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               pendingBySequence: new Map<number, OrchestrationEvent>(),
             });
 
-            return filterCurrentClientStream(
-              normalizeStreamIdentity(input),
-              source.pipe(
-                Stream.mapEffect((event) =>
-                  Ref.modify(
-                    state,
-                    ({
-                      nextSequence,
-                      pendingBySequence,
-                    }): [Array<OrchestrationEvent>, SequenceState] => {
-                      if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
-                        return [[], { nextSequence, pendingBySequence }];
-                      }
-
-                      const updatedPending = new Map(pendingBySequence);
-                      updatedPending.set(event.sequence, event);
-
-                      const emit: Array<OrchestrationEvent> = [];
-                      let expected = nextSequence;
-                      for (;;) {
-                        const expectedEvent = updatedPending.get(expected);
-                        if (!expectedEvent) {
-                          break;
-                        }
-                        emit.push(expectedEvent);
-                        updatedPending.delete(expected);
-                        expected += 1;
-                      }
-
-                      return [emit, { nextSequence: expected, pendingBySequence: updatedPending }];
-                    },
-                  ),
-                ),
-                Stream.flatMap((events) => Stream.fromIterable(events)),
+            return source.pipe(
+              Stream.filter(() =>
+                isCurrentWsClientSession(input.clientSessionId, input.connectionId),
               ),
+              Stream.mapEffect((event) =>
+                Ref.modify(
+                  state,
+                  ({
+                    nextSequence,
+                    pendingBySequence,
+                  }): [Array<OrchestrationEvent>, SequenceState] => {
+                    if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
+                      return [[], { nextSequence, pendingBySequence }];
+                    }
+
+                    pendingBySequence.set(event.sequence, event);
+
+                    const emit: Array<OrchestrationEvent> = [];
+                    let expected = nextSequence;
+                    for (;;) {
+                      const expectedEvent = pendingBySequence.get(expected);
+                      if (!expectedEvent) {
+                        break;
+                      }
+                      emit.push(expectedEvent);
+                      pendingBySequence.delete(expected);
+                      expected += 1;
+                    }
+
+                    if (pendingBySequence.size > ORCHESTRATION_EVENT_REORDER_MAX_PENDING) {
+                      let newestPendingEvent: OrchestrationEvent | null = null;
+                      for (const pendingEvent of pendingBySequence.values()) {
+                        if (
+                          newestPendingEvent === null ||
+                          pendingEvent.sequence > newestPendingEvent.sequence
+                        ) {
+                          newestPendingEvent = pendingEvent;
+                        }
+                      }
+                      pendingBySequence.clear();
+                      if (newestPendingEvent !== null) {
+                        emit.push(newestPendingEvent);
+                        expected = newestPendingEvent.sequence + 1;
+                      }
+                    }
+
+                    return [emit, { nextSequence: expected, pendingBySequence }];
+                  },
+                ),
+              ),
+              Stream.flatMap((events) => Stream.fromIterable(events)),
             );
           }),
         ),
@@ -522,6 +569,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.serverPickFolder]: (_input) => open.pickFolder(),
       [WS_METHODS.serverRefreshProviders]: (_input) =>
         providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
+      [WS_METHODS.serverGetRuntimeProfile]: (_input) => loadRuntimeProfile,
       [WS_METHODS.serverSearchOpenCodeModels]: (input) =>
         Effect.gen(function* () {
           const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);

@@ -366,6 +366,33 @@ describe("applyThreadAttentionState", () => {
     expect(resolvedResult.closeNotificationIds).toContain("thread-1:req-1");
   });
 
+  it("suppresses approval notifications opened before the current background session", () => {
+    const thread = makeThread({
+      activities: [
+        makeActivity({
+          id: "activity-stale-approval",
+          kind: "approval.requested",
+          createdAt: "2026-04-14T03:29:00.000Z",
+          payload: {
+            requestId: "req-stale-approval",
+            requestKind: "command",
+            detail: "bun lint",
+          },
+        }),
+      ],
+    });
+
+    const result = applyThreadAttentionState({
+      thread,
+      settings: DEFAULT_SETTINGS,
+      notificationSessionStartedAt: "2026-04-14T03:30:00.000Z",
+      isAppFocused: false,
+    });
+
+    expect(result.notify).toEqual([]);
+    expect(result.nextState.openApprovalRequestIds).toEqual(new Set(["req-stale-approval"]));
+  });
+
   it("emits user-input notifications for pending user-input requests", () => {
     const thread = makeThread({
       activities: [
@@ -410,6 +437,39 @@ describe("applyThreadAttentionState", () => {
         kind: "user-input",
       },
     ]);
+  });
+
+  it("suppresses user-input notifications opened before the current background session", () => {
+    const thread = makeThread({
+      activities: [
+        makeActivity({
+          id: "activity-stale-input",
+          kind: "user-input.requested",
+          createdAt: "2026-04-14T03:39:00.000Z",
+          payload: {
+            requestId: "req-stale-input",
+            questions: [
+              {
+                id: "scope",
+                header: "Scope",
+                question: "Which scope should I handle first?",
+                options: [],
+              },
+            ],
+          },
+        }),
+      ],
+    });
+
+    const result = applyThreadAttentionState({
+      thread,
+      settings: DEFAULT_SETTINGS,
+      notificationSessionStartedAt: "2026-04-14T03:40:00.000Z",
+      isAppFocused: false,
+    });
+
+    expect(result.notify).toEqual([]);
+    expect(result.nextState.openUserInputRequestIds).toEqual(new Set(["req-stale-input"]));
   });
 
   it("suppresses completion notifications that happened before the service started", () => {

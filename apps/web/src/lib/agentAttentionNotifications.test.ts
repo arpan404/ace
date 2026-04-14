@@ -537,7 +537,7 @@ describe("agent attention notification helpers", () => {
     ).toEqual([]);
   });
 
-  it("suppresses stale approval and input requests fetched from older history", () => {
+  it("suppresses approval and input requests created before the current background session", () => {
     const requests = deriveAgentAttentionRequests([
       makeThread({
         id: "thread-stale",
@@ -589,10 +589,10 @@ describe("agent attention notification helpers", () => {
         isAppFocused: false,
         notificationSessionStartedAt: "2026-04-06T08:30:00.000Z",
       }).map((request) => request.key),
-    ).toEqual(["thread-stale:req-recent-input"]);
+    ).toEqual([]);
   });
 
-  it("allows historical approval and input requests that are still within the recency threshold", () => {
+  it("can allow recent historical requests when an explicit threshold is provided", () => {
     const requests = deriveAgentAttentionRequests([
       makeThread({
         id: "thread-recent",
@@ -620,6 +620,7 @@ describe("agent attention notification helpers", () => {
         notifiedRequestKeys: new Set<string>(),
         isAppFocused: false,
         notificationSessionStartedAt: "2026-04-06T08:30:00.000Z",
+        historicalRequestThresholdMs: 10 * 60 * 1000,
       }).map((request) => request.key),
     ).toEqual(["thread-recent:req-recent-approval"]);
   });

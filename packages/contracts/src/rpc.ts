@@ -99,6 +99,7 @@ import {
   ServerSearchOpenCodeModelsResult,
   ServerLifecycleStreamEvent,
   ServerProviderUpdatedPayload,
+  ServerRuntimeProfile,
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server";
@@ -150,6 +151,7 @@ export const WS_METHODS = {
   serverGetConfig: "server.getConfig",
   serverPickFolder: "server.pickFolder",
   serverRefreshProviders: "server.refreshProviders",
+  serverGetRuntimeProfile: "server.getRuntimeProfile",
   serverSearchOpenCodeModels: "server.searchOpenCodeModels",
   serverGetLspToolsStatus: "server.getLspToolsStatus",
   serverInstallLspTools: "server.installLspTools",
@@ -196,6 +198,11 @@ export const WsServerPickFolderRpc = Rpc.make(WS_METHODS.serverPickFolder, {
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
   payload: Schema.Struct({}),
   success: ServerProviderUpdatedPayload,
+});
+
+export const WsServerGetRuntimeProfileRpc = Rpc.make(WS_METHODS.serverGetRuntimeProfile, {
+  payload: Schema.Struct({}),
+  success: ServerRuntimeProfile,
 });
 
 export const WsServerSearchOpenCodeModelsRpc = Rpc.make(WS_METHODS.serverSearchOpenCodeModels, {
@@ -477,6 +484,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerPickFolderRpc,
   WsServerRefreshProvidersRpc,
+  WsServerGetRuntimeProfileRpc,
   WsServerSearchOpenCodeModelsRpc,
   WsServerGetLspToolsStatusRpc,
   WsServerInstallLspToolsRpc,

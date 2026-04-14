@@ -73,10 +73,16 @@ function compareTimelineEntriesByOrder(
             sequence: right.sequence,
           },
         )
-      : left.timelineEntry.createdAt.localeCompare(right.timelineEntry.createdAt) ||
-        compareCompatibleTimelineSequence(left.sequence, right.sequence);
+      : compareCompatibleTimelineSequence(left.sequence, right.sequence) ||
+        left.timelineEntry.createdAt.localeCompare(right.timelineEntry.createdAt);
   if (orderComparison !== 0) {
     return orderComparison;
+  }
+  if (left.timelineEntry.kind === "work" && right.timelineEntry.kind === "message") {
+    return -1;
+  }
+  if (left.timelineEntry.kind === "message" && right.timelineEntry.kind === "work") {
+    return 1;
   }
 
   return (
