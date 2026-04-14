@@ -69,7 +69,11 @@ import {
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
 } from "../composer-logic";
-import { extractIssueReferenceNumbers } from "../composer-editor-mentions";
+import {
+  createMarkedIssueReferenceToken,
+  extractIssueReferenceNumbers,
+  stripIssueReferenceMarkers,
+} from "../composer-editor-mentions";
 import {
   deriveCompletionDividerBeforeEntryId,
   derivePendingApprovals,
@@ -4763,7 +4767,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (!api || !activeThread || sendInFlightRef.current) return;
       if (!activeProject) return;
 
-      const promptForSend = submission.prompt;
+      const promptForSend = stripIssueReferenceMarkers(submission.prompt);
       const composerImagesSnapshot = [...submission.images];
       const composerTerminalContextsSnapshot = [...submission.terminalContexts];
       const threadIdForSend = activeThread.id;
@@ -5070,6 +5074,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
     const promptForSend = promptRef.current;
+    const promptForSendWithoutIssueMarkers = stripIssueReferenceMarkers(promptForSend);
     const hiddenDesignMessage = queuedDesignMessageEditRef.current;
     const {
       trimmedPrompt: trimmed,
@@ -5077,7 +5082,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       expiredTerminalContextCount,
       hasSendableContent,
     } = deriveComposerSendState({
-      prompt: promptForSend,
+      prompt: promptForSendWithoutIssueMarkers,
       imageCount: composerImages.length,
       terminalContexts: composerTerminalContexts,
     });
@@ -5182,7 +5187,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
     if (!activeProject) return;
-    let promptWithIssueContext = promptForSend;
+    let promptWithIssueContext = promptForSendWithoutIssueMarkers;
     let imagesWithIssueContext: Array<ComposerImageAttachment | QueuedComposerImageAttachment> =
       hiddenDesignMessage === null
         ? composerImages
@@ -5201,7 +5206,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             includeSummaryLines: false,
           });
           if (payload.prompt.length > 0) {
-            promptWithIssueContext = `${promptForSend}\n\n${payload.prompt}`;
+            promptWithIssueContext = `${promptForSendWithoutIssueMarkers}\n\n${payload.prompt}`;
           }
           if (payload.images.length > 0) {
             const seenImageIds = new Set<string>();
@@ -6142,7 +6147,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return;
       }
       if (item.type === "issue") {
-        const replacement = `#${item.issueNumber} `;
+        const replacement = `${createMarkedIssueReferenceToken(item.issueNumber)} `;
         const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
           snapshot.value,
           trigger.rangeEnd,

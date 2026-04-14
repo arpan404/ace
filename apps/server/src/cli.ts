@@ -438,9 +438,8 @@ const formatProjectRows = (projects: ReadonlyArray<CliProjectSummary>): string =
   if (projects.length === 0) {
     return `${pc.dim("No projects added yet.")}\n`;
   }
-  const headers = ["ID", "THREADS", "TITLE", "PATH"] as const;
+  const headers = ["THREADS", "TITLE", "PATH"] as const;
   const rows = projects.map((project) => [
-    project.id,
     String(project.activeThreadCount),
     project.title,
     project.workspaceRoot,
@@ -691,11 +690,11 @@ function clearTerminalViewport(): void {
 
 const runCliProjectCommand = <A, E, R>(flags: CliDataFlags, effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
-    const logLevel = yield* GlobalFlag.LogLevel;
-    const config = yield* resolveDataConfig(flags, logLevel);
+    const config = yield* resolveDataConfig(flags, Option.some("Error" as LogLevel.LogLevel));
+    const configWithSilentLog = { ...config, logLevel: "Fatal" as LogLevel.LogLevel };
     return yield* effect.pipe(
       Effect.provide(CliProjectServicesLive),
-      Effect.provideService(ServerConfig, config),
+      Effect.provideService(ServerConfig, configWithSilentLog),
     );
   });
 

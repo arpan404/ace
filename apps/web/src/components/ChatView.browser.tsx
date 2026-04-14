@@ -2490,7 +2490,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("attaches hidden issue context for inline #issue tags in regular messages", async () => {
+  it("does not attach issue context for plain inline #issue text", async () => {
     const baseSnapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-inline-issue-tag-flow" as MessageId,
       targetText: "inline issue tag flow",
@@ -2564,8 +2564,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
               ? turnStartRequest.message.text
               : "";
           expect(messageText).toContain(userPrompt);
-          expect(messageText).toContain("<github_issue_context>");
-          expect(messageText).toContain("issue_number: 77");
+          expect(messageText).not.toContain("<github_issue_context>");
+          expect(messageText).not.toContain("issue_number: 77");
         },
         { timeout: 8_000, interval: 16 },
       );
