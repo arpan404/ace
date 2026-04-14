@@ -1,9 +1,4 @@
-import * as Crypto from "node:crypto";
-
 import {
-  ORCHESTRATION_WS_METHODS,
-  ThreadId,
-  WS_METHODS,
   type DesktopNotificationInput,
   type OrchestrationEvent,
   type OrchestrationThread,
@@ -11,13 +6,6 @@ import {
   type ServerConfigStreamEvent,
   type ServerSettings,
 } from "@ace/contracts";
-import {
-  createWsRpcProtocolLayer,
-  makeWsRpcProtocolClient,
-  type WsRpcProtocolClient,
-} from "@ace/shared/wsRpcProtocol";
-import { Duration, Effect, Exit, ManagedRuntime, Scope, Stream } from "effect";
-import { RpcClient } from "effect/unstable/rpc";
 
 const APPROVAL_COPY_BY_KIND: Record<PendingApproval["requestKind"], string> = {
   command: "command",
@@ -27,10 +15,8 @@ const APPROVAL_COPY_BY_KIND: Record<PendingApproval["requestKind"], string> = {
 
 const THREAD_REFRESH_DEBOUNCE_MS = 120;
 const SNAPSHOT_REFRESH_INTERVAL_MS = 45_000;
-const SUBSCRIPTION_RETRY_DELAY_MS = 500;
-const SNAPSHOT_RECOVERY_MIN_INTERVAL_MS = 3_000;
+const FOCUS_STATE_POLL_INTERVAL_MS = 1_000;
 const NOTIFICATION_BODY_MAX_CHARS = 160;
-const THREAD_REFRESH_BURST_SNAPSHOT_THRESHOLD = 8;
 const ATTENTION_ACTIVITY_KINDS = new Set([
   "approval.requested",
   "approval.resolved",
@@ -89,7 +75,8 @@ interface PendingUserInput {
 }
 
 export interface DesktopBackgroundNotificationServiceInput {
-  readonly wsUrl: string;
+  readonly onOrchestrationEvent: (event: OrchestrationEvent) => void;
+  readonly onServerConfigEvent: (event: ServerConfigStreamEvent) => void;
   readonly isAppFocused: () => boolean;
   readonly showNotification: (input: DesktopNotificationInput) => boolean;
   readonly closeNotification: (id: string) => boolean;
@@ -97,6 +84,8 @@ export interface DesktopBackgroundNotificationServiceInput {
 }
 
 export interface DesktopBackgroundNotificationService {
+  readonly handleOrchestrationEvent: (event: OrchestrationEvent) => void;
+  readonly handleServerConfigEvent: (event: ServerConfigStreamEvent) => void;
   readonly stop: () => Promise<void>;
 }
 
@@ -128,13 +117,6 @@ function asTrimmedString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function formatErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-  return String(error);
-}
-
 function normalizeThreadTitle(title: string): string {
   const trimmed = title.trim();
   return trimmed.length > 0 ? trimmed : "Untitled thread";
@@ -162,6 +144,15 @@ function buildRequestNotificationKey(threadId: string, requestId: string): strin
 
 function buildCompletionNotificationKey(threadId: string, completedAt: string): string {
   return `${threadId}:completion:${completedAt}`;
+}
+
+function isIsoTimestampOnOrAfter(value: string, threshold: string): boolean {
+  const valueAtMs = Date.parse(value);
+  const thresholdAtMs = Date.parse(threshold);
+  if (!Number.isFinite(valueAtMs) || !Number.isFinite(thresholdAtMs)) {
+    return value.localeCompare(threshold) >= 0;
+  }
+  return valueAtMs >= thresholdAtMs;
 }
 
 function requestKindFromRequestType(requestType: unknown): PendingApproval["requestKind"] | null {
@@ -426,6 +417,9 @@ export function applyThreadAttentionState(
         if (previousApprovalIds.has(approval.requestId)) {
           continue;
         }
+        if (!isIsoTimestampOnOrAfter(approval.createdAt, input.notificationSessionStartedAt)) {
+          continue;
+        }
         notifications.push({
           id: buildRequestNotificationKey(threadId, approval.requestId),
           title: `Approval needed: ${threadTitle}`,
@@ -445,6 +439,9 @@ export function applyThreadAttentionState(
         if (previousUserInputIds.has(request.requestId)) {
           continue;
         }
+        if (!isIsoTimestampOnOrAfter(request.createdAt, input.notificationSessionStartedAt)) {
+          continue;
+        }
         const suffix =
           request.questionCount > 1 ? ` (${String(request.questionCount)} questions waiting)` : "";
         notifications.push({
@@ -461,7 +458,7 @@ export function applyThreadAttentionState(
   let nextNotifiedCompletionAt = previousCompletionAt;
   if (
     completionAt &&
-    completionAt < input.notificationSessionStartedAt &&
+    !isIsoTimestampOnOrAfter(completionAt, input.notificationSessionStartedAt) &&
     nextNotifiedCompletionAt === null
   ) {
     nextNotifiedCompletionAt = completionAt;
@@ -469,7 +466,7 @@ export function applyThreadAttentionState(
 
   if (
     completionAt &&
-    completionAt >= input.notificationSessionStartedAt &&
+    isIsoTimestampOnOrAfter(completionAt, input.notificationSessionStartedAt) &&
     completionAt !== nextNotifiedCompletionAt &&
     input.settings.notifyOnAgentCompletion &&
     !input.isAppFocused
@@ -496,43 +493,30 @@ export function applyThreadAttentionState(
   };
 }
 
-function resolveRpcTarget(wsUrl: string): string {
-  const parsed = new URL(wsUrl);
-  parsed.pathname = "/ws";
-  return parsed.toString();
-}
-
 class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotificationService {
+  private readonly onOrchestrationEvent: (event: OrchestrationEvent) => void;
+  private readonly onServerConfigEvent: (event: ServerConfigStreamEvent) => void;
   private readonly isAppFocused: () => boolean;
   private readonly showNotification: (input: DesktopNotificationInput) => boolean;
   private readonly closeNotification: (id: string) => boolean;
   private readonly log: (message: string) => void;
-  private readonly notificationSessionStartedAt = new Date().toISOString();
-  private readonly identity = {
-    clientSessionId: Crypto.randomUUID(),
-    connectionId: Crypto.randomUUID(),
-  };
-  private readonly wsTarget: string;
-
-  private runtime: ManagedRuntime.ManagedRuntime<RpcClient.Protocol, never> | null = null;
-  private clientScope: Scope.Closeable | null = null;
-  private clientPromise: Promise<WsRpcProtocolClient> | null = null;
-  private readonly unsubscribers: Array<() => void> = [];
+  private notificationSessionStartedAt = new Date().toISOString();
+  private lastKnownFocusState: boolean | null = null;
   private readonly threadStateById = new Map<string, ThreadAttentionState>();
   private pendingRefreshThreadIds = new Set<string>();
   private queuedRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private periodicSnapshotTimer: ReturnType<typeof setInterval> | null = null;
+  private focusStatePollTimer: ReturnType<typeof setInterval> | null = null;
   private settings: BackgroundNotificationSettings = {
     notifyOnAgentCompletion: true,
     notifyOnApprovalRequired: true,
     notifyOnUserInputRequired: true,
   };
-  private snapshotRecoveryInFlight = false;
-  private lastSnapshotRecoveryAtMs = 0;
   private stopped = false;
 
   constructor(input: DesktopBackgroundNotificationServiceInput) {
-    this.wsTarget = resolveRpcTarget(input.wsUrl);
+    this.onOrchestrationEvent = input.onOrchestrationEvent;
+    this.onServerConfigEvent = input.onServerConfigEvent;
     this.isAppFocused = input.isAppFocused;
     this.showNotification = input.showNotification;
     this.closeNotification = input.closeNotification;
@@ -545,25 +529,19 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
     }
 
     this.log("notification service starting");
-    this.initializeRpcRuntime();
-    this.unsubscribers.push(
-      this.subscribe(
-        (client) => client[WS_METHODS.subscribeServerConfig](this.identity),
-        (event) => this.handleServerConfigEvent(event),
-      ),
-      this.subscribe(
-        (client) => client[WS_METHODS.subscribeOrchestrationDomainEvents](this.identity),
-        (event) => this.handleOrchestrationEvent(event),
-      ),
-    );
+    this.syncNotificationSessionFromFocus(new Date().toISOString());
 
-    void this.refreshSettingsAndSnapshot("startup");
     this.periodicSnapshotTimer = setInterval(() => {
       if (this.stopped) {
         return;
       }
-      void this.refreshSettingsAndSnapshot("interval");
     }, SNAPSHOT_REFRESH_INTERVAL_MS);
+    this.focusStatePollTimer = setInterval(() => {
+      if (this.stopped) {
+        return;
+      }
+      this.syncNotificationSessionFromFocus(new Date().toISOString());
+    }, FOCUS_STATE_POLL_INTERVAL_MS);
   }
 
   async stop(): Promise<void> {
@@ -579,151 +557,19 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
       clearInterval(this.periodicSnapshotTimer);
       this.periodicSnapshotTimer = null;
     }
-    for (const unsubscribe of this.unsubscribers.splice(0)) {
-      unsubscribe();
+    if (this.focusStatePollTimer) {
+      clearInterval(this.focusStatePollTimer);
+      this.focusStatePollTimer = null;
     }
     this.pendingRefreshThreadIds = new Set<string>();
-    this.snapshotRecoveryInFlight = false;
-    this.lastSnapshotRecoveryAtMs = 0;
-
-    const runtime = this.runtime;
-    const clientScope = this.clientScope;
-    this.runtime = null;
-    this.clientScope = null;
-    this.clientPromise = null;
-
-    if (runtime && clientScope) {
-      try {
-        await runtime.runPromise(Scope.close(clientScope, Exit.void));
-      } catch (error) {
-        this.log(`notification service scope close failed: ${formatErrorMessage(error)}`);
-      } finally {
-        runtime.dispose();
-      }
-    }
+    this.lastKnownFocusState = null;
     this.log("notification service stopped");
   }
 
-  private initializeRpcRuntime(): void {
-    if (this.runtime && this.clientScope && this.clientPromise) {
+  handleOrchestrationEvent(event: OrchestrationEvent): void {
+    if (this.stopped) {
       return;
     }
-    this.runtime = ManagedRuntime.make(
-      createWsRpcProtocolLayer({
-        target: this.wsTarget,
-        identity: this.identity,
-      }),
-    );
-    this.clientScope = this.runtime.runSync(Scope.make());
-    this.clientPromise = this.runtime.runPromise(
-      Scope.provide(this.clientScope)(makeWsRpcProtocolClient),
-    );
-  }
-
-  private subscribe<TEvent>(
-    connect: (client: WsRpcProtocolClient) => Stream.Stream<TEvent, Error, never>,
-    listener: (event: TEvent) => void,
-  ): () => void {
-    const runtime = this.runtime;
-    const clientPromise = this.clientPromise;
-    if (!runtime || !clientPromise) {
-      return () => undefined;
-    }
-
-    let active = true;
-    const cancel = runtime.runCallback(
-      Effect.promise(() => clientPromise).pipe(
-        Effect.flatMap((client) =>
-          Stream.runForEach(connect(client), (event) =>
-            Effect.sync(() => {
-              if (!active || this.stopped) {
-                return;
-              }
-              listener(event);
-            }),
-          ),
-        ),
-        Effect.catch((error) => {
-          if (!active || this.stopped) {
-            return Effect.interrupt;
-          }
-          this.log(`notification service subscription disconnected: ${formatErrorMessage(error)}`);
-          this.triggerSnapshotRecovery("subscription-recovery");
-          return Effect.sleep(Duration.millis(SUBSCRIPTION_RETRY_DELAY_MS));
-        }),
-        Effect.forever,
-      ),
-    );
-
-    return () => {
-      active = false;
-      cancel();
-    };
-  }
-
-  private async request<TSuccess>(
-    execute: (client: WsRpcProtocolClient) => Effect.Effect<TSuccess, Error, never>,
-  ): Promise<TSuccess> {
-    const runtime = this.runtime;
-    const clientPromise = this.clientPromise;
-    if (!runtime || !clientPromise) {
-      throw new Error("notification service RPC runtime unavailable");
-    }
-    const client = await clientPromise;
-    return await runtime.runPromise(Effect.suspend(() => execute(client)));
-  }
-
-  private async refreshSettingsAndSnapshot(reason: string): Promise<void> {
-    try {
-      const [settings, snapshot] = await Promise.all([
-        this.request((client) => client[WS_METHODS.serverGetSettings]({})),
-        this.request((client) => client[ORCHESTRATION_WS_METHODS.getSnapshot]({})),
-      ]);
-      this.settings = resolveBackgroundNotificationSettings(settings);
-      const activeThreadIds = new Set(snapshot.threads.map((thread) => String(thread.id)));
-      for (const thread of snapshot.threads) {
-        this.processThread(thread);
-      }
-      for (const [threadId, state] of this.threadStateById) {
-        if (activeThreadIds.has(threadId)) {
-          continue;
-        }
-        this.closeTrackedThreadNotifications(threadId, state);
-        this.threadStateById.delete(threadId);
-      }
-    } catch (error) {
-      this.log(
-        `notification service snapshot refresh failed (${reason}): ${formatErrorMessage(error)}`,
-      );
-    }
-  }
-
-  private triggerSnapshotRecovery(reason: string): void {
-    if (this.stopped || this.snapshotRecoveryInFlight) {
-      return;
-    }
-    const now = Date.now();
-    if (now - this.lastSnapshotRecoveryAtMs < SNAPSHOT_RECOVERY_MIN_INTERVAL_MS) {
-      return;
-    }
-    this.lastSnapshotRecoveryAtMs = now;
-    this.snapshotRecoveryInFlight = true;
-    void this.refreshSettingsAndSnapshot(reason).finally(() => {
-      this.snapshotRecoveryInFlight = false;
-    });
-  }
-
-  private handleServerConfigEvent(event: ServerConfigStreamEvent): void {
-    if (event.type === "snapshot") {
-      this.settings = resolveBackgroundNotificationSettings(event.config.settings);
-      return;
-    }
-    if (event.type === "settingsUpdated") {
-      this.settings = resolveBackgroundNotificationSettings(event.payload.settings);
-    }
-  }
-
-  private handleOrchestrationEvent(event: OrchestrationEvent): void {
     const threadId = this.readThreadIdFromEvent(event);
     if (!threadId) {
       return;
@@ -744,6 +590,19 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
     this.queueThreadRefresh(threadId);
   }
 
+  handleServerConfigEvent(event: ServerConfigStreamEvent): void {
+    if (this.stopped) {
+      return;
+    }
+    if (event.type === "snapshot") {
+      this.settings = resolveBackgroundNotificationSettings(event.config.settings);
+      return;
+    }
+    if (event.type === "settingsUpdated") {
+      this.settings = resolveBackgroundNotificationSettings(event.payload.settings);
+    }
+  }
+
   private readThreadIdFromEvent(event: OrchestrationEvent): string | null {
     if (event.aggregateKind === "thread" && typeof event.aggregateId === "string") {
       return event.aggregateId;
@@ -759,71 +618,23 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
     }
     this.queuedRefreshTimer = setTimeout(() => {
       this.queuedRefreshTimer = null;
-      void this.flushQueuedThreadRefreshes();
     }, THREAD_REFRESH_DEBOUNCE_MS);
   }
 
-  private async flushQueuedThreadRefreshes(): Promise<void> {
-    const threadIds = [...this.pendingRefreshThreadIds];
-    this.pendingRefreshThreadIds = new Set<string>();
-    if (threadIds.length === 0) {
-      return;
-    }
-    if (threadIds.length >= THREAD_REFRESH_BURST_SNAPSHOT_THRESHOLD) {
-      await this.refreshSettingsAndSnapshot("thread-refresh-burst");
-      return;
-    }
-    for (const threadId of threadIds) {
-      if (this.stopped) {
-        return;
+  private syncNotificationSessionFromFocus(nowIso: string): boolean {
+    const isFocused = this.isAppFocused();
+    if (this.lastKnownFocusState === null) {
+      this.lastKnownFocusState = isFocused;
+      if (!isFocused) {
+        this.notificationSessionStartedAt = nowIso;
       }
-      await this.refreshThread(threadId);
+      return isFocused;
     }
-  }
-
-  private async refreshThread(threadId: string): Promise<void> {
-    try {
-      const thread = await this.request((client) =>
-        client[ORCHESTRATION_WS_METHODS.getThread]({ threadId: ThreadId.makeUnsafe(threadId) }),
-      );
-      this.processThread(thread);
-    } catch (error) {
-      this.log(
-        `notification service thread refresh failed thread=${threadId}: ${formatErrorMessage(error)}`,
-      );
-      this.triggerSnapshotRecovery(`thread-refresh-failed:${threadId}`);
+    if (this.lastKnownFocusState && !isFocused) {
+      this.notificationSessionStartedAt = nowIso;
     }
-  }
-
-  private processThread(thread: OrchestrationThread): void {
-    const threadId = String(thread.id);
-    const previousState = this.threadStateById.get(threadId);
-    const result = applyThreadAttentionState({
-      thread,
-      previousState,
-      settings: this.settings,
-      notificationSessionStartedAt: this.notificationSessionStartedAt,
-      isAppFocused: this.isAppFocused(),
-    });
-
-    for (const notificationId of result.closeNotificationIds) {
-      this.closeNotification(notificationId);
-    }
-    for (const notification of result.notify) {
-      const shown = this.showNotification({
-        id: notification.id,
-        title: notification.title,
-        body: notification.body,
-        deepLink: notification.deepLink,
-      });
-      if (!shown) {
-        this.log(
-          `notification service failed to show ${notification.kind} notification id=${notification.id}`,
-        );
-      }
-    }
-
-    this.threadStateById.set(threadId, result.nextState);
+    this.lastKnownFocusState = isFocused;
+    return isFocused;
   }
 
   private closeTrackedThreadNotifications(threadId: string, state: ThreadAttentionState): void {

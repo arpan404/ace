@@ -29,6 +29,8 @@ const REQUEST_NOTIFICATION_PERMISSION_CHANNEL = "desktop:request-notification-pe
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
 const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
+const ORCHESTRATION_EVENT_CHANNEL = "desktop:orchestration-event";
+const SERVER_CONFIG_EVENT_CHANNEL = "desktop:server-config-event";
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getWsUrl: () => {
@@ -179,5 +181,11 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     return () => {
       ipcRenderer.removeListener(BROWSER_SHORTCUT_ACTION_CHANNEL, wrappedListener);
     };
+  },
+  sendOrchestrationEvent: (event: unknown) => {
+    ipcRenderer.send(ORCHESTRATION_EVENT_CHANNEL, event);
+  },
+  sendServerConfigEvent: (event: unknown) => {
+    ipcRenderer.send(SERVER_CONFIG_EVENT_CHANNEL, event);
   },
 } satisfies DesktopBridge);

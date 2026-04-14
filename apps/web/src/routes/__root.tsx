@@ -323,6 +323,9 @@ function EventRouter() {
       readonly payload: import("@ace/contracts").ServerConfigUpdatedPayload;
       readonly source: ServerConfigUpdateSource;
     }) => {
+      if (typeof window !== "undefined" && window.desktopBridge?.sendServerConfigEvent) {
+        window.desktopBridge.sendServerConfigEvent({ type: "settingsUpdated", payload });
+      }
       const isReplay = !handledConfigReplayRef.current;
       handledConfigReplayRef.current = true;
       if (isReplay || source !== "keybindingsUpdated") {
@@ -663,6 +666,9 @@ function EventRouter() {
         });
         flushPendingDomainEvents();
         void recoverFromReplay("sequence-gap");
+      }
+      if (typeof window !== "undefined" && window.desktopBridge?.sendOrchestrationEvent) {
+        window.desktopBridge.sendOrchestrationEvent(event);
       }
     });
     const unsubTerminalEvent = api.terminal.onEvent((event) => {

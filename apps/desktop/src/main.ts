@@ -105,6 +105,8 @@ const REQUEST_NOTIFICATION_PERMISSION_CHANNEL = "desktop:request-notification-pe
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
 const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
+const ORCHESTRATION_EVENT_CHANNEL = "desktop:orchestration-event";
+const SERVER_CONFIG_EVENT_CHANNEL = "desktop:server-config-event";
 const MAC_TRAFFIC_LIGHT_POSITION = { x: 16, y: 18 };
 const MAC_TITLEBAR_LEFT_INSET_PX = 90;
 const BASE_DIR = process.env.ACE_HOME?.trim() || resolveDesktopBaseDir();
@@ -361,16 +363,14 @@ function stopDesktopBackgroundNotifications(): void {
 }
 
 function startDesktopBackgroundNotifications(): void {
-  if (!backendWsUrl) {
-    writeDesktopLogHeader(
-      "notification service skipped because backend websocket URL is unavailable",
-    );
-    return;
-  }
-
   stopDesktopBackgroundNotifications();
   desktopBackgroundNotificationService = startDesktopBackgroundNotificationService({
-    wsUrl: backendWsUrl,
+    onOrchestrationEvent: (_event) => {
+      // Will be called via IPC from web app
+    },
+    onServerConfigEvent: (_event) => {
+      // Will be called via IPC from web app
+    },
     isAppFocused: isDesktopWindowFocusedForNotifications,
     showNotification: showDesktopNotification,
     closeNotification: closeDesktopNotification,
@@ -2301,6 +2301,20 @@ function registerIpcHandlers(): void {
       checked,
       state: updateState,
     } satisfies DesktopUpdateCheckResult;
+  });
+
+  ipcMain.removeAllListeners(ORCHESTRATION_EVENT_CHANNEL);
+  ipcMain.on(ORCHESTRATION_EVENT_CHANNEL, (_event, rawEvent) => {
+    if (desktopBackgroundNotificationService && rawEvent) {
+      desktopBackgroundNotificationService.handleOrchestrationEvent(rawEvent);
+    }
+  });
+
+  ipcMain.removeAllListeners(SERVER_CONFIG_EVENT_CHANNEL);
+  ipcMain.on(SERVER_CONFIG_EVENT_CHANNEL, (_event, rawEvent) => {
+    if (desktopBackgroundNotificationService && rawEvent) {
+      desktopBackgroundNotificationService.handleServerConfigEvent(rawEvent);
+    }
   });
 }
 

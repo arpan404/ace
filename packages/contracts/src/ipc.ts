@@ -255,6 +255,8 @@ export interface DesktopBridge {
   onBrowserOpenUrl?: (listener: (url: string) => void) => () => void;
   onBrowserContextMenuShown?: (listener: () => void) => () => void;
   onBrowserShortcutAction?: (listener: (action: BrowserShortcutAction) => void) => () => void;
+  sendOrchestrationEvent?: (event: unknown) => void;
+  sendServerConfigEvent?: (event: unknown) => void;
 }
 
 export interface NativeApi {
