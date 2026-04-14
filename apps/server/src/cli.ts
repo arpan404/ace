@@ -1,5 +1,6 @@
 import * as ChildProcess from "node:child_process";
 import * as Crypto from "node:crypto";
+import * as Readline from "node:readline/promises";
 
 import pc from "picocolors";
 import { NetService } from "@ace/shared/Net";
@@ -42,8 +43,10 @@ import {
 import { readBootstrapEnvelope } from "./bootstrap";
 import { resolveBaseDir } from "./os-jank";
 import { runServer } from "./server";
+import { version as serverPackageVersion } from "../package.json" with { type: "json" };
 
 const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }));
+const DEFAULT_DAEMON_RESTART_TIMEOUT_MS = 8_000;
 
 const BootstrapEnvelopeSchema = Schema.Struct({
   mode: Schema.optional(RuntimeMode),
@@ -464,6 +467,33 @@ const runDaemonCommand = <A, E, R>(flags: CliDataFlags, effect: Effect.Effect<A,
     return yield* effect.pipe(Effect.provideService(ServerConfig, config));
   });
 
+export const applyDaemonRestartStateDefaults = (
+  flags: CliServerFlags,
+  existingState: AceServerDaemonState | null,
+): CliServerFlags => ({
+  ...flags,
+  mode: Option.isSome(flags.mode) || !existingState ? flags.mode : Option.some(existingState.mode),
+  port: Option.isSome(flags.port) || !existingState ? flags.port : Option.some(existingState.port),
+  host:
+    Option.isSome(flags.host) || !existingState || existingState.host === null
+      ? flags.host
+      : Option.some(existingState.host),
+  authToken:
+    Option.isSome(flags.authToken) || !existingState
+      ? flags.authToken
+      : Option.some(existingState.authToken),
+});
+
+export const isDaemonStateCurrentVersion = (
+  state: AceServerDaemonState | null,
+  currentVersion = serverPackageVersion,
+): boolean => {
+  if (!state) {
+    return false;
+  }
+  return state.serverVersion === currentVersion;
+};
+
 interface DaemonStatusPayload {
   readonly status: "running" | "stopped" | "stale";
   readonly state: AceServerDaemonState | null;
@@ -662,6 +692,7 @@ const startDaemonAndPersistState = Effect.fn("startDaemonAndPersistState")(funct
   const state: AceServerDaemonState = {
     version: 1,
     pid,
+    serverVersion: serverPackageVersion,
     mode: input.config.mode,
     host: input.config.host ?? null,
     port: input.config.port,
@@ -900,15 +931,38 @@ const daemonStartCommand = Command.make("start", {
           timeoutMs: 3_000,
         });
         if (eventuallyReady) {
+          if (isDaemonStateCurrentVersion(existingStatus.state)) {
+            const payload = {
+              status: "already-running" as const,
+              daemon: existingStatus.state,
+            };
+            if (json) {
+              return yield* writeJson(payload);
+            }
+            return yield* writeStdout(
+              `${pc.yellow("Already running")} daemon pid=${String(existingStatus.state.pid)} ${existingStatus.state.wsUrl}\n`,
+            );
+          }
+
+          const stopResult = yield* stopDaemonIfPresent({
+            baseDir: config.baseDir,
+            timeoutMs: DEFAULT_DAEMON_RESTART_TIMEOUT_MS,
+          });
+          const state = yield* startDaemonAndPersistState({ config });
           const payload = {
-            status: "already-running" as const,
-            daemon: existingStatus.state,
+            status: "started" as const,
+            daemon: state,
+            upgraded: true as const,
+            previousVersion: existingStatus.state.serverVersion,
+            stop: stopResult,
           };
           if (json) {
             return yield* writeJson(payload);
           }
           return yield* writeStdout(
-            `${pc.yellow("Already running")} daemon pid=${String(existingStatus.state.pid)} ${existingStatus.state.wsUrl}\n`,
+            `${pc.green("Started")} daemon pid=${String(state.pid)} ${state.wsUrl} ${pc.dim(
+              `(upgraded from ${existingStatus.state.serverVersion})`,
+            )}\n`,
           );
         }
         return yield* new DaemonCommandError({
@@ -943,7 +997,7 @@ const daemonRestartCommand = Command.make("restart", {
   timeoutMs: Flag.integer("timeout-ms").pipe(
     Flag.withSchema(Schema.Int.check(Schema.isGreaterThanOrEqualTo(250))),
     Flag.withDescription("How long to wait for graceful daemon shutdown."),
-    Flag.withDefault(8_000),
+    Flag.withDefault(DEFAULT_DAEMON_RESTART_TIMEOUT_MS),
   ),
   json: jsonFlag,
 }).pipe(
@@ -951,11 +1005,22 @@ const daemonRestartCommand = Command.make("restart", {
   Command.withHandler(({ timeoutMs, json, ...flags }) =>
     Effect.gen(function* () {
       const logLevel = yield* GlobalFlag.LogLevel;
-      const config = yield* resolveServerConfig(
+      const dataConfig = yield* resolveDataConfig(
         {
-          ...flags,
-          noBrowser: Option.some(true),
+          baseDir: flags.baseDir,
+          devUrl: flags.devUrl,
         },
+        logLevel,
+      );
+      const existingStatus = yield* readDaemonStatusPayload(dataConfig.baseDir);
+      const config = yield* resolveServerConfig(
+        applyDaemonRestartStateDefaults(
+          {
+            ...flags,
+            noBrowser: Option.some(true),
+          },
+          existingStatus.state,
+        ),
         logLevel,
       );
 
@@ -1052,54 +1117,214 @@ const rootBannerLines = [
   "╚═╝  ╚═╝ ╚═════╝╚══════╝",
 ] as const;
 
+const rootBannerPalette = [pc.cyan, pc.blue, pc.magenta, pc.blue] as const;
+
 const colorizeRootBannerLine = (line: string, index: number): string => {
-  switch (index % 3) {
-    case 0:
-      return pc.cyan(line);
-    case 1:
-      return pc.magenta(line);
-    default:
-      return pc.blue(line);
-  }
+  const color = rootBannerPalette[index % rootBannerPalette.length] ?? pc.cyan;
+  return pc.bold(color(line));
 };
 
-const formatRootCliBanner = (): string =>
+export const formatRootCliBanner = (): string =>
   `${rootBannerLines.map((line, index) => colorizeRootBannerLine(line, index)).join("\n")}\n`;
 
 const formatRootCliGuide = (): string =>
   [
     `${pc.bold("ace CLI")} ${pc.dim("unified local + remote control")}`,
     `${pc.bold("Quick start")}`,
-    `  ${pc.cyan("ace serve")}          run server in foreground`,
-    `  ${pc.cyan("ace daemon start")}   run reusable background daemon`,
-    `  ${pc.cyan("ace --restart")}      restart background daemon`,
-    `  ${pc.cyan("ace project list")}   list saved local projects`,
-    `  ${pc.cyan("ace remote list")}    list saved remote hosts`,
-    `  ${pc.cyan("ace --help")}         show full command reference`,
+    `  ${pc.cyan("ace serve")}              run server in foreground`,
+    `  ${pc.cyan("ace daemon start")}       run reusable background daemon`,
+    `  ${pc.cyan("ace --restart")}          restart background daemon`,
+    `  ${pc.cyan("ace interactive")}        launch quick interactive command picker`,
+    `  ${pc.cyan("ace project list")}       list saved local projects`,
+    `  ${pc.cyan("ace remote list")}        list saved remote hosts`,
+    `  ${pc.cyan("ace --help")}             show full command reference`,
   ].join("\n");
 
-const playRootCliIntroAnimation = Effect.gen(function* () {
-  if (!process.stdout.isTTY || process.env.CI === "1" || process.env.NO_COLOR !== undefined) {
-    return;
+const shouldAnimateRootCliLogo = (): boolean =>
+  process.stdout.isTTY &&
+  process.env.CI !== "1" &&
+  process.env.NO_COLOR === undefined &&
+  process.env.ACE_CLI_DISABLE_ANIMATION !== "1";
+
+export const playRootCliLogoAnimation = Effect.gen(function* () {
+  if (!shouldAnimateRootCliLogo()) {
+    return false;
   }
-  const frames = ["-", "\\", "|", "/"] as const;
-  for (const frame of frames) {
-    yield* writeStdout(`\r${pc.magenta(frame)} ${pc.cyan("booting ace CLI")}`);
-    yield* Effect.sleep("45 millis");
+
+  yield* writeStdout("\x1b[?25l");
+  try {
+    for (const [index, line] of rootBannerLines.entries()) {
+      yield* writeStdout(`${colorizeRootBannerLine(line, index)}\n`);
+      yield* Effect.sleep("38 millis");
+    }
+  } finally {
+    yield* writeStdout("\x1b[?25h");
   }
-  yield* writeStdout("\r\x1b[2K");
+
+  return true;
 });
+
+const interactiveActionIds = [
+  "serve",
+  "daemon-status",
+  "daemon-restart",
+  "project-list",
+  "remote-list",
+] as const;
+type InteractiveActionId = (typeof interactiveActionIds)[number];
+
+const interactiveActions: Record<
+  InteractiveActionId,
+  { readonly description: string; readonly argv: ReadonlyArray<string> }
+> = {
+  serve: {
+    description: "Run server in foreground",
+    argv: ["serve"],
+  },
+  "daemon-status": {
+    description: "Show daemon status",
+    argv: ["daemon", "status"],
+  },
+  "daemon-restart": {
+    description: "Restart daemon",
+    argv: ["daemon", "restart"],
+  },
+  "project-list": {
+    description: "List saved projects",
+    argv: ["project", "list"],
+  },
+  "remote-list": {
+    description: "List saved remote hosts",
+    argv: ["remote", "list"],
+  },
+};
+
+const promptInteractiveAction = Effect.tryPromise({
+  try: async (): Promise<InteractiveActionId> => {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      throw new Error(
+        "Interactive mode requires a TTY. Use `ace interactive --action <name>` in non-interactive environments.",
+      );
+    }
+
+    const rl = Readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    try {
+      process.stdout.write(`${pc.bold("Select an action")}\n`);
+      interactiveActionIds.forEach((actionId, index) => {
+        const action = interactiveActions[actionId];
+        process.stdout.write(
+          `  ${pc.cyan(String(index + 1))}. ${actionId} ${pc.dim(`- ${action.description}`)}\n`,
+        );
+      });
+      const answer = (await rl.question(`${pc.magenta("›")} `)).trim().toLowerCase();
+      const byIndex = Number.parseInt(answer, 10);
+      if (Number.isFinite(byIndex) && byIndex >= 1 && byIndex <= interactiveActionIds.length) {
+        const action = interactiveActionIds[byIndex - 1];
+        if (action) {
+          return action;
+        }
+      }
+      if (interactiveActionIds.includes(answer as InteractiveActionId)) {
+        return answer as InteractiveActionId;
+      }
+      throw new Error("Invalid selection. Use a number from the list or an action id.");
+    } finally {
+      rl.close();
+    }
+  },
+  catch: (cause) =>
+    new DaemonCommandError({
+      message: "Failed to read interactive action selection.",
+      cause,
+    }),
+});
+
+const runCliSubprocess = Effect.fn("runCliSubprocess")(function* (args: ReadonlyArray<string>) {
+  const entryPath = process.argv[1]?.trim();
+  if (!entryPath) {
+    return yield* new DaemonCommandError({
+      message: "Could not resolve CLI entry path for interactive command execution.",
+    });
+  }
+
+  yield* Effect.tryPromise({
+    try: () =>
+      new Promise<void>((resolve, reject) => {
+        const child = ChildProcess.spawn(process.execPath, [entryPath, ...args], {
+          cwd: process.cwd(),
+          stdio: "inherit",
+          env: {
+            ...process.env,
+            ACE_CLI_SUPPRESS_BOOT_BANNER: "1",
+          },
+          windowsHide: true,
+        });
+        child.once("error", (cause) => {
+          reject(cause);
+        });
+        child.once("exit", (code, signal) => {
+          if (signal) {
+            reject(new Error(`Interactive action terminated by signal ${signal}.`));
+            return;
+          }
+          if (code !== 0) {
+            reject(new Error(`Interactive action exited with code ${String(code ?? 0)}.`));
+            return;
+          }
+          resolve();
+        });
+      }),
+    catch: (cause) =>
+      new DaemonCommandError({
+        message: "Failed to execute interactive action.",
+        cause,
+      }),
+  });
+});
+
+const interactiveCommand = Command.make("interactive", {
+  action: Flag.choice("action", interactiveActionIds).pipe(
+    Flag.withAlias("a"),
+    Flag.withDescription("Run a quick action directly."),
+    Flag.optional,
+  ),
+}).pipe(
+  Command.withAlias("i"),
+  Command.withDescription("Launch an interactive quick-action picker."),
+  Command.withHandler(({ action }) =>
+    Effect.gen(function* () {
+      const selectedAction: InteractiveActionId = Option.isSome(action)
+        ? action.value
+        : yield* promptInteractiveAction;
+      const selected = interactiveActions[selectedAction];
+      yield* writeStdout(`${pc.dim("Running")} ace ${selected.argv.join(" ")}\n`);
+      return yield* runCliSubprocess(selected.argv);
+    }),
+  ),
+);
 
 const rootCommand = Command.make("ace").pipe(
   Command.withDescription("ace CLI."),
   Command.withHandler(() =>
     Effect.gen(function* () {
-      yield* playRootCliIntroAnimation;
-      return yield* writeStdout(`${formatRootCliBanner()}${formatRootCliGuide()}\n`);
+      const animated = yield* playRootCliLogoAnimation;
+      const banner = animated ? "" : formatRootCliBanner();
+      const spacer = animated ? "\n" : "";
+      return yield* writeStdout(`${banner}${spacer}${formatRootCliGuide()}\n`);
     }),
   ),
 );
 
 export const cli = rootCommand.pipe(
-  Command.withSubcommands([serveCommand, projectCommand, remoteCommand, daemonCommand]),
+  Command.withSubcommands([
+    serveCommand,
+    projectCommand,
+    remoteCommand,
+    daemonCommand,
+    interactiveCommand,
+  ]),
 );

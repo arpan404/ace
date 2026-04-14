@@ -6,6 +6,8 @@ import {
   type OrchestrationEvent,
   type OrchestrationGetSnapshotInput,
   type OrchestrationReadModel,
+  type ProviderKind,
+  type ServerProvider,
   type ThreadId,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
@@ -71,6 +73,10 @@ const WS_UPGRADE_RATE_LIMIT_WINDOW_MS = 60_000;
 const WS_UPGRADE_RATE_LIMIT_MAX_ATTEMPTS = 30;
 const WS_CLIENT_SESSION_TTL_MS = 15 * 60_000;
 const WS_CLIENT_SESSION_PRUNE_INTERVAL_MS = 60_000;
+const PROVIDER_AUTO_REFRESH_TICK_MS = 5_000;
+const PROVIDER_AUTO_REFRESH_READY_TTL_MS = 8 * 60_000;
+const PROVIDER_AUTO_REFRESH_WARNING_TTL_MS = 4 * 60_000;
+const PROVIDER_AUTO_REFRESH_ERROR_TTL_MS = 2 * 60_000;
 
 type WsClientSessionRecord = {
   readonly connectionId: string;
@@ -96,6 +102,11 @@ function pruneWsClientSessionsIfNeeded(now = Date.now()): void {
   }
   pruneWsClientSessions(now);
   nextWsClientSessionPruneAt = now + WS_CLIENT_SESSION_PRUNE_INTERVAL_MS;
+}
+
+function hasActiveWsClientSessions(now = Date.now()): boolean {
+  pruneWsClientSessionsIfNeeded(now);
+  return wsClientSessions.size > 0;
 }
 
 function registerWsClientSession(
@@ -167,6 +178,72 @@ function resolveWsRateLimitKey(headers: Record<string, string | undefined>): str
   }
 
   return headers["user-agent"]?.trim() || "ws-upgrade:unknown";
+}
+
+function providerRefreshJitterFactor(provider: ProviderKind): number {
+  let hash = 0;
+  for (let index = 0; index < provider.length; index += 1) {
+    hash = (hash << 5) - hash + provider.charCodeAt(index);
+    hash |= 0;
+  }
+  const normalized = Math.abs(hash % 100) / 100;
+  return 0.8 + normalized * 0.5;
+}
+
+function providerRefreshBaseTtlMs(status: ServerProvider["status"]): number {
+  switch (status) {
+    case "ready":
+      return PROVIDER_AUTO_REFRESH_READY_TTL_MS;
+    case "warning":
+      return PROVIDER_AUTO_REFRESH_WARNING_TTL_MS;
+    case "error":
+      return PROVIDER_AUTO_REFRESH_ERROR_TTL_MS;
+    case "disabled":
+      return Number.MAX_SAFE_INTEGER;
+  }
+}
+
+function isPendingProviderSnapshot(provider: ServerProvider): boolean {
+  return (
+    provider.status === "warning" &&
+    provider.message !== undefined &&
+    provider.message.toLowerCase().startsWith("checking ")
+  );
+}
+
+function providerRefreshDueAt(provider: ServerProvider): number {
+  if (isPendingProviderSnapshot(provider)) {
+    return 0;
+  }
+  const checkedAtMs = Date.parse(provider.checkedAt);
+  const baseTtlMs = providerRefreshBaseTtlMs(provider.status);
+  const ttlMs = Math.round(baseTtlMs * providerRefreshJitterFactor(provider.provider));
+  if (!Number.isFinite(checkedAtMs)) {
+    return 0;
+  }
+  return checkedAtMs + ttlMs;
+}
+
+function selectDueProviderForRefresh(
+  providers: ReadonlyArray<ServerProvider>,
+  now = Date.now(),
+): ProviderKind | null {
+  const dueProviders = providers
+    .filter((provider) => provider.enabled && provider.status !== "disabled")
+    .map((provider) => ({ provider: provider.provider, dueAt: providerRefreshDueAt(provider) }))
+    .filter((provider) => provider.dueAt <= now);
+
+  if (dueProviders.length === 0) {
+    return null;
+  }
+
+  const oldestDueAt = dueProviders.reduce(
+    (oldest, provider) => (provider.dueAt < oldest ? provider.dueAt : oldest),
+    dueProviders[0]!.dueAt,
+  );
+  const oldestDueProviders = dueProviders.filter((provider) => provider.dueAt === oldestDueAt);
+  const selectedIndex = Math.floor(Math.random() * oldestDueProviders.length);
+  return oldestDueProviders[selectedIndex]?.provider ?? null;
 }
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -246,6 +323,27 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         settings,
       };
     });
+
+    const refreshOneProviderWhenDue = Effect.gen(function* () {
+      if (!hasActiveWsClientSessions()) {
+        return;
+      }
+      const providers = yield* providerRegistry.getProviders;
+      const providerToRefresh = selectDueProviderForRefresh(providers);
+      if (!providerToRefresh) {
+        return;
+      }
+      yield* providerRegistry.refresh(providerToRefresh);
+    });
+
+    yield* Effect.forkScoped(
+      Effect.forever(
+        Effect.sleep(PROVIDER_AUTO_REFRESH_TICK_MS).pipe(
+          Effect.flatMap(() => refreshOneProviderWhenDue),
+          Effect.ignoreCause({ log: true }),
+        ),
+      ),
+    );
 
     const filterCurrentClientStream = <TValue, TError, TContext>(
       input: {

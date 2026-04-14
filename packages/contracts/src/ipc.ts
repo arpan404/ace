@@ -221,11 +221,14 @@ export interface DesktopNotificationReplyEvent {
   deepLink?: string;
 }
 
+export type DesktopNotificationPermission = "granted" | "denied" | "default" | "unsupported";
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   getIsDevelopmentBuild?: () => boolean;
   getWindowShownAt?: () => number | null;
   getTitlebarLeftInset?: () => number | null;
+  getNotificationPermission?: () => Promise<DesktopNotificationPermission>;
   pickFolder: () => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   repairBrowserStorage: () => Promise<boolean>;

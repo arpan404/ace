@@ -1,5 +1,5 @@
 import { ServerProvider as ServerProviderSchema, type ServerProvider } from "@ace/contracts";
-import { Duration, Effect, FileSystem, Option, PubSub, Ref, Schema, Scope, Stream } from "effect";
+import { Effect, FileSystem, Option, PubSub, Ref, Schema, Scope, Stream } from "effect";
 import * as Semaphore from "effect/Semaphore";
 
 import { ServerConfig } from "../config";
@@ -65,7 +65,6 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   readonly streamSettings: Stream.Stream<Settings>;
   readonly haveSettingsChanged: (previous: Settings, next: Settings) => boolean;
   readonly checkProvider: Effect.Effect<ServerProvider, ServerSettingsError>;
-  readonly refreshInterval?: Duration.Input;
 }): Effect.fn.Return<ServerProviderShape, ServerSettingsError, Scope.Scope> {
   const providerLabel = input.label ?? "Provider";
   const readCachedSnapshot = (settings: Settings) =>
@@ -189,17 +188,6 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
 
   yield* Stream.runForEach(input.streamSettings, (nextSettings) =>
     Effect.asVoid(applySnapshot(nextSettings)),
-  ).pipe(Effect.forkScoped);
-
-  yield* Effect.forkScoped(
-    applySnapshot(initialSettings, { forceRefresh: true }).pipe(Effect.ignoreCause({ log: true })),
-  );
-
-  yield* Effect.forever(
-    Effect.sleep(input.refreshInterval ?? "60 seconds").pipe(
-      Effect.flatMap(() => refreshSnapshot()),
-      Effect.ignoreCause({ log: true }),
-    ),
   ).pipe(Effect.forkScoped);
 
   return {

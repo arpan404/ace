@@ -58,6 +58,11 @@ import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { BROWSER_SEARCH_ENGINE_OPTIONS } from "../../lib/browser/types";
 import { cn, newCommandId } from "../../lib/utils";
 import { useInAppBrowserState } from "../../hooks/useInAppBrowserState";
+import {
+  readAgentAttentionNotificationPermission,
+  requestAgentAttentionNotificationPermission,
+  type AgentAttentionNotificationPermission,
+} from "../../lib/agentAttentionNotifications";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
@@ -135,6 +140,21 @@ const UI_FONT_FAMILY_VALUE_SET = new Set(UI_FONT_FAMILY_OPTIONS.map((o) => o.val
 const UI_MONO_FONT_VALUE_SET = new Set(UI_MONO_FONT_OPTIONS.map((o) => o.value));
 const UI_FONT_SIZE_VALUE_SET = new Set(UI_FONT_SIZE_OPTIONS.map((o) => o.value));
 const UI_LETTER_SPACING_VALUE_SET = new Set(UI_LETTER_SPACING_OPTIONS.map((o) => o.value));
+
+function resolveNotificationSettingsUrl(): string | null {
+  if (typeof navigator === "undefined") {
+    return null;
+  }
+
+  const platform = navigator.userAgent.toLowerCase();
+  if (platform.includes("mac")) {
+    return "x-apple.systempreferences:com.apple.preference.notifications";
+  }
+  if (platform.includes("windows")) {
+    return "ms-settings:notifications";
+  }
+  return null;
+}
 
 type InstallProviderSettings = {
   provider: ProviderKind;
@@ -657,6 +677,11 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const { themePreset, setThemePreset } = useAppearancePrefs();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
+  const [notificationPermission, setNotificationPermission] =
+    useState<AgentAttentionNotificationPermission>(() =>
+      isElectron ? "default" : readAgentAttentionNotificationPermission(),
+    );
+  const [isUpdatingNotificationPermission, setIsUpdatingNotificationPermission] = useState(false);
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
   const [openProviderDetails, setOpenProviderDetails] = useState<Record<ProviderKind, boolean>>({
@@ -722,6 +747,170 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       .finally(() => {
         refreshingRef.current = false;
         setIsRefreshingProviders(false);
+      });
+  }, []);
+  const canOpenNotificationSystemSettings = useMemo(
+    () => isElectron && resolveNotificationSettingsUrl() !== null,
+    [],
+  );
+  const notificationsPermissionDisabled =
+    notificationPermission === "denied" || notificationPermission === "unsupported";
+  const notificationPermissionDescription = useMemo(() => {
+    switch (notificationPermission) {
+      case "granted":
+        return "OS notifications are enabled for ace.";
+      case "denied":
+        return canOpenNotificationSystemSettings
+          ? "OS notifications are blocked. Open system settings to allow them for ace."
+          : "OS notifications are blocked for this app/profile.";
+      case "default":
+        return "OS notification permission is pending. The first notification may trigger a system prompt.";
+      default:
+        return "Notifications are not supported in this runtime.";
+    }
+  }, [canOpenNotificationSystemSettings, notificationPermission]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+    const syncPermission = () => {
+      if (isElectron && typeof window.desktopBridge?.getNotificationPermission === "function") {
+        void window.desktopBridge
+          .getNotificationPermission()
+          .then((permission) => {
+            setNotificationPermission(permission);
+          })
+          .catch(() => {
+            setNotificationPermission("unsupported");
+          });
+        return;
+      }
+      setNotificationPermission(readAgentAttentionNotificationPermission());
+    };
+    syncPermission();
+    document.addEventListener("visibilitychange", syncPermission);
+    window.addEventListener("focus", syncPermission);
+    return () => {
+      document.removeEventListener("visibilitychange", syncPermission);
+      window.removeEventListener("focus", syncPermission);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!notificationsPermissionDisabled) {
+      return;
+    }
+    if (
+      !settings.notifyOnAgentCompletion &&
+      !settings.notifyOnApprovalRequired &&
+      !settings.notifyOnUserInputRequired
+    ) {
+      return;
+    }
+    updateSettings({
+      notifyOnAgentCompletion: false,
+      notifyOnApprovalRequired: false,
+      notifyOnUserInputRequired: false,
+    });
+  }, [
+    notificationsPermissionDisabled,
+    settings.notifyOnAgentCompletion,
+    settings.notifyOnApprovalRequired,
+    settings.notifyOnUserInputRequired,
+    updateSettings,
+  ]);
+
+  const enableNotifications = useCallback(() => {
+    if (isElectron) {
+      const bridge = window.desktopBridge;
+      const probeId = `ace-notification-permission-probe:${Date.now().toString(36)}`;
+      setIsUpdatingNotificationPermission(true);
+      void (
+        bridge?.showNotification({
+          id: probeId,
+          title: "ace notifications",
+          body: "You'll get alerts when agent work completes or needs input.",
+        }) ?? Promise.resolve(false)
+      )
+        .then((opened) => {
+          if (!opened) {
+            if (canOpenNotificationSystemSettings) {
+              toastManager.add({
+                type: "warning",
+                title: "Notifications blocked by system settings",
+                description: "Open system settings and allow notifications for ace.",
+              });
+            } else {
+              toastManager.add({
+                type: "warning",
+                title: "Unable to enable notifications",
+                description: "Notifications are unavailable in the current desktop session.",
+              });
+            }
+          }
+          if (typeof bridge?.getNotificationPermission === "function") {
+            void bridge
+              .getNotificationPermission()
+              .then((permission) => setNotificationPermission(permission))
+              .catch(() => setNotificationPermission("unsupported"));
+          } else {
+            setNotificationPermission("unsupported");
+          }
+        })
+        .finally(() => {
+          setIsUpdatingNotificationPermission(false);
+        });
+      return;
+    }
+    setIsUpdatingNotificationPermission(true);
+    void requestAgentAttentionNotificationPermission()
+      .then((permission) => {
+        setNotificationPermission(permission);
+      })
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Unable to request notification permission",
+          description:
+            error instanceof Error ? error.message : "Unknown notification permission error.",
+        });
+      })
+      .finally(() => {
+        setIsUpdatingNotificationPermission(false);
+      });
+  }, [canOpenNotificationSystemSettings]);
+
+  const openNotificationSettings = useCallback(() => {
+    const targetUrl = resolveNotificationSettingsUrl();
+    if (!targetUrl) {
+      return;
+    }
+    setIsUpdatingNotificationPermission(true);
+    void (window.desktopBridge?.openExternal(targetUrl) ?? Promise.resolve(false))
+      .then((opened) => {
+        if (!opened) {
+          toastManager.add({
+            type: "warning",
+            title: "Unable to open notification settings",
+            description: "Open your operating system notification settings manually.",
+          });
+        }
+        if (isElectron && typeof window.desktopBridge?.getNotificationPermission === "function") {
+          void window.desktopBridge
+            .getNotificationPermission()
+            .then((permission) => {
+              setNotificationPermission(permission);
+            })
+            .catch(() => {
+              setNotificationPermission("unsupported");
+            });
+        } else {
+          setNotificationPermission(readAgentAttentionNotificationPermission());
+        }
+      })
+      .finally(() => {
+        setIsUpdatingNotificationPermission(false);
       });
   }, []);
 
@@ -1562,6 +1751,33 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
           <SettingsSection title="Background notifications">
             <SettingsRow
+              title="Permission"
+              description={notificationPermissionDescription}
+              control={
+                notificationPermission === "granted" ? null : notificationPermission ===
+                  "default" ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isUpdatingNotificationPermission}
+                    onClick={enableNotifications}
+                  >
+                    {isUpdatingNotificationPermission ? "Checking..." : "Enable notifications"}
+                  </Button>
+                ) : notificationPermission === "denied" && canOpenNotificationSystemSettings ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isUpdatingNotificationPermission}
+                    onClick={openNotificationSettings}
+                  >
+                    {isUpdatingNotificationPermission ? "Opening..." : "Open system settings"}
+                  </Button>
+                ) : null
+              }
+            />
+
+            <SettingsRow
               title="Agent completion"
               description="Send a notification after a turn finishes while the app is not focused."
               resetAction={
@@ -1580,6 +1796,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               control={
                 <Switch
                   checked={settings.notifyOnAgentCompletion}
+                  disabled={notificationsPermissionDisabled}
                   onCheckedChange={(checked) =>
                     updateSettings({ notifyOnAgentCompletion: Boolean(checked) })
                   }
@@ -1607,6 +1824,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               control={
                 <Switch
                   checked={settings.notifyOnApprovalRequired}
+                  disabled={notificationsPermissionDisabled}
                   onCheckedChange={(checked) =>
                     updateSettings({ notifyOnApprovalRequired: Boolean(checked) })
                   }
@@ -1635,6 +1853,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               control={
                 <Switch
                   checked={settings.notifyOnUserInputRequired}
+                  disabled={notificationsPermissionDisabled}
                   onCheckedChange={(checked) =>
                     updateSettings({ notifyOnUserInputRequired: Boolean(checked) })
                   }

@@ -16,6 +16,7 @@ import {
   Notification as ElectronNotification,
   protocol,
   session,
+  systemPreferences,
   shell,
 } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
@@ -26,6 +27,7 @@ import type {
   DesktopCliInstallState,
   DesktopMenuAction,
   DesktopNotificationInput,
+  DesktopNotificationPermission,
   DesktopTheme,
   DesktopUpdateActionResult,
   DesktopUpdateCheckResult,
@@ -68,6 +70,10 @@ import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runti
 import { appendDesktopBootstrapWsUrl } from "./rendererBootstrapUrl";
 import { buildWebContentsContextMenuTemplate } from "./webContentsContextMenu";
 import { buildApplicationMenuTemplate } from "./applicationMenu";
+import {
+  startDesktopBackgroundNotificationService,
+  type DesktopBackgroundNotificationService,
+} from "./backgroundNotificationService";
 
 syncShellEnvironment();
 
@@ -94,6 +100,7 @@ const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
 const GET_IS_DEVELOPMENT_BUILD_CHANNEL = "desktop:get-is-development-build";
 const GET_WINDOW_SHOWN_AT_CHANNEL = "desktop:get-window-shown-at";
 const GET_TITLEBAR_LEFT_INSET_CHANNEL = "desktop:get-titlebar-left-inset";
+const GET_NOTIFICATION_PERMISSION_CHANNEL = "desktop:get-notification-permission";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
 const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
@@ -163,6 +170,7 @@ let aboutCommitHashCache: string | null | undefined;
 let desktopLogSink: RotatingFileSink | null = null;
 let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
+let desktopBackgroundNotificationService: DesktopBackgroundNotificationService | null = null;
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
 const activeDesktopNotifications = new Map<string, Electron.Notification>();
@@ -330,6 +338,45 @@ function withReadyPrimaryWindow(effect: (window: BrowserWindow) => void): void {
   run();
 }
 
+function isDesktopWindowFocusedForNotifications(): boolean {
+  const targetWindow =
+    mainWindow ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  if (!targetWindow || targetWindow.isDestroyed()) {
+    return false;
+  }
+  if (!targetWindow.isVisible() || targetWindow.isMinimized()) {
+    return false;
+  }
+  return targetWindow.isFocused();
+}
+
+function stopDesktopBackgroundNotifications(): void {
+  const service = desktopBackgroundNotificationService;
+  desktopBackgroundNotificationService = null;
+  if (!service) {
+    return;
+  }
+  void service.stop();
+}
+
+function startDesktopBackgroundNotifications(): void {
+  if (!backendWsUrl) {
+    writeDesktopLogHeader(
+      "notification service skipped because backend websocket URL is unavailable",
+    );
+    return;
+  }
+
+  stopDesktopBackgroundNotifications();
+  desktopBackgroundNotificationService = startDesktopBackgroundNotificationService({
+    wsUrl: backendWsUrl,
+    isAppFocused: isDesktopWindowFocusedForNotifications,
+    showNotification: showDesktopNotification,
+    closeNotification: closeDesktopNotification,
+    log: (message) => writeDesktopLogHeader(`notification-service ${message}`),
+  });
+}
+
 function closeDesktopNotification(id: string): boolean {
   const existingNotification = activeDesktopNotifications.get(id);
   if (!existingNotification) {
@@ -392,6 +439,40 @@ function showDesktopNotification(input: DesktopNotificationInput): boolean {
     activeDesktopNotifications.delete(input.id);
     return false;
   }
+}
+
+function getDesktopNotificationPermission(): DesktopNotificationPermission {
+  if (!ElectronNotification.isSupported()) {
+    return "unsupported";
+  }
+
+  if (process.platform === "darwin" || process.platform === "win32") {
+    const notificationStateProvider = systemPreferences as unknown as {
+      getNotificationState?: (appId: string) => string;
+    };
+    const readNotificationState = notificationStateProvider.getNotificationState;
+    if (typeof readNotificationState === "function") {
+      try {
+        const state = readNotificationState(APP_USER_MODEL_ID);
+        if (state === "granted" || state === "authorized" || state === "ephemeral") {
+          return "granted";
+        }
+        if (state === "denied") {
+          return "denied";
+        }
+        if (state === "notSupported") {
+          return "unsupported";
+        }
+        if (state === "default" || state === "not-determined" || state === "provisional") {
+          return "default";
+        }
+      } catch {
+        // Fall through to supported default when OS-level state cannot be read.
+      }
+    }
+  }
+
+  return "granted";
 }
 
 function resolveBrowserShortcutAction(input: Electron.Input): BrowserShortcutAction | null {
@@ -1067,6 +1148,7 @@ function handleFatalStartupError(stage: string, error: unknown): void {
     isQuitting = true;
     dialog.showErrorBox("ace failed to start", `Stage: ${stage}\n${message}${detail}`);
   }
+  stopDesktopBackgroundNotifications();
   if (!backendManagedByDaemon) {
     stopBackend();
   }
@@ -1959,6 +2041,11 @@ function registerIpcHandlers(): void {
     event.returnValue = resolveTitlebarLeftInset(owner);
   });
 
+  ipcMain.removeHandler(GET_NOTIFICATION_PERMISSION_CHANNEL);
+  ipcMain.handle(GET_NOTIFICATION_PERMISSION_CHANNEL, async () =>
+    getDesktopNotificationPermission(),
+  );
+
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
   ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
@@ -2334,6 +2421,8 @@ async function bootstrap(): Promise<void> {
   writeDesktopLogHeader(`bootstrap resolved websocket endpoint baseUrl=${baseUrl}`);
   startOrConnectBackendDaemon();
   writeDesktopLogHeader("bootstrap daemon start/connect completed");
+  startDesktopBackgroundNotifications();
+  writeDesktopLogHeader("bootstrap desktop background notification service started");
 
   registerIpcHandlers();
   writeDesktopLogHeader("bootstrap ipc handlers registered");
@@ -2345,6 +2434,7 @@ async function bootstrap(): Promise<void> {
 app.on("before-quit", () => {
   isQuitting = true;
   updateInstallInFlight = false;
+  stopDesktopBackgroundNotifications();
   for (const notification of activeDesktopNotifications.values()) {
     notification.close();
   }
@@ -2406,6 +2496,7 @@ if (process.platform !== "win32") {
     if (isQuitting) return;
     isQuitting = true;
     writeDesktopLogHeader("SIGINT received");
+    stopDesktopBackgroundNotifications();
     clearUpdatePollTimer();
     if (!backendManagedByDaemon) {
       stopBackend();
@@ -2418,6 +2509,7 @@ if (process.platform !== "win32") {
     if (isQuitting) return;
     isQuitting = true;
     writeDesktopLogHeader("SIGTERM received");
+    stopDesktopBackgroundNotifications();
     clearUpdatePollTimer();
     if (!backendManagedByDaemon) {
       stopBackend();

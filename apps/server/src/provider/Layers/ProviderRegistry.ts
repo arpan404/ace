@@ -284,7 +284,7 @@ export const ProviderRegistryLive = Layer.effect(
               openCodeProvider.refresh,
             ],
             {
-              concurrency: "unbounded",
+              concurrency: 1,
             },
           );
           break;

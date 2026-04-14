@@ -49,9 +49,20 @@ describe("startOpenCodeServer", () => {
       spawn: spawnMock as unknown as typeof import("node:child_process").spawn,
       fetch: fetchMock as unknown as typeof globalThis.fetch,
     });
+    let processGroupAlive = true;
     const killSpy = vi.spyOn(process, "kill").mockImplementation(((targetPid, signal) => {
       if (targetPid === -pid) {
-        emitProcessExit(child, signal as NodeJS.Signals);
+        if (signal === 0) {
+          if (!processGroupAlive) {
+            const error = Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+            throw error;
+          }
+          return true;
+        }
+        if (signal === "SIGTERM" || signal === "SIGKILL") {
+          processGroupAlive = false;
+          emitProcessExit(child, signal as NodeJS.Signals);
+        }
       }
       return true;
     }) as typeof process.kill);
@@ -87,9 +98,20 @@ describe("startOpenCodeServer", () => {
       spawn: spawnMock as unknown as typeof import("node:child_process").spawn,
       fetch: fetchMock as unknown as typeof globalThis.fetch,
     });
+    let processGroupAlive = true;
     const killSpy = vi.spyOn(process, "kill").mockImplementation(((targetPid, signal) => {
       if (targetPid === -pid) {
-        emitProcessExit(child, signal as NodeJS.Signals);
+        if (signal === 0) {
+          if (!processGroupAlive) {
+            const error = Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+            throw error;
+          }
+          return true;
+        }
+        if (signal === "SIGTERM" || signal === "SIGKILL") {
+          processGroupAlive = false;
+          emitProcessExit(child, signal as NodeJS.Signals);
+        }
       }
       return true;
     }) as typeof process.kill);
@@ -100,6 +122,47 @@ describe("startOpenCodeServer", () => {
 
       expect(spawnMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(killSpy).toHaveBeenCalledWith(-pid, "SIGTERM");
+    } finally {
+      restoreDependencies();
+    }
+  });
+
+  it("kills the detached process group even when the launcher already exited", async () => {
+    const pid = 7810;
+    const child = makeRunningServerProcess("http://127.0.0.1:4013", pid);
+    const spawnMock = vi.fn(() => child);
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    const restoreDependencies = setOpenCodeRuntimeDependencies({
+      spawn: spawnMock as unknown as typeof import("node:child_process").spawn,
+      fetch: fetchMock as unknown as typeof globalThis.fetch,
+    });
+    let processGroupAlive = true;
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(((targetPid, signal) => {
+      if (targetPid === -pid) {
+        if (signal === 0) {
+          if (!processGroupAlive) {
+            const error = Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+            throw error;
+          }
+          return true;
+        }
+        if (signal === "SIGTERM" || signal === "SIGKILL") {
+          processGroupAlive = false;
+          return true;
+        }
+      }
+      return true;
+    }) as typeof process.kill);
+
+    try {
+      const handle = await startOpenCodeServer("/bin/opencode");
+      Object.assign(child, { exitCode: 0 });
+
+      await expect(handle.close()).resolves.toBeUndefined();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(killSpy).toHaveBeenCalledWith(-pid, 0);
       expect(killSpy).toHaveBeenCalledWith(-pid, "SIGTERM");
     } finally {
       restoreDependencies();
@@ -119,12 +182,36 @@ describe("startOpenCodeServerIsolated", () => {
       spawn: spawnMock as unknown as typeof import("node:child_process").spawn,
       fetch: fetchMock as unknown as typeof globalThis.fetch,
     });
+    const processGroupAliveByPid = new Map<number, boolean>([
+      [firstPid, true],
+      [secondPid, true],
+    ]);
     const killSpy = vi.spyOn(process, "kill").mockImplementation(((targetPid, signal) => {
       if (targetPid === -firstPid) {
-        emitProcessExit(firstChild, signal as NodeJS.Signals);
+        if (signal === 0) {
+          if (!processGroupAliveByPid.get(firstPid)) {
+            const error = Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+            throw error;
+          }
+          return true;
+        }
+        if (signal === "SIGTERM" || signal === "SIGKILL") {
+          processGroupAliveByPid.set(firstPid, false);
+          emitProcessExit(firstChild, signal as NodeJS.Signals);
+        }
       }
       if (targetPid === -secondPid) {
-        emitProcessExit(secondChild, signal as NodeJS.Signals);
+        if (signal === 0) {
+          if (!processGroupAliveByPid.get(secondPid)) {
+            const error = Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+            throw error;
+          }
+          return true;
+        }
+        if (signal === "SIGTERM" || signal === "SIGKILL") {
+          processGroupAliveByPid.set(secondPid, false);
+          emitProcessExit(secondChild, signal as NodeJS.Signals);
+        }
       }
       return true;
     }) as typeof process.kill);

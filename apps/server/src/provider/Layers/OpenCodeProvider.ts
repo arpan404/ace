@@ -161,7 +161,6 @@ export const OpenCodeProviderLive = Layer.effect(
       ),
       haveSettingsChanged: (previous, next) => !Equal.equals(previous, next),
       checkProvider,
-      refreshInterval: "60 seconds",
     });
   }),
 );

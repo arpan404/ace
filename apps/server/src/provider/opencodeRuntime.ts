@@ -159,6 +159,42 @@ async function stopProcess(
   child: ReturnType<typeof spawn>,
   options?: OpenCodeProcessOptions,
 ): Promise<void> {
+  const processGroupPid =
+    options?.processGroup === true && process.platform !== "win32" ? child.pid : undefined;
+  if (processGroupPid !== undefined) {
+    const isProcessGroupAlive = (): boolean => {
+      try {
+        process.kill(-processGroupPid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const waitForProcessGroupExit = async (timeoutMs: number): Promise<boolean> => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        if (!isProcessGroupAlive()) {
+          return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return !isProcessGroupAlive();
+    };
+
+    if (!isProcessGroupAlive()) {
+      return;
+    }
+    killChildProcess(child, "SIGTERM", options);
+    if (await waitForProcessGroupExit(STOP_TIMEOUT_MS)) {
+      return;
+    }
+    killChildProcess(child, "SIGKILL", options);
+    if (await waitForProcessGroupExit(STOP_TIMEOUT_MS)) {
+      return;
+    }
+    throw new Error("Timed out stopping OpenCode server process group.");
+  }
+
   if (child.exitCode !== null || child.signalCode !== null) {
     return;
   }

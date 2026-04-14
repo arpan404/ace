@@ -32,6 +32,8 @@ export interface WsTransportConnectionState {
 const DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS = Duration.millis(250);
 const DEFAULT_CONNECTION_PROBE_INTERVAL_MS = 15_000;
 const DEFAULT_CONNECTION_PROBE_TIMEOUT_MS = 4_000;
+const DEFAULT_REQUEST_RETRY_LIMIT = 3;
+const DEFAULT_REQUEST_RETRY_DELAY_MS = 220;
 const WS_CLIENT_SESSION_STORAGE_KEY = "ace.wsClientSessionId";
 
 function createConnectionId(): string {
@@ -54,6 +56,19 @@ function formatErrorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function isRetryableRequestError(error: unknown): boolean {
+  const message = formatErrorMessage(error).toLowerCase();
+  return (
+    message.includes("socketcloseerror") ||
+    message.includes("socket closed") ||
+    message.includes("websocket") ||
+    message.includes("connection closed") ||
+    message.includes("1006") ||
+    message.includes("econnreset") ||
+    message.includes("connection reset")
+  );
 }
 
 export class WsTransport {
@@ -263,8 +278,38 @@ export class WsTransport {
       throw new Error("Transport disposed");
     }
 
-    const client = await this.clientPromise;
-    return await this.runtime.runPromise(Effect.suspend(() => execute(client)));
+    let attempt = 0;
+    let lastError: unknown;
+
+    while (!this.disposed) {
+      try {
+        const client = await this.clientPromise;
+        const result = await this.runtime.runPromise(Effect.suspend(() => execute(client)));
+        this.noteConnected();
+        return result;
+      } catch (error) {
+        this.noteDisconnected(error);
+        lastError = error;
+        if (!isRetryableRequestError(error) || attempt >= DEFAULT_REQUEST_RETRY_LIMIT) {
+          throw error;
+        }
+        attempt += 1;
+        const delayMs = DEFAULT_REQUEST_RETRY_DELAY_MS * attempt;
+        logLoadDiagnostic({
+          phase: "ws",
+          level: "warning",
+          message: "Retrying WebSocket request after transient disconnect",
+          detail: {
+            attempt,
+            delayMs,
+            error: formatErrorMessage(error),
+          },
+        });
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error("Transport disposed");
   }
 
   async requestStream<TValue>(
@@ -391,6 +436,12 @@ export class WsTransport {
             ),
           )
           .catch((error) => {
+            if (
+              isRetryableRequestError(error) ||
+              formatErrorMessage(error).toLowerCase().includes("all fibers interrupted")
+            ) {
+              return;
+            }
             reportBackgroundError(
               "Failed to send the server disconnect event before transport disposal.",
               error,

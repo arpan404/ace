@@ -9,6 +9,9 @@ const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 6553
 export const AceServerDaemonState = Schema.Struct({
   version: Schema.Literal(1),
   pid: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+  serverVersion: Schema.optional(Schema.String).pipe(
+    Schema.withDecodingDefault(() => "0.0.0-unknown"),
+  ),
   mode: RuntimeMode,
   host: Schema.NullOr(Schema.String),
   port: PortSchema,

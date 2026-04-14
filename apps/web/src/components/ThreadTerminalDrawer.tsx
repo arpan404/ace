@@ -96,6 +96,20 @@ function writeSystemMessage(terminal: Terminal, message: string): void {
   terminal.write(`\r\n[terminal] ${message}\r\n`);
 }
 
+function isTransientTerminalTransportError(error: unknown): boolean {
+  const message =
+    error instanceof Error && error.message.trim().length > 0
+      ? error.message.toLowerCase()
+      : String(error).toLowerCase();
+  return (
+    message.includes("socketcloseerror") ||
+    message.includes("socket closed") ||
+    message.includes("websocket") ||
+    message.includes("1006") ||
+    message.includes("connection reset")
+  );
+}
+
 const DEFAULT_TERMINAL_FONT_FAMILY =
   '"JetBrainsMono Nerd Font", "JetBrainsMono Nerd Font Mono", "JetBrains Mono", "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace';
 
@@ -680,6 +694,9 @@ function TerminalViewport({
       try {
         await api.terminal.write({ threadId, terminalId, data });
       } catch (error) {
+        if (isTransientTerminalTransportError(error)) {
+          return;
+        }
         writeSystemMessage(activeTerminal, error instanceof Error ? error.message : fallbackError);
       }
     };
@@ -765,14 +782,12 @@ function TerminalViewport({
           deriveTerminalTitleFromCommand(nextInputState.submittedCommand),
         );
       }
-      void api.terminal
-        .write({ threadId, terminalId, data })
-        .catch((err) =>
-          writeSystemMessage(
-            terminal,
-            err instanceof Error ? err.message : "Terminal write failed",
-          ),
-        );
+      void api.terminal.write({ threadId, terminalId, data }).catch((err) => {
+        if (isTransientTerminalTransportError(err)) {
+          return;
+        }
+        writeSystemMessage(terminal, err instanceof Error ? err.message : "Terminal write failed");
+      });
     });
 
     const selectionDisposable = terminal.onSelectionChange(() => {
