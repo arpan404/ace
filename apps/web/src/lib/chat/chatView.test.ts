@@ -102,7 +102,7 @@ describe("formatQueuedComposerMessagePreview", () => {
     ).toBe("2 images · 1 terminal context");
   });
 
-  it("surfaces browser design request ids while hiding hidden context blocks", () => {
+  it("hides browser design request ids from queued previews", () => {
     const prompt = appendBrowserDesignContextToPrompt("Increase spacing between cards", {
       requestId: "DR-7F2A9C11",
       pageUrl: "https://example.com/dashboard",
@@ -118,7 +118,7 @@ describe("formatQueuedComposerMessagePreview", () => {
         imageCount: 1,
         terminalContextCount: 0,
       }),
-    ).toBe("DR-7F2A9C11 · Increase spacing between cards");
+    ).toBe("Increase spacing between cards");
   });
 });
 

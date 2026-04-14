@@ -22,7 +22,6 @@ import { Schema } from "effect";
 import { getThreadById, useStore } from "../../store";
 import {
   deriveDisplayedUserMessageState,
-  extractBrowserDesignRequestId,
   filterTerminalContextsWithText,
   hasBrowserDesignContext,
   stripInlineTerminalContextPlaceholders,
@@ -207,18 +206,9 @@ export function formatQueuedComposerMessagePreview(options: {
   const trimmedPrompt = stripInlineTerminalContextPlaceholders(visiblePrompt)
     .replace(/\s+/gu, " ")
     .trim();
-  const designRequestId = extractBrowserDesignRequestId(options.prompt);
-
-  if (trimmedPrompt.length > 0 && designRequestId) {
-    return `${designRequestId} · ${trimmedPrompt}`;
-  }
 
   if (trimmedPrompt.length > 0) {
     return trimmedPrompt;
-  }
-
-  if (designRequestId) {
-    return designRequestId;
   }
 
   const parts: string[] = [];

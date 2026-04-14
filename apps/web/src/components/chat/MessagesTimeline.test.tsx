@@ -288,7 +288,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-thread-row="true"');
   });
 
-  it("hides design-capture attachments while showing the request id", async () => {
+  it("hides design request ids while still showing captured images", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const designPrompt = [
       "Increase spacing around this card title",
@@ -356,9 +356,9 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("DR-4A9D2B6E");
-    expect(markup).not.toContain("design-capture.png");
-    expect(markup).not.toContain("<img");
+    expect(markup).not.toContain("DR-4A9D2B6E");
+    expect(markup).toContain("design-capture.png");
+    expect(markup).toContain("<img");
   });
 
   it("uses custom restore copy for the revert action tooltip", async () => {

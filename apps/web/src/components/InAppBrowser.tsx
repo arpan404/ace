@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import {
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type MutableRefObject,
   type ReactNode,
@@ -190,6 +191,19 @@ interface InAppBrowserProps {
   reloadShortcutLabel?: string | null;
   viewportRef?: RefObject<HTMLDivElement | null>;
   onQueueDesignRequest?: (submission: BrowserDesignRequestSubmission) => Promise<void>;
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  const tagName = target.tagName.toLowerCase();
+  return (
+    target.isContentEditable ||
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select"
+  );
 }
 
 export function InAppBrowser(props: InAppBrowserProps) {
@@ -389,6 +403,34 @@ export function InAppBrowser(props: InAppBrowserProps) {
     }
   }, [activeTabIsInternal, designCaptureArmed]);
   const designCaptureAvailable = Boolean(onQueueDesignRequest) && !activeTabIsInternal;
+  const redesignShortcutLabel =
+    typeof navigator !== "undefined" && /mac/i.test(navigator.platform) ? "⌘⇧E" : "Ctrl+Shift+E";
+  const toggleDesignCapture = useCallback(() => {
+    if (!designCaptureAvailable) {
+      return;
+    }
+    setDesignCaptureArmed((current) => !current);
+  }, [designCaptureAvailable]);
+  const handleBrowserSectionKeyDownCapture = useCallback(
+    (event: ReactKeyboardEvent<HTMLElement>) => {
+      const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+      const usesMod = isMac ? event.metaKey : event.ctrlKey;
+      if (
+        usesMod &&
+        event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "e" &&
+        !isEditableKeyboardTarget(event.target)
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleDesignCapture();
+        return;
+      }
+      handleBrowserKeyDownCapture(event);
+    },
+    [handleBrowserKeyDownCapture, toggleDesignCapture],
+  );
 
   const queueDesignRequest = useCallback(
     async (submission: Omit<BrowserDesignRequestSubmission, "pagePath" | "pageUrl">) => {
@@ -428,7 +470,7 @@ export function InAppBrowser(props: InAppBrowserProps) {
       style={browserShellStyle}
     >
       <section
-        onKeyDownCapture={handleBrowserKeyDownCapture}
+        onKeyDownCapture={handleBrowserSectionKeyDownCapture}
         className={cn(
           "flex size-full min-h-0 flex-col overflow-hidden border border-border bg-background text-foreground [-webkit-app-region:no-drag]",
           mode === "full"
@@ -458,6 +500,11 @@ export function InAppBrowser(props: InAppBrowserProps) {
                     {activeTab?.url ?? draftUrl}
                   </div>
                 </div>
+                {designCaptureArmed ? (
+                  <span className="rounded-full border border-primary/35 bg-primary/8 px-1.5 py-0.5 text-[10px] font-medium text-primary/75">
+                    Redesign mode
+                  </span>
+                ) : null}
                 {browserSession.tabs.length > 1 ? (
                   <span className="rounded-full border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     {browserSession.tabs.length} tabs
@@ -478,16 +525,12 @@ export function InAppBrowser(props: InAppBrowserProps) {
                     designCaptureArmed &&
                       "bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary",
                   )}
-                  onClick={() => {
-                    if (!designCaptureAvailable) {
-                      return;
-                    }
-                    setDesignCaptureArmed((current) => !current);
-                  }}
+                  onClick={toggleDesignCapture}
                   disabled={!designCaptureAvailable}
                   aria-label={
-                    designCaptureArmed ? "Cancel design capture" : "Capture design request"
+                    designCaptureArmed ? "Turn redesign mode off" : "Turn redesign mode on"
                   }
+                  title={`Toggle redesign mode (${redesignShortcutLabel})`}
                   data-browser-control
                 >
                   <SparklesIcon className="size-3.5" />
@@ -695,15 +738,10 @@ export function InAppBrowser(props: InAppBrowserProps) {
                           designCaptureArmed &&
                             "border-primary/45 bg-primary/10 text-primary hover:bg-primary/14",
                         )}
-                        onClick={() => {
-                          if (!designCaptureAvailable) {
-                            return;
-                          }
-                          setDesignCaptureArmed((current) => !current);
-                        }}
+                        onClick={toggleDesignCapture}
                         disabled={!designCaptureAvailable}
                         aria-label={
-                          designCaptureArmed ? "Cancel design capture" : "Capture design request"
+                          designCaptureArmed ? "Turn redesign mode off" : "Turn redesign mode on"
                         }
                       >
                         <SparklesIcon className="size-3.5" />
@@ -712,12 +750,17 @@ export function InAppBrowser(props: InAppBrowserProps) {
                   />
                   <TooltipPopup side="bottom">
                     {designCaptureArmed
-                      ? "Cancel design capture"
+                      ? `Turn redesign mode off (${redesignShortcutLabel})`
                       : designCaptureAvailable
-                        ? "Capture a page area for a queued design request"
+                        ? `Capture a page area for redesign (${redesignShortcutLabel})`
                         : "Design capture is unavailable for this tab"}
                   </TooltipPopup>
                 </Tooltip>
+                {designCaptureArmed ? (
+                  <span className="hidden items-center rounded-full border border-primary/25 bg-primary/6 px-2 py-0.5 text-[10px] font-medium text-primary/75 xl:inline-flex">
+                    Redesign mode
+                  </span>
+                ) : null}
                 <Tooltip>
                   <TooltipTrigger
                     render={
