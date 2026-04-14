@@ -1925,6 +1925,19 @@ describe("MessagesTimeline", () => {
                 streaming: false,
               },
             },
+            {
+              id: "assistant-current-turn",
+              kind: "message",
+              createdAt: "2026-03-17T19:12:42.000Z",
+              message: {
+                id: MessageId.makeUnsafe("assistant-current-turn"),
+                role: "assistant",
+                text: "Still working through the remaining checks.",
+                createdAt: "2026-03-17T19:12:42.000Z",
+                completedAt: "2026-03-17T19:12:45.000Z",
+                streaming: false,
+              },
+            },
           ]}
           completionDividerBeforeEntryId={null}
           completionSummary={null}

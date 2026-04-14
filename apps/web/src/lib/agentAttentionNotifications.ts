@@ -68,6 +68,7 @@ const APPROVAL_COPY_BY_KIND: Record<PendingApproval["requestKind"], string> = {
   "file-change": "file change",
   "file-read": "file read",
 };
+const DEFAULT_HISTORICAL_REQUEST_THRESHOLD_MS = 10 * 60 * 1000;
 
 function buildAgentAttentionRequestKey(threadId: ThreadId, requestId: ApprovalRequestId): string {
   return `${threadId}:${requestId}`;
@@ -82,8 +83,16 @@ function normalizeThreadTitle(title: string): string {
   return trimmed.length > 0 ? trimmed : "Untitled thread";
 }
 
+function normalizeNotificationText(text: string): string {
+  return text
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function truncateNotificationBody(text: string, maxLength = 160): string {
-  const trimmed = text.trim();
+  const trimmed = normalizeNotificationText(text);
   if (trimmed.length <= maxLength) {
     return trimmed;
   }
@@ -116,12 +125,27 @@ function findLatestAssistantCompletionMessage(thread: Thread): ChatMessage | nul
 
 function buildCompletionNotificationBody(thread: Thread): string {
   const assistantMessage = findLatestAssistantCompletionMessage(thread);
-  const text = assistantMessage?.text?.trim();
+  const text = assistantMessage?.text;
   if (text) {
     return truncateNotificationBody(text);
   }
 
   return "The agent finished working.";
+}
+
+function isCompletionNotificationEligible(thread: Thread): boolean {
+  const latestTurn = thread.latestTurn;
+  if (!latestTurn || latestTurn.state !== "completed" || !latestTurn.completedAt) {
+    return false;
+  }
+  const orchestrationStatus = thread.session?.orchestrationStatus;
+  if (orchestrationStatus === "starting" || orchestrationStatus === "running") {
+    return false;
+  }
+  if (thread.session?.activeTurnId) {
+    return false;
+  }
+  return true;
 }
 
 function buildReplyPlaceholder(question: UserInputQuestion): string | undefined {
@@ -234,13 +258,14 @@ export function deriveAgentAttentionRequests(
       });
     }
 
-    if (thread.latestTurn?.state === "completed" && thread.latestTurn.completedAt) {
+    if (isCompletionNotificationEligible(thread) && thread.latestTurn?.completedAt) {
+      const completedAt = thread.latestTurn.completedAt;
       requests.push({
-        key: buildCompletionAttentionRequestKey(thread.id, thread.latestTurn.completedAt),
+        key: buildCompletionAttentionRequestKey(thread.id, completedAt),
         threadId: thread.id,
         threadTitle,
         kind: "completion",
-        createdAt: thread.latestTurn.completedAt,
+        createdAt: completedAt,
         body: buildCompletionNotificationBody(thread),
         deepLink,
       });
@@ -343,22 +368,39 @@ export function collectAgentAttentionRequestsToNotify(input: {
   notifiedRequestKeys: ReadonlySet<string>;
   isAppFocused: boolean;
   notificationSessionStartedAt?: string;
+  historicalRequestThresholdMs?: number;
 }): AgentAttentionRequest[] {
   if (input.isAppFocused) {
     return [];
   }
+
+  const sessionStartedAtMs =
+    typeof input.notificationSessionStartedAt === "string"
+      ? Date.parse(input.notificationSessionStartedAt)
+      : Number.NaN;
+  const historicalRequestThresholdMs = Math.max(
+    0,
+    Math.floor(input.historicalRequestThresholdMs ?? DEFAULT_HISTORICAL_REQUEST_THRESHOLD_MS),
+  );
+  const staleRequestCutoffMs = Number.isNaN(sessionStartedAtMs)
+    ? Number.NaN
+    : sessionStartedAtMs - historicalRequestThresholdMs;
 
   return input.requests.filter((request) => {
     if (input.notifiedRequestKeys.has(request.key)) {
       return false;
     }
 
-    if (
-      request.kind === "completion" &&
-      input.notificationSessionStartedAt &&
-      request.createdAt < input.notificationSessionStartedAt
-    ) {
-      return false;
+    if (!Number.isNaN(sessionStartedAtMs)) {
+      const createdAtMs = Date.parse(request.createdAt);
+      if (!Number.isNaN(createdAtMs)) {
+        if (request.kind === "completion" && createdAtMs < sessionStartedAtMs) {
+          return false;
+        }
+        if (request.kind !== "completion" && createdAtMs < staleRequestCutoffMs) {
+          return false;
+        }
+      }
     }
 
     return true;

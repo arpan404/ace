@@ -460,6 +460,14 @@ function basenameOfCwd(path: string): string {
   return segments[segments.length - 1] || normalizedPath;
 }
 
+function compactShellLabel(label: string): string {
+  return label.replace(/\s+shell$/i, "").trim();
+}
+
+function labelsEqual(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
 function buildTerminalRowSubtitle(options: {
   cwd: string;
   displayLabel: string;
@@ -468,10 +476,25 @@ function buildTerminalRowSubtitle(options: {
 }): string {
   const location = basenameOfCwd(options.cwd);
   const status = options.isRunning ? "running" : "idle";
-  if (options.autoTitle && options.autoTitle !== options.displayLabel) {
-    return `${options.autoTitle} · ${location} · ${status}`;
+  const compactDisplayLabel = compactShellLabel(options.displayLabel);
+  const compactAutoTitle = options.autoTitle ? compactShellLabel(options.autoTitle) : null;
+  const subtitleParts: string[] = [];
+  if (
+    options.autoTitle &&
+    compactAutoTitle &&
+    !labelsEqual(compactAutoTitle, compactDisplayLabel)
+  ) {
+    subtitleParts.push(options.autoTitle);
   }
-  return `${location} · ${status}`;
+  if (
+    location.length > 0 &&
+    !labelsEqual(location, compactDisplayLabel) &&
+    (!compactAutoTitle || !labelsEqual(location, compactAutoTitle))
+  ) {
+    subtitleParts.push(location);
+  }
+  subtitleParts.push(status);
+  return subtitleParts.join(" · ");
 }
 
 function terminalColorClasses(color: TerminalColorName | null): string {
@@ -1315,6 +1338,20 @@ export default function ThreadTerminalDrawer({
       ),
     [autoTerminalTitlesById, customTerminalTitlesById, cwd, normalizedTerminalIds],
   );
+  const sidebarTerminalLabelById = useMemo(
+    () =>
+      new Map(
+        normalizedTerminalIds.map((terminalId) => {
+          const rawLabel = terminalLabelById.get(terminalId) ?? "shell";
+          if (customTerminalTitlesById[terminalId] || autoTerminalTitlesById[terminalId]) {
+            return [terminalId, rawLabel] as const;
+          }
+          const compactLabel = compactShellLabel(rawLabel);
+          return [terminalId, compactLabel.length > 0 ? compactLabel : rawLabel] as const;
+        }),
+      ),
+    [autoTerminalTitlesById, customTerminalTitlesById, normalizedTerminalIds, terminalLabelById],
+  );
   const terminalIconById = useMemo(
     () =>
       new Map(
@@ -1380,12 +1417,12 @@ export default function ThreadTerminalDrawer({
     return [
       {
         scope: "workspace" as const,
-        title: "Workspace shells",
+        title: "Workspace",
         groups: dedupeGroups(groupedTerminalGroups.workspace),
       },
       {
         scope: "thread" as const,
-        title: "Thread shells",
+        title: "Thread",
         groups: dedupeGroups(groupedTerminalGroups.thread),
       },
     ].filter((section) => section.groups.length > 0);
@@ -2170,10 +2207,12 @@ export default function ThreadTerminalDrawer({
                             : groupScope === "workspace"
                               ? "workspace shell"
                               : "thread shell";
+                        const showGroupHeader =
+                          showGroupHeaders && terminalGroup.terminalIds.length > 1;
 
                         return (
                           <div key={terminalGroup.id} className="pb-1.5">
-                            {showGroupHeaders && (
+                            {showGroupHeader && (
                               <button
                                 type="button"
                                 className={`mb-0.5 flex w-full items-center justify-between ${groupHeaderPaddingClass} text-left text-[10px] font-medium uppercase tracking-[0.1em] transition-colors duration-150 ${
@@ -2250,7 +2289,8 @@ export default function ThreadTerminalDrawer({
                               {terminalGroup.terminalIds.map((terminalId) => {
                                 const isActive = terminalId === resolvedActiveTerminalId;
                                 const isEditing = editingTerminalId === terminalId;
-                                const displayLabel = terminalLabelById.get(terminalId) ?? "shell";
+                                const displayLabel =
+                                  sidebarTerminalLabelById.get(terminalId) ?? "shell";
                                 const ordinal = terminalOrderById.get(terminalId) ?? groupIndex + 1;
                                 const isRunning = runningTerminalIds.includes(terminalId);
                                 const autoTitle = autoTerminalTitlesById[terminalId] ?? null;
@@ -2323,7 +2363,7 @@ export default function ThreadTerminalDrawer({
                                         terminalGroup.terminalIds.indexOf(terminalId)
                                     }
                                   >
-                                    {showGroupHeaders && (
+                                    {showGroupHeader && (
                                       <span className="text-[10px] text-muted-foreground">└</span>
                                     )}
                                     <span className="inline-flex min-w-4 shrink-0 items-center justify-center text-[9px] leading-none text-muted-foreground">

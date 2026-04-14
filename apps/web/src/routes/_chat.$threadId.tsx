@@ -196,7 +196,8 @@ function ChatThreadRouteView() {
   const routeThreadExists = threadExists || draftThreadExists;
   const diffOpen = search.diff === "1";
   const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY);
-  const [hydratingThreadId, setHydratingThreadId] = useState<ThreadId | null>(null);
+  const threadHydrationInFlightRef = useRef<ThreadId | null>(null);
+  const threadHydrationRequestIdRef = useRef(0);
   const threadHydrationFailureCountRef = useRef(0);
   const [threadHydrationRetryAt, setThreadHydrationRetryAt] = useState<number | null>(null);
   const [hasOpenedDiffPanel, setHasOpenedDiffPanel] = useState(diffOpen);
@@ -245,7 +246,8 @@ function ChatThreadRouteView() {
   useEffect(() => {
     threadHydrationFailureCountRef.current = 0;
     setThreadHydrationRetryAt(null);
-    setHydratingThreadId(null);
+    threadHydrationInFlightRef.current = null;
+    threadHydrationRequestIdRef.current += 1;
   }, [threadId]);
 
   useEffect(() => {
@@ -289,7 +291,7 @@ function ChatThreadRouteView() {
       !serverThread ||
       serverThread.historyLoaded !== false ||
       threadHydrationRetryAt !== null ||
-      hydratingThreadId === threadId
+      threadHydrationInFlightRef.current === threadId
     ) {
       return;
     }
@@ -304,7 +306,9 @@ function ChatThreadRouteView() {
     }
 
     let canceled = false;
-    setHydratingThreadId(threadId);
+    const requestId = threadHydrationRequestIdRef.current + 1;
+    threadHydrationRequestIdRef.current = requestId;
+    threadHydrationInFlightRef.current = threadId;
     void (async () => {
       try {
         const readModelThread = await hydrateThreadFromCache(threadId, {
@@ -326,20 +330,28 @@ function ChatThreadRouteView() {
           setThreadHydrationRetryAt(Date.now() + delayMs);
         }
       } finally {
-        if (!canceled) {
-          setHydratingThreadId((current) => (current === threadId ? null : current));
+        if (
+          requestId === threadHydrationRequestIdRef.current &&
+          threadHydrationInFlightRef.current === threadId
+        ) {
+          threadHydrationInFlightRef.current = null;
         }
       }
     })();
 
     return () => {
       canceled = true;
+      if (
+        requestId === threadHydrationRequestIdRef.current &&
+        threadHydrationInFlightRef.current === threadId
+      ) {
+        threadHydrationInFlightRef.current = null;
+      }
     };
   }, [
     bootstrapComplete,
     cachedHydratedThread,
     hydrateThreadFromReadModel,
-    hydratingThreadId,
     serverThread,
     threadHydrationRetryAt,
     threadId,

@@ -18,7 +18,7 @@ ace is a fast, minimal GUI for coding agents (Codex, Claude, GitHub Copilot, Cur
 ### 2. Run ace
 
 ```bash
-npx ace serve
+ace serve
 ```
 
 ## Local development

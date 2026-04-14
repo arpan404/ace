@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  CheckpointRef,
   EventId,
   MessageId,
   ProjectId,
   ThreadId,
   TurnId,
+  type OrchestrationEvent,
   type OrchestrationThread,
   type OrchestrationThreadActivity,
 } from "@ace/contracts";
@@ -12,6 +14,7 @@ import {
 import {
   applyThreadAttentionState,
   type BackgroundNotificationSettings,
+  shouldRefreshThreadAttentionForEvent,
 } from "./backgroundNotificationService";
 
 const DEFAULT_SETTINGS: BackgroundNotificationSettings = {
@@ -46,6 +49,7 @@ function makeThread(input: {
   activities?: ReadonlyArray<OrchestrationThreadActivity>;
   latestTurn?: OrchestrationThread["latestTurn"];
   messages?: OrchestrationThread["messages"];
+  session?: OrchestrationThread["session"];
 }): OrchestrationThread {
   return {
     id: ThreadId.makeUnsafe(input.id ?? "thread-1"),
@@ -71,9 +75,121 @@ function makeThread(input: {
     queuedSteerRequest: null,
     activities: input.activities ?? [],
     checkpoints: [],
-    session: null,
+    session: input.session ?? null,
   };
 }
+
+function makeEvent<T extends OrchestrationEvent["type"]>(
+  type: T,
+  payload: Extract<OrchestrationEvent, { type: T }>["payload"],
+  overrides: Partial<Extract<OrchestrationEvent, { type: T }>> = {},
+): Extract<OrchestrationEvent, { type: T }> {
+  const sequence = overrides.sequence ?? 1;
+  return {
+    sequence,
+    eventId: EventId.makeUnsafe(`event-${sequence}`),
+    aggregateKind: "thread",
+    aggregateId:
+      "threadId" in payload
+        ? payload.threadId
+        : "projectId" in payload
+          ? payload.projectId
+          : ProjectId.makeUnsafe("project-1"),
+    occurredAt: "2026-04-14T03:00:00.000Z",
+    commandId: null,
+    causationEventId: null,
+    correlationId: null,
+    metadata: {},
+    type,
+    payload,
+    ...overrides,
+  } as Extract<OrchestrationEvent, { type: T }>;
+}
+
+describe("shouldRefreshThreadAttentionForEvent", () => {
+  const threadId = ThreadId.makeUnsafe("thread-1");
+  const turnId = TurnId.makeUnsafe("turn-1");
+
+  it("ignores assistant message events, including non-streaming updates", () => {
+    expect(
+      shouldRefreshThreadAttentionForEvent(
+        makeEvent("thread.message-sent", {
+          threadId,
+          messageId: MessageId.makeUnsafe("message-stream"),
+          role: "assistant",
+          text: "partial",
+          turnId,
+          streaming: true,
+          createdAt: "2026-04-14T03:00:01.000Z",
+          updatedAt: "2026-04-14T03:00:01.000Z",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      shouldRefreshThreadAttentionForEvent(
+        makeEvent("thread.message-sent", {
+          threadId,
+          messageId: MessageId.makeUnsafe("message-final"),
+          role: "assistant",
+          text: "final chunk",
+          turnId,
+          streaming: false,
+          createdAt: "2026-04-14T03:00:02.000Z",
+          updatedAt: "2026-04-14T03:00:02.000Z",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("refreshes for attention-related activity events", () => {
+    expect(
+      shouldRefreshThreadAttentionForEvent(
+        makeEvent("thread.activity-appended", {
+          threadId,
+          activity: makeActivity({
+            id: "activity-approval",
+            kind: "approval.requested",
+            createdAt: "2026-04-14T03:01:00.000Z",
+            payload: {
+              requestId: "req-1",
+              requestKind: "command",
+            },
+          }),
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldRefreshThreadAttentionForEvent(
+        makeEvent("thread.activity-appended", {
+          threadId,
+          activity: makeActivity({
+            id: "activity-tool",
+            kind: "tool.started",
+            createdAt: "2026-04-14T03:01:01.000Z",
+            payload: {},
+          }),
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("refreshes for turn lifecycle events that affect completion notifications", () => {
+    expect(
+      shouldRefreshThreadAttentionForEvent(
+        makeEvent("thread.turn-diff-completed", {
+          threadId,
+          turnId,
+          checkpointTurnCount: 1,
+          checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
+          status: "ready",
+          files: [],
+          assistantMessageId: MessageId.makeUnsafe("message-final"),
+          completedAt: "2026-04-14T03:05:00.000Z",
+        }),
+      ),
+    ).toBe(true);
+  });
+});
 
 describe("applyThreadAttentionState", () => {
   it("emits completion notification when a turn completes in the background", () => {
@@ -135,6 +251,48 @@ describe("applyThreadAttentionState", () => {
       settings: DEFAULT_SETTINGS,
       notificationSessionStartedAt: "2026-04-14T03:00:00.000Z",
       isAppFocused: true,
+    });
+
+    expect(result.notify).toHaveLength(0);
+  });
+
+  it("does not emit completion notifications while the thread session is still running", () => {
+    const thread = makeThread({
+      latestTurn: {
+        turnId: TurnId.makeUnsafe("turn-active"),
+        state: "completed",
+        requestedAt: "2026-04-14T03:20:00.000Z",
+        startedAt: "2026-04-14T03:20:02.000Z",
+        completedAt: "2026-04-14T03:20:30.000Z",
+        assistantMessageId: MessageId.makeUnsafe("message-active"),
+      },
+      session: {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        status: "running",
+        providerName: "codex",
+        runtimeMode: "full-access",
+        activeTurnId: TurnId.makeUnsafe("turn-active"),
+        lastError: null,
+        updatedAt: "2026-04-14T03:20:30.000Z",
+      },
+      messages: [
+        {
+          id: MessageId.makeUnsafe("message-active"),
+          role: "assistant",
+          text: "Interim status update.",
+          turnId: TurnId.makeUnsafe("turn-active"),
+          createdAt: "2026-04-14T03:20:10.000Z",
+          updatedAt: "2026-04-14T03:20:30.000Z",
+          streaming: false,
+        },
+      ],
+    });
+
+    const result = applyThreadAttentionState({
+      thread,
+      settings: DEFAULT_SETTINGS,
+      notificationSessionStartedAt: "2026-04-14T03:00:00.000Z",
+      isAppFocused: false,
     });
 
     expect(result.notify).toHaveLength(0);

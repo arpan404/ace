@@ -761,6 +761,20 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     () => isElectron && resolveNotificationSettingsUrl() !== null,
     [],
   );
+  const hasAnyAgentAttentionNotificationsEnabled =
+    settings.notifyOnAgentCompletion ||
+    settings.notifyOnApprovalRequired ||
+    settings.notifyOnUserInputRequired;
+  const setAgentAttentionNotificationToggles = useCallback(
+    (enabled: boolean) => {
+      updateSettings({
+        notifyOnAgentCompletion: enabled,
+        notifyOnApprovalRequired: enabled,
+        notifyOnUserInputRequired: enabled,
+      });
+    },
+    [updateSettings],
+  );
   const notificationsPermissionDisabled =
     notificationPermission === "denied" || notificationPermission === "unsupported";
   const notificationPermissionDescription = useMemo(() => {
@@ -806,27 +820,14 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   }, []);
 
   useEffect(() => {
-    if (!notificationsPermissionDisabled) {
+    if (!notificationsPermissionDisabled || !hasAnyAgentAttentionNotificationsEnabled) {
       return;
     }
-    if (
-      !settings.notifyOnAgentCompletion &&
-      !settings.notifyOnApprovalRequired &&
-      !settings.notifyOnUserInputRequired
-    ) {
-      return;
-    }
-    updateSettings({
-      notifyOnAgentCompletion: false,
-      notifyOnApprovalRequired: false,
-      notifyOnUserInputRequired: false,
-    });
+    setAgentAttentionNotificationToggles(false);
   }, [
+    hasAnyAgentAttentionNotificationsEnabled,
     notificationsPermissionDisabled,
-    settings.notifyOnAgentCompletion,
-    settings.notifyOnApprovalRequired,
-    settings.notifyOnUserInputRequired,
-    updateSettings,
+    setAgentAttentionNotificationToggles,
   ]);
 
   const enableNotifications = useCallback(() => {
@@ -874,7 +875,9 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
           );
         })
         .then((opened) => {
-          if (opened === false) {
+          if (opened === true) {
+            setAgentAttentionNotificationToggles(true);
+          } else {
             if (canOpenNotificationSystemSettings) {
               toastManager.add({
                 type: "warning",
@@ -915,6 +918,9 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     void requestAgentAttentionNotificationPermission()
       .then((permission) => {
         setNotificationPermission(permission);
+        if (permission === "granted") {
+          setAgentAttentionNotificationToggles(true);
+        }
       })
       .catch((error: unknown) => {
         toastManager.add({
@@ -927,7 +933,11 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       .finally(() => {
         setIsUpdatingNotificationPermission(false);
       });
-  }, [canOpenNotificationSystemSettings]);
+  }, [canOpenNotificationSystemSettings, setAgentAttentionNotificationToggles]);
+
+  const disableNotifications = useCallback(() => {
+    setAgentAttentionNotificationToggles(false);
+  }, [setAgentAttentionNotificationToggles]);
 
   const openNotificationSettings = useCallback(() => {
     const targetUrl = resolveNotificationSettingsUrl();
@@ -1802,8 +1812,24 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               title="Permission"
               description={notificationPermissionDescription}
               control={
-                notificationPermission === "granted" ? null : notificationPermission ===
-                  "default" ? (
+                notificationPermission === "granted" ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isUpdatingNotificationPermission}
+                    onClick={
+                      hasAnyAgentAttentionNotificationsEnabled
+                        ? disableNotifications
+                        : enableNotifications
+                    }
+                  >
+                    {isUpdatingNotificationPermission
+                      ? "Updating..."
+                      : hasAnyAgentAttentionNotificationsEnabled
+                        ? "Disable notifications"
+                        : "Enable notifications"}
+                  </Button>
+                ) : notificationPermission === "default" ? (
                   <Button
                     size="sm"
                     variant="outline"

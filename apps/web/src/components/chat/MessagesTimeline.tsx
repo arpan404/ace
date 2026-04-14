@@ -732,6 +732,7 @@ function buildTimelineRows(input: {
   });
   let hasRenderableCurrentTurnOutput = false;
   let lastMessageBoundaryAt: string | null = null;
+  let activeTurnUserMessageCreatedAt: string | null = null;
   let pendingMetaRowId: string | null = null;
   let pendingMetaCreatedAt: string | null = null;
   let pendingMetaEntries: TimelineMetaGroupEntry[] = [];
@@ -897,6 +898,12 @@ function buildTimelineRows(input: {
     const durationStart = lastMessageBoundaryAt ?? timelineEntry.message.createdAt;
     if (timelineEntry.message.role === "user") {
       lastMessageBoundaryAt = timelineEntry.message.createdAt;
+      if (
+        Number.isNaN(activeTurnStartedAtMs) ||
+        isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
+      ) {
+        activeTurnUserMessageCreatedAt = timelineEntry.message.createdAt;
+      }
     }
 
     nextRows.push({
@@ -924,7 +931,8 @@ function buildTimelineRows(input: {
     flushPendingMetaEntries(null);
   }
 
-  const liveDurationStartAt = lastMessageBoundaryAt ?? input.activeTurnStartedAt;
+  const liveDurationStartAt =
+    activeTurnUserMessageCreatedAt ?? input.activeTurnStartedAt ?? lastMessageBoundaryAt;
 
   if (input.isWorking) {
     nextRows.push({

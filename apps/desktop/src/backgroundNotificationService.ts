@@ -30,6 +30,15 @@ const SNAPSHOT_REFRESH_INTERVAL_MS = 45_000;
 const SUBSCRIPTION_RETRY_DELAY_MS = 500;
 const SNAPSHOT_RECOVERY_MIN_INTERVAL_MS = 3_000;
 const NOTIFICATION_BODY_MAX_CHARS = 160;
+const THREAD_REFRESH_BURST_SNAPSHOT_THRESHOLD = 8;
+const ATTENTION_ACTIVITY_KINDS = new Set([
+  "approval.requested",
+  "approval.resolved",
+  "provider.approval.respond.failed",
+  "user-input.requested",
+  "user-input.resolved",
+  "provider.user-input.respond.failed",
+]);
 
 export interface BackgroundNotificationSettings {
   readonly notifyOnAgentCompletion: boolean;
@@ -91,6 +100,22 @@ export interface DesktopBackgroundNotificationService {
   readonly stop: () => Promise<void>;
 }
 
+export function shouldRefreshThreadAttentionForEvent(event: OrchestrationEvent): boolean {
+  switch (event.type) {
+    case "thread.activity-appended":
+      return ATTENTION_ACTIVITY_KINDS.has(event.payload.activity.kind);
+    case "thread.turn-start-requested":
+    case "thread.turn-interrupt-requested":
+    case "thread.session-stop-requested":
+    case "thread.session-set":
+    case "thread.turn-diff-completed":
+    case "thread.reverted":
+      return true;
+    default:
+      return false;
+  }
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
@@ -115,8 +140,16 @@ function normalizeThreadTitle(title: string): string {
   return trimmed.length > 0 ? trimmed : "Untitled thread";
 }
 
+function normalizeNotificationText(value: string): string {
+  return value
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function truncateNotificationBody(value: string, maxLength = NOTIFICATION_BODY_MAX_CHARS): string {
-  const trimmed = value.trim();
+  const trimmed = normalizeNotificationText(value);
   if (trimmed.length <= maxLength) {
     return trimmed;
   }
@@ -310,6 +343,20 @@ function findLatestAssistantCompletionMessage(thread: OrchestrationThread): stri
   return null;
 }
 
+function isCompletionNotificationEligible(thread: OrchestrationThread): boolean {
+  const latestTurn = thread.latestTurn;
+  if (!latestTurn || latestTurn.state !== "completed" || !latestTurn.completedAt) {
+    return false;
+  }
+  if (thread.session?.status === "running" || thread.session?.status === "starting") {
+    return false;
+  }
+  if (thread.session?.activeTurnId) {
+    return false;
+  }
+  return true;
+}
+
 function resolveBackgroundNotificationSettings(
   settings: ServerSettings,
 ): BackgroundNotificationSettings {
@@ -365,7 +412,9 @@ export function applyThreadAttentionState(
   }
 
   const completionAt =
-    input.thread.latestTurn?.state === "completed" ? input.thread.latestTurn.completedAt : null;
+    isCompletionNotificationEligible(input.thread) && input.thread.latestTurn?.completedAt
+      ? input.thread.latestTurn.completedAt
+      : null;
   const previousCompletionAt = previousState?.notifiedCompletionAt ?? null;
   if (previousCompletionAt && previousCompletionAt !== completionAt) {
     closeNotificationIds.push(buildCompletionNotificationKey(threadId, previousCompletionAt));
@@ -688,6 +737,10 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
       return;
     }
 
+    if (!shouldRefreshThreadAttentionForEvent(event)) {
+      return;
+    }
+
     this.queueThreadRefresh(threadId);
   }
 
@@ -713,6 +766,13 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
   private async flushQueuedThreadRefreshes(): Promise<void> {
     const threadIds = [...this.pendingRefreshThreadIds];
     this.pendingRefreshThreadIds = new Set<string>();
+    if (threadIds.length === 0) {
+      return;
+    }
+    if (threadIds.length >= THREAD_REFRESH_BURST_SNAPSHOT_THRESHOLD) {
+      await this.refreshSettingsAndSnapshot("thread-refresh-burst");
+      return;
+    }
     for (const threadId of threadIds) {
       if (this.stopped) {
         return;
