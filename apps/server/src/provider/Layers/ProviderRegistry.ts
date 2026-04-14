@@ -3,6 +3,7 @@
  *
  * @module ProviderRegistryLive
  */
+import { freemem, totalmem } from "node:os";
 import type { ProviderKind, ServerProvider } from "@ace/contracts";
 import { Effect, Equal, Layer, PubSub, Ref, Stream } from "effect";
 
@@ -35,6 +36,26 @@ const PROVIDER_LABEL_BY_KIND: Record<ProviderKind, string> = {
   gemini: "Gemini",
   opencode: "OpenCode",
 };
+
+const PROVIDER_MANUAL_REFRESH_PARALLEL_CONCURRENCY = 3;
+const PROVIDER_MANUAL_REFRESH_MIN_FREE_MEMORY_BYTES = 6 * 1024 * 1024 * 1024;
+const PROVIDER_MANUAL_REFRESH_MIN_FREE_MEMORY_RATIO = 0.2;
+const PROVIDER_MANUAL_REFRESH_MAX_PROCESS_RSS_BYTES = 1_500 * 1024 * 1024;
+
+function resolveManualRefreshAllConcurrency(): number {
+  const freeMemoryBytes = freemem();
+  const totalMemoryBytes = totalmem();
+  const processRssBytes = process.memoryUsage().rss;
+  if (
+    processRssBytes > PROVIDER_MANUAL_REFRESH_MAX_PROCESS_RSS_BYTES ||
+    freeMemoryBytes < PROVIDER_MANUAL_REFRESH_MIN_FREE_MEMORY_BYTES ||
+    totalMemoryBytes <= 0 ||
+    freeMemoryBytes / totalMemoryBytes < PROVIDER_MANUAL_REFRESH_MIN_FREE_MEMORY_RATIO
+  ) {
+    return 1;
+  }
+  return PROVIDER_MANUAL_REFRESH_PARALLEL_CONCURRENCY;
+}
 
 export function fallbackProviderSnapshot(
   provider: ProviderKind,
@@ -274,19 +295,22 @@ export const ProviderRegistryLive = Layer.effect(
           yield* openCodeProvider.refresh;
           break;
         default:
-          yield* Effect.all(
-            [
-              codexProvider.refresh,
-              claudeProvider.refresh,
-              gitHubCopilotProvider.refresh,
-              cursorProvider.refresh,
-              geminiProvider.refresh,
-              openCodeProvider.refresh,
-            ],
-            {
-              concurrency: 1,
-            },
-          );
+          {
+            const concurrency = resolveManualRefreshAllConcurrency();
+            yield* Effect.all(
+              [
+                codexProvider.refresh,
+                claudeProvider.refresh,
+                gitHubCopilotProvider.refresh,
+                cursorProvider.refresh,
+                geminiProvider.refresh,
+                openCodeProvider.refresh,
+              ],
+              {
+                concurrency,
+              },
+            );
+          }
           break;
       }
       return yield* syncProviders();
