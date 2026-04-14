@@ -5,6 +5,7 @@ import * as Readline from "node:readline/promises";
 
 import pc from "picocolors";
 import { WS_METHODS, type ServerRuntimeProfile } from "@ace/contracts";
+import { normalizeWsUrl } from "@ace/shared/hostConnections";
 import { NetService } from "@ace/shared/Net";
 import { createWsRpcProtocolLayer, makeWsRpcProtocolClient } from "@ace/shared/wsRpcProtocol";
 import {
@@ -61,7 +62,6 @@ import {
   sampleProcessTable,
   type ProcessProfileSample,
 } from "./processProfile";
-import { runServer } from "./server";
 import { version as serverPackageVersion } from "../package.json" with { type: "json" };
 
 const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }));
@@ -525,7 +525,7 @@ function withPromiseTimeout<T>(input: {
 }
 
 async function createRuntimeProfileWsClient(wsUrl: string): Promise<RuntimeProfileWsClient> {
-  const runtime = ManagedRuntime.make(createWsRpcProtocolLayer({ target: wsUrl }));
+  const runtime = ManagedRuntime.make(createWsRpcProtocolLayer({ target: normalizeWsUrl(wsUrl) }));
   const scope = runtime.runSync(Scope.make());
   try {
     const client = await withPromiseTimeout({
@@ -1005,6 +1005,28 @@ const startDaemonAndPersistState = Effect.fn("startDaemonAndPersistState")(funct
   return state;
 });
 
+const streamDaemonLogs = (logPath: string): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const fs = yield* Effect.promise(() => import("node:fs"));
+    const rl = Readline.createInterface({
+      input: fs.createReadStream(logPath),
+      crlfDelay: Infinity,
+    });
+
+    const promise = new Promise<void>((resolve) => {
+      rl.on("line", (line) => {
+        process.stdout.write(line + "\n");
+      });
+      rl.on("close", () => resolve());
+      rl.on("error", (err) => {
+        process.stderr.write(`Log stream error: ${err.message}\n`);
+        resolve();
+      });
+    });
+
+    return yield* Effect.promise(() => promise);
+  });
+
 const serveCommand = Command.make("serve", {
   ...serveCommandFlags,
   workspaceRoot: openWorkspaceArgument,
@@ -1014,7 +1036,22 @@ const serveCommand = Command.make("serve", {
     Effect.gen(function* () {
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveServerConfig(flags, logLevel, workspaceRoot);
-      return yield* runServer.pipe(Effect.provideService(ServerConfig, config));
+      const baseDir = config.baseDir;
+
+      const existingState = yield* readDaemonState(baseDir);
+
+      if (Option.isSome(existingState)) {
+        const probe = yield* probeDaemonState(existingState.value);
+        if (probe.healthy) {
+          yield* writeStdout(`${pc.green("Connecting to existing daemon...")}\n`);
+          return yield* streamDaemonLogs(existingState.value.serverLogPath);
+        }
+      }
+
+      yield* writeStdout(`${pc.yellow("No daemon found, starting one...")}\n`);
+      const state = yield* startDaemonAndPersistState({ config });
+      yield* writeStdout(`${pc.green("Daemon started")} pid=${String(state.pid)} ${state.wsUrl}\n`);
+      return yield* streamDaemonLogs(state.serverLogPath);
     }),
   ),
 );
@@ -1416,24 +1453,10 @@ const profileCommand = Command.make("profile", {
         const cpuCoreCount = Math.max(1, Os.cpus().length);
         const runtimeProfileWsUrl = target.daemonState?.wsUrl;
         let runtimeProfileClient: RuntimeProfileWsClient | null = null;
-        let runtimeProfileUnavailableReason: string | null = null;
-        if (runtimeProfileWsUrl) {
-          runtimeProfileClient = yield* Effect.tryPromise({
-            try: () => createRuntimeProfileWsClient(runtimeProfileWsUrl),
-            catch: (cause) =>
-              new DaemonCommandError({
-                message: "Failed to connect to daemon runtime profile RPC endpoint.",
-                cause,
-              }),
-          }).pipe(
-            Effect.catch((error) =>
-              Effect.sync(() => {
-                runtimeProfileUnavailableReason = formatErrorMessage(error);
-                return null as RuntimeProfileWsClient | null;
-              }),
-            ),
-          );
-        }
+        let runtimeProfileUnavailableReason: string | null =
+          runtimeProfileWsUrl === undefined
+            ? "Runtime profile RPC is unavailable for this profile target."
+            : null;
 
         yield* Effect.addFinalizer(() => {
           const client = runtimeProfileClient;
@@ -1482,6 +1505,24 @@ const profileCommand = Command.make("profile", {
               });
             }
             return yield* writeStdout(`${pc.yellow(message)}\n`);
+          }
+
+          if (runtimeProfileClient === null && runtimeProfileWsUrl) {
+            runtimeProfileClient = yield* Effect.tryPromise({
+              try: () => createRuntimeProfileWsClient(runtimeProfileWsUrl),
+              catch: (cause) =>
+                new DaemonCommandError({
+                  message: "Failed to connect to daemon runtime profile RPC endpoint.",
+                  cause,
+                }),
+            }).pipe(
+              Effect.catch((error) =>
+                Effect.sync(() => {
+                  runtimeProfileUnavailableReason = formatErrorMessage(error);
+                  return null as RuntimeProfileWsClient | null;
+                }),
+              ),
+            );
           }
 
           let runtimeProfile: ServerRuntimeProfile | null = null;
@@ -1566,11 +1607,20 @@ const rootBannerLines = [
   "╚═╝  ╚═╝ ╚═════╝╚══════╝",
 ] as const;
 
-const rootBannerPalette = [pc.cyan, pc.blue, pc.magenta, pc.blue] as const;
+const BANNER_WIDTH = 26;
+
+const centerBannerLine = (line: string): string => {
+  const padding = BANNER_WIDTH - line.length;
+  const leftPad = Math.floor(padding / 2);
+  return " ".repeat(leftPad) + line;
+};
+
+const rootBannerPalette = [pc.white, pc.gray, pc.white, pc.gray, pc.white, pc.gray] as const;
 
 const colorizeRootBannerLine = (line: string, index: number): string => {
   const color = rootBannerPalette[index % rootBannerPalette.length] ?? pc.cyan;
-  return pc.bold(color(line));
+  const centered = centerBannerLine(line);
+  return index % 2 === 0 ? pc.bold(color(centered)) : color(centered);
 };
 
 export const formatRootCliBanner = (): string =>
@@ -1578,7 +1628,7 @@ export const formatRootCliBanner = (): string =>
 
 const formatRootCliGuide = (): string =>
   [
-    `${pc.bold("ace CLI")} ${pc.dim("unified local + remote control")}`,
+    `${pc.bold("ace CLI")}`,
     `${pc.bold("Quick start")}`,
     `  ${pc.cyan("ace serve")}              run server in foreground`,
     `  ${pc.cyan("ace --profile")}          live ace-specific process/memory profiler`,
