@@ -431,11 +431,14 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 ? getProviderSnapshot(props.providers, option.value)
                 : undefined;
               if (liveProvider && liveProvider.status !== "ready") {
+                const messageLower = liveProvider.message?.toLowerCase() ?? "";
                 const unavailableLabel = !liveProvider.enabled
                   ? "Disabled"
-                  : !liveProvider.installed
-                    ? "Not installed"
-                    : "Unavailable";
+                  : messageLower.startsWith("checking ")
+                    ? "Checking"
+                    : !liveProvider.installed
+                      ? "Not installed"
+                      : "Unavailable";
                 return (
                   <MenuItem key={option.value} disabled>
                     <OptionIcon

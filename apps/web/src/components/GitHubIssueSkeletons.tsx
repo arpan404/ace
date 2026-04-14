@@ -2,6 +2,7 @@
 
 import { cn } from "~/lib/utils";
 import { Skeleton } from "./ui/skeleton";
+import { Spinner } from "./ui/spinner";
 
 export function GitHubIssueListSkeleton({
   count = 8,
@@ -115,11 +116,10 @@ export function GitHubIssuePreviewHeaderSkeleton({ issueNumber }: { issueNumber:
 export function ThreadHistoryLoadingNotice() {
   return (
     <div className="sticky top-0 z-10 mb-3 flex justify-center">
-      <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-card/95 px-3 py-1.5 shadow-sm backdrop-blur-sm">
-        <Skeleton className="size-2.5 rounded-full" />
-        <Skeleton className="h-2.5 w-28 rounded-full" />
-        <Skeleton className="hidden h-2.5 w-16 rounded-full sm:block" />
-        <span className="sr-only">Loading full history</span>
+      <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-card/95 px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm">
+        <Spinner className="size-3 text-primary" />
+        <span>Restoring conversation...</span>
+        <span className="hidden text-muted-foreground/70 sm:inline">syncing missing messages</span>
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 
 import { APP_DISPLAY_NAME } from "../branding";
 import {
+  buildAgentAttentionDesktopNotificationInput,
   buildAgentAttentionNotificationCopy,
   collectAgentAttentionRequestsToNotify,
   deriveAgentAttentionRequests,
@@ -250,6 +251,67 @@ export function AgentAttentionNotificationBridge() {
         });
     });
   }, [desktopNotificationBridge, navigate]);
+
+  useEffect(() => {
+    if (!desktopNotificationBridge) {
+      return;
+    }
+
+    let canceled = false;
+    for (const request of collectAgentAttentionRequestsToNotify({
+      requests: attentionRequests,
+      notifiedRequestKeys: notifiedRequestKeysRef.current,
+      isAppFocused,
+      notificationSessionStartedAt: notificationSessionStartedAtRef.current,
+    })) {
+      void desktopNotificationBridge
+        .showNotification(buildAgentAttentionDesktopNotificationInput(request))
+        .then((shown) => {
+          if (canceled) {
+            return;
+          }
+          if (shown) {
+            activeDesktopNotificationIdsRef.current.add(request.key);
+            notifiedRequestKeysRef.current.add(request.key);
+            failedDesktopNotificationRequestKeysRef.current.delete(request.key);
+            return;
+          }
+
+          activeDesktopNotificationIdsRef.current.delete(request.key);
+          if (failedDesktopNotificationRequestKeysRef.current.has(request.key)) {
+            return;
+          }
+          failedDesktopNotificationRequestKeysRef.current.add(request.key);
+          toastManager.add({
+            type: "warning",
+            title: "Unable to send desktop notification",
+            description:
+              "Desktop notifications may be blocked by operating system settings for this app.",
+          });
+        })
+        .catch((error: unknown) => {
+          if (canceled) {
+            return;
+          }
+          if (failedDesktopNotificationRequestKeysRef.current.has(request.key)) {
+            return;
+          }
+          failedDesktopNotificationRequestKeysRef.current.add(request.key);
+          toastManager.add({
+            type: "error",
+            title: "Unable to send desktop notification",
+            description: describeNotificationError(
+              error,
+              "Unknown error creating a desktop notification.",
+            ),
+          });
+        });
+    }
+
+    return () => {
+      canceled = true;
+    };
+  }, [attentionRequests, desktopNotificationBridge, isAppFocused]);
 
   useEffect(() => {
     if (desktopNotificationBridge) {

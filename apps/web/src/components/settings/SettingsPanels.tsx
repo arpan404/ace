@@ -826,15 +826,47 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       const bridge = window.desktopBridge;
       const probeId = `ace-notification-permission-probe:${Date.now().toString(36)}`;
       setIsUpdatingNotificationPermission(true);
-      void (
-        bridge?.showNotification({
-          id: probeId,
-          title: "ace notifications",
-          body: "You'll get alerts when agent work completes or needs input.",
-        }) ?? Promise.resolve(false)
-      )
+      const permissionRequest =
+        typeof bridge?.requestNotificationPermission === "function"
+          ? bridge.requestNotificationPermission()
+          : requestAgentAttentionNotificationPermission();
+      void permissionRequest
+        .then((permission) => {
+          setNotificationPermission(permission);
+          if (permission === "denied") {
+            if (canOpenNotificationSystemSettings) {
+              toastManager.add({
+                type: "warning",
+                title: "Notifications blocked by system settings",
+                description: "Open system settings and allow notifications for ace.",
+              });
+            } else {
+              toastManager.add({
+                type: "warning",
+                title: "Notifications blocked",
+                description: "Enable OS notifications for ace in system settings.",
+              });
+            }
+            return false;
+          }
+          if (permission === "unsupported") {
+            toastManager.add({
+              type: "warning",
+              title: "Notifications unavailable",
+              description: "This runtime does not support desktop notifications.",
+            });
+            return false;
+          }
+          return (
+            bridge?.showNotification({
+              id: probeId,
+              title: "ace notifications",
+              body: "You'll get alerts when agent work completes or needs input.",
+            }) ?? Promise.resolve(false)
+          );
+        })
         .then((opened) => {
-          if (!opened) {
+          if (opened === false) {
             if (canOpenNotificationSystemSettings) {
               toastManager.add({
                 type: "warning",
@@ -853,10 +885,18 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             void bridge
               .getNotificationPermission()
               .then((permission) => setNotificationPermission(permission))
-              .catch(() => setNotificationPermission("unsupported"));
-          } else {
-            setNotificationPermission("unsupported");
+              .catch(() => {
+                // Keep the renderer-derived permission state when desktop introspection fails.
+              });
           }
+        })
+        .catch((error: unknown) => {
+          toastManager.add({
+            type: "error",
+            title: "Unable to request notification permission",
+            description:
+              error instanceof Error ? error.message : "Unknown notification permission error.",
+          });
         })
         .finally(() => {
           setIsUpdatingNotificationPermission(false);

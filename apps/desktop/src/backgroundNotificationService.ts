@@ -28,6 +28,7 @@ const APPROVAL_COPY_BY_KIND: Record<PendingApproval["requestKind"], string> = {
 const THREAD_REFRESH_DEBOUNCE_MS = 120;
 const SNAPSHOT_REFRESH_INTERVAL_MS = 45_000;
 const SUBSCRIPTION_RETRY_DELAY_MS = 500;
+const SNAPSHOT_RECOVERY_MIN_INTERVAL_MS = 3_000;
 const NOTIFICATION_BODY_MAX_CHARS = 160;
 
 export interface BackgroundNotificationSettings {
@@ -477,6 +478,8 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
     notifyOnApprovalRequired: true,
     notifyOnUserInputRequired: true,
   };
+  private snapshotRecoveryInFlight = false;
+  private lastSnapshotRecoveryAtMs = 0;
   private stopped = false;
 
   constructor(input: DesktopBackgroundNotificationServiceInput) {
@@ -531,6 +534,8 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
       unsubscribe();
     }
     this.pendingRefreshThreadIds = new Set<string>();
+    this.snapshotRecoveryInFlight = false;
+    this.lastSnapshotRecoveryAtMs = 0;
 
     const runtime = this.runtime;
     const clientScope = this.clientScope;
@@ -594,6 +599,7 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
             return Effect.interrupt;
           }
           this.log(`notification service subscription disconnected: ${formatErrorMessage(error)}`);
+          this.triggerSnapshotRecovery("subscription-recovery");
           return Effect.sleep(Duration.millis(SUBSCRIPTION_RETRY_DELAY_MS));
         }),
         Effect.forever,
@@ -641,6 +647,21 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
         `notification service snapshot refresh failed (${reason}): ${formatErrorMessage(error)}`,
       );
     }
+  }
+
+  private triggerSnapshotRecovery(reason: string): void {
+    if (this.stopped || this.snapshotRecoveryInFlight) {
+      return;
+    }
+    const now = Date.now();
+    if (now - this.lastSnapshotRecoveryAtMs < SNAPSHOT_RECOVERY_MIN_INTERVAL_MS) {
+      return;
+    }
+    this.lastSnapshotRecoveryAtMs = now;
+    this.snapshotRecoveryInFlight = true;
+    void this.refreshSettingsAndSnapshot(reason).finally(() => {
+      this.snapshotRecoveryInFlight = false;
+    });
   }
 
   private handleServerConfigEvent(event: ServerConfigStreamEvent): void {
@@ -710,11 +731,7 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
       this.log(
         `notification service thread refresh failed thread=${threadId}: ${formatErrorMessage(error)}`,
       );
-      const previousState = this.threadStateById.get(threadId);
-      if (previousState) {
-        this.closeTrackedThreadNotifications(threadId, previousState);
-        this.threadStateById.delete(threadId);
-      }
+      this.triggerSnapshotRecovery(`thread-refresh-failed:${threadId}`);
     }
   }
 

@@ -141,11 +141,13 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     `Loading ${providerLabel} provider settings`,
     input.getSettings,
   );
-  const initialSnapshot = yield* readCachedSnapshot(initialSettings).pipe(
-    Effect.map(Option.getOrElse(() => input.initialSnapshot(initialSettings))),
+  const cachedInitialSnapshot = yield* readCachedSnapshot(initialSettings);
+  const initialSnapshot = Option.getOrElse(cachedInitialSnapshot, () =>
+    input.initialSnapshot(initialSettings),
   );
   const snapshotRef = yield* Ref.make(initialSnapshot);
   const settingsRef = yield* Ref.make(initialSettings);
+  const hasVerifiedSnapshotRef = yield* Ref.make(Option.isSome(cachedInitialSnapshot));
 
   const runHealthCheck = withStartupTiming(
     "providers",
@@ -166,7 +168,12 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   ) {
     const forceRefresh = options?.forceRefresh === true;
     const previousSettings = yield* Ref.get(settingsRef);
-    if (!forceRefresh && !input.haveSettingsChanged(previousSettings, nextSettings)) {
+    const hasVerifiedSnapshot = yield* Ref.get(hasVerifiedSnapshotRef);
+    if (
+      !forceRefresh &&
+      hasVerifiedSnapshot &&
+      !input.haveSettingsChanged(previousSettings, nextSettings)
+    ) {
       yield* Ref.set(settingsRef, nextSettings);
       return yield* Ref.get(snapshotRef);
     }
@@ -174,6 +181,7 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     const nextSnapshot = yield* runHealthCheck;
     yield* Ref.set(settingsRef, nextSettings);
     yield* Ref.set(snapshotRef, nextSnapshot);
+    yield* Ref.set(hasVerifiedSnapshotRef, true);
     yield* PubSub.publish(changesPubSub, nextSnapshot);
     yield* writeCachedSnapshot(nextSettings, nextSnapshot);
     return nextSnapshot;

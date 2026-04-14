@@ -101,6 +101,7 @@ const GET_IS_DEVELOPMENT_BUILD_CHANNEL = "desktop:get-is-development-build";
 const GET_WINDOW_SHOWN_AT_CHANNEL = "desktop:get-window-shown-at";
 const GET_TITLEBAR_LEFT_INSET_CHANNEL = "desktop:get-titlebar-left-inset";
 const GET_NOTIFICATION_PERMISSION_CHANNEL = "desktop:get-notification-permission";
+const REQUEST_NOTIFICATION_PERMISSION_CHANNEL = "desktop:request-notification-permission";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
 const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
@@ -389,6 +390,10 @@ function closeDesktopNotification(id: string): boolean {
 }
 
 function showDesktopNotification(input: DesktopNotificationInput): boolean {
+  const permission = getDesktopNotificationPermission();
+  if (permission === "denied" || permission === "unsupported") {
+    return false;
+  }
   if (!ElectronNotification.isSupported()) {
     return false;
   }
@@ -441,6 +446,35 @@ function showDesktopNotification(input: DesktopNotificationInput): boolean {
   }
 }
 
+function mapDesktopNotificationPermissionState(
+  rawState: string,
+): DesktopNotificationPermission | null {
+  const normalized = rawState.trim().toLowerCase();
+  if (
+    normalized === "granted" ||
+    normalized === "authorized" ||
+    normalized === "ephemeral" ||
+    normalized === "enabled"
+  ) {
+    return "granted";
+  }
+  if (normalized === "denied" || normalized === "disabled") {
+    return "denied";
+  }
+  if (
+    normalized === "default" ||
+    normalized === "not-determined" ||
+    normalized === "provisional" ||
+    normalized === "unknown"
+  ) {
+    return "default";
+  }
+  if (normalized === "notsupported" || normalized === "not-supported") {
+    return "unsupported";
+  }
+  return null;
+}
+
 function getDesktopNotificationPermission(): DesktopNotificationPermission {
   if (!ElectronNotification.isSupported()) {
     return "unsupported";
@@ -448,31 +482,57 @@ function getDesktopNotificationPermission(): DesktopNotificationPermission {
 
   if (process.platform === "darwin" || process.platform === "win32") {
     const notificationStateProvider = systemPreferences as unknown as {
-      getNotificationState?: (appId: string) => string;
+      getNotificationState?: (...args: string[]) => string;
     };
     const readNotificationState = notificationStateProvider.getNotificationState;
     if (typeof readNotificationState === "function") {
+      const resolveState = (rawState: string | null): DesktopNotificationPermission | null =>
+        rawState ? mapDesktopNotificationPermissionState(rawState) : null;
       try {
-        const state = readNotificationState(APP_USER_MODEL_ID);
-        if (state === "granted" || state === "authorized" || state === "ephemeral") {
-          return "granted";
-        }
-        if (state === "denied") {
-          return "denied";
-        }
-        if (state === "notSupported") {
-          return "unsupported";
-        }
-        if (state === "default" || state === "not-determined" || state === "provisional") {
-          return "default";
+        const globalState = resolveState(readNotificationState());
+        if (globalState) {
+          return globalState;
         }
       } catch {
-        // Fall through to supported default when OS-level state cannot be read.
+        // Fall through and try app-scoped state.
       }
+      try {
+        const appScopedState = resolveState(readNotificationState(APP_USER_MODEL_ID));
+        if (appScopedState) {
+          return appScopedState;
+        }
+      } catch {
+        // Fall through to platform defaults when OS-level state cannot be read.
+      }
+    }
+
+    // On macOS, treat unknown state conservatively so the UI can still prompt/check.
+    if (process.platform === "darwin") {
+      return "default";
     }
   }
 
   return "granted";
+}
+
+async function requestDesktopNotificationPermission(): Promise<DesktopNotificationPermission> {
+  const initialPermission = getDesktopNotificationPermission();
+  if (initialPermission !== "default") {
+    return initialPermission;
+  }
+
+  const probeNotificationId = `ace-notification-permission-request:${Date.now().toString(36)}`;
+  showDesktopNotification({
+    id: probeNotificationId,
+    title: "ace notifications",
+    body: "Enable notifications to get alerts when agent work completes or needs input.",
+  });
+
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 300);
+  });
+  closeDesktopNotification(probeNotificationId);
+  return getDesktopNotificationPermission();
 }
 
 function resolveBrowserShortcutAction(input: Electron.Input): BrowserShortcutAction | null {
@@ -2044,6 +2104,11 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(GET_NOTIFICATION_PERMISSION_CHANNEL);
   ipcMain.handle(GET_NOTIFICATION_PERMISSION_CHANNEL, async () =>
     getDesktopNotificationPermission(),
+  );
+
+  ipcMain.removeHandler(REQUEST_NOTIFICATION_PERMISSION_CHANNEL);
+  ipcMain.handle(REQUEST_NOTIFICATION_PERMISSION_CHANNEL, async () =>
+    requestDesktopNotificationPermission(),
   );
 
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);

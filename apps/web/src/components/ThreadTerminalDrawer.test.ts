@@ -15,37 +15,35 @@ describe("buildTerminalContextMenuItems", () => {
   it("includes VS Code-style terminal actions and disables split at the group limit", () => {
     expect(
       buildTerminalContextMenuItems({
-        label: "bun dev",
         canSplit: false,
         hasCustomTitle: false,
       }),
     ).toEqual([
       { id: "split", label: "Split Terminal", disabled: true },
       { id: "new", label: "New Terminal" },
-      { id: "duplicate", label: "Duplicate bun dev" },
-      { id: "rename", label: "Rename bun dev" },
-      { id: "clear", label: "Clear bun dev" },
-      { id: "restart", label: "Restart bun dev" },
-      { id: "close", label: "Close bun dev", destructive: true },
+      { id: "duplicate", label: "Duplicate Terminal" },
+      { id: "rename", label: "Rename Terminal" },
+      { id: "clear", label: "Clear Terminal" },
+      { id: "restart", label: "Restart Terminal" },
+      { id: "close", label: "Close Terminal", destructive: true },
     ]);
   });
 
   it("adds reset title when the terminal has a custom name", () => {
     expect(
       buildTerminalContextMenuItems({
-        label: "Workspace shell",
         canSplit: true,
         hasCustomTitle: true,
       }),
     ).toEqual([
       { id: "split", label: "Split Terminal", disabled: false },
       { id: "new", label: "New Terminal" },
-      { id: "duplicate", label: "Duplicate Workspace shell" },
-      { id: "rename", label: "Rename Workspace shell" },
+      { id: "duplicate", label: "Duplicate Terminal" },
+      { id: "rename", label: "Rename Terminal" },
       { id: "reset-title", label: "Reset Title" },
-      { id: "clear", label: "Clear Workspace shell" },
-      { id: "restart", label: "Restart Workspace shell" },
-      { id: "close", label: "Close Workspace shell", destructive: true },
+      { id: "clear", label: "Clear Terminal" },
+      { id: "restart", label: "Restart Terminal" },
+      { id: "close", label: "Close Terminal", destructive: true },
     ]);
   });
 });
@@ -93,11 +91,21 @@ describe("buildTerminalColorMenuItems", () => {
 });
 
 describe("buildTerminalSectionMenuItems", () => {
-  it("includes bulk terminal actions", () => {
-    expect(buildTerminalSectionMenuItems()).toEqual([
+  it("includes scoped creation and bulk terminal actions", () => {
+    expect(buildTerminalSectionMenuItems({ hasWorkspaceScope: true })).toEqual([
+      { id: "new-thread-shell", label: "New Thread Shell" },
+      { id: "new-workspace-shell", label: "New Workspace Shell", disabled: false },
       { id: "clear-all", label: "Clear All Terminals" },
       { id: "close-all", label: "Kill All Terminals", destructive: true },
     ]);
+  });
+
+  it("disables workspace shell creation when no project scope exists", () => {
+    expect(buildTerminalSectionMenuItems({ hasWorkspaceScope: false })[1]).toEqual({
+      id: "new-workspace-shell",
+      label: "New Workspace Shell",
+      disabled: true,
+    });
   });
 });
 

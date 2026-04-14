@@ -62,6 +62,8 @@ import { type OpenCodeAdapterShape, OpenCodeAdapter } from "../Services/OpenCode
 
 const PROVIDER = "opencode" as const;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
+const DEFAULT_OPENCODE_IDLE_SESSION_TTL_MS = 5 * 60_000;
+const MIN_OPENCODE_IDLE_SESSION_TTL_MS = 15_000;
 
 const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationError);
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
@@ -113,6 +115,8 @@ type OpenCodeSessionContext = {
   readonly partById: Map<string, OpenCodeSdkPart>;
   readonly emittedAssistantTextLengthByPartId: Map<string, number>;
   sseAbort: AbortController | null;
+  idleStopTimer: ReturnType<typeof setTimeout> | null;
+  lastActivityAtMs: number;
   pendingBootstrapReset: boolean;
   stopped: boolean;
 };
@@ -177,21 +181,63 @@ async function stopContext(ctx: OpenCodeSessionContext): Promise<void> {
     return;
   }
   ctx.stopped = true;
+  if (ctx.idleStopTimer !== null) {
+    clearTimeout(ctx.idleStopTimer);
+    ctx.idleStopTimer = null;
+  }
   ctx.sseAbort?.abort();
+  ctx.sseAbort = null;
 
-  const deleted = await ctx.client.session.delete({
-    sessionID: ctx.opencodeSessionId,
-    directory: ctx.cwd,
-  });
-  if (deleted.error) {
-    throw new ProviderAdapterRequestError({
+  let deleteError: ProviderAdapterRequestError | undefined;
+  try {
+    const deleted = await ctx.client.session.delete({
+      sessionID: ctx.opencodeSessionId,
+      directory: ctx.cwd,
+    });
+    if (deleted.error && !isMissingOpenCodeSessionError(deleted.error)) {
+      deleteError = new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method: "session.delete",
+        detail: toMessage(deleted.error, "Failed to delete OpenCode session"),
+      });
+    }
+  } catch (cause) {
+    if (!isMissingOpenCodeSessionError(cause)) {
+      deleteError = new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method: "session.delete",
+        detail: toMessage(cause, "Failed to delete OpenCode session"),
+        cause,
+      });
+    }
+  }
+
+  let closeError: ProviderAdapterRequestError | undefined;
+  try {
+    await ctx.server.close();
+  } catch (cause) {
+    closeError = new ProviderAdapterRequestError({
       provider: PROVIDER,
-      method: "session.delete",
-      detail: toMessage(deleted.error, "Failed to delete OpenCode session"),
+      method: "session.close",
+      detail: toMessage(cause, "Failed to close OpenCode server process"),
+      cause,
     });
   }
 
-  await ctx.server.close();
+  if (deleteError && closeError) {
+    throw new ProviderAdapterRequestError({
+      provider: PROVIDER,
+      method: "session.stop",
+      detail: `${deleteError.message} Cleanup also failed: ${closeError.message}`,
+      cause: new AggregateError([deleteError, closeError]),
+    });
+  }
+  if (closeError) {
+    throw closeError;
+  }
+  if (deleteError) {
+    throw deleteError;
+  }
 }
 
 type OpenCodeDeltaStreamKind = Extract<
@@ -258,6 +304,22 @@ export function buildOpenCodeThreadUsageSnapshot(
 
 function isoNow(): string {
   return new Date().toISOString();
+}
+
+function resolveOpenCodeIdleSessionTtlMs(
+  rawValue = process.env.ACE_OPENCODE_IDLE_SESSION_TTL_MS,
+): number | null {
+  if (rawValue === undefined) {
+    return DEFAULT_OPENCODE_IDLE_SESSION_TTL_MS;
+  }
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_OPENCODE_IDLE_SESSION_TTL_MS;
+  }
+  if (parsed <= 0) {
+    return null;
+  }
+  return Math.max(MIN_OPENCODE_IDLE_SESSION_TTL_MS, parsed);
 }
 
 function parseIsoTimestampMs(value: string): number | undefined {
@@ -693,8 +755,50 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
   const runPromise = Effect.runPromiseWith(services);
   const serverConfig = yield* ServerConfig;
   const serverSettingsService = yield* ServerSettingsService;
+  const idleSessionTtlMs = resolveOpenCodeIdleSessionTtlMs();
 
   const sessions = new Map<ThreadId, OpenCodeSessionContext>();
+
+  const clearIdleStopTimer = (ctx: OpenCodeSessionContext): void => {
+    if (ctx.idleStopTimer !== null) {
+      clearTimeout(ctx.idleStopTimer);
+      ctx.idleStopTimer = null;
+    }
+  };
+
+  const canAutoStopSession = (ctx: OpenCodeSessionContext): boolean =>
+    ctx.activeTurn === null && ctx.pendingApprovals.size === 0 && ctx.pendingUserInputs.size === 0;
+
+  const markSessionActive = (ctx: OpenCodeSessionContext): void => {
+    ctx.lastActivityAtMs = Date.now();
+    clearIdleStopTimer(ctx);
+  };
+
+  const scheduleIdleStop = (ctx: OpenCodeSessionContext, reason: string): void => {
+    clearIdleStopTimer(ctx);
+    if (idleSessionTtlMs === null || ctx.stopped || !canAutoStopSession(ctx)) {
+      return;
+    }
+
+    ctx.idleStopTimer = setTimeout(() => {
+      const latest = sessions.get(ctx.threadId);
+      if (latest !== ctx || ctx.stopped || !canAutoStopSession(ctx)) {
+        return;
+      }
+      sessions.delete(ctx.threadId);
+      runLoggedEffect({
+        runPromise,
+        effect: Effect.tryPromise(() => stopContext(ctx)),
+        message: "Failed to stop idle OpenCode session.",
+        metadata: {
+          threadId: ctx.threadId,
+          idleTtlMs: idleSessionTtlMs,
+          reason,
+        },
+      });
+    }, idleSessionTtlMs);
+    ctx.idleStopTimer.unref?.();
+  };
 
   const emit = (event: ProviderRuntimeEvent): void => {
     runLoggedEffect({

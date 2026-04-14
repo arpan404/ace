@@ -229,6 +229,7 @@ export interface DesktopBridge {
   getWindowShownAt?: () => number | null;
   getTitlebarLeftInset?: () => number | null;
   getNotificationPermission?: () => Promise<DesktopNotificationPermission>;
+  requestNotificationPermission?: () => Promise<DesktopNotificationPermission>;
   pickFolder: () => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   repairBrowserStorage: () => Promise<boolean>;
