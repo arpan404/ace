@@ -613,6 +613,81 @@ const spawnDaemonServer = Effect.fn("spawnDaemonServer")(function* (input: {
   return child.pid;
 });
 
+const stopDaemonIfPresent = Effect.fn("stopDaemonIfPresent")(function* (input: {
+  readonly baseDir: string;
+  readonly timeoutMs: number;
+}) {
+  const status = yield* readDaemonStatusPayload(input.baseDir);
+  if (!status.state) {
+    return {
+      status: "already-stopped" as const,
+    };
+  }
+
+  if (!status.processAlive) {
+    yield* clearDaemonState(input.baseDir);
+    return {
+      status: "cleared-stale-state" as const,
+    };
+  }
+
+  yield* sendSignal(status.state.pid, "SIGTERM");
+  const exited = yield* waitForProcessExit(status.state.pid, { timeoutMs: input.timeoutMs });
+  if (!exited) {
+    yield* sendSignal(status.state.pid, "SIGKILL");
+    const forcedExit = yield* waitForProcessExit(status.state.pid, { timeoutMs: 2_000 });
+    if (!forcedExit) {
+      return yield* new DaemonCommandError({
+        message: `Daemon process ${String(status.state.pid)} did not exit after SIGKILL.`,
+      });
+    }
+  }
+  yield* clearDaemonState(input.baseDir);
+
+  return {
+    status: "stopped" as const,
+    pid: status.state.pid,
+  };
+});
+
+const startDaemonAndPersistState = Effect.fn("startDaemonAndPersistState")(function* (input: {
+  readonly config: ServerConfigShape;
+}) {
+  const authToken = input.config.authToken ?? Crypto.randomBytes(24).toString("hex");
+  const pid = yield* spawnDaemonServer({
+    config: input.config,
+    authToken,
+  });
+  const now = new Date().toISOString();
+  const state: AceServerDaemonState = {
+    version: 1,
+    pid,
+    mode: input.config.mode,
+    host: input.config.host ?? null,
+    port: input.config.port,
+    wsUrl: buildDaemonWsUrl(input.config.host ?? null, input.config.port, authToken),
+    authToken,
+    baseDir: input.config.baseDir,
+    dbPath: input.config.dbPath,
+    serverLogPath: input.config.serverLogPath,
+    startedAt: now,
+    updatedAt: now,
+  };
+  yield* writeDaemonState(state);
+
+  const ready = yield* waitForDaemonReady(state, {
+    timeoutMs: 10_000,
+  });
+  if (!ready) {
+    yield* clearDaemonState(input.config.baseDir);
+    return yield* new DaemonCommandError({
+      message: "Daemon process did not become reachable before timeout.",
+    });
+  }
+
+  return state;
+});
+
 const serveCommand = Command.make("serve", {
   ...serveCommandFlags,
   workspaceRoot: openWorkspaceArgument,
@@ -846,37 +921,7 @@ const daemonStartCommand = Command.make("start", {
         yield* clearDaemonState(config.baseDir);
       }
 
-      const authToken = config.authToken ?? Crypto.randomBytes(24).toString("hex");
-      const pid = yield* spawnDaemonServer({
-        config,
-        authToken,
-      });
-      const now = new Date().toISOString();
-      const state: AceServerDaemonState = {
-        version: 1,
-        pid,
-        mode: config.mode,
-        host: config.host ?? null,
-        port: config.port,
-        wsUrl: buildDaemonWsUrl(config.host ?? null, config.port, authToken),
-        authToken,
-        baseDir: config.baseDir,
-        dbPath: config.dbPath,
-        serverLogPath: config.serverLogPath,
-        startedAt: now,
-        updatedAt: now,
-      };
-      yield* writeDaemonState(state);
-
-      const ready = yield* waitForDaemonReady(state, {
-        timeoutMs: 10_000,
-      });
-      if (!ready) {
-        yield* clearDaemonState(config.baseDir);
-        return yield* new DaemonCommandError({
-          message: "Daemon process did not become reachable before timeout.",
-        });
-      }
+      const state = yield* startDaemonAndPersistState({ config });
 
       const payload = {
         status: "started" as const,
@@ -888,6 +933,47 @@ const daemonStartCommand = Command.make("start", {
 
       return yield* writeStdout(
         `${pc.green("Started")} daemon pid=${String(state.pid)} ${state.wsUrl}\n`,
+      );
+    }),
+  ),
+);
+
+const daemonRestartCommand = Command.make("restart", {
+  ...serveCommandFlags,
+  timeoutMs: Flag.integer("timeout-ms").pipe(
+    Flag.withSchema(Schema.Int.check(Schema.isGreaterThanOrEqualTo(250))),
+    Flag.withDescription("How long to wait for graceful daemon shutdown."),
+    Flag.withDefault(8_000),
+  ),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Restart the background daemon process."),
+  Command.withHandler(({ timeoutMs, json, ...flags }) =>
+    Effect.gen(function* () {
+      const logLevel = yield* GlobalFlag.LogLevel;
+      const config = yield* resolveServerConfig(
+        {
+          ...flags,
+          noBrowser: Option.some(true),
+        },
+        logLevel,
+      );
+
+      const stopResult = yield* stopDaemonIfPresent({
+        baseDir: config.baseDir,
+        timeoutMs,
+      });
+      const state = yield* startDaemonAndPersistState({ config });
+      const payload = {
+        status: "restarted" as const,
+        daemon: state,
+        stop: stopResult,
+      };
+      if (json) {
+        return yield* writeJson(payload);
+      }
+      return yield* writeStdout(
+        `${pc.green("Restarted")} daemon pid=${String(state.pid)} ${state.wsUrl}\n`,
       );
     }),
   ),
@@ -928,51 +1014,20 @@ const daemonStopCommand = Command.make("stop", {
       flags,
       Effect.gen(function* () {
         const config = yield* ServerConfig;
-        const status = yield* readDaemonStatusPayload(config.baseDir);
-        if (!status.state) {
-          const payload = {
-            status: "already-stopped" as const,
-          };
-          if (json) {
-            return yield* writeJson(payload);
-          }
+        const result = yield* stopDaemonIfPresent({
+          baseDir: config.baseDir,
+          timeoutMs,
+        });
+        if (json) {
+          return yield* writeJson(result);
+        }
+        if (result.status === "already-stopped") {
           return yield* writeStdout(`${pc.yellow("Already stopped")} daemon not running\n`);
         }
-
-        if (!status.processAlive) {
-          yield* clearDaemonState(config.baseDir);
-          const payload = {
-            status: "cleared-stale-state" as const,
-          };
-          if (json) {
-            return yield* writeJson(payload);
-          }
+        if (result.status === "cleared-stale-state") {
           return yield* writeStdout(`${pc.yellow("Cleared")} stale daemon state\n`);
         }
-
-        yield* sendSignal(status.state.pid, "SIGTERM");
-        const exited = yield* waitForProcessExit(status.state.pid, { timeoutMs });
-        if (!exited) {
-          yield* sendSignal(status.state.pid, "SIGKILL");
-          const forcedExit = yield* waitForProcessExit(status.state.pid, { timeoutMs: 2_000 });
-          if (!forcedExit) {
-            return yield* new DaemonCommandError({
-              message: `Daemon process ${String(status.state.pid)} did not exit after SIGKILL.`,
-            });
-          }
-        }
-        yield* clearDaemonState(config.baseDir);
-
-        const payload = {
-          status: "stopped" as const,
-          pid: status.state.pid,
-        };
-        if (json) {
-          return yield* writeJson(payload);
-        }
-        return yield* writeStdout(
-          `${pc.green("Stopped")} daemon pid=${String(status.state.pid)}\n`,
-        );
+        return yield* writeStdout(`${pc.green("Stopped")} daemon pid=${String(result.pid)}\n`);
       }),
     ),
   ),
@@ -980,7 +1035,12 @@ const daemonStopCommand = Command.make("stop", {
 
 const daemonCommand = Command.make("daemon").pipe(
   Command.withDescription("Manage the persistent background ace server."),
-  Command.withSubcommands([daemonStartCommand, daemonStatusCommand, daemonStopCommand]),
+  Command.withSubcommands([
+    daemonStartCommand,
+    daemonStatusCommand,
+    daemonStopCommand,
+    daemonRestartCommand,
+  ]),
 );
 
 const rootBannerLines = [
@@ -1012,6 +1072,7 @@ const formatRootCliGuide = (): string =>
     `${pc.bold("Quick start")}`,
     `  ${pc.cyan("ace serve")}          run server in foreground`,
     `  ${pc.cyan("ace daemon start")}   run reusable background daemon`,
+    `  ${pc.cyan("ace --restart")}      restart background daemon`,
     `  ${pc.cyan("ace project list")}   list saved local projects`,
     `  ${pc.cyan("ace remote list")}    list saved remote hosts`,
     `  ${pc.cyan("ace --help")}         show full command reference`,

@@ -10,15 +10,23 @@ import { version } from "../package.json" with { type: "json" };
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
-const rewriteServeAlias = () => {
+const rewriteCliAliases = () => {
   const args = process.argv.slice(2);
-  if (args[0] !== "--serve") {
-    return;
+  switch (args[0]) {
+    case "--serve": {
+      process.argv = [process.argv[0]!, process.argv[1]!, "serve", ...args.slice(1)];
+      return;
+    }
+    case "--restart": {
+      process.argv = [process.argv[0]!, process.argv[1]!, "daemon", "restart", ...args.slice(1)];
+      return;
+    }
+    default:
+      return;
   }
-  process.argv = [process.argv[0]!, process.argv[1]!, "serve", ...args.slice(1)];
 };
 
-rewriteServeAlias();
+rewriteCliAliases();
 
 Command.run(cli, { version }).pipe(
   Effect.scoped,

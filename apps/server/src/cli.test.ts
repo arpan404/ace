@@ -34,4 +34,10 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
       assert.equal(error.value, "Debug");
     }),
   );
+
+  it.effect("recognizes daemon restart command", () =>
+    Command.runWith(cli, { version: "0.0.0" })(["daemon", "restart", "--help"]).pipe(
+      Effect.provide(CliRuntimeLayer),
+    ),
+  );
 });
