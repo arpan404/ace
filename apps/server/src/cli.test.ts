@@ -8,7 +8,12 @@ import * as CliError from "effect/unstable/cli/CliError";
 import { Command } from "effect/unstable/cli";
 
 import type { AceServerDaemonState } from "./daemon";
-import { applyDaemonRestartStateDefaults, cli, isDaemonStateCurrentVersion } from "./cli.ts";
+import {
+  applyDaemonRestartStateDefaults,
+  cli,
+  isDaemonStateCurrentVersion,
+  shouldRunServeInForeground,
+} from "./cli.ts";
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
@@ -203,6 +208,14 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
         ),
         false,
       );
+    }),
+  );
+
+  it.effect("runs daemonized serve processes in the foreground server mode", () =>
+    Effect.sync(() => {
+      assert.equal(shouldRunServeInForeground({}), false);
+      assert.equal(shouldRunServeInForeground({ ACE_DAEMONIZED: "0" }), false);
+      assert.equal(shouldRunServeInForeground({ ACE_DAEMONIZED: "1" }), true);
     }),
   );
 });

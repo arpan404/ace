@@ -62,9 +62,11 @@ import {
   sampleProcessTable,
   type ProcessProfileSample,
 } from "./processProfile";
+import { runServer } from "./server";
 import { version as serverPackageVersion } from "../package.json" with { type: "json" };
 
 const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }));
+const DEFAULT_DAEMON_START_TIMEOUT_MS = 10_000;
 const DEFAULT_DAEMON_RESTART_TIMEOUT_MS = 8_000;
 const DEFAULT_PROFILE_INTERVAL_MS = 1_000;
 const PROFILE_RUNTIME_RPC_CONNECT_TIMEOUT_MS = 1_500;
@@ -718,6 +720,9 @@ const runDaemonCommand = <A, E, R>(flags: CliDataFlags, effect: Effect.Effect<A,
     return yield* effect.pipe(Effect.provideService(ServerConfig, config));
   });
 
+export const shouldRunServeInForeground = (env: NodeJS.ProcessEnv = process.env): boolean =>
+  env.ACE_DAEMONIZED === "1";
+
 export const applyDaemonRestartStateDefaults = (
   flags: CliServerFlags,
   existingState: AceServerDaemonState | null,
@@ -965,6 +970,35 @@ const stopDaemonIfPresent = Effect.fn("stopDaemonIfPresent")(function* (input: {
   };
 });
 
+const terminateSpawnedDaemonAfterFailedStart = Effect.fn("terminateSpawnedDaemonAfterFailedStart")(
+  function* (input: {
+    readonly pid: number;
+    readonly baseDir: string;
+    readonly timeoutMs: number;
+  }) {
+    const exitedNaturally = yield* waitForProcessExit(input.pid, {
+      timeoutMs: 250,
+    });
+    if (!exitedNaturally) {
+      yield* sendSignal(input.pid, "SIGTERM");
+      const exitedGracefully = yield* waitForProcessExit(input.pid, {
+        timeoutMs: input.timeoutMs,
+      });
+      if (!exitedGracefully) {
+        yield* sendSignal(input.pid, "SIGKILL");
+        const forcedExit = yield* waitForProcessExit(input.pid, { timeoutMs: 2_000 });
+        if (!forcedExit) {
+          return yield* new DaemonCommandError({
+            message: `Daemon process ${String(input.pid)} did not exit after startup timeout.`,
+          });
+        }
+      }
+    }
+
+    yield* clearDaemonState(input.baseDir);
+  },
+);
+
 const startDaemonAndPersistState = Effect.fn("startDaemonAndPersistState")(function* (input: {
   readonly config: ServerConfigShape;
 }) {
@@ -992,10 +1026,21 @@ const startDaemonAndPersistState = Effect.fn("startDaemonAndPersistState")(funct
   yield* writeDaemonState(state);
 
   const ready = yield* waitForDaemonReady(state, {
-    timeoutMs: 10_000,
+    timeoutMs: DEFAULT_DAEMON_START_TIMEOUT_MS,
   });
   if (!ready) {
-    yield* clearDaemonState(input.config.baseDir);
+    const cleanupExit = yield* terminateSpawnedDaemonAfterFailedStart({
+      pid,
+      baseDir: input.config.baseDir,
+      timeoutMs: DEFAULT_DAEMON_RESTART_TIMEOUT_MS,
+    }).pipe(Effect.exit);
+    if (Exit.isFailure(cleanupExit)) {
+      return yield* new DaemonCommandError({
+        message:
+          "Daemon process did not become reachable before timeout and could not be stopped cleanly.",
+        cause: cleanupExit.cause,
+      });
+    }
     return yield* new DaemonCommandError({
       message: "Daemon process did not become reachable before timeout.",
     });
@@ -1035,6 +1080,9 @@ const serveCommand = Command.make("serve", {
     Effect.gen(function* () {
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveServerConfig(flags, logLevel, workspaceRoot);
+      if (shouldRunServeInForeground()) {
+        return yield* runServer.pipe(Effect.provideService(ServerConfig, config));
+      }
       const baseDir = config.baseDir;
 
       const existingState = yield* readDaemonState(baseDir);
@@ -1250,7 +1298,7 @@ const daemonStartCommand = Command.make("start", {
       const existingStatus = yield* readDaemonStatusPayload(config.baseDir);
       if (existingStatus.state && existingStatus.processAlive) {
         const eventuallyReady = yield* waitForDaemonReady(existingStatus.state, {
-          timeoutMs: 3_000,
+          timeoutMs: DEFAULT_DAEMON_START_TIMEOUT_MS,
         });
         if (eventuallyReady) {
           if (isDaemonStateCurrentVersion(existingStatus.state)) {
@@ -1287,10 +1335,26 @@ const daemonStartCommand = Command.make("start", {
             )}\n`,
           );
         }
-        return yield* new DaemonCommandError({
-          message:
-            "A daemon process appears to be running but is not healthy. Refusing to replace it automatically.",
+
+        const stopResult = yield* stopDaemonIfPresent({
+          baseDir: config.baseDir,
+          timeoutMs: DEFAULT_DAEMON_RESTART_TIMEOUT_MS,
         });
+        const state = yield* startDaemonAndPersistState({ config });
+        const payload = {
+          status: "started" as const,
+          daemon: state,
+          recovered: true as const,
+          stop: stopResult,
+        };
+        if (json) {
+          return yield* writeJson(payload);
+        }
+        return yield* writeStdout(
+          `${pc.green("Started")} daemon pid=${String(state.pid)} ${state.wsUrl} ${pc.dim(
+            `(replaced unhealthy pid ${existingStatus.state.pid})`,
+          )}\n`,
+        );
       }
 
       if (existingStatus.status === "stale") {
