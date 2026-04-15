@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Alert, Pressable } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { RefreshCw, Trash2 } from "lucide-react-native";
 import { useTheme } from "../../../src/design/ThemeContext";
 import { useHostStore } from "../../../src/store/HostStore";
 import { connectionManager } from "../../../src/rpc/ConnectionManager";
@@ -19,7 +20,7 @@ export default function DeviceSettingsScreen() {
 
   if (!host) {
     return (
-      <View style={[styles.root, { backgroundColor: colors.groupedBackground }]}>
+      <View style={[styles.root, { backgroundColor: colors.background }]}>
         <Stack.Screen options={{ headerShown: true, title: "" }} />
         <View style={styles.center}>
           <Text style={{ color: colors.muted }}>Device not found.</Text>
@@ -58,13 +59,13 @@ export default function DeviceSettingsScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.groupedBackground }]}>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
       <Stack.Screen
         options={{
           headerShown: true,
           title: host.name,
           headerBackTitleVisible: false,
-          headerStyle: { backgroundColor: colors.groupedBackground },
+          headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.primary,
           headerTitleStyle: { color: colors.foreground },
         }}
@@ -72,51 +73,51 @@ export default function DeviceSettingsScreen() {
 
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
         {/* Connection Details */}
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.muted }]}>CONNECTION DETAILS</Text>
-        </View>
-        <View
-          style={[styles.groupContainer, { backgroundColor: colors.secondaryGroupedBackground }]}
-        >
+        <Text style={[styles.sectionLabel, { color: colors.muted }]}>CONNECTION DETAILS</Text>
+        <View style={styles.detailGroup}>
           <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: colors.muted }]}>WS URL</Text>
+            <Text style={[styles.detailLabel, { color: colors.muted }]}>WebSocket URL</Text>
             <Text style={[styles.detailValue, { color: colors.foreground }]} numberOfLines={2}>
               {host.wsUrl}
             </Text>
           </View>
-          <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+          <View style={[styles.detailSeparator, { backgroundColor: colors.separator }]} />
           <View style={styles.detailRow}>
             <Text style={[styles.detailLabel, { color: colors.muted }]}>Session ID</Text>
-            <Text style={[styles.detailValue, { color: colors.foreground }]} numberOfLines={1}>
+            <Text
+              style={[styles.detailValue, { color: colors.foreground, fontFamily: "Menlo" }]}
+              numberOfLines={1}
+            >
               {host.clientSessionId}
             </Text>
           </View>
         </View>
 
         {/* Actions */}
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.muted }]}>ACTIONS</Text>
-        </View>
-        <View
-          style={[styles.groupContainer, { backgroundColor: colors.secondaryGroupedBackground }]}
+        <Text style={[styles.sectionLabel, { color: colors.muted, marginTop: 32 }]}>ACTIONS</Text>
+        <Pressable
+          onPress={() => void reconnect()}
+          disabled={reconnecting}
+          style={({ pressed }) => [styles.actionRow, pressed && { opacity: 0.6 }]}
         >
-          <Pressable
-            onPress={() => void reconnect()}
-            disabled={reconnecting}
-            style={({ pressed }) => [styles.actionRow, pressed && { backgroundColor: colors.fill }]}
-          >
-            <Text style={[styles.actionText, { color: colors.primary }]}>
-              {reconnecting ? "Restarting Connection…" : "🔄 Restart Connection"}
-            </Text>
-          </Pressable>
-          <View style={[styles.separator, { backgroundColor: colors.separator }]} />
-          <Pressable
-            onPress={handleDelete}
-            style={({ pressed }) => [styles.actionRow, pressed && { backgroundColor: colors.fill }]}
-          >
-            <Text style={[styles.actionText, { color: colors.red }]}>🗑️ Remove Device</Text>
-          </Pressable>
-        </View>
+          <RefreshCw
+            size={18}
+            color={colors.primary}
+            strokeWidth={2}
+            style={reconnecting ? { opacity: 0.5 } : undefined}
+          />
+          <Text style={[styles.actionText, { color: colors.primary }]}>
+            {reconnecting ? "Restarting…" : "Restart Connection"}
+          </Text>
+        </Pressable>
+        <View style={[styles.actionSeparator, { backgroundColor: colors.separator }]} />
+        <Pressable
+          onPress={handleDelete}
+          style={({ pressed }) => [styles.actionRow, pressed && { opacity: 0.6 }]}
+        >
+          <Trash2 size={18} color={colors.red} strokeWidth={2} />
+          <Text style={[styles.actionText, { color: colors.red }]}>Remove Device</Text>
+        </Pressable>
 
         {reconnectError ? (
           <Text style={[styles.errorText, { color: colors.red }]}>{reconnectError}</Text>
@@ -129,31 +130,33 @@ export default function DeviceSettingsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  sectionHeader: { paddingHorizontal: 20, paddingTop: 28, paddingBottom: 8 },
-  sectionTitle: { fontSize: 13, fontWeight: "600", letterSpacing: 0.5 },
-  groupContainer: {
-    marginHorizontal: 20,
-    borderRadius: 12,
-    overflow: "hidden",
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.5,
+    paddingHorizontal: 20,
+    marginTop: 28,
+    marginBottom: 8,
   },
-  separator: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
-  detailRow: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
+  detailGroup: { paddingHorizontal: 20 },
+  detailRow: { paddingVertical: 12 },
   detailLabel: {
     fontSize: 12,
     fontWeight: "600",
     letterSpacing: 0.5,
     marginBottom: 4,
   },
-  detailValue: { fontSize: 15 },
+  detailValue: { fontSize: 15, lineHeight: 20 },
+  detailSeparator: { height: StyleSheet.hairlineWidth },
   actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
+    gap: 12,
     minHeight: 44,
-    justifyContent: "center",
   },
+  actionSeparator: { height: StyleSheet.hairlineWidth, marginLeft: 50 },
   actionText: { fontSize: 17, fontWeight: "500" },
   errorText: {
     marginTop: 12,

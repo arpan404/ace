@@ -1,5 +1,5 @@
 import { Stack } from "expo-router";
-import { StatusBar } from "react-native";
+import { Platform, StatusBar } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ThemeProvider, useTheme } from "../src/design/ThemeContext";
 
@@ -13,15 +13,29 @@ function RootNavigator() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },
+          animation: Platform.OS === "ios" ? "default" : "fade_from_bottom",
+          animationDuration: 250,
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="pairing" options={{ presentation: "modal" }} />
-        <Stack.Screen name="host/[hostId]" options={{ presentation: "card" }} />
-        <Stack.Screen name="thread/[threadId]" options={{ presentation: "card" }} />
-        <Stack.Screen name="thread/terminal" options={{ presentation: "card" }} />
-        <Stack.Screen name="thread/browser" options={{ presentation: "card" }} />
-        <Stack.Screen name="settings/device/[id]" options={{ presentation: "card" }} />
+        <Stack.Screen
+          name="pairing"
+          options={{
+            presentation: "modal",
+            animation: "slide_from_bottom",
+          }}
+        />
+        <Stack.Screen name="host/[hostId]" options={{ animation: "default" }} />
+        <Stack.Screen name="thread/[threadId]" options={{ animation: "default" }} />
+        <Stack.Screen
+          name="thread/terminal"
+          options={{
+            presentation: "modal",
+            animation: "slide_from_bottom",
+          }}
+        />
+        <Stack.Screen name="thread/browser" options={{ animation: "default" }} />
+        <Stack.Screen name="settings/device/[id]" options={{ animation: "default" }} />
       </Stack>
     </>
   );

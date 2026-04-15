@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { CornerDownLeft } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
 
@@ -19,8 +20,12 @@ export default function TerminalScreen() {
     threadId: string;
     hostId: string;
   }>();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
+
+  const termBg = isDark ? "#0d0d0d" : "#1a1a1a";
+  const termFg = isDark ? "#e0e0e0" : "#d4d4d4";
+  const termBarBg = isDark ? "#161616" : "#111111";
 
   const [conn, setConn] = useState<ManagedConnection | null>(null);
   const [output, setOutput] = useState<string[]>([]);
@@ -28,7 +33,6 @@ export default function TerminalScreen() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
-  // Find connection
   useEffect(() => {
     const conns = connectionManager.getConnections();
     setConn(conns.find((c) => c.host.id === hostId) ?? null);
@@ -37,7 +41,6 @@ export default function TerminalScreen() {
     });
   }, [hostId]);
 
-  // Open terminal session
   useEffect(() => {
     if (!conn || conn.status.kind !== "connected") return;
 
@@ -50,7 +53,7 @@ export default function TerminalScreen() {
         } as never);
         if (mounted) {
           setSessionId(session.id ?? threadId ?? "default");
-          setOutput((prev) => [...prev, `--- Terminal session opened ---`]);
+          setOutput((prev) => [...prev, "--- Terminal session opened ---"]);
         }
       } catch (err) {
         if (mounted) {
@@ -94,15 +97,15 @@ export default function TerminalScreen() {
   }, [input, conn, sessionId]);
 
   return (
-    <View style={[styles.root, { backgroundColor: "#1a1a2e" }]}>
+    <View style={[styles.root, { backgroundColor: termBg }]}>
       <Stack.Screen
         options={{
           headerShown: true,
           title: "Terminal",
           headerBackTitleVisible: false,
-          headerStyle: { backgroundColor: "#1a1a2e" },
+          headerStyle: { backgroundColor: termBg },
           headerTintColor: colors.primary,
-          headerTitleStyle: { color: "#e0e0e0" },
+          headerTitleStyle: { color: termFg },
         }}
       />
 
@@ -121,24 +124,35 @@ export default function TerminalScreen() {
           }}
         >
           {output.length === 0 ? (
-            <Text style={styles.placeholder}>Terminal session. Type a command below.</Text>
+            <Text style={[styles.placeholder, { color: "#555" }]}>
+              Terminal session. Type a command below.
+            </Text>
           ) : (
             output.map((line, i) => (
-              <Text key={i} style={styles.outputLine}>
+              <Text key={i} style={[styles.outputLine, { color: termFg }]}>
                 {line}
               </Text>
             ))
           )}
         </ScrollView>
 
-        <View style={[styles.inputBar, { paddingBottom: insets.bottom + 8 }]}>
+        <View
+          style={[
+            styles.inputBar,
+            {
+              backgroundColor: termBarBg,
+              borderTopColor: "#333",
+              paddingBottom: insets.bottom + 8,
+            },
+          ]}
+        >
           <Text style={styles.prompt}>$</Text>
           <TextInput
-            style={styles.textInput}
+            style={[styles.textInput, { color: termFg }]}
             value={input}
             onChangeText={setInput}
             placeholder="Enter command…"
-            placeholderTextColor="#666"
+            placeholderTextColor="#555"
             autoCapitalize="none"
             autoCorrect={false}
             returnKeyType="send"
@@ -150,11 +164,11 @@ export default function TerminalScreen() {
             style={[
               styles.sendBtn,
               {
-                backgroundColor: input.trim() ? colors.primary : "rgba(255,255,255,0.1)",
+                backgroundColor: input.trim() ? colors.primary : "rgba(255,255,255,0.08)",
               },
             ]}
           >
-            <Text style={[styles.sendBtnText, { color: input.trim() ? "#fff" : "#666" }]}>↵</Text>
+            <CornerDownLeft size={16} color={input.trim() ? "#fff" : "#555"} strokeWidth={2} />
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -162,20 +176,20 @@ export default function TerminalScreen() {
   );
 }
 
+const MONO = Platform.OS === "ios" ? "Menlo" : "monospace";
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
   outputScroll: { flex: 1 },
   placeholder: {
-    color: "#555",
     fontSize: 14,
-    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    fontFamily: MONO,
     paddingVertical: 20,
   },
   outputLine: {
-    color: "#e0e0e0",
     fontSize: 13,
-    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    fontFamily: MONO,
     lineHeight: 20,
   },
   inputBar: {
@@ -184,21 +198,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#333",
-    backgroundColor: "#0d0d1a",
     gap: 8,
   },
   prompt: {
     color: "#4ade80",
     fontSize: 15,
-    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    fontFamily: MONO,
     fontWeight: "700",
   },
   textInput: {
     flex: 1,
-    color: "#e0e0e0",
     fontSize: 14,
-    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    fontFamily: MONO,
     paddingVertical: 10,
   },
   sendBtn: {
@@ -208,5 +219,4 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  sendBtnText: { fontSize: 16, fontWeight: "700" },
 });
