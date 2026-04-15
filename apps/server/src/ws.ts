@@ -69,7 +69,6 @@ import {
   WorkspaceRootNotDirectoryError,
   WorkspaceRootNotExistsError,
 } from "./workspace/Services/WorkspacePaths";
-import { publishRelayConnectionActivity, verifyRelayApiKeyForHost } from "./relayClient";
 
 const WS_UPGRADE_RATE_LIMIT_WINDOW_MS = 60_000;
 const WS_UPGRADE_RATE_LIMIT_MAX_ATTEMPTS = 30;
@@ -92,7 +91,6 @@ type WsClientSessionRecord = {
 
 const wsClientSessions = new Map<string, WsClientSessionRecord>();
 let nextWsClientSessionPruneAt = 0;
-const relayApiTokenByConnectionId = new Map<string, string>();
 
 function pruneWsClientSessions(now = Date.now()): void {
   for (const [clientSessionId, record] of wsClientSessions.entries()) {
@@ -150,7 +148,6 @@ function disconnectWsClientSession(clientSessionId: string, connectionId: string
   if (current?.connectionId === connectionId) {
     wsClientSessions.delete(clientSessionId);
   }
-  relayApiTokenByConnectionId.delete(connectionId);
 }
 
 function normalizeStreamIdentity(input: {
@@ -250,17 +247,6 @@ function selectDueProviderForRefresh(
   const oldestDueProviders = dueProviders.filter((provider) => provider.dueAt === oldestDueAt);
   const selectedIndex = Math.floor(Math.random() * oldestDueProviders.length);
   return oldestDueProviders[selectedIndex]?.provider ?? null;
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.trim().toLowerCase();
-  return (
-    normalized === "localhost" ||
-    normalized === "127.0.0.1" ||
-    normalized === "::1" ||
-    normalized === "0.0.0.0" ||
-    normalized === "::"
-  );
 }
 
 function hasExplicitSnapshotHydrationMode(
@@ -628,20 +614,8 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.serverGetSettings]: (_input) => serverSettings.getSettings,
       [WS_METHODS.serverUpdateSettings]: ({ patch }) => serverSettings.updateSettings(patch),
       [WS_METHODS.serverDisconnect]: (input) =>
-        Effect.gen(function* () {
-          const relayApiToken = relayApiTokenByConnectionId.get(input.connectionId);
+        Effect.sync(() => {
           disconnectWsClientSession(input.clientSessionId, input.connectionId);
-          if (relayApiToken) {
-            yield* Effect.tryPromise(() =>
-              publishRelayConnectionActivity({
-                stateDir: config.stateDir,
-                apiKey: relayApiToken,
-                clientSessionId: input.clientSessionId,
-                connectionId: input.connectionId,
-                status: "disconnected",
-              }),
-            ).pipe(Effect.catch(() => Effect.void));
-          }
           return {};
         }),
       [WS_METHODS.projectsSearchEntries]: (input) =>
@@ -932,46 +906,12 @@ export const websocketRpcRouteLayer = Layer.unwrap(
         const connectionId = extractWebSocketConnectionIdFromProtocolHeader(
           request.headers["sec-websocket-protocol"],
         );
-        const requestUrl = HttpServerRequest.toURL(request);
         const connectionToken =
           extractWebSocketAuthTokenFromProtocolHeader(request.headers["sec-websocket-protocol"]) ??
           "";
-        const isLoopbackRequest =
-          Option.isSome(requestUrl) && isLoopbackHostname(requestUrl.value.hostname);
-        const requestWsUrl = Option.match(requestUrl, {
-          onNone: () => undefined,
-          onSome: (url) => {
-            const next = new URL(url.toString());
-            next.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-            next.pathname = "/ws";
-            next.search = "";
-            next.hash = "";
-            return next.toString();
-          },
-        });
-        const relayServerConfigured = Boolean(process.env.ACE_RELAY_SERVER_URL?.trim());
-        const hasRelayToken =
-          relayServerConfigured &&
-          connectionToken.length > 0 &&
-          connectionToken !== config.authToken
-            ? yield* Effect.tryPromise(() =>
-                verifyRelayApiKeyForHost({
-                  stateDir: config.stateDir,
-                  apiKey: connectionToken,
-                  ...(requestWsUrl ? { wsUrl: requestWsUrl } : {}),
-                }),
-              ).pipe(
-                Effect.map(() => true),
-                Effect.catch(() => Effect.succeed(false)),
-              )
-            : false;
 
         if (config.authToken) {
-          if (connectionToken !== config.authToken && !hasRelayToken) {
-            return HttpServerResponse.text("Unauthorized WebSocket connection", { status: 401 });
-          }
-        } else if (relayServerConfigured && !isLoopbackRequest) {
-          if (!hasRelayToken) {
+          if (connectionToken !== config.authToken) {
             return HttpServerResponse.text("Unauthorized WebSocket connection", { status: 401 });
           }
         }
@@ -980,18 +920,6 @@ export const websocketRpcRouteLayer = Layer.unwrap(
         }
         if (clientSessionId && connectionId) {
           registerWsClientSession(clientSessionId, connectionId);
-        }
-        if (hasRelayToken && clientSessionId && connectionId) {
-          relayApiTokenByConnectionId.set(connectionId, connectionToken);
-          yield* Effect.tryPromise(() =>
-            publishRelayConnectionActivity({
-              stateDir: config.stateDir,
-              apiKey: connectionToken,
-              clientSessionId,
-              connectionId,
-              status: "connected",
-            }),
-          ).pipe(Effect.catch(() => Effect.void));
         }
         return yield* rpcWebSocketHttpEffect;
       }),

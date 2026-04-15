@@ -2,7 +2,6 @@ import { randomUUID } from "@ace/shared/ids";
 import {
   normalizeWsUrl,
   parseHostConnectionQrPayload,
-  requestRelayConnection,
   requestPairingClaim,
   resolveHostDisplayName,
   waitForPairingApproval,
@@ -90,7 +89,6 @@ function inferDefaultWsUrl(): string {
 export {
   normalizeWsUrl,
   parseHostConnectionQrPayload,
-  requestRelayConnection,
   requestPairingClaim,
   waitForPairingApproval,
   wsUrlToBrowserBaseUrl,

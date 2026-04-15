@@ -33,7 +33,8 @@ import {
   createDefaultHostInstance,
   createHostInstance,
   parseHostConnectionQrPayload,
-  requestRelayConnection,
+  requestPairingClaim,
+  waitForPairingApproval,
   type HostInstance,
   wsUrlToBrowserBaseUrl,
 } from "./src/hostInstances";
@@ -689,35 +690,21 @@ export default function App() {
         setScanLocked(false);
         return;
       }
-      if (parsed.kind === "relay") {
-        setStatusMessage("Connecting through relay...");
-        try {
-          const resolvedHost = await requestRelayConnection(parsed.relay, {
-            requesterName: "ace mobile",
-          });
-          await upsertHost(
-            {
-              wsUrl: resolvedHost.wsUrl,
-              ...(resolvedHost.authToken !== undefined
-                ? { authToken: resolvedHost.authToken }
-                : {}),
-              ...(resolvedHost.name ? { name: resolvedHost.name } : {}),
-            },
-            true,
-          );
-          setScannerVisible(false);
-          setStatusMessage("Relay connection saved.");
-        } catch (error) {
-          setStatusMessage(`Relay connection failed: ${formatError(error)}`);
-        } finally {
-          setScanLocked(false);
-        }
-        return;
+
+      setStatusMessage("Waiting for host approval…");
+      try {
+        const receipt = await requestPairingClaim(parsed.pairing, {
+          requesterName: "ace mobile",
+        });
+        const resolvedHost = await waitForPairingApproval(receipt);
+        await upsertHost(resolvedHost, true);
+        setScannerVisible(false);
+        setStatusMessage("Pairing complete.");
+      } catch (error) {
+        setStatusMessage(`Pairing failed: ${formatError(error)}`);
+      } finally {
+        setScanLocked(false);
       }
-      setStatusMessage(
-        "This legacy pairing format is no longer supported. Use a relay connection string.",
-      );
-      setScanLocked(false);
     },
     [upsertHost],
   );
@@ -1661,7 +1648,7 @@ export default function App() {
   const renderBrowserTab = () => (
     <View style={styles.fullTabContainer}>
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Browser relay</Text>
+        <Text style={styles.sectionTitle}>Browser</Text>
         <Text style={styles.label}>Address</Text>
         <TextInput
           value={browserAddressInput}

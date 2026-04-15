@@ -7,7 +7,8 @@ import { useTheme } from "../src/design/ThemeContext";
 import {
   createHostInstance,
   parseHostConnectionQrPayload,
-  requestRelayConnection,
+  requestPairingClaim,
+  waitForPairingApproval,
 } from "../src/hostInstances";
 import { useHostStore } from "../src/store/HostStore";
 import { formatErrorMessage } from "../src/errors";
@@ -103,24 +104,16 @@ export default function PairingScreen() {
           return;
         }
 
-        if (parsed.kind === "relay") {
-          const resolvedHost = await requestRelayConnection(parsed.relay, {
+        if (parsed.kind === "pairing") {
+          const receipt = await requestPairingClaim(parsed.pairing, {
             requesterName: "ace mobile",
           });
-          const host = createHostInstance({
-            wsUrl: resolvedHost.wsUrl,
-            ...(resolvedHost.authToken !== undefined ? { authToken: resolvedHost.authToken } : {}),
-            ...(resolvedHost.name ? { name: resolvedHost.name } : {}),
-          });
+          const resolvedHost = await waitForPairingApproval(receipt);
+          const host = createHostInstance(resolvedHost);
           addHost(host);
           router.back();
           return;
         }
-
-        pauseWithAlert(
-          "Unsupported QR Code",
-          "This pairing format is no longer supported. Generate a relay connection string from host settings.",
-        );
       } catch (error) {
         pauseWithAlert("Pairing failed", formatErrorMessage(error));
       }
