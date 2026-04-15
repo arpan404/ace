@@ -1,88 +1,105 @@
 import { Tabs } from "expo-router";
-import {
-  Home,
-  MessageSquare,
-  FolderOpen,
-  Sliders,
-  Settings as SettingsIcon,
-} from "lucide-react-native";
-import { Platform, View } from "react-native";
-import { GlassView } from "expo-glass-effect";
+import { Home, MessageSquare, FolderOpen, Settings as SettingsIcon } from "lucide-react-native";
+import { View } from "react-native";
 import { useTheme } from "../../src/design/ThemeContext";
-import { canUseNativeGlass } from "../../src/design/glassAvailability";
+
+type TabIconComponent = typeof Home;
+
+function TabIcon({
+  Icon,
+  color,
+  focused,
+}: {
+  Icon: TabIconComponent;
+  color: string;
+  focused: boolean;
+}) {
+  return (
+    <View
+      style={{
+        width: 42,
+        height: 42,
+        borderRadius: 14,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: focused ? `${color}22` : "transparent",
+      }}
+    >
+      <Icon color={color} size={20} strokeWidth={focused ? 2.6 : 2.3} />
+    </View>
+  );
+}
 
 export default function TabsLayout() {
   const { theme, isDark } = useTheme();
-  const useNativeGlass = canUseNativeGlass();
 
   return (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.mutedForeground,
+        tabBarShowLabel: false,
         headerShown: false,
         tabBarStyle: {
           position: "absolute",
-          borderTopWidth: 0,
-          height: 82,
-          paddingBottom: 8,
-          paddingTop: 8,
-          backgroundColor: Platform.OS === "ios" ? "transparent" : theme.background,
+          borderTopWidth: 1,
+          borderTopColor: theme.border,
+          height: 76,
+          paddingBottom: 12,
+          paddingTop: 10,
+          backgroundColor: isDark ? "#08090d" : "#fcfcfd",
         },
-        tabBarBackground: () =>
-          Platform.OS === "ios" ? (
-            useNativeGlass ? (
-              <GlassView
-                style={{ flex: 1, borderTopWidth: 1, borderTopColor: theme.border }}
-                glassEffectStyle="regular"
-                colorScheme={isDark ? "dark" : "light"}
-              />
-            ) : (
-              <View
-                style={{
-                  flex: 1,
-                  borderTopWidth: 1,
-                  borderTopColor: theme.border,
-                  backgroundColor: isDark ? "rgba(8, 10, 15, 0.92)" : "rgba(255, 255, 255, 0.92)",
-                }}
-              />
-            )
-          ) : undefined,
+        tabBarItemStyle: {
+          minHeight: 48,
+        },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: "Home",
-          tabBarIcon: ({ color, size }) => <Home color={color} size={size} />,
+          title: "Dashboard",
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon Icon={Home} color={color} focused={focused} />
+          ),
         }}
       />
       <Tabs.Screen
         name="chat"
         options={{
-          title: "Chat",
-          tabBarIcon: ({ color, size }) => <MessageSquare color={color} size={size} />,
+          title: "Threads",
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon Icon={MessageSquare} color={color} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="threads"
+        options={{
+          href: null,
         }}
       />
       <Tabs.Screen
         name="projects"
         options={{
           title: "Projects",
-          tabBarIcon: ({ color, size }) => <FolderOpen color={color} size={size} />,
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon Icon={FolderOpen} color={color} focused={focused} />
+          ),
         }}
       />
       <Tabs.Screen
         name="control"
         options={{
-          title: "Control",
-          tabBarIcon: ({ color, size }) => <Sliders color={color} size={size} />,
+          href: null,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: "Settings",
-          tabBarIcon: ({ color, size }) => <SettingsIcon color={color} size={size} />,
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon Icon={SettingsIcon} color={color} focused={focused} />
+          ),
         }}
       />
     </Tabs>

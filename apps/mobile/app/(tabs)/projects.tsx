@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { View, ScrollView, StyleSheet, RefreshControl } from "react-native";
-import { FolderOpen } from "lucide-react-native";
+import { View, ScrollView, StyleSheet, RefreshControl, Text } from "react-native";
+import { ChevronRight, FolderOpen } from "lucide-react-native";
+import { useRouter } from "expo-router";
 import { useTheme } from "../../src/design/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHostStore } from "../../src/store/HostStore";
-import { useUIStateStore } from "../../src/store/UIStateStore";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
 import type { OrchestrationProject } from "@ace/contracts";
 import { formatErrorMessage } from "../../src/errors";
@@ -19,22 +19,16 @@ import {
 } from "../../src/design/Components";
 
 export default function ProjectsScreen() {
+  const router = useRouter();
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const hosts = useHostStore((s) => s.hosts);
-  const activeHostId = useUIStateStore((s) => s.activeHostId);
   const [connections, setConnections] = useState<ManagedConnection[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aggregatedProjects, setAggregatedProjects] = useState<
     Array<{ project: OrchestrationProject; hostName: string; hostId: string }>
   >([]);
-  const [_searchText, setSearchText] = useState("");
-
-  const _activeConnection = connections.find((c) => c.host.id === activeHostId);
-  const filteredProjects = aggregatedProjects.filter(
-    (p) => p.project.name.toLowerCase().includes(_searchText.toLowerCase()) || _searchText === "",
-  );
 
   useEffect(() => {
     return connectionManager.onStatusChange((conns) => {
@@ -107,26 +101,38 @@ export default function ProjectsScreen() {
           />
         }
       >
-        <ScreenHeader title="Projects" subtitle={`${filteredProjects.length} total`} />
+        <ScreenHeader title="Projects" subtitle={`${aggregatedProjects.length} total`} />
 
         {error ? <ErrorBox message={error} onDismiss={() => setError(null)} /> : null}
 
-        {filteredProjects.length === 0 ? (
+        {aggregatedProjects.length === 0 ? (
           <View style={styles.emptyState}>
             <FolderOpen size={40} color={theme.mutedForeground} style={{ marginBottom: 12 }} />
+            <Text style={[styles.emptyText, { color: theme.mutedForeground }]}>
+              No projects yet
+            </Text>
           </View>
         ) : (
           <>
             <SectionHeader title="All Projects" />
             <List>
-              {filteredProjects.map(({ project, hostName, hostId }) => (
+              {aggregatedProjects.map(({ project, hostName, hostId }) => (
                 <ListItem
                   key={`${hostId}-${project.id}`}
                   title={project.name}
                   subtitle={`on ${hostName}`}
                   onPress={() => {
-                    // Navigate to project detail (can be added later)
+                    router.push({
+                      pathname: "/(tabs)/threads",
+                      params: { projectId: project.id, hostId },
+                    });
                   }}
+                  leftElement={
+                    <View style={[styles.projectIcon, { backgroundColor: `${theme.primary}1a` }]}>
+                      <FolderOpen size={14} color={theme.primary} />
+                    </View>
+                  }
+                  rightElement={<ChevronRight size={18} color={theme.mutedForeground} />}
                 />
               ))}
             </List>
@@ -155,6 +161,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 60,
-    opacity: 0.5,
+    opacity: 0.65,
+  },
+  emptyText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  projectIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

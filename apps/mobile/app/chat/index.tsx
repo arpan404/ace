@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { View, ScrollView, RefreshControl, StyleSheet } from "react-native";
+import { View, ScrollView, RefreshControl, StyleSheet, Text } from "react-native";
 import { useRouter } from "expo-router";
-import { Plus } from "lucide-react-native";
+import { ChevronRight, MessageSquare } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../src/design/ThemeContext";
 import { useHostStore } from "../../src/store/HostStore";
@@ -9,6 +9,7 @@ import { useUIStateStore } from "../../src/store/UIStateStore";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
 import type { OrchestrationThread } from "@ace/contracts";
 import { formatErrorMessage } from "../../src/errors";
+import { sortedCopy } from "../../src/sortedCopy";
 import {
   SafeScreen,
   ScreenHeader,
@@ -16,7 +17,7 @@ import {
   List,
   ListItem,
   Button,
-  StatusBadge,
+  Card,
   ErrorBox,
 } from "../../src/design/Components";
 
@@ -30,14 +31,8 @@ export default function ThreadsListScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [threads, setThreads] = useState<Array<OrchestrationThread>>([]);
-  const [_searchText, setSearchText] = useState("");
 
   const activeConnection = connections.find((c) => c.host.id === activeHostId);
-  const filteredThreads = threads.filter(
-    (t) =>
-      t.messages.some((m) => m.text.toLowerCase().includes(_searchText.toLowerCase())) ||
-      _searchText === "",
-  );
 
   const refreshThreads = useCallback(async () => {
     if (!activeConnection || activeConnection.status.kind !== "connected") {
@@ -50,7 +45,7 @@ export default function ThreadsListScreen() {
 
     try {
       const snapshot = await activeConnection.client.orchestration.getSnapshot();
-      setThreads(snapshot.threads.toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+      setThreads(sortedCopy(snapshot.threads, (a, b) => b.updatedAt.localeCompare(a.updatedAt)));
     } catch (err) {
       const msg = formatErrorMessage(err);
       setError(msg);
@@ -82,7 +77,7 @@ export default function ThreadsListScreen() {
   return (
     <SafeScreen>
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + 12 }]}
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + 10 }]}
         scrollEnabled={true}
         refreshControl={
           <RefreshControl
@@ -94,10 +89,10 @@ export default function ThreadsListScreen() {
       >
         <ScreenHeader
           title="Threads"
-          subtitle={activeHost ? `on ${activeHost.name}` : "No host selected"}
+          subtitle={activeHost ? activeHost.name : "No host selected"}
           rightElement={
             <Button
-              title="New"
+              title="New turn"
               onPress={() => {
                 if (activeConnection?.status.kind === "connected") {
                   router.push({ pathname: "/chat", params: { hostId: activeHostId } });
@@ -112,25 +107,40 @@ export default function ThreadsListScreen() {
         {error ? <ErrorBox message={error} onDismiss={() => setError(null)} /> : null}
 
         {connectionStatus !== "connected" ? (
-          <View style={styles.statusCard}>
-            <StatusBadge status={connectionStatus} label={activeHost?.name || "Not Connected"} />
-          </View>
+          <Card style={styles.statusCard}>
+            <Text style={[styles.statusTitle, { color: theme.foreground }]}>Host unavailable</Text>
+            <Text style={[styles.statusSubtitle, { color: theme.mutedForeground }]}>
+              Select a connected host from Settings to browse threads.
+            </Text>
+          </Card>
         ) : null}
 
-        {filteredThreads.length === 0 ? (
+        {threads.length === 0 ? (
           <View style={styles.emptyState}>
-            <Plus size={40} color={theme.mutedForeground} />
+            <MessageSquare size={34} color={theme.mutedForeground} />
+            <Text style={[styles.emptyText, { color: theme.mutedForeground }]}>No threads yet</Text>
           </View>
         ) : (
           <>
-            <SectionHeader title={`Threads (${filteredThreads.length})`} />
+            <SectionHeader title={`${threads.length} thread${threads.length === 1 ? "" : "s"}`} />
             <List>
-              {filteredThreads.map((thread) => (
+              {threads.map((thread) => (
                 <ListItem
                   key={thread.id}
-                  title={thread.messages.at(-1)?.text || "New Thread"}
+                  title={thread.messages.at(-1)?.text || "Untitled thread"}
                   subtitle={`${thread.messages.length} messages`}
-                  onPress={() => router.push({ pathname: `/chat/${thread.id}` })}
+                  onPress={() =>
+                    router.push({
+                      pathname: `/chat/${thread.id}`,
+                      params: { hostId: activeHostId },
+                    })
+                  }
+                  leftElement={
+                    <View style={[styles.threadIcon, { backgroundColor: `${theme.primary}1a` }]}>
+                      <MessageSquare size={14} color={theme.primary} />
+                    </View>
+                  }
+                  rightElement={<ChevronRight size={18} color={theme.mutedForeground} />}
                   highlighted={false}
                 />
               ))}
@@ -151,14 +161,33 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   statusCard: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginVertical: 8,
+    paddingVertical: 16,
+  },
+  statusTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  statusSubtitle: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 18,
   },
   emptyState: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 60,
-    opacity: 0.5,
+    opacity: 0.7,
+    gap: 10,
+  },
+  emptyText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  threadIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
   },
 });
