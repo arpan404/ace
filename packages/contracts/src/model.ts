@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { TrimmedNonEmptyString } from "./baseSchemas";
+import { PositiveInt, TrimmedNonEmptyString } from "./baseSchemas";
 import type { ProviderKind } from "./orchestration";
 
 export const CODEX_REASONING_EFFORT_OPTIONS = ["xhigh", "high", "medium", "low"] as const;
@@ -83,6 +83,7 @@ export const ModelCapabilities = Schema.Struct({
   supportsThinkingToggle: Schema.Boolean,
   contextWindowOptions: Schema.Array(ContextWindowOption),
   promptInjectedEffortLevels: Schema.Array(TrimmedNonEmptyString),
+  maxTokens: Schema.optional(PositiveInt),
 });
 export type ModelCapabilities = typeof ModelCapabilities.Type;
 
