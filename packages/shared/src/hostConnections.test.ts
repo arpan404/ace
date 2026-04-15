@@ -52,6 +52,7 @@ describe("hostConnections", () => {
     const encoded = encodeBase64UrlUtf8(
       JSON.stringify({
         name: "Primary host",
+        wsUrl: "ws://192.168.0.12:3773/ws",
         sessionId: "session-1",
         secret: "secret-1",
         claimUrl: "https://example.com/api/pairing/claims",
@@ -62,6 +63,7 @@ describe("hostConnections", () => {
       kind: "pairing",
       pairing: {
         name: "Primary host",
+        wsUrl: "ws://192.168.0.12:3773/ws",
         sessionId: "session-1",
         secret: "secret-1",
         claimUrl: "https://example.com/api/pairing/claims",
@@ -71,6 +73,7 @@ describe("hostConnections", () => {
 
   it("requests claim and waits for pairing approval", async () => {
     const pairing = {
+      wsUrl: "ws://192.168.0.12:3773/ws",
       sessionId: "session-1",
       secret: "secret-1",
       claimUrl: "https://example.com/api/pairing/claims",

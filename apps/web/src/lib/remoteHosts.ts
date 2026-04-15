@@ -444,6 +444,7 @@ function encodeBase64UrlUtf8(input: string): string {
 export function buildHostPairingConnectionString(pairing: HostPairingPayload): string {
   const payload = JSON.stringify({
     ...(pairing.name?.trim() ? { name: pairing.name.trim() } : {}),
+    wsUrl: pairing.wsUrl,
     sessionId: pairing.sessionId,
     secret: pairing.secret,
     ...(pairing.claimUrl ? { claimUrl: new URL(pairing.claimUrl).toString() } : {}),
