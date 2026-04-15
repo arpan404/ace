@@ -55,9 +55,11 @@ export function AppStartupScreen({ state, message }: AppStartupScreenProps) {
       <div className="relative flex flex-col items-center">
         <div className="mb-3 h-16 w-16" dangerouslySetInnerHTML={{ __html: APP_LOGO_SVG_MARKUP }} />
 
-        <div className="mb-6 flex items-baseline gap-3">
-          <span className="text-4xl font-bold tracking-tight">ACE</span>
-          <span className="text-sm font-medium text-muted-foreground/60">{APP_VERSION}</span>
+        <div className="mb-6 relative">
+          <div className="flex items-baseline">
+            <span className="text-4xl font-bold tracking-tight">ace</span>
+            <span className="ml-1.5 text-xs font-medium text-muted-foreground/60">{APP_VERSION}</span>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -69,12 +71,9 @@ export function AppStartupScreen({ state, message }: AppStartupScreenProps) {
             className="text-lg font-medium tracking-tight text-foreground/90"
           >
             {currentWord}
-            <span className="text-foreground/60">…</span>
           </motion.div>
           <Spinner />
         </div>
-
-        {message && <div className="mt-4 truncate text-sm text-muted-foreground/80">{message}</div>}
       </div>
     </div>
   );
