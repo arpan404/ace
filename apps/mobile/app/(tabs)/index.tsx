@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View, ScrollView, RefreshControl, StyleSheet, Text, Pressable } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Zap, ChevronRight, Plus, MessageSquare } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { useHostStore } from "../../src/store/HostStore";
 import { useUIStateStore } from "../../src/store/UIStateStore";
@@ -73,8 +74,8 @@ export default function AgentsScreen() {
       if (!snapshot) return "idle";
       const session = snapshot.sessions.find((s) => s.threadId === thread.id && !s.closedAt);
       if (!session) return "idle";
-      const stats = resolveProjectAgentStats(snapshot, thread.projectId);
-      if (stats.working > 0) return "running";
+      const agentStats = resolveProjectAgentStats(snapshot, thread.projectId);
+      if (agentStats.working > 0) return "running";
       return "ready";
     },
     [snapshot],
@@ -84,8 +85,8 @@ export default function AgentsScreen() {
     return (
       <View style={[styles.emptyRoot, { backgroundColor: colors.background }]}>
         <View style={styles.emptyContent}>
-          <View style={[styles.emptyIcon, { backgroundColor: isDark ? "#1c1c1e" : "#e5e5ea" }]}>
-            <Text style={styles.emptyIconText}>⚡</Text>
+          <View style={[styles.emptyIcon, { backgroundColor: `${colors.primary}14` }]}>
+            <Zap size={32} color={colors.primary} />
           </View>
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Connect a Host</Text>
           <Text style={[styles.emptySubtitle, { color: colors.muted }]}>
@@ -95,9 +96,8 @@ export default function AgentsScreen() {
             onPress={() => router.push("/pairing")}
             style={[styles.emptyButton, { backgroundColor: colors.primary }]}
           >
-            <Text style={[styles.emptyButtonText, { color: colors.primaryForeground }]}>
-              Pair Host
-            </Text>
+            <Plus size={18} color="#fff" strokeWidth={2.5} />
+            <Text style={styles.emptyButtonText}>Pair Host</Text>
           </Pressable>
         </View>
       </View>
@@ -105,7 +105,7 @@ export default function AgentsScreen() {
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.groupedBackground }]}>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView
         contentContainerStyle={{ paddingTop: insets.top, paddingBottom: insets.bottom + 100 }}
         refreshControl={
@@ -124,7 +124,7 @@ export default function AgentsScreen() {
           </Text>
         </View>
 
-        {/* Stats Row */}
+        {/* Stats */}
         <View style={styles.statsRow}>
           <StatPill label="Active" value={stats.active} color={colors.green} colors={colors} />
           <StatPill label="Threads" value={stats.total} color={colors.primary} colors={colors} />
@@ -149,10 +149,7 @@ export default function AgentsScreen() {
                   style={[
                     styles.hostChip,
                     {
-                      backgroundColor: isActive
-                        ? colors.primary
-                        : colors.secondaryGroupedBackground,
-                      borderColor: isActive ? colors.primary : colors.separator,
+                      backgroundColor: isActive ? colors.primary : isDark ? "#2c2c2e" : "#e5e5ea",
                     },
                   ]}
                 >
@@ -163,10 +160,7 @@ export default function AgentsScreen() {
                     ]}
                   />
                   <Text
-                    style={[
-                      styles.chipLabel,
-                      { color: isActive ? colors.primaryForeground : colors.foreground },
-                    ]}
+                    style={[styles.chipLabel, { color: isActive ? "#fff" : colors.foreground }]}
                     numberOfLines={1}
                   >
                     {host.name}
@@ -178,69 +172,56 @@ export default function AgentsScreen() {
         )}
 
         {/* Thread List */}
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.muted }]}>
-            {threads.length > 0 ? "RECENT THREADS" : "NO THREADS YET"}
-          </Text>
-        </View>
-
         {threads.length === 0 ? (
-          <View style={[styles.emptyState, { backgroundColor: colors.secondaryGroupedBackground }]}>
-            <Text style={[styles.emptyStateText, { color: colors.muted }]}>
-              Start a new thread from your desktop to see it here.
-            </Text>
+          <View style={styles.emptyThreads}>
+            <MessageSquare size={28} color={colors.muted} strokeWidth={1.5} />
+            <Text style={[styles.emptyThreadsText, { color: colors.muted }]}>No threads yet</Text>
           </View>
         ) : (
-          <View
-            style={[styles.listContainer, { backgroundColor: colors.secondaryGroupedBackground }]}
-          >
+          <View style={styles.threadList}>
+            <Text style={[styles.sectionLabel, { color: colors.muted }]}>RECENT THREADS</Text>
             {threads.map((thread, i) => {
               const status = threadStatus(thread);
               return (
-                <React.Fragment key={thread.id}>
-                  {i > 0 && (
+                <Pressable
+                  key={thread.id}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/thread/[threadId]",
+                      params: { threadId: thread.id, hostId: activeHostId },
+                    })
+                  }
+                  style={({ pressed }) => [styles.threadRow, pressed && { opacity: 0.6 }]}
+                >
+                  <View
+                    style={[
+                      styles.statusDot,
+                      {
+                        backgroundColor:
+                          status === "running"
+                            ? colors.green
+                            : status === "ready"
+                              ? colors.orange
+                              : colors.muted,
+                      },
+                    ]}
+                  />
+                  <View style={styles.threadContent}>
+                    <Text
+                      style={[styles.threadTitle, { color: colors.foreground }]}
+                      numberOfLines={1}
+                    >
+                      {threadPreview(thread)}
+                    </Text>
+                    <Text style={[styles.threadMeta, { color: colors.muted }]}>
+                      {thread.messages.length} msg · {formatTimeAgo(thread.updatedAt)}
+                    </Text>
+                  </View>
+                  <ChevronRight size={16} color={colors.muted} strokeWidth={2} />
+                  {i < threads.length - 1 && (
                     <View style={[styles.separator, { backgroundColor: colors.separator }]} />
                   )}
-                  <Pressable
-                    onPress={() =>
-                      router.push({
-                        pathname: "/thread/[threadId]",
-                        params: { threadId: thread.id, hostId: activeHostId },
-                      })
-                    }
-                    style={({ pressed }) => [
-                      styles.threadRow,
-                      pressed && { backgroundColor: colors.fill },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.statusDot,
-                        {
-                          backgroundColor:
-                            status === "running"
-                              ? colors.green
-                              : status === "ready"
-                                ? colors.orange
-                                : colors.muted,
-                        },
-                      ]}
-                    />
-                    <View style={styles.threadContent}>
-                      <Text
-                        style={[styles.threadTitle, { color: colors.foreground }]}
-                        numberOfLines={2}
-                      >
-                        {threadPreview(thread)}
-                      </Text>
-                      <Text style={[styles.threadMeta, { color: colors.muted }]}>
-                        {thread.messages.length} message{thread.messages.length !== 1 ? "s" : ""} ·{" "}
-                        {formatTimeAgo(thread.updatedAt)}
-                      </Text>
-                    </View>
-                    <Text style={[styles.chevron, { color: colors.separator }]}>›</Text>
-                  </Pressable>
-                </React.Fragment>
+                </Pressable>
               );
             })}
           </View>
@@ -259,15 +240,12 @@ function StatPill({
   label: string;
   value: number;
   color: string;
-  colors: { secondaryGroupedBackground: string; foreground: string; muted: string };
+  colors: { fill: string; foreground: string; muted: string };
 }) {
   return (
-    <View style={[styles.statPill, { backgroundColor: colors.secondaryGroupedBackground }]}>
+    <View style={[styles.statPill, { backgroundColor: `${color}14` }]}>
       <Text style={[styles.statValue, { color: colors.foreground }]}>{value}</Text>
-      <View style={styles.statLabelRow}>
-        <View style={[styles.statDot, { backgroundColor: color }]} />
-        <Text style={[styles.statLabel, { color: colors.muted }]}>{label}</Text>
-      </View>
+      <Text style={[styles.statLabel, { color: colors.muted }]}>{label}</Text>
     </View>
   );
 }
@@ -286,29 +264,31 @@ function formatTimeAgo(isoDate: string): string {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   emptyRoot: { flex: 1, justifyContent: "center" },
-  emptyContent: { alignItems: "center", paddingHorizontal: 32 },
+  emptyContent: { alignItems: "center", paddingHorizontal: 40 },
   emptyIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 20,
   },
-  emptyIconText: { fontSize: 36 },
-  emptyTitle: { fontSize: 28, fontWeight: "700", marginBottom: 8 },
+  emptyTitle: { fontSize: 24, fontWeight: "700", marginBottom: 8 },
   emptySubtitle: {
-    fontSize: 16,
+    fontSize: 15,
     textAlign: "center",
     lineHeight: 22,
     marginBottom: 28,
   },
   emptyButton: {
-    paddingHorizontal: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 28,
     paddingVertical: 14,
-    borderRadius: 14,
+    borderRadius: 25,
   },
-  emptyButtonText: { fontSize: 17, fontWeight: "600" },
+  emptyButtonText: { fontSize: 17, fontWeight: "600", color: "#fff" },
   header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 4 },
   largeTitle: { fontSize: 34, fontWeight: "700", letterSpacing: 0.37 },
   subtitle: { fontSize: 15, marginTop: 2 },
@@ -325,10 +305,8 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 14,
   },
-  statValue: { fontSize: 28, fontWeight: "700" },
-  statLabelRow: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 5 },
-  statDot: { width: 8, height: 8, borderRadius: 4 },
-  statLabel: { fontSize: 13, fontWeight: "500" },
+  statValue: { fontSize: 26, fontWeight: "700" },
+  statLabel: { fontSize: 12, fontWeight: "500", marginTop: 2 },
   hostChips: { paddingHorizontal: 20, paddingVertical: 12, gap: 8 },
   hostChip: {
     flexDirection: "row",
@@ -336,33 +314,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
-    borderWidth: 1,
     gap: 7,
   },
-  chipDot: { width: 8, height: 8, borderRadius: 4 },
+  chipDot: { width: 7, height: 7, borderRadius: 4 },
   chipLabel: { fontSize: 14, fontWeight: "600" },
-  sectionHeader: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 },
-  sectionTitle: { fontSize: 13, fontWeight: "600", letterSpacing: 0.5 },
-  listContainer: { marginHorizontal: 20, borderRadius: 12, overflow: "hidden" },
-  separator: { height: StyleSheet.hairlineWidth, marginLeft: 52 },
+  threadList: { paddingHorizontal: 20, paddingTop: 16 },
+  sectionLabel: { fontSize: 12, fontWeight: "600", letterSpacing: 0.5, marginBottom: 12 },
   threadRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 14,
-    paddingHorizontal: 16,
     gap: 12,
+  },
+  separator: {
+    position: "absolute",
+    bottom: 0,
+    left: 34,
+    right: 0,
+    height: StyleSheet.hairlineWidth,
   },
   statusDot: { width: 10, height: 10, borderRadius: 5 },
   threadContent: { flex: 1 },
   threadTitle: { fontSize: 16, fontWeight: "500", lineHeight: 21 },
-  threadMeta: { fontSize: 13, marginTop: 3 },
-  chevron: { fontSize: 22, fontWeight: "300" },
-  emptyState: {
-    marginHorizontal: 20,
-    borderRadius: 12,
-    paddingVertical: 40,
-    paddingHorizontal: 20,
-    alignItems: "center",
-  },
-  emptyStateText: { fontSize: 15, textAlign: "center", lineHeight: 22 },
+  threadMeta: { fontSize: 13, marginTop: 2 },
+  emptyThreads: { alignItems: "center", paddingVertical: 60, gap: 12 },
+  emptyThreadsText: { fontSize: 15, fontWeight: "500" },
 });

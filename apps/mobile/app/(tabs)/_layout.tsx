@@ -1,5 +1,7 @@
+import React from "react";
 import { Tabs } from "expo-router";
 import { Platform } from "react-native";
+import { Cpu, Server, FolderOpen, Settings } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 
 export default function TabsLayout() {
@@ -22,46 +24,30 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: "Agents",
-          tabBarIcon: ({ color }) => tabIcon("bolt.fill", color),
+          tabBarIcon: ({ color, size }) => <Cpu size={size ?? 22} color={color} />,
         }}
       />
       <Tabs.Screen
         name="hosts"
         options={{
           title: "Hosts",
-          tabBarIcon: ({ color }) => tabIcon("server.rack", color),
+          tabBarIcon: ({ color, size }) => <Server size={size ?? 22} color={color} />,
         }}
       />
       <Tabs.Screen
         name="projects"
         options={{
           title: "Projects",
-          tabBarIcon: ({ color }) => tabIcon("folder.fill", color),
+          tabBarIcon: ({ color, size }) => <FolderOpen size={size ?? 22} color={color} />,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: "Settings",
-          tabBarIcon: ({ color }) => tabIcon("gearshape.fill", color),
+          tabBarIcon: ({ color, size }) => <Settings size={size ?? 22} color={color} />,
         }}
       />
     </Tabs>
   );
-}
-
-function tabIcon(_name: string, color: string) {
-  // Expo Router tab icons are rendered natively on iOS via SF Symbols
-  // when using systemImage. For RN fallback, use a simple circle indicator.
-  const React = require("react");
-  const { View } = require("react-native");
-  return React.createElement(View, {
-    style: {
-      width: 22,
-      height: 22,
-      borderRadius: 6,
-      backgroundColor: color,
-      opacity: 0.85,
-    },
-  });
 }

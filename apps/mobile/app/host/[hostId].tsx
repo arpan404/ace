@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { FolderOpen, ChevronRight, MessageSquare } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { useHostStore } from "../../src/store/HostStore";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
@@ -75,7 +76,7 @@ export default function HostDetailScreen() {
 
   if (!host) {
     return (
-      <View style={[styles.root, { backgroundColor: colors.groupedBackground }]}>
+      <View style={[styles.root, { backgroundColor: colors.background }]}>
         <Stack.Screen options={{ headerShown: true, title: "" }} />
         <View style={styles.center}>
           <Text style={{ color: colors.muted }}>Host not found.</Text>
@@ -85,13 +86,13 @@ export default function HostDetailScreen() {
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.groupedBackground }]}>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
       <Stack.Screen
         options={{
           headerShown: true,
           title: host.name,
           headerBackTitleVisible: false,
-          headerStyle: { backgroundColor: colors.groupedBackground },
+          headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.primary,
           headerTitleStyle: { color: colors.foreground },
         }}
@@ -107,7 +108,7 @@ export default function HostDetailScreen() {
           />
         }
       >
-        {/* Connection Status Banner */}
+        {/* Connection Status */}
         <View
           style={[
             styles.statusBanner,
@@ -133,104 +134,90 @@ export default function HostDetailScreen() {
         {/* Projects */}
         {projects.length > 0 && (
           <>
-            <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionTitle, { color: colors.muted }]}>
-                PROJECTS ({projects.length})
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.groupContainer,
-                { backgroundColor: colors.secondaryGroupedBackground },
-              ]}
-            >
-              {projects.map((project, i) => {
-                const stats = resolveProjectAgentStats(threads, project.id);
-                return (
-                  <React.Fragment key={project.id}>
-                    {i > 0 && (
-                      <View style={[styles.separator, { backgroundColor: colors.separator }]} />
-                    )}
-                    <View style={styles.projectRow}>
-                      <View
-                        style={[styles.projectIcon, { backgroundColor: `${colors.primary}18` }]}
-                      >
-                        <Text style={styles.projectEmoji}>📂</Text>
-                      </View>
-                      <View style={styles.rowContent}>
-                        <Text
-                          style={[styles.projectName, { color: colors.foreground }]}
-                          numberOfLines={1}
-                        >
-                          {project.title}
-                        </Text>
-                        <Text style={[styles.projectMeta, { color: colors.muted }]}>
-                          {stats.total} thread{stats.total !== 1 ? "s" : ""}
-                          {stats.working > 0 ? ` · ${stats.working} active` : ""}
-                        </Text>
-                      </View>
+            <Text style={[styles.sectionLabel, { color: colors.muted }]}>
+              PROJECTS ({projects.length})
+            </Text>
+            {projects.map((project, i) => {
+              const stats = resolveProjectAgentStats(threads, project.id);
+              return (
+                <View key={project.id}>
+                  <View style={styles.projectRow}>
+                    <View style={[styles.projectIcon, { backgroundColor: `${colors.primary}14` }]}>
+                      <FolderOpen size={18} color={colors.primary} />
                     </View>
-                  </React.Fragment>
-                );
-              })}
-            </View>
+                    <View style={styles.rowContent}>
+                      <Text
+                        style={[styles.projectName, { color: colors.foreground }]}
+                        numberOfLines={1}
+                      >
+                        {project.title}
+                      </Text>
+                      <Text style={[styles.projectMeta, { color: colors.muted }]}>
+                        {stats.total} thread{stats.total !== 1 ? "s" : ""}
+                        {stats.working > 0 ? ` · ${stats.working} active` : ""}
+                      </Text>
+                    </View>
+                  </View>
+                  {i < projects.length - 1 && (
+                    <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+                  )}
+                </View>
+              );
+            })}
           </>
         )}
 
         {/* Threads */}
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.muted }]}>
-            THREADS ({threads.length})
-          </Text>
-        </View>
+        <Text
+          style={[
+            styles.sectionLabel,
+            { color: colors.muted, marginTop: projects.length > 0 ? 24 : 0 },
+          ]}
+        >
+          THREADS ({threads.length})
+        </Text>
 
         {threads.length === 0 ? (
-          <View style={[styles.emptyCard, { backgroundColor: colors.secondaryGroupedBackground }]}>
+          <View style={styles.emptyThreads}>
+            <MessageSquare size={28} color={colors.muted} strokeWidth={1.5} />
             <Text style={[styles.emptyText, { color: colors.muted }]}>
               No threads yet. Start a conversation from the desktop app.
             </Text>
           </View>
         ) : (
-          <View
-            style={[styles.groupContainer, { backgroundColor: colors.secondaryGroupedBackground }]}
-          >
-            {threads.map((thread, i) => {
-              const { text: statusText, color: statusColor } = sessionStatusLabel(thread);
-              return (
-                <React.Fragment key={thread.id}>
-                  {i > 0 && (
-                    <View style={[styles.separator, { backgroundColor: colors.separator }]} />
-                  )}
-                  <Pressable
-                    onPress={() =>
-                      router.push({
-                        pathname: "/thread/[threadId]",
-                        params: { threadId: thread.id, hostId: host.id },
-                      })
-                    }
-                    style={({ pressed }) => [
-                      styles.threadRow,
-                      pressed && { backgroundColor: colors.fill },
-                    ]}
-                  >
-                    <View style={[styles.threadDot, { backgroundColor: colors[statusColor] }]} />
-                    <View style={styles.rowContent}>
-                      <Text
-                        style={[styles.threadTitle, { color: colors.foreground }]}
-                        numberOfLines={1}
-                      >
-                        {thread.title}
-                      </Text>
-                      <Text style={[styles.threadMeta, { color: colors.muted }]}>
-                        {statusText} · {timeAgo(thread.updatedAt)}
-                      </Text>
-                    </View>
-                    <Text style={[styles.chevron, { color: colors.separator }]}>›</Text>
-                  </Pressable>
-                </React.Fragment>
-              );
-            })}
-          </View>
+          threads.map((thread, i) => {
+            const { text: statusText, color: statusColor } = sessionStatusLabel(thread);
+            return (
+              <View key={thread.id}>
+                <Pressable
+                  onPress={() =>
+                    router.push({
+                      pathname: "/thread/[threadId]",
+                      params: { threadId: thread.id, hostId: host.id },
+                    })
+                  }
+                  style={({ pressed }) => [styles.threadRow, pressed && { opacity: 0.6 }]}
+                >
+                  <View style={[styles.threadDot, { backgroundColor: colors[statusColor] }]} />
+                  <View style={styles.rowContent}>
+                    <Text
+                      style={[styles.threadTitle, { color: colors.foreground }]}
+                      numberOfLines={1}
+                    >
+                      {thread.title}
+                    </Text>
+                    <Text style={[styles.threadMeta, { color: colors.muted }]}>
+                      {statusText} · {timeAgo(thread.updatedAt)}
+                    </Text>
+                  </View>
+                  <ChevronRight size={16} color={colors.muted} strokeWidth={2} />
+                </Pressable>
+                {i < threads.length - 1 && (
+                  <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+                )}
+              </View>
+            );
+          })
         )}
       </ScrollView>
     </View>
@@ -253,48 +240,42 @@ const styles = StyleSheet.create({
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   statusText: { fontSize: 15, fontWeight: "600" },
-  sectionHeader: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 8 },
-  sectionTitle: { fontSize: 13, fontWeight: "600", letterSpacing: 0.5 },
-  groupContainer: {
-    marginHorizontal: 20,
-    borderRadius: 12,
-    overflow: "hidden",
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.5,
+    paddingHorizontal: 20,
+    marginTop: 24,
+    marginBottom: 8,
   },
-  separator: { height: StyleSheet.hairlineWidth, marginLeft: 52 },
+  separator: { height: StyleSheet.hairlineWidth, marginLeft: 50, marginRight: 20 },
   projectRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     gap: 12,
   },
   projectIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
   },
-  projectEmoji: { fontSize: 18 },
   rowContent: { flex: 1 },
   projectName: { fontSize: 17, fontWeight: "500" },
-  projectMeta: { fontSize: 14, marginTop: 2 },
+  projectMeta: { fontSize: 13, marginTop: 2 },
   threadRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     gap: 12,
   },
   threadDot: { width: 10, height: 10, borderRadius: 5 },
   threadTitle: { fontSize: 17, fontWeight: "500" },
-  threadMeta: { fontSize: 14, marginTop: 2 },
-  chevron: { fontSize: 22, fontWeight: "300" },
-  emptyCard: {
-    marginHorizontal: 20,
-    borderRadius: 12,
-    padding: 24,
-    alignItems: "center",
-  },
+  threadMeta: { fontSize: 13, marginTop: 2 },
+  emptyThreads: { alignItems: "center", paddingVertical: 40, gap: 12, paddingHorizontal: 32 },
   emptyText: { fontSize: 15, textAlign: "center", lineHeight: 22 },
 });

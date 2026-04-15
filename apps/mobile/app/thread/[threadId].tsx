@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Terminal, ArrowUp, Square } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { useHostStore } from "../../src/store/HostStore";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
@@ -41,7 +42,6 @@ export default function ThreadChatScreen() {
   const [sending, setSending] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
-  // Find connection
   useEffect(() => {
     const conns = connectionManager.getConnections();
     const found = conns.find((c) => c.host.id === hostId) ?? null;
@@ -51,7 +51,6 @@ export default function ThreadChatScreen() {
     });
   }, [hostId]);
 
-  // Load thread and subscribe to events
   useEffect(() => {
     if (!conn || conn.status.kind !== "connected" || !threadId) return;
 
@@ -77,7 +76,6 @@ export default function ThreadChatScreen() {
         const msg = event.payload.message as OrchestrationMessage;
         setMessages((prev) => upsertThreadMessage(prev, msg));
       }
-      // Refresh thread on session changes
       if (event.type === "thread.session.set" || event.type === "thread.turn.startRequested") {
         void loadThread();
       }
@@ -132,7 +130,6 @@ export default function ThreadChatScreen() {
   }, [conn, thread]);
 
   const isRunning = thread?.session?.status === "running" || thread?.session?.status === "starting";
-
   const sessionStatus = thread?.session?.status ?? "idle";
 
   const renderMessage = useCallback(
@@ -145,7 +142,7 @@ export default function ThreadChatScreen() {
             styles.messageBubble,
             isUser
               ? [styles.userBubble, { backgroundColor: colors.primary }]
-              : [styles.assistantBubble, { backgroundColor: colors.secondaryGroupedBackground }],
+              : [styles.assistantBubble, { backgroundColor: `${colors.muted}20` }],
           ]}
         >
           <Text style={[styles.messageText, { color: isUser ? "#fff" : colors.foreground }]}>
@@ -153,12 +150,7 @@ export default function ThreadChatScreen() {
             {isStreaming ? " ▍" : ""}
           </Text>
           <Text
-            style={[
-              styles.messageTime,
-              {
-                color: isUser ? "rgba(255,255,255,0.6)" : colors.muted,
-              },
-            ]}
+            style={[styles.messageTime, { color: isUser ? "rgba(255,255,255,0.6)" : colors.muted }]}
           >
             {timeStamp(item.createdAt)}
           </Text>
@@ -205,6 +197,7 @@ export default function ThreadChatScreen() {
                   onPress={() => void handleInterrupt()}
                   style={[styles.interruptBtn, { borderColor: colors.red }]}
                 >
+                  <Square size={12} color={colors.red} fill={colors.red} />
                   <Text style={[styles.interruptText, { color: colors.red }]}>Stop</Text>
                 </Pressable>
               )}
@@ -215,8 +208,9 @@ export default function ThreadChatScreen() {
                     params: { threadId, hostId },
                   })
                 }
+                hitSlop={8}
               >
-                <Text style={{ fontSize: 20 }}>⌨️</Text>
+                <Terminal size={20} color={colors.primary} strokeWidth={2} />
               </Pressable>
             </View>
           ),
@@ -302,7 +296,7 @@ export default function ThreadChatScreen() {
             style={[
               styles.textInput,
               {
-                backgroundColor: colors.secondaryGroupedBackground,
+                backgroundColor: `${colors.muted}20`,
                 color: colors.foreground,
               },
             ]}
@@ -324,16 +318,11 @@ export default function ThreadChatScreen() {
               },
             ]}
           >
-            <Text
-              style={[
-                styles.sendButtonText,
-                {
-                  color: input.trim() && !sending ? "#fff" : colors.muted,
-                },
-              ]}
-            >
-              ↑
-            </Text>
+            <ArrowUp
+              size={18}
+              color={input.trim() && !sending ? "#fff" : colors.muted}
+              strokeWidth={2.5}
+            />
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -345,8 +334,11 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 14 },
   interruptBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     borderWidth: 1,
     borderRadius: 6,
     paddingHorizontal: 10,
@@ -403,5 +395,4 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 2,
   },
-  sendButtonText: { fontSize: 18, fontWeight: "700" },
 });
