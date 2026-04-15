@@ -94,10 +94,10 @@ export default function AgentsScreen() {
           </Text>
           <Pressable
             onPress={() => router.push("/pairing")}
-            style={[styles.emptyButton, { backgroundColor: colors.primary }]}
+            style={[styles.emptyButton, { backgroundColor: colors.secondaryGroupedBackground }]}
           >
-            <Plus size={18} color="#fff" strokeWidth={2.5} />
-            <Text style={styles.emptyButtonText}>Pair Host</Text>
+            <Plus size={18} color={colors.primary} strokeWidth={2.5} />
+            <Text style={[styles.emptyButtonText, { color: colors.foreground }]}>Pair Host</Text>
           </Pressable>
         </View>
       </View>
@@ -284,11 +284,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 28,
+    paddingHorizontal: 32,
     paddingVertical: 14,
-    borderRadius: 25,
+    borderRadius: 14,
   },
-  emptyButtonText: { fontSize: 17, fontWeight: "600", color: "#fff" },
+  emptyButtonText: { fontSize: 17, fontWeight: "600" },
   header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 4 },
   largeTitle: { fontSize: 34, fontWeight: "700", letterSpacing: 0.37 },
   subtitle: { fontSize: 15, marginTop: 2 },
