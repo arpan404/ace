@@ -21,7 +21,6 @@ import {
 import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
-import { shortcutLabelForCommand } from "../../keybindings";
 import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
@@ -31,7 +30,6 @@ import {
 } from "../../lib/desktopUpdate";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
-import { resolveAndPersistPreferredEditor } from "../../editorPreferences";
 import { isElectron } from "../../env";
 import { resetThemePresetToDefault, useAppearancePrefs } from "../../appearancePrefs";
 import { DEFAULT_THEME_PRESET } from "../../themePresets";
@@ -73,6 +71,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectAvatar } from "../ProjectAvatar";
 import type { Project } from "../../types";
 import { ProviderSettingsSection, type ProviderCard } from "./ProviderSettingsSection";
+import { KeybindingsSettingsEditor } from "./KeybindingsSettingsEditor";
 import {
   SettingsPageContainer,
   SettingsRow,
@@ -81,12 +80,7 @@ import {
   getProviderSummary,
   getProviderVersionLabel,
 } from "./SettingsPanelPrimitives";
-import {
-  useServerAvailableEditors,
-  useServerKeybindings,
-  useServerKeybindingsConfigPath,
-  useServerProviders,
-} from "../../rpc/serverState";
+import { useServerProviders } from "../../rpc/serverState";
 
 const THEME_OPTIONS = [
   {
@@ -690,8 +684,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       isElectron ? "default" : readAgentAttentionNotificationPermission(),
     );
   const [isUpdatingNotificationPermission, setIsUpdatingNotificationPermission] = useState(false);
-  const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
-  const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
   const [openProviderDetails, setOpenProviderDetails] = useState<Record<ProviderKind, boolean>>({
     codex: Boolean(
       settings.providers.codex.binaryPath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.binaryPath ||
@@ -972,76 +964,8 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       });
   }, []);
 
-  const keybindingsConfigPath = useServerKeybindingsConfigPath();
-  const keybindings = useServerKeybindings();
-  const availableEditors = useServerAvailableEditors();
   const serverProviders = useServerProviders();
   const codexHomePath = settings.providers.codex.homePath;
-  const editorShortcutLabelOptions = useMemo(
-    () => ({
-      context: {
-        browserOpen: false,
-        editorFocus: true,
-        terminalFocus: false,
-        terminalOpen: false,
-      },
-    }),
-    [],
-  );
-  const workspaceShortcutSummaries = useMemo(
-    () =>
-      [
-        [
-          "Toggle workspace mode",
-          shortcutLabelForCommand(
-            keybindings,
-            "chat.toggleWorkspaceMode",
-            editorShortcutLabelOptions,
-          ),
-        ],
-        [
-          "Split window",
-          shortcutLabelForCommand(keybindings, "editor.split", editorShortcutLabelOptions),
-        ],
-        [
-          "Split window down",
-          shortcutLabelForCommand(keybindings, "editor.splitDown", editorShortcutLabelOptions),
-        ],
-        [
-          "Focus previous window",
-          shortcutLabelForCommand(
-            keybindings,
-            "editor.focusPreviousWindow",
-            editorShortcutLabelOptions,
-          ),
-        ],
-        [
-          "Focus next window",
-          shortcutLabelForCommand(
-            keybindings,
-            "editor.focusNextWindow",
-            editorShortcutLabelOptions,
-          ),
-        ],
-        [
-          "Previous tab",
-          shortcutLabelForCommand(keybindings, "editor.previousTab", editorShortcutLabelOptions),
-        ],
-        [
-          "Next tab",
-          shortcutLabelForCommand(keybindings, "editor.nextTab", editorShortcutLabelOptions),
-        ],
-        [
-          "Move tab left",
-          shortcutLabelForCommand(keybindings, "editor.moveTabLeft", editorShortcutLabelOptions),
-        ],
-        [
-          "Move tab right",
-          shortcutLabelForCommand(keybindings, "editor.moveTabRight", editorShortcutLabelOptions),
-        ],
-      ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-    [editorShortcutLabelOptions, keybindings],
-  );
 
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenProvider = textGenerationModelSelection.provider;
@@ -1057,28 +981,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
-
-  const openKeybindingsFile = useCallback(() => {
-    if (!keybindingsConfigPath) return;
-    setOpenKeybindingsError(null);
-    setIsOpeningKeybindings(true);
-    const editor = resolveAndPersistPreferredEditor(availableEditors ?? []);
-    if (!editor) {
-      setOpenKeybindingsError("No available editors found.");
-      setIsOpeningKeybindings(false);
-      return;
-    }
-    void ensureNativeApi()
-      .shell.openInEditor(keybindingsConfigPath, editor)
-      .catch((error) => {
-        setOpenKeybindingsError(
-          error instanceof Error ? error.message : "Unable to open keybindings file.",
-        );
-      })
-      .finally(() => {
-        setIsOpeningKeybindings(false);
-      });
-  }, [availableEditors, keybindingsConfigPath]);
 
   const addCustomModel = useCallback(
     (provider: ProviderKind) => {
@@ -2184,25 +2086,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
             <SettingsRow
               title="Workspace editor shortcuts"
-              description="These commands resolve through the same keybindings.json file that drives the rest of the app."
-              status={
-                workspaceShortcutSummaries.length > 0 ? (
-                  <div className="space-y-1 text-[11px] text-muted-foreground">
-                    {workspaceShortcutSummaries.map(([label, shortcut]) => (
-                      <div key={label} className="flex items-center gap-2">
-                        <span>{label}</span>
-                        <span className="rounded border border-border/60 px-1.5 py-0.5 font-mono text-foreground">
-                          {shortcut}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="text-muted-foreground">
-                    No editor shortcuts are currently configured.
-                  </span>
-                )
-              }
+              description="Editor and workspace commands now share the same in-app keybinding editor below."
             />
           </SettingsSection>
         </>
@@ -2561,30 +2445,12 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
           <SettingsSection title="Keybindings">
             <SettingsRow
               title="Keybindings"
-              description="Open the persisted `keybindings.json` file to edit advanced bindings directly, including workspace editor tabs and window commands."
-              status={
-                <>
-                  <span className="block break-all font-mono text-[11px] text-foreground">
-                    {keybindingsConfigPath ?? "Resolving keybindings path..."}
-                  </span>
-                  {openKeybindingsError ? (
-                    <span className="mt-1 block text-destructive">{openKeybindingsError}</span>
-                  ) : (
-                    <span className="mt-1 block">Opens in your preferred editor.</span>
-                  )}
-                </>
-              }
-              control={
-                <Button
-                  size="xs"
-                  variant="outline"
-                  disabled={!keybindingsConfigPath || isOpeningKeybindings}
-                  onClick={openKeybindingsFile}
-                >
-                  {isOpeningKeybindings ? "Opening..." : "Open file"}
-                </Button>
-              }
-            />
+              description="Configure shortcuts directly here. Press keys to record bindings, then save or revert."
+            >
+              <div className="mt-4">
+                <KeybindingsSettingsEditor />
+              </div>
+            </SettingsRow>
           </SettingsSection>
         </>
       ) : null}

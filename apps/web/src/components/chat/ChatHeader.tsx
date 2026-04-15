@@ -6,8 +6,16 @@ import {
 } from "@ace/contracts";
 import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
-import { BugIcon, DiffIcon, GlobeIcon, SquarePenIcon, TerminalSquareIcon } from "lucide-react";
+import {
+  BugIcon,
+  ChevronsUpIcon,
+  DiffIcon,
+  GlobeIcon,
+  SquarePenIcon,
+  TerminalSquareIcon,
+} from "lucide-react";
 import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
@@ -16,7 +24,6 @@ import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
 import { TopBarCluster, interleaveTopBarItems } from "../thread/TopBarCluster";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 import { DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME } from "~/lib/desktopChrome";
-import { isMacPlatform } from "~/lib/utils";
 
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
@@ -27,6 +34,7 @@ interface ChatHeaderProps {
   activeProjectScripts: ProjectScript[] | undefined;
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
+  sidebarToggleShortcutLabel: string | null;
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
@@ -49,6 +57,8 @@ interface ChatHeaderProps {
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
   onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
+  onHideHeader: () => void;
+  hideHeaderShortcutLabel: string | null;
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -60,6 +70,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeProjectScripts,
   preferredScriptId,
   keybindings,
+  sidebarToggleShortcutLabel,
   terminalAvailable,
   terminalOpen,
   terminalToggleShortcutLabel,
@@ -82,12 +93,10 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleTerminal,
   onToggleDiff,
   onWorkspaceModeChange,
+  onHideHeader,
+  hideHeaderShortcutLabel,
 }: ChatHeaderProps) {
   const { isMobile, state } = useSidebar();
-  const sidebarToggleShortcutLabel =
-    typeof navigator !== "undefined" && isMacPlatform(navigator.platform)
-      ? "\u21e7\u2318B"
-      : "Ctrl+Shift+B";
   const showSidebarToggle = isMobile || state === "collapsed";
   const editorWorkspaceActive = workspaceMode === "editor" || workspaceMode === "split";
   const workspaceActionItems: ReactNode[] = [
@@ -231,6 +240,26 @@ export const ChatHeader = memo(function ChatHeader({
             : "Toggle diff panel"}
       </TooltipPopup>
     </Tooltip>,
+    <Tooltip key="hide-header">
+      <TooltipTrigger
+        render={
+          <Button
+            className={utilityToggleClassName}
+            onClick={onHideHeader}
+            aria-label="Hide top header"
+            variant="default"
+            size="xs"
+          >
+            <ChevronsUpIcon className="size-3.5" />
+          </Button>
+        }
+      />
+      <TooltipPopup side="bottom">
+        {hideHeaderShortcutLabel
+          ? `Hide top header (${hideHeaderShortcutLabel})`
+          : "Hide top header"}
+      </TooltipPopup>
+    </Tooltip>,
   ]);
 
   return (
@@ -241,7 +270,11 @@ export const ChatHeader = memo(function ChatHeader({
             <TooltipTrigger
               render={<SidebarTrigger className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME} />}
             />
-            <TooltipPopup side="bottom">Toggle sidebar ({sidebarToggleShortcutLabel})</TooltipPopup>
+            <TooltipPopup side="bottom">
+              {sidebarToggleShortcutLabel
+                ? `Toggle sidebar (${sidebarToggleShortcutLabel})`
+                : "Toggle sidebar"}
+            </TooltipPopup>
           </Tooltip>
         ) : null}
         {workspaceMode === "editor" ? (
