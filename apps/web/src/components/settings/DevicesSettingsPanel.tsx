@@ -74,6 +74,26 @@ function normalizeHostsForMode(hosts: ReadonlyArray<RemoteHostInstance>, desktop
   return hosts.slice(0, URL_MODE_MAX_HOSTS);
 }
 
+function maskPairingLinkForDisplay(connectionString: string): string {
+  try {
+    const parsed = new URL(connectionString);
+    if (parsed.protocol === "ace:" && parsed.searchParams.has("p")) {
+      const encodedPayload = parsed.searchParams.get("p") ?? "";
+      const maskedPayload =
+        encodedPayload.length > 20
+          ? `${encodedPayload.slice(0, 10)}…${encodedPayload.slice(-10)}`
+          : "••••••••••";
+      return `ace://pair?p=${maskedPayload}`;
+    }
+  } catch {
+    // Fall through to generic truncation.
+  }
+  if (connectionString.length <= 64) {
+    return connectionString;
+  }
+  return `${connectionString.slice(0, 40)}…${connectionString.slice(-20)}`;
+}
+
 export function DevicesSettingsPanel() {
   const desktopMode = isElectron;
   const [hosts, setHosts] = useState<RemoteHostInstance[]>(() =>
@@ -451,7 +471,7 @@ export function DevicesSettingsPanel() {
           {pairingLink ? (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <code className="max-w-full break-all rounded bg-muted px-2 py-1 text-[10px]">
-                {pairingLink.connectionString}
+                {maskPairingLinkForDisplay(pairingLink.connectionString)}
               </code>
               <Button
                 size="xs"

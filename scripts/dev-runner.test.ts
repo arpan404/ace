@@ -48,7 +48,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   });
 
   describe("createDevRunnerEnv", () => {
-    it.effect("defaults ACE_HOME to ~/.ace when not provided", () =>
+    it.effect("defaults ACE_HOME to ~/.ace-dev when not provided", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
@@ -65,7 +65,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.ACE_HOME, resolve(homedir(), ".ace"));
+        assert.equal(env.ACE_HOME, resolve(homedir(), ".ace-dev"));
+        assert.equal(env.ACE_DAEMONIZED, "1");
       }),
     );
 
@@ -87,6 +88,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         });
 
         assert.equal(env.ACE_HOME, resolve(homedir(), ".ace-dev"));
+        assert.equal(env.ACE_DAEMONIZED, undefined);
       }),
     );
 
@@ -115,6 +117,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         assert.equal(env.ACE_LOG_WS_EVENTS, "1");
         assert.equal(env.ACE_HOST, "0.0.0.0");
         assert.equal(env.VITE_DEV_SERVER_URL, "http://localhost:7331/");
+        assert.equal(env.ACE_DAEMONIZED, "1");
       }),
     );
 
@@ -218,6 +221,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         assert.equal(env.ACE_NO_BROWSER, undefined);
         assert.equal(env.ACE_HOST, undefined);
         assert.equal(env.VITE_WS_URL, undefined);
+        assert.equal(env.ACE_DAEMONIZED, undefined);
       }),
     );
   });
@@ -285,7 +289,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       }),
     );
 
-    it.effect("keeps server offset stable for dev:web and only shifts web offset", () =>
+    it.effect("uses a shared fallback offset for dev:web", () =>
       Effect.gen(function* () {
         const taken = new Set([BASE_WEB_PORT]);
         const offsets = yield* resolveModePortOffsets({
@@ -296,7 +300,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           checkPortAvailability: (port) => Effect.succeed(!taken.has(port)),
         });
 
-        assert.deepStrictEqual(offsets, { serverOffset: 0, webOffset: 1 });
+        assert.deepStrictEqual(offsets, { serverOffset: 1, webOffset: 1 });
       }),
     );
 
@@ -315,18 +319,20 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       }),
     );
 
-    it.effect("respects explicit dev-url override for dev:web", () =>
-      Effect.gen(function* () {
-        const offsets = yield* resolveModePortOffsets({
-          mode: "dev:web",
-          startOffset: 0,
-          hasExplicitServerPort: false,
-          hasExplicitDevUrl: true,
-          checkPortAvailability: () => Effect.succeed(false),
-        });
+    it.effect(
+      "respects explicit dev-url override for dev:web while still checking server port",
+      () =>
+        Effect.gen(function* () {
+          const offsets = yield* resolveModePortOffsets({
+            mode: "dev:web",
+            startOffset: 0,
+            hasExplicitServerPort: false,
+            hasExplicitDevUrl: true,
+            checkPortAvailability: () => Effect.succeed(true),
+          });
 
-        assert.deepStrictEqual(offsets, { serverOffset: 0, webOffset: 0 });
-      }),
+          assert.deepStrictEqual(offsets, { serverOffset: 0, webOffset: 0 });
+        }),
     );
 
     it.effect("respects explicit server port override for dev:server", () =>
