@@ -351,11 +351,29 @@ function isoNow(): string {
 function currentOpenCodeModelContextWindowTokens(
   context: OpenCodeSessionContext,
 ): number | undefined {
-  const modelSlug = context.session.model;
+  let modelSlug = context.session.model;
   if (!modelSlug) {
     return undefined;
   }
-  return getOpenCodeModelContextWindowTokens(context.opencodeBaseUrl, modelSlug);
+  if (modelSlug === "auto" || modelSlug.trim() === "") {
+    const defaults = context.defaultModels;
+    const providerId = Object.keys(defaults)[0];
+    if (providerId) {
+      const modelId = defaults[providerId];
+      if (modelId) {
+        modelSlug = `${providerId}/${modelId}`;
+      } else {
+        return undefined;
+      }
+    } else {
+      return undefined;
+    }
+  }
+  const tokens = getOpenCodeModelContextWindowTokens(context.opencodeBaseUrl, modelSlug);
+  if (tokens !== undefined) {
+    return tokens;
+  }
+  return undefined;
 }
 
 function resolveOpenCodeIdleSessionTtlMs(
