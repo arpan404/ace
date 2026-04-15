@@ -35,6 +35,10 @@ const isHelpInvocation = (args: ReadonlyArray<string>): boolean =>
 const rewriteCliAliases = () => {
   const args = process.argv.slice(2);
   switch (args[0]) {
+    case "--web": {
+      process.argv = [process.argv[0]!, process.argv[1]!, "web", ...args.slice(1)];
+      return;
+    }
     case "--serve": {
       process.argv = [process.argv[0]!, process.argv[1]!, "serve", ...args.slice(1)];
       return;
