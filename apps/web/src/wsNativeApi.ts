@@ -39,11 +39,13 @@ export function createWsNativeApi(): NativeApi {
 
   const api: NativeApi = {
     dialogs: {
-      pickFolder: async () => {
+      pickFolder: async (options) => {
         if (window.desktopBridge) {
-          return window.desktopBridge.pickFolder();
+          return options === undefined
+            ? window.desktopBridge.pickFolder()
+            : window.desktopBridge.pickFolder(options);
         }
-        return rpcClient.server.pickFolder();
+        return rpcClient.server.pickFolder(options ?? {});
       },
       confirm: async (message) => {
         if (window.desktopBridge) {
@@ -77,6 +79,9 @@ export function createWsNativeApi(): NativeApi {
       readFile: rpcClient.projects.readFile,
       renameEntry: rpcClient.projects.renameEntry,
       writeFile: rpcClient.projects.writeFile,
+    },
+    filesystem: {
+      browse: rpcClient.filesystem.browse,
     },
     workspaceEditor: {
       syncBuffer: rpcClient.workspaceEditor.syncBuffer,

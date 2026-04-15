@@ -44,6 +44,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "browser.moveTabRight",
   "chat.new",
   "chat.newLocal",
+  "project.add",
   "chat.toggleWorkspaceMode",
   "chat.togglePlanMode",
   "chat.toggleHeader",

@@ -32,6 +32,7 @@ import type {
   DesktopUpdateActionResult,
   DesktopUpdateCheckResult,
   DesktopUpdateState,
+  PickFolderOptions,
 } from "@ace/contracts";
 import {
   ensureAceCliInstalledWithProgress,
@@ -2123,13 +2124,21 @@ function registerIpcHandlers(): void {
   );
 
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
-  ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
+  ipcMain.handle(PICK_FOLDER_CHANNEL, async (_event, rawOptions: unknown) => {
+    const options =
+      typeof rawOptions === "object" && rawOptions !== null
+        ? (rawOptions as Partial<PickFolderOptions>)
+        : undefined;
+    const initialPath = options?.initialPath?.trim();
+    const defaultPath = initialPath && initialPath.length > 0 ? initialPath : undefined;
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
     const result = owner
       ? await dialog.showOpenDialog(owner, {
+          ...(defaultPath ? { defaultPath } : {}),
           properties: ["openDirectory", "createDirectory"],
         })
       : await dialog.showOpenDialog({
+          ...(defaultPath ? { defaultPath } : {}),
           properties: ["openDirectory", "createDirectory"],
         });
     if (result.canceled) return null;

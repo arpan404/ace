@@ -68,6 +68,12 @@ const searchWorkspaceEntries = (input: { cwd: string; query: string; limit: numb
     return yield* workspaceEntries.search(input);
   });
 
+const browseWorkspaceEntries = (input: { partialPath: string; cwd?: string }) =>
+  Effect.gen(function* () {
+    const workspaceEntries = yield* WorkspaceEntries;
+    return yield* workspaceEntries.browse(input);
+  });
+
 it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -363,6 +369,52 @@ it.layer(TestLayer)("WorkspaceEntriesLive", (it) => {
           ]),
         );
         expect(result.entries.every((entry) => !("normalizedPath" in entry))).toBe(true);
+      }),
+    );
+  });
+
+  describe("browse", () => {
+    it.effect("returns matching directories for an absolute path prefix", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "ace-workspace-browse-absolute-" });
+        yield* writeTextFile(cwd, "src/components/Composer.tsx");
+        yield* writeTextFile(cwd, "scripts/build.ts");
+        yield* writeTextFile(cwd, ".hidden/secret.txt");
+
+        const result = yield* browseWorkspaceEntries({
+          partialPath: `${cwd}/s`,
+        });
+
+        expect(result.parentPath).toBe(cwd);
+        expect(result.entries.map((entry) => entry.name)).toEqual(["scripts", "src"]);
+      }),
+    );
+
+    it.effect("resolves explicit relative browse paths against cwd", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "ace-workspace-browse-relative-" });
+        yield* writeTextFile(cwd, "src/components/Composer.tsx");
+        yield* writeTextFile(cwd, "docs/readme.md");
+
+        const result = yield* browseWorkspaceEntries({
+          cwd,
+          partialPath: "./sr",
+        });
+
+        expect(result.parentPath).toBe(cwd);
+        expect(result.entries.map((entry) => entry.name)).toEqual(["src"]);
+      }),
+    );
+
+    it.effect("requires cwd for explicit relative browse paths", () =>
+      Effect.gen(function* () {
+        const error = yield* browseWorkspaceEntries({
+          partialPath: "./src",
+        }).pipe(Effect.flip);
+
+        expect(error.detail).toContain(
+          "Relative filesystem browse paths require a current project.",
+        );
       }),
     );
   });

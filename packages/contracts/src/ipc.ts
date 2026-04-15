@@ -1,3 +1,4 @@
+import { Schema } from "effect";
 import type {
   GitCheckoutInput,
   GitCreateBranchInput,
@@ -20,6 +21,7 @@ import type {
   GitStatusInput,
   GitStatusResult,
 } from "./git";
+import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
 import type {
   ProjectListTreeInput,
   ProjectListTreeResult,
@@ -79,8 +81,18 @@ import type {
   OrchestrationReadModel,
   OrchestrationThread,
 } from "./orchestration";
+import { TrimmedNonEmptyString } from "./baseSchemas";
 import { EditorId } from "./editor";
 import { ServerSettings, ServerSettingsPatch } from "./settings";
+
+const PICK_FOLDER_PATH_MAX_LENGTH = 512;
+
+export const PickFolderOptions = Schema.Struct({
+  initialPath: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(PICK_FOLDER_PATH_MAX_LENGTH)),
+  ),
+});
+export type PickFolderOptions = typeof PickFolderOptions.Type;
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -235,7 +247,7 @@ export interface DesktopBridge {
   getTitlebarLeftInset?: () => number | null;
   getNotificationPermission?: () => Promise<DesktopNotificationPermission>;
   requestNotificationPermission?: () => Promise<DesktopNotificationPermission>;
-  pickFolder: () => Promise<string | null>;
+  pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   repairBrowserStorage: () => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
@@ -266,7 +278,7 @@ export interface DesktopBridge {
 
 export interface NativeApi {
   dialogs: {
-    pickFolder: () => Promise<string | null>;
+    pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
     confirm: (message: string) => Promise<boolean>;
   };
   browser: {
@@ -289,6 +301,9 @@ export interface NativeApi {
     readFile: (input: ProjectReadFileInput) => Promise<ProjectReadFileResult>;
     renameEntry: (input: ProjectRenameEntryInput) => Promise<ProjectRenameEntryResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+  };
+  filesystem: {
+    browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
   };
   workspaceEditor: {
     syncBuffer: (input: WorkspaceEditorSyncBufferInput) => Promise<WorkspaceEditorSyncBufferResult>;
