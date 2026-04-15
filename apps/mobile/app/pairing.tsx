@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, View, Text, StyleSheet, Pressable, Animated } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
-import { X } from "lucide-react-native";
 import { useTheme } from "../src/design/ThemeContext";
 import {
   createHostInstance,
@@ -15,7 +14,7 @@ import { formatErrorMessage } from "../src/errors";
 
 export default function PairingScreen() {
   const router = useRouter();
-  const { theme } = useTheme();
+  const { colors } = useTheme();
   const [permission, requestPermission] = useCameraPermissions();
   const addHost = useHostStore((s) => s.addHost);
   const [scanPaused, setScanPaused] = useState(false);
@@ -127,17 +126,15 @@ export default function PairingScreen() {
 
   if (!permission.granted) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <Text style={{ color: theme.foreground, textAlign: "center", marginBottom: 20 }}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <Text style={{ color: colors.foreground, textAlign: "center", marginBottom: 20 }}>
           We need your permission to show the camera
         </Text>
         <Pressable
           onPress={requestCameraPermission}
-          style={[styles.button, { backgroundColor: theme.primary }]}
+          style={[styles.button, { backgroundColor: colors.primary }]}
         >
-          <Text style={{ color: theme.primaryForeground, fontWeight: "600" }}>
-            Grant Permission
-          </Text>
+          <Text style={{ color: "#fff", fontWeight: "600" }}>Grant Permission</Text>
         </Pressable>
       </View>
     );
@@ -155,17 +152,17 @@ export default function PairingScreen() {
       <View style={styles.overlay}>
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} style={styles.closeButton}>
-            <X color="#fff" size={24} />
+            <Text style={{ color: "#fff", fontSize: 20, fontWeight: "600" }}>✕</Text>
           </Pressable>
         </View>
 
         <Animated.View
           style={[styles.finder, { transform: [{ scale: pulseScale }], opacity: pulseOpacity }]}
         >
-          <View style={[styles.corner, styles.topLeft, { borderColor: theme.primary }]} />
-          <View style={[styles.corner, styles.topRight, { borderColor: theme.primary }]} />
-          <View style={[styles.corner, styles.bottomLeft, { borderColor: theme.primary }]} />
-          <View style={[styles.corner, styles.bottomRight, { borderColor: theme.primary }]} />
+          <View style={[styles.corner, styles.topLeft, { borderColor: colors.primary }]} />
+          <View style={[styles.corner, styles.topRight, { borderColor: colors.primary }]} />
+          <View style={[styles.corner, styles.bottomLeft, { borderColor: colors.primary }]} />
+          <View style={[styles.corner, styles.bottomRight, { borderColor: colors.primary }]} />
         </Animated.View>
 
         <Text style={styles.hint}>Scan the QR code on your ace Desktop</Text>

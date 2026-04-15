@@ -184,6 +184,19 @@ function resolveAdvertisedRequestUrl(requestUrl: URL): URL {
   return advertised;
 }
 
+function resolvePairingClaimUrl(requestUrl: URL): URL | null {
+  const advertised = resolveAdvertisedRequestUrl(requestUrl);
+  if (isLoopbackHostname(advertised.hostname)) {
+    return null;
+  }
+  return new URL("/api/pairing/claims", advertised);
+}
+
+function resolveSessionPollingUrl(sessionId: string, requestUrl: URL): string {
+  const advertised = resolveAdvertisedRequestUrl(requestUrl);
+  return new URL(`/api/pairing/sessions/${encodeURIComponent(sessionId)}`, advertised).toString();
+}
+
 function parsePairingWsUrl(value: string): URL | null {
   try {
     const parsed = new URL(value);
@@ -582,11 +595,13 @@ const pairingCreateSessionRouteLayer = HttpRouter.add(
         respondJson({ error: created.message }, { status: readPairingErrorStatus(created.code) }),
       );
     }
-    const claimUrl = new URL("/api/pairing/claims", advertisedRequestUrl).toString();
+    const claimUrl = resolvePairingClaimUrl(requestUrl.value);
+    const pollingUrl = resolveSessionPollingUrl(created.value.sessionId, requestUrl.value);
     return withPairingHeaders(
       respondJson({
         ...created.value,
-        claimUrl,
+        ...(claimUrl ? { claimUrl: claimUrl.toString() } : {}),
+        pollingUrl,
       }),
     );
   }),
@@ -606,11 +621,6 @@ const pairingGetSessionRouteLayer = HttpRouter.add(
       return withPairingHeaders(
         respondJson({ error: "Pairing session was not found." }, { status: 404 }),
       );
-    }
-    const config = yield* ServerConfig;
-    const unauthorized = requirePairingAuthorization(request, requestUrl.value, config.authToken);
-    if (unauthorized) {
-      return unauthorized;
     }
     const session = getPairingSession(sessionId);
     if (!session.ok) {

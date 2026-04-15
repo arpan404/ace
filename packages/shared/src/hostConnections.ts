@@ -8,7 +8,8 @@ export interface HostPairingPayload {
   readonly name?: string;
   readonly sessionId: string;
   readonly secret: string;
-  readonly claimUrl: string;
+  readonly claimUrl?: string;
+  readonly pollingUrl?: string;
 }
 
 export type HostConnectionQrPayload =
@@ -34,6 +35,7 @@ interface QrHostPayload {
   readonly pairingSecret?: string;
   readonly claimUrl?: string;
   readonly pairingUrl?: string;
+  readonly pollingUrl?: string;
 }
 
 function ensureWsPath(pathname: string): string {
@@ -207,12 +209,7 @@ function resolvePairingClaimUrl(input: string): string | null {
 function resolvePairingFromPayload(payload: QrHostPayload): HostPairingPayload | null {
   const sessionId = payload.sessionId ?? payload.pairingId;
   const secret = payload.secret ?? payload.pairingSecret;
-  const claimUrl = payload.claimUrl ?? payload.pairingUrl;
-  if (typeof sessionId !== "string" || typeof secret !== "string" || typeof claimUrl !== "string") {
-    return null;
-  }
-  const normalizedClaimUrl = resolvePairingClaimUrl(claimUrl.trim());
-  if (!normalizedClaimUrl) {
+  if (typeof sessionId !== "string" || typeof secret !== "string") {
     return null;
   }
   const trimmedSessionId = sessionId.trim();
@@ -220,14 +217,33 @@ function resolvePairingFromPayload(payload: QrHostPayload): HostPairingPayload |
   if (trimmedSessionId.length === 0 || trimmedSecret.length === 0) {
     return null;
   }
-  return {
-    ...(typeof payload.name === "string" && payload.name.trim().length > 0
-      ? { name: payload.name.trim() }
-      : {}),
-    sessionId: trimmedSessionId,
-    secret: trimmedSecret,
-    claimUrl: normalizedClaimUrl,
-  };
+  const claimUrl = payload.claimUrl ?? payload.pairingUrl;
+  const pollingUrl = payload.pollingUrl;
+  if (typeof claimUrl === "string") {
+    const normalizedClaimUrl = resolvePairingClaimUrl(claimUrl.trim());
+    if (!normalizedClaimUrl) {
+      return null;
+    }
+    return {
+      ...(typeof payload.name === "string" && payload.name.trim().length > 0
+        ? { name: payload.name.trim() }
+        : {}),
+      sessionId: trimmedSessionId,
+      secret: trimmedSecret,
+      claimUrl: normalizedClaimUrl,
+    };
+  }
+  if (typeof pollingUrl === "string" && pollingUrl.trim().length > 0) {
+    return {
+      ...(typeof payload.name === "string" && payload.name.trim().length > 0
+        ? { name: payload.name.trim() }
+        : {}),
+      sessionId: trimmedSessionId,
+      secret: trimmedSecret,
+      pollingUrl: pollingUrl.trim(),
+    };
+  }
+  return null;
 }
 
 export function parseHostConnectionQrPayload(rawPayload: string): HostConnectionQrPayload | null {
@@ -281,7 +297,7 @@ export function parseHostDraftFromQrPayload(rawPayload: string): HostConnectionD
 }
 
 export function buildPairingPayload(input: HostPairingPayload): string {
-  const claimUrl = resolvePairingClaimUrl(input.claimUrl);
+  const claimUrl = input.claimUrl ? resolvePairingClaimUrl(input.claimUrl) : null;
   if (!claimUrl) {
     throw new Error("Pairing claim URL must use http:// or https://.");
   }
@@ -404,6 +420,9 @@ export interface PairingClaimReceipt {
   readonly claimId: string;
   readonly pollUrl: string;
   readonly expiresAt: string;
+  readonly sessionId?: string;
+  readonly secret?: string;
+  readonly sessionPollingUrl?: string;
 }
 
 export type PairingClaimResult =
@@ -411,6 +430,7 @@ export type PairingClaimResult =
       readonly status: "pending";
       readonly claimId: string;
       readonly expiresAt: string;
+      readonly requesterName?: string;
     }
   | {
       readonly status: "approved";
@@ -433,7 +453,11 @@ export async function requestPairingClaim(
     readonly fetch?: FetchLike;
   },
 ): Promise<PairingClaimReceipt> {
-  const claimUrl = resolvePairingClaimUrl(pairing.claimUrl);
+  if (pairing.pollingUrl) {
+    const receipt = await requestPairingClaimViaPolling(pairing, options);
+    return receipt;
+  }
+  const claimUrl = pairing.claimUrl ? resolvePairingClaimUrl(pairing.claimUrl) : null;
   if (!claimUrl) {
     throw new Error("Pairing claim URL must use http:// or https://.");
   }
@@ -474,6 +498,47 @@ export async function requestPairingClaim(
     claimId: payload.claimId,
     pollUrl: payload.pollUrl,
     expiresAt: payload.expiresAt,
+  };
+}
+
+async function requestPairingClaimViaPolling(
+  pairing: HostPairingPayload,
+  options?: {
+    readonly requesterName?: string;
+    readonly fetch?: FetchLike;
+  },
+): Promise<PairingClaimReceipt> {
+  const pollingUrl = pairing.pollingUrl ?? "";
+  const fetchImpl = resolveFetch(options?.fetch);
+  const resolveUrl = new URL(pollingUrl);
+  resolveUrl.searchParams.set("sessionId", pairing.sessionId);
+  resolveUrl.searchParams.set("secret", pairing.secret);
+  if (options?.requesterName?.trim()) {
+    resolveUrl.searchParams.set("requesterName", options.requesterName.trim());
+  }
+  const response = await fetchImpl(resolveUrl.toString(), {
+    method: "POST",
+  });
+  const payload = await parseResponseJson(response);
+  if (!response.ok) {
+    const errorMessage = readErrorMessage(payload);
+    throw new Error(
+      errorMessage ?? `Pairing claim request failed with status ${String(response.status)}.`,
+    );
+  }
+  if (!isObjectRecord(payload)) {
+    throw new Error("Pairing claim response was invalid.");
+  }
+  if (typeof payload.status !== "string" || typeof payload.sessionId !== "string") {
+    throw new Error("Pairing claim response was missing required fields.");
+  }
+  return {
+    claimId: "",
+    pollUrl: "",
+    expiresAt: "",
+    sessionId: pairing.sessionId,
+    secret: pairing.secret,
+    sessionPollingUrl: pollingUrl,
   };
 }
 
@@ -539,6 +604,70 @@ export async function readPairingClaim(
   throw new Error("Unknown pairing claim status.");
 }
 
+export async function readPairingSessionStatus(
+  pollingUrl: string,
+  options?: { readonly fetch?: FetchLike },
+): Promise<PairingClaimResult> {
+  const fetchImpl = resolveFetch(options?.fetch);
+  const response = await fetchImpl(pollingUrl);
+  const payload = await parseResponseJson(response);
+  if (!response.ok) {
+    const errorMessage = readErrorMessage(payload);
+    throw new Error(
+      errorMessage ??
+        `Pairing session status request failed with status ${String(response.status)}.`,
+    );
+  }
+  if (!isObjectRecord(payload)) {
+    throw new Error("Pairing session status response was invalid.");
+  }
+  if (typeof payload.status !== "string") {
+    throw new Error("Pairing session status response was missing status field.");
+  }
+  if (payload.status === "claim-pending") {
+    const requesterName = typeof payload.requesterName === "string" ? payload.requesterName : "";
+    return {
+      status: "pending",
+      claimId: "",
+      expiresAt: "",
+      requesterName,
+    };
+  }
+  if (payload.status === "ready") {
+    const host = payload.host;
+    if (
+      !isObjectRecord(host) ||
+      typeof host.name !== "string" ||
+      typeof host.wsUrl !== "string" ||
+      typeof host.authToken !== "string"
+    ) {
+      throw new Error("Ready pairing session status is missing host details.");
+    }
+    return {
+      status: "approved",
+      claimId: "",
+      host: {
+        name: host.name,
+        wsUrl: host.wsUrl,
+        authToken: host.authToken,
+      },
+    };
+  }
+  if (payload.status === "expired") {
+    return {
+      status: "expired",
+      claimId: "",
+    };
+  }
+  if (payload.status === "rejected") {
+    return {
+      status: "rejected",
+      claimId: "",
+    };
+  }
+  throw new Error("Unknown pairing session status.");
+}
+
 export async function waitForPairingApproval(
   receipt: PairingClaimReceipt,
   options?: {
@@ -550,6 +679,30 @@ export async function waitForPairingApproval(
   const timeoutMs = Math.max(1_000, options?.timeoutMs ?? 90_000);
   const pollIntervalMs = Math.max(250, options?.pollIntervalMs ?? 1_200);
   const timeoutAt = Date.now() + timeoutMs;
+  if (receipt.sessionPollingUrl) {
+    for (;;) {
+      const status = await readPairingSessionStatus(receipt.sessionPollingUrl, options);
+      if (status.status === "approved") {
+        return {
+          ...(status.host.name.trim().length > 0 ? { name: status.host.name } : {}),
+          wsUrl: status.host.wsUrl,
+          authToken: status.host.authToken,
+        };
+      }
+      if (status.status === "rejected") {
+        throw new Error("Pairing request was rejected by the host.");
+      }
+      if (status.status === "expired") {
+        throw new Error("Pairing session expired before approval.");
+      }
+      if (Date.now() >= timeoutAt) {
+        throw new Error("Timed out waiting for pairing approval.");
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, pollIntervalMs);
+      });
+    }
+  }
   for (;;) {
     const status = await readPairingClaim(receipt.pollUrl, options);
     if (status.status === "approved") {

@@ -1,107 +1,67 @@
 import { Tabs } from "expo-router";
-import { Home, MessageSquare, FolderOpen, Settings as SettingsIcon } from "lucide-react-native";
-import { View } from "react-native";
+import { Platform } from "react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 
-type TabIconComponent = typeof Home;
-
-function TabIcon({
-  Icon,
-  color,
-  focused,
-}: {
-  Icon: TabIconComponent;
-  color: string;
-  focused: boolean;
-}) {
-  return (
-    <View
-      style={{
-        width: 42,
-        height: 42,
-        borderRadius: 14,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: focused ? `${color}22` : "transparent",
-      }}
-    >
-      <Icon color={color} size={20} strokeWidth={focused ? 2.6 : 2.3} />
-    </View>
-  );
-}
-
 export default function TabsLayout() {
-  const { theme, isDark } = useTheme();
+  const { colors, isDark } = useTheme();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: theme.primary,
-        tabBarInactiveTintColor: theme.mutedForeground,
-        tabBarShowLabel: false,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.muted,
         headerShown: false,
         tabBarStyle: {
-          position: "absolute",
-          borderTopWidth: 1,
-          borderTopColor: theme.border,
-          height: 76,
-          paddingBottom: 12,
-          paddingTop: 10,
-          backgroundColor: isDark ? "#08090d" : "#fcfcfd",
-        },
-        tabBarItemStyle: {
-          minHeight: 48,
+          backgroundColor: isDark ? "#1c1c1e" : "#f8f8f8",
+          borderTopColor: colors.separator,
+          borderTopWidth: Platform.select({ ios: 0.5, default: 1 }),
         },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: "Dashboard",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon Icon={Home} color={color} focused={focused} />
-          ),
+          title: "Agents",
+          tabBarIcon: ({ color }) => tabIcon("bolt.fill", color),
         }}
       />
       <Tabs.Screen
-        name="chat"
+        name="hosts"
         options={{
-          title: "Threads",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon Icon={MessageSquare} color={color} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="threads"
-        options={{
-          href: null,
+          title: "Hosts",
+          tabBarIcon: ({ color }) => tabIcon("server.rack", color),
         }}
       />
       <Tabs.Screen
         name="projects"
         options={{
           title: "Projects",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon Icon={FolderOpen} color={color} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="control"
-        options={{
-          href: null,
+          tabBarIcon: ({ color }) => tabIcon("folder.fill", color),
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: "Settings",
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon Icon={SettingsIcon} color={color} focused={focused} />
-          ),
+          tabBarIcon: ({ color }) => tabIcon("gearshape.fill", color),
         }}
       />
     </Tabs>
   );
+}
+
+function tabIcon(_name: string, color: string) {
+  // Expo Router tab icons are rendered natively on iOS via SF Symbols
+  // when using systemImage. For RN fallback, use a simple circle indicator.
+  const React = require("react");
+  const { View } = require("react-native");
+  return React.createElement(View, {
+    style: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
+      backgroundColor: color,
+      opacity: 0.85,
+    },
+  });
 }

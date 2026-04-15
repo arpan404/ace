@@ -1,31 +1,21 @@
 import React, { useEffect, useState } from "react";
-import { View, ScrollView, StyleSheet, RefreshControl, Text } from "react-native";
-import { ChevronRight, FolderOpen } from "lucide-react-native";
+import { View, ScrollView, StyleSheet, RefreshControl, Text, Pressable } from "react-native";
 import { useRouter } from "expo-router";
-import { useTheme } from "../../src/design/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTheme } from "../../src/design/ThemeContext";
 import { useHostStore } from "../../src/store/HostStore";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
 import type { OrchestrationProject } from "@ace/contracts";
 import { formatErrorMessage } from "../../src/errors";
-import {
-  SafeScreen,
-  ScreenHeader,
-  SectionHeader,
-  List,
-  ListItem,
-  Card,
-  ErrorBox,
-} from "../../src/design/Components";
 
 export default function ProjectsScreen() {
   const router = useRouter();
-  const { theme } = useTheme();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const hosts = useHostStore((s) => s.hosts);
+  const _hosts = useHostStore((s) => s.hosts);
   const [connections, setConnections] = useState<ManagedConnection[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [_error, setError] = useState<string | null>(null);
   const [aggregatedProjects, setAggregatedProjects] = useState<
     Array<{ project: OrchestrationProject; hostName: string; hostId: string }>
   >([]);
@@ -33,16 +23,18 @@ export default function ProjectsScreen() {
   useEffect(() => {
     return connectionManager.onStatusChange((conns) => {
       setConnections(conns);
-      refreshProjects(conns);
+      void refreshProjects(conns);
     });
   }, []);
 
   const refreshProjects = async (activeConns = connections) => {
     setRefreshing(true);
     setError(null);
-    const allProjects: Array<{ project: OrchestrationProject; hostName: string; hostId: string }> =
-      [];
-    const failures: string[] = [];
+    const allProjects: Array<{
+      project: OrchestrationProject;
+      hostName: string;
+      hostId: string;
+    }> = [];
 
     try {
       await Promise.all(
@@ -53,12 +45,16 @@ export default function ProjectsScreen() {
               snapshot.projects
                 .filter((p) => !p.deletedAt)
                 .forEach((p) => {
-                  allProjects.push({ project: p, hostName: conn.host.name, hostId: conn.host.id });
+                  allProjects.push({
+                    project: p,
+                    hostName: conn.host.name,
+                    hostId: conn.host.id,
+                  });
                 });
             } catch (err) {
-              const message = formatErrorMessage(err);
-              failures.push(`${conn.host.name}: ${message}`);
-              console.error(`Failed to fetch projects for ${conn.host.name}: ${message}`);
+              console.error(
+                `Failed to fetch projects for ${conn.host.name}: ${formatErrorMessage(err)}`,
+              );
             }
           }
         }),
@@ -66,112 +62,120 @@ export default function ProjectsScreen() {
     } finally {
       allProjects.sort((a, b) => a.project.name.localeCompare(b.project.name));
       setAggregatedProjects(allProjects);
-      if (failures.length > 0) {
-        setError(failures.join(", "));
-      }
       setRefreshing(false);
     }
   };
 
-  if (hosts.length === 0) {
-    return (
-      <SafeScreen>
-        <View style={[styles.centerContainer, { paddingTop: insets.top }]}>
-          <FolderOpen size={42} color={theme.primary} style={{ marginBottom: 24 }} />
-          <Card style={styles.emptyCard}>
-            Projects will appear here once you pair a host and create projects.
-          </Card>
-        </View>
-      </SafeScreen>
-    );
-  }
-
   return (
-    <SafeScreen>
+    <View style={[styles.root, { backgroundColor: colors.groupedBackground }]}>
       <ScrollView
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingTop: insets.top + 12, paddingBottom: 140 },
-        ]}
+        contentContainerStyle={{
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom + 100,
+        }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => refreshProjects()}
-            tintColor={theme.primary}
+            onRefresh={() => void refreshProjects()}
+            tintColor={colors.primary}
           />
         }
       >
-        <ScreenHeader title="Projects" subtitle={`${aggregatedProjects.length} total`} />
+        <View style={styles.header}>
+          <Text style={[styles.largeTitle, { color: colors.foreground }]}>Projects</Text>
+          <Text style={[styles.subtitle, { color: colors.muted }]}>
+            {aggregatedProjects.length} across all hosts
+          </Text>
+        </View>
 
-        {error ? <ErrorBox message={error} onDismiss={() => setError(null)} /> : null}
-
-        {aggregatedProjects.length === 0 ? (
-          <View style={styles.emptyState}>
-            <FolderOpen size={40} color={theme.mutedForeground} style={{ marginBottom: 12 }} />
-            <Text style={[styles.emptyText, { color: theme.mutedForeground }]}>
-              No projects yet
+        {aggregatedProjects.length === 0 && !refreshing ? (
+          <View style={[styles.emptyCard, { backgroundColor: colors.secondaryGroupedBackground }]}>
+            <Text style={styles.emptyEmoji}>📁</Text>
+            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No projects yet</Text>
+            <Text style={[styles.emptySubtitle, { color: colors.muted }]}>
+              Projects will appear here once you create them from the desktop app.
             </Text>
           </View>
         ) : (
-          <>
-            <SectionHeader title="All Projects" />
-            <List>
-              {aggregatedProjects.map(({ project, hostName, hostId }) => (
-                <ListItem
-                  key={`${hostId}-${project.id}`}
-                  title={project.name}
-                  subtitle={`on ${hostName}`}
-                  onPress={() => {
+          <View
+            style={[styles.listContainer, { backgroundColor: colors.secondaryGroupedBackground }]}
+          >
+            {aggregatedProjects.map(({ project, hostName, hostId }, i) => (
+              <React.Fragment key={`${hostId}-${project.id}`}>
+                {i > 0 && (
+                  <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+                )}
+                <Pressable
+                  onPress={() =>
                     router.push({
-                      pathname: "/(tabs)/threads",
-                      params: { projectId: project.id, hostId },
-                    });
-                  }}
-                  leftElement={
-                    <View style={[styles.projectIcon, { backgroundColor: `${theme.primary}1a` }]}>
-                      <FolderOpen size={14} color={theme.primary} />
-                    </View>
+                      pathname: "/host/[hostId]",
+                      params: { hostId, projectId: project.id },
+                    })
                   }
-                  rightElement={<ChevronRight size={18} color={theme.mutedForeground} />}
-                />
-              ))}
-            </List>
-          </>
+                  style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.fill }]}
+                >
+                  <View style={[styles.projectIcon, { backgroundColor: `${colors.primary}18` }]}>
+                    <Text style={styles.projectEmoji}>📂</Text>
+                  </View>
+                  <View style={styles.rowContent}>
+                    <Text
+                      style={[styles.projectName, { color: colors.foreground }]}
+                      numberOfLines={1}
+                    >
+                      {project.name}
+                    </Text>
+                    <Text style={[styles.projectHost, { color: colors.muted }]}>{hostName}</Text>
+                  </View>
+                  <Text style={[styles.chevron, { color: colors.separator }]}>›</Text>
+                </Pressable>
+              </React.Fragment>
+            ))}
+          </View>
         )}
       </ScrollView>
-    </SafeScreen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  centerContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 16,
-  },
+  root: { flex: 1 },
+  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 4 },
+  largeTitle: { fontSize: 34, fontWeight: "700", letterSpacing: 0.37 },
+  subtitle: { fontSize: 15, marginTop: 2 },
   emptyCard: {
-    textAlign: "center",
+    marginHorizontal: 20,
+    marginTop: 20,
+    borderRadius: 12,
+    padding: 32,
     alignItems: "center",
   },
-  scrollContent: {
+  emptyEmoji: { fontSize: 48, marginBottom: 12 },
+  emptyTitle: { fontSize: 20, fontWeight: "600", marginBottom: 6 },
+  emptySubtitle: { fontSize: 15, textAlign: "center", lineHeight: 22 },
+  listContainer: {
+    marginHorizontal: 20,
+    marginTop: 20,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  separator: { height: StyleSheet.hairlineWidth, marginLeft: 60 },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
     paddingHorizontal: 16,
-  },
-  emptyState: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 60,
-    opacity: 0.65,
-  },
-  emptyText: {
-    fontSize: 14,
-    fontWeight: "500",
+    gap: 12,
   },
   projectIcon: {
-    width: 30,
-    height: 30,
+    width: 36,
+    height: 36,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
+  projectEmoji: { fontSize: 18 },
+  rowContent: { flex: 1 },
+  projectName: { fontSize: 17, fontWeight: "500" },
+  projectHost: { fontSize: 14, marginTop: 2 },
+  chevron: { fontSize: 22, fontWeight: "300" },
 });

@@ -41,7 +41,8 @@ export interface HostPairingSessionStatus {
 
 export interface HostPairingSessionCreated extends HostPairingSessionStatus {
   readonly secret: string;
-  readonly claimUrl: string;
+  readonly claimUrl?: string;
+  readonly pollingUrl?: string;
 }
 
 export interface PairingAdvertisedEndpoint {
@@ -441,12 +442,12 @@ function encodeBase64UrlUtf8(input: string): string {
 }
 
 export function buildHostPairingConnectionString(pairing: HostPairingPayload): string {
-  const claimUrl = new URL(pairing.claimUrl).toString();
   const payload = JSON.stringify({
     ...(pairing.name?.trim() ? { name: pairing.name.trim() } : {}),
     sessionId: pairing.sessionId,
     secret: pairing.secret,
-    claimUrl,
+    ...(pairing.claimUrl ? { claimUrl: new URL(pairing.claimUrl).toString() } : {}),
+    ...(pairing.pollingUrl ? { pollingUrl: pairing.pollingUrl } : {}),
   });
   const pairingUrl = new URL("ace://pair");
   pairingUrl.searchParams.set("p", encodeBase64UrlUtf8(payload));
