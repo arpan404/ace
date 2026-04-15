@@ -6,16 +6,8 @@ import {
 } from "@ace/contracts";
 import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
-import {
-  BugIcon,
-  ChevronsUpIcon,
-  DiffIcon,
-  GlobeIcon,
-  SquarePenIcon,
-  TerminalSquareIcon,
-} from "lucide-react";
+import { BugIcon, DiffIcon, GlobeIcon, SquarePenIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
-import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
@@ -57,8 +49,6 @@ interface ChatHeaderProps {
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
   onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
-  onHideHeader: () => void;
-  hideHeaderShortcutLabel: string | null;
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -93,8 +83,6 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleTerminal,
   onToggleDiff,
   onWorkspaceModeChange,
-  onHideHeader,
-  hideHeaderShortcutLabel,
 }: ChatHeaderProps) {
   const { isMobile, state } = useSidebar();
   const showSidebarToggle = isMobile || state === "collapsed";
@@ -238,26 +226,6 @@ export const ChatHeader = memo(function ChatHeader({
           : diffToggleShortcutLabel
             ? `Toggle diff panel (${diffToggleShortcutLabel})`
             : "Toggle diff panel"}
-      </TooltipPopup>
-    </Tooltip>,
-    <Tooltip key="hide-header">
-      <TooltipTrigger
-        render={
-          <Button
-            className={utilityToggleClassName}
-            onClick={onHideHeader}
-            aria-label="Hide top header"
-            variant="default"
-            size="xs"
-          >
-            <ChevronsUpIcon className="size-3.5" />
-          </Button>
-        }
-      />
-      <TooltipPopup side="bottom">
-        {hideHeaderShortcutLabel
-          ? `Hide top header (${hideHeaderShortcutLabel})`
-          : "Hide top header"}
       </TooltipPopup>
     </Tooltip>,
   ]);

@@ -19,6 +19,9 @@ const MAX_PORT = 65535;
 export const DEFAULT_ACE_HOME = Effect.map(Effect.service(Path.Path), (path) =>
   path.join(homedir(), ".ace"),
 );
+export const DEFAULT_ACE_DEV_HOME = Effect.map(Effect.service(Path.Path), (path) =>
+  path.join(homedir(), ".ace-dev"),
+);
 
 const MODE_ARGS = {
   dev: [
@@ -103,13 +106,23 @@ export function resolveOffset(config: {
   return { offset, source: `hashed ACE_DEV_INSTANCE=${seed}` };
 }
 
-function resolveBaseDir(baseDir: string | undefined): Effect.Effect<string, never, Path.Path> {
+function resolveBaseDir({
+  baseDir,
+  mode,
+}: {
+  readonly baseDir: string | undefined;
+  readonly mode: DevMode;
+}): Effect.Effect<string, never, Path.Path> {
   return Effect.gen(function* () {
     const path = yield* Path.Path;
     const configured = baseDir?.trim();
 
     if (configured) {
       return path.resolve(configured);
+    }
+
+    if (mode === "dev:desktop") {
+      return yield* DEFAULT_ACE_DEV_HOME;
     }
 
     return yield* DEFAULT_ACE_HOME;
@@ -148,7 +161,7 @@ export function createDevRunnerEnv({
   return Effect.gen(function* () {
     const serverPort = port ?? BASE_SERVER_PORT + serverOffset;
     const webPort = BASE_WEB_PORT + webOffset;
-    const resolvedBaseDir = yield* resolveBaseDir(aceHome);
+    const resolvedBaseDir = yield* resolveBaseDir({ baseDir: aceHome, mode });
     const isDesktopMode = mode === "dev:desktop";
 
     const output: NodeJS.ProcessEnv = {

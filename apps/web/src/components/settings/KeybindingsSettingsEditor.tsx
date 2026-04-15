@@ -1,4 +1,8 @@
-import { type KeybindingShortcut, type StaticKeybindingCommand } from "@ace/contracts";
+import {
+  type KeybindingShortcut,
+  type ServerUpsertKeybindingResult,
+  type StaticKeybindingCommand,
+} from "@ace/contracts";
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ensureNativeApi } from "~/nativeApi";
 import {
@@ -10,7 +14,7 @@ import {
   whenExpressionFromAst,
 } from "~/keybindings";
 import { KEYBINDING_COMMAND_DEFINITIONS } from "~/lib/keybindingRegistry";
-import { useServerKeybindings } from "~/rpc/serverState";
+import { applyKeybindingsUpdated, useServerKeybindings } from "~/rpc/serverState";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
@@ -19,6 +23,7 @@ type DraftShortcutByCommand = Partial<Record<StaticKeybindingCommand, Keybinding
 type DraftWhenByCommand = Partial<Record<StaticKeybindingCommand, string | undefined>>;
 
 const CATEGORY_ORDER = ["Sidebar", "Chat", "Terminal", "Browser", "Editor", "Threads"] as const;
+const CATEGORY_PREVIEW_COUNT = 3;
 
 function shortcutRuleFingerprint(
   shortcut: KeybindingShortcut,
@@ -38,6 +43,9 @@ export function KeybindingsSettingsEditor() {
   const platform = typeof navigator === "undefined" ? "unknown" : navigator.platform;
   const [draftShortcuts, setDraftShortcuts] = useState<DraftShortcutByCommand>({});
   const [draftWhenByCommand, setDraftWhenByCommand] = useState<DraftWhenByCommand>({});
+  const [expandedGroups, setExpandedGroups] = useState<
+    Partial<Record<(typeof CATEGORY_ORDER)[number], boolean>>
+  >({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -176,6 +184,7 @@ export function KeybindingsSettingsEditor() {
     setSaveError(null);
     try {
       const api = ensureNativeApi();
+      let latestResult: ServerUpsertKeybindingResult | null = null;
 
       for (const definition of dirtyCommands) {
         const shortcut = draftShortcuts[definition.command];
@@ -183,10 +192,17 @@ export function KeybindingsSettingsEditor() {
           continue;
         }
         const when = draftWhenByCommand[definition.command];
-        await api.server.upsertKeybinding({
+        latestResult = await api.server.upsertKeybinding({
           command: definition.command,
           key: encodeShortcutValue(shortcut),
           ...(when ? { when } : {}),
+        });
+      }
+
+      if (latestResult) {
+        applyKeybindingsUpdated({
+          keybindings: latestResult.keybindings,
+          issues: latestResult.issues,
         });
       }
 
@@ -237,7 +253,10 @@ export function KeybindingsSettingsEditor() {
             {group.category}
           </h4>
           <div className="space-y-2 rounded-md border border-border/60 p-2.5">
-            {group.items.map((definition) => {
+            {(expandedGroups[group.category]
+              ? group.items
+              : group.items.slice(0, CATEGORY_PREVIEW_COUNT)
+            ).map((definition) => {
               const shortcut = draftShortcuts[definition.command];
               const label = shortcut ? formatShortcutLabel(shortcut, platform) : "";
               const collision = collisionByCommand.get(definition.command);
@@ -251,11 +270,6 @@ export function KeybindingsSettingsEditor() {
                       {definition.label}
                     </p>
                     <p className="text-xs text-muted-foreground">{definition.description}</p>
-                    {definition.when ? (
-                      <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/80">
-                        {definition.when}
-                      </p>
-                    ) : null}
                     {collision ? (
                       <p className="mt-0.5 text-xs text-destructive">{collision}</p>
                     ) : null}
@@ -271,6 +285,23 @@ export function KeybindingsSettingsEditor() {
                 </div>
               );
             })}
+            {group.items.length > CATEGORY_PREVIEW_COUNT ? (
+              <div className="flex justify-end pt-0.5">
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  onClick={() =>
+                    setExpandedGroups((previous) => ({
+                      ...previous,
+                      [group.category]: !previous[group.category],
+                    }))
+                  }
+                >
+                  {expandedGroups[group.category] ? "Show less" : "Show more"}
+                </Button>
+              </div>
+            ) : null}
           </div>
         </section>
       ))}

@@ -19,6 +19,8 @@ export const Palette = {
     foreground: "#000000",
     card: "#ffffff",
     cardForeground: "#000000",
+    surface: "#f9f9f9",
+    activeSurface: "#e8e8eb",
     popover: "#ffffff",
     popoverForeground: "#000000",
     primary: "#0066ff", // Native vibrant blue
@@ -30,6 +32,8 @@ export const Palette = {
     accent: "#e5e5ea",
     accentForeground: "#000000",
     destructive: "#ff3b30",
+    dangerSurface: "#ffe5e5",
+    dangerForeground: "#990000",
     border: "rgba(0, 0, 0, 0.08)", // Subtle hair-line native border
     input: "#ffffff",
     ring: "#0066ff",
@@ -40,6 +44,8 @@ export const Palette = {
     foreground: "#ffffff",
     card: "#1c1c1e", // Native elevated dark gray
     cardForeground: "#ffffff",
+    surface: "#0d0d0f",
+    activeSurface: "#2a2a2e",
     popover: "#1c1c1e",
     popoverForeground: "#ffffff",
     primary: "#0a84ff", // Native vibrant blue dark
@@ -51,6 +57,8 @@ export const Palette = {
     accent: "#2c2c2e",
     accentForeground: "#ffffff",
     destructive: "#ff453a",
+    dangerSurface: "#5a2f2f",
+    dangerForeground: "#ff9999",
     border: "rgba(255, 255, 255, 0.12)", // Subtle hair-line native border
     input: "#1c1c1e",
     ring: "#0a84ff",

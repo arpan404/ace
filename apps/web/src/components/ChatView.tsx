@@ -134,7 +134,7 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
-import { BotIcon, ChevronsDownIcon, CircleAlertIcon, ListTodoIcon, XIcon } from "lucide-react";
+import { BotIcon, CircleAlertIcon, ListTodoIcon, XIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { useSidebar } from "./ui/sidebar";
@@ -294,7 +294,6 @@ const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
-const HEADER_AUTO_HIDE_DELAY_MS = 2600;
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
@@ -503,7 +502,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [handoffInFlight, setHandoffInFlight] = useState(false);
   const dragDepthRef = useRef(0);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
-  const headerAutoHideTimeoutRef = useRef<number | null>(null);
   const setMessagesScrollContainerRef = useCallback((element: HTMLDivElement | null) => {
     messagesScrollRef.current = element;
     setMessagesScrollElement(element);
@@ -2142,11 +2140,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "sidebar.toggle"),
     [keybindings],
   );
-  const hideHeaderShortcutLabel = useMemo(
-    () =>
-      shortcutLabelForCommand(keybindings, "chat.toggleHeader", nonTerminalShortcutLabelOptions),
-    [keybindings, nonTerminalShortcutLabelOptions],
-  );
   const [browserDevToolsOpen, setBrowserDevToolsOpen] = useState(false);
   const [storedBrowserSplitWidth, setStoredBrowserSplitWidth] = useLocalStorage(
     BROWSER_SPLIT_WIDTH_STORAGE_KEY,
@@ -2266,50 +2259,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const toggleWorkspaceMode = useCallback(() => {
     onWorkspaceModeChange(workspaceMode === "chat" ? "editor" : "chat");
   }, [onWorkspaceModeChange, workspaceMode]);
-  const clearHeaderAutoHideTimeout = useCallback(() => {
-    if (headerAutoHideTimeoutRef.current === null) return;
-    window.clearTimeout(headerAutoHideTimeoutRef.current);
-    headerAutoHideTimeoutRef.current = null;
-  }, []);
-  const scheduleHeaderAutoHide = useCallback(() => {
-    clearHeaderAutoHideTimeout();
-    headerAutoHideTimeoutRef.current = window.setTimeout(() => {
-      setIsHeaderHidden(true);
-    }, HEADER_AUTO_HIDE_DELAY_MS);
-  }, [clearHeaderAutoHideTimeout]);
-  const revealHeader = useCallback(() => {
-    setIsHeaderHidden(false);
-    scheduleHeaderAutoHide();
-  }, [scheduleHeaderAutoHide]);
-  const hideHeader = useCallback(() => {
-    clearHeaderAutoHideTimeout();
-    setIsHeaderHidden(true);
-  }, [clearHeaderAutoHideTimeout]);
   const toggleHeaderVisibility = useCallback(() => {
-    setIsHeaderHidden((previous) => {
-      if (previous) {
-        scheduleHeaderAutoHide();
-      } else {
-        clearHeaderAutoHideTimeout();
-      }
-      return !previous;
-    });
-  }, [clearHeaderAutoHideTimeout, scheduleHeaderAutoHide]);
-
-  useEffect(
-    () => () => {
-      clearHeaderAutoHideTimeout();
-    },
-    [clearHeaderAutoHideTimeout],
-  );
-
-  useEffect(() => {
-    if (isHeaderHidden) {
-      clearHeaderAutoHideTimeout();
-      return;
-    }
-    scheduleHeaderAutoHide();
-  }, [clearHeaderAutoHideTimeout, isHeaderHidden, scheduleHeaderAutoHide]);
+    setIsHeaderHidden((previous) => !previous);
+  }, []);
   const onToggleDiff = useCallback(() => {
     startTransition(() => {
       void navigate({
@@ -6672,39 +6624,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
-      {isHeaderHidden ? (
-        <div className="pointer-events-none absolute top-2 left-0 z-40 w-full px-4 sm:px-6">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="icon-xs"
-                  variant="outline"
-                  className="pointer-events-auto rounded-full"
-                  onClick={revealHeader}
-                  aria-label="Show top header"
-                >
-                  <ChevronsDownIcon className="size-3.5" />
-                </Button>
-              }
-            />
-            <TooltipPopup side="bottom">
-              {hideHeaderShortcutLabel
-                ? `Show top header (${hideHeaderShortcutLabel})`
-                : "Show top header"}
-            </TooltipPopup>
-          </Tooltip>
-        </div>
-      ) : null}
-
       {/* Persistent top bar — always visible regardless of workspace mode */}
       <div
         className={cn(
           "overflow-hidden transition-[max-height,opacity] duration-200 ease-out",
           isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
         )}
-        onMouseEnter={clearHeaderAutoHideTimeout}
-        onMouseLeave={scheduleHeaderAutoHide}
       >
         <header
           className={cn(
@@ -6753,8 +6678,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
             onToggleTerminal={toggleTerminalVisibility}
             onToggleDiff={onToggleDiff}
             onWorkspaceModeChange={onWorkspaceModeChange}
-            onHideHeader={hideHeader}
-            hideHeaderShortcutLabel={hideHeaderShortcutLabel}
           />
         </header>
       </div>
