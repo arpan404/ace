@@ -1,7 +1,9 @@
 import { Stack } from "expo-router";
 import { Platform, StatusBar } from "react-native";
+import { useEffect } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ThemeProvider, useTheme } from "../src/design/ThemeContext";
+import { initializeConnections } from "../src/store/HostStore";
 
 function RootNavigator() {
   const { isDark, colors } = useTheme();
@@ -42,6 +44,10 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  useEffect(() => {
+    void initializeConnections();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <ThemeProvider>

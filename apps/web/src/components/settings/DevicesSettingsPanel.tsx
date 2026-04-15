@@ -337,6 +337,7 @@ export function DevicesSettingsPanel() {
         sessionId: created.sessionId,
         secret: created.secret,
         ...(created.claimUrl ? { claimUrl: created.claimUrl } : {}),
+        ...(created.pollingUrl ? { pollingUrl: created.pollingUrl } : {}),
       });
       const qrDataUrl = await QRCode.toDataURL(connectionString, {
         margin: 1,
