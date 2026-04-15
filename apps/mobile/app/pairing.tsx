@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -10,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowRight, ClipboardPaste, Keyboard, ScanLine, X } from "lucide-react-native";
@@ -28,6 +30,7 @@ type ConnectionTab = "scan" | "paste" | "manual";
 const SCAN_AREA_SIZE = 260;
 const SCAN_LINE_PERIOD = 2400;
 const PAIRING_REQUEST_TIMEOUT_MS = 10_000;
+const DEFAULT_REQUESTER_NAME = `ace mobile (${Platform.OS})`;
 
 const TAB_META: { key: ConnectionTab; label: string; Icon: React.ElementType }[] = [
   { key: "scan", label: "Scan", Icon: ScanLine },
@@ -98,10 +101,10 @@ export default function PairingScreen() {
         if (parsed.kind === "pairing") {
           setStatusText("Connecting…");
           const receipt = await requestPairingClaim(parsed.pairing, {
-            requesterName: "ace mobile",
+            requesterName,
             requestTimeoutMs: PAIRING_REQUEST_TIMEOUT_MS,
           });
-          setStatusText("Waiting for approval…");
+          setStatusText("Finalizing pairing…");
           const resolvedHost = await waitForPairingApproval(receipt, {
             timeoutMs: 90_000,
             pollIntervalMs: 1_200,
@@ -615,3 +618,12 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 });
+const requesterName = useRef(
+  (() => {
+    const deviceName = Constants.deviceName?.trim();
+    if (!deviceName) {
+      return DEFAULT_REQUESTER_NAME;
+    }
+    return `ace mobile (${deviceName})`;
+  })(),
+).current;

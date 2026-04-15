@@ -23,7 +23,8 @@ export default function AgentsScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    if (!activeHostId && hosts.length > 0 && hosts[0]) {
+    const hasActiveHost = activeHostId ? hosts.some((host) => host.id === activeHostId) : false;
+    if (!hasActiveHost && hosts.length > 0 && hosts[0]) {
       setActiveHostId(hosts[0].id);
     }
   }, [hosts, activeHostId, setActiveHostId]);

@@ -716,6 +716,18 @@ const pairingCreateClaimRouteLayer = HttpRouter.add(
         respondJson({ error: claimed.message }, { status: readPairingErrorStatus(claimed.code) }),
       );
     }
+    const autoApproved = resolvePairingSession({
+      sessionId: payload.sessionId,
+      approve: true,
+    });
+    if (!autoApproved.ok) {
+      return withPairingHeaders(
+        respondJson(
+          { error: autoApproved.message },
+          { status: readPairingErrorStatus(autoApproved.code) },
+        ),
+      );
+    }
     const advertisedRequestUrl = resolveAdvertisedRequestUrl(requestUrl.value);
     const pollUrl = new URL(
       `/api/pairing/claims/${encodeURIComponent(claimed.value.claimId)}`,
