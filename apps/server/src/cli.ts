@@ -4,7 +4,11 @@ import * as Os from "node:os";
 import * as Readline from "node:readline/promises";
 
 import pc from "picocolors";
-import { WS_METHODS, type ServerRuntimeProfile } from "@ace/contracts";
+import {
+  DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM,
+  WS_METHODS,
+  type ServerRuntimeProfile,
+} from "@ace/contracts";
 import { normalizeWsUrl } from "@ace/shared/hostConnections";
 import { NetService } from "@ace/shared/Net";
 import { createWsRpcProtocolLayer, makeWsRpcProtocolClient } from "@ace/shared/wsRpcProtocol";
@@ -55,6 +59,7 @@ import {
   RuntimeMode,
 } from "./config";
 import { readBootstrapEnvelope } from "./bootstrap";
+import { Open, OpenLive } from "./open";
 import { resolveBaseDir } from "./os-jank";
 import {
   buildProcessTree,
@@ -373,6 +378,18 @@ const resolveDataConfig = (flags: CliDataFlags, cliLogLevel: Option.Option<LogLe
 
 const serveCommandFlags = {
   mode: modeFlag,
+  port: portFlag,
+  host: hostFlag,
+  baseDir: baseDirFlag,
+  devUrl: devUrlFlag,
+  noBrowser: noBrowserFlag,
+  authToken: authTokenFlag,
+  bootstrapFd: bootstrapFdFlag,
+  autoBootstrapProjectFromCwd: autoBootstrapProjectFromCwdFlag,
+  logWebSocketEvents: logWebSocketEventsFlag,
+} as const;
+
+const webCommandFlags = {
   port: portFlag,
   host: hostFlag,
   baseDir: baseDirFlag,
@@ -852,6 +869,35 @@ const normalizeDaemonWsHost = (host: string | null): string => {
 const buildDaemonWsUrl = (host: string | null, port: number, authToken: string): string =>
   `ws://${normalizeDaemonWsHost(host)}:${port}/?token=${encodeURIComponent(authToken)}`;
 
+const normalizeDaemonHttpHost = (host: string | null): string => {
+  if (!host || host === "0.0.0.0" || host === "::" || host === "[::]") {
+    return "localhost";
+  }
+  return host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+};
+
+const buildDaemonHttpUrl = (state: AceServerDaemonState): string =>
+  `http://${normalizeDaemonHttpHost(state.host)}:${state.port}`;
+
+const buildDaemonWebAppUrl = (state: AceServerDaemonState): string => {
+  const parsed = new URL(buildDaemonHttpUrl(state));
+  parsed.searchParams.set(DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM, state.wsUrl);
+  return parsed.toString();
+};
+
+const openBrowserTarget = (target: string) =>
+  Effect.gen(function* () {
+    const { openBrowser } = yield* Open;
+    yield* openBrowser(target);
+  }).pipe(
+    Effect.provide(OpenLive),
+    Effect.catch(() =>
+      writeStdout(
+        `${pc.yellow("Browser auto-open unavailable")}. Open ${target} in your browser.\n`,
+      ),
+    ),
+  );
+
 const isErrnoCode = (cause: unknown, code: string): boolean =>
   typeof cause === "object" &&
   cause !== null &&
@@ -1049,6 +1095,66 @@ const startDaemonAndPersistState = Effect.fn("startDaemonAndPersistState")(funct
   return state;
 });
 
+const ensureDaemonStarted = Effect.fn("ensureDaemonStarted")(function* (input: {
+  readonly config: ServerConfigShape;
+}) {
+  const existingStatus = yield* readDaemonStatusPayload(input.config.baseDir);
+  if (existingStatus.state && existingStatus.processAlive) {
+    const eventuallyReady = yield* waitForDaemonReady(existingStatus.state, {
+      timeoutMs: DEFAULT_DAEMON_START_TIMEOUT_MS,
+    });
+    if (eventuallyReady) {
+      if (isDaemonStateCurrentVersion(existingStatus.state)) {
+        return {
+          status: "already-running" as const,
+          daemon: existingStatus.state,
+        };
+      }
+
+      const stopResult = yield* stopDaemonIfPresent({
+        baseDir: input.config.baseDir,
+        timeoutMs: DEFAULT_DAEMON_RESTART_TIMEOUT_MS,
+      });
+      const state = yield* startDaemonAndPersistState({
+        config: input.config,
+      });
+      return {
+        status: "started" as const,
+        daemon: state,
+        upgraded: true as const,
+        previousVersion: existingStatus.state.serverVersion,
+        stop: stopResult,
+      };
+    }
+
+    const stopResult = yield* stopDaemonIfPresent({
+      baseDir: input.config.baseDir,
+      timeoutMs: DEFAULT_DAEMON_RESTART_TIMEOUT_MS,
+    });
+    const state = yield* startDaemonAndPersistState({
+      config: input.config,
+    });
+    return {
+      status: "started" as const,
+      daemon: state,
+      recovered: true as const,
+      replacedPid: existingStatus.state.pid,
+      stop: stopResult,
+    };
+  }
+
+  if (existingStatus.status === "stale") {
+    yield* clearDaemonState(input.config.baseDir);
+  }
+  const state = yield* startDaemonAndPersistState({
+    config: input.config,
+  });
+  return {
+    status: "started" as const,
+    daemon: state,
+  };
+});
+
 const streamDaemonLogs = (logPath: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const fs = yield* Effect.promise(() => import("node:fs"));
@@ -1075,7 +1181,7 @@ const serveCommand = Command.make("serve", {
   ...serveCommandFlags,
   workspaceRoot: openWorkspaceArgument,
 }).pipe(
-  Command.withDescription("Run the ace HTTP/WebSocket server."),
+  Command.withDescription("Run or attach to the persistent background ace server daemon."),
   Command.withHandler(({ workspaceRoot, ...flags }) =>
     Effect.gen(function* () {
       const logLevel = yield* GlobalFlag.LogLevel;
@@ -1099,6 +1205,43 @@ const serveCommand = Command.make("serve", {
       const state = yield* startDaemonAndPersistState({ config });
       yield* writeStdout(`${pc.green("Daemon started")} pid=${String(state.pid)} ${state.wsUrl}\n`);
       return yield* streamDaemonLogs(state.serverLogPath);
+    }),
+  ),
+);
+
+const webCommand = Command.make("web", {
+  ...webCommandFlags,
+  workspaceRoot: openWorkspaceArgument,
+}).pipe(
+  Command.withDescription("Open the ace web app by reusing or starting the background daemon."),
+  Command.withHandler(({ workspaceRoot, ...flags }) =>
+    Effect.gen(function* () {
+      const logLevel = yield* GlobalFlag.LogLevel;
+      const config = yield* resolveServerConfig(
+        {
+          ...flags,
+          mode: Option.some("web"),
+        },
+        logLevel,
+        workspaceRoot,
+      );
+      const daemonResult = yield* ensureDaemonStarted({ config });
+      const webUrl = buildDaemonWebAppUrl(daemonResult.daemon);
+
+      if (daemonResult.status === "already-running") {
+        yield* writeStdout(
+          `${pc.green("Using daemon")} pid=${String(daemonResult.daemon.pid)} ${daemonResult.daemon.wsUrl}\n`,
+        );
+      } else {
+        yield* writeStdout(
+          `${pc.green("Started daemon")} pid=${String(daemonResult.daemon.pid)} ${daemonResult.daemon.wsUrl}\n`,
+        );
+      }
+
+      if (!config.noBrowser) {
+        yield* openBrowserTarget(webUrl);
+      }
+      return yield* writeStdout(`${pc.green("Web ready")} ${webUrl}\n`);
     }),
   ),
 );
@@ -1294,85 +1437,31 @@ const daemonStartCommand = Command.make("start", {
         },
         logLevel,
       );
-
-      const existingStatus = yield* readDaemonStatusPayload(config.baseDir);
-      if (existingStatus.state && existingStatus.processAlive) {
-        const eventuallyReady = yield* waitForDaemonReady(existingStatus.state, {
-          timeoutMs: DEFAULT_DAEMON_START_TIMEOUT_MS,
-        });
-        if (eventuallyReady) {
-          if (isDaemonStateCurrentVersion(existingStatus.state)) {
-            const payload = {
-              status: "already-running" as const,
-              daemon: existingStatus.state,
-            };
-            if (json) {
-              return yield* writeJson(payload);
-            }
-            return yield* writeStdout(
-              `${pc.yellow("Already running")} daemon pid=${String(existingStatus.state.pid)} ${existingStatus.state.wsUrl}\n`,
-            );
-          }
-
-          const stopResult = yield* stopDaemonIfPresent({
-            baseDir: config.baseDir,
-            timeoutMs: DEFAULT_DAEMON_RESTART_TIMEOUT_MS,
-          });
-          const state = yield* startDaemonAndPersistState({ config });
-          const payload = {
-            status: "started" as const,
-            daemon: state,
-            upgraded: true as const,
-            previousVersion: existingStatus.state.serverVersion,
-            stop: stopResult,
-          };
-          if (json) {
-            return yield* writeJson(payload);
-          }
-          return yield* writeStdout(
-            `${pc.green("Started")} daemon pid=${String(state.pid)} ${state.wsUrl} ${pc.dim(
-              `(upgraded from ${existingStatus.state.serverVersion})`,
-            )}\n`,
-          );
-        }
-
-        const stopResult = yield* stopDaemonIfPresent({
-          baseDir: config.baseDir,
-          timeoutMs: DEFAULT_DAEMON_RESTART_TIMEOUT_MS,
-        });
-        const state = yield* startDaemonAndPersistState({ config });
-        const payload = {
-          status: "started" as const,
-          daemon: state,
-          recovered: true as const,
-          stop: stopResult,
-        };
-        if (json) {
-          return yield* writeJson(payload);
-        }
+      const result = yield* ensureDaemonStarted({ config });
+      if (json) {
+        return yield* writeJson(result);
+      }
+      if (result.status === "already-running") {
         return yield* writeStdout(
-          `${pc.green("Started")} daemon pid=${String(state.pid)} ${state.wsUrl} ${pc.dim(
-            `(replaced unhealthy pid ${existingStatus.state.pid})`,
+          `${pc.yellow("Already running")} daemon pid=${String(result.daemon.pid)} ${result.daemon.wsUrl}\n`,
+        );
+      }
+      if ("upgraded" in result) {
+        return yield* writeStdout(
+          `${pc.green("Started")} daemon pid=${String(result.daemon.pid)} ${result.daemon.wsUrl} ${pc.dim(
+            `(upgraded from ${result.previousVersion})`,
           )}\n`,
         );
       }
-
-      if (existingStatus.status === "stale") {
-        yield* clearDaemonState(config.baseDir);
+      if ("recovered" in result) {
+        return yield* writeStdout(
+          `${pc.green("Started")} daemon pid=${String(result.daemon.pid)} ${result.daemon.wsUrl} ${pc.dim(
+            `(replaced unhealthy pid ${String(result.replacedPid)})`,
+          )}\n`,
+        );
       }
-
-      const state = yield* startDaemonAndPersistState({ config });
-
-      const payload = {
-        status: "started" as const,
-        daemon: state,
-      };
-      if (json) {
-        return yield* writeJson(payload);
-      }
-
       return yield* writeStdout(
-        `${pc.green("Started")} daemon pid=${String(state.pid)} ${state.wsUrl}\n`,
+        `${pc.green("Started")} daemon pid=${String(result.daemon.pid)} ${result.daemon.wsUrl}\n`,
       );
     }),
   ),
@@ -1693,7 +1782,8 @@ const formatRootCliGuide = (): string =>
   [
     `${pc.bold("ace CLI")}`,
     `${pc.bold("Quick start")}`,
-    `  ${pc.cyan("ace serve")}              run server in foreground`,
+    `  ${pc.cyan("ace --web")}              open ace web app in your browser`,
+    `  ${pc.cyan("ace serve")}              run or attach to background daemon`,
     `  ${pc.cyan("ace --profile")}          live ace-specific process/memory profiler`,
     `  ${pc.cyan("ace daemon start")}       run reusable background daemon`,
     `  ${pc.cyan("ace --restart")}          restart background daemon`,
@@ -1728,6 +1818,7 @@ export const playRootCliLogoAnimation = Effect.gen(function* () {
 });
 
 const interactiveActionIds = [
+  "web",
   "serve",
   "daemon-status",
   "daemon-restart",
@@ -1740,8 +1831,12 @@ const interactiveActions: Record<
   InteractiveActionId,
   { readonly description: string; readonly argv: ReadonlyArray<string> }
 > = {
+  web: {
+    description: "Open ace web app",
+    argv: ["web"],
+  },
   serve: {
-    description: "Run server in foreground",
+    description: "Run or attach to daemon",
     argv: ["serve"],
   },
   "daemon-status": {
@@ -1884,6 +1979,7 @@ const rootCommand = Command.make("ace").pipe(
 
 export const cli = rootCommand.pipe(
   Command.withSubcommands([
+    webCommand,
     serveCommand,
     profileCommand,
     projectCommand,
