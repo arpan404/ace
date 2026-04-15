@@ -72,6 +72,9 @@ export interface WsRpcClient {
       readonly path: Parameters<NativeApi["shell"]["revealInFileManager"]>[0];
     }) => ReturnType<NativeApi["shell"]["revealInFileManager"]>;
   };
+  readonly filesystem: {
+    readonly browse: RpcUnaryMethod<typeof WS_METHODS.filesystemBrowse>;
+  };
   readonly git: {
     readonly pull: RpcUnaryMethod<typeof WS_METHODS.gitPull>;
     readonly status: RpcUnaryMethod<typeof WS_METHODS.gitStatus>;
@@ -94,7 +97,7 @@ export interface WsRpcClient {
   };
   readonly server: {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
-    readonly pickFolder: RpcUnaryNoArgMethod<typeof WS_METHODS.serverPickFolder>;
+    readonly pickFolder: RpcUnaryMethod<typeof WS_METHODS.serverPickFolder>;
     readonly refreshProviders: RpcUnaryNoArgMethod<typeof WS_METHODS.serverRefreshProviders>;
     readonly getLspToolsStatus: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetLspToolsStatus>;
     readonly installLspTools: RpcUnaryMethod<typeof WS_METHODS.serverInstallLspTools>;
@@ -185,6 +188,9 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
       revealInFileManager: (input) =>
         transport.request((client) => client[WS_METHODS.shellRevealInFileManager](input)),
     },
+    filesystem: {
+      browse: (input) => transport.request((client) => client[WS_METHODS.filesystemBrowse](input)),
+    },
     git: {
       pull: (input) => transport.request((client) => client[WS_METHODS.gitPull](input)),
       status: (input) => transport.request((client) => client[WS_METHODS.gitStatus](input)),
@@ -228,7 +234,8 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     },
     server: {
       getConfig: () => transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
-      pickFolder: () => transport.request((client) => client[WS_METHODS.serverPickFolder]({})),
+      pickFolder: (input) =>
+        transport.request((client) => client[WS_METHODS.serverPickFolder](input)),
       refreshProviders: () =>
         transport.request((client) => client[WS_METHODS.serverRefreshProviders]({})),
       getLspToolsStatus: () =>

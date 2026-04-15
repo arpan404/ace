@@ -29,30 +29,43 @@ export default function AgentsScreen() {
     }
   }, [hosts, activeHostId, setActiveHostId]);
 
-  const activeConnection = connections.find((c) => c.host.id === activeHostId);
+  const activeConnection = useMemo(() => {
+    if (activeHostId) {
+      const matching = connections.find((connection) => connection.host.id === activeHostId);
+      if (matching) {
+        return matching;
+      }
+    }
+    return connections[0] ?? null;
+  }, [activeHostId, connections]);
   const { snapshot } = useOrchestrationSnapshot(activeConnection ?? null);
 
   useEffect(() => connectionManager.onStatusChange(setConnections), []);
 
   const connectedCount = connections.filter((c) => c.status.kind === "connected").length;
+  const snapshotThreads = useMemo(() => snapshot?.threads ?? [], [snapshot]);
+  const snapshotProjects = useMemo(() => snapshot?.projects ?? [], [snapshot]);
 
   const threads = useMemo(() => {
-    if (!snapshot) return [];
     return sortedCopy(
-      snapshot.threads.filter((t) => !t.deletedAt),
+      snapshotThreads.filter((thread) => !thread.deletedAt),
       (a, b) => b.updatedAt.localeCompare(a.updatedAt),
     );
-  }, [snapshot]);
+  }, [snapshotThreads]);
 
   const stats = useMemo(() => {
-    if (!snapshot) return { active: 0, total: 0, projects: 0 };
-    const activeSessions = snapshot.sessions.filter((s) => !s.closedAt).length;
+    const activeSessions = snapshotThreads.filter((thread) => {
+      const sessionStatus = thread.session?.status;
+      return (
+        sessionStatus === "starting" || sessionStatus === "running" || sessionStatus === "ready"
+      );
+    }).length;
     return {
       active: activeSessions,
-      total: snapshot.threads.length,
-      projects: snapshot.projects.filter((p) => !p.deletedAt).length,
+      total: snapshotThreads.length,
+      projects: snapshotProjects.filter((project) => !project.deletedAt).length,
     };
-  }, [snapshot]);
+  }, [snapshotProjects, snapshotThreads]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -73,13 +86,13 @@ export default function AgentsScreen() {
   const threadStatus = useCallback(
     (thread: OrchestrationThread) => {
       if (!snapshot) return "idle";
-      const session = snapshot.sessions.find((s) => s.threadId === thread.id && !s.closedAt);
+      const session = thread.session;
       if (!session) return "idle";
-      const agentStats = resolveProjectAgentStats(snapshot, thread.projectId);
+      const agentStats = resolveProjectAgentStats(snapshotThreads, thread.projectId);
       if (agentStats.working > 0) return "running";
       return "ready";
     },
-    [snapshot],
+    [snapshot, snapshotThreads],
   );
 
   if (hosts.length === 0) {

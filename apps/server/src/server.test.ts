@@ -7,6 +7,7 @@ import {
   CheckpointRef,
   DEFAULT_SERVER_SETTINGS,
   EventId,
+  FilesystemBrowseError,
   GitCommandError,
   KeybindingRule,
   MessageId,
@@ -31,7 +32,7 @@ import {
 } from "@ace/contracts";
 import { assert, it } from "@effect/vitest";
 import { assertFailure, assertInclude, assertTrue } from "@effect/vitest/utils";
-import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
 import { HttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 
@@ -1193,20 +1194,30 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("routes websocket rpc server.pickFolder", () =>
     Effect.gen(function* () {
+      let receivedInitialPath: string | undefined;
       yield* buildAppUnderTest({
         layers: {
           open: {
-            pickFolder: () => Effect.succeed("/tmp/project"),
+            pickFolder: (options) =>
+              Effect.sync(() => {
+                receivedInitialPath = options?.initialPath;
+                return "/tmp/project";
+              }),
           },
         },
       });
 
       const wsUrl = yield* getWsServerUrl("/ws");
       const response = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.serverPickFolder]({})),
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.serverPickFolder]({
+            initialPath: "/tmp/start",
+          }),
+        ),
       );
 
       assert.equal(response, "/tmp/project");
+      assert.equal(receivedInitialPath, "/tmp/start");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -1278,6 +1289,57 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assertFailure(result, openError);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc filesystem.browse", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspace = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "ace-fs-browse-test-",
+      });
+      yield* fileSystem.makeDirectory(path.join(workspace, "src"));
+      yield* fileSystem.makeDirectory(path.join(workspace, "scripts"));
+      yield* fileSystem.makeDirectory(path.join(workspace, "docs"));
+      yield* buildAppUnderTest();
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.filesystemBrowse]({
+            partialPath: `${workspace}/s`,
+          }),
+        ),
+      );
+
+      assert.equal(response.parentPath, workspace);
+      assert.deepEqual(
+        response.entries.map((entry) => entry.name),
+        ["scripts", "src"],
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("maps filesystem browse errors to FilesystemBrowseError", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+      const wsUrl = yield* getWsServerUrl("/ws");
+
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.filesystemBrowse]({
+            partialPath: "./relative-without-cwd",
+          }),
+        ).pipe(Effect.result),
+      );
+
+      assertTrue(result._tag === "Failure");
+      assertTrue(Schema.is(FilesystemBrowseError)(result.failure));
+      assert.equal(
+        result.failure.message,
+        "Relative filesystem browse paths require a current project.",
+      );
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

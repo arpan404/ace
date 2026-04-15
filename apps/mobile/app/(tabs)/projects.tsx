@@ -54,8 +54,8 @@ export default function ProjectsScreen() {
     return connections[0] ?? null;
   }, [activeHostId, connections]);
 
-  const refreshProjects = useCallback(
-    async (activeConns = connections) => {
+  const refreshProjectsForConnections = useCallback(
+    async (activeConns: ReadonlyArray<ManagedConnection>) => {
       setRefreshing(true);
       setError(null);
       const allProjects: Array<{
@@ -86,20 +86,20 @@ export default function ProjectsScreen() {
           }),
         );
       } finally {
-        allProjects.sort((a, b) => a.project.name.localeCompare(b.project.name));
+        allProjects.sort((a, b) => a.project.title.localeCompare(b.project.title));
         setAggregatedProjects(allProjects);
         setRefreshing(false);
       }
     },
-    [connections],
+    [],
   );
 
   useEffect(() => {
     return connectionManager.onStatusChange((conns) => {
       setConnections(conns);
-      void refreshProjects(conns);
+      void refreshProjectsForConnections(conns);
     });
-  }, [refreshProjects]);
+  }, [refreshProjectsForConnections]);
 
   const createProject = useCallback(async () => {
     const targetConnection = activeConnection;
@@ -134,13 +134,13 @@ export default function ProjectsScreen() {
       setNewProjectTitle("");
       setNewProjectPath("");
       setIsCreatingProject(false);
-      await refreshProjects();
+      await refreshProjectsForConnections(connectionManager.getConnections());
     } catch (err) {
       setError(`Could not create project: ${formatErrorMessage(err)}`);
     } finally {
       setCreatingProject(false);
     }
-  }, [activeConnection, newProjectPath, newProjectTitle, refreshProjects]);
+  }, [activeConnection, newProjectPath, newProjectTitle, refreshProjectsForConnections]);
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -152,7 +152,7 @@ export default function ProjectsScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => void refreshProjects()}
+            onRefresh={() => void refreshProjectsForConnections(connectionManager.getConnections())}
             tintColor={colors.primary}
           />
         }
@@ -255,7 +255,7 @@ export default function ProjectsScreen() {
                     style={[styles.projectName, { color: colors.foreground }]}
                     numberOfLines={1}
                   >
-                    {project.name}
+                    {project.title}
                   </Text>
                   <Text style={[styles.projectHost, { color: colors.muted }]}>{hostName}</Text>
                 </View>

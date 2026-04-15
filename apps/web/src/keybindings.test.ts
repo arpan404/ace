@@ -147,6 +147,7 @@ const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("b", { shiftKey: true }), command: "sidebar.toggle" },
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
   { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
+  { shortcut: modShortcut("a", { shiftKey: true }), command: "project.add" },
   {
     shortcut: modShortcut("e"),
     command: "chat.toggleWorkspaceMode",

@@ -360,6 +360,7 @@ export function formatLoadDiagnosticsReport(entries = state.entries): string {
         `[${entry.level}]`,
         `[${entry.phase}]`,
         entry.message,
+        entry.durationMs !== undefined ? `(duration ${entry.durationMs.toFixed(1)}ms)` : null,
         entry.detail ? `\n${entry.detail}` : null,
       ]
         .filter(Boolean)

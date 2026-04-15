@@ -14,6 +14,7 @@ import {
   OrchestrationGetThreadError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
+  FilesystemBrowseError,
   ProjectCreateEntryError,
   ProjectDeleteEntryError,
   ProjectSearchEntriesError,
@@ -558,7 +559,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           }),
         ),
       [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig,
-      [WS_METHODS.serverPickFolder]: (_input) => open.pickFolder(),
+      [WS_METHODS.serverPickFolder]: (input) => open.pickFolder(input),
       [WS_METHODS.serverRefreshProviders]: (_input) =>
         providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
       [WS_METHODS.serverGetRuntimeProfile]: (_input) => loadRuntimeProfile,
@@ -779,6 +780,16 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         ),
       [WS_METHODS.shellOpenInEditor]: (input) => open.openInEditor(input),
       [WS_METHODS.shellRevealInFileManager]: (input) => open.revealInFileManager(input),
+      [WS_METHODS.filesystemBrowse]: (input) =>
+        workspaceEntries.browse(input).pipe(
+          Effect.mapError(
+            (cause) =>
+              new FilesystemBrowseError({
+                message: cause.detail,
+                cause,
+              }),
+          ),
+        ),
       [WS_METHODS.gitStatus]: (input) => gitManager.status(input),
       [WS_METHODS.gitPull]: (input) => git.pullCurrentBranch(input.cwd),
       [WS_METHODS.gitRunStackedAction]: (input) =>

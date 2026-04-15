@@ -55,6 +55,9 @@ const rpcClientMock = {
     searchEntries: vi.fn(),
     writeFile: vi.fn(),
   },
+  filesystem: {
+    browse: vi.fn(),
+  },
   workspaceEditor: {
     syncBuffer: vi.fn(),
     closeBuffer: vi.fn(),
@@ -229,7 +232,50 @@ describe("wsNativeApi", () => {
     const api = createWsNativeApi();
 
     await expect(api.dialogs.pickFolder()).resolves.toBe("/server/project");
-    expect(rpcClientMock.server.pickFolder).toHaveBeenCalledWith();
+    expect(rpcClientMock.server.pickFolder).toHaveBeenCalledWith({});
+  });
+
+  it("forwards pickFolder options to the desktop runtime", async () => {
+    const desktopPickFolder = vi.fn().mockResolvedValue("/desktop/project");
+    getWindowForTest().desktopBridge = makeDesktopBridge({
+      pickFolder: desktopPickFolder,
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const desktopApi = createWsNativeApi();
+
+    await expect(
+      desktopApi.dialogs.pickFolder({ initialPath: "/tmp/desktop-start" }),
+    ).resolves.toBe("/desktop/project");
+    expect(desktopPickFolder).toHaveBeenCalledWith({ initialPath: "/tmp/desktop-start" });
+  });
+
+  it("forwards pickFolder options to the websocket runtime", async () => {
+    rpcClientMock.server.pickFolder.mockResolvedValue("/server/project");
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const browserApi = createWsNativeApi();
+
+    await expect(
+      browserApi.dialogs.pickFolder({ initialPath: "/tmp/browser-start" }),
+    ).resolves.toBe("/server/project");
+    expect(rpcClientMock.server.pickFolder).toHaveBeenCalledWith({
+      initialPath: "/tmp/browser-start",
+    });
+  });
+
+  it("forwards filesystem browse requests to the RPC client", async () => {
+    rpcClientMock.filesystem.browse.mockResolvedValue({
+      parentPath: "/tmp",
+      entries: [{ name: "src", fullPath: "/tmp/src" }],
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+
+    await expect(api.filesystem.browse({ partialPath: "/tmp/s" })).resolves.toEqual({
+      parentPath: "/tmp",
+      entries: [{ name: "src", fullPath: "/tmp/src" }],
+    });
+    expect(rpcClientMock.filesystem.browse).toHaveBeenCalledWith({ partialPath: "/tmp/s" });
   });
 
   it("forwards server config fetches directly to the RPC client", async () => {

@@ -1,10 +1,15 @@
 import {
   ArchiveIcon,
+  ArrowDownIcon,
+  ArrowLeftIcon,
+  ArrowUpIcon,
   ArrowUpDownIcon,
   ChevronRightIcon,
+  CornerDownLeftIcon,
   FolderIcon,
   GitPullRequestIcon,
   PlusIcon,
+  SearchIcon,
   SettingsIcon,
   SquarePenIcon,
   TerminalIcon,
@@ -45,6 +50,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   type DesktopUpdateState,
+  type FilesystemBrowseResult,
   ProjectId,
   ThreadId,
   type GitStatusResult,
@@ -108,6 +114,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
+import { CommandDialog, CommandDialogPopup } from "./ui/command";
 import { Input } from "./ui/input";
 import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -127,7 +134,13 @@ import {
   useSidebar,
 } from "./ui/sidebar";
 import { useThreadSelectionStore } from "../threadSelectionStore";
-import { isNonEmpty as isNonEmptyString } from "effect/String";
+import {
+  findExistingProjectByPath,
+  inferProjectTitle,
+  parentPath,
+  resolveProjectPath,
+  toBrowseDirectoryPath,
+} from "../lib/projectPaths";
 import {
   getVisibleSidebarThreadIds,
   getVisibleThreadsForProject,
@@ -181,6 +194,22 @@ const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
 };
+
+function isEditableHotkeyTarget(target: EventTarget | null): boolean {
+  const element = target instanceof HTMLElement ? target : null;
+  if (!element) {
+    return false;
+  }
+  if (element.isContentEditable) {
+    return true;
+  }
+  return (
+    element.closest(
+      'input, textarea, select, [contenteditable="true"], [role="textbox"], [data-lexical-editor="true"]',
+    ) !== null
+  );
+}
+
 interface TerminalStatusIndicator {
   label: "Terminal process running";
   colorClass: string;
@@ -845,11 +874,18 @@ export default function Sidebar() {
     [keybindings],
   );
   const [addingProject, setAddingProject] = useState(false);
+  const [projectSearchQuery, setProjectSearchQuery] = useState("");
   const [newCwd, setNewCwd] = useState("");
   const [isPickingFolder, setIsPickingFolder] = useState(false);
+  const [isBrowsingProjectPaths, setIsBrowsingProjectPaths] = useState(false);
+  const [projectBrowseResult, setProjectBrowseResult] = useState<FilesystemBrowseResult | null>(
+    null,
+  );
+  const [activeProjectBrowseIndex, setActiveProjectBrowseIndex] = useState(-1);
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
   const addProjectInputRef = useRef<HTMLInputElement | null>(null);
+  const browseRequestVersionRef = useRef(0);
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [confirmingArchiveThreadId, setConfirmingArchiveThreadId] = useState<ThreadId | null>(null);
@@ -878,6 +914,7 @@ export default function Sidebar() {
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const platform = navigator.platform;
   const shouldShowProjectPathEntry = addingProject;
+  const normalizedProjectSearchQuery = projectSearchQuery.trim().toLowerCase();
   const activeProjects = useMemo(
     () => projects.filter((project) => project.archivedAt === null),
     [projects],
@@ -893,6 +930,16 @@ export default function Sidebar() {
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
   );
+  const activeProjectBrowseCwd = useMemo(() => {
+    if (!routeThreadId) {
+      return undefined;
+    }
+    const routeThread = sidebarThreadsById[routeThreadId];
+    if (!routeThread) {
+      return undefined;
+    }
+    return routeThread.worktreePath ?? projectCwdById.get(routeThread.projectId);
+  }, [projectCwdById, routeThreadId, sidebarThreadsById]);
   const editingProject = useMemo(
     () =>
       editingProjectId
@@ -970,9 +1017,76 @@ export default function Sidebar() {
     [appSettings.sidebarThreadSortOrder, navigate, sidebarThreadsById, threadIdsByProjectId],
   );
 
+  const refreshProjectBrowse = useCallback(
+    async (partialPath: string) => {
+      const trimmedPath = partialPath.trim();
+      if (!addingProject || !trimmedPath) {
+        setProjectBrowseResult(null);
+        setActiveProjectBrowseIndex(-1);
+        return;
+      }
+      const api = readNativeApi();
+      if (!api) {
+        return;
+      }
+
+      const requestVersion = browseRequestVersionRef.current + 1;
+      browseRequestVersionRef.current = requestVersion;
+      setIsBrowsingProjectPaths(true);
+      try {
+        const browseResult = await api.filesystem.browse({
+          partialPath: trimmedPath,
+          ...(activeProjectBrowseCwd ? { cwd: activeProjectBrowseCwd } : {}),
+        });
+        if (browseRequestVersionRef.current !== requestVersion) {
+          return;
+        }
+        setProjectBrowseResult(browseResult);
+        setActiveProjectBrowseIndex(browseResult.entries.length > 0 ? 0 : -1);
+      } catch (error) {
+        if (browseRequestVersionRef.current !== requestVersion) {
+          return;
+        }
+        setProjectBrowseResult(null);
+        setActiveProjectBrowseIndex(-1);
+        setAddProjectError(
+          error instanceof Error ? error.message : "Unable to browse this directory path.",
+        );
+      } finally {
+        if (browseRequestVersionRef.current === requestVersion) {
+          setIsBrowsingProjectPaths(false);
+        }
+      }
+    },
+    [activeProjectBrowseCwd, addingProject],
+  );
+
+  useEffect(() => {
+    if (!addingProject) {
+      setProjectBrowseResult(null);
+      setActiveProjectBrowseIndex(-1);
+      setIsBrowsingProjectPaths(false);
+      return;
+    }
+    const trimmedPath = newCwd.trim();
+    if (!trimmedPath) {
+      setProjectBrowseResult(null);
+      setActiveProjectBrowseIndex(-1);
+      return;
+    }
+    void refreshProjectBrowse(trimmedPath);
+  }, [addingProject, newCwd, refreshProjectBrowse]);
+
+  useEffect(() => {
+    if (!addingProject) {
+      return;
+    }
+    addProjectInputRef.current?.focus();
+  }, [addingProject]);
+
   const addProjectFromPath = useCallback(
     async (rawCwd: string, options?: { revealOnError?: boolean }) => {
-      const cwd = rawCwd.trim();
+      const cwd = resolveProjectPath(rawCwd, activeProjectBrowseCwd).trim();
       if (!cwd || isAddingProject) return;
       const api = readNativeApi();
       if (!api) return;
@@ -982,10 +1096,12 @@ export default function Sidebar() {
         setIsAddingProject(false);
         setNewCwd("");
         setAddProjectError(null);
+        setProjectBrowseResult(null);
+        setActiveProjectBrowseIndex(-1);
         setAddingProject(false);
       };
 
-      const existing = projects.find((project) => project.cwd === cwd);
+      const existing = findExistingProjectByPath(projects, cwd);
       if (existing) {
         try {
           if (existing.archivedAt !== null) {
@@ -1011,7 +1127,7 @@ export default function Sidebar() {
 
       const projectId = newProjectId();
       const createdAt = new Date().toISOString();
-      const title = cwd.split(/[/\\]/).findLast(isNonEmptyString) ?? cwd;
+      const title = inferProjectTitle(cwd) || cwd;
       try {
         await api.orchestration.dispatchCommand({
           type: "project.create",
@@ -1019,6 +1135,7 @@ export default function Sidebar() {
           projectId,
           title,
           workspaceRoot: cwd,
+          createWorkspaceRootIfMissing: true,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
@@ -1044,36 +1161,75 @@ export default function Sidebar() {
       finishAddingProject();
     },
     [
+      activeProjectBrowseCwd,
+      appSettings.defaultThreadEnvMode,
       focusMostRecentThreadForProject,
       handleNewThread,
       isAddingProject,
       projects,
-      appSettings.defaultThreadEnvMode,
     ],
   );
 
-  const handleAddProject = () => {
+  const handleAddProject = useCallback(() => {
     void addProjectFromPath(newCwd);
-  };
+  }, [addProjectFromPath, newCwd]);
+
+  const handleBrowseProjectEntry = useCallback((fullPath: string) => {
+    setAddProjectError(null);
+    setNewCwd(toBrowseDirectoryPath(fullPath));
+  }, []);
+
+  const handleBrowseParentPath = useCallback(() => {
+    const currentPath = projectBrowseResult?.parentPath ?? newCwd.trim();
+    if (!currentPath) {
+      return;
+    }
+    const nextPath = parentPath(currentPath);
+    if (!nextPath || nextPath === currentPath) {
+      return;
+    }
+    setNewCwd(toBrowseDirectoryPath(nextPath));
+    setAddProjectError(null);
+  }, [newCwd, projectBrowseResult]);
 
   const canAddProject = newCwd.trim().length > 0 && !isAddingProject;
+  const normalizedResolvedProjectPath = useMemo(
+    () => resolveProjectPath(newCwd, activeProjectBrowseCwd).trim().toLowerCase(),
+    [activeProjectBrowseCwd, newCwd],
+  );
+  const isBrowsePathExactDirectoryMatch = useMemo(() => {
+    const trimmedPath = newCwd.trim();
+    if (!trimmedPath) {
+      return false;
+    }
+    if (/[\\/]$/.test(trimmedPath) || trimmedPath === "~") {
+      return true;
+    }
+    return (
+      projectBrowseResult?.entries.some(
+        (entry) => entry.fullPath.trim().toLowerCase() === normalizedResolvedProjectPath,
+      ) ?? false
+    );
+  }, [newCwd, normalizedResolvedProjectPath, projectBrowseResult]);
+  const addProjectActionLabel = isAddingProject
+    ? "Adding..."
+    : isBrowsePathExactDirectoryMatch
+      ? "Add"
+      : "Create & Add";
 
-  const handlePickFolder = async (options?: { revealOnCancel?: boolean }) => {
+  const handlePickFolder = useCallback(async () => {
     const api = readNativeApi();
     if (!api || isPickingFolder) return;
     setAddProjectError(null);
     setIsPickingFolder(true);
     try {
-      const pickedPath = await api.dialogs.pickFolder();
+      const initialPath =
+        newCwd.trim() || appSettings.addProjectBaseDirectory || activeProjectBrowseCwd;
+      const pickedPath = await api.dialogs.pickFolder(initialPath ? { initialPath } : undefined);
       if (pickedPath) {
-        setNewCwd(pickedPath);
-        await addProjectFromPath(pickedPath, { revealOnError: true });
-        return;
+        setNewCwd(toBrowseDirectoryPath(pickedPath));
+        addProjectInputRef.current?.focus();
       }
-      if (options?.revealOnCancel) {
-        setAddingProject(true);
-      }
-      addProjectInputRef.current?.focus();
     } catch (error) {
       setAddingProject(true);
       setAddProjectError(
@@ -1083,16 +1239,90 @@ export default function Sidebar() {
     } finally {
       setIsPickingFolder(false);
     }
-  };
+  }, [activeProjectBrowseCwd, appSettings.addProjectBaseDirectory, isPickingFolder, newCwd]);
 
-  const handleStartAddProject = () => {
+  const handleAddProjectInputKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveProjectBrowseIndex((index) => {
+          const entryCount = projectBrowseResult?.entries.length ?? 0;
+          if (entryCount === 0) {
+            return -1;
+          }
+          return Math.min(index + 1, entryCount - 1);
+        });
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveProjectBrowseIndex((index) => {
+          const entryCount = projectBrowseResult?.entries.length ?? 0;
+          if (entryCount === 0) {
+            return -1;
+          }
+          return index <= 0 ? 0 : index - 1;
+        });
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        const selectedEntry =
+          activeProjectBrowseIndex >= 0
+            ? projectBrowseResult?.entries[activeProjectBrowseIndex]
+            : undefined;
+        if (selectedEntry) {
+          event.preventDefault();
+          handleBrowseProjectEntry(selectedEntry.fullPath);
+        }
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        handleBrowseParentPath();
+        return;
+      }
+      if (event.key === "Backspace") {
+        const target = event.currentTarget;
+        const hasSelection = target.selectionStart !== target.selectionEnd;
+        const cursorAtEnd = target.selectionStart === target.value.length;
+        if (!hasSelection && cursorAtEnd && /[\\/]$/.test(target.value.trim())) {
+          event.preventDefault();
+          handleBrowseParentPath();
+          return;
+        }
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        handleAddProject();
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setAddingProject(false);
+        setAddProjectError(null);
+      }
+    },
+    [
+      activeProjectBrowseIndex,
+      handleAddProject,
+      handleBrowseParentPath,
+      handleBrowseProjectEntry,
+      projectBrowseResult,
+    ],
+  );
+
+  const handleStartAddProject = useCallback(() => {
     setAddProjectError(null);
     if (shouldShowProjectPathEntry) {
       setAddingProject(false);
       return;
     }
-    void handlePickFolder({ revealOnCancel: true });
-  };
+    const initialPath = appSettings.addProjectBaseDirectory.trim() || activeProjectBrowseCwd || "~";
+    setNewCwd(toBrowseDirectoryPath(initialPath));
+    setProjectBrowseResult(null);
+    setActiveProjectBrowseIndex(-1);
+    setAddingProject(true);
+  }, [activeProjectBrowseCwd, appSettings.addProjectBaseDirectory, shouldShowProjectPathEntry]);
 
   const cancelRename = useCallback(() => {
     setRenamingThreadId(null);
@@ -1671,7 +1901,8 @@ export default function Sidebar() {
       return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
     });
   }, [appSettings.sidebarProjectSortOrder, orderedProjects, visibleProjectThreadsByProjectId]);
-  const isManualProjectSorting = appSettings.sidebarProjectSortOrder === "manual";
+  const isManualProjectSorting =
+    appSettings.sidebarProjectSortOrder === "manual" && normalizedProjectSearchQuery.length === 0;
   const renderedProjects = useMemo(
     () =>
       sortedProjects.map((project) => {
@@ -1751,9 +1982,28 @@ export default function Sidebar() {
       visibleProjectThreadsByProjectId,
     ],
   );
+  const filteredRenderedProjects = useMemo(() => {
+    if (normalizedProjectSearchQuery.length === 0) {
+      return renderedProjects;
+    }
+    return renderedProjects.filter((renderedProject) => {
+      const { project } = renderedProject;
+      if (
+        project.name.toLowerCase().includes(normalizedProjectSearchQuery) ||
+        project.cwd.toLowerCase().includes(normalizedProjectSearchQuery)
+      ) {
+        return true;
+      }
+      const projectThreads =
+        visibleProjectThreadsByProjectId.get(project.id) ?? EMPTY_SIDEBAR_THREADS;
+      return projectThreads.some((thread) =>
+        thread.title.toLowerCase().includes(normalizedProjectSearchQuery),
+      );
+    });
+  }, [normalizedProjectSearchQuery, renderedProjects, visibleProjectThreadsByProjectId]);
   const visibleSidebarThreadIds = useMemo(
-    () => getVisibleSidebarThreadIds(renderedProjects),
-    [renderedProjects],
+    () => getVisibleSidebarThreadIds(filteredRenderedProjects),
+    [filteredRenderedProjects],
   );
   const visibleSidebarThreads = useMemo(
     () =>
@@ -1886,6 +2136,15 @@ export default function Sidebar() {
         platform,
         context: getShortcutContext(),
       });
+      if (command === "project.add") {
+        if (isEditableHotkeyTarget(event.target) || isOnSettings) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        handleStartAddProject();
+        return;
+      }
       const traversalDirection = threadTraversalDirectionFromCommand(command);
       if (traversalDirection !== null) {
         const targetThreadId = resolveAdjacentThreadId({
@@ -1942,6 +2201,8 @@ export default function Sidebar() {
     };
   }, [
     keybindings,
+    handleStartAddProject,
+    isOnSettings,
     navigateToThread,
     orderedSidebarThreadIds,
     platform,
@@ -2260,6 +2521,11 @@ export default function Sidebar() {
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.newLocal", sidebarShortcutLabelOptions) ??
     shortcutLabelForCommand(keybindings, "chat.new", sidebarShortcutLabelOptions);
+  const addProjectShortcutLabel = shortcutLabelForCommand(
+    keybindings,
+    "project.add",
+    sidebarShortcutLabelOptions,
+  );
 
   useEffect(() => {
     const headerRow = sidebarHeaderRowRef.current;
@@ -2514,6 +2780,135 @@ export default function Sidebar() {
         </DialogPopup>
       </Dialog>
 
+      <CommandDialog
+        open={shouldShowProjectPathEntry}
+        onOpenChange={(open) => {
+          setAddingProject(open);
+          if (!open) {
+            setAddProjectError(null);
+          }
+        }}
+      >
+        <CommandDialogPopup className="w-[min(44rem,calc(100vw-2rem))] overflow-hidden border-border/70 bg-popover/96 p-0 shadow-2xl">
+          <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
+            <button
+              type="button"
+              className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              onClick={handleBrowseParentPath}
+              disabled={isAddingProject || isBrowsingProjectPaths}
+              aria-label="Browse parent directory"
+            >
+              <ArrowLeftIcon className="size-4" />
+            </button>
+            <input
+              ref={addProjectInputRef}
+              className={`h-8 min-w-0 flex-1 rounded-md border bg-secondary/55 px-2.5 font-mono text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none ${
+                addProjectError ? "border-red-500/70 focus:border-red-500" : "border-border/70"
+              }`}
+              placeholder="/path/to/project"
+              value={newCwd}
+              onChange={(event) => {
+                setNewCwd(event.target.value);
+                setAddProjectError(null);
+              }}
+              onKeyDown={handleAddProjectInputKeyDown}
+              autoFocus
+            />
+            <button
+              type="button"
+              className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+              onClick={handleAddProject}
+              disabled={!canAddProject}
+            >
+              <span>{addProjectActionLabel}</span>
+              <span className="rounded border border-primary-foreground/20 px-1 text-[10px] text-primary-foreground/80">
+                Enter
+              </span>
+            </button>
+          </div>
+
+          <div className="px-3 pt-3 pb-1">
+            <p className="pb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+              Directories
+            </p>
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-border/60 bg-background/50">
+              {isBrowsingProjectPaths ? (
+                <p className="px-3 py-2 text-xs text-muted-foreground">Browsing...</p>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 border-border/45 border-b px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    onClick={handleBrowseParentPath}
+                    disabled={isAddingProject}
+                  >
+                    <ArrowUpIcon className="size-3.5" />
+                    <span>..</span>
+                  </button>
+                  {projectBrowseResult?.entries.length ? (
+                    projectBrowseResult.entries.map((entry, index) => (
+                      <button
+                        key={entry.fullPath}
+                        type="button"
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
+                          index === activeProjectBrowseIndex
+                            ? "bg-accent text-foreground"
+                            : "text-foreground/86 hover:bg-accent/70 hover:text-foreground"
+                        }`}
+                        onClick={() => handleBrowseProjectEntry(entry.fullPath)}
+                      >
+                        <FolderIcon className="size-3.5 shrink-0" />
+                        <span className="truncate font-medium">{entry.name}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="px-3 py-2 text-xs text-muted-foreground">No matching folders</p>
+                  )}
+                </>
+              )}
+            </div>
+            {addProjectError ? (
+              <p className="pt-2 text-xs leading-tight text-red-400">{addProjectError}</p>
+            ) : null}
+          </div>
+
+          <div className="flex items-center justify-between border-t border-border/70 px-3 py-2 text-muted-foreground text-xs">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-1">
+                <ArrowUpIcon className="size-3.5" />
+                <ArrowDownIcon className="size-3.5" />
+                <span>Navigate</span>
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <CornerDownLeftIcon className="size-3.5" />
+                <span>Select</span>
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="rounded border border-border/70 px-1.5 py-0.5 text-[10px]">
+                  Backspace
+                </span>
+                <span>Back</span>
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="rounded border border-border/70 px-1.5 py-0.5 text-[10px]">
+                  Esc
+                </span>
+                <span>Close</span>
+              </span>
+            </div>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
+              onClick={() => void handlePickFolder()}
+              disabled={isPickingFolder || isAddingProject}
+            >
+              <FolderIcon className="size-3.5" />
+              {isPickingFolder ? "Opening..." : "Open in Finder"}
+            </button>
+          </div>
+        </CommandDialogPopup>
+      </CommandDialog>
+
       {isElectron ? (
         <SidebarHeader
           className="drag-region h-[52px] px-4 py-0"
@@ -2614,61 +3009,27 @@ export default function Sidebar() {
                       />
                     </TooltipTrigger>
                     <TooltipPopup side="right">
-                      {shouldShowProjectPathEntry ? "Cancel add project" : "Add project"}
+                      {shouldShowProjectPathEntry
+                        ? "Cancel add project"
+                        : addProjectShortcutLabel
+                          ? `Add project (${addProjectShortcutLabel})`
+                          : "Add project"}
                     </TooltipPopup>
                   </Tooltip>
                 </div>
               </div>
-              {shouldShowProjectPathEntry && (
-                <div className="mb-2 px-1">
-                  <button
-                    type="button"
-                    className="mb-1.5 flex w-full items-center justify-center gap-2 rounded-md border border-border/50 bg-secondary/70 py-1.5 text-xs text-foreground/80 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={() => void handlePickFolder()}
-                    disabled={isPickingFolder || isAddingProject}
-                  >
-                    <FolderIcon className="size-3.5" />
-                    {isPickingFolder ? "Picking folder..." : "Browse for folder"}
-                  </button>
-                  <div className="flex gap-1.5">
-                    <input
-                      ref={addProjectInputRef}
-                      className={`min-w-0 flex-1 rounded-md border bg-secondary px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none ${
-                        addProjectError
-                          ? "border-red-500/70 focus:border-red-500"
-                          : "border-border focus:border-ring"
-                      }`}
-                      placeholder="/path/to/project"
-                      value={newCwd}
-                      onChange={(event) => {
-                        setNewCwd(event.target.value);
-                        setAddProjectError(null);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") handleAddProject();
-                        if (event.key === "Escape") {
-                          setAddingProject(false);
-                          setAddProjectError(null);
-                        }
-                      }}
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90 disabled:opacity-60"
-                      onClick={handleAddProject}
-                      disabled={!canAddProject}
-                    >
-                      {isAddingProject ? "Adding..." : "Add"}
-                    </button>
-                  </div>
-                  {addProjectError && (
-                    <p className="mt-1 px-0.5 text-[11px] leading-tight text-red-400">
-                      {addProjectError}
-                    </p>
-                  )}
+              <div className="mb-2 px-1">
+                <div className="relative">
+                  <SearchIcon className="-translate-y-1/2 pointer-events-none absolute left-2.5 top-1/2 size-3.5 text-muted-foreground/70" />
+                  <Input
+                    aria-label="Search projects"
+                    className="h-8 border-border/60 bg-secondary/45 pl-7 text-xs"
+                    placeholder="Search projects"
+                    value={projectSearchQuery}
+                    onChange={(event) => setProjectSearchQuery(event.target.value)}
+                  />
                 </div>
-              )}
+              </div>
 
               {isManualProjectSorting ? (
                 <DndContext
@@ -2681,10 +3042,12 @@ export default function Sidebar() {
                 >
                   <SidebarMenu>
                     <SortableContext
-                      items={renderedProjects.map((renderedProject) => renderedProject.project.id)}
+                      items={filteredRenderedProjects.map(
+                        (renderedProject) => renderedProject.project.id,
+                      )}
                       strategy={verticalListSortingStrategy}
                     >
-                      {renderedProjects.map((renderedProject) => (
+                      {filteredRenderedProjects.map((renderedProject) => (
                         <SortableProjectItem
                           key={renderedProject.project.id}
                           projectId={renderedProject.project.id}
@@ -2697,7 +3060,7 @@ export default function Sidebar() {
                 </DndContext>
               ) : (
                 <SidebarMenu>
-                  {renderedProjects.map((renderedProject) => (
+                  {filteredRenderedProjects.map((renderedProject) => (
                     <SidebarMenuItem key={renderedProject.project.id} className="rounded-md">
                       {renderProjectItem(renderedProject, null)}
                     </SidebarMenuItem>
@@ -2710,6 +3073,13 @@ export default function Sidebar() {
                   No projects yet
                 </div>
               )}
+              {projects.length > 0 &&
+                normalizedProjectSearchQuery.length > 0 &&
+                filteredRenderedProjects.length === 0 && (
+                  <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
+                    No matching projects
+                  </div>
+                )}
             </SidebarGroup>
           </SidebarContent>
 

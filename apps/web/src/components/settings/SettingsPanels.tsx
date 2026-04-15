@@ -601,6 +601,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
+      ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
+        ? ["Add project base directory"]
+        : []),
       ...(settings.providerCliMaxOpen !== DEFAULT_UNIFIED_SETTINGS.providerCliMaxOpen
         ? ["Provider CLI max open"]
         : []),
@@ -628,6 +631,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.defaultThreadEnvMode,
+      settings.addProjectBaseDirectory,
       settings.providerCliIdleTtlSeconds,
       settings.providerCliMaxOpen,
       settings.diffWordWrap,
@@ -1639,6 +1643,35 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     </SelectItem>
                   </SelectPopup>
                 </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Add project starts in"
+              description="Optional base directory used when opening the add-project browser."
+              resetAction={
+                settings.addProjectBaseDirectory !==
+                DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
+                  <SettingResetButton
+                    label="add project start directory"
+                    onClick={() =>
+                      updateSettings({
+                        addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Input
+                  className="w-full sm:w-72"
+                  value={settings.addProjectBaseDirectory}
+                  onChange={(event) => {
+                    updateSettings({ addProjectBaseDirectory: event.target.value });
+                  }}
+                  placeholder="Current project or home directory"
+                  aria-label="Add project base directory"
+                />
               }
             />
 

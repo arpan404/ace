@@ -40,6 +40,13 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       label: "Toggle sidebar",
       description: "Collapse or expand the main sidebar.",
     },
+    "project.add": {
+      category: "Sidebar",
+      label: "Add project",
+      description: "Open the add project command browser.",
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
     "terminal.toggle": {
       category: "Terminal",
       label: "Toggle terminal drawer",
