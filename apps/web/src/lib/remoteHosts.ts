@@ -342,14 +342,20 @@ function assertPairingSessionCreated(payload: unknown): HostPairingSessionCreate
   if (typeof payload !== "object" || payload === null) {
     throw new Error("Pairing session response was invalid.");
   }
-  const value = payload as { secret?: unknown; claimUrl?: unknown };
-  if (typeof value.secret !== "string" || typeof value.claimUrl !== "string") {
+  const value = payload as { secret?: unknown; claimUrl?: unknown; pollingUrl?: unknown };
+  if (typeof value.secret !== "string") {
     throw new Error("Pairing session creation response was missing required fields.");
+  }
+  const claimUrl = typeof value.claimUrl === "string" ? value.claimUrl : undefined;
+  const pollingUrl = typeof value.pollingUrl === "string" ? value.pollingUrl : undefined;
+  if (!claimUrl && !pollingUrl) {
+    throw new Error("Pairing session creation response did not include a polling endpoint.");
   }
   return {
     ...status,
     secret: value.secret,
-    claimUrl: value.claimUrl,
+    ...(claimUrl ? { claimUrl } : {}),
+    ...(pollingUrl ? { pollingUrl } : {}),
   };
 }
 

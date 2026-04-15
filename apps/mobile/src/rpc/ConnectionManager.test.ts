@@ -25,12 +25,16 @@ function makeHost(overrides: Partial<HostInstance> = {}): HostInstance {
 function makeClientMock() {
   const cleanupStatus = vi.fn();
   const dispose = vi.fn().mockResolvedValue(undefined);
+  const getConfig = vi.fn().mockResolvedValue({});
   const client = {
     onConnectionStateChange: vi.fn().mockReturnValue(cleanupStatus),
+    server: {
+      getConfig,
+    },
     dispose,
   } as unknown as MobileWsClient;
 
-  return { client, cleanupStatus, dispose };
+  return { client, cleanupStatus, dispose, getConfig };
 }
 
 describe("ConnectionManager", () => {

@@ -23,11 +23,13 @@ import {
   parseHostConnectionQrPayload,
   persistRemoteHostInstances,
   readHostPairingAdvertisedEndpoint,
+  readHostPairingSession,
   resolveActiveWsUrl,
   resolveHostConnectionWsUrl,
   resolveLocalDeviceWsUrl,
   resolvePairingHostConnection,
   splitWsUrlAuthToken,
+  type HostPairingSessionStatus,
   type RemoteHostInstance,
   verifyWsHostConnection,
 } from "../../lib/remoteHosts";
@@ -52,6 +54,7 @@ interface HostDraftState {
 }
 
 interface PairingLinkState {
+  readonly sessionId: string;
   readonly connectionString: string;
   readonly expiresAt: string;
   readonly qrDataUrl: string | null;
@@ -92,6 +95,9 @@ export function DevicesSettingsPanel() {
   const [refreshingLocalEndpoint, setRefreshingLocalEndpoint] = useState(false);
   const [pairingLink, setPairingLink] = useState<PairingLinkState | null>(null);
   const [creatingPairingLink, setCreatingPairingLink] = useState(false);
+  const [pairingSessionStatus, setPairingSessionStatus] = useState<HostPairingSessionStatus | null>(
+    null,
+  );
   const [hostAvailability, setHostAvailability] = useState<
     Record<
       string,
@@ -344,10 +350,12 @@ export function DevicesSettingsPanel() {
         width: 220,
       });
       setPairingLink({
+        sessionId: created.sessionId,
         connectionString,
         expiresAt: created.expiresAt,
         qrDataUrl,
       });
+      setPairingSessionStatus(created);
       toastManager.add({
         type: "success",
         title: "Pairing link created.",
@@ -362,6 +370,42 @@ export function DevicesSettingsPanel() {
       setCreatingPairingLink(false);
     }
   }, [localAdvertisedWsUrl, localDeviceConnection.authToken]);
+
+  useEffect(() => {
+    if (!pairingLink) {
+      setPairingSessionStatus(null);
+      return;
+    }
+    let cancelled = false;
+
+    const refreshStatus = async () => {
+      try {
+        const status = await readHostPairingSession({
+          wsUrl: localAdvertisedWsUrl,
+          ...(localDeviceConnection.authToken
+            ? { authToken: localDeviceConnection.authToken }
+            : {}),
+          sessionId: pairingLink.sessionId,
+        });
+        if (!cancelled) {
+          setPairingSessionStatus(status);
+        }
+      } catch {
+        if (!cancelled) {
+          setPairingSessionStatus(null);
+        }
+      }
+    };
+
+    void refreshStatus();
+    const interval = window.setInterval(() => {
+      void refreshStatus();
+    }, 1_200);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [localAdvertisedWsUrl, localDeviceConnection.authToken, pairingLink]);
 
   const refreshHostAvailability = useCallback(async () => {
     if (hosts.length === 0) {
@@ -511,6 +555,19 @@ export function DevicesSettingsPanel() {
                   </div>
                 </PopoverPopup>
               </Popover>
+              {pairingSessionStatus ? (
+                <div className="w-full rounded-md border border-border/60 bg-muted/20 px-2 py-1.5 text-[11px] text-muted-foreground">
+                  {pairingSessionStatus.status === "waiting-claim"
+                    ? "Waiting for a device to claim this pairing link."
+                    : pairingSessionStatus.status === "claim-pending"
+                      ? `Auto-approving ${pairingSessionStatus.requesterName ?? "remote device"}…`
+                      : pairingSessionStatus.status === "approved"
+                        ? "Pairing completed."
+                        : pairingSessionStatus.status === "rejected"
+                          ? "Pairing request was rejected."
+                          : "Pairing link expired."}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </SettingsRow>

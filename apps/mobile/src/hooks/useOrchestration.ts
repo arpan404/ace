@@ -9,10 +9,14 @@ export function useOrchestrationSnapshot(connection: ManagedConnection | null) {
   const [snapshot, setSnapshot] = useState<OrchestrationReadModel | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const connectionId = connection?.host.id ?? null;
+  const connectionStatus = connection?.status.kind ?? "disconnected";
 
   useEffect(() => {
-    if (!connection || connection.status.kind !== "connected") {
+    if (!connection) {
       setSnapshot(undefined);
+      setError(null);
+      setLoading(false);
       return;
     }
 
@@ -40,14 +44,14 @@ export function useOrchestrationSnapshot(connection: ManagedConnection | null) {
           setSnapshot(snap);
         })
         .catch((err) => {
-          console.error("Failed to update snapshot:", err);
+          setError(err instanceof Error ? err.message : String(err));
         });
     });
 
     return () => {
       unsubscribe?.();
     };
-  }, [connection]);
+  }, [connection, connectionId, connectionStatus]);
 
   return { snapshot, loading, error };
 }

@@ -659,7 +659,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("supports two-way pairing session approval flow", () =>
+  it.effect("auto-approves pairing sessions after claim", () =>
     Effect.gen(function* () {
       __resetPairingStoreForTests();
 
@@ -726,24 +726,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         readonly status: string;
         readonly requesterName?: string;
       };
-      assert.equal(session.status, "claim-pending");
+      assert.equal(session.status, "approved");
       assert.equal(session.requesterName, "ace mobile");
-
-      const resolveResponse = yield* Effect.promise(() =>
-        fetch(`${baseUrl}/api/pairing/sessions/${encodeURIComponent(created.sessionId)}/resolve`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer secret-token",
-          },
-          body: JSON.stringify({ approve: true }),
-        }),
-      );
-      assert.equal(resolveResponse.status, 200);
-      const resolved = (yield* Effect.promise(() => resolveResponse.json())) as {
-        readonly status: string;
-      };
-      assert.equal(resolved.status, "approved");
 
       const claimStatusResponse = yield* Effect.promise(() => fetch(claim.pollUrl));
       assert.equal(claimStatusResponse.status, 200);
