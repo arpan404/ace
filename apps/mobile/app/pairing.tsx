@@ -27,6 +27,7 @@ type ConnectionTab = "scan" | "paste" | "manual";
 
 const SCAN_AREA_SIZE = 260;
 const SCAN_LINE_PERIOD = 2400;
+const PAIRING_REQUEST_TIMEOUT_MS = 10_000;
 
 const TAB_META: { key: ConnectionTab; label: string; Icon: React.ElementType }[] = [
   { key: "scan", label: "Scan", Icon: ScanLine },
@@ -98,9 +99,14 @@ export default function PairingScreen() {
           setStatusText("Connecting…");
           const receipt = await requestPairingClaim(parsed.pairing, {
             requesterName: "ace mobile",
+            requestTimeoutMs: PAIRING_REQUEST_TIMEOUT_MS,
           });
           setStatusText("Waiting for approval…");
-          const resolvedHost = await waitForPairingApproval(receipt);
+          const resolvedHost = await waitForPairingApproval(receipt, {
+            timeoutMs: 90_000,
+            pollIntervalMs: 1_200,
+            requestTimeoutMs: PAIRING_REQUEST_TIMEOUT_MS,
+          });
           const host = createHostInstance(resolvedHost);
           addHost(host);
           router.back();

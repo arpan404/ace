@@ -21,6 +21,8 @@ import {
   TurnId,
   type WorkspaceEditorCloseBufferInput,
   type WorkspaceEditorCloseBufferResult,
+  type WorkspaceEditorCompleteInput,
+  type WorkspaceEditorCompleteResult,
   type WorkspaceEditorSyncBufferInput,
   type WorkspaceEditorSyncBufferResult,
   WS_METHODS,
@@ -295,6 +297,11 @@ const buildAppUnderTest = (options?: {
             Effect.succeed({
               relativePath: input.relativePath,
             } satisfies WorkspaceEditorCloseBufferResult),
+          complete: (input: WorkspaceEditorCompleteInput) =>
+            Effect.succeed({
+              relativePath: input.relativePath,
+              items: [],
+            } satisfies WorkspaceEditorCompleteResult),
           syncBuffer: (input: WorkspaceEditorSyncBufferInput) =>
             Effect.succeed({
               diagnostics: [],
@@ -1084,6 +1091,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 return {
                   relativePath: input.relativePath,
                 } satisfies WorkspaceEditorCloseBufferResult;
+              }),
+            complete: (input) =>
+              Effect.sync(() => {
+                return {
+                  relativePath: input.relativePath,
+                  items: [],
+                } satisfies WorkspaceEditorCompleteResult;
               }),
           },
         },

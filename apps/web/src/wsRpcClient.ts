@@ -61,6 +61,7 @@ export interface WsRpcClient {
   readonly workspaceEditor: {
     readonly syncBuffer: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorSyncBuffer>;
     readonly closeBuffer: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorCloseBuffer>;
+    readonly complete: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorComplete>;
   };
   readonly shell: {
     readonly openInEditor: (input: {
@@ -97,6 +98,8 @@ export interface WsRpcClient {
     readonly refreshProviders: RpcUnaryNoArgMethod<typeof WS_METHODS.serverRefreshProviders>;
     readonly getLspToolsStatus: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetLspToolsStatus>;
     readonly installLspTools: RpcUnaryMethod<typeof WS_METHODS.serverInstallLspTools>;
+    readonly searchLspMarketplace: RpcUnaryMethod<typeof WS_METHODS.serverSearchLspMarketplace>;
+    readonly installLspTool: RpcUnaryMethod<typeof WS_METHODS.serverInstallLspTool>;
     readonly searchOpenCodeModels: RpcUnaryMethod<typeof WS_METHODS.serverSearchOpenCodeModels>;
     readonly upsertKeybinding: RpcUnaryMethod<typeof WS_METHODS.serverUpsertKeybinding>;
     readonly getSettings: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetSettings>;
@@ -173,6 +176,8 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) => client[WS_METHODS.workspaceEditorSyncBuffer](input)),
       closeBuffer: (input) =>
         transport.request((client) => client[WS_METHODS.workspaceEditorCloseBuffer](input)),
+      complete: (input) =>
+        transport.request((client) => client[WS_METHODS.workspaceEditorComplete](input)),
     },
     shell: {
       openInEditor: (input) =>
@@ -230,6 +235,10 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) => client[WS_METHODS.serverGetLspToolsStatus]({})),
       installLspTools: (input) =>
         transport.request((client) => client[WS_METHODS.serverInstallLspTools](input)),
+      searchLspMarketplace: (input) =>
+        transport.request((client) => client[WS_METHODS.serverSearchLspMarketplace](input)),
+      installLspTool: (input) =>
+        transport.request((client) => client[WS_METHODS.serverInstallLspTool](input)),
       searchOpenCodeModels: (input) =>
         transport.request((client) => client[WS_METHODS.serverSearchOpenCodeModels](input)),
       upsertKeybinding: (input) =>

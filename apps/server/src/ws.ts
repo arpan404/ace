@@ -25,6 +25,7 @@ import {
   type TerminalEvent,
   ServerLspToolsError,
   WorkspaceEditorCloseBufferError,
+  WorkspaceEditorCompleteError,
   WorkspaceEditorSyncBufferError,
   WS_METHODS,
   WsRpcGroup,
@@ -55,7 +56,12 @@ import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./pro
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
-import { getLspToolsStatus, installLspTools } from "./lspTools";
+import {
+  getLspToolsStatus,
+  installLspTool,
+  installLspTools,
+  searchLspMarketplace,
+} from "./lspTools";
 import { collectRuntimeProfileSnapshot } from "./runtimeProfile";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
@@ -606,6 +612,24 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               cause,
             }),
         }),
+      [WS_METHODS.serverSearchLspMarketplace]: (input) =>
+        Effect.tryPromise({
+          try: () => searchLspMarketplace(input.query, input.limit),
+          catch: (cause) =>
+            new ServerLspToolsError({
+              message: "Unable to search language server marketplace.",
+              cause,
+            }),
+        }),
+      [WS_METHODS.serverInstallLspTool]: (input) =>
+        Effect.tryPromise({
+          try: () => installLspTool(config.stateDir, input),
+          catch: (cause) =>
+            new ServerLspToolsError({
+              message: "Unable to install language server tool.",
+              cause,
+            }),
+        }),
       [WS_METHODS.serverUpsertKeybinding]: (rule) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.upsertKeybindingRule(rule);
@@ -733,6 +757,21 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 ? cause.message
                 : "Failed to close the workspace diagnostics buffer.";
             return new WorkspaceEditorCloseBufferError({
+              message,
+              cause,
+            });
+          }),
+        ),
+      [WS_METHODS.workspaceEditorComplete]: (input) =>
+        workspaceEditor.complete(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : Schema.is(WorkspaceRootNotExistsError)(cause) ||
+                  Schema.is(WorkspaceRootNotDirectoryError)(cause)
+                ? cause.message
+                : "Failed to load workspace completions.";
+            return new WorkspaceEditorCompleteError({
               message,
               cause,
             });

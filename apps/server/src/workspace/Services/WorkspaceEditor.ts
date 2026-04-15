@@ -4,6 +4,8 @@ import type { Effect } from "effect";
 import type {
   WorkspaceEditorCloseBufferInput,
   WorkspaceEditorCloseBufferResult,
+  WorkspaceEditorCompleteInput,
+  WorkspaceEditorCompleteResult,
   WorkspaceEditorSyncBufferInput,
   WorkspaceEditorSyncBufferResult,
 } from "@ace/contracts";
@@ -28,6 +30,9 @@ export interface WorkspaceEditorShape {
   readonly closeBuffer: (
     input: WorkspaceEditorCloseBufferInput,
   ) => Effect.Effect<WorkspaceEditorCloseBufferResult, WorkspaceEditorError | WorkspacePathsError>;
+  readonly complete: (
+    input: WorkspaceEditorCompleteInput,
+  ) => Effect.Effect<WorkspaceEditorCompleteResult, WorkspaceEditorError | WorkspacePathsError>;
 }
 
 export class WorkspaceEditor extends ServiceMap.Service<WorkspaceEditor, WorkspaceEditorShape>()(

@@ -394,8 +394,11 @@ type FetchLike = (
     readonly method?: string;
     readonly headers?: Record<string, string>;
     readonly body?: string;
+    readonly signal?: AbortSignal;
   },
 ) => Promise<FetchResponseLike>;
+
+const DEFAULT_PAIRING_REQUEST_TIMEOUT_MS = 10_000;
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -434,6 +437,74 @@ function resolveFetch(fetchImpl?: FetchLike): FetchLike {
   return fetch as unknown as FetchLike;
 }
 
+function resolvePairingRequestTimeoutMs(timeoutMs: number | undefined): number {
+  return Math.max(1_000, timeoutMs ?? DEFAULT_PAIRING_REQUEST_TIMEOUT_MS);
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  );
+}
+
+function isAbortSignal(value: unknown): value is AbortSignal {
+  return typeof value === "object" && value !== null && "aborted" in value;
+}
+
+async function fetchWithTimeout(
+  fetchImpl: FetchLike,
+  input: string,
+  init: {
+    readonly method?: string;
+    readonly headers?: Record<string, string>;
+    readonly body?: string;
+    readonly signal?: AbortSignal;
+  },
+  timeoutMs: number,
+): Promise<FetchResponseLike> {
+  const timeout = resolvePairingRequestTimeoutMs(timeoutMs);
+  const hasAbortController = typeof AbortController !== "undefined";
+  const controller = hasAbortController ? new AbortController() : null;
+  let timedOut = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const onAbort = () => {
+    controller?.abort();
+  };
+  if (isAbortSignal(init.signal)) {
+    init.signal.addEventListener("abort", onAbort);
+    if (init.signal.aborted) {
+      onAbort();
+    }
+  }
+  try {
+    if (controller) {
+      timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeout);
+    }
+    return await fetchImpl(input, {
+      ...init,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+  } catch (error) {
+    if (timedOut && isAbortError(error)) {
+      throw new Error("Pairing request timed out. Check your network and host address.", {
+        cause: error,
+      });
+    }
+    throw error;
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+    if (isAbortSignal(init.signal)) {
+      init.signal.removeEventListener("abort", onAbort);
+    }
+  }
+}
+
 export interface PairingClaimReceipt {
   readonly claimId: string;
   readonly pollUrl: string;
@@ -469,6 +540,8 @@ export async function requestPairingClaim(
   options?: {
     readonly requesterName?: string;
     readonly fetch?: FetchLike;
+    readonly requestTimeoutMs?: number;
+    readonly signal?: AbortSignal;
   },
 ): Promise<PairingClaimReceipt> {
   if (pairing.pollingUrl) {
@@ -480,21 +553,27 @@ export async function requestPairingClaim(
     throw new Error("Pairing claim URL must use http:// or https://.");
   }
   const fetchImpl = resolveFetch(options?.fetch);
-  const response = await fetchImpl(claimUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    claimUrl,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sessionId: pairing.sessionId,
+        secret: pairing.secret,
+        ...(options?.requesterName?.trim()
+          ? {
+              requesterName: options.requesterName.trim(),
+            }
+          : {}),
+      }),
+      ...(options?.signal ? { signal: options.signal } : {}),
     },
-    body: JSON.stringify({
-      sessionId: pairing.sessionId,
-      secret: pairing.secret,
-      ...(options?.requesterName?.trim()
-        ? {
-            requesterName: options.requesterName.trim(),
-          }
-        : {}),
-    }),
-  });
+    options?.requestTimeoutMs ?? DEFAULT_PAIRING_REQUEST_TIMEOUT_MS,
+  );
   const payload = await parseResponseJson(response);
   if (!response.ok) {
     const errorMessage = readErrorMessage(payload);
@@ -524,6 +603,8 @@ async function requestPairingClaimViaPolling(
   options?: {
     readonly requesterName?: string;
     readonly fetch?: FetchLike;
+    readonly requestTimeoutMs?: number;
+    readonly signal?: AbortSignal;
   },
 ): Promise<PairingClaimReceipt> {
   const pollingUrl = pairing.pollingUrl ?? "";
@@ -534,9 +615,15 @@ async function requestPairingClaimViaPolling(
   if (options?.requesterName?.trim()) {
     resolveUrl.searchParams.set("requesterName", options.requesterName.trim());
   }
-  const response = await fetchImpl(resolveUrl.toString(), {
-    method: "POST",
-  });
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    resolveUrl.toString(),
+    {
+      method: "POST",
+      ...(options?.signal ? { signal: options.signal } : {}),
+    },
+    options?.requestTimeoutMs ?? DEFAULT_PAIRING_REQUEST_TIMEOUT_MS,
+  );
   const payload = await parseResponseJson(response);
   if (!response.ok) {
     const errorMessage = readErrorMessage(payload);
@@ -562,14 +649,24 @@ async function requestPairingClaimViaPolling(
 
 export async function readPairingClaim(
   pollUrl: string,
-  options?: { readonly fetch?: FetchLike },
+  options?: {
+    readonly fetch?: FetchLike;
+    readonly requestTimeoutMs?: number;
+    readonly signal?: AbortSignal;
+  },
 ): Promise<PairingClaimResult> {
   const normalizedPollUrl = resolvePairingClaimUrl(pollUrl);
   if (!normalizedPollUrl) {
     throw new Error("Pairing poll URL must use http:// or https://.");
   }
   const fetchImpl = resolveFetch(options?.fetch);
-  const response = await fetchImpl(normalizedPollUrl);
+  const requestInit = options?.signal ? { signal: options.signal } : undefined;
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    normalizedPollUrl,
+    requestInit ?? {},
+    options?.requestTimeoutMs ?? DEFAULT_PAIRING_REQUEST_TIMEOUT_MS,
+  );
   const payload = await parseResponseJson(response);
   if (!response.ok) {
     const errorMessage = readErrorMessage(payload);
@@ -624,10 +721,20 @@ export async function readPairingClaim(
 
 export async function readPairingSessionStatus(
   pollingUrl: string,
-  options?: { readonly fetch?: FetchLike },
+  options?: {
+    readonly fetch?: FetchLike;
+    readonly requestTimeoutMs?: number;
+    readonly signal?: AbortSignal;
+  },
 ): Promise<PairingClaimResult> {
   const fetchImpl = resolveFetch(options?.fetch);
-  const response = await fetchImpl(pollingUrl);
+  const requestInit = options?.signal ? { signal: options.signal } : undefined;
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    pollingUrl,
+    requestInit ?? {},
+    options?.requestTimeoutMs ?? DEFAULT_PAIRING_REQUEST_TIMEOUT_MS,
+  );
   const payload = await parseResponseJson(response);
   if (!response.ok) {
     const errorMessage = readErrorMessage(payload);
@@ -692,6 +799,8 @@ export async function waitForPairingApproval(
     readonly timeoutMs?: number;
     readonly pollIntervalMs?: number;
     readonly fetch?: FetchLike;
+    readonly requestTimeoutMs?: number;
+    readonly signal?: AbortSignal;
   },
 ): Promise<HostConnectionDraft> {
   const timeoutMs = Math.max(1_000, options?.timeoutMs ?? 90_000);

@@ -4,6 +4,8 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   type DesktopCliInstallState,
   type ProviderKind,
+  type ServerLspMarketplaceSearchResult,
+  type ServerInstallLspToolInput,
   type ServerLspToolsStatus,
   ThreadId,
 } from "@ace/contracts";
@@ -134,6 +136,17 @@ const UI_FONT_FAMILY_VALUE_SET = new Set(UI_FONT_FAMILY_OPTIONS.map((o) => o.val
 const UI_MONO_FONT_VALUE_SET = new Set(UI_MONO_FONT_OPTIONS.map((o) => o.value));
 const UI_FONT_SIZE_VALUE_SET = new Set(UI_FONT_SIZE_OPTIONS.map((o) => o.value));
 const UI_LETTER_SPACING_VALUE_SET = new Set(UI_LETTER_SPACING_OPTIONS.map((o) => o.value));
+
+function parseDelimitedValues(input: string): string[] {
+  return Array.from(
+    new Set(
+      input
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    ),
+  );
+}
 
 function resolveNotificationSettingsUrl(): string | null {
   if (typeof navigator === "undefined") {
@@ -733,6 +746,26 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const [lspToolsStatus, setLspToolsStatus] = useState<ServerLspToolsStatus | null>(null);
   const [lspToolsError, setLspToolsError] = useState<string | null>(null);
   const [isInstallingLspTools, setIsInstallingLspTools] = useState(false);
+  const [lspMarketplaceQuery, setLspMarketplaceQuery] = useState("");
+  const [lspMarketplaceResult, setLspMarketplaceResult] =
+    useState<ServerLspMarketplaceSearchResult | null>(null);
+  const [isSearchingLspMarketplace, setIsSearchingLspMarketplace] = useState(false);
+  const [isInstallingCustomLsp, setIsInstallingCustomLsp] = useState(false);
+  const [lspCustomForm, setLspCustomForm] = useState<{
+    packageName: string;
+    command: string;
+    label: string;
+    args: string;
+    languageIds: string;
+    fileExtensions: string;
+  }>({
+    packageName: "",
+    command: "",
+    label: "",
+    args: "",
+    languageIds: "",
+    fileExtensions: "",
+  });
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
   const refreshProviders = useCallback(() => {
@@ -1179,6 +1212,88 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       })
       .finally(() => setIsInstallingLspTools(false));
   }, []);
+
+  const searchLspMarketplace = useCallback(() => {
+    const query = lspMarketplaceQuery.trim();
+    if (query.length === 0) {
+      setLspMarketplaceResult(null);
+      return;
+    }
+    setIsSearchingLspMarketplace(true);
+    setLspToolsError(null);
+    void ensureNativeApi()
+      .server.searchLspMarketplace({ query, limit: 12 })
+      .then((result) => {
+        setLspMarketplaceResult(result);
+      })
+      .catch((error: unknown) => {
+        setLspToolsError(
+          error instanceof Error ? error.message : "Unable to search LSP marketplace.",
+        );
+      })
+      .finally(() => setIsSearchingLspMarketplace(false));
+  }, [lspMarketplaceQuery]);
+
+  const installCustomLspTool = useCallback((input: ServerInstallLspToolInput) => {
+    setIsInstallingCustomLsp(true);
+    setLspToolsError(null);
+    void ensureNativeApi()
+      .server.installLspTool(input)
+      .then((status) => {
+        setLspToolsStatus(status);
+        toastManager.add({
+          type: "success",
+          title: `Installed ${input.label}.`,
+        });
+      })
+      .catch((error: unknown) => {
+        setLspToolsError(
+          error instanceof Error ? error.message : "Unable to install custom language server.",
+        );
+      })
+      .finally(() => setIsInstallingCustomLsp(false));
+  }, []);
+
+  const installMarketplacePackage = useCallback((packageName: string) => {
+    const packageBasename = packageName.split("/").at(-1) ?? packageName;
+    const normalized = packageBasename.replace(/[^a-zA-Z0-9]+/g, " ").trim();
+    const fallbackLabel = normalized.length > 0 ? normalized : packageName;
+    setLspCustomForm((current) => ({
+      ...current,
+      packageName,
+      command: current.command || packageBasename,
+      label: current.label || fallbackLabel,
+    }));
+  }, []);
+
+  const submitCustomLspInstall = useCallback(() => {
+    const packageName = lspCustomForm.packageName.trim();
+    const command = lspCustomForm.command.trim();
+    const label = lspCustomForm.label.trim();
+    const languageIds = parseDelimitedValues(lspCustomForm.languageIds);
+    const fileExtensions = parseDelimitedValues(lspCustomForm.fileExtensions).map((value) =>
+      value.startsWith(".") ? value.toLowerCase() : `.${value.toLowerCase()}`,
+    );
+    const args = parseDelimitedValues(lspCustomForm.args);
+    if (
+      !packageName ||
+      !command ||
+      !label ||
+      languageIds.length === 0 ||
+      fileExtensions.length === 0
+    ) {
+      setLspToolsError("Package, command, label, language IDs, and file extensions are required.");
+      return;
+    }
+    installCustomLspTool({
+      packageName,
+      command,
+      label,
+      languageIds,
+      fileExtensions,
+      ...(args.length > 0 ? { args } : {}),
+    });
+  }, [installCustomLspTool, lspCustomForm]);
 
   useEffect(() => {
     if (!isEditorPage || lspToolsStatus) return;
@@ -2043,7 +2158,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
             <SettingsRow
               title="Language server tools"
-              description="Install and repair built-in language servers used by the workspace editor."
+              description="Manage built-in and custom language servers for diagnostics and autocomplete."
               status={
                 <div className="space-y-1 text-[11px] text-muted-foreground">
                   {lspToolsStatus?.tools.map((tool) => (
@@ -2060,7 +2175,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 </div>
               }
               control={
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
                     variant="outline"
@@ -2082,7 +2197,113 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   </Button>
                 </div>
               }
-            />
+            >
+              <div className="mt-4 space-y-3">
+                <div className="flex gap-2">
+                  <Input
+                    value={lspMarketplaceQuery}
+                    onChange={(event) => setLspMarketplaceQuery(event.target.value)}
+                    placeholder="Search npm for language servers"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={searchLspMarketplace}
+                    disabled={isSearchingLspMarketplace}
+                  >
+                    {isSearchingLspMarketplace ? "Searching..." : "Search"}
+                  </Button>
+                </div>
+                {lspMarketplaceResult && lspMarketplaceResult.packages.length > 0 ? (
+                  <div className="max-h-40 space-y-1 overflow-auto rounded-md bg-secondary/30 p-2">
+                    {lspMarketplaceResult.packages.map((pkg) => (
+                      <div
+                        key={pkg.packageName}
+                        className="flex items-center justify-between gap-2 rounded px-2 py-1"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-medium">{pkg.packageName}</div>
+                          {pkg.description ? (
+                            <div className="truncate text-[11px] text-muted-foreground">
+                              {pkg.description}
+                            </div>
+                          ) : null}
+                        </div>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          onClick={() => installMarketplacePackage(pkg.packageName)}
+                        >
+                          Use
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Input
+                    value={lspCustomForm.packageName}
+                    onChange={(event) =>
+                      setLspCustomForm((current) => ({
+                        ...current,
+                        packageName: event.target.value,
+                      }))
+                    }
+                    placeholder="Package name (e.g. @tailwindcss/language-server)"
+                  />
+                  <Input
+                    value={lspCustomForm.command}
+                    onChange={(event) =>
+                      setLspCustomForm((current) => ({ ...current, command: event.target.value }))
+                    }
+                    placeholder="Command (e.g. tailwindcss-language-server)"
+                  />
+                  <Input
+                    value={lspCustomForm.label}
+                    onChange={(event) =>
+                      setLspCustomForm((current) => ({ ...current, label: event.target.value }))
+                    }
+                    placeholder="Display label"
+                  />
+                  <Input
+                    value={lspCustomForm.args}
+                    onChange={(event) =>
+                      setLspCustomForm((current) => ({ ...current, args: event.target.value }))
+                    }
+                    placeholder="Args (comma-separated, optional)"
+                  />
+                  <Input
+                    value={lspCustomForm.languageIds}
+                    onChange={(event) =>
+                      setLspCustomForm((current) => ({
+                        ...current,
+                        languageIds: event.target.value,
+                      }))
+                    }
+                    placeholder="Language IDs (comma-separated)"
+                  />
+                  <Input
+                    value={lspCustomForm.fileExtensions}
+                    onChange={(event) =>
+                      setLspCustomForm((current) => ({
+                        ...current,
+                        fileExtensions: event.target.value,
+                      }))
+                    }
+                    placeholder="File extensions (comma-separated)"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    onClick={submitCustomLspInstall}
+                    disabled={isInstallingCustomLsp}
+                  >
+                    {isInstallingCustomLsp ? "Installing..." : "Install custom LSP"}
+                  </Button>
+                </div>
+              </div>
+            </SettingsRow>
 
             <SettingsRow
               title="Workspace editor shortcuts"

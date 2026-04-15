@@ -81,6 +81,7 @@ export function createWsNativeApi(): NativeApi {
     workspaceEditor: {
       syncBuffer: rpcClient.workspaceEditor.syncBuffer,
       closeBuffer: rpcClient.workspaceEditor.closeBuffer,
+      complete: rpcClient.workspaceEditor.complete,
     },
     shell: {
       openInEditor: (cwd, editor) => rpcClient.shell.openInEditor({ cwd, editor }),
@@ -127,6 +128,8 @@ export function createWsNativeApi(): NativeApi {
       refreshProviders: rpcClient.server.refreshProviders,
       getLspToolsStatus: rpcClient.server.getLspToolsStatus,
       installLspTools: (input) => rpcClient.server.installLspTools(input ?? {}),
+      searchLspMarketplace: rpcClient.server.searchLspMarketplace,
+      installLspTool: rpcClient.server.installLspTool,
       searchOpenCodeModels: rpcClient.server.searchOpenCodeModels,
       upsertKeybinding: rpcClient.server.upsertKeybinding,
       getSettings: rpcClient.server.getSettings,

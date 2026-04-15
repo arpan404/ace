@@ -39,12 +39,17 @@ import type {
 import type {
   WorkspaceEditorCloseBufferInput,
   WorkspaceEditorCloseBufferResult,
+  WorkspaceEditorCompleteInput,
+  WorkspaceEditorCompleteResult,
   WorkspaceEditorSyncBufferInput,
   WorkspaceEditorSyncBufferResult,
 } from "./workspaceEditor";
 import type {
   ServerConfig,
+  ServerInstallLspToolInput,
   ServerInstallLspToolsInput,
+  ServerLspMarketplaceSearchInput,
+  ServerLspMarketplaceSearchResult,
   ServerLspToolsStatus,
   ServerSearchOpenCodeModelsInput,
   ServerSearchOpenCodeModelsResult,
@@ -290,6 +295,7 @@ export interface NativeApi {
     closeBuffer: (
       input: WorkspaceEditorCloseBufferInput,
     ) => Promise<WorkspaceEditorCloseBufferResult>;
+    complete: (input: WorkspaceEditorCompleteInput) => Promise<WorkspaceEditorCompleteResult>;
   };
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;
@@ -327,6 +333,10 @@ export interface NativeApi {
     refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
     getLspToolsStatus: () => Promise<ServerLspToolsStatus>;
     installLspTools: (input?: ServerInstallLspToolsInput) => Promise<ServerLspToolsStatus>;
+    searchLspMarketplace: (
+      input: ServerLspMarketplaceSearchInput,
+    ) => Promise<ServerLspMarketplaceSearchResult>;
+    installLspTool: (input: ServerInstallLspToolInput) => Promise<ServerLspToolsStatus>;
     searchOpenCodeModels: (
       input: ServerSearchOpenCodeModelsInput,
     ) => Promise<ServerSearchOpenCodeModelsResult>;

@@ -263,19 +263,18 @@ export const ServerSearchOpenCodeModelsResult = Schema.Struct({
 });
 export type ServerSearchOpenCodeModelsResult = typeof ServerSearchOpenCodeModelsResult.Type;
 
-export const ServerLspToolId = Schema.Literals([
-  "typescript-language-server",
-  "vscode-json-language-server",
-  "vscode-css-language-server",
-  "vscode-html-language-server",
-]);
+export const ServerLspToolId = TrimmedNonEmptyString;
 export type ServerLspToolId = typeof ServerLspToolId.Type;
 
 export const ServerLspToolStatus = Schema.Struct({
   id: ServerLspToolId,
   label: TrimmedNonEmptyString,
   command: TrimmedNonEmptyString,
+  args: Schema.Array(TrimmedNonEmptyString),
   packageName: TrimmedNonEmptyString,
+  languageIds: Schema.Array(TrimmedNonEmptyString),
+  fileExtensions: Schema.Array(TrimmedNonEmptyString),
+  builtin: Schema.Boolean,
   installed: Schema.Boolean,
   version: Schema.NullOr(TrimmedNonEmptyString),
   binaryPath: Schema.NullOr(TrimmedNonEmptyString),
@@ -292,6 +291,37 @@ export const ServerInstallLspToolsInput = Schema.Struct({
   reinstall: Schema.optional(Schema.Boolean),
 });
 export type ServerInstallLspToolsInput = typeof ServerInstallLspToolsInput.Type;
+
+export const ServerLspMarketplaceSearchInput = Schema.Struct({
+  query: Schema.String,
+  limit: NonNegativeInt,
+});
+export type ServerLspMarketplaceSearchInput = typeof ServerLspMarketplaceSearchInput.Type;
+
+export const ServerLspMarketplacePackage = Schema.Struct({
+  packageName: TrimmedNonEmptyString,
+  description: Schema.NullOr(Schema.String),
+  version: Schema.NullOr(TrimmedNonEmptyString),
+  keywords: Schema.Array(TrimmedNonEmptyString),
+});
+export type ServerLspMarketplacePackage = typeof ServerLspMarketplacePackage.Type;
+
+export const ServerLspMarketplaceSearchResult = Schema.Struct({
+  query: Schema.String,
+  packages: Schema.Array(ServerLspMarketplacePackage),
+});
+export type ServerLspMarketplaceSearchResult = typeof ServerLspMarketplaceSearchResult.Type;
+
+export const ServerInstallLspToolInput = Schema.Struct({
+  packageName: TrimmedNonEmptyString,
+  command: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  args: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  languageIds: Schema.Array(TrimmedNonEmptyString),
+  fileExtensions: Schema.Array(TrimmedNonEmptyString),
+  reinstall: Schema.optional(Schema.Boolean),
+});
+export type ServerInstallLspToolInput = typeof ServerInstallLspToolInput.Type;
 
 export class ServerLspToolsError extends Schema.TaggedErrorClass<ServerLspToolsError>()(
   "ServerLspToolsError",
