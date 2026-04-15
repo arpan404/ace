@@ -1,5 +1,11 @@
 import { Tabs } from "expo-router";
-import { House, FolderOpen, Settings } from "lucide-react-native";
+import {
+  Home,
+  MessageSquare,
+  FolderOpen,
+  Sliders,
+  Settings as SettingsIcon,
+} from "lucide-react-native";
 import { Platform, View } from "react-native";
 import { GlassView } from "expo-glass-effect";
 import { useTheme } from "../../src/design/ThemeContext";
@@ -48,7 +54,14 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color, size }) => <House color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => <Home color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: "Chat",
+          tabBarIcon: ({ color, size }) => <MessageSquare color={color} size={size} />,
         }}
       />
       <Tabs.Screen
@@ -59,19 +72,17 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="settings"
+        name="control"
         options={{
-          title: "Settings",
-          tabBarIcon: ({ color, size }) => <Settings color={color} size={size} />,
+          title: "Control",
+          tabBarIcon: ({ color, size }) => <Sliders color={color} size={size} />,
         }}
       />
       <Tabs.Screen
-        name="threads"
+        name="settings"
         options={{
-          href: null,
-          headerShown: true,
-          title: "",
-          headerBackTitleVisible: false,
+          title: "Settings",
+          tabBarIcon: ({ color, size }) => <SettingsIcon color={color} size={size} />,
         }}
       />
     </Tabs>

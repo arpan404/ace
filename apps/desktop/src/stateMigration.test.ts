@@ -14,6 +14,14 @@ describe("resolveDesktopBaseDir", () => {
 
     expect(resolved).toBe(path.join(fakeHome, ".ace"));
   });
+
+  it("returns the .ace-dev base dir in development mode", () => {
+    const fakeHome = mkdtempSync(path.join(os.tmpdir(), "ace-desktop-base-dev-"));
+
+    const resolved = resolveDesktopBaseDir({ homeDir: fakeHome, isDevelopment: true });
+
+    expect(resolved).toBe(path.join(fakeHome, ".ace-dev"));
+  });
 });
 
 describe("resolveDesktopUserDataPath", () => {

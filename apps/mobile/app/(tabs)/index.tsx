@@ -1,202 +1,245 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, RefreshControl } from "react-native";
+import React, { useEffect, useState, useCallback } from "react";
+import { View, ScrollView, RefreshControl, StyleSheet, Text } from "react-native";
 import { useRouter } from "expo-router";
-import { Plus, ChevronRight, MessageSquare, Server } from "lucide-react-native";
+import { Server } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../src/design/ThemeContext";
 import { useHostStore } from "../../src/store/HostStore";
+import { useUIStateStore } from "../../src/store/UIStateStore";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
-import type { OrchestrationThread } from "@ace/contracts";
-import { formatErrorMessage } from "../../src/errors";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  GlassGroup,
-  GlassIconOrb,
-  GlassRow,
-  GlassActionButton,
-  LiquidScreen,
-  PageHeader,
-  RowSeparator,
-  SectionLabel,
-} from "../../src/design/LiquidGlass";
+  SafeScreen,
+  ScreenHeader,
+  SectionHeader,
+  Card,
+  List,
+  ListItem,
+  Button,
+  StatusBadge,
+  ErrorBox,
+} from "../../src/design/Components";
+import { useOrchestrationSnapshot } from "../../src/hooks/useOrchestration";
+import type { OrchestrationThread } from "@ace/contracts";
 
 export default function HomeScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const hosts = useHostStore((s) => s.hosts);
+  const activeHostId = useUIStateStore((s) => s.activeHostId);
+  const setActiveHostId = useUIStateStore((s) => s.setActiveHostId);
   const [connections, setConnections] = useState<ManagedConnection[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [aggregatedThreads, setAggregatedThreads] = useState<
-    Array<{ thread: OrchestrationThread; hostName: string; hostId: string }>
+  const [error, setError] = useState<string | null>(null);
+  const [recentThreads, setRecentThreads] = useState<
+    Array<{ thread: OrchestrationThread; hostId: string; hostName: string }>
   >([]);
-  const connectedHostCount = connections.filter((conn) => conn.status.kind === "connected").length;
-  const visibleThreads = aggregatedThreads.slice(0, 30);
+
+  // Auto-select first host if none selected
+  useEffect(() => {
+    if (!activeHostId && hosts.length > 0 && hosts[0]) {
+      setActiveHostId(hosts[0].id);
+    }
+  }, [hosts, activeHostId, setActiveHostId]);
+
+  const activeConnection = connections.find((c) => c.host.id === activeHostId);
+  const { snapshot } = useOrchestrationSnapshot(activeConnection || null);
 
   useEffect(() => {
     return connectionManager.onStatusChange((conns) => {
       setConnections(conns);
-      refreshThreads(conns);
     });
   }, []);
 
-  const refreshThreads = async (activeConns = connections) => {
-    setRefreshing(true);
-    setRefreshError(null);
-    const allThreads: Array<{ thread: OrchestrationThread; hostName: string; hostId: string }> = [];
-    const failures: string[] = [];
+  useEffect(() => {
+    if (snapshot) {
+      const threadsWithHost = snapshot.threads
+        .filter((t) => !t.deletedAt)
+        .map((t) => ({
+          thread: t,
+          hostId: activeConnection?.host.id || "",
+          hostName: activeConnection?.host.name || "",
+        }))
+        .toSorted((a, b) => b.thread.updatedAt.localeCompare(a.thread.updatedAt))
+        .slice(0, 10);
 
+      setRecentThreads(threadsWithHost);
+    }
+  }, [snapshot, activeConnection]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
     try {
-      await Promise.all(
-        activeConns.map(async (conn) => {
-          if (conn.status.kind === "connected") {
-            try {
-              const snapshot = await conn.client.orchestration.getSnapshot();
-              snapshot.threads.forEach((t) => {
-                allThreads.push({ thread: t, hostName: conn.host.name, hostId: conn.host.id });
-              });
-            } catch (error) {
-              const message = formatErrorMessage(error);
-              failures.push(`${conn.host.name}: ${message}`);
-              console.error(`Failed to fetch threads for ${conn.host.name}: ${message}`);
-            }
-          }
-        }),
-      );
+      if (activeConnection && activeConnection.status.kind === "connected") {
+        await activeConnection.client.orchestration.getSnapshot();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Refresh failed");
     } finally {
-      allThreads.sort((a, b) => b.thread.updatedAt.localeCompare(a.thread.updatedAt));
-      setAggregatedThreads(allThreads);
-      setRefreshError(failures.length > 0 ? failures.join("\n") : null);
       setRefreshing(false);
     }
-  };
+  }, [activeConnection]);
+
+  const connectedCount = connections.filter((c) => c.status.kind === "connected").length;
+  const totalSessions = snapshot?.sessions.length || 0;
+  const activeSessions = snapshot?.sessions.filter((s) => !s.closedAt).length || 0;
 
   if (hosts.length === 0) {
     return (
-      <LiquidScreen style={styles.centerContainer}>
-        <View
-          style={[
-            styles.emptyIconBg,
-            { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)" },
-          ]}
-        >
-          <Server size={42} color={theme.primary} />
-        </View>
-        <Text style={[styles.emptyTitle, { color: theme.foreground }]}>No Hosts Connected</Text>
-        <Text style={[styles.emptySubtitle, { color: theme.mutedForeground }]}>
-          Pair your device with a desktop host to view live activity and chat with your agents.
-        </Text>
-        <GlassActionButton onPress={() => router.push("/pairing")}>
-          <View style={styles.addButtonContent}>
-            <Plus size={18} color={theme.primaryForeground} />
-            <Text style={[styles.addButtonText, { color: theme.primaryForeground }]}>
-              Pair New Device
-            </Text>
+      <SafeScreen>
+        <View style={[styles.emptyContainer, { paddingTop: insets.top + 40 }]}>
+          <View
+            style={[
+              styles.emptyIcon,
+              {
+                backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+              },
+            ]}
+          >
+            <Server size={48} color={theme.primary} />
           </View>
-        </GlassActionButton>
-      </LiquidScreen>
+          <Text style={[styles.emptyTitle, { color: theme.foreground }]}>No Hosts Connected</Text>
+          <Text style={[styles.emptySubtitle, { color: theme.mutedForeground }]}>
+            Pair your device with an ace daemon to get started.
+          </Text>
+          <Button
+            title="Add Host"
+            onPress={() => router.navigate("/(tabs)/settings")}
+            variant="primary"
+            style={{ marginTop: 24 }}
+          />
+        </View>
+      </SafeScreen>
     );
   }
 
   return (
-    <LiquidScreen>
+    <SafeScreen>
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 20 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top }]}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => refreshThreads()}
-            tintColor={theme.primary}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />
         }
       >
-        <PageHeader
-          title="Activity"
-          subtitle={`${connectedHostCount} connected ${connectedHostCount === 1 ? "host" : "hosts"}`}
+        <ScreenHeader
+          title="Dashboard"
+          subtitle={`${connectedCount} connected ${connectedCount === 1 ? "host" : "hosts"}`}
+          style={styles.header}
         />
-        <SectionLabel>Recent Threads</SectionLabel>
-        {refreshError ? (
-          <Text style={[styles.errorText, { color: theme.destructive }]}>{refreshError}</Text>
-        ) : null}
 
-        {visibleThreads.length === 0 && !refreshing && (
-          <View style={styles.emptyStateSimple}>
-            <MessageSquare
-              size={32}
-              color={theme.mutedForeground}
-              style={{ opacity: 0.5, marginBottom: 16 }}
-            />
-            <Text
-              style={{
-                color: theme.mutedForeground,
-                textAlign: "center",
-                fontSize: 15,
-                fontWeight: "500",
-              }}
-            >
-              No recent activity found.
+        {error && <ErrorBox message={error} onDismiss={() => setError(null)} />}
+
+        {/* Stats Cards */}
+        <SectionHeader title="Status" />
+        <View style={styles.statsContainer}>
+          <Card
+            style={[
+              styles.statCard,
+              {
+                borderColor: theme.border,
+                backgroundColor: theme.activeSurface,
+              },
+            ]}
+          >
+            <Text style={[styles.statLabel, { color: theme.mutedForeground }]}>
+              Active Sessions
             </Text>
-          </View>
-        )}
+            <Text style={[styles.statValue, { color: theme.foreground }]}>
+              {activeSessions}/{totalSessions}
+            </Text>
+          </Card>
+          <Card
+            style={[
+              styles.statCard,
+              {
+                borderColor: theme.border,
+                backgroundColor: theme.activeSurface,
+              },
+            ]}
+          >
+            <Text style={[styles.statLabel, { color: theme.mutedForeground }]}>
+              Connected Hosts
+            </Text>
+            <Text style={[styles.statValue, { color: theme.foreground }]}>{connectedCount}</Text>
+          </Card>
+        </View>
 
-        {visibleThreads.length > 0 && (
-          <GlassGroup>
-            {visibleThreads.map(({ thread, hostName, hostId }, index) => (
+        {/* Recent Threads */}
+        <SectionHeader
+          title="Recent Activity"
+          action={
+            <Button
+              title="New"
+              variant="primary"
+              onPress={() => router.push("/chat")}
+              style={styles.newButton}
+            />
+          }
+        />
+
+        {recentThreads.length === 0 ? (
+          <Card
+            style={[
+              styles.emptyCard,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+              },
+            ]}
+          >
+            <Text style={[styles.emptyCardText, { color: theme.mutedForeground }]}>
+              No recent activity
+            </Text>
+          </Card>
+        ) : (
+          <List>
+            {recentThreads.map(({ thread, hostId, hostName }) => (
               <React.Fragment key={`${hostId}-${thread.id}`}>
-                <GlassRow
-                  onPress={() =>
-                    router.push({ pathname: `/chat/${thread.id}`, params: { hostId } })
+                <ListItem
+                  title={thread.messages.at(-1)?.text?.substring(0, 50) || "New Thread"}
+                  subtitle={hostName}
+                  onPress={() => router.push(`/chat/${thread.id}`)}
+                  rightElement={
+                    <StatusBadge status={thread.session?.closedAt ? "disconnected" : "connected"} />
                   }
-                  style={styles.threadRow}
-                >
-                  <View style={styles.threadHeader}>
-                    <View style={styles.threadLeft}>
-                      <GlassIconOrb>
-                        <MessageSquare size={16} color={theme.primary} />
-                      </GlassIconOrb>
-                      <View style={styles.rowText}>
-                        <Text
-                          style={[styles.threadTitle, { color: theme.foreground }]}
-                          numberOfLines={1}
-                        >
-                          {thread.messages.at(-1)?.text || "New Thread"}
-                        </Text>
-                        <Text
-                          style={[styles.threadSummary, { color: theme.mutedForeground }]}
-                          numberOfLines={1}
-                        >
-                          {hostName}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={styles.threadRight}>
-                      <Text style={[styles.timeText, { color: theme.mutedForeground }]}>
-                        {new Date(thread.updatedAt).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </Text>
-                      <ChevronRight size={18} color={theme.mutedForeground} />
-                    </View>
-                  </View>
-                </GlassRow>
-                {index < visibleThreads.length - 1 ? <RowSeparator inset={64} /> : null}
+                />
               </React.Fragment>
             ))}
-          </GlassGroup>
+          </List>
         )}
+
+        {/* Quick Actions */}
+        <SectionHeader title="Quick Actions" />
+        <View style={styles.actionsContainer}>
+          <Button
+            title="New Thread"
+            onPress={() => router.push("/chat")}
+            variant="primary"
+            style={styles.actionButton}
+          />
+          <Button
+            title="View Projects"
+            onPress={() => router.navigate("/(tabs)/projects")}
+            variant="secondary"
+            style={styles.actionButton}
+          />
+        </View>
+
+        <View style={{ height: insets.bottom + 100 }} />
       </ScrollView>
-    </LiquidScreen>
+    </SafeScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  centerContainer: {
+  emptyContainer: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 40,
+    paddingHorizontal: 32,
   },
-  emptyIconBg: {
+  emptyIcon: {
     width: 80,
     height: 80,
     borderRadius: 40,
@@ -205,78 +248,61 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   emptyTitle: {
-    fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-    marginBottom: 12,
+    fontSize: 22,
+    fontWeight: "700",
     textAlign: "center",
+    marginBottom: 8,
   },
   emptySubtitle: {
-    fontSize: 16,
+    fontSize: 15,
     textAlign: "center",
-    lineHeight: 24,
-    marginBottom: 40,
-  },
-  addButtonContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  addButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  emptyStateSimple: {
-    paddingTop: 60,
-    paddingBottom: 40,
-    alignItems: "center",
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 140,
+    paddingBottom: 32,
   },
-  threadRow: {
+  header: {
+    paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  threadHeader: {
+  statsContainer: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    paddingHorizontal: 16,
+    gap: 12,
   },
-  threadLeft: {
-    flexDirection: "row",
-    alignItems: "center",
+  statCard: {
     flex: 1,
-    gap: 14,
-  },
-  rowText: {
-    flex: 1,
-    paddingRight: 8,
-  },
-  threadRight: {
-    flexDirection: "row",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
     alignItems: "center",
-    gap: 6,
-    marginLeft: 8,
   },
-  timeText: {
-    fontSize: 13,
-    fontWeight: "500",
+  statLabel: {
+    fontSize: 12,
+    marginBottom: 8,
   },
-  threadTitle: {
-    fontSize: 16,
-    fontWeight: "500",
-    marginBottom: 2,
+  statValue: {
+    fontSize: 24,
+    fontWeight: "700",
   },
-  threadSummary: {
-    fontSize: 13,
-    lineHeight: 18,
+  newButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
-  errorText: {
-    marginBottom: 10,
-    marginLeft: 16,
-    fontSize: 13,
-    lineHeight: 18,
+  emptyCard: {
+    margin: 16,
+    padding: 32,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  emptyCardText: {
+    fontSize: 15,
+  },
+  actionsContainer: {
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  actionButton: {
+    marginVertical: 6,
   },
 });

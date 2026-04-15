@@ -1,36 +1,40 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, RefreshControl } from "react-native";
-import { useRouter } from "expo-router";
-import { Folder, ChevronRight, Server, Plus, FolderOpen } from "lucide-react-native";
+import { View, ScrollView, StyleSheet, RefreshControl } from "react-native";
+import { FolderOpen } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHostStore } from "../../src/store/HostStore";
+import { useUIStateStore } from "../../src/store/UIStateStore";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
 import type { OrchestrationProject } from "@ace/contracts";
 import { formatErrorMessage } from "../../src/errors";
 import {
-  GlassGroup,
-  GlassIconOrb,
-  GlassRow,
-  GlassActionButton,
-  LiquidScreen,
-  PageHeader,
-  RowSeparator,
-  SectionLabel,
-} from "../../src/design/LiquidGlass";
+  SafeScreen,
+  ScreenHeader,
+  SectionHeader,
+  List,
+  ListItem,
+  Card,
+  ErrorBox,
+} from "../../src/design/Components";
 
 export default function ProjectsScreen() {
-  const router = useRouter();
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const hosts = useHostStore((s) => s.hosts);
+  const activeHostId = useUIStateStore((s) => s.activeHostId);
   const [connections, setConnections] = useState<ManagedConnection[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [aggregatedProjects, setAggregatedProjects] = useState<
     Array<{ project: OrchestrationProject; hostName: string; hostId: string }>
   >([]);
-  const connectedHostCount = connections.filter((conn) => conn.status.kind === "connected").length;
+  const [_searchText, setSearchText] = useState("");
+
+  const _activeConnection = connections.find((c) => c.host.id === activeHostId);
+  const filteredProjects = aggregatedProjects.filter(
+    (p) => p.project.name.toLowerCase().includes(_searchText.toLowerCase()) || _searchText === "",
+  );
 
   useEffect(() => {
     return connectionManager.onStatusChange((conns) => {
@@ -41,7 +45,7 @@ export default function ProjectsScreen() {
 
   const refreshProjects = async (activeConns = connections) => {
     setRefreshing(true);
-    setRefreshError(null);
+    setError(null);
     const allProjects: Array<{ project: OrchestrationProject; hostName: string; hostId: string }> =
       [];
     const failures: string[] = [];
@@ -57,8 +61,8 @@ export default function ProjectsScreen() {
                 .forEach((p) => {
                   allProjects.push({ project: p, hostName: conn.host.name, hostId: conn.host.id });
                 });
-            } catch (error) {
-              const message = formatErrorMessage(error);
+            } catch (err) {
+              const message = formatErrorMessage(err);
               failures.push(`${conn.host.name}: ${message}`);
               console.error(`Failed to fetch projects for ${conn.host.name}: ${message}`);
             }
@@ -68,42 +72,33 @@ export default function ProjectsScreen() {
     } finally {
       allProjects.sort((a, b) => a.project.name.localeCompare(b.project.name));
       setAggregatedProjects(allProjects);
-      setRefreshError(failures.length > 0 ? failures.join("\n") : null);
+      if (failures.length > 0) {
+        setError(failures.join(", "));
+      }
       setRefreshing(false);
     }
   };
 
   if (hosts.length === 0) {
     return (
-      <LiquidScreen style={styles.centerContainer}>
-        <View
-          style={[
-            styles.emptyIconBg,
-            { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)" },
-          ]}
-        >
-          <Server size={42} color={theme.primary} />
+      <SafeScreen>
+        <View style={[styles.centerContainer, { paddingTop: insets.top }]}>
+          <FolderOpen size={42} color={theme.primary} style={{ marginBottom: 24 }} />
+          <Card style={styles.emptyCard}>
+            Projects will appear here once you pair a host and create projects.
+          </Card>
         </View>
-        <Text style={[styles.emptyTitle, { color: theme.foreground }]}>No Hosts Connected</Text>
-        <Text style={[styles.emptySubtitle, { color: theme.mutedForeground }]}>
-          Pair your device with a desktop host to view and manage projects.
-        </Text>
-        <GlassActionButton onPress={() => router.push("/pairing")}>
-          <View style={styles.addButtonContent}>
-            <Plus size={18} color={theme.primaryForeground} />
-            <Text style={[styles.addButtonText, { color: theme.primaryForeground }]}>
-              Pair New Device
-            </Text>
-          </View>
-        </GlassActionButton>
-      </LiquidScreen>
+      </SafeScreen>
     );
   }
 
   return (
-    <LiquidScreen>
+    <SafeScreen>
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 20 }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: insets.top + 12, paddingBottom: 140 },
+        ]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -112,149 +107,54 @@ export default function ProjectsScreen() {
           />
         }
       >
-        <PageHeader
-          title="Projects"
-          subtitle={`${aggregatedProjects.length} available across ${connectedHostCount} connected ${
-            connectedHostCount === 1 ? "host" : "hosts"
-          }`}
-        />
-        <SectionLabel>Open Project</SectionLabel>
-        {refreshError ? (
-          <Text style={[styles.errorText, { color: theme.destructive }]}>{refreshError}</Text>
-        ) : null}
+        <ScreenHeader title="Projects" subtitle={`${filteredProjects.length} total`} />
 
-        {aggregatedProjects.length === 0 && !refreshing && (
-          <View style={styles.emptyStateSimple}>
-            <FolderOpen
-              size={32}
-              color={theme.mutedForeground}
-              style={{ opacity: 0.5, marginBottom: 16 }}
-            />
-            <Text
-              style={{
-                color: theme.mutedForeground,
-                textAlign: "center",
-                fontSize: 15,
-                fontWeight: "500",
-              }}
-            >
-              No projects found.
-            </Text>
+        {error ? <ErrorBox message={error} onDismiss={() => setError(null)} /> : null}
+
+        {filteredProjects.length === 0 ? (
+          <View style={styles.emptyState}>
+            <FolderOpen size={40} color={theme.mutedForeground} style={{ marginBottom: 12 }} />
           </View>
-        )}
-
-        {aggregatedProjects.length > 0 && (
-          <GlassGroup>
-            {aggregatedProjects.map(({ project, hostName, hostId }, index) => (
-              <React.Fragment key={`${hostId}-${project.id}`}>
-                <GlassRow
-                  onPress={() =>
-                    router.push({
-                      pathname: "/(tabs)/threads",
-                      params: { projectId: project.id, hostId },
-                    })
-                  }
-                  style={styles.projectRow}
-                >
-                  <View style={styles.projectInfo}>
-                    <GlassIconOrb>
-                      <Folder size={16} color={theme.primary} />
-                    </GlassIconOrb>
-                    <View style={styles.textContainer}>
-                      <Text
-                        style={[styles.projectName, { color: theme.foreground }]}
-                        numberOfLines={1}
-                      >
-                        {project.name}
-                      </Text>
-                      <Text style={[styles.projectHost, { color: theme.mutedForeground }]}>
-                        {hostName}
-                      </Text>
-                    </View>
-                  </View>
-                  <ChevronRight size={20} color={theme.mutedForeground} />
-                </GlassRow>
-                {index < aggregatedProjects.length - 1 ? <RowSeparator inset={64} /> : null}
-              </React.Fragment>
-            ))}
-          </GlassGroup>
+        ) : (
+          <>
+            <SectionHeader title="All Projects" />
+            <List>
+              {filteredProjects.map(({ project, hostName, hostId }) => (
+                <ListItem
+                  key={`${hostId}-${project.id}`}
+                  title={project.name}
+                  subtitle={`on ${hostName}`}
+                  onPress={() => {
+                    // Navigate to project detail (can be added later)
+                  }}
+                />
+              ))}
+            </List>
+          </>
         )}
       </ScrollView>
-    </LiquidScreen>
+    </SafeScreen>
   );
 }
 
 const styles = StyleSheet.create({
   centerContainer: {
+    flex: 1,
     justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 40,
-  },
-  emptyIconBg: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  emptyTitle: {
-    fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-    marginBottom: 12,
-    textAlign: "center",
-  },
-  emptySubtitle: {
-    fontSize: 16,
-    textAlign: "center",
-    lineHeight: 24,
-    marginBottom: 40,
-  },
-  addButtonContent: {
-    flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    gap: 8,
   },
-  addButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  emptyStateSimple: {
-    paddingTop: 60,
-    paddingBottom: 40,
+  emptyCard: {
+    textAlign: "center",
     alignItems: "center",
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingBottom: 140,
   },
-  projectRow: {
-    paddingVertical: 12,
-  },
-  projectInfo: {
-    flexDirection: "row",
+  emptyState: {
     alignItems: "center",
-    gap: 14,
-    flex: 1,
-  },
-  textContainer: {
-    flex: 1,
-    marginRight: 10,
-  },
-  projectName: {
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  projectHost: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-  errorText: {
-    marginBottom: 10,
-    marginLeft: 16,
-    fontSize: 13,
-    lineHeight: 18,
+    justifyContent: "center",
+    paddingVertical: 60,
+    opacity: 0.5,
   },
 });

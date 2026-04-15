@@ -9,6 +9,7 @@ import {
   type ServerProvider,
   type ServerProviderUpdatedPayload,
   type ServerSettings,
+  type ServerUpsertKeybindingResult,
 } from "@ace/contracts";
 import { Atom } from "effect/unstable/reactivity";
 
@@ -137,6 +138,23 @@ export function applySettingsUpdated(settings: ServerSettings): void {
   } satisfies ServerConfig;
   resolveServerConfig(nextConfig);
   emitServerConfigUpdated(toServerConfigUpdatedPayload(nextConfig), "settingsUpdated");
+}
+
+export function applyKeybindingsUpdated(
+  payload: Pick<ServerUpsertKeybindingResult, "keybindings" | "issues">,
+): void {
+  const latestServerConfig = getServerConfig();
+  if (!latestServerConfig) {
+    return;
+  }
+
+  const nextConfig = {
+    ...latestServerConfig,
+    keybindings: payload.keybindings,
+    issues: payload.issues,
+  } satisfies ServerConfig;
+  resolveServerConfig(nextConfig);
+  emitServerConfigUpdated(toServerConfigUpdatedPayload(nextConfig), "keybindingsUpdated");
 }
 
 export function emitWelcome(payload: ServerLifecycleWelcomePayload): void {

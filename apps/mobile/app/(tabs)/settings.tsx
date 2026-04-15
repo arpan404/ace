@@ -1,26 +1,26 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { View, ScrollView, StyleSheet, Pressable, Text, Switch } from "react-native";
 import { useRouter } from "expo-router";
-import { ChevronRight, Laptop, Plus, Info, Sun, Moon, Monitor } from "lucide-react-native";
+import { Sun, Moon, Monitor, Trash2 } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHostStore } from "../../src/store/HostStore";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
 import {
-  GlassGroup,
-  GlassIconOrb,
-  GlassRow,
-  LiquidScreen,
-  PageHeader,
-  RowSeparator,
-  SectionLabel,
-} from "../../src/design/LiquidGlass";
+  SafeScreen,
+  ScreenHeader,
+  SectionHeader,
+  List,
+  ListItem,
+  Card,
+  Button,
+} from "../../src/design/Components";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { theme, themeMode, setThemeMode } = useTheme();
-  const { hosts } = useHostStore();
+  const { hosts, removeHost } = useHostStore();
   const [connections, setConnections] = useState<ManagedConnection[]>([]);
 
   useEffect(() => {
@@ -30,200 +30,194 @@ export default function SettingsScreen() {
     });
   }, []);
 
+  const themeOptions = [
+    { label: "Light", icon: Sun, value: "light" as const },
+    { label: "Dark", icon: Moon, value: "dark" as const },
+    { label: "System", icon: Monitor, value: "system" as const },
+  ];
+
   return (
-    <LiquidScreen>
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 20 }]}>
-        <PageHeader title="Settings" />
+    <SafeScreen>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: insets.top + 12, paddingBottom: 140 },
+        ]}
+      >
+        <ScreenHeader title="Settings" subtitle="Configuration & preferences" />
 
-        <View style={styles.section}>
-          <SectionLabel>Devices</SectionLabel>
-          <GlassGroup>
-            {hosts.length === 0 ? (
-              <GlassRow scaleOnPress={false}>
-                <Text style={{ color: theme.mutedForeground }}>No devices configured yet.</Text>
-              </GlassRow>
-            ) : (
-              hosts.map((host) => {
-                const conn = connections.find((c) => c.host.id === host.id);
-                const isConnected = conn?.status.kind === "connected";
+        {/* Hosts Section */}
+        <SectionHeader title="Hosts" />
+        {hosts.length === 0 ? (
+          <Card>
+            <Text style={{ color: theme.mutedForeground, textAlign: "center" }}>
+              No hosts configured yet
+            </Text>
+          </Card>
+        ) : (
+          <List>
+            {hosts.map((host) => {
+              const conn = connections.find((c) => c.host.id === host.id);
+              const isConnected = conn?.status.kind === "connected";
 
-                return (
-                  <React.Fragment key={host.id}>
-                    <GlassRow
-                      onPress={() =>
-                        router.push({ pathname: `/settings/device/[id]`, params: { id: host.id } })
-                      }
-                    >
-                      <View style={styles.itemLeft}>
-                        <GlassIconOrb>
-                          <Laptop
-                            size={18}
-                            color={isConnected ? theme.primaryForeground : theme.foreground}
-                          />
-                        </GlassIconOrb>
-                        <View>
-                          <Text style={[styles.itemName, { color: theme.foreground }]}>
-                            {host.name}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.itemSub,
-                              { color: isConnected ? theme.primary : theme.mutedForeground },
-                            ]}
-                          >
-                            {isConnected ? "Connected" : "Disconnected"}
-                          </Text>
-                        </View>
-                      </View>
-                      <ChevronRight size={20} color={theme.mutedForeground} />
-                    </GlassRow>
-                    <RowSeparator inset={56} />
-                  </React.Fragment>
-                );
-              })
-            )}
-            <GlassRow onPress={() => router.push("/pairing")}>
-              <View style={styles.itemLeft}>
-                <View style={[styles.addIconWrap, { backgroundColor: theme.primary }]}>
-                  <Plus size={16} color={theme.primaryForeground} />
-                </View>
-                <Text style={[styles.itemName, { color: theme.primary }]}>
-                  Add Device Instance...{" "}
-                </Text>
-              </View>
-            </GlassRow>
-          </GlassGroup>
-        </View>
-
-        <View style={styles.section}>
-          <SectionLabel>Appearance</SectionLabel>
-          <GlassGroup>
-            <GlassRow scaleOnPress={false} style={{ paddingVertical: 14 }}>
-              <View style={[styles.modeSelector, { backgroundColor: theme.secondary }]}>
-                {(["system", "light", "dark"] as const).map((mode) => {
-                  const isSelected = themeMode === mode;
-                  const Icon = mode === "light" ? Sun : mode === "dark" ? Moon : Monitor;
-                  return (
+              return (
+                <ListItem
+                  key={host.id}
+                  title={host.name}
+                  subtitle={isConnected ? "Connected" : "Disconnected"}
+                  onPress={() => {
+                    router.push({ pathname: `/settings/device/[id]`, params: { id: host.id } });
+                  }}
+                  rightElement={
                     <Pressable
-                      key={mode}
-                      onPress={() => setThemeMode(mode)}
-                      style={[
-                        styles.modeButton,
-                        {
-                          backgroundColor: isSelected ? theme.card : "transparent",
-                          shadowOpacity: isSelected ? 0.05 : 0,
-                          borderColor: isSelected ? theme.border : "transparent",
-                          borderWidth: isSelected ? StyleSheet.hairlineWidth : 0,
-                        },
-                      ]}
+                      onPress={() => removeHost(host.id)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Icon size={16} color={isSelected ? theme.foreground : theme.info} />
-                      <Text
-                        style={[
-                          styles.modeButtonLabel,
-                          {
-                            color: isSelected ? theme.foreground : theme.info,
-                          },
-                        ]}
-                      >
-                        {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                      </Text>
+                      <Trash2 size={18} color={theme.dangerForeground} />
                     </Pressable>
-                  );
-                })}
-              </View>
-            </GlassRow>
-          </GlassGroup>
-        </View>
+                  }
+                />
+              );
+            })}
+          </List>
+        )}
 
-        <View style={styles.section}>
-          <SectionLabel>About</SectionLabel>
-          <GlassGroup>
-            <GlassRow style={styles.aboutRow}>
-              <View style={styles.itemLeft}>
-                <GlassIconOrb>
-                  <Info size={18} color={theme.foreground} />
-                </GlassIconOrb>
-                <Text style={[styles.itemName, { color: theme.foreground }]}>ace Mobile</Text>
-              </View>
-              <View style={styles.aboutMeta}>
-                <Text style={[styles.aboutVersion, { color: theme.mutedForeground }]}>0.0.1</Text>
-                <ChevronRight size={20} color={theme.mutedForeground} />
-              </View>
-            </GlassRow>
-          </GlassGroup>
-        </View>
+        <Button
+          title="Add New Host"
+          onPress={() => router.push("/pairing")}
+          variant="secondary"
+          style={styles.addButton}
+        />
+
+        {/* Theme Section */}
+        <SectionHeader title="Appearance" />
+        <Card style={styles.themeCard}>
+          <View style={styles.themeOptions}>
+            {themeOptions.map((option) => {
+              const Icon = option.icon;
+              const isActive = themeMode === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => setThemeMode(option.value)}
+                  style={[
+                    styles.themeButton,
+                    {
+                      backgroundColor: isActive ? theme.primary : theme.surface,
+                      borderColor: isActive ? theme.primary : theme.border,
+                    },
+                  ]}
+                >
+                  <Icon size={20} color={isActive ? theme.primaryForeground : theme.foreground} />
+                  <Text
+                    style={{
+                      color: isActive ? theme.primaryForeground : theme.foreground,
+                      fontSize: 12,
+                      fontWeight: "500",
+                      marginTop: 4,
+                    }}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Card>
+
+        {/* Notification Section */}
+        <SectionHeader title="Notifications" />
+        <List>
+          <ListItem
+            title="Push Notifications"
+            subtitle="Receive updates from your hosts"
+            rightElement={<Switch value={true} />}
+          />
+          <ListItem
+            title="Sound Alerts"
+            subtitle="Play sound for important events"
+            rightElement={<Switch value={true} />}
+          />
+        </List>
+
+        {/* About Section */}
+        <SectionHeader title="About" />
+        <Card style={styles.aboutCard}>
+          <View style={styles.aboutContent}>
+            <Text style={[styles.aboutTitle, { color: theme.foreground }]}>Ace Mobile</Text>
+            <Text style={[styles.aboutVersion, { color: theme.mutedForeground }]}>
+              Version 1.0.0
+            </Text>
+            <Text style={[styles.aboutDescription, { color: theme.mutedForeground }]}>
+              A mobile interface for controlling coding agents and managing projects.
+            </Text>
+          </View>
+        </Card>
+
+        {/* Advanced Section */}
+        <SectionHeader title="Advanced" />
+        <List>
+          <ListItem
+            title="Debug Mode"
+            subtitle="Enable verbose logging"
+            rightElement={<Switch value={false} />}
+          />
+          <ListItem
+            title="WebSocket History"
+            subtitle="View connection logs"
+            onPress={() => {
+              // Could navigate to debug screen
+            }}
+          />
+        </List>
       </ScrollView>
-    </LiquidScreen>
+    </SafeScreen>
   );
 }
 
 const styles = StyleSheet.create({
   scrollContent: {
-    paddingBottom: 140,
-  },
-  section: {
     paddingHorizontal: 16,
-    marginBottom: 26,
   },
-  itemLeft: {
+  addButton: {
+    marginHorizontal: 0,
+    marginVertical: 16,
+  },
+  themeCard: {
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+  },
+  themeOptions: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
+    justifyContent: "space-around",
+  },
+  themeButton: {
     flex: 1,
-  },
-  itemName: {
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  itemSub: {
-    fontSize: 13,
-    marginTop: 2,
-    fontWeight: "400",
-  },
-  addIconWrap: {
-    width: 32,
-    height: 32,
+    marginHorizontal: 4,
+    paddingVertical: 12,
+    alignItems: "center",
     borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
+    borderWidth: 1,
   },
-  modeSelector: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 3,
-    borderRadius: 12,
-    width: "100%",
+  aboutCard: {
+    paddingVertical: 24,
+    paddingHorizontal: 16,
   },
-  modeButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  modeButtonLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    letterSpacing: -0.1,
-  },
-  aboutRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  aboutContent: {
     alignItems: "center",
   },
-  aboutMeta: {
-    flexDirection: "row",
-    alignItems: "center",
+  aboutTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 4,
   },
   aboutVersion: {
-    fontSize: 15,
-    marginRight: 4,
+    fontSize: 13,
+    marginBottom: 12,
+  },
+  aboutDescription: {
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 18,
   },
 });
