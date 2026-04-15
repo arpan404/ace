@@ -22,11 +22,11 @@ const Spinner = () => (
 );
 
 export function AppStartupScreen({ state, message }: AppStartupScreenProps) {
-  const [currentWord, setCurrentWord] = useState(state === "connecting" ? "Connecting" : "Loading");
+  const [currentWord, setCurrentWord] = useState(LOADING_WORDS[0] ?? "Starting");
   const [wordIndex, setWordIndex] = useState(0);
 
   useEffect(() => {
-    setCurrentWord(state === "connecting" ? "Connecting" : "Loading");
+    setCurrentWord(LOADING_WORDS[0] ?? "Starting");
   }, [state]);
 
   useEffect(() => {
@@ -40,7 +40,7 @@ export function AppStartupScreen({ state, message }: AppStartupScreenProps) {
   }, []);
 
   useEffect(() => {
-    const next = LOADING_WORDS[wordIndex] ?? "Loading";
+    const next = LOADING_WORDS[wordIndex] ?? "Starting";
     setCurrentWord(next);
   }, [wordIndex]);
 
