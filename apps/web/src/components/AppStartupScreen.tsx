@@ -35,7 +35,7 @@ const TriangularSpinner = () => {
 };
 
 export function AppStartupScreen({ state, message }: AppStartupScreenProps) {
-  const [currentWord, setCurrentWord] = useState(LOADING_WORDS[0] ?? "Starting");
+  const [currentWord, setCurrentWord] = useState<string>(LOADING_WORDS[0] ?? "Starting");
   const [wordIndex, setWordIndex] = useState(0);
 
   useEffect(() => {
@@ -71,21 +71,25 @@ export function AppStartupScreen({ state, message }: AppStartupScreenProps) {
         <div className="mb-6 relative">
           <div className="flex items-baseline">
             <span className="text-4xl font-bold tracking-tight">ace</span>
-            <span className="ml-0.5 align-super text-[10px] font-medium text-muted-foreground/60">{APP_VERSION}</span>
+            <span className="ml-0.5 align-super text-[10px] font-medium text-muted-foreground/60">
+              {APP_VERSION}
+            </span>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
           <TriangularSpinner />
-          <motion.div
-            key={currentWord}
-            initial={{ opacity: 0, y: -6, filter: "blur(2px)" }}
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            transition={{ duration: 0.28 }}
-            className="text-lg font-medium tracking-tight text-foreground/90"
-          >
-            {currentWord}
-          </motion.div>
+          <div className="w-28 text-center">
+            <motion.div
+              key={currentWord}
+              initial={{ opacity: 0, y: -6, filter: "blur(2px)" }}
+              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+              transition={{ duration: 0.28 }}
+              className="text-lg font-medium tracking-tight text-foreground/90"
+            >
+              {currentWord}
+            </motion.div>
+          </div>
         </div>
       </div>
     </div>
