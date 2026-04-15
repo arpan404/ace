@@ -7,6 +7,8 @@ import {
   type ResolvedKeybindingsConfig,
 } from "@ace/contracts";
 import {
+  encodeShortcutValue,
+  effectiveBindingForCommand,
   formatShortcutLabel,
   isChatNewShortcut,
   isChatNewLocalShortcut,
@@ -18,6 +20,7 @@ import {
   isTerminalSplitShortcut,
   isTerminalToggleShortcut,
   resolveShortcutCommand,
+  shortcutFromKeyboardEvent,
   shouldShowThreadJumpHints,
   shortcutLabelForCommand,
   terminalNavigationShortcutData,
@@ -141,11 +144,17 @@ const DEFAULT_BINDINGS = compile([
     command: "browser.moveTabRight",
     whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
   },
+  { shortcut: modShortcut("b", { shiftKey: true }), command: "sidebar.toggle" },
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
   { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
   {
     shortcut: modShortcut("e"),
     command: "chat.toggleWorkspaceMode",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
+    shortcut: modShortcut("h", { shiftKey: true }),
+    command: "chat.toggleHeader",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
@@ -425,10 +434,18 @@ describe("shortcutLabelForCommand", () => {
       shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.toggleWorkspaceMode", "MacIntel"),
       "⌘E",
     );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.toggleHeader", "MacIntel"),
+      "⇧⌘H",
+    );
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.toggle", "Linux"),
       "Ctrl+B",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.toggle", "Linux"),
+      "Ctrl+Shift+B",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.devtools", {
@@ -616,6 +633,22 @@ describe("chat/editor shortcuts", () => {
     );
     assert.isNull(
       resolveShortcutCommand(event({ key: "e", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: true },
+      }),
+    );
+  });
+
+  it("resolves chat.toggleHeader only outside terminal focus", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "h", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "chat.toggleHeader",
+    );
+    assert.isNull(
+      resolveShortcutCommand(event({ key: "h", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
         context: { terminalFocus: true },
       }),
@@ -854,6 +887,35 @@ describe("resolveShortcutCommand", () => {
       ),
       "thread.next",
     );
+  });
+});
+
+describe("shortcut editing helpers", () => {
+  it("captures platform-aware mod shortcuts from keyboard events", () => {
+    const shortcut = shortcutFromKeyboardEvent(event({ key: "b", metaKey: true, shiftKey: true }), {
+      platform: "MacIntel",
+    });
+    assert.deepEqual(shortcut, {
+      key: "b",
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: true,
+      altKey: false,
+      modKey: true,
+    });
+    if (!shortcut) {
+      throw new Error("Expected shortcut to be captured.");
+    }
+    assert.strictEqual(encodeShortcutValue(shortcut), "mod+shift+b");
+  });
+
+  it("resolves effective binding objects with context", () => {
+    const binding = effectiveBindingForCommand(DEFAULT_BINDINGS, "terminal.split", {
+      context: { terminalFocus: true },
+      platform: "Linux",
+    });
+    assert.strictEqual(binding?.command, "terminal.split");
+    assert.strictEqual(binding?.shortcut.key, "d");
   });
 });
 

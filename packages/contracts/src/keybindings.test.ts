@@ -41,6 +41,12 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedDiffToggle.command, "diff.toggle");
 
+    const parsedSidebarToggle = yield* decode(KeybindingRule, {
+      key: "mod+shift+b",
+      command: "sidebar.toggle",
+    });
+    assert.strictEqual(parsedSidebarToggle.command, "sidebar.toggle");
+
     const parsedBrowserToggle = yield* decode(KeybindingRule, {
       key: "mod+b",
       command: "browser.toggle",
@@ -70,6 +76,12 @@ it.effect("parses keybinding rules", () =>
       command: "chat.toggleWorkspaceMode",
     });
     assert.strictEqual(parsedWorkspaceToggle.command, "chat.toggleWorkspaceMode");
+
+    const parsedHeaderToggle = yield* decode(KeybindingRule, {
+      key: "mod+shift+h",
+      command: "chat.toggleHeader",
+    });
+    assert.strictEqual(parsedHeaderToggle.command, "chat.toggleHeader");
 
     const parsedThreadPrevious = yield* decode(KeybindingRule, {
       key: "mod+shift+[",

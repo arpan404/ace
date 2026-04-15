@@ -172,6 +172,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       );
 
       assert.equal(defaultsByCommand.get("browser.toggle"), "mod+b");
+      assert.equal(defaultsByCommand.get("sidebar.toggle"), "mod+shift+b");
       assert.equal(defaultsByCommand.get("browser.back"), "mod+[");
       assert.equal(defaultsByCommand.get("browser.forward"), "mod+]");
       assert.equal(defaultsByCommand.get("browser.reload"), "mod+r");
@@ -180,6 +181,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("browser.moveTabLeft"), "mod+alt+[");
       assert.equal(defaultsByCommand.get("browser.moveTabRight"), "mod+alt+]");
       assert.equal(defaultsByCommand.get("chat.toggleWorkspaceMode"), "mod+e");
+      assert.equal(defaultsByCommand.get("chat.toggleHeader"), "mod+shift+h");
       assert.equal(defaultsByCommand.get("thread.previous"), "mod+shift+[");
       assert.equal(defaultsByCommand.get("thread.next"), "mod+shift+]");
       assert.equal(defaultsByCommand.get("thread.jump.1"), "mod+1");

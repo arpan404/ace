@@ -27,7 +27,8 @@ export const THREAD_KEYBINDING_COMMANDS = [
 ] as const;
 export type ThreadKeybindingCommand = (typeof THREAD_KEYBINDING_COMMANDS)[number];
 
-const STATIC_KEYBINDING_COMMANDS = [
+export const STATIC_KEYBINDING_COMMANDS = [
+  "sidebar.toggle",
   "terminal.toggle",
   "terminal.split",
   "terminal.new",
@@ -45,6 +46,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "chat.newLocal",
   "chat.toggleWorkspaceMode",
   "chat.togglePlanMode",
+  "chat.toggleHeader",
   "editor.openFavorite",
   "editor.newFile",
   "editor.newFolder",
@@ -65,6 +67,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "editor.moveTabRight",
   ...THREAD_KEYBINDING_COMMANDS,
 ] as const;
+export type StaticKeybindingCommand = (typeof STATIC_KEYBINDING_COMMANDS)[number];
 
 export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
   Schema.Literal("script."),
