@@ -134,7 +134,7 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
-import { BotIcon, CircleAlertIcon, ListTodoIcon, XIcon } from "lucide-react";
+import { BotIcon, ChevronsDownIcon, CircleAlertIcon, ListTodoIcon, XIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { useSidebar } from "./ui/sidebar";
@@ -294,6 +294,7 @@ const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
+const HEADER_AUTO_HIDE_DELAY_MS = 2600;
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
@@ -429,6 +430,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     useState<Record<string, number>>({});
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
+  const [isHeaderHidden, setIsHeaderHidden] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
@@ -501,6 +503,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [handoffInFlight, setHandoffInFlight] = useState(false);
   const dragDepthRef = useRef(0);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
+  const headerAutoHideTimeoutRef = useRef<number | null>(null);
   const setMessagesScrollContainerRef = useCallback((element: HTMLDivElement | null) => {
     messagesScrollRef.current = element;
     setMessagesScrollElement(element);
@@ -2135,6 +2138,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [browserActionShortcutLabelOptions, keybindings],
   );
   const [browserMode, setBrowserMode] = useState<"closed" | InAppBrowserMode>("closed");
+  const sidebarToggleShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "sidebar.toggle"),
+    [keybindings],
+  );
+  const hideHeaderShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(keybindings, "chat.toggleHeader", nonTerminalShortcutLabelOptions),
+    [keybindings, nonTerminalShortcutLabelOptions],
+  );
   const [browserDevToolsOpen, setBrowserDevToolsOpen] = useState(false);
   const [storedBrowserSplitWidth, setStoredBrowserSplitWidth] = useLocalStorage(
     BROWSER_SPLIT_WIDTH_STORAGE_KEY,
@@ -2254,6 +2266,50 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const toggleWorkspaceMode = useCallback(() => {
     onWorkspaceModeChange(workspaceMode === "chat" ? "editor" : "chat");
   }, [onWorkspaceModeChange, workspaceMode]);
+  const clearHeaderAutoHideTimeout = useCallback(() => {
+    if (headerAutoHideTimeoutRef.current === null) return;
+    window.clearTimeout(headerAutoHideTimeoutRef.current);
+    headerAutoHideTimeoutRef.current = null;
+  }, []);
+  const scheduleHeaderAutoHide = useCallback(() => {
+    clearHeaderAutoHideTimeout();
+    headerAutoHideTimeoutRef.current = window.setTimeout(() => {
+      setIsHeaderHidden(true);
+    }, HEADER_AUTO_HIDE_DELAY_MS);
+  }, [clearHeaderAutoHideTimeout]);
+  const revealHeader = useCallback(() => {
+    setIsHeaderHidden(false);
+    scheduleHeaderAutoHide();
+  }, [scheduleHeaderAutoHide]);
+  const hideHeader = useCallback(() => {
+    clearHeaderAutoHideTimeout();
+    setIsHeaderHidden(true);
+  }, [clearHeaderAutoHideTimeout]);
+  const toggleHeaderVisibility = useCallback(() => {
+    setIsHeaderHidden((previous) => {
+      if (previous) {
+        scheduleHeaderAutoHide();
+      } else {
+        clearHeaderAutoHideTimeout();
+      }
+      return !previous;
+    });
+  }, [clearHeaderAutoHideTimeout, scheduleHeaderAutoHide]);
+
+  useEffect(
+    () => () => {
+      clearHeaderAutoHideTimeout();
+    },
+    [clearHeaderAutoHideTimeout],
+  );
+
+  useEffect(() => {
+    if (isHeaderHidden) {
+      clearHeaderAutoHideTimeout();
+      return;
+    }
+    scheduleHeaderAutoHide();
+  }, [clearHeaderAutoHideTimeout, isHeaderHidden, scheduleHeaderAutoHide]);
   const onToggleDiff = useCallback(() => {
     startTransition(() => {
       void navigate({
@@ -4562,6 +4618,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return;
       }
 
+      if (command === "chat.toggleHeader") {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleHeaderVisibility();
+        return;
+      }
+
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject) return;
       const script = activeProject.scripts.find((entry) => entry.id === scriptId);
@@ -4588,6 +4651,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     onToggleDiff,
     toggleInteractionMode,
     toggleWorkspaceMode,
+    toggleHeaderVisibility,
     toggleTerminalVisibility,
   ]);
 
@@ -6607,56 +6671,93 @@ export default function ChatView({ threadId }: ChatViewProps) {
       : null;
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
+      {isHeaderHidden ? (
+        <div className="pointer-events-none absolute top-2 left-0 z-40 w-full px-4 sm:px-6">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="outline"
+                  className="pointer-events-auto rounded-full"
+                  onClick={revealHeader}
+                  aria-label="Show top header"
+                >
+                  <ChevronsDownIcon className="size-3.5" />
+                </Button>
+              }
+            />
+            <TooltipPopup side="bottom">
+              {hideHeaderShortcutLabel
+                ? `Show top header (${hideHeaderShortcutLabel})`
+                : "Show top header"}
+            </TooltipPopup>
+          </Tooltip>
+        </div>
+      ) : null}
+
       {/* Persistent top bar — always visible regardless of workspace mode */}
-      <header
+      <div
         className={cn(
-          "relative z-30 w-full shrink-0 border-b border-sidebar-border bg-sidebar",
-          isElectron
-            ? "drag-region flex min-h-[52px] items-center px-4 sm:px-6"
-            : "px-4 py-3 sm:px-6 sm:py-3.5",
+          "overflow-hidden transition-[max-height,opacity] duration-200 ease-out",
+          isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
         )}
-        style={
-          isElectron && sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined
-        }
+        onMouseEnter={clearHeaderAutoHideTimeout}
+        onMouseLeave={scheduleHeaderAutoHide}
       >
-        <ChatHeader
-          activeThreadId={activeThread.id}
-          activeThreadTitle={activeThread.title}
-          activeProjectId={activeProject?.id ?? null}
-          activeProjectName={activeProject?.name}
-          isGitRepo={isGitRepo}
-          activeProjectScripts={activeProject?.scripts}
-          preferredScriptId={
-            activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+        <header
+          className={cn(
+            "relative z-30 w-full shrink-0 border-b border-sidebar-border bg-sidebar",
+            isElectron
+              ? "drag-region flex min-h-[52px] items-center px-4 sm:px-6"
+              : "px-4 py-3 sm:px-6 sm:py-3.5",
+          )}
+          style={
+            isElectron && sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined
           }
-          keybindings={keybindings}
-          terminalAvailable={activeProject !== undefined}
-          terminalOpen={terminalState.terminalOpen}
-          terminalToggleShortcutLabel={terminalToggleShortcutLabel}
-          diffToggleShortcutLabel={diffPanelShortcutLabel}
-          browserToggleShortcutLabel={browserToggleShortcutLabel}
-          browserAvailable={isElectron}
-          browserOpen={browserOpen}
-          browserDevToolsOpen={browserDevToolsOpen}
-          gitCwd={gitCwd}
-          diffOpen={diffOpen}
-          workspaceMode={workspaceMode}
-          workspaceName={activeProject?.name}
-          onRunProjectScript={(script) => {
-            void runProjectScript(script);
-          }}
-          onAddProjectScript={saveProjectScript}
-          onUpdateProjectScript={updateProjectScript}
-          onDeleteProjectScript={deleteProjectScript}
-          onOpenBrowser={openBrowser}
-          onCloseBrowser={closeBrowser}
-          onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
-          onToggleTerminal={toggleTerminalVisibility}
-          onToggleDiff={onToggleDiff}
-          onWorkspaceModeChange={onWorkspaceModeChange}
-        />
-      </header>
+        >
+          <ChatHeader
+            activeThreadId={activeThread.id}
+            activeThreadTitle={activeThread.title}
+            activeProjectId={activeProject?.id ?? null}
+            activeProjectName={activeProject?.name}
+            isGitRepo={isGitRepo}
+            activeProjectScripts={activeProject?.scripts}
+            preferredScriptId={
+              activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+            }
+            keybindings={keybindings}
+            sidebarToggleShortcutLabel={sidebarToggleShortcutLabel}
+            terminalAvailable={activeProject !== undefined}
+            terminalOpen={terminalState.terminalOpen}
+            terminalToggleShortcutLabel={terminalToggleShortcutLabel}
+            diffToggleShortcutLabel={diffPanelShortcutLabel}
+            browserToggleShortcutLabel={browserToggleShortcutLabel}
+            browserAvailable={isElectron}
+            browserOpen={browserOpen}
+            browserDevToolsOpen={browserDevToolsOpen}
+            gitCwd={gitCwd}
+            diffOpen={diffOpen}
+            workspaceMode={workspaceMode}
+            workspaceName={activeProject?.name}
+            onRunProjectScript={(script) => {
+              void runProjectScript(script);
+            }}
+            onAddProjectScript={saveProjectScript}
+            onUpdateProjectScript={updateProjectScript}
+            onDeleteProjectScript={deleteProjectScript}
+            onOpenBrowser={openBrowser}
+            onCloseBrowser={closeBrowser}
+            onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
+            onToggleTerminal={toggleTerminalVisibility}
+            onToggleDiff={onToggleDiff}
+            onWorkspaceModeChange={onWorkspaceModeChange}
+            onHideHeader={hideHeader}
+            hideHeaderShortcutLabel={hideHeaderShortcutLabel}
+          />
+        </header>
+      </div>
 
       {/* Error banner */}
       <ProviderStatusBanner status={activeProviderStatus} />

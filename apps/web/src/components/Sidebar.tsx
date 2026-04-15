@@ -840,10 +840,10 @@ export default function Sidebar() {
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
   const keybindings = useServerKeybindings();
-  const sidebarToggleShortcutLabel =
-    typeof navigator !== "undefined" && isMacPlatform(navigator.platform)
-      ? "\u21e7\u2318B"
-      : "Ctrl+Shift+B";
+  const sidebarToggleShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "sidebar.toggle"),
+    [keybindings],
+  );
   const [addingProject, setAddingProject] = useState(false);
   const [newCwd, setNewCwd] = useState("");
   const [isPickingFolder, setIsPickingFolder] = useState(false);
@@ -2534,7 +2534,9 @@ export default function Sidebar() {
                     render={<SidebarTrigger className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME} />}
                   />
                   <TooltipPopup side="bottom">
-                    Toggle sidebar ({sidebarToggleShortcutLabel})
+                    {sidebarToggleShortcutLabel
+                      ? `Toggle sidebar (${sidebarToggleShortcutLabel})`
+                      : "Toggle sidebar"}
                   </TooltipPopup>
                 </Tooltip>
               </div>

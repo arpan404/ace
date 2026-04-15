@@ -7,17 +7,21 @@ import { getSettingsNavItem } from "../components/settings/settingsNavigation";
 import { Button } from "../components/ui/button";
 import { SidebarInset, SidebarTrigger, useSidebar } from "../components/ui/sidebar";
 import { isElectron } from "../env";
-import { MAC_TITLEBAR_LEFT_INSET_STYLE } from "../lib/desktopChrome";
+import {
+  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+  MAC_TITLEBAR_LEFT_INSET_STYLE,
+} from "../lib/desktopChrome";
 import { cn } from "../lib/utils";
 
 function SettingsContentLayout() {
-  const { state: sidebarState } = useSidebar();
+  const { isMobile, state: sidebarState } = useSidebar();
   const pathname = useLocation({ select: (location) => location.pathname });
   const [restoreSignal, setRestoreSignal] = useState(0);
   const { changedSettingLabels, restoreDefaults } = useSettingsRestore(() =>
     setRestoreSignal((value) => value + 1),
   );
   const currentItem = getSettingsNavItem(pathname);
+  const showSidebarToggle = isMobile || sidebarState === "collapsed";
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -41,7 +45,9 @@ function SettingsContentLayout() {
           <header className="border-b border-border px-4 py-4 sm:px-6">
             <div className="flex flex-wrap items-start gap-3 sm:items-center">
               <div className="flex min-w-0 flex-1 items-start gap-2">
-                <SidebarTrigger className="mt-0.5 size-7 shrink-0 md:hidden" />
+                {showSidebarToggle ? (
+                  <SidebarTrigger className={cn("mt-0.5", DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME)} />
+                ) : null}
                 <div className="min-w-0">
                   <p className="text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
                     Settings
