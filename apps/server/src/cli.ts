@@ -641,6 +641,38 @@ function formatProviderSessionCounts(snapshot: ServerRuntimeProfile | null): str
     .join("  ");
 }
 
+function buildBar(
+  value: number,
+  max: number,
+  width: number,
+  colorFn: (s: string) => string,
+): string {
+  if (max <= 0) {
+    return colorFn("─".repeat(width));
+  }
+  const filled = Math.round((Math.min(value, max) / max) * width);
+  const empty = width - filled;
+  return colorFn("█".repeat(filled)) + pc.dim("░".repeat(empty));
+}
+
+function buildCpuBar(cpuPercent: number | null): string {
+  const value = cpuPercent ?? 0;
+  return buildBar(value, 100, 20, (s) => {
+    if (value > 80) return pc.red(s);
+    if (value > 50) return pc.yellow(s);
+    return pc.green(s);
+  });
+}
+
+function buildMemoryBar(rssBytes: number): string {
+  return buildBar(rssBytes, 8 * 1024 * 1024 * 1024, 20, (s) => {
+    const gb = rssBytes / (1024 * 1024 * 1024);
+    if (gb > 6) return pc.red(s);
+    if (gb > 4) return pc.yellow(s);
+    return pc.cyan(s);
+  });
+}
+
 function renderProfileDashboard(input: {
   readonly targetPid: number;
   readonly intervalMs: number;
@@ -659,44 +691,90 @@ function renderProfileDashboard(input: {
   });
   const processTable = formatRows(["PID", "PPID", "RSS", "CPU", "COMMAND"], rows);
   const runtimeProfile = input.runtimeProfile;
-  const processMemoryLine = runtimeProfile
-    ? `Process memory: rss ${formatByteCount(runtimeProfile.process.rssBytes)} | heap ${formatByteCount(
-        runtimeProfile.process.heapUsedBytes,
-      )}/${formatByteCount(runtimeProfile.process.heapTotalBytes)} | external ${formatByteCount(
-        runtimeProfile.process.externalBytes,
-      )} | arrayBuffers ${formatByteCount(runtimeProfile.process.arrayBuffersBytes)}`
-    : "Process memory: unavailable";
-  const cacheLine = runtimeProfile
-    ? `Caches: snapshot-view ${String(runtimeProfile.caches.snapshotView.currentEntries)}/${String(
-        runtimeProfile.caches.snapshotView.maxEntries,
-      )} | assistant-streams ${String(
-        runtimeProfile.caches.providerRuntimeIngestion.activeAssistantStreams,
-      )} | pending-deltas ${String(
-        runtimeProfile.caches.providerRuntimeIngestion.pendingAssistantDeltaStreams,
-      )} | thinking ${String(runtimeProfile.caches.providerRuntimeIngestion.bufferedThinkingActivities)}`
-    : "Caches: unavailable";
-  const runtimeLine = runtimeProfile
-    ? `Runtime: ${runtimeProfile.process.platform} ${runtimeProfile.process.nodeVersion} | uptime ${formatUptimeSeconds(
-        runtimeProfile.process.uptimeSeconds,
-      )}`
-    : "Runtime: unavailable";
   const errorLine =
     input.runtimeProfileError === null
       ? ""
-      : `\n${pc.yellow(`Runtime profile unavailable: ${input.runtimeProfileError}`)}`;
+      : pc.yellow(`Runtime profile unavailable: ${input.runtimeProfileError}`);
+
+  const cpuBar = buildCpuBar(input.processTree.totalCpuPercent);
+  const memBar = buildMemoryBar(input.processTree.totalRssBytes);
+  const cpuPercent = formatCpuPercent(input.processTree.totalCpuPercent);
+  const memDisplay = formatByteCount(input.processTree.totalRssBytes);
+
+  const line1 = pc.bold(pc.cyan("ace")) + pc.dim(" process monitor  ") + pc.dim("│");
+  const line2 =
+    pc.dim("  PID ") +
+    pc.bold(pc.white(String(input.targetPid))) +
+    pc.dim(" │ ") +
+    pc.dim("refresh ") +
+    pc.white(String(input.intervalMs)) +
+    pc.dim("ms │ ") +
+    pc.dim("sampled ") +
+    pc.white(input.sampledAt.split("T")[1]?.split(".")[0] ?? input.sampledAt);
+
+  const barSection = pc.dim(
+    "┌─ " +
+      "CPU".padEnd(22) +
+      "MEM".padEnd(22) +
+      pc.dim(" ─┐\n") +
+      "│  " +
+      pc.bold(pc.dim("cpu")) +
+      pc.dim(" ") +
+      cpuBar +
+      pc.dim(" ") +
+      pc.bold(pc.dim("mem")) +
+      pc.dim(" ") +
+      memBar +
+      pc.dim("  │\n") +
+      pc.dim("│  ") +
+      pc.white(cpuPercent.padEnd(18)) +
+      pc.dim("       ") +
+      pc.white(memDisplay.padEnd(22)) +
+      pc.dim("  │\n") +
+      pc.dim("└" + "─".repeat(54) + "┘"),
+  );
+
+  const statSection = runtimeProfile
+    ? [
+        pc.dim("┌─ " + pc.bold("Runtime") + pc.dim(" ".repeat(44) + " ─┐")),
+        `│  ${pc.bold(pc.dim("platform"))}  ${pc.white(runtimeProfile.process.platform.padEnd(40))}  │`,
+        `│  ${pc.bold(pc.dim("node"))}       ${pc.white(runtimeProfile.process.nodeVersion.padEnd(40))}  │`,
+        `│  ${pc.bold(pc.dim("uptime"))}     ${pc.white(formatUptimeSeconds(runtimeProfile.process.uptimeSeconds).padEnd(40))}  │`,
+        pc.dim("│  " + " ".repeat(52) + "  │"),
+        `│  ${pc.bold(pc.dim("heap"))}       ${pc.white(formatByteCount(runtimeProfile.process.heapUsedBytes).padEnd(16) + "/" + formatByteCount(runtimeProfile.process.heapTotalBytes).padEnd(16))}  │`,
+        `│  ${pc.bold(pc.dim("external"))}    ${pc.white(formatByteCount(runtimeProfile.process.externalBytes).padEnd(40))}  │`,
+        `│  ${pc.bold(pc.dim("buffers"))}    ${pc.white(formatByteCount(runtimeProfile.process.arrayBuffersBytes).padEnd(40))}  │`,
+        pc.dim("│  " + " ".repeat(52) + "  │"),
+        `│  ${pc.bold(pc.dim("sessions"))}   ${pc.white(formatProviderSessionCounts(runtimeProfile).padEnd(40))}  │`,
+        pc.dim("└" + "─".repeat(54) + "┘"),
+      ].join("\n")
+    : "";
+
+  const processSection =
+    pc.dim(
+      "┌─ " +
+        pc.bold("Processes") +
+        pc.dim(` (${input.processTree.processes.length})`.padEnd(44) + " ─┐"),
+    ) +
+    "\n" +
+    processTable
+      .split("\n")
+      .map((line) => (line.trim() ? `│  ${line.padEnd(52)}  │` : ""))
+      .join("\n") +
+    pc.dim("\n└" + "─".repeat(54) + "┘");
 
   return [
-    `ace profile ${pc.dim(`(refresh ${String(input.intervalMs)}ms)`)} | sampled ${input.sampledAt}`,
-    `Target pid: ${String(input.targetPid)} | Processes: ${String(input.processTree.processes.length)} | Total rss: ${formatByteCount(input.processTree.totalRssBytes)} | Total cpu: ${formatCpuPercent(input.processTree.totalCpuPercent)}`,
-    processMemoryLine,
-    cacheLine,
-    `Provider sessions: ${formatProviderSessionCounts(runtimeProfile)}`,
-    runtimeLine,
+    line1,
+    line2,
     "",
-    processTable.trimEnd(),
-    errorLine,
+    barSection,
+    errorLine ? `\n\n${errorLine}` : "",
     "",
-    pc.dim("Press Ctrl+C to stop."),
+    statSection,
+    "",
+    processSection,
+    "",
+    pc.dim("  Ctrl+C to exit"),
   ].join("\n");
 }
 

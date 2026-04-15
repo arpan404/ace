@@ -12,7 +12,6 @@ export function AppStartupScreen(_props: AppStartupScreenProps) {
   return (
     <div className="relative flex h-screen flex-col items-center justify-center overflow-hidden bg-background text-foreground">
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent" />
-
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
