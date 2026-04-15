@@ -1,238 +1,210 @@
 import React, { useEffect, useState } from "react";
 import { View, ScrollView, StyleSheet, Pressable, Text } from "react-native";
 import { useRouter } from "expo-router";
-import {
-  CheckCircle2,
-  ChevronRight,
-  Monitor,
-  Moon,
-  Smartphone,
-  Sun,
-  Trash2,
-  XCircle,
-} from "lucide-react-native";
-import { useTheme } from "../../src/design/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTheme, type ThemeMode } from "../../src/design/ThemeContext";
 import { useHostStore } from "../../src/store/HostStore";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
-import {
-  SafeScreen,
-  ScreenHeader,
-  SectionHeader,
-  List,
-  ListItem,
-  Card,
-  Button,
-} from "../../src/design/Components";
+
+const THEME_OPTIONS: Array<{ label: string; value: ThemeMode; emoji: string }> = [
+  { label: "Light", value: "light", emoji: "☀️" },
+  { label: "Dark", value: "dark", emoji: "🌙" },
+  { label: "System", value: "system", emoji: "🖥️" },
+];
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const { colors, themeMode, setThemeMode } = useTheme();
   const insets = useSafeAreaInsets();
-  const { theme, themeMode, setThemeMode } = useTheme();
-  const { hosts, removeHost } = useHostStore();
+  const { hosts } = useHostStore();
   const [connections, setConnections] = useState<ManagedConnection[]>([]);
 
   useEffect(() => {
     setConnections(connectionManager.getConnections());
-    return connectionManager.onStatusChange((conns) => {
-      setConnections(conns);
-    });
+    return connectionManager.onStatusChange(setConnections);
   }, []);
 
-  const themeOptions = [
-    { label: "Light", icon: Sun, value: "light" as const },
-    { label: "Dark", icon: Moon, value: "dark" as const },
-    { label: "System", icon: Monitor, value: "system" as const },
-  ];
-
   return (
-    <SafeScreen>
+    <View style={[styles.root, { backgroundColor: colors.groupedBackground }]}>
       <ScrollView
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingTop: insets.top + 10, paddingBottom: 140 },
-        ]}
+        contentContainerStyle={{
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom + 100,
+        }}
       >
-        <ScreenHeader title="Settings" subtitle="Hosts and app preferences" />
+        <View style={styles.header}>
+          <Text style={[styles.largeTitle, { color: colors.foreground }]}>Settings</Text>
+        </View>
 
-        <SectionHeader title="Hosts" />
+        {/* Hosts Section */}
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: colors.muted }]}>HOSTS</Text>
+        </View>
         {hosts.length === 0 ? (
-          <Card>
-            <Text style={{ color: theme.mutedForeground, textAlign: "center" }}>
-              Pair your first host to start using Ace.
-            </Text>
-          </Card>
+          <View
+            style={[styles.groupContainer, { backgroundColor: colors.secondaryGroupedBackground }]}
+          >
+            <View style={styles.emptyRow}>
+              <Text style={[styles.emptyRowText, { color: colors.muted }]}>
+                No hosts paired yet
+              </Text>
+            </View>
+          </View>
         ) : (
-          <List>
-            {hosts.map((host) => {
+          <View
+            style={[styles.groupContainer, { backgroundColor: colors.secondaryGroupedBackground }]}
+          >
+            {hosts.map((host, i) => {
               const conn = connections.find((c) => c.host.id === host.id);
               const isConnected = conn?.status.kind === "connected";
-
               return (
-                <ListItem
-                  key={host.id}
-                  title={host.name}
-                  subtitle={isConnected ? "Connected" : "Disconnected"}
-                  onPress={() => {
-                    router.push({ pathname: `/settings/device/[id]`, params: { id: host.id } });
-                  }}
-                  rightElement={
-                    <View style={styles.hostActions}>
-                      <Pressable
-                        onPress={() => removeHost(host.id)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Trash2 size={18} color={theme.dangerForeground} />
-                      </Pressable>
-                      <ChevronRight size={18} color={theme.mutedForeground} />
+                <React.Fragment key={host.id}>
+                  {i > 0 && (
+                    <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+                  )}
+                  <Pressable
+                    onPress={() =>
+                      router.push({
+                        pathname: "/settings/device/[id]",
+                        params: { id: host.id },
+                      })
+                    }
+                    style={({ pressed }) => [
+                      styles.row,
+                      pressed && { backgroundColor: colors.fill },
+                    ]}
+                  >
+                    <View style={styles.rowLeft}>
+                      <View
+                        style={[
+                          styles.statusDot,
+                          {
+                            backgroundColor: isConnected ? colors.green : colors.muted,
+                          },
+                        ]}
+                      />
+                      <View>
+                        <Text style={[styles.rowTitle, { color: colors.foreground }]}>
+                          {host.name}
+                        </Text>
+                        <Text style={[styles.rowSubtitle, { color: colors.muted }]}>
+                          {isConnected ? "Connected" : "Disconnected"}
+                        </Text>
+                      </View>
                     </View>
-                  }
-                  leftElement={
-                    <View
-                      style={[
-                        styles.hostIcon,
-                        { backgroundColor: isConnected ? `${theme.primary}1a` : theme.surface },
-                      ]}
-                    >
-                      {isConnected ? (
-                        <CheckCircle2 size={14} color={theme.primary} />
-                      ) : (
-                        <XCircle size={14} color={theme.mutedForeground} />
-                      )}
-                    </View>
-                  }
-                />
+                    <Text style={[styles.chevron, { color: colors.separator }]}>›</Text>
+                  </Pressable>
+                </React.Fragment>
               );
             })}
-          </List>
+          </View>
         )}
 
-        <Button
-          title="Pair host"
+        <Pressable
           onPress={() => router.push("/pairing")}
-          variant="secondary"
-          style={styles.addButton}
-        />
+          style={[
+            styles.groupContainer,
+            { backgroundColor: colors.secondaryGroupedBackground, marginTop: 10 },
+          ]}
+        >
+          <View style={styles.row}>
+            <Text style={[styles.actionText, { color: colors.primary }]}>+ Pair New Host</Text>
+          </View>
+        </Pressable>
 
-        <SectionHeader title="Appearance" />
-        <Card style={styles.themeCard}>
-          <View style={styles.themeOptions}>
-            {themeOptions.map((option) => {
-              const Icon = option.icon;
-              const isActive = themeMode === option.value;
-              return (
+        {/* Appearance Section */}
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: colors.muted }]}>APPEARANCE</Text>
+        </View>
+        <View
+          style={[styles.groupContainer, { backgroundColor: colors.secondaryGroupedBackground }]}
+        >
+          {THEME_OPTIONS.map((option, i) => {
+            const isActive = themeMode === option.value;
+            return (
+              <React.Fragment key={option.value}>
+                {i > 0 && (
+                  <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+                )}
                 <Pressable
-                  key={option.value}
                   onPress={() => setThemeMode(option.value)}
-                  style={[
-                    styles.themeButton,
-                    {
-                      backgroundColor: isActive ? theme.primary : theme.surface,
-                      borderColor: isActive ? theme.primary : theme.border,
-                    },
-                  ]}
+                  style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.fill }]}
                 >
-                  <Icon size={20} color={isActive ? theme.primaryForeground : theme.foreground} />
-                  <Text
-                    style={{
-                      color: isActive ? theme.primaryForeground : theme.foreground,
-                      fontSize: 12,
-                      fontWeight: "500",
-                      marginTop: 4,
-                    }}
-                  >
-                    {option.label}
-                  </Text>
+                  <View style={styles.rowLeft}>
+                    <Text style={styles.themeEmoji}>{option.emoji}</Text>
+                    <Text style={[styles.rowTitle, { color: colors.foreground }]}>
+                      {option.label}
+                    </Text>
+                  </View>
+                  {isActive && <Text style={[styles.checkmark, { color: colors.primary }]}>✓</Text>}
                 </Pressable>
-              );
-            })}
-          </View>
-        </Card>
+              </React.Fragment>
+            );
+          })}
+        </View>
 
-        <SectionHeader title="About" />
-        <Card style={styles.aboutCard}>
-          <View style={styles.aboutContent}>
-            <View style={[styles.appIcon, { backgroundColor: `${theme.primary}1f` }]}>
-              <Smartphone size={18} color={theme.primary} />
-            </View>
-            <Text style={[styles.aboutTitle, { color: theme.foreground }]}>Ace Mobile</Text>
-            <Text style={[styles.aboutVersion, { color: theme.mutedForeground }]}>
-              Version 1.0.0
-            </Text>
-            <Text style={[styles.aboutDescription, { color: theme.mutedForeground }]}>
-              Native controls for coding agents, threads, and projects.
+        {/* About Section */}
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: colors.muted }]}>ABOUT</Text>
+        </View>
+        <View
+          style={[styles.groupContainer, { backgroundColor: colors.secondaryGroupedBackground }]}
+        >
+          <View style={styles.aboutRow}>
+            <Text style={[styles.aboutLabel, { color: colors.foreground }]}>Version</Text>
+            <Text style={[styles.aboutValue, { color: colors.muted }]}>0.0.1</Text>
+          </View>
+          <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+          <View style={styles.aboutRow}>
+            <Text style={[styles.aboutLabel, { color: colors.foreground }]}>ace Mobile</Text>
+            <Text style={[styles.aboutValue, { color: colors.muted }]}>
+              Agent control everywhere
             </Text>
           </View>
-        </Card>
+        </View>
       </ScrollView>
-    </SafeScreen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    paddingHorizontal: 16,
-  },
-  addButton: {
-    marginHorizontal: 0,
-    marginTop: 14,
-    marginBottom: 18,
-  },
-  themeCard: {
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-  },
-  themeOptions: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-  },
-  themeButton: {
-    flex: 1,
-    marginHorizontal: 4,
-    paddingVertical: 12,
-    alignItems: "center",
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  hostActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  hostIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  aboutCard: {
-    paddingVertical: 24,
-    paddingHorizontal: 16,
-  },
-  aboutContent: {
-    alignItems: "center",
-  },
-  appIcon: {
-    width: 38,
-    height: 38,
+  root: { flex: 1 },
+  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 4 },
+  largeTitle: { fontSize: 34, fontWeight: "700", letterSpacing: 0.37 },
+  sectionHeader: { paddingHorizontal: 20, paddingTop: 28, paddingBottom: 8 },
+  sectionTitle: { fontSize: 13, fontWeight: "600", letterSpacing: 0.5 },
+  groupContainer: {
+    marginHorizontal: 20,
     borderRadius: 12,
+    overflow: "hidden",
+  },
+  separator: { height: StyleSheet.hairlineWidth, marginLeft: 52 },
+  row: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
+    justifyContent: "space-between",
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    minHeight: 44,
   },
-  aboutTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 4,
+  rowLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
+  rowTitle: { fontSize: 17 },
+  rowSubtitle: { fontSize: 14, marginTop: 1 },
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  chevron: { fontSize: 22, fontWeight: "300" },
+  checkmark: { fontSize: 17, fontWeight: "600" },
+  actionText: { fontSize: 17, fontWeight: "500" },
+  themeEmoji: { fontSize: 20 },
+  emptyRow: { paddingVertical: 16, paddingHorizontal: 16, alignItems: "center" },
+  emptyRowText: { fontSize: 15 },
+  aboutRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    minHeight: 44,
   },
-  aboutVersion: {
-    fontSize: 13,
-    marginBottom: 12,
-  },
-  aboutDescription: {
-    fontSize: 13,
-    textAlign: "center",
-    lineHeight: 18,
-  },
+  aboutLabel: { fontSize: 17 },
+  aboutValue: { fontSize: 15 },
 });

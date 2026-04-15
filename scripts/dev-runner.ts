@@ -30,6 +30,7 @@ const MODE_ARGS = {
     "--ui=tui",
     "--filter=@ace/contracts",
     "--filter=@ace/web",
+    "--filter=@ace/mobile",
     "--filter=ace",
     "--parallel",
   ],
@@ -41,6 +42,15 @@ const MODE_ARGS = {
     "--filter=@ace/contracts",
     "--filter=@ace/web",
     "--filter=ace",
+    "--parallel",
+  ],
+  "dev:mobile": [
+    "run",
+    "dev",
+    "--ui=tui",
+    "--filter=@ace/contracts",
+    "--filter=ace",
+    "--filter=@ace/mobile",
     "--parallel",
   ],
   "dev:desktop": ["run", "dev", "--filter=@ace/desktop", "--filter=@ace/web", "--parallel"],
@@ -218,12 +228,7 @@ export function createDevRunnerEnv({
       delete output.ACE_LOG_WS_EVENTS;
     }
 
-    if (mode === "dev") {
-      output.ACE_MODE = "web";
-      delete output.ACE_DESKTOP_WS_URL;
-    }
-
-    if (mode === "dev:server" || mode === "dev:web") {
+    if (mode === "dev" || mode === "dev:server" || mode === "dev:web" || mode === "dev:mobile") {
       output.ACE_MODE = "web";
       delete output.ACE_DESKTOP_WS_URL;
     }

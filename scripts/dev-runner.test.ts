@@ -145,6 +145,28 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       }),
     );
 
+    it.effect("treats dev:mobile like web runtime wiring", () =>
+      Effect.gen(function* () {
+        const env = yield* createDevRunnerEnv({
+          mode: "dev:mobile",
+          baseEnv: {},
+          serverOffset: 0,
+          webOffset: 0,
+          aceHome: undefined,
+          authToken: undefined,
+          noBrowser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.ACE_MODE, "web");
+        assert.equal(env.ACE_DAEMONIZED, "1");
+      }),
+    );
+
     it.effect("forwards explicit websocket logging false without coercing it away", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
@@ -309,6 +331,21 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         const taken = new Set([BASE_SERVER_PORT]);
         const offsets = yield* resolveModePortOffsets({
           mode: "dev:server",
+          startOffset: 0,
+          hasExplicitServerPort: false,
+          hasExplicitDevUrl: false,
+          checkPortAvailability: (port) => Effect.succeed(!taken.has(port)),
+        });
+
+        assert.deepStrictEqual(offsets, { serverOffset: 1, webOffset: 1 });
+      }),
+    );
+
+    it.effect("uses a shared fallback offset for dev:mobile", () =>
+      Effect.gen(function* () {
+        const taken = new Set([BASE_SERVER_PORT, BASE_WEB_PORT]);
+        const offsets = yield* resolveModePortOffsets({
+          mode: "dev:mobile",
           startOffset: 0,
           hasExplicitServerPort: false,
           hasExplicitDevUrl: false,
