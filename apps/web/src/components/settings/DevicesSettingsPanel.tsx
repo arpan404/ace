@@ -75,18 +75,10 @@ function normalizeHostsForMode(hosts: ReadonlyArray<RemoteHostInstance>, desktop
 }
 
 function maskPairingLinkForDisplay(connectionString: string): string {
-  try {
-    const parsed = parseHostConnectionQrPayload(connectionString);
-    if (parsed?.kind === "pairing") {
-      return parsed.pairing.wsUrl;
-    }
-  } catch {
-    // Fall through to generic truncation.
-  }
-  if (connectionString.length <= 64) {
+  if (connectionString.length <= 80) {
     return connectionString;
   }
-  return `${connectionString.slice(0, 40)}…${connectionString.slice(-20)}`;
+  return `${connectionString.slice(0, 50)}…${connectionString.slice(-25)}`;
 }
 
 export function DevicesSettingsPanel() {
