@@ -10,23 +10,29 @@ type AppStartupScreenProps = {
   readonly message: string;
 };
 
-const Spinner = () => (
-  <div className="flex items-center gap-1">
-    {[0, 1, 2].map((i) => (
-      <motion.div
-        key={i}
-        className="h-2 w-2 rounded-full bg-foreground/80"
-        animate={{ opacity: [0.3, 1, 0.3], scale: [0.7, 1.2, 0.7] }}
-        transition={{
-          duration: 1,
-          repeat: Infinity,
-          delay: i * 0.15,
-          ease: "easeInOut",
-        }}
-      />
-    ))}
-  </div>
-);
+const TriangularSpinner = () => {
+  const size = 10;
+  return (
+    <div className="relative" style={{ width: size, height: size }}>
+      <motion.svg
+        viewBox="0 0 10 10"
+        className="absolute inset-0"
+        animate={{ rotate: 360 }}
+        transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
+      >
+        <path
+          d="M5 1 L9 9 L1 9 Z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-foreground/80"
+        />
+      </motion.svg>
+    </div>
+  );
+};
 
 export function AppStartupScreen({ state, message }: AppStartupScreenProps) {
   const [currentWord, setCurrentWord] = useState(LOADING_WORDS[0] ?? "Starting");
@@ -70,6 +76,7 @@ export function AppStartupScreen({ state, message }: AppStartupScreenProps) {
         </div>
 
         <div className="flex items-center gap-3">
+          <TriangularSpinner />
           <motion.div
             key={currentWord}
             initial={{ opacity: 0, y: -6, filter: "blur(2px)" }}
@@ -79,7 +86,6 @@ export function AppStartupScreen({ state, message }: AppStartupScreenProps) {
           >
             {currentWord}
           </motion.div>
-          <Spinner />
         </div>
       </div>
     </div>
