@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
+  Alert,
   View,
   ScrollView,
   StyleSheet,
@@ -7,11 +8,13 @@ import {
   Pressable,
   RefreshControl,
   ActivityIndicator,
+  TextInput,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FolderOpen, ChevronRight, MessageSquare } from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
+import { createHostInstance } from "../../src/hostInstances";
 import { useHostStore } from "../../src/store/HostStore";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
 import { useOrchestrationSnapshot } from "../../src/hooks/useOrchestration";
@@ -46,7 +49,13 @@ export default function HostDetailScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const hosts = useHostStore((s) => s.hosts);
+  const updateHost = useHostStore((s) => s.updateHost);
+  const removeHost = useHostStore((s) => s.removeHost);
+  const setActiveHost = useHostStore((s) => s.setActiveHost);
   const host = hosts.find((h) => h.id === hostId);
+  const [hostNameInput, setHostNameInput] = useState("");
+  const [hostWsUrlInput, setHostWsUrlInput] = useState("");
+  const [hostTokenInput, setHostTokenInput] = useState("");
 
   const [connections, setConnections] = useState<ManagedConnection[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -55,6 +64,15 @@ export default function HostDetailScreen() {
     setConnections(connectionManager.getConnections());
     return connectionManager.onStatusChange(setConnections);
   }, []);
+
+  useEffect(() => {
+    if (!host) {
+      return;
+    }
+    setHostNameInput(host.name);
+    setHostWsUrlInput(host.wsUrl);
+    setHostTokenInput(host.authToken);
+  }, [host]);
 
   const conn = connections.find((c) => c.host.id === hostId) ?? null;
   const { snapshot, loading } = useOrchestrationSnapshot(conn);
@@ -123,6 +141,117 @@ export default function HostDetailScreen() {
           <Text style={[styles.statusText, { color: isConnected ? colors.green : colors.red }]}>
             {isConnected ? "Connected" : "Disconnected"}
           </Text>
+        </View>
+
+        <View style={styles.editorCard}>
+          <Text style={[styles.sectionLabel, { color: colors.muted, marginTop: 0 }]}>
+            HOST SETTINGS
+          </Text>
+          <Text style={[styles.inputLabel, { color: colors.muted }]}>Name</Text>
+          <TextInput
+            value={hostNameInput}
+            onChangeText={setHostNameInput}
+            style={[
+              styles.input,
+              {
+                color: colors.foreground,
+                borderColor: colors.separator,
+                backgroundColor: colors.background,
+              },
+            ]}
+            placeholder="My ace host"
+            placeholderTextColor={colors.muted}
+          />
+          <Text style={[styles.inputLabel, { color: colors.muted }]}>WebSocket URL</Text>
+          <TextInput
+            value={hostWsUrlInput}
+            onChangeText={setHostWsUrlInput}
+            style={[
+              styles.input,
+              {
+                color: colors.foreground,
+                borderColor: colors.separator,
+                backgroundColor: colors.background,
+              },
+            ]}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="ws://host:3773/ws"
+            placeholderTextColor={colors.muted}
+          />
+          <Text style={[styles.inputLabel, { color: colors.muted }]}>Auth token (optional)</Text>
+          <TextInput
+            value={hostTokenInput}
+            onChangeText={setHostTokenInput}
+            style={[
+              styles.input,
+              {
+                color: colors.foreground,
+                borderColor: colors.separator,
+                backgroundColor: colors.background,
+              },
+            ]}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="ACE_AUTH_TOKEN"
+            placeholderTextColor={colors.muted}
+            secureTextEntry
+          />
+          <View style={styles.editorActions}>
+            <Pressable
+              onPress={() => {
+                try {
+                  const nextHost = createHostInstance(
+                    {
+                      name: hostNameInput,
+                      wsUrl: hostWsUrlInput,
+                      authToken: hostTokenInput,
+                    },
+                    host,
+                  );
+                  updateHost(nextHost);
+                  setActiveHost(nextHost.id);
+                } catch (error) {
+                  const message = error instanceof Error ? error.message : "Could not save host.";
+                  Alert.alert("Invalid host configuration", message);
+                }
+              }}
+              style={({ pressed }) => [
+                styles.primaryAction,
+                { backgroundColor: colors.primary },
+                pressed && { opacity: 0.8 },
+              ]}
+            >
+              <Text style={[styles.primaryActionText, { color: colors.primaryForeground }]}>
+                Save Changes
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                Alert.alert("Delete host", "Remove this host from mobile?", [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: () => {
+                      removeHost(host.id);
+                      router.back();
+                    },
+                  },
+                ]);
+              }}
+              style={({ pressed }) => [
+                styles.secondaryAction,
+                {
+                  borderColor: colors.separator,
+                  backgroundColor: colors.secondaryGroupedBackground,
+                },
+                pressed && { opacity: 0.8 },
+              ]}
+            >
+              <Text style={[styles.secondaryActionText, { color: colors.red }]}>Delete Host</Text>
+            </Pressable>
+          </View>
         </View>
 
         {loading && !snapshot ? (
@@ -228,6 +357,52 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   loadingWrap: { paddingVertical: 40, alignItems: "center" },
+  editorCard: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    gap: 8,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.5,
+    marginTop: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 10,
+    fontSize: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  editorActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+  },
+  primaryAction: {
+    flex: 1,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+  },
+  primaryActionText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  secondaryAction: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+  },
+  secondaryActionText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
   statusBanner: {
     flexDirection: "row",
     alignItems: "center",
