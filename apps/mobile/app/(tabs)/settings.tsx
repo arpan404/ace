@@ -1,7 +1,16 @@
 import React, { useEffect, useState } from "react";
-import { View, ScrollView, StyleSheet, Pressable, Text, Switch } from "react-native";
+import { View, ScrollView, StyleSheet, Pressable, Text } from "react-native";
 import { useRouter } from "expo-router";
-import { Sun, Moon, Monitor, Trash2 } from "lucide-react-native";
+import {
+  CheckCircle2,
+  ChevronRight,
+  Monitor,
+  Moon,
+  Smartphone,
+  Sun,
+  Trash2,
+  XCircle,
+} from "lucide-react-native";
 import { useTheme } from "../../src/design/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHostStore } from "../../src/store/HostStore";
@@ -41,17 +50,16 @@ export default function SettingsScreen() {
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingTop: insets.top + 12, paddingBottom: 140 },
+          { paddingTop: insets.top + 10, paddingBottom: 140 },
         ]}
       >
-        <ScreenHeader title="Settings" subtitle="Configuration & preferences" />
+        <ScreenHeader title="Settings" subtitle="Hosts and app preferences" />
 
-        {/* Hosts Section */}
         <SectionHeader title="Hosts" />
         {hosts.length === 0 ? (
           <Card>
             <Text style={{ color: theme.mutedForeground, textAlign: "center" }}>
-              No hosts configured yet
+              Pair your first host to start using Ace.
             </Text>
           </Card>
         ) : (
@@ -69,12 +77,29 @@ export default function SettingsScreen() {
                     router.push({ pathname: `/settings/device/[id]`, params: { id: host.id } });
                   }}
                   rightElement={
-                    <Pressable
-                      onPress={() => removeHost(host.id)}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    <View style={styles.hostActions}>
+                      <Pressable
+                        onPress={() => removeHost(host.id)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Trash2 size={18} color={theme.dangerForeground} />
+                      </Pressable>
+                      <ChevronRight size={18} color={theme.mutedForeground} />
+                    </View>
+                  }
+                  leftElement={
+                    <View
+                      style={[
+                        styles.hostIcon,
+                        { backgroundColor: isConnected ? `${theme.primary}1a` : theme.surface },
+                      ]}
                     >
-                      <Trash2 size={18} color={theme.dangerForeground} />
-                    </Pressable>
+                      {isConnected ? (
+                        <CheckCircle2 size={14} color={theme.primary} />
+                      ) : (
+                        <XCircle size={14} color={theme.mutedForeground} />
+                      )}
+                    </View>
                   }
                 />
               );
@@ -83,13 +108,12 @@ export default function SettingsScreen() {
         )}
 
         <Button
-          title="Add New Host"
+          title="Pair host"
           onPress={() => router.push("/pairing")}
           variant="secondary"
           style={styles.addButton}
         />
 
-        {/* Theme Section */}
         <SectionHeader title="Appearance" />
         <Card style={styles.themeCard}>
           <View style={styles.themeOptions}>
@@ -125,51 +149,21 @@ export default function SettingsScreen() {
           </View>
         </Card>
 
-        {/* Notification Section */}
-        <SectionHeader title="Notifications" />
-        <List>
-          <ListItem
-            title="Push Notifications"
-            subtitle="Receive updates from your hosts"
-            rightElement={<Switch value={true} />}
-          />
-          <ListItem
-            title="Sound Alerts"
-            subtitle="Play sound for important events"
-            rightElement={<Switch value={true} />}
-          />
-        </List>
-
-        {/* About Section */}
         <SectionHeader title="About" />
         <Card style={styles.aboutCard}>
           <View style={styles.aboutContent}>
+            <View style={[styles.appIcon, { backgroundColor: `${theme.primary}1f` }]}>
+              <Smartphone size={18} color={theme.primary} />
+            </View>
             <Text style={[styles.aboutTitle, { color: theme.foreground }]}>Ace Mobile</Text>
             <Text style={[styles.aboutVersion, { color: theme.mutedForeground }]}>
               Version 1.0.0
             </Text>
             <Text style={[styles.aboutDescription, { color: theme.mutedForeground }]}>
-              A mobile interface for controlling coding agents and managing projects.
+              Native controls for coding agents, threads, and projects.
             </Text>
           </View>
         </Card>
-
-        {/* Advanced Section */}
-        <SectionHeader title="Advanced" />
-        <List>
-          <ListItem
-            title="Debug Mode"
-            subtitle="Enable verbose logging"
-            rightElement={<Switch value={false} />}
-          />
-          <ListItem
-            title="WebSocket History"
-            subtitle="View connection logs"
-            onPress={() => {
-              // Could navigate to debug screen
-            }}
-          />
-        </List>
       </ScrollView>
     </SafeScreen>
   );
@@ -181,7 +175,8 @@ const styles = StyleSheet.create({
   },
   addButton: {
     marginHorizontal: 0,
-    marginVertical: 16,
+    marginTop: 14,
+    marginBottom: 18,
   },
   themeCard: {
     paddingVertical: 16,
@@ -199,12 +194,32 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
+  hostActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  hostIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   aboutCard: {
     paddingVertical: 24,
     paddingHorizontal: 16,
   },
   aboutContent: {
     alignItems: "center",
+  },
+  appIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
   },
   aboutTitle: {
     fontSize: 18,
