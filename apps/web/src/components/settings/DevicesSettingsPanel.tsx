@@ -53,7 +53,6 @@ interface HostDraftState {
 
 interface PairingLinkState {
   readonly connectionString: string;
-  readonly wsUrl: string;
   readonly expiresAt: string;
   readonly qrDataUrl: string | null;
 }
@@ -77,14 +76,9 @@ function normalizeHostsForMode(hosts: ReadonlyArray<RemoteHostInstance>, desktop
 
 function maskPairingLinkForDisplay(connectionString: string): string {
   try {
-    const parsed = new URL(connectionString);
-    if (parsed.protocol === "ace:" && parsed.searchParams.has("p")) {
-      const encodedPayload = parsed.searchParams.get("p") ?? "";
-      const maskedPayload =
-        encodedPayload.length > 20
-          ? `${encodedPayload.slice(0, 10)}…${encodedPayload.slice(-10)}`
-          : "••••••••••";
-      return `ace://pair?p=${maskedPayload}`;
+    const parsed = parseHostConnectionQrPayload(connectionString);
+    if (parsed?.kind === "pairing") {
+      return parsed.pairing.wsUrl;
     }
   } catch {
     // Fall through to generic truncation.
@@ -358,7 +352,6 @@ export function DevicesSettingsPanel() {
       });
       setPairingLink({
         connectionString,
-        wsUrl: advertisedEndpoint.wsUrl,
         expiresAt: created.expiresAt,
         qrDataUrl,
       });
@@ -489,60 +482,42 @@ export function DevicesSettingsPanel() {
           }
         >
           {pairingLink ? (
-            <div className="mt-3 flex flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <code className="max-w-full break-all rounded bg-muted px-2 py-1 text-[10px]">
-                  {maskPairingLinkForDisplay(pairingLink.connectionString)}
-                </code>
-                <Button
-                  size="xs"
-                  variant="outline"
-                  onClick={() =>
-                    copyToClipboard(pairingLink.connectionString, {
-                      label: "Pairing link",
-                    })
-                  }
-                >
-                  <CopyIcon className="size-3.5" />
-                  Copy link
-                </Button>
-                <Popover>
-                  <PopoverTrigger className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
-                    <QrCodeIcon className="size-3.5" />
-                    QR
-                  </PopoverTrigger>
-                  <PopoverPopup side="bottom" align="end" className="w-fit p-2">
-                    <div className="w-fit rounded-md border border-border/60 bg-background p-2">
-                      {pairingLink.qrDataUrl ? (
-                        <img
-                          src={pairingLink.qrDataUrl}
-                          alt="Pairing link QR code"
-                          className="size-40 rounded-sm bg-white p-1"
-                        />
-                      ) : null}
-                      <div className="mt-1 text-[10px] text-muted-foreground">
-                        Expires {formatRelativeTimeLabel(pairingLink.expiresAt)}
-                      </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <code className="max-w-full break-all rounded bg-muted px-2 py-1 text-[10px]">
+                {maskPairingLinkForDisplay(pairingLink.connectionString)}
+              </code>
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() =>
+                  copyToClipboard(pairingLink.connectionString, {
+                    label: "Pairing link",
+                  })
+                }
+              >
+                <CopyIcon className="size-3.5" />
+                Copy link
+              </Button>
+              <Popover>
+                <PopoverTrigger className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
+                  <QrCodeIcon className="size-3.5" />
+                  QR
+                </PopoverTrigger>
+                <PopoverPopup side="bottom" align="end" className="w-fit p-2">
+                  <div className="w-fit rounded-md border border-border/60 bg-background p-2">
+                    {pairingLink.qrDataUrl ? (
+                      <img
+                        src={pairingLink.qrDataUrl}
+                        alt="Pairing link QR code"
+                        className="size-40 rounded-sm bg-white p-1"
+                      />
+                    ) : null}
+                    <div className="mt-1 text-[10px] text-muted-foreground">
+                      Expires {formatRelativeTimeLabel(pairingLink.expiresAt)}
                     </div>
-                  </PopoverPopup>
-                </Popover>
-              </div>
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                <span>Connects to:</span>
-                <code className="rounded bg-muted px-1.5 py-0.5">{pairingLink.wsUrl}</code>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  className="h-5 px-1 text-[10px]"
-                  onClick={() =>
-                    copyToClipboard(pairingLink.wsUrl, {
-                      label: "Host URL",
-                    })
-                  }
-                >
-                  <CopyIcon className="size-2.5" />
-                </Button>
-              </div>
+                  </div>
+                </PopoverPopup>
+              </Popover>
             </div>
           ) : null}
         </SettingsRow>
