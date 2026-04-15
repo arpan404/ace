@@ -6,6 +6,7 @@ export interface HostConnectionDraft {
 
 export interface HostPairingPayload {
   readonly name?: string;
+  readonly wsUrl: string;
   readonly sessionId: string;
   readonly secret: string;
   readonly claimUrl?: string;
@@ -95,6 +96,7 @@ function parseAceSchemePayload(rawPayload: string): QrHostPayload | null {
       ...(url ? { url } : {}),
       ...(token ? { token } : {}),
       ...(decodedPairingPayload?.name ? { name: decodedPairingPayload.name } : {}),
+      ...(decodedPairingPayload?.wsUrl ? { wsUrl: decodedPairingPayload.wsUrl } : {}),
       ...(decodedPairingPayload?.sessionId ? { sessionId: decodedPairingPayload.sessionId } : {}),
       ...(decodedPairingPayload?.secret ? { secret: decodedPairingPayload.secret } : {}),
       ...(decodedPairingPayload?.claimUrl ? { claimUrl: decodedPairingPayload.claimUrl } : {}),
@@ -142,6 +144,7 @@ function decodeBase64UrlUtf8(input: string): string | null {
 
 function decodeEncodedPairingPayload(encodedPayload: string | null): {
   readonly name?: string;
+  readonly wsUrl?: string;
   readonly sessionId?: string;
   readonly secret?: string;
   readonly claimUrl?: string;
@@ -164,6 +167,7 @@ function decodeEncodedPairingPayload(encodedPayload: string | null): {
   }
   const value = parsed as {
     readonly name?: unknown;
+    readonly wsUrl?: unknown;
     readonly sessionId?: unknown;
     readonly secret?: unknown;
     readonly claimUrl?: unknown;
@@ -171,6 +175,9 @@ function decodeEncodedPairingPayload(encodedPayload: string | null): {
   return {
     ...(typeof value.name === "string" && value.name.trim().length > 0
       ? { name: value.name.trim() }
+      : {}),
+    ...(typeof value.wsUrl === "string" && value.wsUrl.trim().length > 0
+      ? { wsUrl: value.wsUrl.trim() }
       : {}),
     ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
     ...(typeof value.secret === "string" ? { secret: value.secret } : {}),
@@ -217,6 +224,10 @@ function resolvePairingFromPayload(payload: QrHostPayload): HostPairingPayload |
   if (trimmedSessionId.length === 0 || trimmedSecret.length === 0) {
     return null;
   }
+  const wsUrl = payload.wsUrl ?? payload.url ?? payload.ws;
+  if (typeof wsUrl !== "string" || wsUrl.trim().length === 0) {
+    return null;
+  }
   const claimUrl = payload.claimUrl ?? payload.pairingUrl;
   const pollingUrl = payload.pollingUrl;
   if (typeof claimUrl === "string") {
@@ -228,6 +239,7 @@ function resolvePairingFromPayload(payload: QrHostPayload): HostPairingPayload |
       ...(typeof payload.name === "string" && payload.name.trim().length > 0
         ? { name: payload.name.trim() }
         : {}),
+      wsUrl: wsUrl.trim(),
       sessionId: trimmedSessionId,
       secret: trimmedSecret,
       claimUrl: normalizedClaimUrl,
@@ -238,6 +250,7 @@ function resolvePairingFromPayload(payload: QrHostPayload): HostPairingPayload |
       ...(typeof payload.name === "string" && payload.name.trim().length > 0
         ? { name: payload.name.trim() }
         : {}),
+      wsUrl: wsUrl.trim(),
       sessionId: trimmedSessionId,
       secret: trimmedSecret,
       pollingUrl: pollingUrl.trim(),
@@ -301,6 +314,10 @@ export function buildPairingPayload(input: HostPairingPayload): string {
   if (!claimUrl) {
     throw new Error("Pairing claim URL must use http:// or https://.");
   }
+  const wsUrl = input.wsUrl.trim();
+  if (wsUrl.length === 0) {
+    throw new Error("Pairing host URL is required.");
+  }
   const sessionId = input.sessionId.trim();
   const secret = input.secret.trim();
   if (sessionId.length === 0 || secret.length === 0) {
@@ -310,6 +327,7 @@ export function buildPairingPayload(input: HostPairingPayload): string {
   return JSON.stringify(
     {
       ...(name.length > 0 ? { name } : {}),
+      wsUrl,
       sessionId,
       secret,
       claimUrl,
