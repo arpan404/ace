@@ -106,7 +106,10 @@ export function DevicesSettingsPanel() {
   const [pairingLink, setPairingLink] = useState<PairingLinkState | null>(null);
   const [creatingPairingLink, setCreatingPairingLink] = useState(false);
   const [hostAvailability, setHostAvailability] = useState<
-    Record<string, "checking" | "available" | "unavailable" | "unauthenticated">
+    Record<
+      string,
+      { status: "checking" | "available" | "unavailable" | "unauthenticated"; requestId: number }
+    >
   >({});
   const [connectingHostId, setConnectingHostId] = useState<string | "local" | null>(null);
   const activeWsUrl = useMemo(() => resolveActiveWsUrl(), []);
@@ -341,7 +344,7 @@ export function DevicesSettingsPanel() {
       const connectionString = buildHostPairingConnectionString({
         sessionId: created.sessionId,
         secret: created.secret,
-        claimUrl: created.claimUrl,
+        ...(created.claimUrl ? { claimUrl: created.claimUrl } : {}),
       });
       const qrDataUrl = await QRCode.toDataURL(connectionString, {
         margin: 1,
@@ -371,25 +374,35 @@ export function DevicesSettingsPanel() {
     if (hosts.length === 0) {
       return;
     }
+    const requestId = Date.now();
     await Promise.all(
       hosts.map(async (host) => {
-        setHostAvailability((current) => ({ ...current, [host.id]: "checking" }));
+        setHostAvailability((current) => ({
+          ...current,
+          [host.id]: { status: "checking", requestId },
+        }));
         try {
           await readHostPairingAdvertisedEndpoint({
             wsUrl: host.wsUrl,
             ...(host.authToken ? { authToken: host.authToken } : {}),
           });
-          setHostAvailability((current) => ({ ...current, [host.id]: "available" }));
+          setHostAvailability((current) => {
+            if (current[host.id]?.requestId !== requestId) return current;
+            return { ...current, [host.id]: { status: "available", requestId } };
+          });
         } catch (error) {
           const message = error instanceof Error ? error.message.toLowerCase() : "";
           const unauthenticated =
             message.includes("invalid") ||
             message.includes("unauthorized") ||
             message.includes("401");
-          setHostAvailability((current) => ({
-            ...current,
-            [host.id]: unauthenticated ? "unauthenticated" : "unavailable",
-          }));
+          setHostAvailability((current) => {
+            if (current[host.id]?.requestId !== requestId) return current;
+            return {
+              ...current,
+              [host.id]: { status: unauthenticated ? "unauthenticated" : "unavailable", requestId },
+            };
+          });
         }
       }),
     );
@@ -632,17 +645,17 @@ export function DevicesSettingsPanel() {
                 status={
                   <>
                     <span className="block">
-                      {hostAvailability[host.id] === "available" ? (
+                      {hostAvailability[host.id]?.status === "available" ? (
                         <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-300">
                           <CheckCircle2Icon className="size-3.5" />
                           Available
                         </span>
-                      ) : hostAvailability[host.id] === "unauthenticated" ? (
+                      ) : hostAvailability[host.id]?.status === "unauthenticated" ? (
                         <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-300">
                           <ShieldAlertIcon className="size-3.5" />
                           Unauthenticated
                         </span>
-                      ) : hostAvailability[host.id] === "checking" ? (
+                      ) : hostAvailability[host.id]?.status === "checking" ? (
                         "Checking availability…"
                       ) : (
                         <span className="inline-flex items-center gap-1 text-muted-foreground">
