@@ -740,7 +740,7 @@ function TerminalViewport({
       if (navigationData !== null) {
         event.preventDefault();
         event.stopPropagation();
-        void sendTerminalInput(navigationData, "Failed to move cursor");
+        void sendTerminalInput(navigationData, "Failed to send terminal shortcut");
         return false;
       }
 

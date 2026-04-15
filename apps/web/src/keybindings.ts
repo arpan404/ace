@@ -38,6 +38,7 @@ const TERMINAL_WORD_BACKWARD = "\u001bb";
 const TERMINAL_WORD_FORWARD = "\u001bf";
 const TERMINAL_LINE_START = "\u0001";
 const TERMINAL_LINE_END = "\u0005";
+const TERMINAL_DELETE_TO_LINE_START = "\u0015";
 const EVENT_CODE_KEY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   BracketLeft: ["["],
   BracketRight: ["]"],
@@ -511,6 +512,16 @@ export function terminalNavigationShortcutData(
   if (event.shiftKey) return null;
 
   const key = normalizeEventKey(event.key);
+  if (
+    key === "backspace" &&
+    isMacPlatform(platform) &&
+    event.metaKey &&
+    !event.altKey &&
+    !event.ctrlKey
+  ) {
+    return TERMINAL_DELETE_TO_LINE_START;
+  }
+
   if (key !== "arrowleft" && key !== "arrowright") {
     return null;
   }

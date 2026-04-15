@@ -958,6 +958,13 @@ describe("isTerminalClearShortcut", () => {
 });
 
 describe("terminalNavigationShortcutData", () => {
+  it("maps Cmd+Backspace on macOS to delete to line start", () => {
+    assert.strictEqual(
+      terminalNavigationShortcutData(event({ key: "Backspace", metaKey: true }), "MacIntel"),
+      "\u0015",
+    );
+  });
+
   it("maps Option+Arrow on macOS to word movement", () => {
     assert.strictEqual(
       terminalNavigationShortcutData(event({ key: "ArrowLeft", altKey: true }), "MacIntel"),
@@ -1000,6 +1007,9 @@ describe("terminalNavigationShortcutData", () => {
     );
     assert.isNull(
       terminalNavigationShortcutData(event({ key: "ArrowLeft", metaKey: true }), "Linux"),
+    );
+    assert.isNull(
+      terminalNavigationShortcutData(event({ key: "Backspace", metaKey: true }), "Linux"),
     );
     assert.isNull(terminalNavigationShortcutData(event({ key: "a", altKey: true }), "MacIntel"));
   });

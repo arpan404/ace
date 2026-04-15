@@ -139,15 +139,15 @@ export function ensureMonacoConfigured(): void {
 
   updateLanguageDiagnosticsOptions(typescriptNamespace, "javascriptDefaults", (current) => ({
     ...current,
-    noSemanticValidation: false,
-    noSuggestionDiagnostics: false,
-    noSyntaxValidation: false,
+    noSemanticValidation: true,
+    noSuggestionDiagnostics: true,
+    noSyntaxValidation: true,
   }));
   updateLanguageDiagnosticsOptions(typescriptNamespace, "typescriptDefaults", (current) => ({
     ...current,
-    noSemanticValidation: false,
-    noSuggestionDiagnostics: false,
-    noSyntaxValidation: false,
+    noSemanticValidation: true,
+    noSuggestionDiagnostics: true,
+    noSyntaxValidation: true,
   }));
   updateLanguageCompilerOptions(typescriptNamespace, "javascriptDefaults", (current) => ({
     ...current,
@@ -176,21 +176,21 @@ export function ensureMonacoConfigured(): void {
   setLanguageEagerModelSync(typescriptNamespace, "typescriptDefaults", true);
   updateLanguageDiagnosticsOptions(jsonNamespace, "jsonDefaults", (current) => ({
     ...current,
-    schemaRequest: "warning",
-    schemaValidation: "warning",
-    validate: true,
+    schemaRequest: "ignore",
+    schemaValidation: "ignore",
+    validate: false,
   }));
   updateLanguageOptions(cssNamespace, "cssDefaults", (current) => ({
     ...current,
-    validate: true,
+    validate: false,
   }));
   updateLanguageOptions(cssNamespace, "scssDefaults", (current) => ({
     ...current,
-    validate: true,
+    validate: false,
   }));
   updateLanguageOptions(cssNamespace, "lessDefaults", (current) => ({
     ...current,
-    validate: true,
+    validate: false,
   }));
   monaco.editor.defineTheme("ace-carbon", {
     base: "vs-dark",

@@ -74,6 +74,9 @@ import {
   WorkspaceEditorCloseBufferError,
   WorkspaceEditorCloseBufferInput,
   WorkspaceEditorCloseBufferResult,
+  WorkspaceEditorCompleteError,
+  WorkspaceEditorCompleteInput,
+  WorkspaceEditorCompleteResult,
   WorkspaceEditorSyncBufferError,
   WorkspaceEditorSyncBufferInput,
   WorkspaceEditorSyncBufferResult,
@@ -92,7 +95,10 @@ import {
 import {
   ServerConfigStreamEvent,
   ServerConfig,
+  ServerInstallLspToolInput,
   ServerInstallLspToolsInput,
+  ServerLspMarketplaceSearchInput,
+  ServerLspMarketplaceSearchResult,
   ServerLspToolsError,
   ServerLspToolsStatus,
   ServerSearchOpenCodeModelsInput,
@@ -119,6 +125,7 @@ export const WS_METHODS = {
   projectsWriteFile: "projects.writeFile",
   workspaceEditorSyncBuffer: "workspaceEditor.syncBuffer",
   workspaceEditorCloseBuffer: "workspaceEditor.closeBuffer",
+  workspaceEditorComplete: "workspaceEditor.complete",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -155,6 +162,8 @@ export const WS_METHODS = {
   serverSearchOpenCodeModels: "server.searchOpenCodeModels",
   serverGetLspToolsStatus: "server.getLspToolsStatus",
   serverInstallLspTools: "server.installLspTools",
+  serverSearchLspMarketplace: "server.searchLspMarketplace",
+  serverInstallLspTool: "server.installLspTool",
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
@@ -218,6 +227,18 @@ export const WsServerGetLspToolsStatusRpc = Rpc.make(WS_METHODS.serverGetLspTool
 
 export const WsServerInstallLspToolsRpc = Rpc.make(WS_METHODS.serverInstallLspTools, {
   payload: ServerInstallLspToolsInput,
+  success: ServerLspToolsStatus,
+  error: ServerLspToolsError,
+});
+
+export const WsServerSearchLspMarketplaceRpc = Rpc.make(WS_METHODS.serverSearchLspMarketplace, {
+  payload: ServerLspMarketplaceSearchInput,
+  success: ServerLspMarketplaceSearchResult,
+  error: ServerLspToolsError,
+});
+
+export const WsServerInstallLspToolRpc = Rpc.make(WS_METHODS.serverInstallLspTool, {
+  payload: ServerInstallLspToolInput,
   success: ServerLspToolsStatus,
   error: ServerLspToolsError,
 });
@@ -291,6 +312,12 @@ export const WsWorkspaceEditorCloseBufferRpc = Rpc.make(WS_METHODS.workspaceEdit
   payload: WorkspaceEditorCloseBufferInput,
   success: WorkspaceEditorCloseBufferResult,
   error: WorkspaceEditorCloseBufferError,
+});
+
+export const WsWorkspaceEditorCompleteRpc = Rpc.make(WS_METHODS.workspaceEditorComplete, {
+  payload: WorkspaceEditorCompleteInput,
+  success: WorkspaceEditorCompleteResult,
+  error: WorkspaceEditorCompleteError,
 });
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
@@ -488,6 +515,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerSearchOpenCodeModelsRpc,
   WsServerGetLspToolsStatusRpc,
   WsServerInstallLspToolsRpc,
+  WsServerSearchLspMarketplaceRpc,
+  WsServerInstallLspToolRpc,
   WsServerUpsertKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
@@ -501,6 +530,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsWorkspaceEditorSyncBufferRpc,
   WsWorkspaceEditorCloseBufferRpc,
+  WsWorkspaceEditorCompleteRpc,
   WsShellOpenInEditorRpc,
   WsShellRevealInFileManagerRpc,
   WsGitStatusRpc,

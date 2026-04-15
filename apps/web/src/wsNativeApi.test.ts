@@ -58,6 +58,7 @@ const rpcClientMock = {
   workspaceEditor: {
     syncBuffer: vi.fn(),
     closeBuffer: vi.fn(),
+    complete: vi.fn(),
   },
   shell: {
     openInEditor: vi.fn(),
@@ -84,6 +85,8 @@ const rpcClientMock = {
     refreshProviders: vi.fn(),
     getLspToolsStatus: vi.fn(),
     installLspTools: vi.fn(),
+    searchLspMarketplace: vi.fn(),
+    installLspTool: vi.fn(),
     upsertKeybinding: vi.fn(),
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
