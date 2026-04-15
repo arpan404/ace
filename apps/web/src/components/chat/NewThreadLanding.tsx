@@ -3,7 +3,10 @@ import { ArrowRightIcon, PlusIcon, SquarePenIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { isElectron } from "~/env";
-import { MAC_TITLEBAR_LEFT_INSET_STYLE } from "~/lib/desktopChrome";
+import {
+  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+  MAC_TITLEBAR_LEFT_INSET_STYLE,
+} from "~/lib/desktopChrome";
 import { cn } from "~/lib/utils";
 import { useHandleNewThread } from "~/hooks/useHandleNewThread";
 import { useSettings } from "~/hooks/useSettings";
@@ -15,7 +18,7 @@ import { SidebarTrigger, useSidebar } from "../ui/sidebar";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
 
 export function NewThreadLanding() {
-  const { state: sidebarState } = useSidebar();
+  const { isMobile, state: sidebarState } = useSidebar();
   const projects = useStore((store) => store.projects);
   const activeProjects = useMemo(
     () => projects.filter((project) => project.archivedAt === null),
@@ -38,6 +41,7 @@ export function NewThreadLanding() {
     [activeProjectId, activeProjects],
   );
   const hasProjects = activeProjects.length > 0;
+  const showSidebarToggle = isMobile || sidebarState === "collapsed";
   const startNewThread = useCallback(() => {
     if (activeProjectId === null) {
       return;
@@ -61,7 +65,9 @@ export function NewThreadLanding() {
           )}
         >
           <div className="flex items-start gap-3">
-            <SidebarTrigger className="size-9 shrink-0 rounded-xl border border-border bg-muted/60 [&_svg]:size-4" />
+            {showSidebarToggle ? (
+              <SidebarTrigger className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME} />
+            ) : null}
             <div className="min-w-0">
               <p className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
                 Start
