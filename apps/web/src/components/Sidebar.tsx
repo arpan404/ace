@@ -2,10 +2,8 @@ import {
   ArchiveIcon,
   ArrowUpDownIcon,
   ChevronRightIcon,
-  ChevronsUpDownIcon,
   FolderIcon,
   GitPullRequestIcon,
-  LaptopIcon,
   PlusIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -153,17 +151,6 @@ import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
 import { useSidebarThreadSummaryById } from "../storeSelectors";
 import type { Project, SidebarThreadSummary } from "../types";
-import {
-  connectToWsHost,
-  isHostConnectionActive,
-  loadRemoteHostInstances,
-  resolveHostConnectionWsUrl,
-  resolveLocalDeviceWsUrl,
-  verifyWsHostConnection,
-  splitWsUrlAuthToken,
-  resolveActiveWsUrl,
-  type RemoteHostInstance,
-} from "../lib/remoteHosts";
 const THREAD_REVEAL_STEP = 5;
 const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
 const sortedSidebarThreadsCache = new WeakMap<
@@ -883,9 +870,6 @@ export default function Sidebar() {
   const suppressProjectClickForContextMenuRef = useRef(false);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
   const [isSidebarHeaderCompact, setIsSidebarHeaderCompact] = useState(false);
-  const [savedRemoteHosts, setSavedRemoteHosts] = useState<RemoteHostInstance[]>(() =>
-    loadRemoteHostInstances(),
-  );
   const selectedThreadIds = useThreadSelectionStore((s) => s.selectedThreadIds);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
@@ -894,20 +878,6 @@ export default function Sidebar() {
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const platform = navigator.platform;
   const shouldShowProjectPathEntry = addingProject;
-  const activeHostWsUrl = useMemo(() => resolveActiveWsUrl(), []);
-  const localHostIdentity = useMemo(() => splitWsUrlAuthToken(resolveLocalDeviceWsUrl()), []);
-  const localHostConnectionUrl = useMemo(() => {
-    return resolveHostConnectionWsUrl(localHostIdentity);
-  }, [localHostIdentity]);
-  const localHostIsActive = useMemo(
-    () => isHostConnectionActive(localHostIdentity, activeHostWsUrl),
-    [activeHostWsUrl, localHostIdentity],
-  );
-  const activeRemoteHost = useMemo(
-    () => savedRemoteHosts.find((host) => isHostConnectionActive(host, activeHostWsUrl)) ?? null,
-    [activeHostWsUrl, savedRemoteHosts],
-  );
-  const hostSwitcherLabel = activeRemoteHost?.name ?? "Current device";
   const activeProjects = useMemo(
     () => projects.filter((project) => project.archivedAt === null),
     [projects],
@@ -2281,7 +2251,6 @@ export default function Sidebar() {
   const desktopUpdateButtonAction = desktopUpdateState
     ? resolveDesktopUpdateButtonAction(desktopUpdateState)
     : "none";
-  const [switchingHostTarget, setSwitchingHostTarget] = useState<string | null>(null);
   const showArm64IntelBuildWarning =
     isElectron && shouldShowArm64IntelBuildWarning(desktopUpdateState);
   const arm64IntelBuildWarningDescription =
@@ -2308,19 +2277,6 @@ export default function Sidebar() {
 
     return () => {
       observer.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    const syncHosts = () => {
-      setSavedRemoteHosts(loadRemoteHostInstances());
-    };
-    syncHosts();
-    window.addEventListener("storage", syncHosts);
-    const handle = window.setInterval(syncHosts, 10_000);
-    return () => {
-      window.removeEventListener("storage", syncHosts);
-      window.clearInterval(handle);
     };
   }, []);
 
@@ -2385,29 +2341,6 @@ export default function Sidebar() {
         });
     }
   }, [desktopUpdateButtonAction, desktopUpdateButtonDisabled, desktopUpdateState]);
-
-  const switchToHostConnection = useCallback(
-    async (targetWsUrl: string) => {
-      if (switchingHostTarget !== null) {
-        return;
-      }
-      setSwitchingHostTarget(targetWsUrl);
-      try {
-        await verifyWsHostConnection(targetWsUrl);
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Could not switch host.",
-          description:
-            error instanceof Error ? error.message : "Host connection check did not complete.",
-        });
-        setSwitchingHostTarget(null);
-        return;
-      }
-      connectToWsHost(targetWsUrl);
-    },
-    [switchingHostTarget],
-  );
 
   const expandThreadListForProject = useCallback((projectId: ProjectId) => {
     startTransition(() => {
@@ -2650,64 +2583,6 @@ export default function Sidebar() {
                   Projects
                 </span>
                 <div className="flex items-center gap-1">
-                  <Menu>
-                    <MenuTrigger
-                      render={
-                        <button
-                          type="button"
-                          className="inline-flex h-5 items-center gap-1 rounded-md border border-border/60 px-1.5 text-[10px] text-muted-foreground/80 hover:bg-accent hover:text-foreground"
-                          aria-label="Switch thread source device"
-                        />
-                      }
-                    >
-                      <span className="max-w-24 truncate">{hostSwitcherLabel}</span>
-                      <ChevronsUpDownIcon className="size-3" />
-                    </MenuTrigger>
-                    <MenuPopup align="end" side="bottom" className="min-w-52">
-                      <MenuGroup>
-                        <button
-                          type="button"
-                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs ${
-                            localHostIsActive
-                              ? "bg-accent text-foreground"
-                              : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                          }`}
-                          onClick={() => void switchToHostConnection(localHostConnectionUrl)}
-                          disabled={switchingHostTarget !== null}
-                        >
-                          <LaptopIcon className="size-3.5" />
-                          <span className="truncate">Current device</span>
-                        </button>
-                        {savedRemoteHosts.map((host) => {
-                          const active = isHostConnectionActive(host, activeHostWsUrl);
-                          return (
-                            <button
-                              key={host.id}
-                              type="button"
-                              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs ${
-                                active
-                                  ? "bg-accent text-foreground"
-                                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                              }`}
-                              onClick={() =>
-                                void switchToHostConnection(resolveHostConnectionWsUrl(host))
-                              }
-                              disabled={switchingHostTarget !== null}
-                            >
-                              <ProjectGlyphIcon
-                                icon={{
-                                  glyph: host.iconGlyph ?? "folder",
-                                  color: host.iconColor ?? "slate",
-                                }}
-                                className="size-3.5"
-                              />
-                              <span className="truncate">{host.name}</span>
-                            </button>
-                          );
-                        })}
-                      </MenuGroup>
-                    </MenuPopup>
-                  </Menu>
                   <ProjectSortMenu
                     projectSortOrder={appSettings.sidebarProjectSortOrder}
                     threadSortOrder={appSettings.sidebarThreadSortOrder}

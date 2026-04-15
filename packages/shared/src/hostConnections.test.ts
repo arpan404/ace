@@ -16,6 +16,14 @@ function mockResponse(status: number, payload: unknown) {
   };
 }
 
+function encodeBase64UrlUtf8(input: string): string {
+  return Buffer.from(input, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
 describe("hostConnections", () => {
   it("parses legacy direct host payloads", () => {
     const direct = parseHostConnectionQrPayload("ws://localhost:3773/ws?token=abc");
@@ -38,6 +46,27 @@ describe("hostConnections", () => {
       }),
     );
     expect(parsed).toBeNull();
+  });
+
+  it("parses encoded pairing payloads", () => {
+    const encoded = encodeBase64UrlUtf8(
+      JSON.stringify({
+        name: "Primary host",
+        sessionId: "session-1",
+        secret: "secret-1",
+        claimUrl: "https://example.com/api/pairing/claims",
+      }),
+    );
+    const parsed = parseHostConnectionQrPayload(`ace://pair?p=${encoded}`);
+    expect(parsed).toEqual({
+      kind: "pairing",
+      pairing: {
+        name: "Primary host",
+        sessionId: "session-1",
+        secret: "secret-1",
+        claimUrl: "https://example.com/api/pairing/claims",
+      },
+    });
   });
 
   it("requests claim and waits for pairing approval", async () => {

@@ -82,14 +82,20 @@ function parseAceSchemePayload(rawPayload: string): QrHostPayload | null {
     const url = parsed.searchParams.get("url");
     const token = parsed.searchParams.get("token");
     const name = parsed.searchParams.get("name");
+    const encodedPairing = parsed.searchParams.get("p");
     const sessionId = parsed.searchParams.get("sessionId") ?? parsed.searchParams.get("pairingId");
     const secret = parsed.searchParams.get("secret") ?? parsed.searchParams.get("pairingSecret");
     const claimUrl = parsed.searchParams.get("claimUrl") ?? parsed.searchParams.get("pairingUrl");
+    const decodedPairingPayload = decodeEncodedPairingPayload(encodedPairing);
     return {
       ...(name ? { name } : {}),
       ...(wsUrl ? { wsUrl } : {}),
       ...(url ? { url } : {}),
       ...(token ? { token } : {}),
+      ...(decodedPairingPayload?.name ? { name: decodedPairingPayload.name } : {}),
+      ...(decodedPairingPayload?.sessionId ? { sessionId: decodedPairingPayload.sessionId } : {}),
+      ...(decodedPairingPayload?.secret ? { secret: decodedPairingPayload.secret } : {}),
+      ...(decodedPairingPayload?.claimUrl ? { claimUrl: decodedPairingPayload.claimUrl } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(secret ? { secret } : {}),
       ...(claimUrl ? { claimUrl } : {}),
@@ -97,6 +103,77 @@ function parseAceSchemePayload(rawPayload: string): QrHostPayload | null {
   } catch {
     return null;
   }
+}
+
+function decodeBase64UrlUtf8(input: string): string | null {
+  const normalized = input.trim().replace(/-/g, "+").replace(/_/g, "/");
+  if (normalized.length === 0) {
+    return null;
+  }
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  try {
+    const binary =
+      typeof atob === "function"
+        ? atob(padded)
+        : (
+            globalThis as {
+              Buffer?: {
+                from: (
+                  value: string,
+                  encoding: string,
+                ) => { toString: (encoding: string) => string };
+              };
+            }
+          ).Buffer?.from(padded, "base64")?.toString("binary");
+    if (!binary) {
+      return null;
+    }
+    const percentEncoded = Array.from(
+      binary,
+      (character) => `%${character.charCodeAt(0).toString(16).padStart(2, "0")}`,
+    ).join("");
+    return decodeURIComponent(percentEncoded);
+  } catch {
+    return null;
+  }
+}
+
+function decodeEncodedPairingPayload(encodedPayload: string | null): {
+  readonly name?: string;
+  readonly sessionId?: string;
+  readonly secret?: string;
+  readonly claimUrl?: string;
+} | null {
+  if (!encodedPayload) {
+    return null;
+  }
+  const decodedText = decodeBase64UrlUtf8(encodedPayload);
+  if (!decodedText) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decodedText) as unknown;
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+  const value = parsed as {
+    readonly name?: unknown;
+    readonly sessionId?: unknown;
+    readonly secret?: unknown;
+    readonly claimUrl?: unknown;
+  };
+  return {
+    ...(typeof value.name === "string" && value.name.trim().length > 0
+      ? { name: value.name.trim() }
+      : {}),
+    ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
+    ...(typeof value.secret === "string" ? { secret: value.secret } : {}),
+    ...(typeof value.claimUrl === "string" ? { claimUrl: value.claimUrl } : {}),
+  };
 }
 
 function resolveDraftFromPayload(payload: QrHostPayload): HostConnectionDraft | null {

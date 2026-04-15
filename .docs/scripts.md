@@ -2,8 +2,8 @@
 
 - `bun run dev` — Starts contracts, server, and web in `turbo watch` mode.
 - `bun run dev:server` — Starts just the WebSocket server (uses Bun TypeScript execution).
-- `bun run dev:web` — Starts just the Vite dev server for the web app.
-- Dev commands default `ACE_STATE_DIR` to `~/.ace/dev` to keep dev state isolated from desktop/prod state.
+- `bun run dev:web` — Starts web + server in a paired dev flow.
+- Dev commands default `ACE_HOME` to `~/.ace-dev` to keep dev data isolated from desktop/prod state.
 - Override server CLI-equivalent flags from root dev commands with `--`, for example:
   `bun run dev -- --base-dir ~/.ace-2`
 - `bun run start` — Runs the production server (serves built web app as static files).

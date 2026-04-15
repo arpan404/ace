@@ -34,7 +34,15 @@ const MODE_ARGS = {
     "--parallel",
   ],
   "dev:server": ["run", "dev", "--filter=ace"],
-  "dev:web": ["run", "dev", "--filter=@ace/web"],
+  "dev:web": [
+    "run",
+    "dev",
+    "--ui=tui",
+    "--filter=@ace/contracts",
+    "--filter=@ace/web",
+    "--filter=ace",
+    "--parallel",
+  ],
   "dev:desktop": ["run", "dev", "--filter=@ace/desktop", "--filter=@ace/web", "--parallel"],
 } as const satisfies Record<string, ReadonlyArray<string>>;
 
@@ -108,7 +116,7 @@ export function resolveOffset(config: {
 
 function resolveBaseDir({
   baseDir,
-  mode,
+  mode: _mode,
 }: {
   readonly baseDir: string | undefined;
   readonly mode: DevMode;
@@ -120,12 +128,8 @@ function resolveBaseDir({
     if (configured) {
       return path.resolve(configured);
     }
-
-    if (mode === "dev:desktop") {
-      return yield* DEFAULT_ACE_DEV_HOME;
-    }
-
-    return yield* DEFAULT_ACE_HOME;
+    // Keep all dev flows isolated from normal app data under ~/.ace.
+    return yield* DEFAULT_ACE_DEV_HOME;
   });
 }
 
@@ -175,6 +179,7 @@ export function createDevRunnerEnv({
     if (!isDesktopMode) {
       output.ACE_PORT = String(serverPort);
       output.VITE_WS_URL = `ws://localhost:${serverPort}`;
+      output.ACE_DAEMONIZED = "1";
     } else {
       delete output.ACE_PORT;
       delete output.VITE_WS_URL;
@@ -182,6 +187,7 @@ export function createDevRunnerEnv({
       delete output.ACE_MODE;
       delete output.ACE_NO_BROWSER;
       delete output.ACE_HOST;
+      delete output.ACE_DAEMONIZED;
     }
 
     if (!isDesktopMode && host !== undefined) {
@@ -324,17 +330,13 @@ export function resolveModePortOffsets<R = NetService>({
       defaultCheckPortAvailability) as PortAvailabilityCheck<R>;
 
     if (mode === "dev:web") {
-      if (hasExplicitDevUrl) {
-        return { serverOffset: startOffset, webOffset: startOffset };
-      }
-
-      const webOffset = yield* findFirstAvailableOffset({
+      const sharedOffset = yield* findFirstAvailableOffset({
         startOffset,
-        requireServerPort: false,
-        requireWebPort: true,
+        requireServerPort: !hasExplicitServerPort,
+        requireWebPort: !hasExplicitDevUrl,
         checkPortAvailability: checkPort,
       });
-      return { serverOffset: startOffset, webOffset };
+      return { serverOffset: sharedOffset, webOffset: sharedOffset };
     }
 
     if (mode === "dev:server") {

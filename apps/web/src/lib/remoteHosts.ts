@@ -433,15 +433,23 @@ export async function readHostPairingAdvertisedEndpoint(input: {
   return assertPairingAdvertisedEndpoint(payload);
 }
 
+function encodeBase64UrlUtf8(input: string): string {
+  const utf8 = encodeURIComponent(input).replace(/%([0-9A-F]{2})/g, (_, byte) =>
+    String.fromCharCode(Number.parseInt(byte, 16)),
+  );
+  return btoa(utf8).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
 export function buildHostPairingConnectionString(pairing: HostPairingPayload): string {
-  const claimUrl = new URL(pairing.claimUrl);
+  const claimUrl = new URL(pairing.claimUrl).toString();
+  const payload = JSON.stringify({
+    ...(pairing.name?.trim() ? { name: pairing.name.trim() } : {}),
+    sessionId: pairing.sessionId,
+    secret: pairing.secret,
+    claimUrl,
+  });
   const pairingUrl = new URL("ace://pair");
-  pairingUrl.searchParams.set("sessionId", pairing.sessionId);
-  pairingUrl.searchParams.set("secret", pairing.secret);
-  pairingUrl.searchParams.set("claimUrl", claimUrl.toString());
-  if (pairing.name?.trim()) {
-    pairingUrl.searchParams.set("name", pairing.name.trim());
-  }
+  pairingUrl.searchParams.set("p", encodeBase64UrlUtf8(payload));
   return pairingUrl.toString();
 }
 

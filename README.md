@@ -30,11 +30,13 @@ bun dev
 
 Useful commands:
 
-- `bun dev:web` – web app only
+- `bun dev:web` – web app + local backend (paired dev flow)
 - `bun dev:server` – server only
 - `bun dev:desktop` – desktop app
 - `bun dev:mobile` – mobile app (Expo) + server + contracts
 - `bun fmt` / `bun lint` / `bun typecheck` – repo quality gates
+
+Dev runner modes (`bun dev`, `bun dev:web`, `bun dev:server`, `bun dev:desktop`) default to `~/.ace-dev` for local development data isolation.
 
 OpenCode model behavior:
 
