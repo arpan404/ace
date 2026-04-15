@@ -11,16 +11,16 @@ type AppStartupScreenProps = {
 };
 
 const Spinner = () => (
-  <div className="flex items-center gap-0.5">
+  <div className="flex items-center gap-1">
     {[0, 1, 2].map((i) => (
       <motion.div
         key={i}
-        className="h-1 w-1 rounded-full bg-foreground/60"
-        animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1, 0.8] }}
+        className="h-2 w-2 rounded-full bg-foreground/80"
+        animate={{ opacity: [0.3, 1, 0.3], scale: [0.7, 1.2, 0.7] }}
         transition={{
-          duration: 1.2,
+          duration: 1,
           repeat: Infinity,
-          delay: i * 0.2,
+          delay: i * 0.15,
           ease: "easeInOut",
         }}
       />
