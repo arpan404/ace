@@ -6,7 +6,7 @@ import {
   useNavigate,
   useLocation,
 } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 
@@ -66,8 +66,16 @@ export const Route = createRootRouteWithContext<{
 
 function RootRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
+
+  // TEMP: 10s delay to test loading screen
+  const [delayedBootstrapComplete, setDelayedBootstrapComplete] = useState(bootstrapComplete);
+  useEffect(() => {
+    const timer = setTimeout(() => setDelayedBootstrapComplete(bootstrapComplete), 10_000);
+    return () => clearTimeout(timer);
+  }, [bootstrapComplete]);
+
   const startupState = resolveAppStartupState({
-    bootstrapComplete,
+    bootstrapComplete: delayedBootstrapComplete,
     hasNativeApi: readNativeApi() !== undefined,
   });
 

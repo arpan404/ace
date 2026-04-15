@@ -24,13 +24,6 @@ const Spinner = () => (
 export function AppStartupScreen({ state, message }: AppStartupScreenProps) {
   const [currentWord, setCurrentWord] = useState(state === "connecting" ? "Connecting" : "Loading");
   const [wordIndex, setWordIndex] = useState(0);
-  const [visible, setVisible] = useState(true);
-
-  // TEMP: 10s delay to test loading screen
-  useEffect(() => {
-    const timer = setTimeout(() => setVisible(false), 10_000);
-    return () => clearTimeout(timer);
-  }, []);
 
   useEffect(() => {
     setCurrentWord(state === "connecting" ? "Connecting" : "Loading");
@@ -50,8 +43,6 @@ export function AppStartupScreen({ state, message }: AppStartupScreenProps) {
     const next = LOADING_WORDS[wordIndex] ?? "Loading";
     setCurrentWord(next);
   }, [wordIndex]);
-
-  if (!visible) return null;
 
   return (
     <div className="relative flex h-screen flex-col items-center justify-center overflow-hidden bg-background text-foreground">
