@@ -17,12 +17,6 @@ import {
   getPairingSession,
   resolvePairingSession,
 } from "./pairing";
-import {
-  createRelayDeviceForHost,
-  listRelayDevicesForHost,
-  revokeRelayDeviceForHost,
-} from "./relayClient";
-import { meaningfulErrorMessage } from "./provider/errorCause";
 import { GitHubCli } from "./git/Services/GitHubCli";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
 import { WorkspacePaths } from "./workspace/Services/WorkspacePaths";
@@ -98,27 +92,6 @@ function requirePairingAuthorization(
   );
 }
 
-function requirePairingAdminAuthorization(
-  request: HttpServerRequest.HttpServerRequest,
-  requestUrl: URL,
-  authToken: string | undefined,
-) {
-  if (!authToken || authToken.length === 0) {
-    if (isLoopbackHostname(requestUrl.hostname)) {
-      return null;
-    }
-    return withPairingHeaders(
-      respondJson(
-        {
-          error: "Pairing admin endpoints require a configured auth token for non-loopback access.",
-        },
-        { status: 401 },
-      ),
-    );
-  }
-  return requirePairingAuthorization(request, requestUrl, authToken);
-}
-
 function readPairingSessionId(pathname: string): string | null {
   const match = /^\/api\/pairing\/sessions\/([^/]+)$/.exec(pathname);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
@@ -131,11 +104,6 @@ function readPairingResolveSessionId(pathname: string): string | null {
 
 function readPairingClaimId(pathname: string): string | null {
   const match = /^\/api\/pairing\/claims\/([^/]+)$/.exec(pathname);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
-}
-
-function readRelayDeviceRevokeId(pathname: string): string | null {
-  const match = /^\/api\/pairing\/relay\/devices\/([^/]+)\/revoke$/.exec(pathname);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
@@ -759,195 +727,6 @@ const pairingGetClaimRouteLayer = HttpRouter.add(
   }),
 );
 
-const relayPairingListDevicesRouteLayer = HttpRouter.add(
-  "GET",
-  "/api/pairing/relay/devices",
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const requestUrl = HttpServerRequest.toURL(request);
-    if (Option.isNone(requestUrl)) {
-      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
-    }
-    const config = yield* ServerConfig;
-    const unauthorized = requirePairingAdminAuthorization(
-      request,
-      requestUrl.value,
-      config.authToken,
-    );
-    if (unauthorized) {
-      return unauthorized;
-    }
-    const requestedWsUrl = requestUrl.value.searchParams.get("wsUrl")?.trim();
-    if (!requestedWsUrl) {
-      return withPairingHeaders(
-        respondJson(
-          { error: "Relay devices endpoint requires wsUrl query parameter." },
-          { status: 400 },
-        ),
-      );
-    }
-    if (!parsePairingWsUrl(requestedWsUrl)) {
-      return withPairingHeaders(
-        respondJson({ error: "Relay devices endpoint wsUrl is invalid." }, { status: 400 }),
-      );
-    }
-    const advertisedRequestUrl = resolveAdvertisedRequestUrl(requestUrl.value);
-    const advertisedWsUrl = resolveAdvertisedWsUrl(requestedWsUrl, advertisedRequestUrl.hostname);
-    const snapshot = yield* Effect.tryPromise(() =>
-      listRelayDevicesForHost({
-        stateDir: config.stateDir,
-        wsUrl: advertisedWsUrl,
-      }),
-    ).pipe(
-      Effect.catch((error) =>
-        Effect.succeed({
-          error: meaningfulErrorMessage(error, "Could not list relay devices."),
-        } as const),
-      ),
-    );
-    if ("error" in snapshot) {
-      return withPairingHeaders(respondJson({ error: snapshot.error }, { status: 502 }));
-    }
-    return withPairingHeaders(
-      respondJson({
-        hostToken: snapshot.hostToken,
-        relayUrl: snapshot.relayUrl,
-        wsUrl: snapshot.wsUrl,
-        devices: snapshot.devices,
-      }),
-    );
-  }),
-);
-
-const relayPairingCreateDeviceRouteLayer = HttpRouter.add(
-  "POST",
-  "/api/pairing/relay/devices",
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const requestUrl = HttpServerRequest.toURL(request);
-    if (Option.isNone(requestUrl)) {
-      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
-    }
-    const config = yield* ServerConfig;
-    const unauthorized = requirePairingAdminAuthorization(
-      request,
-      requestUrl.value,
-      config.authToken,
-    );
-    if (unauthorized) {
-      return unauthorized;
-    }
-    const body = yield* request.json.pipe(Effect.catch(() => Effect.succeed(null)));
-    if (!body || typeof body !== "object") {
-      return withPairingHeaders(
-        respondJson({ error: "Relay device body must be a JSON object." }, { status: 400 }),
-      );
-    }
-    const payload = body as { wsUrl?: unknown; name?: unknown; icon?: unknown };
-    if (typeof payload.wsUrl !== "string") {
-      return withPairingHeaders(
-        respondJson({ error: "Relay device requires a wsUrl string." }, { status: 400 }),
-      );
-    }
-    const advertisedRequestUrl = resolveAdvertisedRequestUrl(requestUrl.value);
-    const advertisedWsUrl = resolveAdvertisedWsUrl(payload.wsUrl, advertisedRequestUrl.hostname);
-    const created = yield* Effect.tryPromise(() =>
-      createRelayDeviceForHost({
-        stateDir: config.stateDir,
-        wsUrl: advertisedWsUrl,
-        ...(typeof payload.name === "string" ? { name: payload.name } : {}),
-        ...(typeof payload.icon === "string"
-          ? {
-              icon: payload.icon as "iphone" | "ipad" | "laptop" | "desktop" | "watch",
-            }
-          : {}),
-      }),
-    ).pipe(
-      Effect.catch((error) =>
-        Effect.succeed({
-          error: meaningfulErrorMessage(error, "Could not create relay device."),
-        } as const),
-      ),
-    );
-    if ("error" in created) {
-      return withPairingHeaders(respondJson({ error: created.error }, { status: 502 }));
-    }
-    return withPairingHeaders(
-      respondJson({
-        hostToken: created.hostToken,
-        relayUrl: created.relayUrl,
-        wsUrl: created.wsUrl,
-        device: created.devices[0],
-      }),
-    );
-  }),
-);
-
-const relayPairingRevokeDeviceRouteLayer = HttpRouter.add(
-  "POST",
-  "/api/pairing/relay/devices/:deviceId/revoke",
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const requestUrl = HttpServerRequest.toURL(request);
-    if (Option.isNone(requestUrl)) {
-      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
-    }
-    const deviceId = readRelayDeviceRevokeId(requestUrl.value.pathname);
-    if (!deviceId) {
-      return withPairingHeaders(
-        respondJson({ error: "Relay device was not found." }, { status: 404 }),
-      );
-    }
-    const config = yield* ServerConfig;
-    const unauthorized = requirePairingAdminAuthorization(
-      request,
-      requestUrl.value,
-      config.authToken,
-    );
-    if (unauthorized) {
-      return unauthorized;
-    }
-    const body = yield* request.json.pipe(Effect.catch(() => Effect.succeed(null)));
-    if (!body || typeof body !== "object") {
-      return withPairingHeaders(
-        respondJson({ error: "Relay revoke body must be a JSON object." }, { status: 400 }),
-      );
-    }
-    const payload = body as { wsUrl?: unknown };
-    if (typeof payload.wsUrl !== "string") {
-      return withPairingHeaders(
-        respondJson({ error: "Relay revoke requires a wsUrl string." }, { status: 400 }),
-      );
-    }
-    const advertisedRequestUrl = resolveAdvertisedRequestUrl(requestUrl.value);
-    const advertisedWsUrl = resolveAdvertisedWsUrl(payload.wsUrl, advertisedRequestUrl.hostname);
-    const revoked = yield* Effect.tryPromise(() =>
-      revokeRelayDeviceForHost({
-        stateDir: config.stateDir,
-        wsUrl: advertisedWsUrl,
-        deviceId,
-      }),
-    ).pipe(
-      Effect.catch((error) =>
-        Effect.succeed({
-          error: meaningfulErrorMessage(error, "Could not revoke relay device."),
-        } as const),
-      ),
-    );
-    if ("error" in revoked) {
-      return withPairingHeaders(respondJson({ error: revoked.error }, { status: 502 }));
-    }
-    return withPairingHeaders(
-      respondJson({
-        hostToken: revoked.hostToken,
-        relayUrl: revoked.relayUrl,
-        wsUrl: revoked.wsUrl,
-        device: revoked.devices[0],
-      }),
-    );
-  }),
-);
-
 export const pairingRouteLayer = Layer.mergeAll(
   pairingOptionsRouteLayer,
   pairingAdvertisedEndpointRouteLayer,
@@ -956,9 +735,6 @@ export const pairingRouteLayer = Layer.mergeAll(
   pairingResolveSessionRouteLayer,
   pairingCreateClaimRouteLayer,
   pairingGetClaimRouteLayer,
-  relayPairingListDevicesRouteLayer,
-  relayPairingCreateDeviceRouteLayer,
-  relayPairingRevokeDeviceRouteLayer,
 );
 
 export const staticAndDevRouteLayer = HttpRouter.add(

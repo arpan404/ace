@@ -75,14 +75,6 @@
         "vitest": "catalog:",
       },
     },
-    "apps/relay": {
-      "name": "@ace/relay",
-      "version": "0.0.1",
-      "devDependencies": {
-        "@types/node": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
     "apps/server": {
       "name": "ace",
       "version": "0.0.16",
@@ -255,8 +247,6 @@
     "@ace/marketing": ["@ace/marketing@workspace:apps/marketing"],
 
     "@ace/mobile": ["@ace/mobile@workspace:apps/mobile"],
-
-    "@ace/relay": ["@ace/relay@workspace:apps/relay"],
 
     "@ace/scripts": ["@ace/scripts@workspace:scripts"],
 

@@ -1,13 +1,11 @@
 import { DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM } from "@ace/contracts";
 import { randomUUID } from "@ace/shared/ids";
 import {
-  buildRelayConnectionString,
   appendWsAuthToken,
   buildPairingPayload,
   normalizeWsUrl,
   parseHostConnectionQrPayload,
   parseHostDraftFromQrPayload,
-  requestRelayConnection,
   readPairingClaim,
   requestPairingClaim,
   resolveHostDisplayName,
@@ -15,7 +13,6 @@ import {
   waitForPairingApproval,
   type HostConnectionDraft,
   type HostPairingPayload,
-  type HostRelayPayload,
   wsUrlToBrowserBaseUrl,
 } from "@ace/shared/hostConnections";
 
@@ -28,6 +25,8 @@ export interface RemoteHostInstance {
   readonly name: string;
   readonly wsUrl: string;
   readonly authToken: string;
+  readonly iconGlyph?: "folder" | "terminal" | "code" | "flask" | "rocket" | "package";
+  readonly iconColor?: "slate" | "blue" | "violet" | "emerald" | "amber" | "rose";
   readonly createdAt: string;
   readonly lastConnectedAt?: string;
 }
@@ -49,24 +48,30 @@ export interface PairingAdvertisedEndpoint {
   readonly wsUrl: string;
 }
 
-export type RelayDeviceIcon = "iphone" | "ipad" | "laptop" | "desktop" | "watch";
-
-export interface RelayDeviceView {
-  readonly deviceId: string;
-  readonly name: string;
-  readonly icon: RelayDeviceIcon;
-  readonly apiKey: string;
-  readonly createdAt: string;
-  readonly lastSeenAt?: string;
-  readonly revokedAt?: string;
-  readonly activeConnectionCount: number;
+function isRemoteIconGlyph(
+  value: unknown,
+): value is "folder" | "terminal" | "code" | "flask" | "rocket" | "package" {
+  return (
+    value === "folder" ||
+    value === "terminal" ||
+    value === "code" ||
+    value === "flask" ||
+    value === "rocket" ||
+    value === "package"
+  );
 }
 
-export interface RelayHostSnapshot {
-  readonly hostToken: string;
-  readonly relayUrl: string;
-  readonly wsUrl: string;
-  readonly devices: readonly RelayDeviceView[];
+function isRemoteIconColor(
+  value: unknown,
+): value is "slate" | "blue" | "violet" | "emerald" | "amber" | "rose" {
+  return (
+    value === "slate" ||
+    value === "blue" ||
+    value === "violet" ||
+    value === "emerald" ||
+    value === "amber" ||
+    value === "rose"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -78,7 +83,10 @@ function resolveWsProtocol(): "ws" | "wss" {
 }
 
 export function createRemoteHostInstance(
-  draft: HostConnectionDraft,
+  draft: HostConnectionDraft & {
+    readonly iconGlyph?: "folder" | "terminal" | "code" | "flask" | "rocket" | "package";
+    readonly iconColor?: "slate" | "blue" | "violet" | "emerald" | "amber" | "rose";
+  },
   existing?: RemoteHostInstance,
   nowIso = new Date().toISOString(),
 ): RemoteHostInstance {
@@ -90,6 +98,8 @@ export function createRemoteHostInstance(
     name: resolveHostDisplayName(draft.name, wsUrl),
     wsUrl,
     authToken: explicitToken || embeddedAuthToken || existing?.authToken || "",
+    ...(draft.iconGlyph ? { iconGlyph: draft.iconGlyph } : {}),
+    ...(draft.iconColor ? { iconColor: draft.iconColor } : {}),
     createdAt: existing?.createdAt ?? nowIso,
     ...(existing?.lastConnectedAt ? { lastConnectedAt: existing.lastConnectedAt } : {}),
   };
@@ -105,6 +115,8 @@ function decodeRemoteHostInstance(value: unknown): RemoteHostInstance | null {
     name: typeof value.name === "string" ? value.name : "",
     wsUrl: value.wsUrl,
     authToken: typeof value.authToken === "string" ? value.authToken : "",
+    ...(isRemoteIconGlyph(value.iconGlyph) ? { iconGlyph: value.iconGlyph } : {}),
+    ...(isRemoteIconColor(value.iconColor) ? { iconColor: value.iconColor } : {}),
     createdAt: typeof value.createdAt === "string" ? value.createdAt : nowIso,
     ...(typeof value.lastConnectedAt === "string"
       ? { lastConnectedAt: value.lastConnectedAt }
@@ -117,6 +129,8 @@ function decodeRemoteHostInstance(value: unknown): RemoteHostInstance | null {
         name: existing.name,
         wsUrl: existing.wsUrl,
         authToken: existing.authToken,
+        ...(existing.iconGlyph ? { iconGlyph: existing.iconGlyph } : {}),
+        ...(existing.iconColor ? { iconColor: existing.iconColor } : {}),
       },
       existing,
       nowIso,
@@ -198,6 +212,34 @@ export function connectToWsHost(targetWsUrl: string): void {
   const nextUrl = new URL(window.location.href);
   nextUrl.searchParams.set(DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM, normalizeWsUrl(targetWsUrl));
   window.location.assign(nextUrl.toString());
+}
+
+export async function verifyWsHostConnection(
+  targetWsUrl: string,
+  options?: { readonly timeoutMs?: number },
+): Promise<void> {
+  const normalizedTarget = normalizeWsUrl(targetWsUrl);
+  const { wsUrl, authToken } = splitWsUrlAuthToken(normalizedTarget);
+  const timeoutMs = Math.max(1_000, options?.timeoutMs ?? 5_000);
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([
+      readHostPairingAdvertisedEndpoint({
+        wsUrl,
+        ...(authToken ? { authToken } : {}),
+      }),
+      new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error(`Connection check timed out after ${String(timeoutMs)}ms.`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle !== null) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 }
 
 export function buildHostSharePayload(input: {
@@ -323,85 +365,6 @@ function assertPairingAdvertisedEndpoint(payload: unknown): PairingAdvertisedEnd
   };
 }
 
-function isRelayDeviceIcon(value: unknown): value is RelayDeviceIcon {
-  return (
-    value === "iphone" ||
-    value === "ipad" ||
-    value === "laptop" ||
-    value === "desktop" ||
-    value === "watch"
-  );
-}
-
-function assertRelayDeviceView(payload: unknown): RelayDeviceView {
-  if (!isRecord(payload)) {
-    throw new Error("Relay device response was invalid.");
-  }
-  if (
-    typeof payload.deviceId !== "string" ||
-    typeof payload.name !== "string" ||
-    !isRelayDeviceIcon(payload.icon) ||
-    typeof payload.apiKey !== "string" ||
-    typeof payload.createdAt !== "string" ||
-    typeof payload.activeConnectionCount !== "number"
-  ) {
-    throw new Error("Relay device response was missing required fields.");
-  }
-  return {
-    deviceId: payload.deviceId,
-    name: payload.name,
-    icon: payload.icon,
-    apiKey: payload.apiKey,
-    createdAt: payload.createdAt,
-    ...(typeof payload.lastResolvedAt === "string"
-      ? { lastSeenAt: payload.lastResolvedAt }
-      : typeof payload.lastSeenAt === "string"
-        ? { lastSeenAt: payload.lastSeenAt }
-        : {}),
-    ...(typeof payload.revokedAt === "string" ? { revokedAt: payload.revokedAt } : {}),
-    activeConnectionCount: payload.activeConnectionCount,
-  };
-}
-
-function assertRelayDeviceCreated(payload: unknown): RelayHostSnapshot {
-  if (!isRecord(payload)) {
-    throw new Error("Relay device creation response was invalid.");
-  }
-  if (
-    typeof payload.hostToken !== "string" ||
-    typeof payload.relayUrl !== "string" ||
-    typeof payload.wsUrl !== "string"
-  ) {
-    throw new Error("Relay device creation response was missing required fields.");
-  }
-  const device = assertRelayDeviceView(payload.device);
-  return {
-    hostToken: payload.hostToken,
-    relayUrl: payload.relayUrl,
-    wsUrl: payload.wsUrl,
-    devices: [device],
-  };
-}
-
-function assertRelayHostSnapshot(payload: unknown): RelayHostSnapshot {
-  if (!isRecord(payload) || !Array.isArray(payload.devices)) {
-    throw new Error("Relay devices response was invalid.");
-  }
-  if (
-    typeof payload.hostToken !== "string" ||
-    typeof payload.relayUrl !== "string" ||
-    typeof payload.wsUrl !== "string"
-  ) {
-    throw new Error("Relay devices response was missing required fields.");
-  }
-  return {
-    hostToken: payload.hostToken,
-    relayUrl: payload.relayUrl,
-    wsUrl: payload.wsUrl,
-    devices: payload.devices.map((device) => assertRelayDeviceView(device)),
-  };
-}
-
 async function requestPairingSessionJson(
   input: {
     readonly wsUrl: string;
@@ -470,78 +433,48 @@ export async function readHostPairingAdvertisedEndpoint(input: {
   return assertPairingAdvertisedEndpoint(payload);
 }
 
-export async function listHostRelayDevices(input: {
-  readonly wsUrl: string;
-  readonly authToken?: string;
-}): Promise<RelayHostSnapshot> {
-  const normalizedWsUrl = normalizeWsUrl(input.wsUrl);
-  const payload = await requestPairingSessionJson(
-    {
-      wsUrl: normalizedWsUrl,
-      ...(input.authToken ? { authToken: input.authToken } : {}),
-    },
-    {
-      method: "GET",
-      path: `/api/pairing/relay/devices?wsUrl=${encodeURIComponent(normalizedWsUrl)}`,
-    },
-  );
-  return assertRelayHostSnapshot(payload);
+export function buildHostPairingConnectionString(pairing: HostPairingPayload): string {
+  const claimUrl = new URL(pairing.claimUrl);
+  const pairingUrl = new URL("ace://pair");
+  pairingUrl.searchParams.set("sessionId", pairing.sessionId);
+  pairingUrl.searchParams.set("secret", pairing.secret);
+  pairingUrl.searchParams.set("claimUrl", claimUrl.toString());
+  if (pairing.name?.trim()) {
+    pairingUrl.searchParams.set("name", pairing.name.trim());
+  }
+  return pairingUrl.toString();
 }
 
-export async function createHostRelayDevice(input: {
-  readonly wsUrl: string;
-  readonly authToken?: string;
-  readonly name?: string;
-  readonly icon?: RelayDeviceIcon;
-}): Promise<RelayHostSnapshot> {
-  const payload = await requestPairingSessionJson(
-    {
-      wsUrl: normalizeWsUrl(input.wsUrl),
-      ...(input.authToken ? { authToken: input.authToken } : {}),
-    },
-    {
-      method: "POST",
-      path: "/api/pairing/relay/devices",
-      body: {
-        wsUrl: normalizeWsUrl(input.wsUrl),
-        ...(input.name?.trim() ? { name: input.name.trim() } : {}),
-        ...(input.icon ? { icon: input.icon } : {}),
-      },
-    },
-  );
-  return assertRelayDeviceCreated(payload);
-}
-
-export async function revokeHostRelayDevice(input: {
-  readonly wsUrl: string;
-  readonly authToken?: string;
-  readonly deviceId: string;
-}): Promise<RelayHostSnapshot> {
-  const payload = await requestPairingSessionJson(
-    {
-      wsUrl: normalizeWsUrl(input.wsUrl),
-      ...(input.authToken ? { authToken: input.authToken } : {}),
-    },
-    {
-      method: "POST",
-      path: `/api/pairing/relay/devices/${encodeURIComponent(input.deviceId)}/revoke`,
-      body: {
-        wsUrl: normalizeWsUrl(input.wsUrl),
-      },
-    },
-  );
-  return assertRelayDeviceCreated(payload);
-}
-
-export function buildHostRelayConnectionString(input: HostRelayPayload): string {
-  return buildRelayConnectionString(input);
-}
-
-export async function resolveRelayHostConnection(
-  relay: HostRelayPayload,
-  options?: { readonly requesterName?: string; readonly lastKnownWsUrl?: string },
+export async function resolvePairingHostConnection(
+  pairing: HostPairingPayload,
+  options?: {
+    readonly requesterName?: string;
+    readonly timeoutMs?: number;
+    readonly pollIntervalMs?: number;
+  },
 ): Promise<HostConnectionDraft> {
-  return requestRelayConnection(relay, options);
+  const claimOptions = options?.requesterName
+    ? { requesterName: options.requesterName }
+    : undefined;
+  const receipt = await requestPairingClaim(pairing, claimOptions);
+
+  let approvalOptions:
+    | {
+        timeoutMs?: number;
+        pollIntervalMs?: number;
+      }
+    | undefined;
+  if (options?.timeoutMs !== undefined || options?.pollIntervalMs !== undefined) {
+    approvalOptions = {};
+    if (options.timeoutMs !== undefined) {
+      approvalOptions.timeoutMs = options.timeoutMs;
+    }
+    if (options.pollIntervalMs !== undefined) {
+      approvalOptions.pollIntervalMs = options.pollIntervalMs;
+    }
+  }
+
+  return waitForPairingApproval(receipt, approvalOptions);
 }
 
 export async function readHostPairingSession(input: {
@@ -592,4 +525,4 @@ export {
   requestPairingClaim,
   waitForPairingApproval,
 };
-export type { HostConnectionDraft, HostPairingPayload, HostRelayPayload };
+export type { HostConnectionDraft, HostPairingPayload };

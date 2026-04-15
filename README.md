@@ -51,21 +51,21 @@ Packaged desktop builds auto-install the `ace` CLI in the background and registe
 - **Desktop app**: manages local agents and multiple remote hosts.
 - **URL/web mode**: manages a single remote host at a time.
 - **Mobile app**: manages multiple hosts with host switching.
-- **Initial authentication**: host-managed relay pairing (QR or connection string) from **Settings → Devices**.
+- **Initial authentication**: host-managed direct pairing links (QR or connection string) from **Settings → Devices**.
 
-## Relay pairing server
+## Pairing and direct network access
 
-Relay pairing now runs as a dedicated centralized app in `apps/relay`.
+ace remote access uses direct host networking plus one-time pairing sessions.
 
-- Host server registers its current WebSocket endpoint using a persistent host token.
-- Host creates per-device API keys (with name + icon), can list active devices, and revoke access.
-- Remote clients scan/copy the relay connection string, resolve host endpoint via relay, and connect with the issued API key.
+- Host creates one-time pairing links that include a claim endpoint and short-lived secret.
+- Remote clients claim that pairing link, then wait for host approval.
+- Approved devices receive authenticated session credentials for future reconnects.
 
 Development defaults:
 
-- Relay server: `http://127.0.0.1:3780`
-- Host server relay URL override: `ACE_RELAY_SERVER_URL`
-- Relay public URL override (for generated resolve URL): `RELAY_PUBLIC_URL`
+- Server default URL: `ws://127.0.0.1:3773/ws`
+- For LAN/tailnet access, run the host with `ace serve --host <private-ip>`
+- See [REMOTE.md](./REMOTE.md) for end-to-end remote setup details and security notes.
 
 ## Mobile app (Expo)
 
@@ -85,7 +85,7 @@ bun --cwd apps/mobile run dev
 Mobile app highlights:
 
 - Bottom tabs: **Projects**, **Threads**, **Browser**, **Editor**, **Terminal**
-- Multi-host instances (manual + relay QR/connection string pairing) with active-host switching
+- Multi-host instances (manual + pairing QR/connection string import) with active-host switching
 - Project dashboard with working/completed/pending agent counts
 
 Default host behavior:
@@ -100,7 +100,6 @@ Default host behavior:
 
 - `apps/web` – React/Vite frontend
 - `apps/mobile` – React Native/Expo mobile app
-- `apps/relay` – centralized relay/handshake server for remote pairing
 - `apps/server` – WebSocket server and provider/session orchestration
 - `apps/desktop` – Electron shell
 - `packages/contracts` – shared schemas and protocol types

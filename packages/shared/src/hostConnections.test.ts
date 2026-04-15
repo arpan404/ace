@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildRelayConnectionString,
   parseHostConnectionQrPayload,
   parseHostDraftFromQrPayload,
   requestPairingClaim,
@@ -28,25 +27,6 @@ describe("hostConnections", () => {
     });
     expect(parseHostDraftFromQrPayload("localhost:3773")).toEqual({
       wsUrl: "localhost:3773",
-    });
-  });
-
-  it("parses relay connection strings", () => {
-    const payload = buildRelayConnectionString({
-      name: "Primary host",
-      relayUrl: "https://relay.example.com/v1/resolve",
-      hostToken: "host-token",
-      apiKey: "api-key",
-    });
-    const parsed = parseHostConnectionQrPayload(payload);
-    expect(parsed).toEqual({
-      kind: "relay",
-      relay: {
-        name: "Primary host",
-        relayUrl: "https://relay.example.com/v1/resolve",
-        hostToken: "host-token",
-        apiKey: "api-key",
-      },
     });
   });
 

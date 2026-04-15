@@ -26,13 +26,11 @@
   "scripts": {
     "dev": "node scripts/dev-runner.ts dev",
     "dev:server": "node scripts/dev-runner.ts dev:server",
-    "dev:relay": "turbo run dev --filter=@ace/relay",
     "dev:web": "node scripts/dev-runner.ts dev:web",
     "dev:mobile": "turbo run dev --filter=@ace/contracts --filter=ace --filter=@ace/mobile --parallel",
     "dev:marketing": "turbo run dev --filter=@ace/marketing",
     "dev:desktop": "node scripts/dev-runner.ts dev:desktop",
     "start": "turbo run start --filter=ace",
-    "start:relay": "turbo run start --filter=@ace/relay",
     "start:desktop": "turbo run start --filter=@ace/desktop",
     "start:marketing": "turbo run preview --filter=@ace/marketing",
     "start:mock-update-server": "bun run scripts/mock-update-server.ts",
