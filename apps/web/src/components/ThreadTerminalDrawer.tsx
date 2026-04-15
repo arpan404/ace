@@ -925,7 +925,7 @@ function TerminalViewport({
         hasHandledExitRef.current = false;
         commandBufferRef.current = "";
         clearSelectionAction();
-        activeTerminal.write("\u001bc");
+        activeTerminal.reset();
         onAutoTerminalTitleChangeRef.current(event.snapshot.title);
         if (event.snapshot.history.length > 0) {
           activeTerminal.write(event.snapshot.history);
