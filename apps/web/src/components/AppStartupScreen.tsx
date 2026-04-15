@@ -58,7 +58,7 @@ export function AppStartupScreen({ state, message }: AppStartupScreenProps) {
         <div className="mb-6 relative">
           <div className="flex items-baseline">
             <span className="text-4xl font-bold tracking-tight">ace</span>
-            <span className="ml-1.5 text-xs font-medium text-muted-foreground/60">{APP_VERSION}</span>
+            <span className="ml-0.5 align-super text-[10px] font-medium text-muted-foreground/60">{APP_VERSION}</span>
           </div>
         </div>
 
