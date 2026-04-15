@@ -49,7 +49,6 @@ const MODE_ARGS = {
     "dev",
     "--ui=tui",
     "--filter=@ace/contracts",
-    "--filter=ace",
     "--filter=@ace/mobile",
     "--parallel",
   ],
