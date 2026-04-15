@@ -1,5 +1,6 @@
 import Mime from "@effect/platform-node/Mime";
 import Os from "node:os";
+import { DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM } from "@ace/contracts";
 import { Data, Effect, FileSystem, Layer, Option, Path } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
@@ -27,7 +28,7 @@ const GITHUB_ISSUE_IMAGE_ROUTE = "/api/github-issue-image";
 const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#6b728080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-fallback="project-favicon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>`;
 const SECURITY_HEADERS = {
   "Content-Security-Policy":
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; font-src 'self' data:; connect-src 'self' ws: wss: http: https:; frame-src 'self' http: https:; media-src 'self' blob: data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: http: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' ws: wss: http: https:; frame-src 'self' http: https:; media-src 'self' blob: data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
 } as const;
@@ -205,6 +206,23 @@ function resolveAdvertisedWsUrl(rawWsUrl: string, advertisedHost: string): strin
   }
   parsedWsUrl.hostname = advertisedHost;
   return parsedWsUrl.toString();
+}
+
+function isSpaDocumentPath(pathname: string): boolean {
+  if (pathname === "/" || pathname === "/index.html") {
+    return true;
+  }
+  const lastSegment = pathname.split("/").pop() ?? "";
+  return !lastSegment.includes(".");
+}
+
+function resolveBootstrapWsUrl(requestUrl: URL, authToken: string): string {
+  const wsUrl = new URL(requestUrl.toString());
+  wsUrl.protocol = requestUrl.protocol === "https:" ? "wss:" : "ws:";
+  wsUrl.pathname = "/";
+  wsUrl.search = "";
+  wsUrl.searchParams.set("token", authToken);
+  return wsUrl.toString();
 }
 
 function resolveAllowedGitHubIssueImageUrl(rawUrl: string): URL | null {
@@ -750,6 +768,18 @@ export const staticAndDevRouteLayer = HttpRouter.add(
     const config = yield* ServerConfig;
     if (config.devUrl) {
       return withSecurityHeaders(HttpServerResponse.redirect(config.devUrl.href, { status: 302 }));
+    }
+    const authToken = config.authToken?.trim() ?? "";
+    const hasBootstrapWsUrl = url.value.searchParams.has(DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM);
+    if (authToken.length > 0 && !hasBootstrapWsUrl && isSpaDocumentPath(url.value.pathname)) {
+      const redirected = new URL(url.value.toString());
+      redirected.searchParams.set(
+        DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM,
+        resolveBootstrapWsUrl(url.value, authToken),
+      );
+      return withSecurityHeaders(
+        HttpServerResponse.redirect(redirected.toString(), { status: 302 }),
+      );
     }
 
     if (!config.staticDir) {
