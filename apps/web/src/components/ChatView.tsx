@@ -39,7 +39,7 @@ import {
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import {
   gitBranchesQueryOptions,
   gitCreateWorktreeMutationOptions,
@@ -112,6 +112,7 @@ import {
 import { getThreadById, useStore } from "../store";
 import { useProjectById, useThreadById } from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";
+import { useHostConnectionStore } from "../hostConnectionStore";
 import {
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
@@ -193,7 +194,7 @@ import {
   shouldUseCompactComposerFooter,
 } from "~/lib/composer/footerLayout";
 import {
-  readRouteConnectionUrlFromLocation,
+  THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
   resolveLocalConnectionUrl,
 } from "../lib/connectionRouting";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
@@ -283,7 +284,11 @@ import {
   useServerConfig,
   useServerKeybindings,
 } from "~/rpc/serverState";
-import { loadRemoteHostInstances, resolveHostConnectionWsUrl } from "~/lib/remoteHosts";
+import {
+  loadRemoteHostInstances,
+  normalizeWsUrl,
+  resolveHostConnectionWsUrl,
+} from "~/lib/remoteHosts";
 
 const ThreadWorkspaceEditor = lazy(() => import("./editor/ThreadWorkspaceEditor"));
 
@@ -348,6 +353,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
+  const locationSearch = useLocation({ select: (location) => location.searchStr });
   const rawSearch = useSearch({
     strict: false,
     select: (params) => parseDiffRouteSearch(params),
@@ -951,6 +957,59 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const liveTurnInProgress = hasLiveTurn(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = useProjectById(activeThread?.projectId);
   const activeProjectId = activeProject?.id ?? null;
+  const threadConnectionById = useHostConnectionStore((store) => store.threadConnectionById);
+  const projectConnectionById = useHostConnectionStore((store) => store.projectConnectionById);
+  const routeConnectionUrl = useMemo(() => {
+    const value = new URLSearchParams(locationSearch)
+      .get(THREAD_ROUTE_CONNECTION_SEARCH_PARAM)
+      ?.trim();
+    if (!value) {
+      return null;
+    }
+    try {
+      return normalizeWsUrl(value);
+    } catch {
+      return null;
+    }
+  }, [locationSearch]);
+  const activeServerConnectionUrl = useMemo(() => {
+    if (routeConnectionUrl) {
+      return routeConnectionUrl;
+    }
+    if (activeThread) {
+      const threadConnectionUrl = threadConnectionById[activeThread.id];
+      if (threadConnectionUrl) {
+        return normalizeWsUrl(threadConnectionUrl);
+      }
+    }
+    if (activeProjectId) {
+      const projectConnectionUrl = projectConnectionById[activeProjectId];
+      if (projectConnectionUrl) {
+        return normalizeWsUrl(projectConnectionUrl);
+      }
+    }
+    return resolveLocalConnectionUrl();
+  }, [
+    activeProjectId,
+    activeThread,
+    projectConnectionById,
+    routeConnectionUrl,
+    threadConnectionById,
+  ]);
+  const activeRemoteHost = useMemo(
+    () =>
+      loadRemoteHostInstances().find(
+        (host) => resolveHostConnectionWsUrl(host) === activeServerConnectionUrl,
+      ) ?? null,
+    [activeServerConnectionUrl],
+  );
+  const activeEnvironmentIcon =
+    activeRemoteHost && (activeRemoteHost.iconGlyph || activeRemoteHost.iconColor)
+      ? {
+          glyph: activeRemoteHost.iconGlyph ?? "folder",
+          color: activeRemoteHost.iconColor ?? "slate",
+        }
+      : null;
   const workspaceTerminalScopeId = useMemo(
     () => (activeProjectId ? workspaceTerminalScopeThreadId(activeProjectId) : null),
     [activeProjectId],
@@ -6559,12 +6618,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
         threadId: activeThread.id,
         onEnvModeChange,
         envLocked,
-        localEnvironmentLabel:
-          loadRemoteHostInstances().find(
-            (host) =>
-              resolveHostConnectionWsUrl(host) ===
-              (readRouteConnectionUrlFromLocation() ?? resolveLocalConnectionUrl()),
-          )?.name ?? "Local",
+        localEnvironmentLabel: activeRemoteHost?.name ?? "Local",
+        localEnvironmentIcon: activeEnvironmentIcon,
         runtimeMode,
         onRuntimeModeChange: handleRuntimeModeChange,
         onComposerFocusRequest: scheduleComposerFocus,
