@@ -179,10 +179,7 @@ import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
 import type { Project, SidebarThreadSummary } from "../types";
 import { useHostConnectionStore } from "../hostConnectionStore";
-import {
-  readRouteConnectionUrlFromLocation,
-  THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
-} from "../lib/connectionRouting";
+import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 const THREAD_REVEAL_STEP = 5;
 const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
 const sortedSidebarThreadsCache = new WeakMap<
@@ -575,6 +572,61 @@ function projectIconsEqual(left: Project["icon"], right: Project["icon"]): boole
   return left.glyph === right.glyph && left.color === right.color;
 }
 
+function resolveRouteConnectionUrlFromSearch(search: string): string | undefined {
+  const value = new URLSearchParams(search).get(THREAD_ROUTE_CONNECTION_SEARCH_PARAM)?.trim();
+  if (!value) {
+    return undefined;
+  }
+  try {
+    return normalizeWsUrl(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function getVisibleRemoteThreadsForProject<T extends { id: string }>(input: {
+  threads: readonly T[];
+  activeThreadId: string | undefined;
+  visibleCount: number;
+}): {
+  hasHiddenThreads: boolean;
+  visibleThreads: T[];
+  hiddenThreads: T[];
+} {
+  const { activeThreadId, threads } = input;
+  const visibleCount = Math.max(0, input.visibleCount);
+  const hasHiddenThreads = threads.length > visibleCount;
+  if (!hasHiddenThreads) {
+    return {
+      hasHiddenThreads,
+      hiddenThreads: [],
+      visibleThreads: [...threads],
+    };
+  }
+  const previewThreads = threads.slice(0, visibleCount);
+  if (!activeThreadId || previewThreads.some((thread) => thread.id === activeThreadId)) {
+    return {
+      hasHiddenThreads: true,
+      hiddenThreads: threads.slice(visibleCount),
+      visibleThreads: previewThreads,
+    };
+  }
+  const activeThread = threads.find((thread) => thread.id === activeThreadId);
+  if (!activeThread) {
+    return {
+      hasHiddenThreads: true,
+      hiddenThreads: threads.slice(visibleCount),
+      visibleThreads: previewThreads,
+    };
+  }
+  const visibleThreadIds = new Set([...previewThreads, activeThread].map((thread) => thread.id));
+  return {
+    hasHiddenThreads: true,
+    hiddenThreads: threads.filter((thread) => !visibleThreadIds.has(thread.id)),
+    visibleThreads: threads.filter((thread) => visibleThreadIds.has(thread.id)),
+  };
+}
+
 export default function Sidebar() {
   const { isMobile, state } = useSidebar();
   const projects = useStore((store) => store.projects);
@@ -600,6 +652,7 @@ export default function Sidebar() {
   );
   const navigate = useNavigate();
   const pathname = useLocation({ select: (loc) => loc.pathname });
+  const locationSearch = useLocation({ select: (loc) => loc.searchStr });
   const isOnSettings = pathname.startsWith("/settings");
   const appSettings = useSettings();
   const { updateSettings } = useUpdateSettings();
@@ -679,7 +732,23 @@ export default function Sidebar() {
   const localDeviceHost = splitWsUrlAuthToken(resolveLocalDeviceWsUrl());
   const localDeviceConnectionUrl = resolveHostConnectionWsUrl(localDeviceHost);
   const activeWsUrl = localDeviceConnectionUrl;
-  const activeRouteConnectionUrl = readRouteConnectionUrlFromLocation() ?? localDeviceConnectionUrl;
+  const routeThreadConnectionUrl = useHostConnectionStore((store) =>
+    routeThreadId ? store.threadConnectionById[routeThreadId] : undefined,
+  );
+  const activeRouteConnectionUrl = useMemo(() => {
+    const routeConnection = resolveRouteConnectionUrlFromSearch(locationSearch);
+    if (routeConnection) {
+      return routeConnection;
+    }
+    if (routeThreadConnectionUrl) {
+      try {
+        return normalizeWsUrl(routeThreadConnectionUrl);
+      } catch {
+        // Keep UI navigable even if a stale URL was persisted.
+      }
+    }
+    return localDeviceConnectionUrl;
+  }, [localDeviceConnectionUrl, locationSearch, routeThreadConnectionUrl]);
   const [remoteSidebarHosts, setRemoteSidebarHosts] = useState<
     ReadonlyArray<RemoteSidebarHostEntry>
   >(() => remoteSidebarHostSnapshotCache);
@@ -1045,19 +1114,71 @@ export default function Sidebar() {
     });
   }, []);
 
+  const removeRemoteThreadFromSidebarById = useCallback(
+    (input: { connectionUrl: string; threadId: ThreadId }) => {
+      const normalizedConnectionUrl = normalizeWsUrl(input.connectionUrl);
+      setRemoteSidebarHosts((current) => {
+        let changed = false;
+        const nextHosts = current.map((entry) => {
+          if (!connectionUrlsEqual(entry.connectionUrl, normalizedConnectionUrl)) {
+            return entry;
+          }
+          let projectChanged = false;
+          const nextProjects = entry.projects.map((project) => {
+            const nextThreads = project.threads.filter((thread) => thread.id !== input.threadId);
+            if (nextThreads.length === project.threads.length) {
+              return project;
+            }
+            projectChanged = true;
+            return {
+              ...project,
+              threads: nextThreads,
+            };
+          });
+          if (!projectChanged) {
+            return entry;
+          }
+          changed = true;
+          return {
+            ...entry,
+            projects: nextProjects,
+          };
+        });
+        return changed ? nextHosts : current;
+      });
+      removeFromSelection([input.threadId]);
+    },
+    [removeFromSelection],
+  );
   const attemptArchiveThread = useCallback(
-    async (threadId: ThreadId) => {
+    async (threadId: ThreadId, connectionUrl: string) => {
+      const isRemoteThread = !connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl);
+      if (isRemoteThread) {
+        removeRemoteThreadFromSidebarById({ connectionUrl, threadId });
+      }
       try {
         await archiveThread(threadId);
       } catch (error) {
+        if (isRemoteThread) {
+          refreshRemoteSidebarHosts().catch(() => undefined);
+        }
         toastManager.add({
           type: "error",
           title: "Failed to archive thread",
           description: error instanceof Error ? error.message : "An error occurred.",
         });
+        return;
+      }
+      if (isRemoteThread) {
+        refreshRemoteSidebarHosts().catch(() => undefined);
       }
     },
-    [archiveThread],
+    [
+      archiveThread,
+      localDeviceConnectionUrl,
+      refreshRemoteSidebarHosts,
+      removeRemoteThreadFromSidebarById,
+    ],
   );
 
   const focusMostRecentThreadForProject = useCallback(
@@ -1870,6 +1991,23 @@ export default function Sidebar() {
   );
   const navigateToThreadOnConnection = useCallback(
     (connectionUrl: string, threadId: ThreadId) => {
+      if (selectedThreadIds.size > 0) {
+        clearSelection();
+      }
+      setSelectionAnchor(threadId);
+      useHostConnectionStore.getState().upsertThreadOwnership(connectionUrl, threadId);
+      const thread = sidebarThreadsById[threadId];
+      const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
+      if (cached) {
+        startTransition(() => {
+          useStore.getState().hydrateThreadFromReadModel(cached);
+        });
+      } else {
+        prefetchHydratedThread(threadId, {
+          expectedUpdatedAt: thread?.updatedAt ?? null,
+          priority: "immediate",
+        });
+      }
       if (connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl)) {
         navigateToThread(threadId);
         return;
@@ -1884,7 +2022,15 @@ export default function Sidebar() {
         });
       });
     },
-    [localDeviceConnectionUrl, navigate, navigateToThread],
+    [
+      clearSelection,
+      localDeviceConnectionUrl,
+      navigate,
+      navigateToThread,
+      selectedThreadIds.size,
+      setSelectionAnchor,
+      sidebarThreadsById,
+    ],
   );
 
   const handleProjectContextMenu = useCallback(
@@ -2106,14 +2252,20 @@ export default function Sidebar() {
         return;
       }
       if (clicked === "archive") {
+        const remoteThreadId = ThreadId.makeUnsafe(input.thread.id);
+        removeRemoteThreadFromSidebarById({
+          connectionUrl: input.connectionUrl,
+          threadId: remoteThreadId,
+        });
         try {
           await routeOrchestrationDispatchCommandToRemote(input.connectionUrl, {
             type: "thread.archive",
             commandId: newCommandId(),
-            threadId: ThreadId.makeUnsafe(input.thread.id),
+            threadId: remoteThreadId,
           });
-          await refreshRemoteSidebarHosts();
+          refreshRemoteSidebarHosts().catch(() => undefined);
         } catch (error) {
+          refreshRemoteSidebarHosts().catch(() => undefined);
           toastManager.add({
             type: "error",
             title: "Failed to archive thread",
@@ -2132,14 +2284,20 @@ export default function Sidebar() {
         );
         if (!confirmed) return;
       }
+      const remoteThreadId = ThreadId.makeUnsafe(input.thread.id);
+      removeRemoteThreadFromSidebarById({
+        connectionUrl: input.connectionUrl,
+        threadId: remoteThreadId,
+      });
       try {
         await routeOrchestrationDispatchCommandToRemote(input.connectionUrl, {
           type: "thread.delete",
           commandId: newCommandId(),
-          threadId: ThreadId.makeUnsafe(input.thread.id),
+          threadId: remoteThreadId,
         });
-        await refreshRemoteSidebarHosts();
+        refreshRemoteSidebarHosts().catch(() => undefined);
       } catch (error) {
+        refreshRemoteSidebarHosts().catch(() => undefined);
         toastManager.add({
           type: "error",
           title: "Failed to delete thread",
@@ -2151,6 +2309,7 @@ export default function Sidebar() {
       appSettings.confirmThreadDelete,
       copyPathToClipboard,
       copyThreadIdToClipboard,
+      removeRemoteThreadFromSidebarById,
       refreshRemoteSidebarHosts,
     ],
   );
@@ -2528,23 +2687,46 @@ export default function Sidebar() {
           const visibleThreadCount =
             remoteThreadRevealCountByProject[projectKey] ?? THREAD_REVEAL_STEP;
           const sortedThreads = sortByUpdatedAtDescending(project.threads);
-          const visibleThreads = projectExpanded
-            ? sortedThreads.slice(0, visibleThreadCount)
-            : sortedThreads.slice(0, 1);
-          const hiddenThreadCount = Math.max(0, sortedThreads.length - visibleThreadCount);
+          const activeThreadIdForConnection = connectionUrlsEqual(
+            activeRouteConnectionUrl,
+            entry.connectionUrl,
+          )
+            ? (routeThreadId ?? undefined)
+            : undefined;
+          const {
+            hasHiddenThreads,
+            hiddenThreads,
+            visibleThreads: previewThreads,
+          } = projectExpanded
+            ? getVisibleRemoteThreadsForProject({
+                threads: sortedThreads,
+                activeThreadId: activeThreadIdForConnection,
+                visibleCount: visibleThreadCount,
+              })
+            : {
+                hasHiddenThreads: false,
+                hiddenThreads: [] as RemoteSidebarThreadEntry[],
+                visibleThreads: [] as RemoteSidebarThreadEntry[],
+              };
           return {
             project,
             projectKey,
             connectionUrl: entry.connectionUrl,
             projectExpanded,
-            visibleThreads,
-            hiddenThreadCount,
-            hasHiddenThreads: hiddenThreadCount > 0,
+            visibleThreads: previewThreads,
+            hiddenThreadCount: hiddenThreads.length,
+            hasHiddenThreads,
             canCollapseThreadList: visibleThreadCount > THREAD_REVEAL_STEP,
           };
         }),
       );
-  }, [filteredRemoteSidebarHosts, remoteProjectExpandedById, remoteThreadRevealCountByProject]);
+  }, [
+    activeRouteConnectionUrl,
+    filteredRemoteSidebarHosts,
+    remoteProjectExpandedById,
+    remoteThreadRevealCountByProject,
+    routeThreadId,
+  ]);
   const unifiedRenderedProjects = useMemo(() => {
     const localProjects = filteredRenderedProjects.map((project) => ({
       kind: "local" as const,

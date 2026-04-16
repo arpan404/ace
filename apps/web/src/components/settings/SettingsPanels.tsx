@@ -2455,7 +2455,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             control={
               <Button
                 size="xs"
-                variant="destructive-outline"
+                variant="destructive"
                 onClick={() => {
                   void repairBrowserStorage();
                 }}

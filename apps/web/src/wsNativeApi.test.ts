@@ -126,13 +126,48 @@ function emitEvent<T>(listeners: Set<(event: T) => void>, event: T) {
   }
 }
 
+function ensureLocationForTestWindow(
+  target: Window & typeof globalThis & { desktopBridge?: unknown },
+): void {
+  const location = (target as { location?: Partial<Location> }).location;
+  if (!location) {
+    (target as { location: Location }).location = {
+      search: "",
+      origin: "http://localhost:3773",
+      protocol: "http:",
+    } as Location;
+    return;
+  }
+  const mutableLocation = location as {
+    search?: string;
+    origin?: string;
+    protocol?: string;
+  };
+  if (typeof mutableLocation.search !== "string") {
+    mutableLocation.search = "";
+  }
+  if (typeof mutableLocation.origin !== "string" || mutableLocation.origin.length === 0) {
+    mutableLocation.origin = "http://localhost:3773";
+  }
+  if (typeof mutableLocation.protocol !== "string" || mutableLocation.protocol.length === 0) {
+    mutableLocation.protocol = "http:";
+  }
+}
+
 function getWindowForTest(): Window & typeof globalThis & { desktopBridge?: unknown } {
   const testGlobal = globalThis as typeof globalThis & {
     window?: Window & typeof globalThis & { desktopBridge?: unknown };
   };
   if (!testGlobal.window) {
-    testGlobal.window = {} as Window & typeof globalThis & { desktopBridge?: unknown };
+    testGlobal.window = {
+      location: {
+        search: "",
+        origin: "http://localhost:3773",
+        protocol: "http:",
+      } as Location,
+    } as Window & typeof globalThis & { desktopBridge?: unknown };
   }
+  ensureLocationForTestWindow(testGlobal.window);
   return testGlobal.window;
 }
 
@@ -666,8 +701,9 @@ describe("wsNativeApi", () => {
     });
   });
 
-  it("forwards context menu metadata to the desktop bridge", async () => {
+  it("always uses the web context menu fallback even when desktop bridge exists", async () => {
     const showContextMenu = vi.fn().mockResolvedValue("delete");
+    showContextMenuFallbackMock.mockResolvedValue("delete");
     getWindowForTest().desktopBridge = makeDesktopBridge({ showContextMenu });
 
     const { createWsNativeApi } = await import("./wsNativeApi");
@@ -675,7 +711,8 @@ describe("wsNativeApi", () => {
     const items = [{ id: "delete", label: "Delete" }] as const;
 
     await expect(api.contextMenu.show(items)).resolves.toBe("delete");
-    expect(showContextMenu).toHaveBeenCalledWith(items, undefined);
+    expect(showContextMenuFallbackMock).toHaveBeenCalledWith(items, undefined);
+    expect(showContextMenu).not.toHaveBeenCalled();
   });
 
   it("forwards browser storage repair requests to the desktop bridge", async () => {

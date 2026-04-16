@@ -151,7 +151,7 @@ export interface SidebarThreadRowProps {
   clearSelection: () => void;
   commitRename: (threadId: ThreadId, newTitle: string, originalTitle: string) => Promise<void>;
   cancelRename: () => void;
-  attemptArchiveThread: (threadId: ThreadId) => Promise<void>;
+  attemptArchiveThread: (threadId: ThreadId, connectionUrl: string) => Promise<void>;
   openPrLink: (event: MouseEvent<HTMLElement>, prUrl: string) => void;
   pr: ThreadPr | null;
 }
@@ -346,7 +346,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                   props.setConfirmingArchiveThreadId((current) =>
                     current === thread.id ? null : current,
                   );
-                  void props.attemptArchiveThread(thread.id);
+                  void props.attemptArchiveThread(thread.id, props.connectionUrl);
                 }}
               >
                 Confirm
@@ -392,7 +392,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
-                            void props.attemptArchiveThread(thread.id);
+                            void props.attemptArchiveThread(thread.id, props.connectionUrl);
                           }}
                         >
                           <ArchiveIcon className="size-3.5" />

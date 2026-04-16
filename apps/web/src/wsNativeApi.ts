@@ -1,7 +1,7 @@
 import { type ContextMenuItem, type NativeApi } from "@ace/contracts";
 
+import { showConfirmDialogFallback } from "./confirmDialogFallback";
 import { showContextMenuFallback } from "./contextMenuFallback";
-import { requestAppConfirm } from "./lib/appConfirm";
 import { runAsyncTask } from "./lib/async";
 import {
   readRouteConnectionUrlFromLocation,
@@ -60,7 +60,7 @@ export function createWsNativeApi(): NativeApi {
         return localRpcClient.server.pickFolder(options ?? {});
       },
       confirm: async (message) => {
-        return requestAppConfirm(message);
+        return showConfirmDialogFallback(message);
       },
     },
     browser: {
@@ -135,9 +135,6 @@ export function createWsNativeApi(): NativeApi {
         items: readonly ContextMenuItem<T>[],
         position?: { x: number; y: number },
       ): Promise<T | null> => {
-        if (window.desktopBridge) {
-          return window.desktopBridge.showContextMenu(items, position) as Promise<T | null>;
-        }
         return showContextMenuFallback(items, position);
       },
     },

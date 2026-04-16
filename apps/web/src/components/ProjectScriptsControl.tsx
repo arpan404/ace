@@ -28,11 +28,11 @@ import {
 } from "~/keybindings";
 import {
   AlertDialog,
-  AlertDialogClose,
+  AlertDialogCancel,
+  AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogPopup,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
 import { Button } from "./ui/button";
@@ -426,7 +426,7 @@ export default function ProjectScriptsControl({
             {isEditing && (
               <Button
                 type="button"
-                variant="destructive-outline"
+                variant="destructive"
                 className="mr-auto"
                 onClick={() => setDeleteConfirmOpen(true)}
               >
@@ -450,18 +450,18 @@ export default function ProjectScriptsControl({
       </Dialog>
 
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <AlertDialogPopup>
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete action "{name}"?</AlertDialogTitle>
             <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <Button variant="destructive" onClick={confirmDeleteScript}>
               Delete action
             </Button>
           </AlertDialogFooter>
-        </AlertDialogPopup>
+        </AlertDialogContent>
       </AlertDialog>
     </>
   );
