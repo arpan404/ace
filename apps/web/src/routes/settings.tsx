@@ -48,24 +48,27 @@ function SettingsContentLayout() {
               ? "drag-region flex min-h-[52px] items-center px-4 sm:px-6"
               : "px-4 py-3 sm:px-6 sm:py-3.5",
           )}
-          style={isElectron ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined}
+          style={
+            isElectron && sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined
+          }
         >
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
             {showSidebarToggle ? (
               <SidebarTrigger className={cn("shrink-0", DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME)} />
             ) : null}
+            <h1 className="min-w-0 flex-1 truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80">
+              {currentItem.label}
+            </h1>
             <Button
               size="xs"
               variant="outline"
               disabled={changedSettingLabels.length === 0}
               onClick={() => void restoreDefaults()}
+              className="shrink-0"
             >
               <RotateCcwIcon className="size-3.5" />
               Restore defaults
             </Button>
-            <h1 className="min-w-0 truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80">
-              {currentItem.label}
-            </h1>
           </div>
         </header>
 
