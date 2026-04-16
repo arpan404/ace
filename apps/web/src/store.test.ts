@@ -327,6 +327,42 @@ describe("store read model sync", () => {
     expect(next.threads[0]?.archivedAt).toBe(archivedAt);
   });
 
+  it("maps attachment preview URLs to the snapshot connection host", () => {
+    const initialState = makeState(makeThread());
+    const next = syncServerReadModel(
+      initialState,
+      makeReadModel(
+        makeReadModelThread({
+          messages: [
+            {
+              id: MessageId.makeUnsafe("message-attachment"),
+              role: "user",
+              text: "See image",
+              turnId: null,
+              streaming: false,
+              createdAt: "2026-02-27T00:00:00.000Z",
+              updatedAt: "2026-02-27T00:00:00.000Z",
+              attachments: [
+                {
+                  id: "attachment-1" as never,
+                  name: "image.png",
+                  type: "image",
+                  mimeType: "image/png",
+                  sizeBytes: 10,
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+      { connectionUrl: "wss://remote.example/ws?token=test-token" },
+    );
+
+    expect(next.threads[0]?.messages[0]?.attachments?.[0]?.previewUrl).toBe(
+      "https://remote.example/attachments/attachment-1?token=test-token",
+    );
+  });
+
   it("maps queued composer state from the read model", () => {
     const initialState = makeState(makeThread());
     const next = syncServerReadModel(

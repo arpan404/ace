@@ -45,15 +45,16 @@ export function resolveConnectionForProjectId(projectId: ProjectId): string | un
 }
 
 export function resolveConnectionForInput(input: unknown): string {
+  const projectId = readStringField(input, "projectId") as ProjectId | undefined;
   const threadId = readStringField(input, "threadId") as ThreadId | undefined;
   if (threadId) {
     return (
       resolveConnectionForThreadId(threadId) ??
+      (projectId ? resolveConnectionForProjectId(projectId) : undefined) ??
       readRouteConnectionUrlFromLocation() ??
       resolveLocalConnectionUrl()
     );
   }
-  const projectId = readStringField(input, "projectId") as ProjectId | undefined;
   if (projectId) {
     return (
       resolveConnectionForProjectId(projectId) ??

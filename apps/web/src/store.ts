@@ -31,6 +31,7 @@ import {
   finalizeChatMessageText,
 } from "./lib/chat/messageText";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
+import { resolveConnectionForThreadId } from "./lib/connectionRouting";
 import { resolveServerUrl } from "./lib/utils";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
 
@@ -178,14 +179,14 @@ function mapSession(session: OrchestrationSession): Thread["session"] {
   };
 }
 
-function mapMessage(message: OrchestrationMessage): ChatMessage {
+function mapMessage(message: OrchestrationMessage, connectionUrl?: string): ChatMessage {
   const attachments = message.attachments?.map((attachment) => ({
     type: "image" as const,
     id: attachment.id,
     name: attachment.name,
     mimeType: attachment.mimeType,
     sizeBytes: attachment.sizeBytes,
-    previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id)),
+    previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id), connectionUrl),
   }));
 
   return {
@@ -288,6 +289,7 @@ function mapTurnDiffSummary(
 
 export interface SnapshotSyncOptions {
   hydrateThreadId?: ThreadId | null;
+  connectionUrl?: string;
 }
 
 function resolveThreadHistoryLoaded(threadId: ThreadId, options?: SnapshotSyncOptions): boolean {
@@ -298,6 +300,7 @@ function resolveThreadHistoryLoaded(threadId: ThreadId, options?: SnapshotSyncOp
 }
 
 function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): Thread {
+  const threadConnectionUrl = options?.connectionUrl ?? resolveConnectionForThreadId(thread.id);
   return {
     id: thread.id,
     codexThreadId: null,
@@ -307,7 +310,7 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
     runtimeMode: thread.runtimeMode,
     interactionMode: thread.interactionMode,
     session: thread.session ? mapSession(thread.session) : null,
-    messages: thread.messages.map(mapMessage),
+    messages: thread.messages.map((message) => mapMessage(message, threadConnectionUrl)),
     proposedPlans: thread.proposedPlans.map(mapProposedPlan),
     latestProposedPlanSummary: mapLatestProposedPlanSummary(thread.latestProposedPlanSummary),
     error: thread.session?.lastError ?? null,
@@ -763,10 +766,28 @@ function toLegacyProvider(providerName: string | null): ProviderKind {
   return "codex";
 }
 
-function toAttachmentPreviewUrl(rawUrl: string): string {
+function toAttachmentPreviewUrl(rawUrl: string, connectionUrl?: string): string {
   if (rawUrl.startsWith("/")) {
     try {
-      const resolvedUrl = new URL(rawUrl, resolveServerUrl({ pathname: "/" }));
+      let connectionToken: string | null = null;
+      const resolveBaseUrl = (): URL => {
+        if (connectionUrl) {
+          const parsedConnectionUrl = new URL(connectionUrl);
+          connectionToken = parsedConnectionUrl.searchParams.get("token");
+          const protocol =
+            parsedConnectionUrl.protocol === "wss:"
+              ? "https:"
+              : parsedConnectionUrl.protocol === "ws:"
+                ? "http:"
+                : parsedConnectionUrl.protocol;
+          return new URL(`${protocol}//${parsedConnectionUrl.host}/`);
+        }
+        return new URL(resolveServerUrl({ pathname: "/" }));
+      };
+      const resolvedUrl = new URL(rawUrl, resolveBaseUrl());
+      if (connectionToken && !resolvedUrl.searchParams.has("token")) {
+        resolvedUrl.searchParams.set("token", connectionToken);
+      }
       resolvedUrl.protocol =
         resolvedUrl.protocol === "wss:"
           ? "https:"
@@ -1060,19 +1081,22 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
 
     case "thread.message-sent": {
       return updateThreadState(state, event.payload.threadId, (thread) => {
-        const message = mapMessage({
-          id: event.payload.messageId,
-          role: event.payload.role,
-          text: event.payload.text,
-          ...(event.payload.attachments !== undefined
-            ? { attachments: event.payload.attachments }
-            : {}),
-          turnId: event.payload.turnId,
-          streaming: event.payload.streaming,
-          sequence: event.payload.sequence ?? event.sequence,
-          createdAt: event.payload.createdAt,
-          updatedAt: event.payload.updatedAt,
-        });
+        const message = mapMessage(
+          {
+            id: event.payload.messageId,
+            role: event.payload.role,
+            text: event.payload.text,
+            ...(event.payload.attachments !== undefined
+              ? { attachments: event.payload.attachments }
+              : {}),
+            turnId: event.payload.turnId,
+            streaming: event.payload.streaming,
+            sequence: event.payload.sequence ?? event.sequence,
+            createdAt: event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+          },
+          resolveConnectionForThreadId(event.payload.threadId),
+        );
         const existingMessageIndex = thread.messages.findIndex((entry) => entry.id === message.id);
         const existingMessage =
           existingMessageIndex >= 0 ? thread.messages[existingMessageIndex] : undefined;
@@ -1455,13 +1479,14 @@ export function removeReadModelEntities(
 export function hydrateThreadFromReadModel(
   state: AppState,
   readModelThread: OrchestrationReadModel["threads"][number],
+  options?: SnapshotSyncOptions,
 ): AppState {
   if (readModelThread.deletedAt !== null) {
     return state;
   }
 
   primeHydratedThreadCache(readModelThread);
-  const nextThread = { ...mapThread(readModelThread), historyLoaded: true };
+  const nextThread = { ...mapThread(readModelThread, options), historyLoaded: true };
   const existingThread = state.threads.find((thread) => thread.id === nextThread.id);
   const threads = existingThread
     ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
@@ -1592,7 +1617,10 @@ interface AppStore extends AppState {
     readonly projectIds: ReadonlyArray<ProjectId>;
     readonly threadIds: ReadonlyArray<ThreadId>;
   }) => void;
-  hydrateThreadFromReadModel: (readModelThread: OrchestrationReadModel["threads"][number]) => void;
+  hydrateThreadFromReadModel: (
+    readModelThread: OrchestrationReadModel["threads"][number],
+    options?: SnapshotSyncOptions,
+  ) => void;
   pruneHydratedThreadHistories: (keepThreadIds: readonly ThreadId[]) => void;
   applyOrchestrationEvent: (event: OrchestrationEvent) => void;
   applyOrchestrationEvents: (events: ReadonlyArray<OrchestrationEvent>) => void;
@@ -1613,8 +1641,8 @@ export const useStore = create<AppStore>((set) => ({
   mergeServerReadModel: (readModel, options) =>
     set((state) => mergeServerReadModel(state, readModel, options)),
   removeReadModelEntities: (input) => set((state) => removeReadModelEntities(state, input)),
-  hydrateThreadFromReadModel: (readModelThread) =>
-    set((state) => hydrateThreadFromReadModel(state, readModelThread)),
+  hydrateThreadFromReadModel: (readModelThread, options) =>
+    set((state) => hydrateThreadFromReadModel(state, readModelThread, options)),
   pruneHydratedThreadHistories: (keepThreadIds) =>
     set((state) => pruneHydratedThreadHistories(state, keepThreadIds)),
   applyOrchestrationEvent: (event) => set((state) => applyOrchestrationEvent(state, event)),

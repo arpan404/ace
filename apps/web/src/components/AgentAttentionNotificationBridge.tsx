@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 
 import { APP_DISPLAY_NAME } from "../branding";
+import { useHostConnectionStore } from "../hostConnectionStore";
 import {
   buildAgentAttentionDesktopNotificationInput,
   buildAgentAttentionNotificationCopy,
@@ -17,6 +18,11 @@ import {
   shouldOfferAgentAttentionNotificationPermission,
   type AgentAttentionNotificationPermission,
 } from "../lib/agentAttentionNotifications";
+import {
+  resolveLocalConnectionUrl,
+  THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
+} from "../lib/connectionRouting";
+import { normalizeWsUrl } from "../lib/remoteHosts";
 import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
@@ -33,20 +39,35 @@ function describeNotificationError(error: unknown, fallback: string): string {
 
 export function AgentAttentionNotificationBridge() {
   const threads = useStore((store) => store.threads);
+  const threadConnectionById = useHostConnectionStore((store) => store.threadConnectionById);
   const navigate = useNavigate();
+  const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
   const notificationSettings = useSettings((settings) => ({
     notifyOnAgentCompletion: settings.notifyOnAgentCompletion,
     notifyOnApprovalRequired: settings.notifyOnApprovalRequired,
     notifyOnUserInputRequired: settings.notifyOnUserInputRequired,
   }));
-  const attentionRequests = useMemo(
-    () =>
-      filterAgentAttentionRequestsBySettings(
-        deriveAgentAttentionRequests(threads),
-        notificationSettings,
-      ),
-    [notificationSettings, threads],
-  );
+  const attentionRequests = useMemo(() => {
+    const baseRequests = filterAgentAttentionRequestsBySettings(
+      deriveAgentAttentionRequests(threads),
+      notificationSettings,
+    );
+    const scopedRequests = [];
+    for (const request of baseRequests) {
+      const connectionUrl = threadConnectionById[request.threadId];
+      const normalizedConnectionUrl = connectionUrl ? normalizeWsUrl(connectionUrl) : null;
+      if (!normalizedConnectionUrl || normalizedConnectionUrl === localConnectionUrl) {
+        scopedRequests.push(request);
+        continue;
+      }
+      scopedRequests.push(
+        Object.assign({}, request, {
+          key: `${normalizedConnectionUrl}:${request.key}`,
+        }),
+      );
+    }
+    return scopedRequests;
+  }, [localConnectionUrl, notificationSettings, threadConnectionById, threads]);
   const attentionRequestByKey = useMemo(
     () => new Map(attentionRequests.map((request) => [request.key, request])),
     [attentionRequests],
@@ -73,6 +94,28 @@ export function AgentAttentionNotificationBridge() {
   const hasPromptedForPermissionRef = useRef(false);
   const notificationSessionStartedAtRef = useRef(new Date().toISOString());
   const lastKnownFocusStateRef = useRef(isAppFocused);
+  const threadConnectionByIdRef = useRef(threadConnectionById);
+
+  useEffect(() => {
+    threadConnectionByIdRef.current = threadConnectionById;
+  }, [threadConnectionById]);
+
+  const navigateToRequestThread = useMemo(
+    () => (threadId: string) => {
+      const connectionUrl = threadConnectionByIdRef.current[threadId];
+      const normalizedConnectionUrl = connectionUrl ? normalizeWsUrl(connectionUrl) : undefined;
+      const search =
+        normalizedConnectionUrl && normalizedConnectionUrl !== localConnectionUrl
+          ? { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: normalizedConnectionUrl }
+          : {};
+      void navigate({
+        to: "/$threadId",
+        params: { threadId },
+        search,
+      });
+    },
+    [localConnectionUrl, navigate],
+  );
 
   useEffect(() => {
     attentionRequestByKeyRef.current = attentionRequestByKey;
@@ -189,12 +232,9 @@ export function AgentAttentionNotificationBridge() {
         return;
       }
 
-      void navigate({
-        to: "/$threadId",
-        params: { threadId: request.threadId },
-      });
+      navigateToRequestThread(request.threadId);
     });
-  }, [desktopNotificationBridge, navigate]);
+  }, [desktopNotificationBridge, navigateToRequestThread]);
 
   useEffect(() => {
     if (!desktopNotificationBridge) {
@@ -209,20 +249,14 @@ export function AgentAttentionNotificationBridge() {
       }
       if (request.kind !== "user-input") {
         window.focus();
-        void navigate({
-          to: "/$threadId",
-          params: { threadId: request.threadId },
-        });
+        navigateToRequestThread(request.threadId);
         return;
       }
 
       const reply = resolveAgentAttentionNotificationReply(request, event.response);
       if (!reply) {
         window.focus();
-        void navigate({
-          to: "/$threadId",
-          params: { threadId: request.threadId },
-        });
+        navigateToRequestThread(request.threadId);
         return;
       }
 
@@ -256,7 +290,7 @@ export function AgentAttentionNotificationBridge() {
           });
         });
     });
-  }, [desktopNotificationBridge, navigate]);
+  }, [desktopNotificationBridge, navigateToRequestThread]);
 
   useEffect(() => {
     if (!desktopNotificationBridge) {
@@ -357,10 +391,7 @@ export function AgentAttentionNotificationBridge() {
           window.focus();
           notification.close();
           activeBrowserNotificationsRef.current.delete(request.key);
-          void navigate({
-            to: "/$threadId",
-            params: { threadId: request.threadId },
-          });
+          navigateToRequestThread(request.threadId);
         };
 
         const handleClose = () => {
@@ -389,7 +420,7 @@ export function AgentAttentionNotificationBridge() {
     attentionRequests,
     desktopNotificationBridge,
     isAppFocused,
-    navigate,
+    navigateToRequestThread,
     notificationPermission,
   ]);
 

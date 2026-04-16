@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { resolveThreadRowClassName, resolveThreadStatusPill } from "../../lib/sidebar";
+import { normalizeWsUrl } from "../../lib/remoteHosts";
 import { useSidebarThreadSummaryById } from "../../storeSelectors";
 import { selectThreadTerminalState, useTerminalStateStore } from "../../terminalStateStore";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -27,6 +28,10 @@ interface PrStatusIndicator {
   colorClass: string;
   tooltip: string;
   url: string;
+}
+
+function connectionUrlsEqual(left: string, right: string): boolean {
+  return normalizeWsUrl(left) === normalizeWsUrl(right);
 }
 
 type ThreadPr = GitStatusResult["pr"];
@@ -116,6 +121,7 @@ export interface SidebarThreadRowProps {
   threadId: ThreadId;
   orderedProjectThreadIds: readonly ThreadId[];
   routeThreadId: ThreadId | null;
+  activeRouteConnectionUrl: string;
   connectionUrl: string;
   selectedThreadIds: ReadonlySet<ThreadId>;
   showThreadJumpHints: boolean;
@@ -162,7 +168,9 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     return null;
   }
 
-  const isActive = props.routeThreadId === thread.id;
+  const isActive =
+    props.routeThreadId === thread.id &&
+    connectionUrlsEqual(props.activeRouteConnectionUrl, props.connectionUrl);
   const isSelected = props.selectedThreadIds.has(thread.id);
   const isHighlighted = isActive || isSelected;
   const isThreadRunning =
@@ -182,7 +190,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
       ? "pointer-events-none transition-opacity duration-150 group-hover/menu-sub-item:opacity-0 group-focus-within/menu-sub-item:opacity-0"
       : "pointer-events-none";
   const prefetchThreadHistory = () => {
-    if (thread.id === props.routeThreadId) {
+    if (isActive) {
       return;
     }
     props.prefetchThreadHistory(thread.id);

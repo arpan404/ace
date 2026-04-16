@@ -12,6 +12,13 @@ import { orderItemsByPreferredIds } from "../lib/sidebar";
 import { useStore } from "../store";
 import { useThreadById } from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";
+import {
+  readRouteConnectionUrlFromLocation,
+  resolveConnectionForProjectId,
+  resolveLocalConnectionUrl,
+  THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
+} from "../lib/connectionRouting";
+import { normalizeWsUrl } from "../lib/remoteHosts";
 
 export function useHandleNewThread() {
   const projectIds = useStore(
@@ -44,6 +51,7 @@ export function useHandleNewThread() {
         branch?: string | null;
         worktreePath?: string | null;
         envMode?: DraftThreadEnvMode;
+        connectionUrl?: string;
       },
     ): Promise<void> => {
       const {
@@ -57,6 +65,23 @@ export function useHandleNewThread() {
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
+      const localConnectionUrl = resolveLocalConnectionUrl();
+      const resolvedConnectionUrl = (() => {
+        const candidateConnectionUrl =
+          options?.connectionUrl ??
+          resolveConnectionForProjectId(projectId) ??
+          readRouteConnectionUrlFromLocation() ??
+          localConnectionUrl;
+        try {
+          return normalizeWsUrl(candidateConnectionUrl);
+        } catch {
+          return localConnectionUrl;
+        }
+      })();
+      const threadRouteSearch =
+        resolvedConnectionUrl === localConnectionUrl
+          ? {}
+          : { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: resolvedConnectionUrl };
       const storedDraftThread = getDraftThreadByProjectId(projectId);
       const latestActiveDraftThread: DraftThreadState | null = routeThreadId
         ? getDraftThread(routeThreadId)
@@ -77,6 +102,7 @@ export function useHandleNewThread() {
           await navigate({
             to: "/$threadId",
             params: { threadId: storedDraftThread.threadId },
+            search: threadRouteSearch,
           });
         })();
       }
@@ -114,6 +140,7 @@ export function useHandleNewThread() {
         await navigate({
           to: "/$threadId",
           params: { threadId },
+          search: threadRouteSearch,
         });
       })();
     },

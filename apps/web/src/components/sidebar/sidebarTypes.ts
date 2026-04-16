@@ -13,6 +13,7 @@ export interface RemoteSidebarProjectEntry {
   readonly id: ProjectId;
   readonly name: string;
   readonly cwd: string;
+  readonly createdAt: string;
   readonly updatedAt: string;
   readonly icon: Project["icon"];
   readonly defaultModelSelection: Project["defaultModelSelection"];

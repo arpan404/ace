@@ -640,8 +640,11 @@ function EventRouter() {
           if (localOwnership) {
             removeReadModelEntities(localOwnership);
           }
-          mergeServerReadModel(snapshot, LEAN_SNAPSHOT_RECOVERY_INPUT);
           useHostConnectionStore.getState().upsertSnapshotOwnership(localConnectionUrl, snapshot);
+          mergeServerReadModel(snapshot, {
+            ...LEAN_SNAPSHOT_RECOVERY_INPUT,
+            connectionUrl: localConnectionUrl,
+          });
           reconcileSnapshotDerivedState();
           phase.success("Snapshot recovery applied", {
             reason,
