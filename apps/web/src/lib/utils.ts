@@ -138,7 +138,6 @@ export const resolveServerUrl = (options?: {
 }): string => {
   const rawUrl =
     (isNonEmptyString(options?.url) ? options.url : undefined) ??
-    loadActiveWsUrlOverride() ??
     readDesktopBridgeWsUrl() ??
     (isNonEmptyString(import.meta.env.VITE_WS_URL) ? import.meta.env.VITE_WS_URL : undefined) ??
     loadBootstrapWsUrl() ??

@@ -192,6 +192,10 @@ import {
   shouldUseCompactComposerPrimaryActions,
   shouldUseCompactComposerFooter,
 } from "~/lib/composer/footerLayout";
+import {
+  readRouteConnectionUrlFromLocation,
+  resolveLocalConnectionUrl,
+} from "../lib/connectionRouting";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { ChatHeader } from "./chat/ChatHeader";
@@ -279,11 +283,7 @@ import {
   useServerConfig,
   useServerKeybindings,
 } from "~/rpc/serverState";
-import {
-  loadRemoteHostInstances,
-  resolveActiveWsUrl,
-  resolveHostConnectionWsUrl,
-} from "~/lib/remoteHosts";
+import { loadRemoteHostInstances, resolveHostConnectionWsUrl } from "~/lib/remoteHosts";
 
 const ThreadWorkspaceEditor = lazy(() => import("./editor/ThreadWorkspaceEditor"));
 
@@ -6561,7 +6561,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
         envLocked,
         localEnvironmentLabel:
           loadRemoteHostInstances().find(
-            (host) => resolveHostConnectionWsUrl(host) === resolveActiveWsUrl(),
+            (host) =>
+              resolveHostConnectionWsUrl(host) ===
+              (readRouteConnectionUrlFromLocation() ?? resolveLocalConnectionUrl()),
           )?.name ?? "Local",
         runtimeMode,
         onRuntimeModeChange: handleRuntimeModeChange,

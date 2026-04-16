@@ -53,8 +53,11 @@ import {
 } from "../orchestrationUiEvents";
 import { createOrchestrationRecoveryCoordinator } from "../orchestrationRecovery";
 import { useEffectEvent } from "../hooks/useEffectEvent";
-import { getWsRpcClient, resetWsRpcClient } from "../wsRpcClient";
+import { resetWsRpcClient } from "../wsRpcClient";
 import { useDesktopCliInstallState } from "../lib/desktopCliInstallReactQuery";
+import { getRouteRpcClient } from "../lib/remoteWsRouter";
+import { resolveLocalDeviceWsUrl } from "../lib/remoteHosts";
+import { useHostConnectionStore } from "../hostConnectionStore";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -68,7 +71,6 @@ export const Route = createRootRouteWithContext<{
 
 function RootRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
-  const resetStoreState = useStore((store) => store.resetToInitialState);
   const [remoteBootstrapSettled, setRemoteBootstrapSettled] = useState(
     import.meta.env.MODE === "test",
   );
@@ -82,8 +84,6 @@ function RootRouteView() {
       return;
     }
     const handleHostChange = () => {
-      setRemoteBootstrapSettled(false);
-      resetStoreState();
       void resetWsRpcClient().finally(() => {
         setWsHostEpoch((current) => current + 1);
       });
@@ -92,7 +92,7 @@ function RootRouteView() {
     return () => {
       window.removeEventListener("ace:ws-host-changed", handleHostChange);
     };
-  }, [resetStoreState]);
+  }, []);
 
   const startupState = resolveAppStartupState({
     bootstrapComplete,
@@ -262,7 +262,8 @@ function errorDetails(error: unknown): string {
 function EventRouter() {
   const applyOrchestrationEvents = useStore((store) => store.applyOrchestrationEvents);
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
-  const syncServerReadModel = useStore((store) => store.syncServerReadModel);
+  const mergeServerReadModel = useStore((store) => store.mergeServerReadModel);
+  const removeReadModelEntities = useStore((store) => store.removeReadModelEntities);
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
   const syncProjects = useUiStateStore((store) => store.syncProjects);
   const syncThreads = useUiStateStore((store) => store.syncThreads);
@@ -408,8 +409,8 @@ function EventRouter() {
   );
 
   useEffect(() => {
-    const api = readNativeApi();
-    if (!api) return;
+    const localConnectionUrl = resolveLocalDeviceWsUrl();
+    const localRpcClient = getRouteRpcClient(localConnectionUrl);
     logLoadDiagnostic({ phase: "bootstrap", message: "Event router mounted" });
     let disposed = false;
     disposedRef.current = false;
@@ -599,7 +600,9 @@ function EventRouter() {
       const phase = beginLoadPhase("replay", `Recovering from replay (${reason})`);
 
       try {
-        const events = await api.orchestration.replayEvents(recovery.getState().latestSequence);
+        const events = await localRpcClient.orchestration.replayEvents({
+          fromSequenceExclusive: recovery.getState().latestSequence,
+        });
         if (!disposed) {
           applyEventBatch(events);
           phase.success("Replay recovery applied", {
@@ -629,9 +632,16 @@ function EventRouter() {
       });
 
       try {
-        const snapshot = await api.orchestration.getSnapshot(LEAN_SNAPSHOT_RECOVERY_INPUT);
+        const snapshot = await localRpcClient.orchestration.getSnapshot(
+          LEAN_SNAPSHOT_RECOVERY_INPUT,
+        );
         if (!disposed) {
-          syncServerReadModel(snapshot, LEAN_SNAPSHOT_RECOVERY_INPUT);
+          const localOwnership = useHostConnectionStore.getState().getOwnership(localConnectionUrl);
+          if (localOwnership) {
+            removeReadModelEntities(localOwnership);
+          }
+          mergeServerReadModel(snapshot, LEAN_SNAPSHOT_RECOVERY_INPUT);
+          useHostConnectionStore.getState().upsertSnapshotOwnership(localConnectionUrl, snapshot);
           reconcileSnapshotDerivedState();
           phase.success("Snapshot recovery applied", {
             reason,
@@ -658,7 +668,7 @@ function EventRouter() {
     const fallbackToSnapshotRecovery = async (): Promise<void> => {
       await runSnapshotRecovery("replay-failed");
     };
-    const unsubscribeConnectionState = getWsRpcClient().subscribeConnectionState((state) => {
+    const unsubscribeConnectionState = localRpcClient.subscribeConnectionState((state) => {
       if (disposed) {
         return;
       }
@@ -681,7 +691,7 @@ function EventRouter() {
       flushPendingDomainEvents();
       void recoverFromReplay("transport-reconnected");
     });
-    const unsubDomainEvent = api.orchestration.onDomainEvent((event) => {
+    const unsubDomainEvent = localRpcClient.orchestration.onDomainEvent((event) => {
       const action = recovery.classifyDomainEvent(event.sequence);
       if (action === "apply") {
         pendingDomainEvents.push(event);
@@ -702,7 +712,7 @@ function EventRouter() {
         window.desktopBridge.sendOrchestrationEvent(event);
       }
     });
-    const unsubTerminalEvent = api.terminal.onEvent((event) => {
+    const unsubTerminalEvent = localRpcClient.terminal.onEvent((event) => {
       const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
       if (hasRunningSubprocess === null) {
         return;
@@ -740,7 +750,8 @@ function EventRouter() {
     clearThreadUi,
     setProjectExpanded,
     syncProjects,
-    syncServerReadModel,
+    mergeServerReadModel,
+    removeReadModelEntities,
     syncThreads,
   ]);
 

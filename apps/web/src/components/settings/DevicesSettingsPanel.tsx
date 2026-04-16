@@ -17,21 +17,18 @@ import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { ensureNativeApi } from "../../nativeApi";
 import {
   buildHostPairingConnectionString,
-  connectToWsHost,
   createHostPairingSession,
   createRemoteHostInstance,
-  isHostConnectionActive,
+  loadConnectedRemoteHostIds,
   listHostPairingSessions,
-  loadPinnedRemoteHostIds,
   loadRemoteHostInstances,
   parseHostConnectionQrPayload,
-  persistPinnedRemoteHostIds,
+  persistConnectedRemoteHostIds,
   persistRemoteHostInstances,
   readHostPairingAdvertisedEndpoint,
   readHostPairingSession,
   revokeHostPairingSession,
   resolveHostConnectionWsUrl,
-  resolveActiveWsUrl,
   resolveLocalDeviceWsUrl,
   resolvePairingHostConnection,
   splitWsUrlAuthToken,
@@ -42,10 +39,13 @@ import {
 } from "../../lib/remoteHosts";
 import {
   disposeRemoteRouteClient,
+  probeRemoteRouteAvailability,
   registerRemoteRoute,
   unregisterRemoteRoute,
 } from "../../lib/remoteWsRouter";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
+import { useHostConnectionStore } from "../../hostConnectionStore";
+import { useStore } from "../../store";
 import {
   PROJECT_ICON_COLOR_OPTIONS,
   PROJECT_ICON_OPTIONS,
@@ -103,7 +103,9 @@ export function DevicesSettingsPanel() {
   const [hosts, setHosts] = useState<RemoteHostInstance[]>(() =>
     normalizeHostsForMode(loadRemoteHostInstances(), desktopMode),
   );
-  const [pinnedHostIds, setPinnedHostIds] = useState<string[]>(() => loadPinnedRemoteHostIds());
+  const [connectedHostIds, setConnectedHostIds] = useState<string[]>(() =>
+    loadConnectedRemoteHostIds(),
+  );
   const [hostDraft, setHostDraft] = useState<HostDraftState>(EMPTY_HOST_DRAFT);
   const [editingHostId, setEditingHostId] = useState<string | null>(null);
   const [importingHost, setImportingHost] = useState(false);
@@ -133,7 +135,6 @@ export function DevicesSettingsPanel() {
   const [connectingHostId, setConnectingHostId] = useState<string | "local" | null>(null);
   const registeredRouteConnectionUrlsRef = useRef<Set<string>>(new Set());
   const localDeviceConnection = useMemo(() => splitWsUrlAuthToken(resolveLocalDeviceWsUrl()), []);
-  const [activeWsUrl, setActiveWsUrl] = useState(() => resolveActiveWsUrl());
   const localControlConnectionUrl = useMemo(
     () =>
       resolveHostConnectionWsUrl({
@@ -142,22 +143,6 @@ export function DevicesSettingsPanel() {
       }),
     [localDeviceConnection.authToken, localDeviceConnection.wsUrl],
   );
-  const localHostIsActive = useMemo(
-    () => isHostConnectionActive(localDeviceConnection, activeWsUrl),
-    [activeWsUrl, localDeviceConnection],
-  );
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const handleHostChange = () => {
-      setActiveWsUrl(resolveActiveWsUrl());
-    };
-    window.addEventListener("ace:ws-host-changed", handleHostChange);
-    return () => {
-      window.removeEventListener("ace:ws-host-changed", handleHostChange);
-    };
-  }, []);
   const localAdvertisedWsUrl = advertisedLocalWsUrl ?? localDeviceConnection.wsUrl;
   const localShareConnectionUrl = useMemo(
     () =>
@@ -192,10 +177,10 @@ export function DevicesSettingsPanel() {
     [desktopMode],
   );
 
-  const savePinnedHostIds = useCallback((nextPinnedHostIds: ReadonlyArray<string>) => {
-    const deduped = [...new Set(nextPinnedHostIds.filter((hostId) => hostId.trim().length > 0))];
-    setPinnedHostIds(deduped);
-    persistPinnedRemoteHostIds(deduped);
+  const saveConnectedHostIds = useCallback((nextConnectedHostIds: ReadonlyArray<string>) => {
+    const deduped = [...new Set(nextConnectedHostIds.filter((hostId) => hostId.trim().length > 0))];
+    setConnectedHostIds(deduped);
+    persistConnectedRemoteHostIds(deduped);
   }, []);
 
   const clearHostDraft = useCallback(() => {
@@ -204,12 +189,12 @@ export function DevicesSettingsPanel() {
   }, []);
 
   const sortedHosts = useMemo(() => {
-    const pinnedIds = new Set(pinnedHostIds);
+    const connectedIds = new Set(connectedHostIds);
     return [...hosts].toSorted((left, right) => {
-      const leftPinned = pinnedIds.has(left.id) ? 1 : 0;
-      const rightPinned = pinnedIds.has(right.id) ? 1 : 0;
-      if (leftPinned !== rightPinned) {
-        return rightPinned - leftPinned;
+      const leftConnected = connectedIds.has(left.id) ? 1 : 0;
+      const rightConnected = connectedIds.has(right.id) ? 1 : 0;
+      if (leftConnected !== rightConnected) {
+        return rightConnected - leftConnected;
       }
       const leftLastConnectedAt = Date.parse(left.lastConnectedAt ?? "") || 0;
       const rightLastConnectedAt = Date.parse(right.lastConnectedAt ?? "") || 0;
@@ -218,20 +203,20 @@ export function DevicesSettingsPanel() {
       }
       return left.name.localeCompare(right.name);
     });
-  }, [hosts, pinnedHostIds]);
+  }, [hosts, connectedHostIds]);
 
   useEffect(() => {
     const availableHostIds = new Set(hosts.map((host) => host.id));
-    const nextPinnedHostIds = pinnedHostIds.filter((hostId) => availableHostIds.has(hostId));
-    if (nextPinnedHostIds.length !== pinnedHostIds.length) {
-      savePinnedHostIds(nextPinnedHostIds);
+    const nextConnectedHostIds = connectedHostIds.filter((hostId) => availableHostIds.has(hostId));
+    if (nextConnectedHostIds.length !== connectedHostIds.length) {
+      saveConnectedHostIds(nextConnectedHostIds);
     }
-  }, [hosts, pinnedHostIds, savePinnedHostIds]);
+  }, [hosts, connectedHostIds, saveConnectedHostIds]);
 
   useEffect(() => {
     const nextConnectionUrls = new Set(
       hosts
-        .filter((host) => pinnedHostIds.includes(host.id))
+        .filter((host) => connectedHostIds.includes(host.id))
         .map((host) => resolveHostConnectionWsUrl(host)),
     );
     const previousConnectionUrls = registeredRouteConnectionUrlsRef.current;
@@ -250,7 +235,7 @@ export function DevicesSettingsPanel() {
     }
 
     registeredRouteConnectionUrlsRef.current = nextConnectionUrls;
-  }, [hosts, pinnedHostIds]);
+  }, [hosts, connectedHostIds]);
 
   useEffect(
     () => () => {
@@ -406,9 +391,6 @@ export function DevicesSettingsPanel() {
         },
         editingHost?.id,
       );
-      if (!pinnedHostIds.includes(upsertedHost.id)) {
-        savePinnedHostIds([...pinnedHostIds, upsertedHost.id]);
-      }
       clearHostDraft();
       toastManager.add({
         type: "success",
@@ -453,8 +435,6 @@ export function DevicesSettingsPanel() {
     hostDraft.iconGlyph,
     hostDraft.name,
     hosts,
-    pinnedHostIds,
-    savePinnedHostIds,
     upsertHost,
   ]);
 
@@ -476,7 +456,7 @@ export function DevicesSettingsPanel() {
       if (!confirmed) {
         return;
       }
-      savePinnedHostIds(pinnedHostIds.filter((hostId) => hostId !== host.id));
+      saveConnectedHostIds(connectedHostIds.filter((hostId) => hostId !== host.id));
       saveHosts(hosts.filter((candidate) => candidate.id !== host.id));
       if (editingHostId === host.id) {
         clearHostDraft();
@@ -492,7 +472,7 @@ export function DevicesSettingsPanel() {
         });
       }
     },
-    [clearHostDraft, editingHostId, hosts, pinnedHostIds, saveHosts, savePinnedHostIds],
+    [clearHostDraft, connectedHostIds, editingHostId, hosts, saveConnectedHostIds, saveHosts],
   );
 
   const checkHostAvailability = useCallback(
@@ -529,7 +509,7 @@ export function DevicesSettingsPanel() {
 
   const connectHost = useCallback(
     async (host: RemoteHostInstance) => {
-      if (connectingHostId !== null) {
+      if (connectingHostId !== null || connectedHostIds.includes(host.id)) {
         return;
       }
       const connectionString = resolveHostConnectionWsUrl(host);
@@ -543,7 +523,17 @@ export function DevicesSettingsPanel() {
           [host.id]: { status: "available", requestId: Date.now() },
         }));
         markHostLastConnected(host.id);
-        connectToWsHost(connectionString);
+        registerRemoteRoute(connectionString);
+        await probeRemoteRouteAvailability(connectionString, {
+          force: true,
+          timeoutMs: 2_500,
+        });
+        saveConnectedHostIds([...connectedHostIds, host.id]);
+        toastManager.add({
+          type: "success",
+          title: `Connected to ${host.name}`,
+          description: "Local host remains the primary server.",
+        });
       } catch (error) {
         setHostAvailability((current) => ({
           ...current,
@@ -559,41 +549,58 @@ export function DevicesSettingsPanel() {
         setConnectingHostId(null);
       }
     },
-    [connectingHostId, markHostLastConnected],
+    [connectedHostIds, connectingHostId, markHostLastConnected, saveConnectedHostIds],
+  );
+
+  const disconnectHost = useCallback(
+    async (host: RemoteHostInstance) => {
+      if (connectingHostId !== null || !connectedHostIds.includes(host.id)) {
+        return;
+      }
+      setConnectingHostId(host.id);
+      try {
+        saveConnectedHostIds(
+          connectedHostIds.filter((candidateHostId) => candidateHostId !== host.id),
+        );
+        const connectionUrl = resolveHostConnectionWsUrl(host);
+        await disposeRemoteRouteClient(connectionUrl);
+        const ownership = useHostConnectionStore.getState().getOwnership(connectionUrl);
+        if (ownership) {
+          useStore.getState().removeReadModelEntities(ownership);
+        }
+        useHostConnectionStore.getState().removeConnection(connectionUrl);
+      } catch (error) {
+        toastManager.add({
+          type: "warning",
+          title: "Disconnected host, but cleanup failed.",
+          description:
+            error instanceof Error ? error.message : "Remote route cleanup did not complete.",
+        });
+      } finally {
+        setConnectingHostId(null);
+      }
+    },
+    [connectedHostIds, connectingHostId, saveConnectedHostIds],
   );
 
   const connectLocalHost = useCallback(async () => {
-    if (connectingHostId !== null || localHostIsActive) {
+    if (connectingHostId !== null) {
       return;
     }
     setConnectingHostId("local");
     try {
-      await verifyWsHostConnection(localControlConnectionUrl, {
-        timeoutMs: 2_500,
-      });
-      connectToWsHost(localControlConnectionUrl);
+      await verifyWsHostConnection(localControlConnectionUrl, { timeoutMs: 2_500 });
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Could not switch to local host.",
+        title: "Could not verify local host.",
         description:
           error instanceof Error ? error.message : "Local host connection check did not complete.",
       });
     } finally {
       setConnectingHostId(null);
     }
-  }, [connectingHostId, localControlConnectionUrl, localHostIsActive]);
-
-  const togglePinnedHost = useCallback(
-    (hostId: string) => {
-      if (pinnedHostIds.includes(hostId)) {
-        savePinnedHostIds(pinnedHostIds.filter((candidateId) => candidateId !== hostId));
-        return;
-      }
-      savePinnedHostIds([...pinnedHostIds, hostId]);
-    },
-    [pinnedHostIds, savePinnedHostIds],
-  );
+  }, [connectingHostId, localControlConnectionUrl]);
 
   const createPairingLink = useCallback(async () => {
     const pairingName = pairingLabel.trim();
@@ -881,6 +888,7 @@ export function DevicesSettingsPanel() {
                   ? "Host auth token is enabled."
                   : "No host auth token configured."}
               </span>
+              <span className="mt-1 block">This device remains the main host at all times.</span>
             </>
           }
           control={
@@ -895,15 +903,11 @@ export function DevicesSettingsPanel() {
               </Button>
               <Button
                 size="xs"
-                variant={localHostIsActive ? "outline" : "default"}
+                variant="outline"
                 onClick={() => void connectLocalHost()}
-                disabled={localHostIsActive || connectingHostId !== null}
+                disabled={connectingHostId !== null}
               >
-                {localHostIsActive
-                  ? "Active"
-                  : connectingHostId === "local"
-                    ? "Switching…"
-                    : "Use local"}
+                {connectingHostId === "local" ? "Checking…" : "Main host"}
               </Button>
               <Button
                 size="xs"
@@ -1178,9 +1182,8 @@ export function DevicesSettingsPanel() {
           />
         ) : (
           sortedHosts.map((host) => {
-            const isPinned = pinnedHostIds.includes(host.id);
+            const isConnected = connectedHostIds.includes(host.id);
             const connectionString = resolveHostConnectionWsUrl(host);
-            const isActive = isHostConnectionActive(host, activeWsUrl);
             return (
               <SettingsRow
                 key={host.id}
@@ -1214,14 +1217,9 @@ export function DevicesSettingsPanel() {
                         ? formatRelativeTimeLabel(host.lastConnectedAt)
                         : "never"}
                     </span>
-                    {isPinned ? (
+                    {isConnected ? (
                       <span className="mt-1 inline-flex items-center gap-1 rounded border border-blue-500/35 bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-300">
-                        Pinned
-                      </span>
-                    ) : null}
-                    {isActive ? (
-                      <span className="mt-1 inline-flex items-center gap-1 rounded border border-emerald-500/35 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
-                        Active host
+                        Connected
                       </span>
                     ) : null}
                   </>
@@ -1239,13 +1237,18 @@ export function DevicesSettingsPanel() {
                     </span>
                     <Button
                       size="xs"
-                      onClick={() => void connectHost(host)}
-                      disabled={isActive || connectingHostId !== null}
+                      variant={isConnected ? "outline" : "default"}
+                      onClick={() =>
+                        isConnected ? void disconnectHost(host) : void connectHost(host)
+                      }
+                      disabled={connectingHostId !== null}
                     >
-                      {isActive
-                        ? "Active"
-                        : connectingHostId === host.id
-                          ? "Connecting…"
+                      {connectingHostId === host.id
+                        ? isConnected
+                          ? "Disconnecting…"
+                          : "Connecting…"
+                        : isConnected
+                          ? "Disconnect"
                           : "Connect"}
                     </Button>
                     <Button
@@ -1255,14 +1258,6 @@ export function DevicesSettingsPanel() {
                       disabled={checkingHostId !== null || connectingHostId !== null}
                     >
                       {checkingHostId === host.id ? "Checking…" : "Check"}
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      onClick={() => togglePinnedHost(host.id)}
-                      disabled={checkingHostId !== null || connectingHostId !== null}
-                    >
-                      {isPinned ? "Unpin" : "Pin"}
                     </Button>
                     <Button
                       size="xs"

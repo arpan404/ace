@@ -15,10 +15,11 @@ import {
   wsUrlToBrowserBaseUrl,
 } from "@ace/shared/hostConnections";
 
-import { clearActiveWsUrlOverride, persistActiveWsUrlOverride, resolveServerUrl } from "./utils";
+import { clearActiveWsUrlOverride, resolveServerUrl } from "./utils";
 
 const REMOTE_HOSTS_STORAGE_KEY = "ace.remote-hosts.v1";
-const PINNED_REMOTE_HOST_IDS_STORAGE_KEY = "ace.pinned-remote-host-ids.v1";
+const CONNECTED_REMOTE_HOST_IDS_STORAGE_KEY = "ace.connected-remote-host-ids.v1";
+const LEGACY_PINNED_REMOTE_HOST_IDS_STORAGE_KEY = "ace.pinned-remote-host-ids.v1";
 
 export interface RemoteHostInstance {
   readonly id: string;
@@ -177,11 +178,7 @@ export function persistRemoteHostInstances(hosts: ReadonlyArray<RemoteHostInstan
   window.localStorage.setItem(REMOTE_HOSTS_STORAGE_KEY, JSON.stringify(hosts));
 }
 
-export function loadPinnedRemoteHostIds(): string[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-  const raw = window.localStorage.getItem(PINNED_REMOTE_HOST_IDS_STORAGE_KEY);
+function decodeStoredHostIds(raw: string | null): string[] {
   if (!raw) {
     return [];
   }
@@ -202,7 +199,20 @@ export function loadPinnedRemoteHostIds(): string[] {
   }
 }
 
-export function persistPinnedRemoteHostIds(hostIds: ReadonlyArray<string>): void {
+export function loadConnectedRemoteHostIds(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  const connectedRaw = window.localStorage.getItem(CONNECTED_REMOTE_HOST_IDS_STORAGE_KEY);
+  if (connectedRaw !== null) {
+    return decodeStoredHostIds(connectedRaw);
+  }
+  return decodeStoredHostIds(
+    window.localStorage.getItem(LEGACY_PINNED_REMOTE_HOST_IDS_STORAGE_KEY),
+  );
+}
+
+export function persistConnectedRemoteHostIds(hostIds: ReadonlyArray<string>): void {
   if (typeof window === "undefined") {
     return;
   }
@@ -213,7 +223,15 @@ export function persistPinnedRemoteHostIds(hostIds: ReadonlyArray<string>): void
       deduped.add(trimmed);
     }
   }
-  window.localStorage.setItem(PINNED_REMOTE_HOST_IDS_STORAGE_KEY, JSON.stringify([...deduped]));
+  window.localStorage.setItem(CONNECTED_REMOTE_HOST_IDS_STORAGE_KEY, JSON.stringify([...deduped]));
+}
+
+export function loadPinnedRemoteHostIds(): string[] {
+  return loadConnectedRemoteHostIds();
+}
+
+export function persistPinnedRemoteHostIds(hostIds: ReadonlyArray<string>): void {
+  persistConnectedRemoteHostIds(hostIds);
 }
 
 export function resolveActiveWsUrl(): string {
@@ -230,12 +248,7 @@ export function resolveLocalDeviceWsUrl(): string {
     try {
       const bridged = window.desktopBridge.getWsUrl()?.trim();
       if (bridged && bridged.length > 0) {
-        const normalizedBridged = normalizeWsUrl(bridged);
-        const { wsUrl: bridgedEndpoint } = splitWsUrlAuthToken(normalizedBridged);
-        const { wsUrl: activeEndpoint } = splitWsUrlAuthToken(activeWsUrl);
-        if (normalizeWsUrl(bridgedEndpoint) === normalizeWsUrl(activeEndpoint)) {
-          return normalizedBridged;
-        }
+        return normalizeWsUrl(bridged);
       }
     } catch {
       // Ignore bridge read errors and fall back to active transport resolution.
@@ -258,20 +271,9 @@ export function isHostConnectionActive(
 }
 
 export function connectToWsHost(
-  targetWsUrl: string,
+  _targetWsUrl: string,
   options?: { readonly path?: string; readonly reload?: boolean },
 ): void {
-  const previousActiveWsUrl = resolveActiveWsUrl();
-  const normalizedTarget = normalizeWsUrl(targetWsUrl);
-  const normalizedLocal = resolveLocalDeviceWsUrl();
-  if (normalizedTarget === normalizedLocal) {
-    clearActiveWsUrlOverride();
-  } else {
-    persistActiveWsUrlOverride(normalizedTarget);
-  }
-  const nextActiveWsUrl = resolveActiveWsUrl();
-  const didPrimaryHostChange =
-    normalizeWsUrl(previousActiveWsUrl) !== normalizeWsUrl(nextActiveWsUrl);
   if (typeof window === "undefined") {
     return;
   }
@@ -280,23 +282,10 @@ export function connectToWsHost(
     requestedPath.length > 0
       ? requestedPath
       : `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  if (!didPrimaryHostChange) {
-    if (requestedPath.length > 0) {
-      window.history.pushState(window.history.state, "", nextUrl);
-      window.dispatchEvent(new PopStateEvent("popstate"));
-    }
-    return;
-  }
-  if (options?.reload === false) {
+  clearActiveWsUrlOverride();
+  if (options?.reload === false || requestedPath.length > 0) {
     window.history.pushState(window.history.state, "", nextUrl);
     window.dispatchEvent(new PopStateEvent("popstate"));
-    window.dispatchEvent(
-      new CustomEvent("ace:ws-host-changed", {
-        detail: {
-          targetWsUrl: normalizedTarget,
-        },
-      }),
-    );
     return;
   }
   window.location.assign(nextUrl);
