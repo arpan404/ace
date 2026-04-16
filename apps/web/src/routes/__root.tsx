@@ -15,6 +15,7 @@ import { LEAN_SNAPSHOT_RECOVERY_INPUT, resolveWelcomeBootstrapPlan } from "../bo
 import { APP_DISPLAY_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
+import { AppConfirmDialogHost } from "../components/AppConfirmDialogHost";
 import { AppStartupScreen } from "../components/AppStartupScreen";
 import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
@@ -117,6 +118,7 @@ function RootRouteView() {
           <ToastProvider>
             <AnchoredToastProvider>
               <UiTypographyBridge />
+              <AppConfirmDialogHost />
               <DesktopCliInstallToastBridge />
               <EventRouter key={`event-router-${String(wsHostEpoch)}`} />
               <AgentAttentionNotificationBridge />

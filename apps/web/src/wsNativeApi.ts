@@ -1,6 +1,7 @@
 import { type ContextMenuItem, type NativeApi } from "@ace/contracts";
 
 import { showContextMenuFallback } from "./contextMenuFallback";
+import { requestAppConfirm } from "./lib/appConfirm";
 import { runAsyncTask } from "./lib/async";
 import { resetServerStateForTests } from "./rpc/serverState";
 import { __resetWsRpcClientForTests, getWsRpcClient } from "./wsRpcClient";
@@ -48,10 +49,7 @@ export function createWsNativeApi(): NativeApi {
         return rpcClient.server.pickFolder(options ?? {});
       },
       confirm: async (message) => {
-        if (window.desktopBridge) {
-          return window.desktopBridge.confirm(message);
-        }
-        return window.confirm(message);
+        return requestAppConfirm(message);
       },
     },
     browser: {

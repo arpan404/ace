@@ -41,7 +41,7 @@ export function NewThreadLanding() {
     [activeProjectId, activeProjects],
   );
   const hasProjects = activeProjects.length > 0;
-  const showSidebarToggle = isMobile || sidebarState === "collapsed";
+  const showSidebarToggle = !isElectron || isMobile || sidebarState === "collapsed";
   const startNewThread = useCallback(() => {
     if (activeProjectId === null) {
       return;

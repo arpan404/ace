@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isElectron } from "../../env";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { ensureNativeApi } from "../../nativeApi";
 import {
   buildHostPairingConnectionString,
   connectToWsHost,
@@ -469,7 +470,9 @@ export function DevicesSettingsPanel() {
 
   const removeHost = useCallback(
     async (host: RemoteHostInstance) => {
-      const confirmed = window.confirm(`Remove "${host.name}" from saved remote hosts?`);
+      const confirmed = await ensureNativeApi().dialogs.confirm(
+        `Remove "${host.name}" from saved remote hosts?`,
+      );
       if (!confirmed) {
         return;
       }
@@ -742,7 +745,7 @@ export function DevicesSettingsPanel() {
 
   const revokePairedSession = useCallback(
     async (session: HostPairingSessionSummary) => {
-      const confirmed = window.confirm(
+      const confirmed = await ensureNativeApi().dialogs.confirm(
         `Revoke access for "${session.requesterName ?? session.name}"?`,
       );
       if (!confirmed) {
@@ -864,10 +867,10 @@ export function DevicesSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      <SettingsSection title="Host this device" icon={<LaptopIcon className="size-3.5" />}>
+      <SettingsSection title="Local host" icon={<LaptopIcon className="size-3.5" />}>
         <SettingsRow
-          title="Local ace host endpoint"
-          description="Share this host with mobile/desktop clients. For other devices, bind your server to a LAN or tailnet interface."
+          title="Local endpoint"
+          description="Share this host with other devices on your network or tailnet."
           status={
             <>
               <span className="block break-all font-mono text-[11px] text-foreground">
@@ -890,9 +893,6 @@ export function DevicesSettingsPanel() {
               >
                 {refreshingLocalEndpoint ? "Refreshing…" : "Refresh"}
               </Button>
-              <span className="rounded border border-emerald-500/35 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
-                Primary host
-              </span>
               <Button
                 size="xs"
                 variant={localHostIsActive ? "outline" : "default"}
@@ -900,10 +900,10 @@ export function DevicesSettingsPanel() {
                 disabled={localHostIsActive || connectingHostId !== null}
               >
                 {localHostIsActive
-                  ? "Active host"
+                  ? "Active"
                   : connectingHostId === "local"
                     ? "Switching…"
-                    : "Use local host"}
+                    : "Use local"}
               </Button>
               <Button
                 size="xs"
@@ -1077,15 +1077,15 @@ export function DevicesSettingsPanel() {
         </SettingsRow>
       </SettingsSection>
 
-      <SettingsSection title="Remote control hosts" icon={<ScanLineIcon className="size-3.5" />}>
+      <SettingsSection title="Remote hosts" icon={<ScanLineIcon className="size-3.5" />}>
         <SettingsRow
           title={editingHostId ? "Edit remote host" : "Add remote host"}
           description={
             desktopMode
               ? editingHostId
                 ? "Update host label, icon, and connection details."
-                : "Paste a pairing link or full host connection string, then personalize it."
-              : "URL mode allows one remote host at a time. New host replaces the existing entry."
+                : "Paste a pairing link or host connection string."
+              : "Web mode supports one remote host entry."
           }
           control={
             <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
@@ -1149,9 +1149,6 @@ export function DevicesSettingsPanel() {
                 </select>
               </label>
             </div>
-            <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
-              Keep using connection strings while still controlling host metadata here.
-            </div>
             <Input
               value={hostDraft.connection}
               onChange={(event) => {
@@ -1177,11 +1174,7 @@ export function DevicesSettingsPanel() {
         {hosts.length === 0 ? (
           <SettingsRow
             title="Saved hosts"
-            description={
-              desktopMode
-                ? "No remote hosts saved yet. Add one above, then pin the hosts you want available in routing."
-                : "No remote host saved yet. Add one above to keep it available for remote routing."
-            }
+            description={desktopMode ? "No remote hosts saved yet." : "No remote host saved yet."}
           />
         ) : (
           sortedHosts.map((host) => {

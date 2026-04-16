@@ -16,6 +16,7 @@ import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
 import { TopBarCluster, interleaveTopBarItems } from "../thread/TopBarCluster";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 import { DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME } from "~/lib/desktopChrome";
+import { isElectron } from "~/env";
 
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
@@ -85,7 +86,7 @@ export const ChatHeader = memo(function ChatHeader({
   onWorkspaceModeChange,
 }: ChatHeaderProps) {
   const { isMobile, state } = useSidebar();
-  const showSidebarToggle = isMobile || state === "collapsed";
+  const showSidebarToggle = !isElectron || isMobile || state === "collapsed";
   const editorWorkspaceActive = workspaceMode === "editor" || workspaceMode === "split";
   const workspaceActionItems: ReactNode[] = [
     activeProjectScripts ? (
