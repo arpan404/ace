@@ -86,7 +86,10 @@ export function toBrowseDirectoryPath(pathValue: string): string {
 
 export function resolveProjectPath(pathValue: string, cwd?: string): string {
   const trimmed = pathValue.trim();
-  if (!trimmed || !isExplicitRelativePath(trimmed) || !cwd) {
+  if (!trimmed || !cwd) {
+    return trimmed;
+  }
+  if (!isExplicitRelativePath(trimmed)) {
     return trimmed;
   }
 

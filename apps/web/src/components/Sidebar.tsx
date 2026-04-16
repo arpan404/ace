@@ -1,6 +1,4 @@
 import {
-  ArrowDownIcon,
-  ArrowLeftIcon,
   ArrowUpIcon,
   ChevronRightIcon,
   FolderIcon,
@@ -10,6 +8,7 @@ import {
   SettingsIcon,
   SquarePenIcon,
   TriangleAlertIcon,
+  ChevronLeftIcon,
 } from "lucide-react";
 import {
   startTransition,
@@ -629,6 +628,7 @@ export default function Sidebar() {
     null,
   );
   const [activeProjectBrowseIndex, setActiveProjectBrowseIndex] = useState(-1);
+  const lastKeyboardNavigationTimeRef = useRef(0);
   const [projectPickerEnvironmentProbeId, setProjectPickerEnvironmentProbeId] = useState<
     string | null
   >(null);
@@ -636,6 +636,7 @@ export default function Sidebar() {
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
   const addProjectInputRef = useRef<HTMLInputElement | null>(null);
   const projectPickerListRef = useRef<HTMLDivElement | null>(null);
+  const searchPaletteListRef = useRef<HTMLDivElement | null>(null);
   const browseRequestVersionRef = useRef(0);
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
@@ -1135,15 +1136,14 @@ export default function Sidebar() {
             });
           }
           focusMostRecentThreadForProject(existing.id);
-          finishAddingProject();
         } catch (error) {
-          setIsAddingProject(false);
           toastManager.add({
             type: "error",
             title: `Failed to restore "${existing.name}"`,
             description: error instanceof Error ? error.message : "An error occurred.",
           });
         }
+        finishAddingProject();
         return;
       }
 
@@ -1164,14 +1164,15 @@ export default function Sidebar() {
           },
           createdAt,
         });
-        await refreshRemoteSidebarHosts();
+        finishAddingProject();
+        refreshRemoteSidebarHosts().catch(() => undefined);
         if (!isLocalEnvironment) {
           toastManager.add({
             type: "success",
             title: `Added project on ${targetEnvironment?.name ?? "remote host"}.`,
           });
         } else {
-          await handleNewThread(projectId, {
+          handleNewThread(projectId, {
             envMode: appSettings.defaultThreadEnvMode,
           }).catch((error) => {
             reportBackgroundError(
@@ -1448,32 +1449,25 @@ export default function Sidebar() {
     if (!addingProject || activeProjectBrowseIndex < 0) {
       return;
     }
+    lastKeyboardNavigationTimeRef.current = Date.now();
     const listElement = projectPickerListRef.current;
     if (!listElement) {
       return;
     }
+    const stepSelector =
+      projectPickerStep === "environment"
+        ? "data-project-picker-environment-index"
+        : "data-project-picker-index";
     const activeItem = listElement.querySelector<HTMLElement>(
-      `[data-project-picker-index="${String(activeProjectBrowseIndex)}"]`,
+      `[${stepSelector}="${String(activeProjectBrowseIndex)}"]`,
     );
     if (!activeItem) {
       return;
     }
-    const itemTop = activeItem.offsetTop;
-    const itemHeight = activeItem.offsetHeight;
-    const itemBottom = itemTop + itemHeight;
-    const visibleTop = listElement.scrollTop;
-    const visibleHeight = listElement.clientHeight;
-
-    const minVisibleItems = 3;
-    const targetPosition = Math.floor((visibleHeight - itemHeight) * 0.3);
-
-    if (itemTop < visibleTop + minVisibleItems * itemHeight) {
-      listElement.scrollTop = Math.max(0, itemTop - targetPosition);
-      return;
-    }
-    if (itemBottom > visibleTop + visibleHeight - minVisibleItems * itemHeight) {
-      listElement.scrollTop = itemBottom - visibleHeight + targetPosition;
-    }
+    activeItem.scrollIntoView({
+      block: "center",
+      behavior: "auto",
+    });
   }, [activeProjectBrowseIndex, addingProject, projectPickerStep]);
 
   const handleStartAddProject = useCallback(() => {
@@ -3600,23 +3594,23 @@ export default function Sidebar() {
       </Dialog>
 
       <CommandDialog open={searchPaletteOpen} onOpenChange={handleSearchPaletteOpenChange}>
-        <CommandDialogPopup className="flex max-h-[min(42rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border-border/70 bg-popover/96 p-0 shadow-2xl">
-          <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
+        <CommandDialogPopup className="flex max-h-[min(42rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0 shadow-lg rounded-xl">
+          <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3 bg-gradient-to-b from-popover/50 to-popover/20">
             {searchPaletteMode === "new-thread-project" ? (
               <button
                 type="button"
-                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent/80 hover:text-foreground active:scale-95"
                 onClick={handleSearchPaletteBack}
                 aria-label="Back to search"
               >
-                <ArrowLeftIcon className="size-4" />
+                <ChevronLeftIcon className="size-5" strokeWidth={2.5} />
               </button>
             ) : (
-              <SearchIcon className="ml-1 size-4 shrink-0 text-muted-foreground" />
+              <SearchIcon className="size-5 shrink-0 text-muted-foreground/60" strokeWidth={2} />
             )}
             <input
               ref={searchPaletteInputRef}
-              className="h-8 min-w-0 flex-1 rounded-md border border-border/70 bg-secondary/55 px-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+              className="h-9 min-w-0 flex-1 rounded-lg border border-border/50 bg-background/60 px-3 text-sm font-medium text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all"
               placeholder={
                 searchPaletteMode === "new-thread-project"
                   ? "Select project for a new thread..."
@@ -3629,53 +3623,58 @@ export default function Sidebar() {
             />
           </div>
 
-          <div className="min-h-0 flex-1 px-3 pt-3 pb-1">
-            <div className="max-h-72 overflow-y-auto rounded-lg border border-border/60 bg-background/50">
-              {searchPaletteItems.length === 0 ? (
-                <p className="px-3 py-2 text-xs text-muted-foreground">No matching results</p>
-              ) : (
-                <div className="py-1">
-                  {searchPaletteMode === "root" &&
-                    normalizedSearchPaletteQuery.length === 0 &&
-                    searchPaletteActionItems.length > 0 && (
-                      <p className="px-3 pt-1 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
-                        Actions
-                      </p>
-                    )}
-                  {searchPaletteActionItems.map((item) => {
-                    const itemIndex = searchPaletteIndexById.get(item.id) ?? -1;
-                    const isActive = itemIndex === searchPaletteActiveIndex;
-                    const icon =
-                      item.type === "action.new-thread" ? (
-                        <SquarePenIcon className="size-3.5 shrink-0" />
-                      ) : item.type === "action.new-project" ? (
-                        <FolderIcon className="size-3.5 shrink-0" />
-                      ) : (
-                        <SettingsIcon className="size-3.5 shrink-0" />
-                      );
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3" ref={searchPaletteListRef}>
+            {searchPaletteItems.length === 0 ? (
+              <p className="px-0 py-6 text-center text-sm text-muted-foreground/60">
+                No matching results
+              </p>
+            ) : (
+              <div className="py-1">
+                {searchPaletteMode === "root" &&
+                  normalizedSearchPaletteQuery.length === 0 &&
+                  searchPaletteActionItems.length > 0 && (
+                    <p className="px-0 pt-0 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
+                      Actions
+                    </p>
+                  )}
+                {searchPaletteActionItems.map((item) => {
+                  const itemIndex = searchPaletteIndexById.get(item.id) ?? -1;
+                  const isActive = itemIndex === searchPaletteActiveIndex;
+                  const icon =
+                    item.type === "action.new-thread" ? (
+                      <SquarePenIcon className="size-4 shrink-0" strokeWidth={2} />
+                    ) : item.type === "action.new-project" ? (
+                      <FolderIcon className="size-4 shrink-0" strokeWidth={2} />
+                    ) : (
+                      <SettingsIcon className="size-4 shrink-0" strokeWidth={2} />
+                    );
 
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
-                          isActive
-                            ? "bg-accent text-foreground"
-                            : "text-foreground/86 hover:bg-accent/70 hover:text-foreground"
-                        }`}
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`flex w-full items-center gap-3 px-0 py-2 text-left text-sm font-medium transition-all duration-150 rounded-md ${
+                        isActive
+                          ? "bg-primary/15 text-foreground"
+                          : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
+                      }`}
                         onMouseMove={() => handleSearchPaletteItemHover(item.id)}
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => handleSearchPaletteSelect(item)}
                       >
-                        {icon}
-                        <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
+                        <span
+                          className={`text-muted-foreground ${isActive ? "text-primary/70" : ""}`}
+                        >
+                          {icon}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
                       </button>
                     );
                   })}
 
                   {searchPaletteProjectItems.length > 0 && (
                     <>
-                      <p className="px-3 pt-2 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                      <p className="px-0 pt-3 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
                         {searchPaletteMode === "new-thread-project"
                           ? "Projects"
                           : normalizedSearchPaletteQuery.length === 0
@@ -3696,26 +3695,31 @@ export default function Sidebar() {
                           <button
                             key={item.id}
                             type="button"
-                            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
+                            className={`flex w-full items-center gap-3 px-0 py-2.5 text-left transition-all duration-150 rounded-md ${
                               isActive
-                                ? "bg-accent text-foreground"
-                                : "text-foreground/86 hover:bg-accent/70 hover:text-foreground"
+                                ? "bg-primary/15 text-foreground"
+                                : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
                             }`}
                             onMouseMove={() => handleSearchPaletteItemHover(item.id)}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => handleSearchPaletteSelect(item)}
                           >
                             {project ? (
-                              <ProjectAvatar project={project} className="size-4" />
+                              <ProjectAvatar project={project} className="size-5" />
                             ) : (
-                              <FolderIcon className="size-3.5 shrink-0" />
+                              <FolderIcon
+                                className="size-4 shrink-0 text-muted-foreground/60"
+                                strokeWidth={2}
+                              />
                             )}
-                            <span className="min-w-0 flex-1 truncate font-medium">
-                              {item.label}
-                            </span>
-                            <span className="truncate text-muted-foreground text-xs">
-                              {item.description}
-                            </span>
+                            <div className="min-w-0 flex-1">
+                              <span className="block truncate font-medium text-sm">
+                                {item.label}
+                              </span>
+                              <span className="block truncate text-muted-foreground text-xs font-normal">
+                                {item.description}
+                              </span>
+                            </div>
                           </button>
                         );
                       })}
@@ -3724,7 +3728,7 @@ export default function Sidebar() {
 
                   {searchPaletteMode === "root" && searchPaletteThreadItems.length > 0 && (
                     <>
-                      <p className="px-3 pt-2 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                      <p className="px-0 pt-3 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
                         {normalizedSearchPaletteQuery.length === 0 ? "Recent Threads" : "Threads"}
                       </p>
                       {searchPaletteThreadItems.map((item) => {
@@ -3734,22 +3738,27 @@ export default function Sidebar() {
                           <button
                             key={item.id}
                             type="button"
-                            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
+                            className={`flex w-full items-center gap-3 px-0 py-2.5 text-left transition-all duration-150 rounded-md ${
                               isActive
-                                ? "bg-accent text-foreground"
-                                : "text-foreground/86 hover:bg-accent/70 hover:text-foreground"
+                                ? "bg-primary/15 text-foreground"
+                                : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
                             }`}
                             onMouseMove={() => handleSearchPaletteItemHover(item.id)}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => handleSearchPaletteSelect(item)}
                           >
-                            <SquarePenIcon className="size-3.5 shrink-0" />
-                            <span className="min-w-0 flex-1 truncate font-medium">
-                              {item.label}
-                            </span>
-                            <span className="truncate text-muted-foreground text-xs">
-                              {item.description}
-                            </span>
+                            <SquarePenIcon
+                              className="size-4 shrink-0 text-muted-foreground/60"
+                              strokeWidth={2}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <span className="block truncate font-medium text-sm">
+                                {item.label}
+                              </span>
+                              <span className="block truncate text-muted-foreground text-xs font-normal">
+                                {item.description}
+                              </span>
+                            </div>
                           </button>
                         );
                       })}
@@ -3758,26 +3767,31 @@ export default function Sidebar() {
                 </div>
               )}
             </div>
-          </div>
 
-          <div className="flex items-center justify-between border-t border-border/70 bg-muted/25 px-3 py-2 text-muted-foreground text-xs">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="inline-flex items-center gap-1">
-                <ArrowUpIcon className="size-3.5" />
-                <ArrowDownIcon className="size-3.5" />
-                <span>Navigate</span>
+          <div className="flex items-center justify-between border-t border-border/40 bg-muted/30 px-4 py-2.5 text-muted-foreground text-xs gap-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex gap-0.5">
+                  <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
+                    ↑
+                  </span>
+                  <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
+                    ↓
+                  </span>
+                </span>
+                <span className="font-medium">Navigate</span>
               </span>
-              <span className="inline-flex items-center gap-1">
-                <span className="rounded border border-border/70 bg-muted/65 px-1.5 py-0.5 text-[10px] text-foreground/84">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="rounded border border-border/50 bg-background/50 px-2 py-0.5 text-[10px] font-medium text-foreground/70">
                   Enter
                 </span>
-                <span>Select</span>
+                <span className="font-medium">Select</span>
               </span>
-              <span className="inline-flex items-center gap-1">
-                <span className="rounded border border-border/70 bg-muted/65 px-1.5 py-0.5 text-[10px] text-foreground/84">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
                   Esc
                 </span>
-                <span>Close</span>
+                <span className="font-medium">Close</span>
               </span>
             </div>
           </div>
@@ -3797,11 +3811,11 @@ export default function Sidebar() {
           }
         }}
       >
-        <CommandDialogPopup className="flex max-h-[min(42rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border-border/70 bg-popover/96 p-0 shadow-2xl">
-          <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
+        <CommandDialogPopup className="flex max-h-[min(42rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0 shadow-lg rounded-xl">
+          <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3 bg-gradient-to-b from-popover/50 to-popover/20">
             <button
               type="button"
-              className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent/80 hover:text-foreground active:scale-95 disabled:opacity-50"
               onClick={() => {
                 if (projectPickerStep === "environment") {
                   setAddingProject(false);
@@ -3826,14 +3840,18 @@ export default function Sidebar() {
                     : "Browse parent directory"
               }
             >
-              <ArrowLeftIcon className="size-4" />
+              <ChevronLeftIcon className="size-5" strokeWidth={2.5} />
             </button>
             <input
               ref={addProjectInputRef}
-              className={`h-8 min-w-0 flex-1 rounded-md border bg-secondary/55 px-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none ${
-                addProjectError ? "border-red-500/70 focus:border-red-500" : "border-border/70"
+              className={`h-9 min-w-0 flex-1 rounded-lg border bg-background/60 px-3 text-sm font-medium text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all ${
+                addProjectError
+                  ? "border-red-500/50 focus:ring-red-500/20 focus:border-red-500"
+                  : "border-border/50"
               }`}
-              placeholder={projectPickerStep === "environment" ? "search..." : "/path/to/project"}
+              placeholder={
+                projectPickerStep === "environment" ? "Search environments..." : "/path/to/project"
+              }
               value={projectPickerStep === "environment" ? projectPickerEnvironmentQuery : newCwd}
               onChange={(event) => {
                 if (projectPickerStep === "environment") {
@@ -3849,32 +3867,38 @@ export default function Sidebar() {
             {projectPickerStep === "directory" ? (
               <button
                 type="button"
-                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-60"
                 onClick={handleAddProject}
                 disabled={!canAddProject}
               >
                 <span>{addProjectActionLabel}</span>
-                <span className="rounded border border-primary-foreground/20 bg-primary-foreground/10 px-1 text-[10px] text-primary-foreground/90">
+                <span className="rounded border border-primary-foreground/30 bg-primary-foreground/15 px-1.5 py-0.5 text-[9px] font-medium text-primary-foreground/90">
                   Enter
                 </span>
               </button>
             ) : null}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-hidden px-3 pt-3 pb-1">
-            <div className="flex h-full min-h-0 flex-col">
-              <p className="pb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
-                {projectPickerStep === "environment" ? "Environments" : "Directories"}
-              </p>
-              {projectPickerStep === "directory" && selectedProjectPickerEnvironment ? (
-                <p className="pb-2 text-[11px] text-muted-foreground">
-                  Target environment:{" "}
-                  <span className="font-medium">{selectedProjectPickerEnvironment.name}</span>
+          <div className="min-h-0 flex-1 overflow-hidden px-4 py-3 pb-2">
+            <div className="flex h-full min-h-0 flex-col gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/50 mb-2">
+                  {projectPickerStep === "environment"
+                    ? "Available Environments"
+                    : "Browse Directories"}
                 </p>
-              ) : null}
+                {projectPickerStep === "directory" && selectedProjectPickerEnvironment ? (
+                  <p className="text-xs text-muted-foreground/70">
+                    Target:{" "}
+                    <span className="font-semibold text-foreground">
+                      {selectedProjectPickerEnvironment.name}
+                    </span>
+                  </p>
+                ) : null}
+              </div>
               <div
                 ref={projectPickerListRef}
-                className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border/60 bg-background/50"
+                className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border/40 bg-background/30 backdrop-blur-sm"
               >
                 {projectPickerStep === "environment" ? (
                   filteredPickerEnvironments.length > 0 ? (
@@ -3882,60 +3906,71 @@ export default function Sidebar() {
                       <button
                         key={environment.id}
                         type="button"
-                        data-project-picker-index={index}
-                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                        data-project-picker-environment-index={index}
+                        className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-all duration-150 border-b border-border/20 last:border-b-0 ${
                           index === activeProjectBrowseIndex
-                            ? "bg-accent text-foreground"
-                            : "text-foreground/86 hover:bg-accent/70 hover:text-foreground"
+                            ? "bg-primary/15 text-foreground"
+                            : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
                         }`}
-                        onMouseMove={() => setActiveProjectBrowseIndex(index)}
+                        onMouseEnter={() => {
+                          if (Date.now() - lastKeyboardNavigationTimeRef.current > 500) {
+                            setActiveProjectBrowseIndex(index);
+                          }
+                        }}
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => void handleSelectProjectPickerEnvironment(environment)}
                         disabled={projectPickerEnvironmentProbeId !== null}
                       >
                         {environment.icon ? (
-                          <ProjectGlyphIcon icon={environment.icon} className="size-4 shrink-0" />
+                          <ProjectGlyphIcon icon={environment.icon} className="size-5 shrink-0" />
                         ) : (
-                          <LaptopIcon className="size-4 shrink-0 text-muted-foreground/80" />
+                          <LaptopIcon
+                            className="size-5 shrink-0 text-muted-foreground/60"
+                            strokeWidth={2}
+                          />
                         )}
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">{environment.name}</span>
-                          <span className="block truncate text-muted-foreground text-xs">
+                        <div className="min-w-0 flex-1">
+                          <span className="block truncate font-semibold text-sm">
+                            {environment.name}
+                          </span>
+                          <span className="block truncate text-muted-foreground text-xs font-normal">
                             {environment.subtitle}
                           </span>
-                        </span>
+                        </div>
                         {environment.isLocal ? (
-                          <span className="rounded border border-emerald-500/35 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                          <span className="rounded-lg border border-emerald-500/40 bg-emerald-500/12 px-2 py-1 text-[11px] font-medium text-emerald-400/90 shrink-0">
                             Local
                           </span>
                         ) : projectPickerEnvironmentProbeId === environment.id ? (
-                          <span className="rounded border border-amber-500/35 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
+                          <span className="rounded-lg border border-amber-500/40 bg-amber-500/12 px-2 py-1 text-[11px] font-medium text-amber-400/90 shrink-0">
                             Checking…
                           </span>
                         ) : environment.isPinned ? (
-                          <span className="rounded border border-blue-500/35 bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-300">
+                          <span className="rounded-lg border border-blue-500/40 bg-blue-500/12 px-2 py-1 text-[11px] font-medium text-blue-400/90 shrink-0">
                             Pinned
                           </span>
                         ) : null}
                       </button>
                     ))
                   ) : (
-                    <p className="px-3 py-2 text-xs text-muted-foreground">
+                    <p className="px-4 py-6 text-center text-sm text-muted-foreground/60">
                       No matching environments
                     </p>
                   )
                 ) : isBrowsingProjectPaths ? (
-                  <p className="px-3 py-2 text-xs text-muted-foreground">Browsing...</p>
+                  <p className="px-4 py-6 text-center text-sm text-muted-foreground/60">
+                    Browsing directories...
+                  </p>
                 ) : (
                   <>
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 border-border/45 border-b px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      className="flex w-full items-center gap-3 border-border/20 border-b px-4 py-2.5 text-left text-sm font-medium text-muted-foreground/70 transition-all hover:bg-accent/40 hover:text-foreground"
                       onClick={handleBrowseParentPath}
                       disabled={isAddingProject}
                     >
-                      <ArrowUpIcon className="size-3.5" />
-                      <span>..</span>
+                      <ArrowUpIcon className="size-4" strokeWidth={2} />
+                      <span className="font-semibold">..</span>
                     </button>
                     {projectBrowseResult?.entries.length ? (
                       projectBrowseResult.entries.map((entry, index) => (
@@ -3943,53 +3978,71 @@ export default function Sidebar() {
                           key={entry.fullPath}
                           type="button"
                           data-project-picker-index={index}
-                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
+                          className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-all duration-150 border-b border-border/20 last:border-b-0 ${
                             index === activeProjectBrowseIndex
-                              ? "bg-accent text-foreground"
-                              : "text-foreground/86 hover:bg-accent/70 hover:text-foreground"
+                              ? "bg-primary/15 text-foreground"
+                              : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
                           }`}
+                          onMouseEnter={() => {
+                            if (Date.now() - lastKeyboardNavigationTimeRef.current > 500) {
+                              setActiveProjectBrowseIndex(index);
+                            }
+                          }}
                           onClick={() => handleBrowseProjectEntry(entry.fullPath)}
                         >
-                          <FolderIcon className="size-3.5 shrink-0" />
-                          <span className="truncate font-medium">{entry.name}</span>
+                          <FolderIcon
+                            className="size-4 shrink-0 text-muted-foreground/60"
+                            strokeWidth={2}
+                          />
+                          <span className="truncate font-medium text-sm">{entry.name}</span>
                         </button>
                       ))
                     ) : (
-                      <p className="px-3 py-2 text-xs text-muted-foreground">No matching folders</p>
+                      <p className="px-4 py-6 text-center text-sm text-muted-foreground/60">
+                        No directories found
+                      </p>
                     )}
                   </>
                 )}
               </div>
               {addProjectError ? (
-                <p className="pt-2 text-xs leading-tight text-red-400">{addProjectError}</p>
+                <p className="pt-2 text-xs leading-tight text-red-400/80 font-medium">
+                  {addProjectError}
+                </p>
               ) : null}
             </div>
           </div>
 
-          <div className="flex items-center justify-between border-t border-border/70 bg-muted/25 px-3 py-2 text-muted-foreground text-xs">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="inline-flex items-center gap-1">
-                <ArrowUpIcon className="size-3.5" />
-                <ArrowDownIcon className="size-3.5" />
-                <span>Navigate</span>
+          <div className="flex items-center justify-between border-t border-border/40 bg-muted/30 px-4 py-2.5 text-muted-foreground text-xs gap-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex gap-0.5">
+                  <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
+                    ↑
+                  </span>
+                  <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
+                    ↓
+                  </span>
+                </span>
+                <span className="font-medium">Navigate</span>
               </span>
-              <span className="inline-flex items-center gap-1">
-                <span className="rounded border border-border/70 bg-muted/65 px-1.5 py-0.5 text-[10px] text-foreground/84">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="rounded border border-border/50 bg-background/50 px-2 py-0.5 text-[10px] font-medium text-foreground/70">
                   Enter
                 </span>
-                <span>Select</span>
+                <span className="font-medium">Select</span>
               </span>
-              <span className="inline-flex items-center gap-1">
-                <span className="rounded border border-border/70 bg-muted/65 px-1.5 py-0.5 text-[10px] text-foreground/84">
-                  Backspace
+              <span className="inline-flex items-center gap-1.5">
+                <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
+                  ⌫
                 </span>
-                <span>Back</span>
+                <span className="font-medium">Back</span>
               </span>
-              <span className="inline-flex items-center gap-1">
-                <span className="rounded border border-border/70 bg-muted/65 px-1.5 py-0.5 text-[10px] text-foreground/84">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
                   Esc
                 </span>
-                <span>Close</span>
+                <span className="font-medium">Close</span>
               </span>
             </div>
           </div>
@@ -4027,7 +4080,10 @@ export default function Sidebar() {
         </SidebarHeader>
       ) : (
         <SidebarHeader className="gap-3 px-3.5 py-3 sm:gap-2.5 sm:px-4 sm:py-3.5">
-          {wordmark}
+          <div className="relative flex h-full min-w-0 flex-1 items-center">
+            <div className="flex min-w-0 flex-1 items-center">{wordmark}</div>
+            <SidebarTrigger className="size-7" />
+          </div>
         </SidebarHeader>
       )}
 
