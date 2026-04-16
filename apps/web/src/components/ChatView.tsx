@@ -503,6 +503,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
   const sendInFlightRef = useRef(false);
+  const queueDispatchInFlightRef = useRef(false);
+  const queueAutoResumeAfterPauseRef = useRef(false);
   const queuedDesignMessageEditRef = useRef<QueuedComposerMessage | null>(null);
   const [handoffInFlight, setHandoffInFlight] = useState(false);
   const dragDepthRef = useRef(0);
@@ -1239,6 +1241,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const queuedComposerMessages =
     serverThread?.queuedComposerMessages ?? EMPTY_QUEUED_COMPOSER_MESSAGES;
   const queuedSteerRequest = serverThread?.queuedSteerRequest ?? null;
+  const isQueueAutoDispatchPaused =
+    activeThread?.session?.orchestrationStatus === "stopped" ||
+    (activeThread?.latestTurn?.state === "interrupted" && queuedSteerRequest === null);
   const queuedComposerMessagesRef = useRef(queuedComposerMessages);
   queuedComposerMessagesRef.current = queuedComposerMessages;
 
@@ -2141,10 +2146,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [browserActionShortcutLabelOptions, keybindings],
   );
   const [browserMode, setBrowserMode] = useState<"closed" | InAppBrowserMode>("closed");
-  const sidebarToggleShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "sidebar.toggle"),
-    [keybindings],
-  );
   const [browserDevToolsOpen, setBrowserDevToolsOpen] = useState(false);
   const [storedBrowserSplitWidth, setStoredBrowserSplitWidth] = useLocalStorage(
     BROWSER_SPLIT_WIDTH_STORAGE_KEY,
@@ -2434,6 +2435,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [persistQueuedComposerState, queuedComposerMessages, queuedSteerRequest, serverThread],
   );
+  const clearQueuedComposerMessages = useCallback(async () => {
+    if (!serverThread || queuedComposerMessages.length === 0) {
+      return;
+    }
+    if (!(await persistQueuedComposerState([], null, queuedComposerMessages, queuedSteerRequest))) {
+      return;
+    }
+    for (const queuedMessage of queuedComposerMessages) {
+      revokeComposerImagePreviewUrls(queuedMessage.images);
+    }
+  }, [persistQueuedComposerState, queuedComposerMessages, queuedSteerRequest, serverThread]);
   const restoreQueuedComposerMessageToDraft = useCallback(
     (message: QueuedComposerMessage, restoredImages: ReadonlyArray<ComposerImageAttachment>) => {
       promptRef.current = message.prompt;
@@ -4785,8 +4797,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
       },
     ) => {
       const api = readNativeApi();
-      if (!api || !activeThread || sendInFlightRef.current) return;
-      if (!activeProject) return;
+      if (!api || !activeThread || sendInFlightRef.current) return false;
+      if (!activeProject) return false;
 
       const promptForSend = stripIssueReferenceMarkers(submission.prompt);
       const composerImagesSnapshot = [...submission.images];
@@ -4821,7 +4833,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           threadIdForSend,
           "Select a base branch before sending in New worktree mode.",
         );
-        return;
+        return false;
       }
 
       const strippedPrompt = deriveDisplayedUserMessageState(promptForSend).visibleText.trim();
@@ -5046,9 +5058,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
           setComposerTrigger(
             detectComposerTriggerWithDismissal(promptForRestore, promptForRestore.length),
           );
-        } else {
-          options?.onFailure?.();
         }
+        options?.onFailure?.();
         setThreadError(
           threadIdForSend,
           err instanceof Error ? err.message : "Failed to send message.",
@@ -5058,6 +5069,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (!turnStartSucceeded) {
         resetLocalDispatch();
       }
+      return turnStartSucceeded;
     },
     [
       activeProject,
@@ -5081,6 +5093,84 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setThreadError,
     ],
   );
+  const dispatchNextQueuedComposerMessage = useCallback(async () => {
+    if (!activeThread || queuedComposerMessages.length === 0) {
+      return false;
+    }
+    if (sendInFlightRef.current || queueDispatchInFlightRef.current) {
+      return false;
+    }
+
+    const nextQueuedMessage = queuedComposerMessages[0];
+    if (!nextQueuedMessage) {
+      return false;
+    }
+
+    const previousMessages = queuedComposerMessages;
+    const previousSteerRequest = queuedSteerRequest;
+    const nextMessages = queuedComposerMessages.slice(1);
+    const nextSteerRequest =
+      queuedSteerRequest?.messageId === nextQueuedMessage.id ? null : queuedSteerRequest;
+
+    queueDispatchInFlightRef.current = true;
+    let restored = false;
+    const restoreQueue = () => {
+      if (restored) {
+        return;
+      }
+      restored = true;
+      void persistQueuedComposerState(
+        [nextQueuedMessage, ...nextMessages],
+        previousSteerRequest,
+        nextMessages,
+        nextSteerRequest,
+      );
+    };
+
+    try {
+      if (
+        !(await persistQueuedComposerState(
+          nextMessages,
+          nextSteerRequest,
+          previousMessages,
+          previousSteerRequest,
+        ))
+      ) {
+        return false;
+      }
+
+      const sent = await dispatchComposerMessage(
+        {
+          prompt: nextQueuedMessage.prompt,
+          images: [...nextQueuedMessage.images],
+          terminalContexts: nextQueuedMessage.terminalContexts.map((context) => ({
+            ...context,
+            threadId,
+          })),
+          modelSelection: nextQueuedMessage.modelSelection,
+          runtimeMode: nextQueuedMessage.runtimeMode,
+          interactionMode: nextQueuedMessage.interactionMode,
+        },
+        {
+          onFailure: restoreQueue,
+        },
+      );
+
+      if (!sent) {
+        restoreQueue();
+      }
+      return sent;
+    } finally {
+      queueDispatchInFlightRef.current = false;
+    }
+  }, [
+    activeThread,
+    dispatchComposerMessage,
+    persistQueuedComposerState,
+    queuedComposerMessages,
+    queuedSteerRequest,
+    threadId,
+  ]);
 
   const onSend = async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
@@ -5194,6 +5284,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
     if (!hasSendableContent) {
+      if (queuedComposerMessages.length > 0) {
+        if (isQueueAutoDispatchPaused) {
+          queueAutoResumeAfterPauseRef.current = true;
+        }
+        await dispatchNextQueuedComposerMessage();
+        return;
+      }
       if (expiredTerminalContextCount > 0) {
         const toastCopy = buildExpiredTerminalContextToastCopy(
           expiredTerminalContextCount,
@@ -5306,6 +5403,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
   };
 
   useEffect(() => {
+    if (isQueueAutoDispatchPaused) {
+      queueAutoResumeAfterPauseRef.current = false;
+    }
+  }, [isQueueAutoDispatchPaused]);
+
+  useEffect(() => {
+    if (queuedComposerMessages.length === 0) {
+      queueAutoResumeAfterPauseRef.current = false;
+    }
+  }, [queuedComposerMessages.length]);
+
+  useEffect(() => {
     if (!activeThread || queuedComposerMessages.length === 0) {
       return;
     }
@@ -5319,63 +5428,23 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ) {
       return;
     }
-
-    const nextQueuedMessage = queuedComposerMessages[0];
-    if (!nextQueuedMessage) {
+    if (isQueueAutoDispatchPaused && !queueAutoResumeAfterPauseRef.current) {
       return;
     }
-    const previousMessages = queuedComposerMessages;
-    const previousSteerRequest = queuedSteerRequest;
-    const nextMessages = queuedComposerMessages.slice(1);
-    const nextSteerRequest =
-      queuedSteerRequest?.messageId === nextQueuedMessage.id ? null : queuedSteerRequest;
-    void (async () => {
-      if (
-        !(await persistQueuedComposerState(
-          nextMessages,
-          nextSteerRequest,
-          previousMessages,
-          previousSteerRequest,
-        ))
-      ) {
-        return;
-      }
-      void dispatchComposerMessage(
-        {
-          prompt: nextQueuedMessage.prompt,
-          images: [...nextQueuedMessage.images],
-          terminalContexts: nextQueuedMessage.terminalContexts.map((context) => ({
-            ...context,
-            threadId,
-          })),
-          modelSelection: nextQueuedMessage.modelSelection,
-          runtimeMode: nextQueuedMessage.runtimeMode,
-          interactionMode: nextQueuedMessage.interactionMode,
-        },
-        {
-          onFailure: () => {
-            void persistQueuedComposerState(
-              [nextQueuedMessage, ...nextMessages],
-              previousSteerRequest,
-              nextMessages,
-              nextSteerRequest,
-            );
-          },
-        },
-      );
-    })();
+    if (queueDispatchInFlightRef.current) {
+      return;
+    }
+    void dispatchNextQueuedComposerMessage();
   }, [
     activePendingApproval,
     activePendingProgress,
     activeThread,
-    dispatchComposerMessage,
+    dispatchNextQueuedComposerMessage,
+    isQueueAutoDispatchPaused,
     isConnecting,
     isSendBusy,
     liveTurnInProgress,
-    persistQueuedComposerState,
-    queuedSteerRequest,
     queuedComposerMessages,
-    threadId,
   ]);
 
   useEffect(() => {
@@ -5438,6 +5507,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const onInterrupt = async () => {
     const api = readNativeApi();
     if (!api || !activeThread) return;
+    queueAutoResumeAfterPauseRef.current = false;
     await api.orchestration.dispatchCommand({
       type: "thread.session.stop",
       commandId: newCommandId(),
@@ -6662,7 +6732,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
               activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
             }
             keybindings={keybindings}
-            sidebarToggleShortcutLabel={sidebarToggleShortcutLabel}
             terminalAvailable={activeProject !== undefined}
             terminalOpen={terminalState.terminalOpen}
             terminalToggleShortcutLabel={terminalToggleShortcutLabel}
@@ -6872,6 +6941,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             steerMessageId={queuedSteerRequest?.messageId ?? null}
                             onEdit={onEditQueuedComposerMessage}
                             onDelete={removeQueuedComposerMessage}
+                            onClearAll={clearQueuedComposerMessages}
                             onSteer={onSteerQueuedComposerMessage}
                           />
 

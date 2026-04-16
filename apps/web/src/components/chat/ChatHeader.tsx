@@ -11,12 +11,9 @@ import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
-import { SidebarTrigger, useSidebar } from "../ui/sidebar";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
 import { TopBarCluster, interleaveTopBarItems } from "../thread/TopBarCluster";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
-import { DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME } from "~/lib/desktopChrome";
-import { isElectron } from "~/env";
 
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
@@ -27,7 +24,6 @@ interface ChatHeaderProps {
   activeProjectScripts: ProjectScript[] | undefined;
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
-  sidebarToggleShortcutLabel: string | null;
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
@@ -61,7 +57,6 @@ export const ChatHeader = memo(function ChatHeader({
   activeProjectScripts,
   preferredScriptId,
   keybindings,
-  sidebarToggleShortcutLabel,
   terminalAvailable,
   terminalOpen,
   terminalToggleShortcutLabel,
@@ -85,8 +80,6 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleDiff,
   onWorkspaceModeChange,
 }: ChatHeaderProps) {
-  const { isMobile, state } = useSidebar();
-  const showSidebarToggle = !isElectron || isMobile || state === "collapsed";
   const editorWorkspaceActive = workspaceMode === "editor" || workspaceMode === "split";
   const workspaceActionItems: ReactNode[] = [
     activeProjectScripts ? (
@@ -234,18 +227,6 @@ export const ChatHeader = memo(function ChatHeader({
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2.5">
       <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
-        {showSidebarToggle ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={<SidebarTrigger className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME} />}
-            />
-            <TooltipPopup side="bottom">
-              {sidebarToggleShortcutLabel
-                ? `Toggle sidebar (${sidebarToggleShortcutLabel})`
-                : "Toggle sidebar"}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
         {workspaceMode === "editor" ? (
           <span
             className="min-w-0 truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80"
