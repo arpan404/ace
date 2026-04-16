@@ -76,12 +76,28 @@ describe("resolveServerUrl", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps the local origin as the default even when a bootstrap ws query param is present", () => {
+  it("uses the bootstrap ws query param when present", () => {
     setWindowForTest({
       search: `?${DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM}=${encodeURIComponent("ws://127.0.0.1:52426/?token=secret-token")}`,
     });
 
-    expect(resolveServerUrl({ protocol: "ws", pathname: "/ws" })).toBe("ws://localhost:3020/ws");
+    expect(resolveServerUrl({ protocol: "ws", pathname: "/ws" })).toBe(
+      "ws://127.0.0.1:52426/ws?token=secret-token",
+    );
+  });
+
+  it("keeps the bootstrap ws url after the query param is removed", () => {
+    setWindowForTest({
+      search: `?${DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM}=${encodeURIComponent("ws://127.0.0.1:52426/?token=secret-token")}`,
+    });
+
+    expect(resolveServerUrl({ protocol: "ws", pathname: "/ws" })).toBe(
+      "ws://127.0.0.1:52426/ws?token=secret-token",
+    );
+    clearBootstrapWsUrlQueryParam();
+    expect(resolveServerUrl({ protocol: "ws", pathname: "/ws" })).toBe(
+      "ws://127.0.0.1:52426/ws?token=secret-token",
+    );
   });
 
   it("prefers desktop bridge before bootstrap query fallback", () => {

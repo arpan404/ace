@@ -1,6 +1,7 @@
 import { type FilesystemBrowseInput, type FilesystemBrowseResult } from "@ace/contracts";
 import { normalizeWsUrl } from "@ace/shared/hostConnections";
 
+import { reportBackgroundError } from "./async";
 import { createWsRpcClient, getWsRpcClient, type WsRpcClient } from "../wsRpcClient";
 import { WsTransport } from "../wsTransport";
 import { resolveActiveWsUrl } from "./remoteHosts";
@@ -28,12 +29,12 @@ function normalizeConnectionUrl(connectionUrl: string): string {
   return normalizeWsUrl(connectionUrl);
 }
 
-function createRouteClientSessionId(connectionUrl: string): string {
+function createRouteClientSessionId(): string {
   const randomSuffix =
     typeof globalThis.crypto?.randomUUID === "function"
       ? globalThis.crypto.randomUUID()
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  return `route:${normalizeConnectionUrl(connectionUrl)}:${randomSuffix}`;
+  return `route-${randomSuffix}`;
 }
 
 function isActiveConnectionUrl(connectionUrl: string): boolean {
@@ -91,7 +92,8 @@ function getOrCreateRouteClient(connectionUrl: string): WsRpcClient {
   ensureDisposeHandlersRegistered();
   const createdClient = createWsRpcClient(
     new WsTransport(normalizedConnectionUrl, {
-      clientSessionId: createRouteClientSessionId(normalizedConnectionUrl),
+      clientSessionId: createRouteClientSessionId(),
+      disableConnectionProbeLifecycle: true,
     }),
   );
   routeClientsByConnectionUrl.set(normalizedConnectionUrl, createdClient);
@@ -116,13 +118,21 @@ function getErrorMessage(error: unknown): string {
 
 export function registerRemoteRoute(connectionUrl: string): void {
   const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
-  getOrCreateRouteClient(normalizedConnectionUrl);
+  if (!routeAvailabilityByConnectionUrl.has(normalizedConnectionUrl)) {
+    routeAvailabilityByConnectionUrl.set(normalizedConnectionUrl, {
+      status: "unknown",
+      checkedAt: 0,
+    });
+  }
 }
 
 export function unregisterRemoteRoute(connectionUrl: string): void {
   const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
   routeAvailabilityByConnectionUrl.delete(normalizedConnectionUrl);
   inFlightAvailabilityByConnectionUrl.delete(normalizedConnectionUrl);
+  void disposeRouteClientOnly(normalizedConnectionUrl).catch((error) => {
+    reportBackgroundError("Failed to dispose an unregistered remote route client.", error);
+  });
 }
 
 export function readRemoteRouteAvailability(

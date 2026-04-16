@@ -132,7 +132,7 @@ export function DevicesSettingsPanel() {
   const [connectingHostId, setConnectingHostId] = useState<string | "local" | null>(null);
   const registeredRouteConnectionUrlsRef = useRef<Set<string>>(new Set());
   const localDeviceConnection = useMemo(() => splitWsUrlAuthToken(resolveLocalDeviceWsUrl()), []);
-  const activeWsUrl = useMemo(() => resolveActiveWsUrl(), []);
+  const [activeWsUrl, setActiveWsUrl] = useState(() => resolveActiveWsUrl());
   const localControlConnectionUrl = useMemo(
     () =>
       resolveHostConnectionWsUrl({
@@ -145,6 +145,18 @@ export function DevicesSettingsPanel() {
     () => isHostConnectionActive(localDeviceConnection, activeWsUrl),
     [activeWsUrl, localDeviceConnection],
   );
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleHostChange = () => {
+      setActiveWsUrl(resolveActiveWsUrl());
+    };
+    window.addEventListener("ace:ws-host-changed", handleHostChange);
+    return () => {
+      window.removeEventListener("ace:ws-host-changed", handleHostChange);
+    };
+  }, []);
   const localAdvertisedWsUrl = advertisedLocalWsUrl ?? localDeviceConnection.wsUrl;
   const localShareConnectionUrl = useMemo(
     () =>
