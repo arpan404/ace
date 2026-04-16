@@ -6717,9 +6717,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               ? "drag-region flex min-h-[52px] items-center px-4 sm:px-6"
               : "px-4 py-3 sm:px-6 sm:py-3.5",
           )}
-          style={
-            isElectron && sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined
-          }
+          style={isElectron ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined}
         >
           <ChatHeader
             activeThreadId={activeThread.id}
