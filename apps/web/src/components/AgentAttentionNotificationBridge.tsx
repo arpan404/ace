@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { APP_DISPLAY_NAME } from "../branding";
 import { LEAN_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
 import { useHostConnectionStore } from "../hostConnectionStore";
+import { useStore } from "../store";
 import {
   buildAgentAttentionDesktopNotificationInput,
   buildAgentAttentionNotificationCopy,
@@ -48,9 +49,13 @@ type ScopedAgentAttentionRequest = ReturnType<typeof deriveAgentAttentionRequest
   connectionUrl: string;
 };
 
+const REMOTE_NOTIFICATION_WARMUP_DELAY_MS = 1_500;
+
 export function AgentAttentionNotificationBridge() {
   const navigate = useNavigate();
+  const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
+  const [remoteConnectionsReady, setRemoteConnectionsReady] = useState(false);
   const notificationSettings = useSettings((settings) => ({
     notifyOnAgentCompletion: settings.notifyOnAgentCompletion,
     notifyOnApprovalRequired: settings.notifyOnApprovalRequired,
@@ -101,6 +106,9 @@ export function AgentAttentionNotificationBridge() {
   const resolveTrackedConnectionUrls = useMemo(
     () => () => {
       const nextConnectionUrls = new Set<string>([localConnectionUrl]);
+      if (!remoteConnectionsReady) {
+        return nextConnectionUrls;
+      }
       const connectedHostIds = new Set(loadConnectedRemoteHostIds());
       for (const host of loadRemoteHostInstances()) {
         if (!connectedHostIds.has(host.id)) {
@@ -111,8 +119,21 @@ export function AgentAttentionNotificationBridge() {
       }
       return nextConnectionUrls;
     },
-    [localConnectionUrl],
+    [localConnectionUrl, remoteConnectionsReady],
   );
+
+  useEffect(() => {
+    if (!bootstrapComplete) {
+      setRemoteConnectionsReady(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setRemoteConnectionsReady(true);
+    }, REMOTE_NOTIFICATION_WARMUP_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [bootstrapComplete]);
 
   const refreshConnectionAttentionRequests = useMemo(
     () => async (connectionUrl: string) => {
