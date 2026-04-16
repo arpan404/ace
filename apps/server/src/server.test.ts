@@ -161,7 +161,7 @@ const buildAppUnderTest = (options?: {
     const tempBaseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "ace-router-test-" });
     const baseDir = options?.config?.baseDir ?? tempBaseDir;
     const devUrl = options?.config?.devUrl;
-    const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
+    const derivedPaths = yield* deriveServerPaths(baseDir, devUrl, "web");
     const config = {
       logLevel: "Info",
       mode: "web",
@@ -770,6 +770,208 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         }),
       );
       assert.equal(response.status, 401);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("revokes pairing sessions before claim", () =>
+    Effect.gen(function* () {
+      __resetPairingStoreForTests();
+
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+      });
+
+      const baseUrl = yield* getHttpServerUrl();
+      const createResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer secret-token",
+          },
+          body: JSON.stringify({
+            wsUrl: "ws://192.168.0.12:3773/ws",
+            name: "Primary ace host",
+          }),
+        }),
+      );
+      assert.equal(createResponse.status, 200);
+      const created = (yield* Effect.promise(() => createResponse.json())) as {
+        readonly sessionId: string;
+        readonly secret: string;
+      };
+
+      const revokeResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions/${encodeURIComponent(created.sessionId)}/revoke`, {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer secret-token",
+          },
+        }),
+      );
+      assert.equal(revokeResponse.status, 200);
+      const revoked = (yield* Effect.promise(() => revokeResponse.json())) as {
+        readonly status: string;
+      };
+      assert.equal(revoked.status, "rejected");
+
+      const claimResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/claims`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionId: created.sessionId,
+            secret: created.secret,
+            requesterName: "ace mobile",
+          }),
+        }),
+      );
+      assert.equal(claimResponse.status, 409);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("revokes pairing sessions after approval", () =>
+    Effect.gen(function* () {
+      __resetPairingStoreForTests();
+
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+      });
+
+      const baseUrl = yield* getHttpServerUrl();
+      const createResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer secret-token",
+          },
+          body: JSON.stringify({
+            wsUrl: "ws://192.168.0.12:3773/ws",
+            name: "Primary ace host",
+          }),
+        }),
+      );
+      assert.equal(createResponse.status, 200);
+      const created = (yield* Effect.promise(() => createResponse.json())) as {
+        readonly sessionId: string;
+        readonly secret: string;
+      };
+
+      const claimResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/claims`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionId: created.sessionId,
+            secret: created.secret,
+            requesterName: "ace mobile",
+          }),
+        }),
+      );
+      assert.equal(claimResponse.status, 200);
+      const claim = (yield* Effect.promise(() => claimResponse.json())) as {
+        readonly claimId: string;
+        readonly pollUrl: string;
+      };
+      assert.isTrue(claim.claimId.length > 0);
+
+      const revokeResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions/${encodeURIComponent(created.sessionId)}/revoke`, {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer secret-token",
+          },
+        }),
+      );
+      assert.equal(revokeResponse.status, 200);
+      const revoked = (yield* Effect.promise(() => revokeResponse.json())) as {
+        readonly status: string;
+      };
+      assert.equal(revoked.status, "rejected");
+
+      const claimStatusResponse = yield* Effect.promise(() => fetch(claim.pollUrl));
+      assert.equal(claimStatusResponse.status, 200);
+      const claimStatus = (yield* Effect.promise(() => claimStatusResponse.json())) as {
+        readonly status: string;
+      };
+      assert.equal(claimStatus.status, "rejected");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("lists pairing sessions for host management", () =>
+    Effect.gen(function* () {
+      __resetPairingStoreForTests();
+
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+      });
+
+      const baseUrl = yield* getHttpServerUrl();
+      const createResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer secret-token",
+          },
+          body: JSON.stringify({
+            wsUrl: "ws://192.168.0.12:3773/ws",
+            name: "Primary ace host",
+          }),
+        }),
+      );
+      assert.equal(createResponse.status, 200);
+      const created = (yield* Effect.promise(() => createResponse.json())) as {
+        readonly sessionId: string;
+        readonly secret: string;
+      };
+
+      const claimResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/claims`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionId: created.sessionId,
+            secret: created.secret,
+            requesterName: "ace laptop",
+          }),
+        }),
+      );
+      assert.equal(claimResponse.status, 200);
+
+      const listResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions`, {
+          headers: {
+            Authorization: "Bearer secret-token",
+          },
+        }),
+      );
+      assert.equal(listResponse.status, 200);
+      const sessions = (yield* Effect.promise(() => listResponse.json())) as ReadonlyArray<{
+        readonly sessionId: string;
+        readonly name: string;
+        readonly requesterName?: string;
+        readonly status: string;
+      }>;
+      assert.isAtLeast(sessions.length, 1);
+      const matching = sessions.find((session) => session.sessionId === created.sessionId);
+      assert.isDefined(matching);
+      assert.equal(matching?.name, "Primary ace host");
+      assert.equal(matching?.requesterName, "ace laptop");
+      assert.equal(matching?.status, "approved");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

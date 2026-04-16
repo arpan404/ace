@@ -758,6 +758,54 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("drops in-flight stream events after transport disposal", async () => {
+    const transport = new WsTransport("ws://localhost:3020");
+    const listener = vi.fn();
+
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+    const socket = getSocket();
+    socket.open();
+
+    const requestPromise = transport.requestStream(
+      (client) =>
+        client[WS_METHODS.gitRunStackedAction]({
+          actionId: "action-2",
+          cwd: "/repo",
+          action: "commit",
+        }),
+      listener,
+    );
+
+    await waitFor(() => {
+      expect(socket.sent).toHaveLength(1);
+    });
+    const requestMessage = JSON.parse(socket.sent[0] ?? "{}") as { id: string };
+
+    await transport.dispose();
+
+    socket.serverMessage(
+      JSON.stringify({
+        _tag: "Chunk",
+        requestId: requestMessage.id,
+        values: [
+          {
+            actionId: "action-2",
+            cwd: "/repo",
+            action: "commit",
+            kind: "phase_started",
+            phase: "commit",
+            label: "Committing...",
+          },
+        ],
+      }),
+    );
+
+    await expect(requestPromise).rejects.toThrow("Transport disposed");
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it("closes the client scope on the transport runtime before disposing the runtime", async () => {
     const callOrder: string[] = [];
     let resolveClose!: () => void;

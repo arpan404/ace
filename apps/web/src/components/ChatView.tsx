@@ -276,6 +276,11 @@ import {
   useServerConfig,
   useServerKeybindings,
 } from "~/rpc/serverState";
+import {
+  loadRemoteHostInstances,
+  resolveActiveWsUrl,
+  resolveHostConnectionWsUrl,
+} from "~/lib/remoteHosts";
 
 const ThreadWorkspaceEditor = lazy(() => import("./editor/ThreadWorkspaceEditor"));
 
@@ -6481,6 +6486,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
         threadId: activeThread.id,
         onEnvModeChange,
         envLocked,
+        localEnvironmentLabel:
+          loadRemoteHostInstances().find(
+            (host) => resolveHostConnectionWsUrl(host) === resolveActiveWsUrl(),
+          )?.name ?? "Local",
         runtimeMode,
         onRuntimeModeChange: handleRuntimeModeChange,
         onComposerFocusRequest: scheduleComposerFocus,

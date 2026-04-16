@@ -6,7 +6,7 @@ import {
   useNavigate,
   useLocation,
 } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 
@@ -17,6 +17,7 @@ import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
 import { AppStartupScreen } from "../components/AppStartupScreen";
 import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
+import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
@@ -51,7 +52,7 @@ import {
 } from "../orchestrationUiEvents";
 import { createOrchestrationRecoveryCoordinator } from "../orchestrationRecovery";
 import { useEffectEvent } from "../hooks/useEffectEvent";
-import { getWsRpcClient } from "../wsRpcClient";
+import { getWsRpcClient, resetWsRpcClient } from "../wsRpcClient";
 import { useDesktopCliInstallState } from "../lib/desktopCliInstallReactQuery";
 
 export const Route = createRootRouteWithContext<{
@@ -66,49 +67,76 @@ export const Route = createRootRouteWithContext<{
 
 function RootRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
+  const resetStoreState = useStore((store) => store.resetToInitialState);
+  const [remoteBootstrapSettled, setRemoteBootstrapSettled] = useState(
+    import.meta.env.MODE === "test",
+  );
+  const [wsHostEpoch, setWsHostEpoch] = useState(0);
+  const handleRemoteBootstrapSettled = useCallback(() => {
+    setRemoteBootstrapSettled(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleHostChange = () => {
+      setRemoteBootstrapSettled(false);
+      resetStoreState();
+      void resetWsRpcClient().finally(() => {
+        setWsHostEpoch((current) => current + 1);
+      });
+    };
+    window.addEventListener("ace:ws-host-changed", handleHostChange);
+    return () => {
+      window.removeEventListener("ace:ws-host-changed", handleHostChange);
+    };
+  }, [resetStoreState]);
 
   const startupState = resolveAppStartupState({
     bootstrapComplete,
     hasNativeApi: readNativeApi() !== undefined,
   });
-
-  if (startupState === "connecting") {
-    return (
-      <>
-        <AppStartupScreen
-          state={startupState}
-          message={resolveAppStartupMessage(startupState, APP_DISPLAY_NAME)}
-        />
-        <LoadDiagnosticsConsole />
-      </>
-    );
-  }
+  const startupStateForDisplay = remoteBootstrapSettled ? startupState : "connecting";
 
   return (
     <>
-      <ServerStateBootstrap />
+      <RemoteAutoConnectBootstrap
+        key={`remote-bootstrap-${String(wsHostEpoch)}`}
+        onSettled={handleRemoteBootstrapSettled}
+      />
       <LoadDiagnosticsConsole />
-      <ToastProvider>
-        <AnchoredToastProvider>
-          <UiTypographyBridge />
-          <DesktopCliInstallToastBridge />
-          <EventRouter />
-          <AgentAttentionNotificationBridge />
-          {startupState === "ready" ? (
-            <>
-              <DesktopProjectBootstrap />
-              <AppSidebarLayout>
-                <Outlet />
-              </AppSidebarLayout>
-            </>
-          ) : (
-            <AppStartupScreen
-              state={startupState}
-              message={resolveAppStartupMessage(startupState, APP_DISPLAY_NAME)}
-            />
-          )}
-        </AnchoredToastProvider>
-      </ToastProvider>
+      {!remoteBootstrapSettled || startupState === "connecting" ? (
+        <AppStartupScreen
+          state={startupStateForDisplay}
+          message={resolveAppStartupMessage(startupStateForDisplay, APP_DISPLAY_NAME)}
+        />
+      ) : (
+        <>
+          <ServerStateBootstrap key={`server-state-${String(wsHostEpoch)}`} />
+          <ToastProvider>
+            <AnchoredToastProvider>
+              <UiTypographyBridge />
+              <DesktopCliInstallToastBridge />
+              <EventRouter key={`event-router-${String(wsHostEpoch)}`} />
+              <AgentAttentionNotificationBridge />
+              {startupState === "ready" ? (
+                <>
+                  <DesktopProjectBootstrap />
+                  <AppSidebarLayout>
+                    <Outlet />
+                  </AppSidebarLayout>
+                </>
+              ) : (
+                <AppStartupScreen
+                  state={startupState}
+                  message={resolveAppStartupMessage(startupState, APP_DISPLAY_NAME)}
+                />
+              )}
+            </AnchoredToastProvider>
+          </ToastProvider>
+        </>
+      )}
     </>
   );
 }

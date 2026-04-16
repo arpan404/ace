@@ -114,7 +114,8 @@ const isSourceCheckoutRun = process.env.ACE_LOCAL_DESKTOP_RUN === "1";
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL) || isSourceCheckoutRun;
 const devServerUrl = process.env.VITE_DEV_SERVER_URL?.trim();
 const useDevRenderer = typeof devServerUrl === "string" && devServerUrl.length > 0;
-const BASE_DIR = process.env.ACE_HOME?.trim() || resolveDesktopBaseDir({ isDevelopment });
+const BASE_DIR =
+  process.env.ACE_HOME?.trim() || resolveDesktopBaseDir({ isDevelopment, appType: "desktop" });
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "ace";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");

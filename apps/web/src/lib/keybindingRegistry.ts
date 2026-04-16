@@ -35,6 +35,13 @@ const EDITOR_CONTEXT: Partial<ShortcutMatchContext> = {
 
 const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, KeybindingDefinitionMeta> =
   {
+    "search.open": {
+      category: "Sidebar",
+      label: "Open search",
+      description: "Open the command search panel.",
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
     "sidebar.toggle": {
       category: "Sidebar",
       label: "Toggle sidebar",

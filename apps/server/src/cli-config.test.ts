@@ -21,7 +21,11 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
       const baseDir = join(os.tmpdir(), "ace-cli-config-env-base");
-      const derivedPaths = yield* deriveServerPaths(baseDir, new URL("http://127.0.0.1:5173"));
+      const derivedPaths = yield* deriveServerPaths(
+        baseDir,
+        new URL("http://127.0.0.1:5173"),
+        "desktop",
+      );
       const resolved = yield* resolveServerConfig(
         {
           mode: Option.none(),
@@ -82,7 +86,11 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
       const baseDir = join(os.tmpdir(), "ace-cli-config-flags-base");
-      const derivedPaths = yield* deriveServerPaths(baseDir, new URL("http://127.0.0.1:4173"));
+      const derivedPaths = yield* deriveServerPaths(
+        baseDir,
+        new URL("http://127.0.0.1:4173"),
+        "web",
+      );
       const resolved = yield* resolveServerConfig(
         {
           mode: Option.some("web"),
@@ -154,7 +162,11 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: true,
       });
-      const derivedPaths = yield* deriveServerPaths(baseDir, new URL("http://127.0.0.1:5173"));
+      const derivedPaths = yield* deriveServerPaths(
+        baseDir,
+        new URL("http://127.0.0.1:5173"),
+        "desktop",
+      );
 
       const resolved = yield* resolveServerConfig(
         {
@@ -200,7 +212,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: true,
       });
-      assert.equal(join(baseDir, "dev"), resolved.stateDir);
+      assert.equal(join(baseDir, "desktop"), resolved.stateDir);
     }),
   );
 
@@ -262,7 +274,11 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: false,
       });
-      const derivedPaths = yield* deriveServerPaths(baseDir, new URL("http://127.0.0.1:4173"));
+      const derivedPaths = yield* deriveServerPaths(
+        baseDir,
+        new URL("http://127.0.0.1:4173"),
+        "web",
+      );
 
       const resolved = yield* resolveServerConfig(
         {
@@ -320,7 +336,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-cli-config-no-bootstrap-" });
-      const derivedPaths = yield* deriveServerPaths(baseDir, undefined);
+      const derivedPaths = yield* deriveServerPaths(baseDir, undefined, "web");
       const staticDir = yield* resolveStaticDir();
 
       const resolved = yield* resolveServerConfig(
@@ -375,7 +391,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         const baseDir = yield* fs.makeTempDirectoryScoped({
           prefix: "ace-cli-config-launch-base-",
         });
-        const derivedPaths = yield* deriveServerPaths(baseDir, undefined);
+        const derivedPaths = yield* deriveServerPaths(baseDir, undefined, "web");
         const staticDir = yield* resolveStaticDir();
 
         const resolved = yield* resolveServerConfig(

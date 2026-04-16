@@ -1,4 +1,3 @@
-import { DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM } from "@ace/contracts";
 import { randomUUID } from "@ace/shared/ids";
 import {
   appendWsAuthToken,
@@ -16,9 +15,10 @@ import {
   wsUrlToBrowserBaseUrl,
 } from "@ace/shared/hostConnections";
 
-import { resolveServerUrl } from "./utils";
+import { clearActiveWsUrlOverride, persistActiveWsUrlOverride, resolveServerUrl } from "./utils";
 
 const REMOTE_HOSTS_STORAGE_KEY = "ace.remote-hosts.v1";
+const PINNED_REMOTE_HOST_IDS_STORAGE_KEY = "ace.pinned-remote-host-ids.v1";
 
 export interface RemoteHostInstance {
   readonly id: string;
@@ -37,6 +37,12 @@ export interface HostPairingSessionStatus {
   readonly expiresAt: string;
   readonly requesterName?: string;
   readonly claimId?: string;
+}
+
+export interface HostPairingSessionSummary extends HostPairingSessionStatus {
+  readonly name: string;
+  readonly createdAt: string;
+  readonly resolvedAt?: string;
 }
 
 export interface HostPairingSessionCreated extends HostPairingSessionStatus {
@@ -171,6 +177,45 @@ export function persistRemoteHostInstances(hosts: ReadonlyArray<RemoteHostInstan
   window.localStorage.setItem(REMOTE_HOSTS_STORAGE_KEY, JSON.stringify(hosts));
 }
 
+export function loadPinnedRemoteHostIds(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  const raw = window.localStorage.getItem(PINNED_REMOTE_HOST_IDS_STORAGE_KEY);
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    const deduped = new Set<string>();
+    for (const value of parsed) {
+      if (typeof value === "string" && value.length > 0) {
+        deduped.add(value);
+      }
+    }
+    return [...deduped];
+  } catch {
+    return [];
+  }
+}
+
+export function persistPinnedRemoteHostIds(hostIds: ReadonlyArray<string>): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const deduped = new Set<string>();
+  for (const hostId of hostIds) {
+    const trimmed = hostId.trim();
+    if (trimmed.length > 0) {
+      deduped.add(trimmed);
+    }
+  }
+  window.localStorage.setItem(PINNED_REMOTE_HOST_IDS_STORAGE_KEY, JSON.stringify([...deduped]));
+}
+
 export function resolveActiveWsUrl(): string {
   const resolved = resolveServerUrl({
     protocol: resolveWsProtocol(),
@@ -190,6 +235,14 @@ export function resolveLocalDeviceWsUrl(): string {
       // Ignore bridge read errors and fall back to active transport resolution.
     }
   }
+  if (typeof window !== "undefined" && window.location.origin) {
+    const localUrl = resolveServerUrl({
+      url: window.location.origin,
+      protocol: resolveWsProtocol(),
+      pathname: "/ws",
+    });
+    return normalizeWsUrl(localUrl);
+  }
   return resolveActiveWsUrl();
 }
 
@@ -206,13 +259,49 @@ export function isHostConnectionActive(
   return resolveHostConnectionWsUrl(host) === normalizeWsUrl(activeWsUrl);
 }
 
-export function connectToWsHost(targetWsUrl: string): void {
+export function connectToWsHost(
+  targetWsUrl: string,
+  options?: { readonly path?: string; readonly reload?: boolean },
+): void {
+  const previousActiveWsUrl = resolveActiveWsUrl();
+  const normalizedTarget = normalizeWsUrl(targetWsUrl);
+  const normalizedLocal = resolveLocalDeviceWsUrl();
+  if (normalizedTarget === normalizedLocal) {
+    clearActiveWsUrlOverride();
+  } else {
+    persistActiveWsUrlOverride(normalizedTarget);
+  }
+  const nextActiveWsUrl = resolveActiveWsUrl();
+  const didPrimaryHostChange =
+    normalizeWsUrl(previousActiveWsUrl) !== normalizeWsUrl(nextActiveWsUrl);
   if (typeof window === "undefined") {
     return;
   }
-  const nextUrl = new URL(window.location.href);
-  nextUrl.searchParams.set(DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM, normalizeWsUrl(targetWsUrl));
-  window.location.assign(nextUrl.toString());
+  const requestedPath = options?.path?.trim() ?? "";
+  const nextUrl =
+    requestedPath.length > 0
+      ? requestedPath
+      : `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (!didPrimaryHostChange) {
+    if (requestedPath.length > 0) {
+      window.history.pushState(window.history.state, "", nextUrl);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }
+    return;
+  }
+  if (options?.reload === false) {
+    window.history.pushState(window.history.state, "", nextUrl);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    window.dispatchEvent(
+      new CustomEvent("ace:ws-host-changed", {
+        detail: {
+          targetWsUrl: normalizedTarget,
+        },
+      }),
+    );
+    return;
+  }
+  window.location.assign(nextUrl);
 }
 
 export async function verifyWsHostConnection(
@@ -222,25 +311,125 @@ export async function verifyWsHostConnection(
   const normalizedTarget = normalizeWsUrl(targetWsUrl);
   const { wsUrl, authToken } = splitWsUrlAuthToken(normalizedTarget);
   const timeoutMs = Math.max(1_000, options?.timeoutMs ?? 5_000);
+  const probeErrors: string[] = [];
 
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   try {
-    await Promise.race([
-      readHostPairingAdvertisedEndpoint({
-        wsUrl,
-        ...(authToken ? { authToken } : {}),
-      }),
-      new Promise<never>((_, reject) => {
-        timeoutHandle = setTimeout(() => {
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    try {
+      await Promise.race([
+        readHostPairingAdvertisedEndpoint({
+          wsUrl,
+          ...(authToken ? { authToken } : {}),
+        }),
+        new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => {
+            reject(new Error(`Connection check timed out after ${String(timeoutMs)}ms.`));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+    return;
+  } catch (error) {
+    probeErrors.push(error instanceof Error ? error.message : String(error));
+  }
+
+  if (typeof window !== "undefined" && typeof WebSocket === "function") {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let opened = false;
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+      let socket: WebSocket | null = null;
+      let onOpen: (() => void) | null = null;
+      let onError: (() => void) | null = null;
+      let onClose: ((event: CloseEvent) => void) | null = null;
+
+      const detachListeners = () => {
+        if (!socket) {
+          return;
+        }
+        if (onOpen) {
+          socket.removeEventListener("open", onOpen);
+        }
+        if (onError) {
+          socket.removeEventListener("error", onError);
+        }
+        if (onClose) {
+          socket.removeEventListener("close", onClose);
+        }
+      };
+
+      const finish = (handler: () => void) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeoutHandle !== null) {
+          clearTimeout(timeoutHandle);
+        }
+        detachListeners();
+        handler();
+      };
+
+      timeoutHandle = setTimeout(() => {
+        finish(() => {
           reject(new Error(`Connection check timed out after ${String(timeoutMs)}ms.`));
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutHandle !== null) {
-      clearTimeout(timeoutHandle);
+        });
+      }, timeoutMs);
+
+      try {
+        socket = new WebSocket(normalizedTarget);
+      } catch (error) {
+        finish(() => {
+          reject(error instanceof Error ? error : new Error(String(error)));
+        });
+        return;
+      }
+
+      onOpen = () => {
+        opened = true;
+        finish(() => {
+          try {
+            socket?.close(1_000, "probe-complete");
+          } catch {
+            // Ignore close failures in probe flow.
+          }
+          resolve();
+        });
+      };
+      socket.addEventListener("open", onOpen);
+
+      onError = () => {
+        finish(() => {
+          reject(new Error(`Unable to establish a WebSocket connection to ${normalizedTarget}.`));
+        });
+      };
+      socket.addEventListener("error", onError);
+
+      onClose = (event) => {
+        if (opened) {
+          return;
+        }
+        finish(() => {
+          reject(new Error(`WebSocket closed before opening (code ${String(event.code)}).`));
+        });
+      };
+      socket.addEventListener("close", onClose);
+    })
+      .then(() => undefined)
+      .catch((error) => {
+        probeErrors.push(error instanceof Error ? error.message : String(error));
+      });
+    if (probeErrors.length === 1) {
+      // Socket probe succeeded.
+      return;
     }
   }
+
+  throw new Error(probeErrors.filter((message) => message.trim().length > 0).join(" "));
 }
 
 export function buildHostSharePayload(input: {
@@ -335,6 +524,36 @@ function assertPairingSessionStatus(payload: unknown): HostPairingSessionStatus 
     ...(typeof value.requesterName === "string" ? { requesterName: value.requesterName } : {}),
     ...(typeof value.claimId === "string" ? { claimId: value.claimId } : {}),
   };
+}
+
+function assertPairingSessionSummary(payload: unknown): HostPairingSessionSummary {
+  const status = assertPairingSessionStatus(payload);
+  if (typeof payload !== "object" || payload === null) {
+    throw new Error("Pairing session response was invalid.");
+  }
+  const value = payload as {
+    name?: unknown;
+    createdAt?: unknown;
+    resolvedAt?: unknown;
+  };
+  if (typeof value.name !== "string" || typeof value.createdAt !== "string") {
+    throw new Error("Pairing session response was missing required fields.");
+  }
+  return {
+    ...status,
+    name: value.name,
+    createdAt: value.createdAt,
+    ...(typeof value.resolvedAt === "string" ? { resolvedAt: value.resolvedAt } : {}),
+  };
+}
+
+function assertPairingSessionSummaryList(
+  payload: unknown,
+): ReadonlyArray<HostPairingSessionSummary> {
+  if (!Array.isArray(payload)) {
+    throw new Error("Pairing sessions response was invalid.");
+  }
+  return payload.map((entry) => assertPairingSessionSummary(entry));
 }
 
 function assertPairingSessionCreated(payload: unknown): HostPairingSessionCreated {
@@ -511,6 +730,23 @@ export async function readHostPairingSession(input: {
   return assertPairingSessionStatus(payload);
 }
 
+export async function listHostPairingSessions(input: {
+  readonly wsUrl: string;
+  readonly authToken?: string;
+}): Promise<ReadonlyArray<HostPairingSessionSummary>> {
+  const payload = await requestPairingSessionJson(
+    {
+      wsUrl: input.wsUrl,
+      ...(input.authToken ? { authToken: input.authToken } : {}),
+    },
+    {
+      method: "GET",
+      path: "/api/pairing/sessions",
+    },
+  );
+  return assertPairingSessionSummaryList(payload);
+}
+
 export async function resolveHostPairingSession(input: {
   readonly wsUrl: string;
   readonly authToken?: string;
@@ -528,6 +764,24 @@ export async function resolveHostPairingSession(input: {
       body: {
         approve: input.approve,
       },
+    },
+  );
+  return assertPairingSessionStatus(payload);
+}
+
+export async function revokeHostPairingSession(input: {
+  readonly wsUrl: string;
+  readonly authToken?: string;
+  readonly sessionId: string;
+}): Promise<HostPairingSessionStatus> {
+  const payload = await requestPairingSessionJson(
+    {
+      wsUrl: input.wsUrl,
+      ...(input.authToken ? { authToken: input.authToken } : {}),
+    },
+    {
+      method: "POST",
+      path: `/api/pairing/sessions/${encodeURIComponent(input.sessionId)}/revoke`,
     },
   );
   return assertPairingSessionStatus(payload);
