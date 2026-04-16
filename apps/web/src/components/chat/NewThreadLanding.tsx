@@ -86,7 +86,7 @@ export function NewThreadLanding() {
             "drag-region flex min-h-[52px] shrink-0 items-center justify-between border-b border-border bg-background",
             "px-5",
           )}
-          style={sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined}
+          style={MAC_TITLEBAR_LEFT_INSET_STYLE}
         >
           <div className="flex min-w-0 items-baseline gap-2.5">
             <span className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
