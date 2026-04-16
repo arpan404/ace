@@ -3284,6 +3284,26 @@ export default function Sidebar() {
     };
   }, []);
 
+  // Auto-scroll search palette list when navigating with keyboard
+  useEffect(() => {
+    const listElement = searchPaletteListRef.current;
+    if (!listElement || searchPaletteActiveIndex < 0) {
+      return;
+    }
+
+    const activeItem = listElement.querySelector<HTMLElement>(
+      `[data-search-palette-index="${String(searchPaletteActiveIndex)}"]`,
+    );
+    if (!activeItem) {
+      return;
+    }
+
+    activeItem.scrollIntoView({
+      block: "center",
+      behavior: "smooth",
+    });
+  }, [searchPaletteActiveIndex]);
+
   const handleDesktopUpdateButtonClick = useCallback(() => {
     const bridge = window.desktopBridge;
     if (!bridge || !desktopUpdateState) return;
@@ -3594,7 +3614,7 @@ export default function Sidebar() {
       </Dialog>
 
       <CommandDialog open={searchPaletteOpen} onOpenChange={handleSearchPaletteOpenChange}>
-        <CommandDialogPopup className="flex max-h-[min(42rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0 shadow-lg rounded-xl">
+        <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0 shadow-lg rounded-xl">
           <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3 bg-gradient-to-b from-popover/50 to-popover/20">
             {searchPaletteMode === "new-thread-project" ? (
               <button
@@ -3653,120 +3673,119 @@ export default function Sidebar() {
                     <button
                       key={item.id}
                       type="button"
-                      className={`flex w-full items-center gap-3 px-0 py-2 text-left text-sm font-medium transition-all duration-150 rounded-md ${
+                      data-search-palette-index={itemIndex}
+                      className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium transition-all duration-150 rounded-md ${
                         isActive
                           ? "bg-primary/15 text-foreground"
                           : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
                       }`}
-                        onMouseMove={() => handleSearchPaletteItemHover(item.id)}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => handleSearchPaletteSelect(item)}
+                      onMouseMove={() => handleSearchPaletteItemHover(item.id)}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => handleSearchPaletteSelect(item)}
+                    >
+                      <span
+                        className={`text-muted-foreground ${isActive ? "text-primary/70" : ""}`}
                       >
-                        <span
-                          className={`text-muted-foreground ${isActive ? "text-primary/70" : ""}`}
+                        {icon}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    </button>
+                  );
+                })}
+
+                {searchPaletteProjectItems.length > 0 && (
+                  <>
+                    <p className="px-0 pt-3 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
+                      {searchPaletteMode === "new-thread-project"
+                        ? "Projects"
+                        : normalizedSearchPaletteQuery.length === 0
+                          ? "Recent Projects"
+                          : "Projects"}
+                    </p>
+                    {searchPaletteProjectItems.map((item) => {
+                      if (item.type !== "project") {
+                        return null;
+                      }
+                      const itemIndex = searchPaletteIndexById.get(item.id) ?? -1;
+                      const isActive = itemIndex === searchPaletteActiveIndex;
+                      const project =
+                        item.connectionUrl === undefined
+                          ? projectById.get(item.projectId)
+                          : undefined;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          data-search-palette-index={itemIndex}
+                          className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-all duration-150 rounded-md ${
+                            isActive
+                              ? "bg-primary/15 text-foreground"
+                              : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
+                          }`}
+                          onMouseMove={() => handleSearchPaletteItemHover(item.id)}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => handleSearchPaletteSelect(item)}
                         >
-                          {icon}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                      </button>
-                    );
-                  })}
-
-                  {searchPaletteProjectItems.length > 0 && (
-                    <>
-                      <p className="px-0 pt-3 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
-                        {searchPaletteMode === "new-thread-project"
-                          ? "Projects"
-                          : normalizedSearchPaletteQuery.length === 0
-                            ? "Recent Projects"
-                            : "Projects"}
-                      </p>
-                      {searchPaletteProjectItems.map((item) => {
-                        if (item.type !== "project") {
-                          return null;
-                        }
-                        const itemIndex = searchPaletteIndexById.get(item.id) ?? -1;
-                        const isActive = itemIndex === searchPaletteActiveIndex;
-                        const project =
-                          item.connectionUrl === undefined
-                            ? projectById.get(item.projectId)
-                            : undefined;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            className={`flex w-full items-center gap-3 px-0 py-2.5 text-left transition-all duration-150 rounded-md ${
-                              isActive
-                                ? "bg-primary/15 text-foreground"
-                                : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
-                            }`}
-                            onMouseMove={() => handleSearchPaletteItemHover(item.id)}
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => handleSearchPaletteSelect(item)}
-                          >
-                            {project ? (
-                              <ProjectAvatar project={project} className="size-5" />
-                            ) : (
-                              <FolderIcon
-                                className="size-4 shrink-0 text-muted-foreground/60"
-                                strokeWidth={2}
-                              />
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <span className="block truncate font-medium text-sm">
-                                {item.label}
-                              </span>
-                              <span className="block truncate text-muted-foreground text-xs font-normal">
-                                {item.description}
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </>
-                  )}
-
-                  {searchPaletteMode === "root" && searchPaletteThreadItems.length > 0 && (
-                    <>
-                      <p className="px-0 pt-3 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
-                        {normalizedSearchPaletteQuery.length === 0 ? "Recent Threads" : "Threads"}
-                      </p>
-                      {searchPaletteThreadItems.map((item) => {
-                        const itemIndex = searchPaletteIndexById.get(item.id) ?? -1;
-                        const isActive = itemIndex === searchPaletteActiveIndex;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            className={`flex w-full items-center gap-3 px-0 py-2.5 text-left transition-all duration-150 rounded-md ${
-                              isActive
-                                ? "bg-primary/15 text-foreground"
-                                : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
-                            }`}
-                            onMouseMove={() => handleSearchPaletteItemHover(item.id)}
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => handleSearchPaletteSelect(item)}
-                          >
-                            <SquarePenIcon
+                          {project ? (
+                            <ProjectAvatar project={project} className="size-5" />
+                          ) : (
+                            <FolderIcon
                               className="size-4 shrink-0 text-muted-foreground/60"
                               strokeWidth={2}
                             />
-                            <div className="min-w-0 flex-1">
-                              <span className="block truncate font-medium text-sm">
-                                {item.label}
-                              </span>
-                              <span className="block truncate text-muted-foreground text-xs font-normal">
-                                {item.description}
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <span className="block truncate font-medium text-sm">{item.label}</span>
+                            <span className="block truncate text-muted-foreground text-xs font-normal">
+                              {item.description}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+
+                {searchPaletteMode === "root" && searchPaletteThreadItems.length > 0 && (
+                  <>
+                    <p className="px-0 pt-3 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
+                      {normalizedSearchPaletteQuery.length === 0 ? "Recent Threads" : "Threads"}
+                    </p>
+                    {searchPaletteThreadItems.map((item) => {
+                      const itemIndex = searchPaletteIndexById.get(item.id) ?? -1;
+                      const isActive = itemIndex === searchPaletteActiveIndex;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          data-search-palette-index={itemIndex}
+                          className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-all duration-150 rounded-md ${
+                            isActive
+                              ? "bg-primary/15 text-foreground"
+                              : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
+                          }`}
+                          onMouseMove={() => handleSearchPaletteItemHover(item.id)}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => handleSearchPaletteSelect(item)}
+                        >
+                          <SquarePenIcon
+                            className="size-4 shrink-0 text-muted-foreground/60"
+                            strokeWidth={2}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <span className="block truncate font-medium text-sm">{item.label}</span>
+                            <span className="block truncate text-muted-foreground text-xs font-normal">
+                              {item.description}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
           <div className="flex items-center justify-between border-t border-border/40 bg-muted/30 px-4 py-2.5 text-muted-foreground text-xs gap-4">
             <div className="flex flex-wrap items-center gap-4">
@@ -3811,7 +3830,7 @@ export default function Sidebar() {
           }
         }}
       >
-        <CommandDialogPopup className="flex max-h-[min(42rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0 shadow-lg rounded-xl">
+        <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0 shadow-lg rounded-xl">
           <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3 bg-gradient-to-b from-popover/50 to-popover/20">
             <button
               type="button"
@@ -3879,7 +3898,7 @@ export default function Sidebar() {
             ) : null}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-hidden px-4 py-3 pb-2">
+          <div className="min-h-0 flex-1 overflow-hidden px-4 py-3">
             <div className="flex h-full min-h-0 flex-col gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/50 mb-2">
@@ -3896,10 +3915,7 @@ export default function Sidebar() {
                   </p>
                 ) : null}
               </div>
-              <div
-                ref={projectPickerListRef}
-                className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border/40 bg-background/30 backdrop-blur-sm"
-              >
+              <div ref={projectPickerListRef} className="min-h-0 flex-1 overflow-y-auto">
                 {projectPickerStep === "environment" ? (
                   filteredPickerEnvironments.length > 0 ? (
                     filteredPickerEnvironments.map((environment, index) => (
