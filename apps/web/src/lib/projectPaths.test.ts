@@ -52,4 +52,18 @@ describe("projectPaths", () => {
       cwd: "C:\\Repo\\App",
     });
   });
+
+  it("does not resolve absolute paths even when cwd is provided", () => {
+    expect(resolveProjectPath("/Users/user/code/myproject", "/base")).toBe(
+      "/Users/user/code/myproject",
+    );
+    expect(resolveProjectPath("C:\\Users\\user\\code\\myproject", "C:\\base")).toBe(
+      "C:\\Users\\user\\code\\myproject",
+    );
+  });
+
+  it("still resolves relative paths with cwd", () => {
+    expect(resolveProjectPath("./myproject", "/base")).toBe("/base/myproject");
+    expect(resolveProjectPath("../myproject", "/base/code")).toBe("/base/myproject");
+  });
 });

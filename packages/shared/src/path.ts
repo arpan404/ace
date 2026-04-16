@@ -10,6 +10,10 @@ export function isWindowsAbsolutePath(value: string): boolean {
   return isUncPath(value) || isWindowsDrivePath(value);
 }
 
+export function isUnixAbsolutePath(value: string): boolean {
+  return value.startsWith("/");
+}
+
 export function isExplicitRelativePath(value: string): boolean {
   return (
     value === "." ||
