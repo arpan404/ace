@@ -8,6 +8,7 @@ import {
   resolveConnectionForInput,
   resolveLocalConnectionUrl,
 } from "./lib/connectionRouting";
+import { useHostConnectionStore } from "./hostConnectionStore";
 import { getRouteRpcClient } from "./lib/remoteWsRouter";
 import { resetServerStateForTests } from "./rpc/serverState";
 import { __resetWsRpcClientForTests, getWsRpcClient } from "./wsRpcClient";
@@ -155,8 +156,15 @@ export function createWsNativeApi(): NativeApi {
     orchestration: {
       getSnapshot: (input) => resolveRpcClientForInput(input).orchestration.getSnapshot(input),
       getThread: (input) => resolveRpcClientForInput(input).orchestration.getThread(input),
-      dispatchCommand: (input) =>
-        resolveRpcClientForInput(input).orchestration.dispatchCommand(input),
+      dispatchCommand: async (input) => {
+        const connectionUrl = resolveConnectionForInput(input);
+        const response =
+          await getRouteRpcClient(connectionUrl).orchestration.dispatchCommand(input);
+        if (input.type === "thread.create") {
+          useHostConnectionStore.getState().upsertThreadOwnership(connectionUrl, input.threadId);
+        }
+        return response;
+      },
       getTurnDiff: (input) => resolveRpcClientForInput(input).orchestration.getTurnDiff(input),
       getFullThreadDiff: (input) =>
         resolveRpcClientForInput(input).orchestration.getFullThreadDiff(input),
