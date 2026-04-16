@@ -8,7 +8,8 @@
  */
 import { spawn } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
-import { dirname, extname, join } from "node:path";
+import * as OS from "node:os";
+import { dirname, extname, isAbsolute, join, resolve as resolvePath } from "node:path";
 
 import { EDITORS, OpenError, type EditorId, type PickFolderOptions } from "@ace/contracts";
 import { ServiceMap, Effect, Layer } from "effect";
@@ -143,7 +144,16 @@ function normalizePickedFolderPath(stdout: string): string | null {
 
 function normalizeInitialFolderPath(options?: PickFolderOptions): string | null {
   const initialPath = options?.initialPath?.trim();
-  return initialPath && initialPath.length > 0 ? initialPath : null;
+  if (!initialPath || initialPath.length === 0) {
+    return null;
+  }
+  if (initialPath === "~") {
+    return OS.homedir();
+  }
+  if (initialPath.startsWith("~/") || initialPath.startsWith("~\\")) {
+    return join(OS.homedir(), initialPath.slice(2));
+  }
+  return isAbsolute(initialPath) ? initialPath : resolvePath(initialPath);
 }
 
 function escapeAppleScriptStringLiteral(value: string): string {

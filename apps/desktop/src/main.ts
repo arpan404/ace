@@ -2131,7 +2131,18 @@ function registerIpcHandlers(): void {
         ? (rawOptions as Partial<PickFolderOptions>)
         : undefined;
     const initialPath = options?.initialPath?.trim();
-    const defaultPath = initialPath && initialPath.length > 0 ? initialPath : undefined;
+    const defaultPath = (() => {
+      if (!initialPath || initialPath.length === 0) {
+        return undefined;
+      }
+      if (initialPath === "~") {
+        return OS.homedir();
+      }
+      if (initialPath.startsWith("~/") || initialPath.startsWith("~\\")) {
+        return Path.join(OS.homedir(), initialPath.slice(2));
+      }
+      return Path.isAbsolute(initialPath) ? initialPath : Path.resolve(initialPath);
+    })();
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
     const result = owner
       ? await dialog.showOpenDialog(owner, {

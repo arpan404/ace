@@ -624,7 +624,6 @@ export default function Sidebar() {
     string | null
   >(null);
   const [newCwd, setNewCwd] = useState("");
-  const [isPickingFolder, setIsPickingFolder] = useState(false);
   const [isBrowsingProjectPaths, setIsBrowsingProjectPaths] = useState(false);
   const [projectBrowseResult, setProjectBrowseResult] = useState<FilesystemBrowseResult | null>(
     null,
@@ -674,12 +673,9 @@ export default function Sidebar() {
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const platform = navigator.platform;
-  const localDeviceHost = useMemo(() => splitWsUrlAuthToken(resolveLocalDeviceWsUrl()), []);
-  const localDeviceConnectionUrl = useMemo(
-    () => resolveHostConnectionWsUrl(localDeviceHost),
-    [localDeviceHost],
-  );
   const [activeWsUrl, setActiveWsUrl] = useState(() => resolveActiveWsUrl());
+  const localDeviceHost = splitWsUrlAuthToken(resolveLocalDeviceWsUrl());
+  const localDeviceConnectionUrl = resolveHostConnectionWsUrl(localDeviceHost);
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -1055,11 +1051,9 @@ export default function Sidebar() {
       setIsBrowsingProjectPaths(true);
       try {
         const targetEnvironment = selectedProjectPickerEnvironment;
-        const isLocalEnvironment = targetEnvironment?.isLocal ?? true;
         const targetConnectionUrl = targetEnvironment?.connectionUrl ?? localDeviceConnectionUrl;
         const browseResult = await routeFilesystemBrowseToRemote(targetConnectionUrl, {
           partialPath: trimmedPath,
-          ...(isLocalEnvironment ? { cwd: addProjectBaseDirectory } : {}),
         });
         if (browseRequestVersionRef.current !== requestVersion) {
           return;
@@ -1081,13 +1075,7 @@ export default function Sidebar() {
         }
       }
     },
-    [
-      addProjectBaseDirectory,
-      addingProject,
-      localDeviceConnectionUrl,
-      projectPickerStep,
-      selectedProjectPickerEnvironment,
-    ],
+    [addingProject, localDeviceConnectionUrl, projectPickerStep, selectedProjectPickerEnvironment],
   );
 
   useEffect(() => {
@@ -1305,31 +1293,6 @@ export default function Sidebar() {
     },
     [addProjectBaseDirectory, projectPickerEnvironmentProbeId],
   );
-
-  const handlePickFolder = useCallback(async () => {
-    if (projectPickerStep !== "directory") {
-      return;
-    }
-    const api = readNativeApi();
-    if (!api || isPickingFolder) return;
-    setAddProjectError(null);
-    setIsPickingFolder(true);
-    try {
-      const pickedPath = await api.dialogs.pickFolder({ initialPath: addProjectBaseDirectory });
-      if (pickedPath) {
-        setNewCwd(toBrowseDirectoryPath(pickedPath));
-        addProjectInputRef.current?.focus();
-      }
-    } catch (error) {
-      setAddingProject(true);
-      setAddProjectError(
-        error instanceof Error ? error.message : "Unable to open the folder picker.",
-      );
-      addProjectInputRef.current?.focus();
-    } finally {
-      setIsPickingFolder(false);
-    }
-  }, [addProjectBaseDirectory, isPickingFolder, projectPickerStep]);
 
   const handleAddProjectInputKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
@@ -3632,7 +3595,7 @@ export default function Sidebar() {
       </Dialog>
 
       <CommandDialog open={searchPaletteOpen} onOpenChange={handleSearchPaletteOpenChange}>
-        <CommandDialogPopup className="w-[min(44rem,calc(100vw-2rem))] overflow-hidden border-border/70 bg-popover/96 p-0 shadow-2xl">
+        <CommandDialogPopup className="flex max-h-[min(42rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border-border/70 bg-popover/96 p-0 shadow-2xl">
           <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
             {searchPaletteMode === "new-thread-project" ? (
               <button
@@ -3661,7 +3624,7 @@ export default function Sidebar() {
             />
           </div>
 
-          <div className="px-3 pt-3 pb-1">
+          <div className="min-h-0 flex-1 px-3 pt-3 pb-1">
             <div className="max-h-72 overflow-y-auto rounded-lg border border-border/60 bg-background/50">
               {searchPaletteItems.length === 0 ? (
                 <p className="px-3 py-2 text-xs text-muted-foreground">No matching results</p>
@@ -3829,7 +3792,7 @@ export default function Sidebar() {
           }
         }}
       >
-        <CommandDialogPopup className="w-[min(44rem,calc(100vw-2rem))] overflow-hidden border-border/70 bg-popover/96 p-0 shadow-2xl">
+        <CommandDialogPopup className="flex max-h-[min(42rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border-border/70 bg-popover/96 p-0 shadow-2xl">
           <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2">
             <button
               type="button"
@@ -3893,107 +3856,109 @@ export default function Sidebar() {
             ) : null}
           </div>
 
-          <div className="px-3 pt-3 pb-1">
-            <p className="pb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
-              {projectPickerStep === "environment" ? "Environments" : "Directories"}
-            </p>
-            {projectPickerStep === "directory" && selectedProjectPickerEnvironment ? (
-              <p className="pb-2 text-[11px] text-muted-foreground">
-                Target environment:{" "}
-                <span className="font-medium">{selectedProjectPickerEnvironment.name}</span>
+          <div className="min-h-0 flex-1 overflow-hidden px-3 pt-3 pb-1">
+            <div className="flex h-full min-h-0 flex-col">
+              <p className="pb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                {projectPickerStep === "environment" ? "Environments" : "Directories"}
               </p>
-            ) : null}
-            <div
-              ref={projectPickerListRef}
-              className="max-h-72 overflow-y-auto rounded-lg border border-border/60 bg-background/50"
-            >
-              {projectPickerStep === "environment" ? (
-                filteredPickerEnvironments.length > 0 ? (
-                  filteredPickerEnvironments.map((environment, index) => (
-                    <button
-                      key={environment.id}
-                      type="button"
-                      data-project-picker-index={index}
-                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                        index === activeProjectBrowseIndex
-                          ? "bg-accent text-foreground"
-                          : "text-foreground/86 hover:bg-accent/70 hover:text-foreground"
-                      }`}
-                      onMouseMove={() => setActiveProjectBrowseIndex(index)}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => void handleSelectProjectPickerEnvironment(environment)}
-                      disabled={projectPickerEnvironmentProbeId !== null}
-                    >
-                      {environment.icon ? (
-                        <ProjectGlyphIcon icon={environment.icon} className="size-4 shrink-0" />
-                      ) : (
-                        <LaptopIcon className="size-4 shrink-0 text-muted-foreground/80" />
-                      )}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{environment.name}</span>
-                        <span className="block truncate text-muted-foreground text-xs">
-                          {environment.subtitle}
-                        </span>
-                      </span>
-                      {environment.isLocal ? (
-                        <span className="rounded border border-emerald-500/35 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
-                          Local
-                        </span>
-                      ) : projectPickerEnvironmentProbeId === environment.id ? (
-                        <span className="rounded border border-amber-500/35 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
-                          Checking…
-                        </span>
-                      ) : environment.isPinned ? (
-                        <span className="rounded border border-blue-500/35 bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-300">
-                          Pinned
-                        </span>
-                      ) : null}
-                    </button>
-                  ))
-                ) : (
-                  <p className="px-3 py-2 text-xs text-muted-foreground">
-                    No matching environments
-                  </p>
-                )
-              ) : isBrowsingProjectPaths ? (
-                <p className="px-3 py-2 text-xs text-muted-foreground">Browsing...</p>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 border-border/45 border-b px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    onClick={handleBrowseParentPath}
-                    disabled={isAddingProject}
-                  >
-                    <ArrowUpIcon className="size-3.5" />
-                    <span>..</span>
-                  </button>
-                  {projectBrowseResult?.entries.length ? (
-                    projectBrowseResult.entries.map((entry, index) => (
+              {projectPickerStep === "directory" && selectedProjectPickerEnvironment ? (
+                <p className="pb-2 text-[11px] text-muted-foreground">
+                  Target environment:{" "}
+                  <span className="font-medium">{selectedProjectPickerEnvironment.name}</span>
+                </p>
+              ) : null}
+              <div
+                ref={projectPickerListRef}
+                className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border/60 bg-background/50"
+              >
+                {projectPickerStep === "environment" ? (
+                  filteredPickerEnvironments.length > 0 ? (
+                    filteredPickerEnvironments.map((environment, index) => (
                       <button
-                        key={entry.fullPath}
+                        key={environment.id}
                         type="button"
                         data-project-picker-index={index}
-                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
                           index === activeProjectBrowseIndex
                             ? "bg-accent text-foreground"
                             : "text-foreground/86 hover:bg-accent/70 hover:text-foreground"
                         }`}
-                        onClick={() => handleBrowseProjectEntry(entry.fullPath)}
+                        onMouseMove={() => setActiveProjectBrowseIndex(index)}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => void handleSelectProjectPickerEnvironment(environment)}
+                        disabled={projectPickerEnvironmentProbeId !== null}
                       >
-                        <FolderIcon className="size-3.5 shrink-0" />
-                        <span className="truncate font-medium">{entry.name}</span>
+                        {environment.icon ? (
+                          <ProjectGlyphIcon icon={environment.icon} className="size-4 shrink-0" />
+                        ) : (
+                          <LaptopIcon className="size-4 shrink-0 text-muted-foreground/80" />
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{environment.name}</span>
+                          <span className="block truncate text-muted-foreground text-xs">
+                            {environment.subtitle}
+                          </span>
+                        </span>
+                        {environment.isLocal ? (
+                          <span className="rounded border border-emerald-500/35 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                            Local
+                          </span>
+                        ) : projectPickerEnvironmentProbeId === environment.id ? (
+                          <span className="rounded border border-amber-500/35 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
+                            Checking…
+                          </span>
+                        ) : environment.isPinned ? (
+                          <span className="rounded border border-blue-500/35 bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-300">
+                            Pinned
+                          </span>
+                        ) : null}
                       </button>
                     ))
                   ) : (
-                    <p className="px-3 py-2 text-xs text-muted-foreground">No matching folders</p>
-                  )}
-                </>
-              )}
+                    <p className="px-3 py-2 text-xs text-muted-foreground">
+                      No matching environments
+                    </p>
+                  )
+                ) : isBrowsingProjectPaths ? (
+                  <p className="px-3 py-2 text-xs text-muted-foreground">Browsing...</p>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 border-border/45 border-b px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      onClick={handleBrowseParentPath}
+                      disabled={isAddingProject}
+                    >
+                      <ArrowUpIcon className="size-3.5" />
+                      <span>..</span>
+                    </button>
+                    {projectBrowseResult?.entries.length ? (
+                      projectBrowseResult.entries.map((entry, index) => (
+                        <button
+                          key={entry.fullPath}
+                          type="button"
+                          data-project-picker-index={index}
+                          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
+                            index === activeProjectBrowseIndex
+                              ? "bg-accent text-foreground"
+                              : "text-foreground/86 hover:bg-accent/70 hover:text-foreground"
+                          }`}
+                          onClick={() => handleBrowseProjectEntry(entry.fullPath)}
+                        >
+                          <FolderIcon className="size-3.5 shrink-0" />
+                          <span className="truncate font-medium">{entry.name}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="px-3 py-2 text-xs text-muted-foreground">No matching folders</p>
+                    )}
+                  </>
+                )}
+              </div>
+              {addProjectError ? (
+                <p className="pt-2 text-xs leading-tight text-red-400">{addProjectError}</p>
+              ) : null}
             </div>
-            {addProjectError ? (
-              <p className="pt-2 text-xs leading-tight text-red-400">{addProjectError}</p>
-            ) : null}
           </div>
 
           <div className="flex items-center justify-between border-t border-border/70 bg-muted/25 px-3 py-2 text-muted-foreground text-xs">
@@ -4022,17 +3987,6 @@ export default function Sidebar() {
                 <span>Close</span>
               </span>
             </div>
-            {projectPickerStep === "directory" ? (
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
-                onClick={() => void handlePickFolder()}
-                disabled={isPickingFolder || isAddingProject}
-              >
-                <FolderIcon className="size-3.5" />
-                {isPickingFolder ? "Opening..." : "Open in Finder"}
-              </button>
-            ) : null}
           </div>
         </CommandDialogPopup>
       </CommandDialog>

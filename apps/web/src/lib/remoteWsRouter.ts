@@ -1,5 +1,5 @@
 import { type FilesystemBrowseInput, type FilesystemBrowseResult } from "@ace/contracts";
-import { normalizeWsUrl } from "@ace/shared/hostConnections";
+import { normalizeWsUrl, splitWsUrlAuthToken } from "@ace/shared/hostConnections";
 
 import { reportBackgroundError } from "./async";
 import { createWsRpcClient, getWsRpcClient, type WsRpcClient } from "../wsRpcClient";
@@ -29,6 +29,10 @@ function normalizeConnectionUrl(connectionUrl: string): string {
   return normalizeWsUrl(connectionUrl);
 }
 
+function normalizeConnectionEndpointUrl(connectionUrl: string): string {
+  return normalizeWsUrl(splitWsUrlAuthToken(connectionUrl).wsUrl);
+}
+
 function createRouteClientSessionId(): string {
   const randomSuffix =
     typeof globalThis.crypto?.randomUUID === "function"
@@ -38,7 +42,10 @@ function createRouteClientSessionId(): string {
 }
 
 function isActiveConnectionUrl(connectionUrl: string): boolean {
-  return normalizeConnectionUrl(connectionUrl) === normalizeConnectionUrl(resolveActiveWsUrl());
+  return (
+    normalizeConnectionEndpointUrl(connectionUrl) ===
+    normalizeConnectionEndpointUrl(resolveActiveWsUrl())
+  );
 }
 
 function resolveRouteAvailability(connectionUrl: string): RemoteRouteAvailabilitySnapshot {

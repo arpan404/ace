@@ -15,12 +15,7 @@ import {
   wsUrlToBrowserBaseUrl,
 } from "@ace/shared/hostConnections";
 
-import {
-  clearActiveWsUrlOverride,
-  loadBootstrapWsUrl,
-  persistActiveWsUrlOverride,
-  resolveServerUrl,
-} from "./utils";
+import { clearActiveWsUrlOverride, persistActiveWsUrlOverride, resolveServerUrl } from "./utils";
 
 const REMOTE_HOSTS_STORAGE_KEY = "ace.remote-hosts.v1";
 const PINNED_REMOTE_HOST_IDS_STORAGE_KEY = "ace.pinned-remote-host-ids.v1";
@@ -230,29 +225,23 @@ export function resolveActiveWsUrl(): string {
 }
 
 export function resolveLocalDeviceWsUrl(): string {
+  const activeWsUrl = resolveActiveWsUrl();
   if (typeof window !== "undefined" && window.desktopBridge?.getWsUrl) {
     try {
       const bridged = window.desktopBridge.getWsUrl()?.trim();
       if (bridged && bridged.length > 0) {
-        return normalizeWsUrl(bridged);
+        const normalizedBridged = normalizeWsUrl(bridged);
+        const { wsUrl: bridgedEndpoint } = splitWsUrlAuthToken(normalizedBridged);
+        const { wsUrl: activeEndpoint } = splitWsUrlAuthToken(activeWsUrl);
+        if (normalizeWsUrl(bridgedEndpoint) === normalizeWsUrl(activeEndpoint)) {
+          return normalizedBridged;
+        }
       }
     } catch {
       // Ignore bridge read errors and fall back to active transport resolution.
     }
   }
-  const bootstrapWsUrl = loadBootstrapWsUrl();
-  if (bootstrapWsUrl) {
-    return normalizeWsUrl(bootstrapWsUrl);
-  }
-  if (typeof window !== "undefined" && window.location.origin) {
-    const localUrl = resolveServerUrl({
-      url: window.location.origin,
-      protocol: resolveWsProtocol(),
-      pathname: "/ws",
-    });
-    return normalizeWsUrl(localUrl);
-  }
-  return resolveActiveWsUrl();
+  return activeWsUrl;
 }
 
 export function resolveHostConnectionWsUrl(
