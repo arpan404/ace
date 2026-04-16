@@ -16,6 +16,8 @@ import {
   createPairingSession,
   getPairingClaim,
   getPairingSession,
+  listPairingSessions,
+  revokePairingSession,
   resolvePairingSession,
 } from "./pairing";
 import { GitHubCli } from "./git/Services/GitHubCli";
@@ -100,6 +102,11 @@ function readPairingSessionId(pathname: string): string | null {
 
 function readPairingResolveSessionId(pathname: string): string | null {
   const match = /^\/api\/pairing\/sessions\/([^/]+)\/resolve$/.exec(pathname);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function readPairingRevokeSessionId(pathname: string): string | null {
+  const match = /^\/api\/pairing\/sessions\/([^/]+)\/revoke$/.exec(pathname);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
@@ -607,6 +614,24 @@ const pairingCreateSessionRouteLayer = HttpRouter.add(
   }),
 );
 
+const pairingListSessionsRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/pairing/sessions",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const config = yield* ServerConfig;
+    const unauthorized = requirePairingAuthorization(request, requestUrl.value, config.authToken);
+    if (unauthorized) {
+      return unauthorized;
+    }
+    return withPairingHeaders(respondJson(listPairingSessions()));
+  }),
+);
+
 const pairingGetSessionRouteLayer = HttpRouter.add(
   "GET",
   "/api/pairing/sessions/:sessionId",
@@ -742,6 +767,38 @@ const pairingCreateClaimRouteLayer = HttpRouter.add(
   }),
 );
 
+const pairingRevokeSessionRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/pairing/sessions/:sessionId/revoke",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withPairingHeaders(respondJson({ error: "Bad Request" }, { status: 400 }));
+    }
+    const sessionId = readPairingRevokeSessionId(requestUrl.value.pathname);
+    if (!sessionId) {
+      return withPairingHeaders(
+        respondJson({ error: "Pairing session was not found." }, { status: 404 }),
+      );
+    }
+    const config = yield* ServerConfig;
+    const unauthorized = requirePairingAuthorization(request, requestUrl.value, config.authToken);
+    if (unauthorized) {
+      return unauthorized;
+    }
+    const revoked = revokePairingSession({
+      sessionId,
+    });
+    if (!revoked.ok) {
+      return withPairingHeaders(
+        respondJson({ error: revoked.message }, { status: readPairingErrorStatus(revoked.code) }),
+      );
+    }
+    return withPairingHeaders(respondJson(revoked.value));
+  }),
+);
+
 const pairingGetClaimRouteLayer = HttpRouter.add(
   "GET",
   "/api/pairing/claims/:claimId",
@@ -771,8 +828,10 @@ export const pairingRouteLayer = Layer.mergeAll(
   pairingOptionsRouteLayer,
   pairingAdvertisedEndpointRouteLayer,
   pairingCreateSessionRouteLayer,
+  pairingListSessionsRouteLayer,
   pairingGetSessionRouteLayer,
   pairingResolveSessionRouteLayer,
+  pairingRevokeSessionRouteLayer,
   pairingCreateClaimRouteLayer,
   pairingGetClaimRouteLayer,
 );

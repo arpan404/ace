@@ -83,6 +83,11 @@ function compile(bindings: TestBinding[]): ResolvedKeybindingsConfig {
 }
 
 const DEFAULT_BINDINGS = compile([
+  {
+    shortcut: modShortcut("k"),
+    command: "search.open",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
   { shortcut: modShortcut("j"), command: "terminal.toggle" },
   {
     shortcut: modShortcut("d"),
@@ -148,6 +153,7 @@ const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
   { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
   { shortcut: modShortcut("a", { shiftKey: true }), command: "project.add" },
+  { shortcut: modShortcut("+", { shiftKey: true }), command: "project.add" },
   {
     shortcut: modShortcut("e"),
     command: "chat.toggleWorkspaceMode",
@@ -430,6 +436,13 @@ describe("shortcutLabelForCommand", () => {
   });
 
   it("returns effective labels for non-terminal commands", () => {
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "search.open", {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "⌘K",
+    );
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.new", "MacIntel"), "⇧⌘O");
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.toggleWorkspaceMode", "MacIntel"),
@@ -447,6 +460,13 @@ describe("shortcutLabelForCommand", () => {
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.toggle", "Linux"),
       "Ctrl+Shift+B",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "project.add", {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "⇧⌘+",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.devtools", {

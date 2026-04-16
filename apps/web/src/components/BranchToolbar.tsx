@@ -16,11 +16,6 @@ import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { Button } from "./ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 
-const envModeItems = [
-  { value: "local", label: "Local" },
-  { value: "worktree", label: "New worktree" },
-] as const;
-
 function nextAccessMode(mode: RuntimeMode): RuntimeMode {
   switch (mode) {
     case "approval-required":
@@ -63,6 +58,7 @@ interface BranchToolbarProps {
   threadId: ThreadId;
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
+  localEnvironmentLabel?: string;
   runtimeMode?: RuntimeMode;
   onRuntimeModeChange?: (mode: RuntimeMode) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
@@ -73,6 +69,7 @@ export default function BranchToolbar({
   threadId,
   onEnvModeChange,
   envLocked,
+  localEnvironmentLabel = "Local",
   runtimeMode,
   onRuntimeModeChange,
   onCheckoutPullRequestRequest,
@@ -153,6 +150,10 @@ export default function BranchToolbar({
 
   if (!activeThreadId || !activeProject) return null;
   const runtimeModeMeta = runtimeMode ? ACCESS_MODE_META[runtimeMode] : null;
+  const envModeItems = [
+    { value: "local", label: localEnvironmentLabel },
+    { value: "worktree", label: "New worktree" },
+  ] as const;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-2 pt-0.5">
@@ -167,7 +168,7 @@ export default function BranchToolbar({
             ) : (
               <>
                 <FolderIcon className="size-3 opacity-60" />
-                Local
+                {localEnvironmentLabel}
               </>
             )}
           </span>
@@ -193,7 +194,7 @@ export default function BranchToolbar({
               <SelectItem value="local">
                 <span className="inline-flex items-center gap-1.5">
                   <FolderIcon className="size-3" />
-                  Local
+                  {localEnvironmentLabel}
                 </span>
               </SelectItem>
               <SelectItem value="worktree">

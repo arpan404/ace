@@ -77,6 +77,9 @@ export interface PairingSessionCreated {
 
 export interface PairingSessionView {
   readonly sessionId: string;
+  readonly name: string;
+  readonly createdAt: string;
+  readonly resolvedAt?: string | undefined;
   readonly status: PairingSessionStatus;
   readonly expiresAt: string;
   readonly requesterName?: string | undefined;
@@ -173,6 +176,9 @@ function resolvePairingSessionStatus(
 function toPairingSessionView(record: PairingSessionRecord, nowMs: number): PairingSessionView {
   return {
     sessionId: record.sessionId,
+    name: record.name,
+    createdAt: isoAt(record.createdAtMs),
+    ...(typeof record.resolvedAtMs === "number" ? { resolvedAt: isoAt(record.resolvedAtMs) } : {}),
     status: resolvePairingSessionStatus(record, nowMs),
     expiresAt: isoAt(record.expiresAtMs),
     ...(record.claim
@@ -258,6 +264,13 @@ export function getPairingSession(
   return succeed(toPairingSessionView(recordResult.value, nowMs));
 }
 
+export function listPairingSessions(nowMs = Date.now()): ReadonlyArray<PairingSessionView> {
+  prunePairingSessions(nowMs);
+  return Array.from(pairingSessions.values())
+    .toSorted((left, right) => right.createdAtMs - left.createdAtMs)
+    .map((record) => toPairingSessionView(record, nowMs));
+}
+
 export function resolvePairingSession(input: {
   readonly sessionId: string;
   readonly approve: boolean;
@@ -279,6 +292,24 @@ export function resolvePairingSession(input: {
     record.resolution = input.approve ? "approved" : "rejected";
     record.resolvedAtMs = nowMs;
   }
+  return succeed(toPairingSessionView(record, nowMs));
+}
+
+export function revokePairingSession(input: {
+  readonly sessionId: string;
+  readonly nowMs?: number;
+}): PairingResult<PairingSessionView> {
+  const nowMs = input.nowMs ?? Date.now();
+  const recordResult = readPairingSession(input.sessionId, nowMs);
+  if (!recordResult.ok) {
+    return recordResult;
+  }
+  const record = recordResult.value;
+  if (nowMs >= record.expiresAtMs) {
+    return fail("expired", "Pairing session has expired.");
+  }
+  record.resolution = "rejected";
+  record.resolvedAtMs = nowMs;
   return succeed(toPairingSessionView(record, nowMs));
 }
 

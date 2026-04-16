@@ -22,6 +22,30 @@ describe("resolveDesktopBaseDir", () => {
 
     expect(resolved).toBe(path.join(fakeHome, ".ace-dev"));
   });
+
+  it("returns .ace-dev/desktop for development desktop build", () => {
+    const fakeHome = mkdtempSync(path.join(os.tmpdir(), "ace-desktop-base-dev-"));
+
+    const resolved = resolveDesktopBaseDir({
+      homeDir: fakeHome,
+      isDevelopment: true,
+      appType: "desktop",
+    });
+
+    expect(resolved).toBe(path.join(fakeHome, ".ace-dev", "desktop"));
+  });
+
+  it("returns .ace-dev/web for development web build", () => {
+    const fakeHome = mkdtempSync(path.join(os.tmpdir(), "ace-desktop-base-dev-"));
+
+    const resolved = resolveDesktopBaseDir({
+      homeDir: fakeHome,
+      isDevelopment: true,
+      appType: "web",
+    });
+
+    expect(resolved).toBe(path.join(fakeHome, ".ace-dev", "web"));
+  });
 });
 
 describe("resolveDesktopUserDataPath", () => {

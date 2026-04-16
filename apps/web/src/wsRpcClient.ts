@@ -140,6 +140,11 @@ export async function __resetWsRpcClientForTests() {
   sharedWsRpcClient = null;
 }
 
+export async function resetWsRpcClient(): Promise<void> {
+  await sharedWsRpcClient?.dispose();
+  sharedWsRpcClient = null;
+}
+
 export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
   const streamIdentity = transport.getConnectionIdentity();
   return {
