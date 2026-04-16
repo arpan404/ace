@@ -181,6 +181,8 @@ import type { Project, SidebarThreadSummary } from "../types";
 import { useHostConnectionStore } from "../hostConnectionStore";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 const THREAD_REVEAL_STEP = 5;
+const REMOTE_HOST_REFRESH_INTERVAL_MS = 6_000;
+const REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS = 1_500;
 const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
 const sortedSidebarThreadsCache = new WeakMap<
   ReadonlyArray<SidebarThreadSummary>,
@@ -630,6 +632,7 @@ function getVisibleRemoteThreadsForProject<T extends { id: string }>(input: {
 export default function Sidebar() {
   const { isMobile, state } = useSidebar();
   const projects = useStore((store) => store.projects);
+  const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const sidebarThreadsById = useStore((store) => store.sidebarThreadsById);
   const threadIdsByProjectId = useStore((store) => store.threadIdsByProjectId);
   const { projectExpandedById, projectOrder, threadLastVisitedAtById } = useUiStateStore(
@@ -896,10 +899,9 @@ export default function Sidebar() {
         .filter((host) => connectedHostIds.has(host.id))
         .filter((host) => resolveHostConnectionWsUrl(host) !== localDeviceConnectionUrl)
         .toSorted((left, right) => left.name.localeCompare(right.name));
-      const nextConnectionUrls = new Set<string>([
-        localDeviceConnectionUrl,
-        ...hosts.map((host) => resolveHostConnectionWsUrl(host)),
-      ]);
+      const nextConnectionUrls = new Set<string>(
+        hosts.map((host) => resolveHostConnectionWsUrl(host)),
+      );
       const previousConnectionUrls = registeredRemoteRouteConnectionUrlsRef.current;
       for (const connectionUrl of nextConnectionUrls) {
         if (!previousConnectionUrls.has(connectionUrl)) {
@@ -917,24 +919,6 @@ export default function Sidebar() {
         }
       }
       registeredRemoteRouteConnectionUrlsRef.current = nextConnectionUrls;
-
-      await probeRemoteRouteAvailability(localDeviceConnectionUrl, {
-        force: true,
-      }).catch(() => undefined);
-      const localSnapshot = await routeOrchestrationGetSnapshotFromRemote(
-        localDeviceConnectionUrl,
-        LEAN_SNAPSHOT_RECOVERY_INPUT,
-      ).catch(() => null);
-      if (localSnapshot) {
-        useHostConnectionStore
-          .getState()
-          .upsertSnapshotOwnership(localDeviceConnectionUrl, localSnapshot);
-        useStore.getState().mergeServerReadModel(localSnapshot, {
-          ...LEAN_SNAPSHOT_RECOVERY_INPUT,
-          connectionUrl: localDeviceConnectionUrl,
-        });
-        reconcileThreadDerivedState();
-      }
 
       const requestVersion = remoteSidebarRefreshVersionRef.current + 1;
       remoteSidebarRefreshVersionRef.current = requestVersion;
@@ -1018,30 +1002,33 @@ export default function Sidebar() {
     }
   }, [localDeviceConnectionUrl, reconcileThreadDerivedState]);
   useEffect(() => {
-    void refreshRemoteSidebarHosts();
-  }, [activeWsUrl, refreshRemoteSidebarHosts]);
-  useEffect(() => {
+    if (!bootstrapComplete) {
+      return;
+    }
     let cancelled = false;
     let timeoutHandle: number | null = null;
 
-    const schedule = () => {
+    const schedule = (delayMs = REMOTE_HOST_REFRESH_INTERVAL_MS) => {
       if (cancelled) {
         return;
       }
       timeoutHandle = window.setTimeout(() => {
         void tick();
-      }, 6_000);
+      }, delayMs);
     };
 
     const tick = async () => {
       if (cancelled) {
         return;
       }
-      await refreshRemoteSidebarHosts();
-      schedule();
+      try {
+        await refreshRemoteSidebarHosts();
+      } finally {
+        schedule();
+      }
     };
 
-    void tick();
+    schedule(REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS);
     return () => {
       cancelled = true;
       if (timeoutHandle !== null) {
@@ -1052,7 +1039,7 @@ export default function Sidebar() {
       }
       registeredRemoteRouteConnectionUrlsRef.current.clear();
     };
-  }, [refreshRemoteSidebarHosts]);
+  }, [bootstrapComplete, refreshRemoteSidebarHosts]);
   const addProjectBaseDirectory = useMemo(() => {
     const configuredBaseDirectory = appSettings.addProjectBaseDirectory.trim();
     return configuredBaseDirectory.length > 0 ? configuredBaseDirectory : "~";

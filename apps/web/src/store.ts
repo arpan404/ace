@@ -287,6 +287,25 @@ function mapTurnDiffSummary(
   };
 }
 
+function mergeThreadPreservingHydratedHistory(
+  existingThread: Thread | undefined,
+  incomingThread: Thread,
+): Thread {
+  if (!existingThread || existingThread.historyLoaded === false || incomingThread.historyLoaded) {
+    return incomingThread;
+  }
+  return {
+    ...incomingThread,
+    messages: existingThread.messages,
+    proposedPlans: existingThread.proposedPlans,
+    latestProposedPlanSummary:
+      existingThread.latestProposedPlanSummary ?? incomingThread.latestProposedPlanSummary,
+    turnDiffSummaries: existingThread.turnDiffSummaries,
+    activities: existingThread.activities,
+    historyLoaded: true,
+  };
+}
+
 export interface SnapshotSyncOptions {
   hydrateThreadId?: ThreadId | null;
   connectionUrl?: string;
@@ -1389,13 +1408,17 @@ export function syncServerReadModel(
   readModel: OrchestrationReadModel,
   options?: SnapshotSyncOptions,
 ): AppState {
+  const existingThreadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
   const projects = readModel.projects
     .filter((project) => project.deletedAt === null)
     .map(mapProject);
   const threads = readModel.threads
     .filter((thread) => thread.deletedAt === null)
     .map((thread) => {
-      const nextThread = mapThread(thread, options);
+      const nextThread = mergeThreadPreservingHydratedHistory(
+        existingThreadsById.get(thread.id),
+        mapThread(thread, options),
+      );
       if (options !== undefined && nextThread.historyLoaded !== false) {
         primeHydratedThreadCache(thread);
       }
@@ -1438,7 +1461,10 @@ export function mergeServerReadModel(
 
   const threadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
   for (const thread of incomingThreads) {
-    threadsById.set(thread.id, thread);
+    threadsById.set(
+      thread.id,
+      mergeThreadPreservingHydratedHistory(threadsById.get(thread.id), thread),
+    );
   }
 
   const projects = [...projectsById.values()];
