@@ -4,6 +4,9 @@ ace reads keybindings from:
 
 - `~/.ace/keybindings.json`
 
+You can manage shortcuts directly in **Settings → Advanced → Keybindings**. Changes are saved to
+the same `keybindings.json` file.
+
 The file must be a JSON array of rules:
 
 ```json
@@ -20,6 +23,8 @@ See the full schema for more details: [`packages/contracts/src/keybindings.ts`](
 
 ```json
 [
+  { "key": "mod+k", "command": "search.open", "when": "!terminalFocus" },
+  { "key": "mod+shift+b", "command": "sidebar.toggle" },
   { "key": "mod+j", "command": "terminal.toggle" },
   { "key": "mod+d", "command": "terminal.split", "when": "terminalFocus" },
   { "key": "mod+n", "command": "terminal.new", "when": "terminalFocus" },
@@ -27,7 +32,10 @@ See the full schema for more details: [`packages/contracts/src/keybindings.ts`](
   { "key": "mod+n", "command": "chat.new", "when": "!terminalFocus" },
   { "key": "mod+shift+o", "command": "chat.new", "when": "!terminalFocus" },
   { "key": "mod+shift+n", "command": "chat.newLocal", "when": "!terminalFocus" },
+  { "key": "mod+shift+a", "command": "project.add", "when": "!terminalFocus" },
+  { "key": "mod+shift++", "command": "project.add", "when": "!terminalFocus" },
   { "key": "mod+e", "command": "chat.toggleWorkspaceMode", "when": "!terminalFocus" },
+  { "key": "mod+shift+h", "command": "chat.toggleHeader", "when": "!terminalFocus" },
   { "key": "mod+o", "command": "editor.openFavorite" },
   { "key": "mod+\\", "command": "editor.split", "when": "editorFocus" },
   { "key": "mod+alt+arrowleft", "command": "editor.focusPreviousWindow", "when": "editorFocus" },
@@ -59,9 +67,13 @@ Invalid rules are ignored. Invalid config files are ignored. Warnings are logged
 - `terminal.split`: split terminal (in focused terminal context by default)
 - `terminal.new`: create new terminal (in focused terminal context by default)
 - `terminal.close`: close/kill the focused terminal (in focused terminal context by default)
+- `sidebar.toggle`: collapse/expand the sidebar
+- `search.open`: open the command search panel
 - `chat.new`: create a new chat thread preserving the active thread's branch/worktree state
 - `chat.newLocal`: create a new chat thread for the active project in a new environment (local/worktree determined by app settings (default `local`))
+- `project.add`: open the add-project command browser
 - `chat.toggleWorkspaceMode`: toggle between chat and editor workspace modes
+- `chat.toggleHeader`: hide/show the chat top header
 - `editor.openFavorite`: open current project/worktree in the last-used editor
 - `editor.split`: split the focused workspace editor into a new window
 - `editor.closeWindow`: close the focused workspace editor window
@@ -87,6 +99,7 @@ Examples:
 
 - `mod+j`
 - `mod+shift+d`
+- `mod+shift++`
 - `ctrl+l`
 - `cmd+k`
 

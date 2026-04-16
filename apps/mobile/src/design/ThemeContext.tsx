@@ -11,12 +11,10 @@ function isThemeMode(value: string): value is ThemeMode {
   return value === "system" || value === "light" || value === "dark";
 }
 
-type ThemeColors = {
-  [K in keyof (typeof Palette)["light"]]: string;
-};
+export type ThemeColors = (typeof Palette)[keyof typeof Palette];
 
 interface ThemeContextValue {
-  theme: ThemeColors;
+  colors: ThemeColors;
   isDark: boolean;
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
@@ -29,7 +27,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [themeMode, setThemeModeState] = useState<ThemeMode>("system");
 
   const isDark = themeMode === "system" ? systemColorScheme === "dark" : themeMode === "dark";
-  const theme = useMemo(() => (isDark ? Palette.dark : Palette.light), [isDark]);
+  const colors = useMemo(() => (isDark ? Palette.dark : Palette.light), [isDark]);
 
   useEffect(() => {
     let mounted = true;
@@ -58,12 +56,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo(
     () => ({
-      theme,
+      colors,
       isDark,
       themeMode,
       setThemeMode,
     }),
-    [theme, isDark, themeMode, setThemeMode],
+    [colors, isDark, themeMode, setThemeMode],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

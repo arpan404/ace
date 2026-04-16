@@ -23,16 +23,92 @@ export function isLinuxPlatform(platform: string): boolean {
 }
 
 const isNonEmptyString = Predicate.compose(Predicate.isString, String.isNonEmpty);
+const ACTIVE_WS_URL_OVERRIDE_STORAGE_KEY = "ace.active-ws-url";
+const BOOTSTRAP_WS_URL_STORAGE_KEY = "ace.bootstrap-ws-url";
 
-function readRendererBootstrapWsUrl(): string | undefined {
+export function loadActiveWsUrlOverride(): string | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+  try {
+    const value = window.sessionStorage?.getItem(ACTIVE_WS_URL_OVERRIDE_STORAGE_KEY);
+    return isNonEmptyString(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function persistActiveWsUrlOverride(value: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.sessionStorage?.setItem(ACTIVE_WS_URL_OVERRIDE_STORAGE_KEY, value);
+  } catch {
+    // Ignore storage failures and fall back to local resolution.
+  }
+}
+
+export function clearActiveWsUrlOverride(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.sessionStorage?.removeItem(ACTIVE_WS_URL_OVERRIDE_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures and keep current session behavior.
+  }
+}
+
+export function clearBootstrapWsUrlQueryParam(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (
+    typeof window.history?.replaceState !== "function" ||
+    typeof window.location?.href !== "string"
+  ) {
+    return;
+  }
+  const currentUrl = new URL(window.location.href);
+  const bootstrapWsUrl = currentUrl.searchParams.get(DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM)?.trim();
+  if (!bootstrapWsUrl) {
+    return;
+  }
+  try {
+    window.sessionStorage?.setItem(BOOTSTRAP_WS_URL_STORAGE_KEY, bootstrapWsUrl);
+  } catch {
+    // Ignore storage failures and keep current URL cleanup behavior.
+  }
+  currentUrl.searchParams.delete(DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM);
+  const nextSearch = currentUrl.searchParams.toString();
+  const replacement = `${currentUrl.pathname}${nextSearch.length > 0 ? `?${nextSearch}` : ""}${currentUrl.hash}`;
+  window.history.replaceState(window.history.state, "", replacement);
+}
+
+export function loadBootstrapWsUrl(): string | undefined {
   if (typeof window === "undefined") {
     return undefined;
   }
 
-  const value = new URLSearchParams(window.location.search).get(
-    DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM,
-  );
-  return isNonEmptyString(value) ? value : undefined;
+  const queryParamValue = new URLSearchParams(window.location.search)
+    .get(DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM)
+    ?.trim();
+  if (queryParamValue && queryParamValue.length > 0) {
+    try {
+      window.sessionStorage?.setItem(BOOTSTRAP_WS_URL_STORAGE_KEY, queryParamValue);
+    } catch {
+      // Ignore storage failures and continue with in-memory value only.
+    }
+    return queryParamValue;
+  }
+
+  try {
+    const cached = window.sessionStorage?.getItem(BOOTSTRAP_WS_URL_STORAGE_KEY);
+    return isNonEmptyString(cached) ? cached : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function readDesktopBridgeWsUrl(): string | undefined {
@@ -62,9 +138,10 @@ export const resolveServerUrl = (options?: {
 }): string => {
   const rawUrl =
     (isNonEmptyString(options?.url) ? options.url : undefined) ??
-    readRendererBootstrapWsUrl() ??
+    loadActiveWsUrlOverride() ??
     readDesktopBridgeWsUrl() ??
     (isNonEmptyString(import.meta.env.VITE_WS_URL) ? import.meta.env.VITE_WS_URL : undefined) ??
+    loadBootstrapWsUrl() ??
     (typeof window !== "undefined" && isNonEmptyString(window.location.origin)
       ? window.location.origin
       : undefined);

@@ -85,6 +85,7 @@ it.effect("trims branded ids and command string fields at decode boundaries", ()
       projectId: " project-1 ",
       title: " Project Title ",
       workspaceRoot: " /tmp/workspace ",
+      createWorkspaceRootIfMissing: true,
       defaultModelSelection: {
         provider: "codex",
         model: " gpt-5.2 ",
@@ -95,6 +96,7 @@ it.effect("trims branded ids and command string fields at decode boundaries", ()
     assert.strictEqual(parsed.projectId, "project-1");
     assert.strictEqual(parsed.title, "Project Title");
     assert.strictEqual(parsed.workspaceRoot, "/tmp/workspace");
+    assert.strictEqual(parsed.createWorkspaceRootIfMissing, true);
     assert.deepStrictEqual(parsed.defaultModelSelection, {
       provider: "codex",
       model: "gpt-5.2",

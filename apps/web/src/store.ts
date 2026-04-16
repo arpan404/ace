@@ -51,6 +51,16 @@ const initialState: AppState = {
   threadIdsByProjectId: {},
   bootstrapComplete: false,
 };
+
+function createInitialState(): AppState {
+  return {
+    projects: [],
+    threads: [],
+    sidebarThreadsById: {},
+    threadIdsByProjectId: {},
+    bootstrapComplete: false,
+  };
+}
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
 const MAX_THREAD_PROPOSED_PLANS = 200;
@@ -1512,6 +1522,7 @@ export function setThreadQueueState(
 // ── Zustand store ────────────────────────────────────────────────────
 
 interface AppStore extends AppState {
+  resetToInitialState: () => void;
   syncServerReadModel: (readModel: OrchestrationReadModel, options?: SnapshotSyncOptions) => void;
   hydrateThreadFromReadModel: (readModelThread: OrchestrationReadModel["threads"][number]) => void;
   pruneHydratedThreadHistories: (keepThreadIds: readonly ThreadId[]) => void;
@@ -1528,6 +1539,7 @@ interface AppStore extends AppState {
 
 export const useStore = create<AppStore>((set) => ({
   ...initialState,
+  resetToInitialState: () => set(() => createInitialState()),
   syncServerReadModel: (readModel, options) =>
     set((state) => syncServerReadModel(state, readModel, options)),
   hydrateThreadFromReadModel: (readModelThread) =>

@@ -62,3 +62,37 @@ export class WorkspaceEditorCloseBufferError extends Schema.TaggedErrorClass<Wor
     message: TrimmedNonEmptyString,
   },
 ) {}
+
+export const WorkspaceEditorCompletionItem = Schema.Struct({
+  label: TrimmedNonEmptyString,
+  kind: Schema.optional(TrimmedNonEmptyString),
+  detail: Schema.optional(Schema.String),
+  documentation: Schema.optional(Schema.String),
+  insertText: Schema.optional(Schema.String),
+  sortText: Schema.optional(TrimmedNonEmptyString),
+  filterText: Schema.optional(TrimmedNonEmptyString),
+});
+export type WorkspaceEditorCompletionItem = typeof WorkspaceEditorCompletionItem.Type;
+
+export const WorkspaceEditorCompleteInput = Schema.Struct({
+  contents: ProjectWriteFileInput.fields.contents,
+  cwd: ProjectReadFileInput.fields.cwd,
+  relativePath: ProjectReadFileInput.fields.relativePath,
+  line: NonNegativeInt,
+  column: NonNegativeInt,
+});
+export type WorkspaceEditorCompleteInput = typeof WorkspaceEditorCompleteInput.Type;
+
+export const WorkspaceEditorCompleteResult = Schema.Struct({
+  relativePath: ProjectReadFileInput.fields.relativePath,
+  items: Schema.Array(WorkspaceEditorCompletionItem),
+});
+export type WorkspaceEditorCompleteResult = typeof WorkspaceEditorCompleteResult.Type;
+
+export class WorkspaceEditorCompleteError extends Schema.TaggedErrorClass<WorkspaceEditorCompleteError>()(
+  "WorkspaceEditorCompleteError",
+  {
+    cause: Schema.optional(Schema.Defect),
+    message: TrimmedNonEmptyString,
+  },
+) {}

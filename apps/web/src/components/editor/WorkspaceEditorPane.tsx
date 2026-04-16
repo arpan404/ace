@@ -95,16 +95,9 @@ function formatFileSize(sizeBytes: number): string {
 const WORKSPACE_EDITOR_MARKER_OWNER = "ace-workspace-editor";
 const MONACO_DIAGNOSTIC_OWNERS = [WORKSPACE_EDITOR_MARKER_OWNER] as const;
 const DIAGNOSTIC_SYNC_DEBOUNCE_MS = 250;
+const DIAGNOSTIC_UNAVAILABLE_RETRY_MS = 3_000;
 const WORKSPACE_FILE_REFETCH_INTERVAL_MS = 1_200;
-const MONACO_NATIVE_LSP_LANGUAGES = new Set([
-  "css",
-  "html",
-  "javascript",
-  "json",
-  "less",
-  "scss",
-  "typescript",
-]);
+const COMPLETION_TRIGGER_CHARACTERS = [".", "/", '"', "'", ":", "<", "@"] as const;
 
 type MonacoApi = typeof import("monaco-editor");
 
@@ -147,6 +140,10 @@ function resolveMonacoLanguageFromFilePath(filePath: string | null): string | un
   if (normalizedPath.endsWith(".md")) {
     return "markdown";
   }
+  const extensionIndex = normalizedPath.lastIndexOf(".");
+  if (extensionIndex >= 0 && extensionIndex < normalizedPath.length - 1) {
+    return normalizedPath.slice(extensionIndex + 1);
+  }
   return undefined;
 }
 
@@ -154,13 +151,11 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function shouldUseMonacoLanguageService(languageId: string): boolean {
-  return MONACO_NATIVE_LSP_LANGUAGES.has(languageId);
-}
-
 function isUnavailableWorkspaceDiagnosticsError(error: unknown): boolean {
   const message = toErrorMessage(error).toLowerCase();
   return (
+    message.includes("workspace diagnostics backend unavailable") ||
+    message.includes("language server restart is cooling down") ||
     message.includes("neovim") ||
     message.includes("unable to spawn") ||
     message.includes("failed to initialize")
@@ -254,6 +249,17 @@ function toMonacoSeverity(
   }
 }
 
+function toMonacoCompletionItemKind(monacoInstance: MonacoApi, value: string | undefined) {
+  if (!value) {
+    return monacoInstance.languages.CompletionItemKind.Text;
+  }
+  const numericKind = Number.parseInt(value, 10);
+  if (Number.isFinite(numericKind) && numericKind >= 0 && numericKind <= 30) {
+    return numericKind;
+  }
+  return monacoInstance.languages.CompletionItemKind.Text;
+}
+
 function toMonacoMarkers(
   monacoInstance: MonacoApi,
   diagnostics: readonly WorkspaceEditorDiagnostic[],
@@ -316,7 +322,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<MonacoApi | null>(null);
   const syncRequestIdRef = useRef(0);
-  const diagnosticsBackendUnavailableRef = useRef(false);
+  const diagnosticsUnavailableRetryAtRef = useRef(0);
   const activePreviewKind = useMemo<WorkspacePreviewKind | null>(
     () => (pane.activeFilePath ? detectWorkspacePreviewKind(pane.activeFilePath) : null),
     [pane.activeFilePath],
@@ -428,6 +434,18 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, () => {
         saveActionRef.current();
       });
+      editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.Space, () => {
+        const action = editor.getAction("editor.action.triggerSuggest");
+        if (action) {
+          void action.run();
+        }
+      });
+      editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyI, () => {
+        const action = editor.getAction("editor.action.triggerParameterHints");
+        if (action) {
+          void action.run();
+        }
+      });
       editor.addCommand(
         monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyM,
         () => {
@@ -468,13 +486,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       return;
     }
 
-    if (
-      diagnosticsBackendUnavailableRef.current ||
-      shouldUseMonacoLanguageService(model.getLanguageId())
-    ) {
-      clearModelMarkers(monacoInstance, model);
-      setDiagnosticError(null);
-      syncProblemState();
+    if (Date.now() < diagnosticsUnavailableRetryAtRef.current) {
       return;
     }
 
@@ -508,6 +520,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             WORKSPACE_EDITOR_MARKER_OWNER,
             toMonacoMarkers(liveMonaco, result.diagnostics),
           );
+          diagnosticsUnavailableRetryAtRef.current = 0;
           setDiagnosticError(null);
           const nextProblems = liveMonaco.editor.getModelMarkers({ resource: liveModel.uri });
           setProblems(nextProblems);
@@ -519,21 +532,19 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           }
           clearEditorMarkers();
           if (isUnavailableWorkspaceDiagnosticsError(error)) {
-            diagnosticsBackendUnavailableRef.current = true;
-            setDiagnosticError(null);
+            diagnosticsUnavailableRetryAtRef.current = Date.now() + DIAGNOSTIC_UNAVAILABLE_RETRY_MS;
+            setDiagnosticError(toErrorMessage(error));
           } else {
             const message = toErrorMessage(error);
             setDiagnosticError(message);
           }
           syncProblemState();
-          if (!diagnosticsBackendUnavailableRef.current) {
-            console.error("Failed to sync workspace editor diagnostics", {
-              cwd: props.gitCwd,
-              diagnosticsCwd: props.diagnosticsCwd,
-              relativePath: activeFilePath,
-              error,
-            });
-          }
+          console.error("Failed to sync workspace editor diagnostics", {
+            cwd: props.gitCwd,
+            diagnosticsCwd: props.diagnosticsCwd,
+            relativePath: activeFilePath,
+            error,
+          });
         });
     }, DIAGNOSTIC_SYNC_DEBOUNCE_MS);
 
@@ -577,6 +588,86 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     };
   }, [editorMountVersion, pane.activeFilePath, syncProblemState]);
 
+  useEffect(() => {
+    const monacoInstance = monacoRef.current;
+    if (!api || !monacoInstance || !activeMonacoLanguage) {
+      return;
+    }
+    const provider = monacoInstance.languages.registerCompletionItemProvider(activeMonacoLanguage, {
+      triggerCharacters: [...COMPLETION_TRIGGER_CHARACTERS],
+      provideCompletionItems: async (model, position, _context, _token) => {
+        if (!props.diagnosticsCwd || !pane.activeFilePath || isPreviewMode) {
+          return { suggestions: [] };
+        }
+        try {
+          const result = await api.workspaceEditor.complete({
+            cwd: props.diagnosticsCwd,
+            relativePath: pane.activeFilePath,
+            contents: model.getValue(),
+            line: Math.max(0, position.lineNumber - 1),
+            column: Math.max(0, position.column - 1),
+          });
+          const word = model.getWordUntilPosition(position);
+          const range = {
+            startLineNumber: position.lineNumber,
+            endLineNumber: position.lineNumber,
+            startColumn: word.startColumn,
+            endColumn: word.endColumn,
+          };
+          return {
+            suggestions: result.items.map((item) => {
+              const suggestion: {
+                label: string;
+                kind: number;
+                insertText: string;
+                range: {
+                  startLineNumber: number;
+                  endLineNumber: number;
+                  startColumn: number;
+                  endColumn: number;
+                };
+                detail?: string;
+                documentation?: string;
+                sortText?: string;
+                filterText?: string;
+              } = {
+                label: item.label,
+                kind: toMonacoCompletionItemKind(monacoInstance, item.kind),
+                insertText: item.insertText ?? item.label,
+                range,
+              };
+              if (item.detail) {
+                suggestion.detail = item.detail;
+              }
+              if (item.documentation) {
+                suggestion.documentation = item.documentation;
+              }
+              if (item.sortText) {
+                suggestion.sortText = item.sortText;
+              }
+              if (item.filterText) {
+                suggestion.filterText = item.filterText;
+              }
+              return suggestion;
+            }),
+          };
+        } catch {
+          return { suggestions: [] };
+        }
+      },
+    });
+    return () => {
+      provider.dispose();
+    };
+  }, [
+    activeMonacoLanguage,
+    api,
+    editorMountVersion,
+    isPreviewMode,
+    pane.activeFilePath,
+    props.diagnosticsCwd,
+  ]);
+
   useEffect(
     () => () => {
       syncRequestIdRef.current += 1;
@@ -584,10 +675,6 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     },
     [clearEditorMarkers],
   );
-
-  useEffect(() => {
-    diagnosticsBackendUnavailableRef.current = false;
-  }, [pane.activeFilePath, props.diagnosticsCwd]);
 
   const readDraggedTab = useCallback((event: ReactDragEvent<HTMLElement>) => {
     return readEditorTabTransfer(event.dataTransfer);
@@ -774,8 +861,10 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     <section
       data-pane-active={props.active ? "true" : "false"}
       className={cn(
-        "group flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-colors relative",
-        "bg-background",
+        "group relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] bg-background/95 transition-colors",
+        props.active
+          ? "shadow-[0_18px_40px_-24px_hsl(var(--primary)/0.35)]"
+          : "shadow-[inset_0_1px_0_hsl(var(--foreground)/0.03)]",
       )}
       onPointerDown={() => {
         props.onFocusPane(props.pane.id);
@@ -783,8 +872,8 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     >
       <div
         className={cn(
-          "flex h-[35px] shrink-0 items-center overflow-x-auto scrollbar-none border-b border-border/40",
-          "bg-secondary/80",
+          "flex h-[35px] shrink-0 items-center overflow-x-auto scrollbar-none",
+          "bg-gradient-to-b from-secondary/95 to-secondary/65 backdrop-blur supports-[backdrop-filter]:from-secondary/85",
         )}
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -808,10 +897,10 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   type="button"
                   data-editor-tab="true"
                   className={cn(
-                    "group/tab flex h-[35px] shrink-0 items-center gap-1.5 border-r border-border/30 px-3 text-[12px] transition-colors relative",
+                    "group/tab relative flex h-[35px] shrink-0 items-center gap-1.5 px-3 text-[12px] transition-colors",
                     isActive
-                      ? "bg-background text-foreground"
-                      : "bg-transparent text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground",
+                      ? "bg-background/90 text-foreground shadow-[inset_0_1px_0_hsl(var(--foreground)/0.06)]"
+                      : "bg-transparent text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
                   )}
                   draggable
                   onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
@@ -916,9 +1005,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         </div>
       </div>
 
-      <div
-        className={cn("min-h-0 min-w-0 flex-1 relative border-t border-border/40", "bg-background")}
-      >
+      <div className={cn("min-h-0 min-w-0 flex-1 relative", "bg-background")}>
         {!props.pane.activeFilePath ? (
           <div className="flex h-full items-center justify-center">
             <div className="opacity-[0.03] pointer-events-none text-foreground flex items-center justify-center">
@@ -937,7 +1024,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         ) : isBinaryPreviewMode && previewUrl ? (
           <div className="flex h-full min-h-0 flex-col">
             <div className="min-h-0 flex-1 overflow-auto p-4">
-              <div className="flex h-full min-h-[220px] items-center justify-center rounded-xl border border-border/50 bg-secondary/30">
+              <div className="flex h-full min-h-[220px] items-center justify-center rounded-xl bg-secondary/30">
                 {activePreviewKind === "image" ? (
                   <img
                     src={previewUrl}
@@ -959,7 +1046,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 )}
               </div>
             </div>
-            <div className="flex items-center justify-between gap-2 border-t border-border/50 px-3 py-2 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground">
               <span className="truncate">{previewModeLabel}</span>
               <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
                 Open in Editor
@@ -969,7 +1056,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         ) : isTextPreviewMode && activeFileQuery.data?.contents !== undefined ? (
           <div className="flex h-full min-h-0 flex-col">
             <div className="min-h-0 flex-1 overflow-auto p-4">
-              <div className="min-h-[220px] rounded-xl border border-border/50 bg-secondary/30 p-4">
+              <div className="min-h-[220px] rounded-xl bg-secondary/30 p-4">
                 {activePreviewKind === "markdown" ? (
                   <ChatMarkdown
                     text={activeFileQuery.data.contents}
@@ -985,7 +1072,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 )}
               </div>
             </div>
-            <div className="flex items-center justify-between gap-2 border-t border-border/50 px-3 py-2 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground">
               <span className="truncate">{previewModeLabel}</span>
               <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
                 Open in Editor
@@ -1004,7 +1091,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           </div>
         ) : activeFileQuery.isError && !activeDraft ? (
           <div className="flex h-full items-center justify-center px-6">
-            <div className="max-w-md rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-center">
+            <div className="max-w-md rounded-xl bg-destructive/5 p-4 text-center">
               <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
                 <AlertCircleIcon className="size-5" />
               </div>
@@ -1052,12 +1139,12 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       </div>
 
       {!isPreviewMode && problemsOpen ? (
-        <section className="shrink-0 border-t border-border/40 bg-secondary/50">
+        <section className="shrink-0 bg-secondary/50">
           <header className="flex h-7 items-center justify-between px-2.5 text-[11px] text-muted-foreground">
             <span className="font-medium">Problems</span>
             <span>{sortedProblems.length}</span>
           </header>
-          <div className="max-h-44 overflow-y-auto border-t border-border/30">
+          <div className="max-h-44 overflow-y-auto">
             {sortedProblems.length > 0 ? (
               <div className="py-1">
                 {sortedProblems.map((problem) => {
@@ -1098,7 +1185,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         </section>
       ) : null}
 
-      <footer className="flex h-[22px] shrink-0 items-center justify-between gap-3 border-t border-border/30 bg-secondary/60 px-2.5 text-[11px] text-muted-foreground">
+      <footer className="flex h-[24px] shrink-0 items-center justify-between gap-3 bg-secondary/55 px-2.5 text-[11px] text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-secondary/40">
         <div className="flex min-w-0 items-center gap-2.5 overflow-hidden">
           {props.pane.activeFilePath ? (
             <>

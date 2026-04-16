@@ -6,26 +6,17 @@ export interface HostConnectionDraft {
 
 export interface HostPairingPayload {
   readonly name?: string;
+  readonly wsUrl: string;
   readonly sessionId: string;
   readonly secret: string;
-  readonly claimUrl: string;
-}
-
-export interface HostRelayPayload {
-  readonly name?: string;
-  readonly relayUrl: string;
-  readonly hostToken: string;
-  readonly apiKey: string;
+  readonly claimUrl?: string;
+  readonly pollingUrl?: string;
 }
 
 export type HostConnectionQrPayload =
   | {
       readonly kind: "direct";
       readonly draft: HostConnectionDraft;
-    }
-  | {
-      readonly kind: "relay";
-      readonly relay: HostRelayPayload;
     }
   | {
       readonly kind: "pairing";
@@ -45,10 +36,7 @@ interface QrHostPayload {
   readonly pairingSecret?: string;
   readonly claimUrl?: string;
   readonly pairingUrl?: string;
-  readonly relayUrl?: string;
-  readonly connectUrl?: string;
-  readonly hostToken?: string;
-  readonly apiKey?: string;
+  readonly pollingUrl?: string;
 }
 
 function ensureWsPath(pathname: string): string {
@@ -96,24 +84,22 @@ function parseAceSchemePayload(rawPayload: string): QrHostPayload | null {
     const wsUrl = parsed.searchParams.get("wsUrl") ?? parsed.searchParams.get("ws");
     const url = parsed.searchParams.get("url");
     const token = parsed.searchParams.get("token");
-    const relayUrl =
-      parsed.searchParams.get("relayUrl") ??
-      parsed.searchParams.get("connectUrl") ??
-      parsed.searchParams.get("relay");
-    const hostToken = parsed.searchParams.get("hostToken") ?? parsed.searchParams.get("host");
-    const apiKey = parsed.searchParams.get("apiKey") ?? parsed.searchParams.get("key");
     const name = parsed.searchParams.get("name");
+    const encodedPairing = parsed.searchParams.get("p");
     const sessionId = parsed.searchParams.get("sessionId") ?? parsed.searchParams.get("pairingId");
     const secret = parsed.searchParams.get("secret") ?? parsed.searchParams.get("pairingSecret");
     const claimUrl = parsed.searchParams.get("claimUrl") ?? parsed.searchParams.get("pairingUrl");
+    const decodedPairingPayload = decodeEncodedPairingPayload(encodedPairing);
     return {
       ...(name ? { name } : {}),
       ...(wsUrl ? { wsUrl } : {}),
       ...(url ? { url } : {}),
       ...(token ? { token } : {}),
-      ...(relayUrl ? { relayUrl } : {}),
-      ...(hostToken ? { hostToken } : {}),
-      ...(apiKey ? { apiKey } : {}),
+      ...(decodedPairingPayload?.name ? { name: decodedPairingPayload.name } : {}),
+      ...(decodedPairingPayload?.wsUrl ? { wsUrl: decodedPairingPayload.wsUrl } : {}),
+      ...(decodedPairingPayload?.sessionId ? { sessionId: decodedPairingPayload.sessionId } : {}),
+      ...(decodedPairingPayload?.secret ? { secret: decodedPairingPayload.secret } : {}),
+      ...(decodedPairingPayload?.claimUrl ? { claimUrl: decodedPairingPayload.claimUrl } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(secret ? { secret } : {}),
       ...(claimUrl ? { claimUrl } : {}),
@@ -121,6 +107,82 @@ function parseAceSchemePayload(rawPayload: string): QrHostPayload | null {
   } catch {
     return null;
   }
+}
+
+function decodeBase64UrlUtf8(input: string): string | null {
+  const normalized = input.trim().replace(/-/g, "+").replace(/_/g, "/");
+  if (normalized.length === 0) {
+    return null;
+  }
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  try {
+    const binary =
+      typeof atob === "function"
+        ? atob(padded)
+        : (
+            globalThis as {
+              Buffer?: {
+                from: (
+                  value: string,
+                  encoding: string,
+                ) => { toString: (encoding: string) => string };
+              };
+            }
+          ).Buffer?.from(padded, "base64")?.toString("binary");
+    if (!binary) {
+      return null;
+    }
+    const percentEncoded = Array.from(
+      binary,
+      (character) => `%${character.charCodeAt(0).toString(16).padStart(2, "0")}`,
+    ).join("");
+    return decodeURIComponent(percentEncoded);
+  } catch {
+    return null;
+  }
+}
+
+function decodeEncodedPairingPayload(encodedPayload: string | null): {
+  readonly name?: string;
+  readonly wsUrl?: string;
+  readonly sessionId?: string;
+  readonly secret?: string;
+  readonly claimUrl?: string;
+} | null {
+  if (!encodedPayload) {
+    return null;
+  }
+  const decodedText = decodeBase64UrlUtf8(encodedPayload);
+  if (!decodedText) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decodedText) as unknown;
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+  const value = parsed as {
+    readonly name?: unknown;
+    readonly wsUrl?: unknown;
+    readonly sessionId?: unknown;
+    readonly secret?: unknown;
+    readonly claimUrl?: unknown;
+  };
+  return {
+    ...(typeof value.name === "string" && value.name.trim().length > 0
+      ? { name: value.name.trim() }
+      : {}),
+    ...(typeof value.wsUrl === "string" && value.wsUrl.trim().length > 0
+      ? { wsUrl: value.wsUrl.trim() }
+      : {}),
+    ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
+    ...(typeof value.secret === "string" ? { secret: value.secret } : {}),
+    ...(typeof value.claimUrl === "string" ? { claimUrl: value.claimUrl } : {}),
+  };
 }
 
 function resolveDraftFromPayload(payload: QrHostPayload): HostConnectionDraft | null {
@@ -151,27 +213,10 @@ function resolvePairingClaimUrl(input: string): string | null {
   }
 }
 
-function resolveRelayUrl(input: string): string | null {
-  try {
-    const parsed = new URL(input);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
-    return parsed.toString();
-  } catch {
-    return null;
-  }
-}
-
 function resolvePairingFromPayload(payload: QrHostPayload): HostPairingPayload | null {
   const sessionId = payload.sessionId ?? payload.pairingId;
   const secret = payload.secret ?? payload.pairingSecret;
-  const claimUrl = payload.claimUrl ?? payload.pairingUrl;
-  if (typeof sessionId !== "string" || typeof secret !== "string" || typeof claimUrl !== "string") {
-    return null;
-  }
-  const normalizedClaimUrl = resolvePairingClaimUrl(claimUrl.trim());
-  if (!normalizedClaimUrl) {
+  if (typeof sessionId !== "string" || typeof secret !== "string") {
     return null;
   }
   const trimmedSessionId = sessionId.trim();
@@ -179,44 +224,39 @@ function resolvePairingFromPayload(payload: QrHostPayload): HostPairingPayload |
   if (trimmedSessionId.length === 0 || trimmedSecret.length === 0) {
     return null;
   }
-  return {
-    ...(typeof payload.name === "string" && payload.name.trim().length > 0
-      ? { name: payload.name.trim() }
-      : {}),
-    sessionId: trimmedSessionId,
-    secret: trimmedSecret,
-    claimUrl: normalizedClaimUrl,
-  };
-}
-
-function resolveRelayFromPayload(payload: QrHostPayload): HostRelayPayload | null {
-  const relayUrlValue = payload.relayUrl ?? payload.connectUrl;
-  const hostTokenValue = payload.hostToken;
-  const apiKeyValue = payload.apiKey ?? payload.authToken ?? payload.token;
-  if (
-    typeof relayUrlValue !== "string" ||
-    typeof hostTokenValue !== "string" ||
-    typeof apiKeyValue !== "string"
-  ) {
+  const wsUrl = payload.wsUrl ?? payload.url ?? payload.ws;
+  if (typeof wsUrl !== "string" || wsUrl.trim().length === 0) {
     return null;
   }
-  const relayUrl = resolveRelayUrl(relayUrlValue.trim());
-  if (!relayUrl) {
-    return null;
+  const claimUrl = payload.claimUrl ?? payload.pairingUrl;
+  const pollingUrl = payload.pollingUrl;
+  if (typeof claimUrl === "string") {
+    const normalizedClaimUrl = resolvePairingClaimUrl(claimUrl.trim());
+    if (!normalizedClaimUrl) {
+      return null;
+    }
+    return {
+      ...(typeof payload.name === "string" && payload.name.trim().length > 0
+        ? { name: payload.name.trim() }
+        : {}),
+      wsUrl: wsUrl.trim(),
+      sessionId: trimmedSessionId,
+      secret: trimmedSecret,
+      claimUrl: normalizedClaimUrl,
+    };
   }
-  const apiKey = apiKeyValue.trim();
-  const hostToken = hostTokenValue.trim();
-  if (apiKey.length === 0 || hostToken.length === 0) {
-    return null;
+  if (typeof pollingUrl === "string" && pollingUrl.trim().length > 0) {
+    return {
+      ...(typeof payload.name === "string" && payload.name.trim().length > 0
+        ? { name: payload.name.trim() }
+        : {}),
+      wsUrl: wsUrl.trim(),
+      sessionId: trimmedSessionId,
+      secret: trimmedSecret,
+      pollingUrl: pollingUrl.trim(),
+    };
   }
-  return {
-    ...(typeof payload.name === "string" && payload.name.trim().length > 0
-      ? { name: payload.name.trim() }
-      : {}),
-    relayUrl,
-    hostToken,
-    apiKey,
-  };
+  return null;
 }
 
 export function parseHostConnectionQrPayload(rawPayload: string): HostConnectionQrPayload | null {
@@ -239,10 +279,6 @@ export function parseHostConnectionQrPayload(rawPayload: string): HostConnection
 
   const fromAceScheme = parseAceSchemePayload(trimmed);
   if (fromAceScheme) {
-    const relay = resolveRelayFromPayload(fromAceScheme);
-    if (relay) {
-      return { kind: "relay", relay };
-    }
     const pairing = resolvePairingFromPayload(fromAceScheme);
     if (pairing) {
       return { kind: "pairing", pairing };
@@ -274,9 +310,13 @@ export function parseHostDraftFromQrPayload(rawPayload: string): HostConnectionD
 }
 
 export function buildPairingPayload(input: HostPairingPayload): string {
-  const claimUrl = resolvePairingClaimUrl(input.claimUrl);
+  const claimUrl = input.claimUrl ? resolvePairingClaimUrl(input.claimUrl) : null;
   if (!claimUrl) {
     throw new Error("Pairing claim URL must use http:// or https://.");
+  }
+  const wsUrl = input.wsUrl.trim();
+  if (wsUrl.length === 0) {
+    throw new Error("Pairing host URL is required.");
   }
   const sessionId = input.sessionId.trim();
   const secret = input.secret.trim();
@@ -287,6 +327,7 @@ export function buildPairingPayload(input: HostPairingPayload): string {
   return JSON.stringify(
     {
       ...(name.length > 0 ? { name } : {}),
+      wsUrl,
       sessionId,
       secret,
       claimUrl,
@@ -294,31 +335,6 @@ export function buildPairingPayload(input: HostPairingPayload): string {
     null,
     2,
   );
-}
-
-export function buildRelayConnectionString(input: HostRelayPayload): string {
-  const relayUrl = resolveRelayUrl(input.relayUrl);
-  if (!relayUrl) {
-    throw new Error("Relay URL must use http:// or https://.");
-  }
-  const hostToken = input.hostToken.trim();
-  if (hostToken.length === 0) {
-    throw new Error("Relay host token is required.");
-  }
-  const apiKey = input.apiKey.trim();
-  if (apiKey.length === 0) {
-    throw new Error("Relay API key is required.");
-  }
-  const params = new URLSearchParams({
-    relayUrl,
-    hostToken,
-    apiKey,
-  });
-  const name = input.name?.trim();
-  if (name && name.length > 0) {
-    params.set("name", name);
-  }
-  return `ace://connect?${params.toString()}`;
 }
 
 export function resolveHostDisplayName(rawName: string | undefined, wsUrl: string): string {
@@ -378,8 +394,11 @@ type FetchLike = (
     readonly method?: string;
     readonly headers?: Record<string, string>;
     readonly body?: string;
+    readonly signal?: AbortSignal;
   },
 ) => Promise<FetchResponseLike>;
+
+const DEFAULT_PAIRING_REQUEST_TIMEOUT_MS = 10_000;
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -418,75 +437,81 @@ function resolveFetch(fetchImpl?: FetchLike): FetchLike {
   return fetch as unknown as FetchLike;
 }
 
-export async function requestRelayConnection(
-  relay: HostRelayPayload,
-  options?: {
-    readonly requesterName?: string;
-    readonly lastKnownWsUrl?: string;
-    readonly fetch?: FetchLike;
+function resolvePairingRequestTimeoutMs(timeoutMs: number | undefined): number {
+  return Math.max(1_000, timeoutMs ?? DEFAULT_PAIRING_REQUEST_TIMEOUT_MS);
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  );
+}
+
+function isAbortSignal(value: unknown): value is AbortSignal {
+  return typeof value === "object" && value !== null && "aborted" in value;
+}
+
+async function fetchWithTimeout(
+  fetchImpl: FetchLike,
+  input: string,
+  init: {
+    readonly method?: string;
+    readonly headers?: Record<string, string>;
+    readonly body?: string;
+    readonly signal?: AbortSignal;
   },
-): Promise<HostConnectionDraft> {
-  const relayUrl = resolveRelayUrl(relay.relayUrl);
-  if (!relayUrl) {
-    throw new Error("Relay URL must use http:// or https://.");
-  }
-  const hostToken = relay.hostToken.trim();
-  if (hostToken.length === 0) {
-    throw new Error("Relay host token is required.");
-  }
-  const apiKey = relay.apiKey.trim();
-  if (apiKey.length === 0) {
-    throw new Error("Relay API key is required.");
-  }
-  const fetchImpl = resolveFetch(options?.fetch);
-  const response = await fetchImpl(relayUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      hostToken,
-      apiKey,
-      ...(options?.lastKnownWsUrl?.trim()
-        ? {
-            lastKnownWsUrl: options.lastKnownWsUrl.trim(),
-          }
-        : {}),
-      ...(options?.requesterName?.trim()
-        ? {
-            requesterName: options.requesterName.trim(),
-          }
-        : {}),
-    }),
-  });
-  const payload = await parseResponseJson(response);
-  if (!response.ok) {
-    const errorMessage = readErrorMessage(payload);
-    throw new Error(
-      errorMessage ?? `Relay connection request failed with status ${String(response.status)}.`,
-    );
-  }
-  if (!isObjectRecord(payload)) {
-    throw new Error("Relay connection response was invalid.");
-  }
-  if (typeof payload.wsUrl !== "string" || typeof payload.authToken !== "string") {
-    throw new Error("Relay connection response was missing required fields.");
-  }
-  const name =
-    typeof payload.name === "string" && payload.name.trim().length > 0
-      ? payload.name.trim()
-      : relay.name?.trim();
-  return {
-    ...(name && name.length > 0 ? { name } : {}),
-    wsUrl: payload.wsUrl,
-    authToken: payload.authToken,
+  timeoutMs: number,
+): Promise<FetchResponseLike> {
+  const timeout = resolvePairingRequestTimeoutMs(timeoutMs);
+  const hasAbortController = typeof AbortController !== "undefined";
+  const controller = hasAbortController ? new AbortController() : null;
+  let timedOut = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const onAbort = () => {
+    controller?.abort();
   };
+  if (isAbortSignal(init.signal)) {
+    init.signal.addEventListener("abort", onAbort);
+    if (init.signal.aborted) {
+      onAbort();
+    }
+  }
+  try {
+    if (controller) {
+      timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeout);
+    }
+    return await fetchImpl(input, {
+      ...init,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+  } catch (error) {
+    if (timedOut && isAbortError(error)) {
+      throw new Error("Pairing request timed out. Check your network and host address.", {
+        cause: error,
+      });
+    }
+    throw error;
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+    if (isAbortSignal(init.signal)) {
+      init.signal.removeEventListener("abort", onAbort);
+    }
+  }
 }
 
 export interface PairingClaimReceipt {
   readonly claimId: string;
   readonly pollUrl: string;
   readonly expiresAt: string;
+  readonly sessionId?: string;
+  readonly secret?: string;
+  readonly sessionPollingUrl?: string;
 }
 
 export type PairingClaimResult =
@@ -494,6 +519,7 @@ export type PairingClaimResult =
       readonly status: "pending";
       readonly claimId: string;
       readonly expiresAt: string;
+      readonly requesterName?: string;
     }
   | {
       readonly status: "approved";
@@ -514,28 +540,40 @@ export async function requestPairingClaim(
   options?: {
     readonly requesterName?: string;
     readonly fetch?: FetchLike;
+    readonly requestTimeoutMs?: number;
+    readonly signal?: AbortSignal;
   },
 ): Promise<PairingClaimReceipt> {
-  const claimUrl = resolvePairingClaimUrl(pairing.claimUrl);
+  if (pairing.pollingUrl) {
+    const receipt = await requestPairingClaimViaPolling(pairing, options);
+    return receipt;
+  }
+  const claimUrl = pairing.claimUrl ? resolvePairingClaimUrl(pairing.claimUrl) : null;
   if (!claimUrl) {
     throw new Error("Pairing claim URL must use http:// or https://.");
   }
   const fetchImpl = resolveFetch(options?.fetch);
-  const response = await fetchImpl(claimUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    claimUrl,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sessionId: pairing.sessionId,
+        secret: pairing.secret,
+        ...(options?.requesterName?.trim()
+          ? {
+              requesterName: options.requesterName.trim(),
+            }
+          : {}),
+      }),
+      ...(options?.signal ? { signal: options.signal } : {}),
     },
-    body: JSON.stringify({
-      sessionId: pairing.sessionId,
-      secret: pairing.secret,
-      ...(options?.requesterName?.trim()
-        ? {
-            requesterName: options.requesterName.trim(),
-          }
-        : {}),
-    }),
-  });
+    options?.requestTimeoutMs ?? DEFAULT_PAIRING_REQUEST_TIMEOUT_MS,
+  );
   const payload = await parseResponseJson(response);
   if (!response.ok) {
     const errorMessage = readErrorMessage(payload);
@@ -560,16 +598,75 @@ export async function requestPairingClaim(
   };
 }
 
+async function requestPairingClaimViaPolling(
+  pairing: HostPairingPayload,
+  options?: {
+    readonly requesterName?: string;
+    readonly fetch?: FetchLike;
+    readonly requestTimeoutMs?: number;
+    readonly signal?: AbortSignal;
+  },
+): Promise<PairingClaimReceipt> {
+  const pollingUrl = pairing.pollingUrl ?? "";
+  const fetchImpl = resolveFetch(options?.fetch);
+  const resolveUrl = new URL(pollingUrl);
+  resolveUrl.searchParams.set("sessionId", pairing.sessionId);
+  resolveUrl.searchParams.set("secret", pairing.secret);
+  if (options?.requesterName?.trim()) {
+    resolveUrl.searchParams.set("requesterName", options.requesterName.trim());
+  }
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    resolveUrl.toString(),
+    {
+      method: "POST",
+      ...(options?.signal ? { signal: options.signal } : {}),
+    },
+    options?.requestTimeoutMs ?? DEFAULT_PAIRING_REQUEST_TIMEOUT_MS,
+  );
+  const payload = await parseResponseJson(response);
+  if (!response.ok) {
+    const errorMessage = readErrorMessage(payload);
+    throw new Error(
+      errorMessage ?? `Pairing claim request failed with status ${String(response.status)}.`,
+    );
+  }
+  if (!isObjectRecord(payload)) {
+    throw new Error("Pairing claim response was invalid.");
+  }
+  if (typeof payload.status !== "string" || typeof payload.sessionId !== "string") {
+    throw new Error("Pairing claim response was missing required fields.");
+  }
+  return {
+    claimId: "",
+    pollUrl: "",
+    expiresAt: "",
+    sessionId: pairing.sessionId,
+    secret: pairing.secret,
+    sessionPollingUrl: pollingUrl,
+  };
+}
+
 export async function readPairingClaim(
   pollUrl: string,
-  options?: { readonly fetch?: FetchLike },
+  options?: {
+    readonly fetch?: FetchLike;
+    readonly requestTimeoutMs?: number;
+    readonly signal?: AbortSignal;
+  },
 ): Promise<PairingClaimResult> {
   const normalizedPollUrl = resolvePairingClaimUrl(pollUrl);
   if (!normalizedPollUrl) {
     throw new Error("Pairing poll URL must use http:// or https://.");
   }
   const fetchImpl = resolveFetch(options?.fetch);
-  const response = await fetchImpl(normalizedPollUrl);
+  const requestInit = options?.signal ? { signal: options.signal } : undefined;
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    normalizedPollUrl,
+    requestInit ?? {},
+    options?.requestTimeoutMs ?? DEFAULT_PAIRING_REQUEST_TIMEOUT_MS,
+  );
   const payload = await parseResponseJson(response);
   if (!response.ok) {
     const errorMessage = readErrorMessage(payload);
@@ -622,17 +719,117 @@ export async function readPairingClaim(
   throw new Error("Unknown pairing claim status.");
 }
 
+export async function readPairingSessionStatus(
+  pollingUrl: string,
+  options?: {
+    readonly fetch?: FetchLike;
+    readonly requestTimeoutMs?: number;
+    readonly signal?: AbortSignal;
+  },
+): Promise<PairingClaimResult> {
+  const fetchImpl = resolveFetch(options?.fetch);
+  const requestInit = options?.signal ? { signal: options.signal } : undefined;
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    pollingUrl,
+    requestInit ?? {},
+    options?.requestTimeoutMs ?? DEFAULT_PAIRING_REQUEST_TIMEOUT_MS,
+  );
+  const payload = await parseResponseJson(response);
+  if (!response.ok) {
+    const errorMessage = readErrorMessage(payload);
+    throw new Error(
+      errorMessage ??
+        `Pairing session status request failed with status ${String(response.status)}.`,
+    );
+  }
+  if (!isObjectRecord(payload)) {
+    throw new Error("Pairing session status response was invalid.");
+  }
+  if (typeof payload.status !== "string") {
+    throw new Error("Pairing session status response was missing status field.");
+  }
+  if (payload.status === "claim-pending") {
+    const requesterName = typeof payload.requesterName === "string" ? payload.requesterName : "";
+    return {
+      status: "pending",
+      claimId: "",
+      expiresAt: "",
+      requesterName,
+    };
+  }
+  if (payload.status === "ready") {
+    const host = payload.host;
+    if (
+      !isObjectRecord(host) ||
+      typeof host.name !== "string" ||
+      typeof host.wsUrl !== "string" ||
+      typeof host.authToken !== "string"
+    ) {
+      throw new Error("Ready pairing session status is missing host details.");
+    }
+    return {
+      status: "approved",
+      claimId: "",
+      host: {
+        name: host.name,
+        wsUrl: host.wsUrl,
+        authToken: host.authToken,
+      },
+    };
+  }
+  if (payload.status === "expired") {
+    return {
+      status: "expired",
+      claimId: "",
+    };
+  }
+  if (payload.status === "rejected") {
+    return {
+      status: "rejected",
+      claimId: "",
+    };
+  }
+  throw new Error("Unknown pairing session status.");
+}
+
 export async function waitForPairingApproval(
   receipt: PairingClaimReceipt,
   options?: {
     readonly timeoutMs?: number;
     readonly pollIntervalMs?: number;
     readonly fetch?: FetchLike;
+    readonly requestTimeoutMs?: number;
+    readonly signal?: AbortSignal;
   },
 ): Promise<HostConnectionDraft> {
   const timeoutMs = Math.max(1_000, options?.timeoutMs ?? 90_000);
   const pollIntervalMs = Math.max(250, options?.pollIntervalMs ?? 1_200);
   const timeoutAt = Date.now() + timeoutMs;
+  if (receipt.sessionPollingUrl) {
+    for (;;) {
+      const status = await readPairingSessionStatus(receipt.sessionPollingUrl, options);
+      if (status.status === "approved") {
+        return {
+          ...(status.host.name.trim().length > 0 ? { name: status.host.name } : {}),
+          wsUrl: status.host.wsUrl,
+          authToken: status.host.authToken,
+        };
+      }
+      if (status.status === "rejected") {
+        throw new Error("Pairing request was rejected by the host.");
+      }
+      if (status.status === "expired") {
+        throw new Error("Pairing session expired before approval.");
+      }
+      if (Date.now() >= timeoutAt) {
+        throw new Error("Timed out waiting for pairing approval.");
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, pollIntervalMs);
+      });
+    }
+  }
   for (;;) {
     const status = await readPairingClaim(receipt.pollUrl, options);
     if (status.status === "approved") {

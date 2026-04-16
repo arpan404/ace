@@ -52,9 +52,11 @@ export interface ServerConfigShape extends ServerDerivedPaths {
 export const deriveServerPaths = Effect.fn(function* (
   baseDir: ServerConfigShape["baseDir"],
   devUrl: ServerConfigShape["devUrl"],
+  mode: RuntimeMode,
 ): Effect.fn.Return<ServerDerivedPaths, never, Path.Path> {
   const { join } = yield* Path.Path;
-  const stateDir = join(baseDir, devUrl !== undefined ? "dev" : "userdata");
+  const isDev = devUrl !== undefined;
+  const stateDir = join(baseDir, isDev ? mode : "userdata");
   const dbPath = join(stateDir, "state.sqlite");
   const attachmentsDir = join(stateDir, "attachments");
   const logsDir = join(stateDir, "logs");
@@ -112,7 +114,7 @@ export class ServerConfig extends ServiceMap.Service<ServerConfig, ServerConfigS
           typeof baseDirOrPrefix === "string"
             ? baseDirOrPrefix
             : yield* fs.makeTempDirectoryScoped({ prefix: baseDirOrPrefix.prefix });
-        const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
+        const derivedPaths = yield* deriveServerPaths(baseDir, devUrl, "web");
         yield* ensureServerDirectories(derivedPaths);
 
         return {

@@ -48,6 +48,7 @@
         "@ace/contracts": "workspace:*",
         "@ace/shared": "workspace:*",
         "@babel/runtime": "^7.29.2",
+        "@expo/ui": "~0.2.0-beta.9",
         "@react-native-async-storage/async-storage": "2.2.0",
         "effect": "catalog:",
         "expo": "^54.0.0",
@@ -75,14 +76,6 @@
         "vitest": "catalog:",
       },
     },
-    "apps/relay": {
-      "name": "@ace/relay",
-      "version": "0.0.1",
-      "devDependencies": {
-        "@types/node": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
     "apps/server": {
       "name": "ace",
       "version": "0.0.16",
@@ -101,6 +94,7 @@
         "node-pty": "^1.1.0",
         "open": "^10.1.0",
         "picocolors": "^1.1.1",
+        "qrcode": "^1.5.4",
         "typescript-language-server": "^4.4.0",
         "vscode-langservers-extracted": "^4.10.0",
       },
@@ -112,6 +106,7 @@
         "@effect/vitest": "catalog:",
         "@types/bun": "catalog:",
         "@types/node": "catalog:",
+        "@types/qrcode": "^1.5.6",
         "tsdown": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
@@ -225,6 +220,7 @@
     },
   },
   "trustedDependencies": [
+    "electron",
     "node-pty",
   ],
   "overrides": {
@@ -254,8 +250,6 @@
     "@ace/marketing": ["@ace/marketing@workspace:apps/marketing"],
 
     "@ace/mobile": ["@ace/mobile@workspace:apps/mobile"],
-
-    "@ace/relay": ["@ace/relay@workspace:apps/relay"],
 
     "@ace/scripts": ["@ace/scripts@workspace:scripts"],
 
@@ -642,6 +636,8 @@
     "@expo/spawn-async": ["@expo/spawn-async@1.7.2", "", { "dependencies": { "cross-spawn": "^7.0.3" } }, "sha512-QdWi16+CHB9JYP7gma19OVVg0BFkvU8zNj9GjWorYI8Iv8FUxjOCcYRuAmX4s/h91e4e7BPsskc8cSrZYho9Ew=="],
 
     "@expo/sudo-prompt": ["@expo/sudo-prompt@9.3.2", "", {}, "sha512-HHQigo3rQWKMDzYDLkubN5WQOYXJJE2eNqIQC2axC2iO3mHdwnIR7FgZVvHWtBwAdzBgAP0ECp8KqS8TiMKvgw=="],
+
+    "@expo/ui": ["@expo/ui@0.2.0-canary-20260121-a63c0dd", "", { "dependencies": { "sf-symbols-typescript": "^2.1.0" }, "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-V3zCuj0XmssM04YzxCeWxKumQ27jUMjroojFq9IVOe0+Ht59nsA/zTK+0KxUn8M+EfFgV8Yqo4A1AV+1fMZ+BQ=="],
 
     "@expo/vector-icons": ["@expo/vector-icons@15.1.1", "", { "peerDependencies": { "expo-font": ">=14.0.4", "react": "*", "react-native": "*" } }, "sha512-Iu2VkcoI5vygbtYngm7jb4ifxElNVXQYdDrYkT7UCEIiKLeWnQY0wf2ZhHZ+Wro6Sc5TaumpKUOqDRpLi5rkvw=="],
 

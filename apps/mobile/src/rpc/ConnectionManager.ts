@@ -64,6 +64,9 @@ export class ConnectionManager {
     };
 
     this.connections.set(host.id, managed);
+    void client.server.getConfig().catch(() => {
+      // Keep the managed connection in disconnected state when initial probe fails.
+    });
     this.notify();
     return client;
   }

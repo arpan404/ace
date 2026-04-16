@@ -7,6 +7,7 @@ import {
   CheckpointRef,
   DEFAULT_SERVER_SETTINGS,
   EventId,
+  FilesystemBrowseError,
   GitCommandError,
   KeybindingRule,
   MessageId,
@@ -21,6 +22,8 @@ import {
   TurnId,
   type WorkspaceEditorCloseBufferInput,
   type WorkspaceEditorCloseBufferResult,
+  type WorkspaceEditorCompleteInput,
+  type WorkspaceEditorCompleteResult,
   type WorkspaceEditorSyncBufferInput,
   type WorkspaceEditorSyncBufferResult,
   WS_METHODS,
@@ -29,7 +32,7 @@ import {
 } from "@ace/contracts";
 import { assert, it } from "@effect/vitest";
 import { assertFailure, assertInclude, assertTrue } from "@effect/vitest/utils";
-import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
 import { HttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 
@@ -158,7 +161,7 @@ const buildAppUnderTest = (options?: {
     const tempBaseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "ace-router-test-" });
     const baseDir = options?.config?.baseDir ?? tempBaseDir;
     const devUrl = options?.config?.devUrl;
-    const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
+    const derivedPaths = yield* deriveServerPaths(baseDir, devUrl, "web");
     const config = {
       logLevel: "Info",
       mode: "web",
@@ -295,6 +298,11 @@ const buildAppUnderTest = (options?: {
             Effect.succeed({
               relativePath: input.relativePath,
             } satisfies WorkspaceEditorCloseBufferResult),
+          complete: (input: WorkspaceEditorCompleteInput) =>
+            Effect.succeed({
+              relativePath: input.relativePath,
+              items: [],
+            } satisfies WorkspaceEditorCompleteResult),
           syncBuffer: (input: WorkspaceEditorSyncBufferInput) =>
             Effect.succeed({
               diagnostics: [],
@@ -652,7 +660,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("supports two-way pairing session approval flow", () =>
+  it.effect("auto-approves pairing sessions after claim", () =>
     Effect.gen(function* () {
       __resetPairingStoreForTests();
 
@@ -719,24 +727,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         readonly status: string;
         readonly requesterName?: string;
       };
-      assert.equal(session.status, "claim-pending");
+      assert.equal(session.status, "approved");
       assert.equal(session.requesterName, "ace mobile");
-
-      const resolveResponse = yield* Effect.promise(() =>
-        fetch(`${baseUrl}/api/pairing/sessions/${encodeURIComponent(created.sessionId)}/resolve`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer secret-token",
-          },
-          body: JSON.stringify({ approve: true }),
-        }),
-      );
-      assert.equal(resolveResponse.status, 200);
-      const resolved = (yield* Effect.promise(() => resolveResponse.json())) as {
-        readonly status: string;
-      };
-      assert.equal(resolved.status, "approved");
 
       const claimStatusResponse = yield* Effect.promise(() => fetch(claim.pollUrl));
       assert.equal(claimStatusResponse.status, 200);
@@ -778,6 +770,208 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         }),
       );
       assert.equal(response.status, 401);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("revokes pairing sessions before claim", () =>
+    Effect.gen(function* () {
+      __resetPairingStoreForTests();
+
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+      });
+
+      const baseUrl = yield* getHttpServerUrl();
+      const createResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer secret-token",
+          },
+          body: JSON.stringify({
+            wsUrl: "ws://192.168.0.12:3773/ws",
+            name: "Primary ace host",
+          }),
+        }),
+      );
+      assert.equal(createResponse.status, 200);
+      const created = (yield* Effect.promise(() => createResponse.json())) as {
+        readonly sessionId: string;
+        readonly secret: string;
+      };
+
+      const revokeResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions/${encodeURIComponent(created.sessionId)}/revoke`, {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer secret-token",
+          },
+        }),
+      );
+      assert.equal(revokeResponse.status, 200);
+      const revoked = (yield* Effect.promise(() => revokeResponse.json())) as {
+        readonly status: string;
+      };
+      assert.equal(revoked.status, "rejected");
+
+      const claimResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/claims`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionId: created.sessionId,
+            secret: created.secret,
+            requesterName: "ace mobile",
+          }),
+        }),
+      );
+      assert.equal(claimResponse.status, 409);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("revokes pairing sessions after approval", () =>
+    Effect.gen(function* () {
+      __resetPairingStoreForTests();
+
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+      });
+
+      const baseUrl = yield* getHttpServerUrl();
+      const createResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer secret-token",
+          },
+          body: JSON.stringify({
+            wsUrl: "ws://192.168.0.12:3773/ws",
+            name: "Primary ace host",
+          }),
+        }),
+      );
+      assert.equal(createResponse.status, 200);
+      const created = (yield* Effect.promise(() => createResponse.json())) as {
+        readonly sessionId: string;
+        readonly secret: string;
+      };
+
+      const claimResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/claims`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionId: created.sessionId,
+            secret: created.secret,
+            requesterName: "ace mobile",
+          }),
+        }),
+      );
+      assert.equal(claimResponse.status, 200);
+      const claim = (yield* Effect.promise(() => claimResponse.json())) as {
+        readonly claimId: string;
+        readonly pollUrl: string;
+      };
+      assert.isTrue(claim.claimId.length > 0);
+
+      const revokeResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions/${encodeURIComponent(created.sessionId)}/revoke`, {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer secret-token",
+          },
+        }),
+      );
+      assert.equal(revokeResponse.status, 200);
+      const revoked = (yield* Effect.promise(() => revokeResponse.json())) as {
+        readonly status: string;
+      };
+      assert.equal(revoked.status, "rejected");
+
+      const claimStatusResponse = yield* Effect.promise(() => fetch(claim.pollUrl));
+      assert.equal(claimStatusResponse.status, 200);
+      const claimStatus = (yield* Effect.promise(() => claimStatusResponse.json())) as {
+        readonly status: string;
+      };
+      assert.equal(claimStatus.status, "rejected");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("lists pairing sessions for host management", () =>
+    Effect.gen(function* () {
+      __resetPairingStoreForTests();
+
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+      });
+
+      const baseUrl = yield* getHttpServerUrl();
+      const createResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer secret-token",
+          },
+          body: JSON.stringify({
+            wsUrl: "ws://192.168.0.12:3773/ws",
+            name: "Primary ace host",
+          }),
+        }),
+      );
+      assert.equal(createResponse.status, 200);
+      const created = (yield* Effect.promise(() => createResponse.json())) as {
+        readonly sessionId: string;
+        readonly secret: string;
+      };
+
+      const claimResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/claims`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionId: created.sessionId,
+            secret: created.secret,
+            requesterName: "ace laptop",
+          }),
+        }),
+      );
+      assert.equal(claimResponse.status, 200);
+
+      const listResponse = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions`, {
+          headers: {
+            Authorization: "Bearer secret-token",
+          },
+        }),
+      );
+      assert.equal(listResponse.status, 200);
+      const sessions = (yield* Effect.promise(() => listResponse.json())) as ReadonlyArray<{
+        readonly sessionId: string;
+        readonly name: string;
+        readonly requesterName?: string;
+        readonly status: string;
+      }>;
+      assert.isAtLeast(sessions.length, 1);
+      const matching = sessions.find((session) => session.sessionId === created.sessionId);
+      assert.isDefined(matching);
+      assert.equal(matching?.name, "Primary ace host");
+      assert.equal(matching?.requesterName, "ace laptop");
+      assert.equal(matching?.status, "approved");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -1085,6 +1279,13 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   relativePath: input.relativePath,
                 } satisfies WorkspaceEditorCloseBufferResult;
               }),
+            complete: (input) =>
+              Effect.sync(() => {
+                return {
+                  relativePath: input.relativePath,
+                  items: [],
+                } satisfies WorkspaceEditorCompleteResult;
+              }),
           },
         },
       });
@@ -1195,20 +1396,30 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("routes websocket rpc server.pickFolder", () =>
     Effect.gen(function* () {
+      let receivedInitialPath: string | undefined;
       yield* buildAppUnderTest({
         layers: {
           open: {
-            pickFolder: () => Effect.succeed("/tmp/project"),
+            pickFolder: (options) =>
+              Effect.sync(() => {
+                receivedInitialPath = options?.initialPath;
+                return "/tmp/project";
+              }),
           },
         },
       });
 
       const wsUrl = yield* getWsServerUrl("/ws");
       const response = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.serverPickFolder]({})),
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.serverPickFolder]({
+            initialPath: "/tmp/start",
+          }),
+        ),
       );
 
       assert.equal(response, "/tmp/project");
+      assert.equal(receivedInitialPath, "/tmp/start");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -1280,6 +1491,57 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assertFailure(result, openError);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc filesystem.browse", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspace = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "ace-fs-browse-test-",
+      });
+      yield* fileSystem.makeDirectory(path.join(workspace, "src"));
+      yield* fileSystem.makeDirectory(path.join(workspace, "scripts"));
+      yield* fileSystem.makeDirectory(path.join(workspace, "docs"));
+      yield* buildAppUnderTest();
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.filesystemBrowse]({
+            partialPath: `${workspace}/s`,
+          }),
+        ),
+      );
+
+      assert.equal(response.parentPath, workspace);
+      assert.deepEqual(
+        response.entries.map((entry) => entry.name),
+        ["scripts", "src"],
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("maps filesystem browse errors to FilesystemBrowseError", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+      const wsUrl = yield* getWsServerUrl("/ws");
+
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.filesystemBrowse]({
+            partialPath: "./relative-without-cwd",
+          }),
+        ).pipe(Effect.result),
+      );
+
+      assertTrue(result._tag === "Failure");
+      assertTrue(Schema.is(FilesystemBrowseError)(result.failure));
+      assert.equal(
+        result.failure.message,
+        "Relative filesystem browse paths require a current project.",
+      );
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

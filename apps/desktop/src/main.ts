@@ -32,6 +32,7 @@ import type {
   DesktopUpdateActionResult,
   DesktopUpdateCheckResult,
   DesktopUpdateState,
+  PickFolderOptions,
 } from "@ace/contracts";
 import {
   ensureAceCliInstalledWithProgress,
@@ -109,18 +110,22 @@ const ORCHESTRATION_EVENT_CHANNEL = "desktop:orchestration-event";
 const SERVER_CONFIG_EVENT_CHANNEL = "desktop:server-config-event";
 const MAC_TRAFFIC_LIGHT_POSITION = { x: 16, y: 18 };
 const MAC_TITLEBAR_LEFT_INSET_PX = 90;
-const BASE_DIR = process.env.ACE_HOME?.trim() || resolveDesktopBaseDir();
+const isSourceCheckoutRun = process.env.ACE_LOCAL_DESKTOP_RUN === "1";
+const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL) || isSourceCheckoutRun;
+const devServerUrl = process.env.VITE_DEV_SERVER_URL?.trim();
+const useDevRenderer = typeof devServerUrl === "string" && devServerUrl.length > 0;
+const BASE_DIR =
+  process.env.ACE_HOME?.trim() || resolveDesktopBaseDir({ isDevelopment, appType: "desktop" });
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "ace";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
-const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const isSourceCheckoutRun = process.env.ACE_LOCAL_DESKTOP_RUN === "1";
 const isDevelopmentBuild = isDevelopment || isSourceCheckoutRun || !app.isPackaged;
 const APP_DISPLAY_NAME = "ace";
 const APP_USER_MODEL_ID = "com.ace.ace";
 const LINUX_DESKTOP_ENTRY_NAME = isDevelopment ? "ace-dev.desktop" : "ace.desktop";
 const LINUX_WM_CLASS = isDevelopment ? "ace-dev" : "ace";
 const USER_DATA_DIR_NAME = isDevelopment ? "ace-dev" : "ace";
+const useDaemonBackend = !isDevelopmentBuild;
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
@@ -130,6 +135,7 @@ const DAEMON_LOGIN_ITEM_ARG = "--daemon-login-item";
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const MAIN_WINDOW_SHOW_FALLBACK_DELAY_MS = 4_000;
 const DESKTOP_UPDATE_CHANNEL = "latest";
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
 const IN_APP_BROWSER_PARTITION = "persist:ace-browser";
@@ -1047,8 +1053,8 @@ function startOrConnectBackendDaemon(): void {
     backendAuthToken,
     "--json",
   ];
-  if (isDevelopment && typeof process.env.VITE_DEV_SERVER_URL === "string") {
-    daemonArgs.push("--dev-url", process.env.VITE_DEV_SERVER_URL);
+  if (useDevRenderer) {
+    daemonArgs.push("--dev-url", devServerUrl);
   }
 
   const runStartCommand = (): DaemonStartOutput => {
@@ -1217,7 +1223,7 @@ function handleFatalStartupError(stage: string, error: unknown): void {
 }
 
 function registerDesktopProtocol(): void {
-  if (isDevelopment || desktopProtocolRegistered) return;
+  if (useDevRenderer || desktopProtocolRegistered) return;
 
   const staticRoot = resolveDesktopStaticDir();
   if (!staticRoot) {
@@ -1932,6 +1938,7 @@ function scheduleBackendRestart(reason: string): void {
 
 function startBackend(): void {
   if (isQuitting || backendProcess) return;
+  backendManagedByDaemon = false;
 
   const backendEntry = resolveBackendEntry();
   if (!FS.existsSync(backendEntry)) {
@@ -1940,18 +1947,24 @@ function startBackend(): void {
   }
 
   const captureBackendLogs = app.isPackaged && backendLogSink !== null;
-  const child = ChildProcess.spawn(process.execPath, [backendEntry, "--bootstrap-fd", "3"], {
-    cwd: resolveBackendCwd(),
-    // In Electron main, process.execPath points to the Electron binary.
-    // Run the child in Node mode so this backend process does not become a GUI app instance.
-    env: {
-      ...backendChildEnv(),
-      ELECTRON_RUN_AS_NODE: "1",
+  const child = ChildProcess.spawn(
+    process.execPath,
+    [backendEntry, "serve", "--bootstrap-fd", "3"],
+    {
+      cwd: resolveBackendCwd(),
+      // In Electron main, process.execPath points to the Electron binary.
+      // Run the child in Node mode so this backend process does not become a GUI app instance.
+      env: {
+        ...backendChildEnv(),
+        ELECTRON_RUN_AS_NODE: "1",
+        ACE_DAEMONIZED: "1",
+        ACE_CLI_SUPPRESS_BOOT_BANNER: "1",
+      },
+      stdio: captureBackendLogs
+        ? ["ignore", "pipe", "pipe", "pipe"]
+        : ["ignore", "inherit", "inherit", "pipe"],
     },
-    stdio: captureBackendLogs
-      ? ["ignore", "pipe", "pipe", "pipe"]
-      : ["ignore", "inherit", "inherit", "pipe"],
-  });
+  );
   const bootstrapStream = child.stdio[3];
   if (bootstrapStream && "write" in bootstrapStream) {
     bootstrapStream.write(
@@ -2112,13 +2125,32 @@ function registerIpcHandlers(): void {
   );
 
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
-  ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
+  ipcMain.handle(PICK_FOLDER_CHANNEL, async (_event, rawOptions: unknown) => {
+    const options =
+      typeof rawOptions === "object" && rawOptions !== null
+        ? (rawOptions as Partial<PickFolderOptions>)
+        : undefined;
+    const initialPath = options?.initialPath?.trim();
+    const defaultPath = (() => {
+      if (!initialPath || initialPath.length === 0) {
+        return undefined;
+      }
+      if (initialPath === "~") {
+        return OS.homedir();
+      }
+      if (initialPath.startsWith("~/") || initialPath.startsWith("~\\")) {
+        return Path.join(OS.homedir(), initialPath.slice(2));
+      }
+      return Path.isAbsolute(initialPath) ? initialPath : Path.resolve(initialPath);
+    })();
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
     const result = owner
       ? await dialog.showOpenDialog(owner, {
+          ...(defaultPath ? { defaultPath } : {}),
           properties: ["openDirectory", "createDirectory"],
         })
       : await dialog.showOpenDialog({
+          ...(defaultPath ? { defaultPath } : {}),
           properties: ["openDirectory", "createDirectory"],
         });
     if (result.canceled) return null;
@@ -2446,18 +2478,25 @@ function createWindow(): BrowserWindow {
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
   });
-  window.once("ready-to-show", () => {
-    mainWindowShownAtMs = Date.now();
-    window.show();
-  });
+  const revealWindow = () => {
+    if (window.isDestroyed()) {
+      return;
+    }
+    if (mainWindowShownAtMs === null) {
+      mainWindowShownAtMs = Date.now();
+    }
+    if (!window.isVisible()) {
+      window.show();
+    }
+  };
+  const revealFallbackTimer = setTimeout(revealWindow, MAIN_WINDOW_SHOW_FALLBACK_DELAY_MS);
+  revealFallbackTimer.unref();
+  window.once("ready-to-show", revealWindow);
+  window.webContents.once("did-finish-load", revealWindow);
 
-  if (isDevelopment) {
+  if (useDevRenderer) {
     void window.loadURL(
-      appendDesktopBootstrapWsUrl(
-        process.env.VITE_DEV_SERVER_URL as string,
-        backendWsUrl,
-        isDevelopmentBuild,
-      ),
+      appendDesktopBootstrapWsUrl(devServerUrl, backendWsUrl, isDevelopmentBuild),
     );
     window.webContents.openDevTools({ mode: "detach" });
   } else {
@@ -2471,6 +2510,7 @@ function createWindow(): BrowserWindow {
   }
 
   window.on("closed", () => {
+    clearTimeout(revealFallbackTimer);
     if (mainWindow === window) {
       mainWindow = null;
     }
@@ -2498,8 +2538,14 @@ async function bootstrap(): Promise<void> {
   const baseUrl = `ws://127.0.0.1:${backendPort}`;
   backendWsUrl = `${baseUrl}/?token=${encodeURIComponent(backendAuthToken)}`;
   writeDesktopLogHeader(`bootstrap resolved websocket endpoint baseUrl=${baseUrl}`);
-  startOrConnectBackendDaemon();
-  writeDesktopLogHeader("bootstrap daemon start/connect completed");
+  if (useDaemonBackend) {
+    startOrConnectBackendDaemon();
+    writeDesktopLogHeader("bootstrap daemon start/connect completed");
+  } else {
+    backendManagedByDaemon = false;
+    startBackend();
+    writeDesktopLogHeader("bootstrap child backend start completed");
+  }
   startDesktopBackgroundNotifications();
   writeDesktopLogHeader("bootstrap desktop background notification service started");
 
@@ -2532,8 +2578,10 @@ app
   .then(() => {
     writeDesktopLogHeader("app ready");
     configureAppIdentity();
-    ensureDaemonAutostartRegistration();
-    if (shouldRunHeadlessDaemonBootstrap()) {
+    if (useDaemonBackend) {
+      ensureDaemonAutostartRegistration();
+    }
+    if (useDaemonBackend && shouldRunHeadlessDaemonBootstrap()) {
       writeDesktopLogHeader("headless login launch detected; starting daemon only");
       try {
         startOrConnectBackendDaemon();
@@ -2555,9 +2603,8 @@ app
     });
 
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        mainWindow = createWindow();
-      }
+      const window = getOrCreatePrimaryWindow();
+      focusPrimaryWindow(window);
     });
   })
   .catch((error) => {

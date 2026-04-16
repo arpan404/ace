@@ -87,9 +87,6 @@ export const ProjectContextSwitcher = memo(function ProjectContextSwitcher({
                 <span className="truncate">{activeProject.name}</span>
                 <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground/60 transition-transform duration-150 group-hover:translate-y-px" />
               </span>
-              <span className="mt-1 max-w-[min(72vw,34rem)] truncate font-mono text-[11px] text-muted-foreground/58 sm:text-xs">
-                {activeProject.cwd}
-              </span>
             </>
           ) : (
             <>

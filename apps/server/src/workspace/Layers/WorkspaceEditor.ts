@@ -7,7 +7,9 @@ import * as Semaphore from "effect/Semaphore";
 
 import type {
   WorkspaceEditorCloseBufferResult,
+  WorkspaceEditorCompleteResult,
   WorkspaceEditorDiagnostic,
+  WorkspaceEditorCompletionItem,
   WorkspaceEditorSyncBufferResult,
 } from "@ace/contracts";
 
@@ -18,16 +20,18 @@ import {
 } from "../Services/WorkspaceEditor";
 import { WorkspacePaths } from "../Services/WorkspacePaths";
 import { ServerConfig } from "../../config";
+import { getLspServerRegistry } from "../../lspTools";
 
-type LspServerId = "typescript" | "json" | "css" | "html";
+type LspServerId = string;
 
 interface LspServerDefinition {
   readonly args: readonly string[];
   readonly command: string;
-  readonly envArgsJsonKey: string;
-  readonly envBinKey: string;
+  readonly envArgsJsonKey?: string;
+  readonly envBinKey?: string;
   readonly id: LspServerId;
   readonly languageIds: ReadonlySet<string>;
+  readonly fileExtensions: ReadonlySet<string>;
 }
 
 interface LspPendingRequest {
@@ -76,6 +80,7 @@ const LSP_SERVERS = [
     command: "typescript-language-server",
     args: ["--stdio"],
     languageIds: new Set(["typescript", "typescriptreact", "javascript", "javascriptreact"]),
+    fileExtensions: new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]),
     envBinKey: "ACE_LSP_TYPESCRIPT_SERVER_BIN",
     envArgsJsonKey: "ACE_LSP_TYPESCRIPT_SERVER_ARGS_JSON",
   },
@@ -84,6 +89,7 @@ const LSP_SERVERS = [
     command: "vscode-json-language-server",
     args: ["--stdio"],
     languageIds: new Set(["json"]),
+    fileExtensions: new Set([".json"]),
     envBinKey: "ACE_LSP_JSON_SERVER_BIN",
     envArgsJsonKey: "ACE_LSP_JSON_SERVER_ARGS_JSON",
   },
@@ -92,6 +98,7 @@ const LSP_SERVERS = [
     command: "vscode-css-language-server",
     args: ["--stdio"],
     languageIds: new Set(["css", "scss", "less"]),
+    fileExtensions: new Set([".css", ".scss", ".less"]),
     envBinKey: "ACE_LSP_CSS_SERVER_BIN",
     envArgsJsonKey: "ACE_LSP_CSS_SERVER_ARGS_JSON",
   },
@@ -100,6 +107,7 @@ const LSP_SERVERS = [
     command: "vscode-html-language-server",
     args: ["--stdio"],
     languageIds: new Set(["html"]),
+    fileExtensions: new Set([".html", ".htm"]),
     envBinKey: "ACE_LSP_HTML_SERVER_BIN",
     envArgsJsonKey: "ACE_LSP_HTML_SERVER_ARGS_JSON",
   },
@@ -172,6 +180,51 @@ function resolveServerForLanguageId(languageId: string): LspServerDefinition | n
     if (server.languageIds.has(languageId)) {
       return server;
     }
+  }
+  return null;
+}
+
+async function resolveServerForPath(
+  stateDir: string,
+  relativePath: string,
+): Promise<{ readonly languageId: string; readonly server: LspServerDefinition } | null> {
+  const builtInLanguageId = resolveLanguageIdFromPath(relativePath);
+  if (builtInLanguageId) {
+    const builtInServer = resolveServerForLanguageId(builtInLanguageId);
+    if (builtInServer) {
+      return { languageId: builtInLanguageId, server: builtInServer };
+    }
+  }
+  return resolveCustomServerForPath(stateDir, relativePath);
+}
+
+async function resolveCustomServerForPath(
+  stateDir: string,
+  relativePath: string,
+): Promise<{ readonly languageId: string; readonly server: LspServerDefinition } | null> {
+  const extension = extname(relativePath).toLowerCase();
+  if (extension.length === 0) {
+    return null;
+  }
+  const servers = await getLspServerRegistry(stateDir);
+  for (const server of servers) {
+    if (server.builtin || !server.fileExtensions.has(extension)) {
+      continue;
+    }
+    const languageId = server.languageIds.values().next().value;
+    if (typeof languageId !== "string" || languageId.length === 0) {
+      continue;
+    }
+    return {
+      languageId,
+      server: {
+        id: server.id,
+        command: server.command,
+        args: server.args,
+        languageIds: server.languageIds,
+        fileExtensions: server.fileExtensions,
+      },
+    };
   }
   return null;
 }
@@ -304,6 +357,54 @@ function parseLspDiagnostics(
         source: typeof source === "string" && source.trim().length > 0 ? source : sourceFallback,
         startColumn: Math.max(0, Math.trunc(startColumn)),
         startLine: Math.max(0, Math.trunc(startLine)),
+      },
+    ];
+  });
+}
+
+function parseCompletionDocumentation(documentation: unknown): string | undefined {
+  if (typeof documentation === "string") {
+    return documentation;
+  }
+  if (typeof documentation !== "object" || documentation === null) {
+    return undefined;
+  }
+  const value = Reflect.get(documentation, "value");
+  return typeof value === "string" ? value : undefined;
+}
+
+function parseLspCompletionItems(payload: unknown): readonly WorkspaceEditorCompletionItem[] {
+  const rawItems = Array.isArray(payload)
+    ? payload
+    : typeof payload === "object" && payload !== null
+      ? Reflect.get(payload, "items")
+      : undefined;
+  if (!Array.isArray(rawItems)) {
+    return [];
+  }
+  return rawItems.flatMap((item): WorkspaceEditorCompletionItem[] => {
+    if (typeof item !== "object" || item === null) {
+      return [];
+    }
+    const label = Reflect.get(item, "label");
+    if (typeof label !== "string" || label.trim().length === 0) {
+      return [];
+    }
+    const kind = Reflect.get(item, "kind");
+    const detail = Reflect.get(item, "detail");
+    const insertText = Reflect.get(item, "insertText");
+    const sortText = Reflect.get(item, "sortText");
+    const filterText = Reflect.get(item, "filterText");
+    return [
+      {
+        label,
+        kind: typeof kind === "number" || typeof kind === "string" ? String(kind) : undefined,
+        detail: typeof detail === "string" ? detail : undefined,
+        documentation: parseCompletionDocumentation(Reflect.get(item, "documentation")),
+        insertText: typeof insertText === "string" ? insertText : undefined,
+        sortText: typeof sortText === "string" && sortText.trim().length > 0 ? sortText : undefined,
+        filterText:
+          typeof filterText === "string" && filterText.trim().length > 0 ? filterText : undefined,
       },
     ];
   });
@@ -628,6 +729,38 @@ function waitForDiagnosticsUpdate(
   });
 }
 
+async function syncSessionDocument(
+  session: LspSession,
+  uri: string,
+  languageId: string,
+  contents: string,
+): Promise<readonly WorkspaceEditorDiagnostic[]> {
+  const diagnosticsPromise = waitForDiagnosticsUpdate(
+    session,
+    uri,
+    LSP_SYNC_DIAGNOSTICS_TIMEOUT_MS,
+  );
+  const nextVersion = (session.documentVersions.get(uri) ?? 0) + 1;
+  if (session.openedUris.has(uri)) {
+    await sendLspNotification(session, "textDocument/didChange", {
+      textDocument: { uri, version: nextVersion },
+      contentChanges: [{ text: contents }],
+    });
+  } else {
+    await sendLspNotification(session, "textDocument/didOpen", {
+      textDocument: {
+        uri,
+        languageId,
+        version: nextVersion,
+        text: contents,
+      },
+    });
+    session.openedUris.add(uri);
+  }
+  session.documentVersions.set(uri, nextVersion);
+  return diagnosticsPromise;
+}
+
 async function waitForProcessSpawn(proc: ChildProcessWithoutNullStreams): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const onSpawn = () => {
@@ -674,8 +807,12 @@ function resolveServerCommand(definition: LspServerDefinition): {
   readonly args: readonly string[];
   readonly command: string;
 } {
-  const commandOverride = process.env[definition.envBinKey]?.trim();
-  const argsOverride = parseServerArgsOverride(process.env[definition.envArgsJsonKey]);
+  const commandOverride = definition.envBinKey
+    ? process.env[definition.envBinKey]?.trim()
+    : undefined;
+  const argsOverride = definition.envArgsJsonKey
+    ? parseServerArgsOverride(process.env[definition.envArgsJsonKey])
+    : null;
   return {
     command: commandOverride && commandOverride.length > 0 ? commandOverride : definition.command,
     args: argsOverride ?? definition.args,
@@ -997,22 +1134,25 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
         workspaceRoot: normalizedWorkspaceRoot,
         relativePath: input.relativePath,
       });
-      const languageId = resolveLanguageIdFromPath(target.relativePath);
-      if (!languageId) {
+      const resolved = yield* Effect.tryPromise({
+        try: () => resolveServerForPath(serverConfig.stateDir, target.relativePath),
+        catch: (cause) =>
+          new WorkspaceEditorError({
+            cause,
+            cwd: normalizedWorkspaceRoot,
+            detail: "Failed to resolve language server for workspace buffer.",
+            operation: "workspaceEditor.syncBuffer",
+            relativePath: target.relativePath,
+          }),
+      });
+      if (!resolved) {
         yield* Effect.logDebug(`[WorkspaceEditor] No languageId for ${target.relativePath}`);
         return {
           diagnostics: [],
           relativePath: target.relativePath,
         } satisfies WorkspaceEditorSyncBufferResult;
       }
-      const languageServer = resolveServerForLanguageId(languageId);
-      if (!languageServer) {
-        yield* Effect.logDebug(`[WorkspaceEditor] No languageServer for ${languageId}`);
-        return {
-          diagnostics: [],
-          relativePath: target.relativePath,
-        } satisfies WorkspaceEditorSyncBufferResult;
-      }
+      const { languageId, server: languageServer } = resolved;
 
       yield* Effect.logDebug(`[WorkspaceEditor] Using LSP server: ${languageServer.id}`);
       const session = yield* getOrCreateSession(normalizedWorkspaceRoot, languageServer);
@@ -1020,30 +1160,7 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
       const diagnostics = yield* session.mutex.withPermits(1)(
         Effect.tryPromise({
           try: async () => {
-            const diagnosticsPromise = waitForDiagnosticsUpdate(
-              session,
-              uri,
-              LSP_SYNC_DIAGNOSTICS_TIMEOUT_MS,
-            );
-            const nextVersion = (session.documentVersions.get(uri) ?? 0) + 1;
-            if (session.openedUris.has(uri)) {
-              await sendLspNotification(session, "textDocument/didChange", {
-                textDocument: { uri, version: nextVersion },
-                contentChanges: [{ text: input.contents }],
-              });
-            } else {
-              await sendLspNotification(session, "textDocument/didOpen", {
-                textDocument: {
-                  uri,
-                  languageId,
-                  version: nextVersion,
-                  text: input.contents,
-                },
-              });
-              session.openedUris.add(uri);
-            }
-            session.documentVersions.set(uri, nextVersion);
-            return diagnosticsPromise;
+            return syncSessionDocument(session, uri, languageId, input.contents);
           },
           catch: (cause) =>
             new WorkspaceEditorError({
@@ -1071,13 +1188,23 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
         workspaceRoot: normalizedWorkspaceRoot,
         relativePath: input.relativePath,
       });
-      const languageId = resolveLanguageIdFromPath(target.relativePath);
-      const languageServer = languageId ? resolveServerForLanguageId(languageId) : null;
-      if (!languageServer) {
+      const resolved = yield* Effect.tryPromise({
+        try: () => resolveServerForPath(serverConfig.stateDir, target.relativePath),
+        catch: (cause) =>
+          new WorkspaceEditorError({
+            cause,
+            cwd: normalizedWorkspaceRoot,
+            detail: "Failed to resolve language server for workspace buffer.",
+            operation: "workspaceEditor.closeBuffer",
+            relativePath: target.relativePath,
+          }),
+      });
+      if (!resolved) {
         return {
           relativePath: target.relativePath,
         } satisfies WorkspaceEditorCloseBufferResult;
       }
+      const languageServer = resolved.server;
       const key = createSessionKey(normalizedWorkspaceRoot, languageServer.id);
       const existing = (yield* Ref.get(sessionsRef)).get(key);
       if (!existing || existing.dead || existing.proc.exitCode !== null) {
@@ -1121,8 +1248,68 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
     },
   );
 
+  const complete: WorkspaceEditorShape["complete"] = Effect.fn("WorkspaceEditor.complete")(
+    function* (input) {
+      const normalizedWorkspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.cwd);
+      const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+        workspaceRoot: normalizedWorkspaceRoot,
+        relativePath: input.relativePath,
+      });
+      const resolved = yield* Effect.tryPromise({
+        try: () => resolveServerForPath(serverConfig.stateDir, target.relativePath),
+        catch: (cause) =>
+          new WorkspaceEditorError({
+            cause,
+            cwd: normalizedWorkspaceRoot,
+            detail: "Failed to resolve language server for completions.",
+            operation: "workspaceEditor.complete",
+            relativePath: target.relativePath,
+          }),
+      });
+      if (!resolved) {
+        return {
+          relativePath: target.relativePath,
+          items: [],
+        } satisfies WorkspaceEditorCompleteResult;
+      }
+      const { languageId, server: languageServer } = resolved;
+      const session = yield* getOrCreateSession(normalizedWorkspaceRoot, languageServer);
+      const uri = pathToFileURL(target.absolutePath).toString();
+      const items = yield* session.mutex.withPermits(1)(
+        Effect.tryPromise({
+          try: async () => {
+            await syncSessionDocument(session, uri, languageId, input.contents);
+            const result = await sendLspRequest(
+              session,
+              "textDocument/completion",
+              {
+                textDocument: { uri },
+                position: { line: input.line, character: input.column },
+              },
+              LSP_REQUEST_TIMEOUT_MS,
+            );
+            return parseLspCompletionItems(result);
+          },
+          catch: (cause) =>
+            new WorkspaceEditorError({
+              cause,
+              cwd: normalizedWorkspaceRoot,
+              detail: `Workspace completion backend unavailable.${session.stderrTail.trim().length > 0 ? ` ${session.stderrTail.trim()}` : ""}`,
+              operation: "workspaceEditor.complete",
+              relativePath: target.relativePath,
+            }),
+        }),
+      );
+      return {
+        relativePath: target.relativePath,
+        items,
+      } satisfies WorkspaceEditorCompleteResult;
+    },
+  );
+
   return {
     closeBuffer,
+    complete,
     syncBuffer,
   } satisfies WorkspaceEditorShape;
 });

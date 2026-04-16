@@ -54,6 +54,7 @@ import {
 import { startOpenCodeServerIsolated, type OpenCodeServerHandle } from "../opencodeRuntime.ts";
 import {
   createOpenCodeSdkClient,
+  getOpenCodeModelContextWindowTokens,
   parseOpenCodeModelSlug,
   resolveOpenCodeModelForPrompt,
 } from "../opencodeSdk.ts";
@@ -76,6 +77,7 @@ type OpenCodeSessionContext = {
   readonly server: OpenCodeServerHandle;
   readonly client: OpencodeClient;
   readonly opencodeSessionId: string;
+  readonly opencodeBaseUrl: string;
   defaultModels: Record<string, string>;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
   readonly replayTurns: Array<TranscriptReplayTurn>;
@@ -303,6 +305,7 @@ export function buildOpenCodeThreadUsageSnapshot(
   value: unknown,
   toolUses?: number,
   durationMs?: number,
+  maxTokens?: number,
 ): ProviderRuntimeEventByType<"thread.token-usage.updated">["payload"]["usage"] | undefined {
   const record = asRecord(value);
   if (!record) {
@@ -327,6 +330,7 @@ export function buildOpenCodeThreadUsageSnapshot(
 
   return {
     usedTokens,
+    ...(maxTokens !== undefined && maxTokens > 0 ? { maxTokens } : {}),
     lastUsedTokens: usedTokens,
     ...(inputTokens !== undefined ? { lastInputTokens: inputTokens } : {}),
     ...(cachedInputTokens !== undefined ? { lastCachedInputTokens: cachedInputTokens } : {}),
@@ -342,6 +346,34 @@ export function buildOpenCodeThreadUsageSnapshot(
 
 function isoNow(): string {
   return new Date().toISOString();
+}
+
+function currentOpenCodeModelContextWindowTokens(
+  context: OpenCodeSessionContext,
+): number | undefined {
+  let modelSlug = context.session.model;
+  if (!modelSlug) {
+    return undefined;
+  }
+  if (modelSlug === "auto" || modelSlug.trim() === "") {
+    const defaults = context.defaultModels;
+    const providerId = Object.keys(defaults)[0];
+    if (providerId) {
+      const modelId = defaults[providerId];
+      if (modelId) {
+        modelSlug = `${providerId}/${modelId}`;
+      } else {
+        return undefined;
+      }
+    } else {
+      return undefined;
+    }
+  }
+  const tokens = getOpenCodeModelContextWindowTokens(context.opencodeBaseUrl, modelSlug);
+  if (tokens !== undefined) {
+    return tokens;
+  }
+  return undefined;
 }
 
 function resolveOpenCodeIdleSessionTtlMs(
@@ -990,6 +1022,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         activeTurn?.usage,
         activeTurn?.toolItems.size,
         activeTurn ? Math.max(0, Date.now() - activeTurn.startedAtMs) : undefined,
+        currentOpenCodeModelContextWindowTokens(ctx),
       );
       const processedTokens = turnUsageSnapshot?.lastUsedTokens ?? turnUsageSnapshot?.usedTokens;
       if (processedTokens !== undefined && processedTokens > 0) {
@@ -1857,6 +1890,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             server,
             client,
             opencodeSessionId,
+            opencodeBaseUrl: server.url,
             defaultModels,
             turns: [],
             replayTurns: cloneReplayTurns(input.replayTurns),

@@ -1,9 +1,10 @@
 import * as Crypto from "node:crypto";
+import { Effect } from "effect";
 
 const DEFAULT_PAIRING_SESSION_TTL_MS = 5 * 60_000;
 const MIN_PAIRING_SESSION_TTL_MS = 30_000;
-const MAX_PAIRING_SESSION_TTL_MS = 15 * 60_000;
-const PAIRING_SESSION_EXPIRED_GRACE_MS = 10 * 60_000;
+const MAX_PAIRING_SESSION_TTL_MS = 15 * 60 * 1000;
+const PAIRING_SESSION_EXPIRED_GRACE_MS = 10 * 60 * 1000;
 const MAX_HOST_NAME_LENGTH = 160;
 const MAX_REQUESTER_NAME_LENGTH = 120;
 
@@ -76,10 +77,13 @@ export interface PairingSessionCreated {
 
 export interface PairingSessionView {
   readonly sessionId: string;
+  readonly name: string;
+  readonly createdAt: string;
+  readonly resolvedAt?: string | undefined;
   readonly status: PairingSessionStatus;
   readonly expiresAt: string;
-  readonly requesterName?: string;
-  readonly claimId?: string;
+  readonly requesterName?: string | undefined;
+  readonly claimId?: string | undefined;
 }
 
 export interface ClaimPairingSessionInput {
@@ -172,6 +176,9 @@ function resolvePairingSessionStatus(
 function toPairingSessionView(record: PairingSessionRecord, nowMs: number): PairingSessionView {
   return {
     sessionId: record.sessionId,
+    name: record.name,
+    createdAt: isoAt(record.createdAtMs),
+    ...(typeof record.resolvedAtMs === "number" ? { resolvedAt: isoAt(record.resolvedAtMs) } : {}),
     status: resolvePairingSessionStatus(record, nowMs),
     expiresAt: isoAt(record.expiresAtMs),
     ...(record.claim
@@ -257,6 +264,13 @@ export function getPairingSession(
   return succeed(toPairingSessionView(recordResult.value, nowMs));
 }
 
+export function listPairingSessions(nowMs = Date.now()): ReadonlyArray<PairingSessionView> {
+  prunePairingSessions(nowMs);
+  return Array.from(pairingSessions.values())
+    .toSorted((left, right) => right.createdAtMs - left.createdAtMs)
+    .map((record) => toPairingSessionView(record, nowMs));
+}
+
 export function resolvePairingSession(input: {
   readonly sessionId: string;
   readonly approve: boolean;
@@ -278,6 +292,24 @@ export function resolvePairingSession(input: {
     record.resolution = input.approve ? "approved" : "rejected";
     record.resolvedAtMs = nowMs;
   }
+  return succeed(toPairingSessionView(record, nowMs));
+}
+
+export function revokePairingSession(input: {
+  readonly sessionId: string;
+  readonly nowMs?: number;
+}): PairingResult<PairingSessionView> {
+  const nowMs = input.nowMs ?? Date.now();
+  const recordResult = readPairingSession(input.sessionId, nowMs);
+  if (!recordResult.ok) {
+    return recordResult;
+  }
+  const record = recordResult.value;
+  if (nowMs >= record.expiresAtMs) {
+    return fail("expired", "Pairing session has expired.");
+  }
+  record.resolution = "rejected";
+  record.resolvedAtMs = nowMs;
   return succeed(toPairingSessionView(record, nowMs));
 }
 
@@ -362,4 +394,88 @@ export function getPairingClaim(
 export function __resetPairingStoreForTests(): void {
   pairingSessions.clear();
   pairingClaimSessions.clear();
+}
+
+export async function persistPairingSessionsToDatabase(repo: {
+  upsert: (session: {
+    sessionId: string;
+    secret: string;
+    wsUrl: string;
+    authToken: string;
+    name: string;
+    createdAtMs: number;
+    expiresAtMs: number;
+    claimId: string | null;
+    claimRequesterName: string | null;
+    claimRequestedAtMs: number | null;
+    resolution: string | null;
+    resolvedAtMs: number | null;
+  }) => Effect.Effect<void, never>;
+}): Promise<void> {
+  await Effect.runPromise(
+    Effect.all(
+      Array.from(pairingSessions.values()).map((session) =>
+        repo.upsert({
+          sessionId: session.sessionId,
+          secret: session.secret,
+          wsUrl: session.wsUrl,
+          authToken: session.authToken,
+          name: session.name,
+          createdAtMs: session.createdAtMs,
+          expiresAtMs: session.expiresAtMs,
+          claimId: session.claim?.claimId ?? null,
+          claimRequesterName: session.claim?.requesterName ?? null,
+          claimRequestedAtMs: session.claim?.requestedAtMs ?? null,
+          resolution: session.resolution,
+          resolvedAtMs: session.resolvedAtMs,
+        }),
+      ),
+      { concurrency: "unbounded" },
+    ),
+  );
+}
+
+export async function loadPairingSessionsFromDatabase(repo: {
+  getAll: () => Effect.Effect<
+    ReadonlyArray<{
+      sessionId: string;
+      secret: string;
+      wsUrl: string;
+      authToken: string;
+      name: string;
+      createdAtMs: number;
+      expiresAtMs: number;
+      claimId: string | null;
+      claimRequesterName: string | null;
+      claimRequestedAtMs: number | null;
+      resolution: string | null;
+      resolvedAtMs: number | null;
+    }>,
+    never
+  >;
+}): Promise<void> {
+  const sessions = await Effect.runPromise(repo.getAll());
+  for (const session of sessions) {
+    pairingSessions.set(session.sessionId, {
+      sessionId: session.sessionId,
+      secret: session.secret,
+      wsUrl: session.wsUrl,
+      authToken: session.authToken,
+      name: session.name,
+      createdAtMs: session.createdAtMs,
+      expiresAtMs: session.expiresAtMs,
+      claim: session.claimId
+        ? {
+            claimId: session.claimId,
+            requesterName: session.claimRequesterName ?? "",
+            requestedAtMs: session.claimRequestedAtMs ?? 0,
+          }
+        : null,
+      resolution: session.resolution as "approved" | "rejected" | null,
+      resolvedAtMs: session.resolvedAtMs,
+    });
+    if (session.claimId) {
+      pairingClaimSessions.set(session.claimId, session.sessionId);
+    }
+  }
 }

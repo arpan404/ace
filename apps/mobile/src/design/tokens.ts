@@ -1,6 +1,6 @@
 /**
  * ace Mobile Design Tokens
- * Native-first styling tailored for premium app feel.
+ * iOS-native semantic palette following Apple Human Interface Guidelines.
  */
 
 export const Typography = {
@@ -8,52 +8,47 @@ export const Typography = {
     ui: "System",
     mono: "Menlo",
   },
-  letterSpacing: {
-    tight: -0.018,
-  },
 } as const;
 
 export const Palette = {
   light: {
-    background: "#f2f2f7", // iOS system gray 6
+    background: "#f2f2f7",
     foreground: "#000000",
-    card: "#ffffff",
-    cardForeground: "#000000",
-    popover: "#ffffff",
-    popoverForeground: "#000000",
-    primary: "#0066ff", // Native vibrant blue
+    secondaryLabel: "#3c3c43",
+    tertiaryLabel: "#48484a",
+    separator: "#c6c6c8",
+    groupedBackground: "#f2f2f7",
+    secondaryGroupedBackground: "#ffffff",
+    primary: "#007aff",
     primaryForeground: "#ffffff",
-    secondary: "#e5e5ea",
-    secondaryForeground: "#000000",
-    muted: "#e5e5ea",
-    mutedForeground: "#8e8e93",
-    accent: "#e5e5ea",
-    accentForeground: "#000000",
-    destructive: "#ff3b30",
-    border: "rgba(0, 0, 0, 0.08)", // Subtle hair-line native border
-    input: "#ffffff",
-    ring: "#0066ff",
-    info: "#8e8e93",
+    tint: "#007aff",
+    green: "#34c759",
+    orange: "#ff9500",
+    red: "#ff3b30",
+    yellow: "#ffcc00",
+    muted: "#8e8e93",
+    fill: "rgba(120, 120, 128, 0.2)",
+    secondaryFill: "rgba(120, 120, 128, 0.16)",
+    tertiaryFill: "rgba(118, 118, 128, 0.12)",
   },
   dark: {
-    background: "#000000", // Pure OLED black
+    background: "#000000",
     foreground: "#ffffff",
-    card: "#1c1c1e", // Native elevated dark gray
-    cardForeground: "#ffffff",
-    popover: "#1c1c1e",
-    popoverForeground: "#ffffff",
-    primary: "#0a84ff", // Native vibrant blue dark
+    secondaryLabel: "#ebebf5",
+    tertiaryLabel: "#ebebf5",
+    separator: "#38383a",
+    groupedBackground: "#000000",
+    secondaryGroupedBackground: "#1c1c1e",
+    primary: "#0a84ff",
     primaryForeground: "#ffffff",
-    secondary: "#2c2c2e",
-    secondaryForeground: "#ffffff",
-    muted: "#2c2c2e",
-    mutedForeground: "#8e8e93",
-    accent: "#2c2c2e",
-    accentForeground: "#ffffff",
-    destructive: "#ff453a",
-    border: "rgba(255, 255, 255, 0.12)", // Subtle hair-line native border
-    input: "#1c1c1e",
-    ring: "#0a84ff",
-    info: "#8e8e93",
+    tint: "#0a84ff",
+    green: "#30d158",
+    orange: "#ff9f0a",
+    red: "#ff453a",
+    yellow: "#ffd60a",
+    muted: "#8e8e93",
+    fill: "rgba(120, 120, 128, 0.36)",
+    secondaryFill: "rgba(120, 120, 128, 0.32)",
+    tertiaryFill: "rgba(118, 118, 128, 0.24)",
   },
 } as const;

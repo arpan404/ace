@@ -422,6 +422,15 @@ function capHistory(history: string, maxLines: number): string {
   return hasTrailingNewline ? `${capped}\n` : capped;
 }
 
+function sanitizeTerminalHistoryString(history: string): string {
+  if (history.length === 0) return history;
+  const result = sanitizeTerminalHistoryChunk("", history);
+  if (result.pendingControlSequence.length > 0) {
+    return result.visibleText;
+  }
+  return result.visibleText;
+}
+
 function isCsiFinalByte(codePoint: number): boolean {
   return codePoint >= 0x40 && codePoint <= 0x7e;
 }
@@ -935,7 +944,8 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
         const raw = yield* fileSystem
           .readFileString(nextPath)
           .pipe(Effect.mapError(toTerminalHistoryError("read", threadId, terminalId)));
-        const capped = capHistory(raw, historyLineLimit);
+        const sanitized = sanitizeTerminalHistoryString(raw);
+        const capped = capHistory(sanitized, historyLineLimit);
         if (capped !== raw) {
           yield* fileSystem
             .writeFileString(nextPath, capped)
@@ -960,7 +970,8 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
       const raw = yield* fileSystem
         .readFileString(legacyPath)
         .pipe(Effect.mapError(toTerminalHistoryError("migrate", threadId, terminalId)));
-      const capped = capHistory(raw, historyLineLimit);
+      const sanitized = sanitizeTerminalHistoryString(raw);
+      const capped = capHistory(sanitized, historyLineLimit);
       yield* fileSystem
         .writeFileString(nextPath, capped)
         .pipe(Effect.mapError(toTerminalHistoryError("migrate", threadId, terminalId)));

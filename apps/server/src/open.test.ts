@@ -375,6 +375,25 @@ it.layer(NodeServices.layer)("resolveFolderPickerLaunch", (it) => {
     }),
   );
 
+  it.effect("uses initial path for linux pickers when provided", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "ace-picker-test-" });
+      const kdialogPath = path.join(dir, "kdialog");
+      yield* fs.writeFileString(kdialogPath, "#!/bin/sh\nexit 0\n");
+      yield* Effect.sync(() => chmodSync(kdialogPath, 0o755));
+
+      const launch = yield* resolveFolderPickerLaunch(
+        "linux",
+        { PATH: dir },
+        { initialPath: "/tmp/start-here" },
+      );
+      assert.deepEqual(launch.command, "kdialog");
+      assert.deepEqual(launch.args[1], "/tmp/start-here");
+    }),
+  );
+
   it.effect("fails on linux when no supported picker is installed", () =>
     Effect.gen(function* () {
       const result = yield* resolveFolderPickerLaunch("linux", { PATH: "" }).pipe(Effect.result);
@@ -392,7 +411,7 @@ it.layer(NodeServices.layer)("resolveFolderPickerLaunch", (it) => {
 it.layer(NodeServices.layer)("pickFolder", (it) => {
   it.effect("returns the selected folder path", () =>
     Effect.gen(function* () {
-      const selectedPath = yield* pickFolder("darwin", { PATH: "/usr/bin" }, async () =>
+      const selectedPath = yield* pickFolder("darwin", { PATH: "/usr/bin" }, {}, async () =>
         makeResult({ stdout: "/tmp/project\n" }),
       );
 
@@ -409,7 +428,7 @@ it.layer(NodeServices.layer)("pickFolder", (it) => {
       yield* fs.writeFileString(zenityPath, "#!/bin/sh\nexit 0\n");
       yield* Effect.sync(() => chmodSync(zenityPath, 0o755));
 
-      const selectedPath = yield* pickFolder("linux", { PATH: dir }, async () =>
+      const selectedPath = yield* pickFolder("linux", { PATH: dir }, {}, async () =>
         makeResult({ code: 1 }),
       );
 
@@ -426,7 +445,7 @@ it.layer(NodeServices.layer)("pickFolder", (it) => {
       yield* fs.writeFileString(zenityPath, "#!/bin/sh\nexit 0\n");
       yield* Effect.sync(() => chmodSync(zenityPath, 0o755));
 
-      const result = yield* pickFolder("linux", { PATH: dir }, async () =>
+      const result = yield* pickFolder("linux", { PATH: dir }, {}, async () =>
         makeResult({ code: 2, stderr: "boom" }),
       ).pipe(Effect.result);
 

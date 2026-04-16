@@ -1,8 +1,16 @@
 import * as OS from "node:os";
 import * as Path from "node:path";
-export function resolveDesktopBaseDir(options?: { homeDir?: string }): string {
+export function resolveDesktopBaseDir(options?: {
+  homeDir?: string;
+  isDevelopment?: boolean;
+  appType?: "web" | "desktop";
+}): string {
   const homeDir = options?.homeDir ?? OS.homedir();
-  return Path.join(homeDir, ".ace");
+  const appType = options?.appType;
+  if (options?.isDevelopment && appType) {
+    return Path.join(homeDir, ".ace-dev", appType);
+  }
+  return Path.join(homeDir, options?.isDevelopment === true ? ".ace-dev" : ".ace");
 }
 
 export function resolveDesktopUserDataPath(options: {

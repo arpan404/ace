@@ -22,6 +22,8 @@ interface RequestOptions {
 interface WsTransportOptions {
   readonly connectionProbeIntervalMs?: number;
   readonly connectionProbeTimeoutMs?: number;
+  readonly clientSessionId?: string;
+  readonly disableConnectionProbeLifecycle?: boolean;
 }
 
 export interface WsTransportConnectionState {
@@ -96,6 +98,7 @@ export class WsTransport {
   private readonly identity: WsClientConnectionIdentity;
   private readonly connectionProbeIntervalMs: number;
   private readonly connectionProbeTimeoutMs: number;
+  private readonly disableConnectionProbeLifecycle: boolean;
   private readonly connectionStateListeners = new Set<
     (state: WsTransportConnectionState) => void
   >();
@@ -109,7 +112,7 @@ export class WsTransport {
 
   constructor(url?: string, options: WsTransportOptions = {}) {
     this.identity = {
-      clientSessionId: resolveClientSessionId(),
+      clientSessionId: options.clientSessionId ?? resolveClientSessionId(),
       connectionId: createConnectionId(),
     };
     this.connectionProbeIntervalMs = Math.max(
@@ -120,6 +123,7 @@ export class WsTransport {
       1,
       options.connectionProbeTimeoutMs ?? DEFAULT_CONNECTION_PROBE_TIMEOUT_MS,
     );
+    this.disableConnectionProbeLifecycle = options.disableConnectionProbeLifecycle ?? false;
     logLoadDiagnostic({
       phase: "ws",
       message: "Creating WebSocket transport",
@@ -199,7 +203,7 @@ export class WsTransport {
   }
 
   private setupConnectionProbeLifecycle(): void {
-    if (typeof window === "undefined") {
+    if (this.disableConnectionProbeLifecycle || typeof window === "undefined") {
       return;
     }
 
@@ -303,9 +307,15 @@ export class WsTransport {
       try {
         const client = await this.clientPromise;
         const result = await this.runtime.runPromise(Effect.suspend(() => execute(client)));
+        if (this.disposed) {
+          throw new Error("Transport disposed");
+        }
         this.noteConnected();
         return result;
       } catch (error) {
+        if (this.disposed) {
+          throw new Error("Transport disposed", { cause: error });
+        }
         this.noteDisconnected(error);
         lastError = error;
         if (!isRetryableRequestError(error) || attempt >= DEFAULT_REQUEST_RETRY_LIMIT) {
@@ -339,17 +349,32 @@ export class WsTransport {
     }
 
     const client = await this.clientPromise;
-    await this.runtime.runPromise(
-      Stream.runForEach(connect(client), (value) =>
-        Effect.sync(() => {
-          try {
-            listener(value);
-          } catch {
-            // Swallow listener errors so the stream can finish cleanly.
-          }
-        }),
-      ),
-    );
+    try {
+      await this.runtime.runPromise(
+        Stream.runForEach(connect(client), (value) =>
+          Effect.sync(() => {
+            if (this.disposed) {
+              return;
+            }
+            try {
+              listener(value);
+            } catch {
+              // Swallow listener errors so the stream can finish cleanly.
+            }
+          }),
+        ),
+      );
+      if (this.disposed) {
+        throw new Error("Transport disposed");
+      }
+      this.noteConnected();
+    } catch (error) {
+      if (this.disposed) {
+        throw new Error("Transport disposed", { cause: error });
+      }
+      this.noteDisconnected(error);
+      throw error;
+    }
   }
 
   subscribe<TValue>(

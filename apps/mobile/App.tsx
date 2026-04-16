@@ -30,16 +30,24 @@ import {
 import { WebView } from "react-native-webview";
 import type { WebViewErrorEvent } from "react-native-webview/lib/WebViewTypes";
 import {
-  createDefaultHostInstance,
   createHostInstance,
   parseHostConnectionQrPayload,
-  requestRelayConnection,
+  requestPairingClaim,
+  waitForPairingApproval,
   type HostInstance,
   wsUrlToBrowserBaseUrl,
 } from "./src/hostInstances";
 import { notificationFromDomainEvent } from "./src/notifications";
 import { resolveProjectAgentStats } from "./src/projectAgentStats";
 import { createMobileWsClient, type MobileWsClient } from "./src/rpc/mobileWsClient";
+import {
+  Blocks,
+  FileCode2,
+  Globe,
+  MessagesSquare,
+  Terminal,
+  type LucideIcon,
+} from "lucide-react-native";
 
 const HOSTS_STORAGE_KEY = "ace.mobile.hosts.v2";
 const ACTIVE_HOST_STORAGE_KEY = "ace.mobile.active-host.v2";
@@ -48,6 +56,7 @@ const MAX_ACTIVITIES_VISIBLE = 40;
 const NOTIFICATION_EVENT_CACHE_LIMIT = 800;
 const MAX_TERMINAL_OUTPUT_CHARS = 160_000;
 const TERMINAL_ID = "default";
+const PAIRING_REQUEST_TIMEOUT_MS = 10_000;
 const MOBILE_THEME = {
   background: "#090b10",
   surface: "#11141b",
@@ -80,6 +89,14 @@ const TAB_LABEL: Record<AppTab, string> = {
   browser: "Browser",
   editor: "Editor",
   terminal: "Terminal",
+};
+
+const TAB_ICON: Record<AppTab, LucideIcon> = {
+  projects: Blocks,
+  threads: MessagesSquare,
+  browser: Globe,
+  editor: FileCode2,
+  terminal: Terminal,
 };
 
 interface HostFormState {
@@ -552,7 +569,7 @@ export default function App() {
         setConnectionStatus("connected");
         return;
       }
-      setConnectionStatus("connecting");
+      setConnectionStatus("disconnected");
       if (state.error) {
         setStatusMessage(`Connection interrupted: ${state.error}`);
       }
@@ -660,10 +677,6 @@ export default function App() {
       if (!target) {
         return;
       }
-      if (hosts.length <= 1) {
-        setStatusMessage("At least one host must remain configured.");
-        return;
-      }
       const nextHosts = hosts.filter((host) => host.id !== hostId);
       const nextActiveHostId = activeHostId === hostId ? (nextHosts[0]?.id ?? null) : activeHostId;
       await persistHosts(nextHosts, nextActiveHostId);
@@ -689,35 +702,26 @@ export default function App() {
         setScanLocked(false);
         return;
       }
-      if (parsed.kind === "relay") {
-        setStatusMessage("Connecting through relay...");
-        try {
-          const resolvedHost = await requestRelayConnection(parsed.relay, {
-            requesterName: "ace mobile",
-          });
-          await upsertHost(
-            {
-              wsUrl: resolvedHost.wsUrl,
-              ...(resolvedHost.authToken !== undefined
-                ? { authToken: resolvedHost.authToken }
-                : {}),
-              ...(resolvedHost.name ? { name: resolvedHost.name } : {}),
-            },
-            true,
-          );
-          setScannerVisible(false);
-          setStatusMessage("Relay connection saved.");
-        } catch (error) {
-          setStatusMessage(`Relay connection failed: ${formatError(error)}`);
-        } finally {
-          setScanLocked(false);
-        }
-        return;
+
+      setStatusMessage("Waiting for host approval…");
+      try {
+        const receipt = await requestPairingClaim(parsed.pairing, {
+          requesterName: "ace mobile",
+          requestTimeoutMs: PAIRING_REQUEST_TIMEOUT_MS,
+        });
+        const resolvedHost = await waitForPairingApproval(receipt, {
+          timeoutMs: 90_000,
+          pollIntervalMs: 1_200,
+          requestTimeoutMs: PAIRING_REQUEST_TIMEOUT_MS,
+        });
+        await upsertHost(resolvedHost, true);
+        setScannerVisible(false);
+        setStatusMessage("Pairing complete.");
+      } catch (error) {
+        setStatusMessage(`Pairing failed: ${formatError(error)}`);
+      } finally {
+        setScanLocked(false);
       }
-      setStatusMessage(
-        "This legacy pairing format is no longer supported. Use a relay connection string.",
-      );
-      setScanLocked(false);
     },
     [upsertHost],
   );
@@ -1091,9 +1095,6 @@ export default function App() {
             parsedHosts = [];
           }
         }
-        if (parsedHosts.length === 0) {
-          parsedHosts = [createDefaultHostInstance()];
-        }
         const activeId = parsedHosts.some((host) => host.id === rawActiveHostId)
           ? rawActiveHostId
           : (parsedHosts[0]?.id ?? null);
@@ -1110,13 +1111,11 @@ export default function App() {
         if (!mounted) {
           return;
         }
-        const fallbackHost = createDefaultHostInstance();
-        setHosts([fallbackHost]);
-        setActiveHostId(fallbackHost.id);
-        setHostForm(createInitialHostForm(fallbackHost));
-        const browserBase = wsUrlToBrowserBaseUrl(fallbackHost.wsUrl);
-        setBrowserAddressInput(browserBase);
-        setBrowserCurrentUrl(browserBase);
+        setHosts([]);
+        setActiveHostId(null);
+        setHostForm(createInitialHostForm(null));
+        setBrowserAddressInput("");
+        setBrowserCurrentUrl("");
         setHostsLoaded(true);
         setStatusMessage(`Failed to load hosts: ${formatError(error)}`);
       });
@@ -1166,7 +1165,7 @@ export default function App() {
     setBrowserCurrentUrl(browserBase);
   }, [activeHost]);
 
-  const connected = connectionStatus !== "disconnected";
+  const connected = connectionStatus === "connected";
   const busy = workflowAction !== null;
 
   const renderConnectionSection = () => (
@@ -1195,39 +1194,45 @@ export default function App() {
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={styles.hostChipRow}>
-          {hosts.map((host) => (
-            <Pressable
-              key={host.id}
-              onPress={() => {
-                if (host.id === activeHostId) {
-                  return;
-                }
-                setActiveHostId(host.id);
-              }}
-              style={({ pressed }) => [
-                styles.hostChip,
-                host.id === activeHostId ? styles.hostChipActive : undefined,
-                pressed ? styles.buttonPressed : undefined,
-              ]}
-            >
-              <Text style={styles.hostChipTitle}>{host.name}</Text>
-              <Text style={styles.hostChipMeta}>{host.wsUrl}</Text>
-              <Text style={styles.hostChipMeta}>
-                last: {host.lastConnectedAt ? formatRelativeDate(host.lastConnectedAt) : "never"}
-              </Text>
+          {hosts.length === 0 ? (
+            <Text style={styles.emptyText}>
+              No hosts configured yet. Scan a pairing QR or save a host URL below.
+            </Text>
+          ) : (
+            hosts.map((host) => (
               <Pressable
+                key={host.id}
                 onPress={() => {
-                  void removeHost(host.id);
+                  if (host.id === activeHostId) {
+                    return;
+                  }
+                  setActiveHostId(host.id);
                 }}
                 style={({ pressed }) => [
-                  styles.removeHostButton,
+                  styles.hostChip,
+                  host.id === activeHostId ? styles.hostChipActive : undefined,
                   pressed ? styles.buttonPressed : undefined,
                 ]}
               >
-                <Text style={styles.removeHostButtonText}>Remove</Text>
+                <Text style={styles.hostChipTitle}>{host.name}</Text>
+                <Text style={styles.hostChipMeta}>{host.wsUrl}</Text>
+                <Text style={styles.hostChipMeta}>
+                  last: {host.lastConnectedAt ? formatRelativeDate(host.lastConnectedAt) : "never"}
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    void removeHost(host.id);
+                  }}
+                  style={({ pressed }) => [
+                    styles.removeHostButton,
+                    pressed ? styles.buttonPressed : undefined,
+                  ]}
+                >
+                  <Text style={styles.removeHostButtonText}>Remove</Text>
+                </Pressable>
               </Pressable>
-            </Pressable>
-          ))}
+            ))
+          )}
         </View>
       </ScrollView>
 
@@ -1239,9 +1244,9 @@ export default function App() {
           style={({ pressed }) => [
             styles.buttonPrimary,
             pressed ? styles.buttonPressed : undefined,
-            !hostsLoaded ? styles.buttonDisabled : undefined,
+            !hostsLoaded || hosts.length === 0 || !activeHost ? styles.buttonDisabled : undefined,
           ]}
-          disabled={!hostsLoaded}
+          disabled={!hostsLoaded || hosts.length === 0 || !activeHost}
         >
           <Text style={styles.buttonPrimaryText}>
             {connectionStatus === "connected" ? "Reconnect" : "Connect"}
@@ -1661,7 +1666,7 @@ export default function App() {
   const renderBrowserTab = () => (
     <View style={styles.fullTabContainer}>
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Browser relay</Text>
+        <Text style={styles.sectionTitle}>Browser</Text>
         <Text style={styles.label}>Address</Text>
         <TextInput
           value={browserAddressInput}
@@ -2013,19 +2018,36 @@ export default function App() {
         </View>
 
         <View style={styles.bottomNav}>
-          {TAB_ORDER.map((tab) => (
-            <Pressable
-              key={tab}
-              onPress={() => setActiveTab(tab)}
-              style={({ pressed }) => [
-                styles.bottomNavItem,
-                tab === activeTab ? styles.bottomNavItemActive : undefined,
-                pressed ? styles.buttonPressed : undefined,
-              ]}
-            >
-              <Text style={styles.bottomNavItemText}>{TAB_LABEL[tab]}</Text>
-            </Pressable>
-          ))}
+          {TAB_ORDER.map((tab) => {
+            const Icon = TAB_ICON[tab];
+            const active = tab === activeTab;
+            return (
+              <Pressable
+                key={tab}
+                onPress={() => setActiveTab(tab)}
+                style={({ pressed }) => [
+                  styles.bottomNavItem,
+                  active ? styles.bottomNavItemActive : undefined,
+                  pressed ? styles.buttonPressed : undefined,
+                ]}
+              >
+                <View style={styles.bottomNavItemInner}>
+                  <Icon
+                    size={16}
+                    color={active ? MOBILE_THEME.primary : MOBILE_THEME.mutedForeground}
+                  />
+                  <Text
+                    style={[
+                      styles.bottomNavItemText,
+                      active ? styles.bottomNavItemTextActive : undefined,
+                    ]}
+                  >
+                    {TAB_LABEL[tab]}
+                  </Text>
+                </View>
+              </Pressable>
+            );
+          })}
         </View>
 
         <Modal
@@ -2607,18 +2629,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     borderTopWidth: 1,
     borderTopColor: MOBILE_THEME.border,
-    backgroundColor: MOBILE_THEME.surface,
-    paddingHorizontal: 6,
-    paddingVertical: 8,
-    gap: 6,
+    backgroundColor: MOBILE_THEME.background,
+    paddingHorizontal: 8,
+    paddingTop: 10,
+    paddingBottom: 12,
+    gap: 8,
   },
   bottomNavItem: {
     flex: 1,
-    borderRadius: 10,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: MOBILE_THEME.border,
-    backgroundColor: MOBILE_THEME.surfaceElevated,
-    paddingVertical: 10,
+    backgroundColor: "#0f131a",
+    paddingVertical: 9,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2626,10 +2649,19 @@ const styles = StyleSheet.create({
     borderColor: MOBILE_THEME.primary,
     backgroundColor: MOBILE_THEME.activeSurface,
   },
+  bottomNavItemInner: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+  },
   bottomNavItemText: {
-    color: MOBILE_THEME.foreground,
-    fontSize: 12,
+    color: MOBILE_THEME.mutedForeground,
+    fontSize: 11,
     fontWeight: "600",
+    letterSpacing: 0.2,
+  },
+  bottomNavItemTextActive: {
+    color: MOBILE_THEME.primary,
   },
   scannerScreen: {
     flex: 1,

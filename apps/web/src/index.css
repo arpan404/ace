@@ -349,6 +349,15 @@ label {
 
 .thread-terminal-drawer .terminal-viewport {
   background: var(--terminal-surface);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.06),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+}
+
+.dark .thread-terminal-drawer .terminal-viewport {
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.15);
 }
 
 .thread-terminal-drawer .xterm,
@@ -365,6 +374,254 @@ label {
 .thread-terminal-drawer .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
   width: 4px !important;
   left: 0 !important;
+}
+
+.thread-terminal-drawer .terminal-resize-handle {
+  position: relative;
+}
+
+.thread-terminal-drawer .terminal-resize-handle::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  opacity: 0.5;
+  transition:
+    opacity 150ms ease,
+    width 150ms ease;
+}
+
+.thread-terminal-drawer .terminal-resize-handle:hover::before,
+.thread-terminal-drawer .terminal-resize-handle:active::before {
+  width: 48px;
+  opacity: 1;
+  background: var(--primary);
+}
+
+.thread-terminal-drawer .terminal-split-divider {
+  transition: background-color 150ms ease;
+}
+
+.thread-terminal-drawer .terminal-split-divider > div {
+  transition:
+    width 150ms ease,
+    background-color 150ms ease;
+}
+
+.thread-terminal-drawer .terminal-split-divider:hover > div {
+  width: 3px;
+  background: var(--primary);
+  opacity: 0.5;
+}
+
+.thread-terminal-drawer .terminal-split-divider:active > div {
+  opacity: 0.8;
+}
+
+@keyframes terminal-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.thread-terminal-drawer .terminal-live-indicator {
+  animation: terminal-pulse 2s ease-in-out infinite;
+}
+
+.thread-terminal-drawer .terminal-sidebar-header {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in oklch, var(--terminal-surface) 100%, var(--background) 0%),
+    var(--terminal-surface)
+  );
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 40%, transparent);
+}
+
+.thread-terminal-drawer .terminal-item {
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    padding 120ms ease;
+}
+
+.thread-terminal-drawer .terminal-item:hover {
+  background-color: color-mix(in oklch, var(--accent) 50%, transparent);
+}
+
+.thread-terminal-drawer .terminal-item.active {
+  background-color: color-mix(in oklch, var(--primary) 12%, transparent);
+  border-left-color: var(--primary) !important;
+}
+
+.thread-terminal-drawer .terminal-item.active:hover {
+  background-color: color-mix(in oklch, var(--primary) 16%, transparent);
+}
+
+.thread-terminal-drawer .terminal-action-btn {
+  transition:
+    background-color 100ms ease,
+    color 100ms ease,
+    transform 100ms ease;
+}
+
+.thread-terminal-drawer .terminal-action-btn:active {
+  transform: scale(0.95);
+}
+
+.thread-terminal-drawer .terminal-context-menu .menu-item-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thread-terminal-drawer .terminal-context-menu .menu-item-with-icon svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.thread-terminal-drawer .terminal-context-menu .menu-item-danger:hover {
+  background-color: color-mix(in oklch, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
+
+.thread-terminal-drawer .terminal-context-menu .menu-item-danger:hover svg {
+  opacity: 1;
+}
+
+.terminal-icon-picker {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: 4px;
+  min-width: 120px;
+}
+
+.terminal-icon-picker .icon-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background-color 100ms ease,
+    transform 100ms ease;
+  border: 1px solid transparent;
+}
+
+.terminal-icon-picker .icon-option:hover {
+  background-color: var(--accent);
+}
+
+.terminal-icon-picker .icon-option.selected {
+  background-color: color-mix(in oklch, var(--primary) 15%, transparent);
+  border-color: var(--primary);
+}
+
+.terminal-icon-picker .icon-option:active {
+  transform: scale(0.95);
+}
+
+.terminal-icon-picker .icon-option span {
+  font-size: 8px;
+  color: var(--muted-foreground);
+}
+
+.terminal-icon-picker .icon-option.selected span {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.terminal-color-picker {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 6px;
+  min-width: 120px;
+}
+
+.terminal-color-picker .color-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background-color 100ms ease,
+    transform 100ms ease;
+  border: 1px solid transparent;
+}
+
+.terminal-color-picker .color-option:hover {
+  background-color: var(--accent);
+}
+
+.terminal-color-picker .color-option.selected {
+  background-color: color-mix(in oklch, var(--primary) 12%, transparent);
+  border-color: var(--primary);
+}
+
+.terminal-color-picker .color-option:active {
+  transform: scale(0.95);
+}
+
+.terminal-color-picker .color-option span {
+  font-size: 8px;
+  color: var(--muted-foreground);
+}
+
+.terminal-color-picker .color-option.selected span {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.terminal-color-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+.terminal-color-swatch.default {
+  background: linear-gradient(135deg, var(--muted-foreground) 50%, var(--muted) 50%);
+}
+
+.terminal-color-swatch.emerald {
+  background: #10b981;
+}
+
+.terminal-color-swatch.amber {
+  background: #f59e0b;
+}
+
+.terminal-color-swatch.sky {
+  background: #0ea5e9;
+}
+
+.terminal-color-swatch.rose {
+  background: #f43f5e;
+}
+
+.terminal-color-swatch.violet {
+  background: #8b5cf6;
+}
+
+.dark .terminal-color-swatch {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 label:has(> select#reasoning-effort) {

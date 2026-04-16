@@ -1,13 +1,16 @@
 import { FitAddon } from "@xterm/addon-fit";
 import {
   Code2,
+  Copy as CopyIcon,
   Database,
-  EllipsisVertical,
+  Edit2 as Edit2Icon,
   Globe,
+  RefreshCw as RefreshCwIcon,
+  RotateCcw as RotateCcwIcon,
   Server,
   SquareSplitHorizontal,
   TerminalSquare,
-  Trash2,
+  Trash as TrashIcon,
   Wrench,
   XIcon,
 } from "lucide-react";
@@ -27,12 +30,8 @@ import {
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import {
   Menu,
-  MenuGroup,
   MenuItem,
   MenuPopup,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuSeparator,
   MenuSub,
   MenuSubPopup,
   MenuSubTrigger,
@@ -514,31 +513,6 @@ function terminalColorClasses(color: TerminalColorName | null): string {
   }
 }
 
-function terminalColorSwatchClasses(color: TerminalColorName | null): string {
-  switch (color) {
-    case "emerald":
-      return "bg-emerald-500";
-    case "amber":
-      return "bg-amber-500";
-    case "sky":
-      return "bg-sky-500";
-    case "rose":
-      return "bg-rose-500";
-    case "violet":
-      return "bg-violet-500";
-    default:
-      return "bg-muted-foreground/35";
-  }
-}
-
-function menuPositionFromElement(element: HTMLElement): { x: number; y: number } {
-  const rect = element.getBoundingClientRect();
-  return {
-    x: Math.round(rect.left),
-    y: Math.round(rect.bottom),
-  };
-}
-
 function TerminalIconGlyph(props: {
   icon: TerminalIconName | null;
   color: TerminalColorName | null;
@@ -740,7 +714,7 @@ function TerminalViewport({
       if (navigationData !== null) {
         event.preventDefault();
         event.stopPropagation();
-        void sendTerminalInput(navigationData, "Failed to move cursor");
+        void sendTerminalInput(navigationData, "Failed to send terminal shortcut");
         return false;
       }
 
@@ -925,7 +899,7 @@ function TerminalViewport({
         hasHandledExitRef.current = false;
         commandBufferRef.current = "";
         clearSelectionAction();
-        activeTerminal.write("\u001bc");
+        activeTerminal.reset();
         onAutoTerminalTitleChangeRef.current(event.snapshot.title);
         if (event.snapshot.history.length > 0) {
           activeTerminal.write(event.snapshot.history);
@@ -1058,10 +1032,7 @@ function TerminalViewport({
     };
   }, [drawerHeight, resizeEpoch, terminalId, threadId]);
   return (
-    <div
-      ref={containerRef}
-      className="terminal-viewport relative h-full w-full overflow-hidden rounded-lg"
-    />
+    <div ref={containerRef} className="terminal-viewport relative h-full w-full overflow-hidden" />
   );
 }
 
@@ -1847,7 +1818,7 @@ export default function ThreadTerminalDrawer({
       style={{ height: `${drawerHeight}px` }}
     >
       <div
-        className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
+        className="terminal-resize-handle absolute inset-x-0 top-0 z-20 h-2 cursor-row-resize"
         onPointerDown={handleResizePointerDown}
         onPointerMove={handleResizePointerMove}
         onPointerUp={handleResizePointerEnd}
@@ -1883,142 +1854,217 @@ export default function ThreadTerminalDrawer({
               />
             }
           />
-          <MenuPopup align="start" side="bottom" sideOffset={6} className="min-w-52">
+          <MenuPopup
+            align="start"
+            side="bottom"
+            sideOffset={6}
+            className="terminal-context-menu min-w-48"
+          >
             {contextMenuState.kind === "terminal" ? (
               <>
-                {buildTerminalContextMenuItems({
-                  canSplit: !hasReachedSplitLimit,
-                  hasCustomTitle: activeContextMenuHasCustomTitle,
-                }).map((item) => (
-                  <MenuItem
-                    key={item.id}
-                    disabled={item.disabled}
-                    variant={item.destructive ? "destructive" : "default"}
-                    onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, item.id)}
-                  >
-                    {item.label}
-                  </MenuItem>
-                ))}
-                <MenuSeparator />
+                <MenuItem
+                  onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "split")}
+                  disabled={hasReachedSplitLimit}
+                  className="menu-item-with-icon"
+                >
+                  <SquareSplitHorizontal className="size-4 text-muted-foreground" />
+                  <span>Split Terminal</span>
+                </MenuItem>
+                <MenuItem
+                  onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "new")}
+                  className="menu-item-with-icon"
+                >
+                  <TerminalSquare className="size-4 text-muted-foreground" />
+                  <span>New Terminal</span>
+                </MenuItem>
+                <MenuItem
+                  onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "duplicate")}
+                  className="menu-item-with-icon"
+                >
+                  <CopyIcon className="size-4 text-muted-foreground" />
+                  <span>Duplicate</span>
+                </MenuItem>
+
+                <div className="mx-2 my-1 h-px bg-border" />
+
                 <MenuSub>
-                  <MenuSubTrigger>
-                    {TerminalIconGlyph({
-                      icon: activeContextMenuIcon,
-                      color: activeContextMenuColor,
-                      className: "size-3.5 shrink-0",
-                    })}
+                  <MenuSubTrigger className="menu-item-with-icon">
+                    <TerminalIconGlyph
+                      icon={activeContextMenuIcon}
+                      color={activeContextMenuColor}
+                      className="size-4 shrink-0"
+                    />
                     <span>Icon</span>
-                    <span className="ms-auto truncate text-[11px] text-muted-foreground">
-                      {buildTerminalIconMenuItems(activeContextMenuIcon).find(
-                        (item) => item.current,
+                    <span className="ms-auto truncate text-[10px] text-muted-foreground">
+                      {TERMINAL_ICON_OPTIONS.find(
+                        (o) => o.id === (activeContextMenuIcon ?? "terminal"),
                       )?.label ?? "Terminal"}
                     </span>
                   </MenuSubTrigger>
-                  <MenuSubPopup className="min-w-44" sideOffset={4}>
-                    <MenuGroup>
-                      <MenuRadioGroup
-                        value={
-                          buildTerminalIconMenuItems(activeContextMenuIcon).find(
-                            (item) => item.current,
-                          )?.id ?? "terminal"
-                        }
-                        onValueChange={(value) =>
-                          handleTerminalIconSelect(
-                            contextMenuState.terminalId,
-                            value as TerminalIconName,
-                          )
-                        }
-                      >
-                        {buildTerminalIconMenuItems(activeContextMenuIcon).map((item) => (
-                          <MenuRadioItem key={item.id} value={item.id}>
+                  <MenuSubPopup className="p-1.5" sideOffset={4}>
+                    <div className="terminal-icon-picker">
+                      {TERMINAL_ICON_OPTIONS.map((option) => {
+                        const isSelected = (activeContextMenuIcon ?? "terminal") === option.id;
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className={`icon-option ${isSelected ? "selected" : ""}`}
+                            onClick={() => {
+                              handleTerminalIconSelect(
+                                contextMenuState.terminalId,
+                                option.id as TerminalIconName,
+                              );
+                            }}
+                          >
                             {TerminalIconGlyph({
-                              icon: item.id,
+                              icon: option.id as TerminalIconName,
                               color: activeContextMenuColor,
-                              className: "size-3.5 shrink-0",
+                              className: "size-5",
                             })}
-                            {item.label}
-                          </MenuRadioItem>
-                        ))}
-                      </MenuRadioGroup>
-                    </MenuGroup>
+                            <span>{option.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </MenuSubPopup>
                 </MenuSub>
+
                 <MenuSub>
-                  <MenuSubTrigger>
+                  <MenuSubTrigger className="menu-item-with-icon">
                     <span
-                      className={`size-2.5 shrink-0 rounded-full ${terminalColorSwatchClasses(
-                        activeContextMenuColor,
-                      )}`}
+                      className={`terminal-color-swatch ${activeContextMenuColor ?? "default"}`}
+                      style={{ width: 14, height: 14 }}
                     />
                     <span>Color</span>
-                    <span className="ms-auto truncate text-[11px] text-muted-foreground">
-                      {buildTerminalColorMenuItems(activeContextMenuColor).find(
-                        (item) => item.current,
+                    <span className="ms-auto truncate text-[10px] text-muted-foreground">
+                      {TERMINAL_COLOR_OPTIONS.find(
+                        (o) => o.id === (activeContextMenuColor ?? "default"),
                       )?.label ?? "Default"}
                     </span>
                   </MenuSubTrigger>
-                  <MenuSubPopup className="min-w-40" sideOffset={4}>
-                    <MenuGroup>
-                      <MenuRadioGroup
-                        value={
-                          buildTerminalColorMenuItems(activeContextMenuColor).find(
-                            (item) => item.current,
-                          )?.id ?? "default"
-                        }
-                        onValueChange={(value) =>
-                          handleTerminalColorSelect(
-                            contextMenuState.terminalId,
-                            value as TerminalColorName,
-                          )
-                        }
-                      >
-                        {buildTerminalColorMenuItems(activeContextMenuColor).map((item) => (
-                          <MenuRadioItem key={item.id} value={item.id}>
-                            <span
-                              className={`size-2.5 shrink-0 rounded-full ${terminalColorSwatchClasses(
-                                item.id,
-                              )}`}
-                            />
-                            {item.label}
-                          </MenuRadioItem>
-                        ))}
-                      </MenuRadioGroup>
-                    </MenuGroup>
+                  <MenuSubPopup className="p-1.5" sideOffset={4}>
+                    <div className="terminal-color-picker">
+                      {TERMINAL_COLOR_OPTIONS.map((option) => {
+                        const isSelected = (activeContextMenuColor ?? "default") === option.id;
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className={`color-option ${isSelected ? "selected" : ""}`}
+                            onClick={() => {
+                              handleTerminalColorSelect(
+                                contextMenuState.terminalId,
+                                option.id as TerminalColorName,
+                              );
+                            }}
+                          >
+                            <span className={`terminal-color-swatch ${option.id}`} />
+                            <span>{option.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </MenuSubPopup>
                 </MenuSub>
+
+                <div className="mx-2 my-1 h-px bg-border" />
+
+                <MenuItem
+                  onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "rename")}
+                  className="menu-item-with-icon"
+                >
+                  <Edit2Icon className="size-4 text-muted-foreground" />
+                  <span>Rename</span>
+                </MenuItem>
+                {activeContextMenuHasCustomTitle && (
+                  <MenuItem
+                    onClick={() =>
+                      handleTerminalMenuAction(contextMenuState.terminalId, "reset-title")
+                    }
+                    className="menu-item-with-icon"
+                  >
+                    <RotateCcwIcon className="size-4 text-muted-foreground" />
+                    <span>Reset Title</span>
+                  </MenuItem>
+                )}
+                <MenuItem
+                  onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "clear")}
+                  className="menu-item-with-icon"
+                >
+                  <TrashIcon className="size-4 text-muted-foreground" />
+                  <span>Clear</span>
+                </MenuItem>
+                <MenuItem
+                  onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "restart")}
+                  className="menu-item-with-icon"
+                >
+                  <RefreshCwIcon className="size-4 text-muted-foreground" />
+                  <span>Restart</span>
+                </MenuItem>
+
+                <div className="mx-2 my-1 h-px bg-border" />
+
+                <MenuItem
+                  onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "close")}
+                  variant="destructive"
+                  className="menu-item-with-icon menu-item-danger"
+                >
+                  <XIcon className="size-4" />
+                  <span>Close</span>
+                </MenuItem>
               </>
             ) : (
               <>
-                <MenuSub>
-                  <MenuSubTrigger>Density</MenuSubTrigger>
-                  <MenuSubPopup className="min-w-36" sideOffset={4}>
-                    <MenuGroup>
-                      <MenuRadioGroup
-                        value={sidebarDensity}
-                        onValueChange={(value) =>
-                          handleSidebarDensitySelect(value as TerminalSidebarDensity)
-                        }
-                      >
-                        {buildTerminalSidebarDensityItems(sidebarDensity).map((item) => (
-                          <MenuRadioItem key={item.id} value={item.id}>
-                            {item.label}
-                          </MenuRadioItem>
-                        ))}
-                      </MenuRadioGroup>
-                    </MenuGroup>
-                  </MenuSubPopup>
-                </MenuSub>
-                <MenuSeparator />
-                {buildTerminalSectionMenuItems({ hasWorkspaceScope }).map((item) => (
-                  <MenuItem
-                    key={item.id}
-                    disabled={item.disabled}
-                    variant={item.destructive ? "destructive" : "default"}
-                    onClick={() => handleTerminalSectionAction(item.id)}
-                  >
-                    {item.label}
-                  </MenuItem>
-                ))}
+                <MenuItem
+                  onClick={() => handleTerminalSectionAction("new-thread-shell")}
+                  className="menu-item-with-icon"
+                >
+                  <TerminalSquare className="size-4 text-muted-foreground" />
+                  <span>New Thread Shell</span>
+                </MenuItem>
+                <MenuItem
+                  onClick={() => handleTerminalSectionAction("new-workspace-shell")}
+                  disabled={!hasWorkspaceScope}
+                  className="menu-item-with-icon"
+                >
+                  <Globe className="size-4 text-muted-foreground" />
+                  <span>New Workspace Shell</span>
+                </MenuItem>
+
+                <div className="mx-2 my-1 h-px bg-border" />
+
+                <MenuItem
+                  onClick={() =>
+                    handleSidebarDensitySelect(
+                      sidebarDensity === "comfortable" ? "compact" : "comfortable",
+                    )
+                  }
+                  className="menu-item-with-icon"
+                >
+                  <span className="text-[10px] text-muted-foreground mr-1">
+                    {sidebarDensity === "comfortable" ? "Compact" : "Comfortable"}
+                  </span>
+                  <span className="text-muted-foreground/60 text-[9px]">toggle density</span>
+                </MenuItem>
+                <MenuItem
+                  onClick={() => handleTerminalSectionAction("clear-all")}
+                  className="menu-item-with-icon"
+                >
+                  <TrashIcon className="size-4 text-muted-foreground" />
+                  <span>Clear All</span>
+                </MenuItem>
+
+                <div className="mx-2 my-1 h-px bg-border" />
+
+                <MenuItem
+                  onClick={() => handleTerminalSectionAction("close-all")}
+                  variant="destructive"
+                  className="menu-item-with-icon menu-item-danger"
+                >
+                  <XIcon className="size-4" />
+                  <span>Kill All Terminals</span>
+                </MenuItem>
               </>
             )}
           </MenuPopup>
@@ -2034,7 +2080,7 @@ export default function ThreadTerminalDrawer({
                   <Fragment key={terminalId}>
                     <div
                       className={`min-h-0 min-w-0 ${
-                        terminalId === resolvedActiveTerminalId ? "" : "opacity-90"
+                        terminalId === resolvedActiveTerminalId ? "" : "opacity-80"
                       }`}
                       style={{ flexBasis: 0, flexGrow: activeGroupSplitRatios[index] ?? 1 }}
                       onMouseDown={() => {
@@ -2043,7 +2089,7 @@ export default function ThreadTerminalDrawer({
                         }
                       }}
                     >
-                      <div className="h-full p-1">
+                      <div className="h-full p-0.5">
                         <TerminalViewport
                           threadId={resolvedTerminalRuntimeThreadIdById[terminalId] ?? threadId}
                           terminalId={resolvedTerminalRuntimeIdById[terminalId] ?? terminalId}
@@ -2064,20 +2110,20 @@ export default function ThreadTerminalDrawer({
                     </div>
                     {index < visibleTerminalIds.length - 1 ? (
                       <div
-                        className="group flex w-2 shrink-0 cursor-col-resize items-stretch justify-center"
+                        className="terminal-split-divider group flex w-2 shrink-0 cursor-col-resize items-stretch justify-center"
                         onPointerDown={(event) => handleSplitResizePointerDown(index, event)}
                         onPointerMove={handleSplitResizePointerMove}
                         onPointerUp={handleSplitResizePointerEnd}
                         onPointerCancel={handleSplitResizePointerEnd}
                       >
-                        <div className="my-3 w-px rounded-full bg-border/50 transition-colors duration-150 group-hover:bg-primary/30" />
+                        <div className="my-3 w-px rounded-full bg-border/50" />
                       </div>
                     ) : null}
                   </Fragment>
                 ))}
               </div>
             ) : (
-              <div className="h-full p-1">
+              <div className="h-full p-0.5">
                 <TerminalViewport
                   key={resolvedActiveTerminalId}
                   threadId={
@@ -2118,11 +2164,11 @@ export default function ThreadTerminalDrawer({
               </div>
 
               <aside
-                className="flex shrink-0 flex-col overflow-hidden border-l border-border/30 bg-muted/3"
+                className="flex shrink-0 flex-col overflow-hidden border-l border-border/30"
                 style={{ width: `${sidebarPanelWidth}px`, minWidth: `${sidebarPanelWidth}px` }}
               >
                 <div
-                  className="flex items-center justify-between gap-2 border-b border-border/30 bg-card px-2.5 py-1.5"
+                  className="terminal-sidebar-header flex items-center justify-between gap-2 px-2.5 py-2"
                   onContextMenu={(event) => {
                     event.preventDefault();
                     handleTerminalSectionMenu({ x: event.clientX, y: event.clientY });
@@ -2132,55 +2178,42 @@ export default function ThreadTerminalDrawer({
                     <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                       terminals
                     </div>
-                    <div className="truncate text-[11px] text-foreground">
+                    <div className="truncate text-[11px] font-medium text-foreground">
                       {normalizedTerminalIds.length} open
                     </div>
                   </div>
-                  <div className="inline-flex items-center overflow-hidden rounded-md border border-border/40 bg-card">
+                  <div className="inline-flex items-center gap-0.5 overflow-hidden rounded-lg border border-border/40 bg-background/80 p-0.5 backdrop-blur-sm">
                     <TerminalActionButton
-                      className={`inline-flex h-7 items-center px-1.5 text-foreground transition-colors duration-150 ${
-                        hasReachedSplitLimit
-                          ? "cursor-not-allowed opacity-40 hover:bg-transparent"
-                          : "hover:bg-accent/30"
+                      className={`terminal-action-btn inline-flex size-7 items-center justify-center rounded-md text-foreground ${
+                        hasReachedSplitLimit ? "cursor-not-allowed opacity-40" : "hover:bg-accent"
                       }`}
                       onClick={onSplitTerminalAction}
                       label={splitTerminalActionLabel}
                     >
-                      <SquareSplitHorizontal className="size-3.25" />
+                      <SquareSplitHorizontal className="size-3.5" />
                     </TerminalActionButton>
                     <TerminalActionButton
-                      className="inline-flex h-7 items-center border-l border-border/40 px-1.5 text-foreground transition-all duration-150 hover:bg-accent/25 hover:text-foreground"
+                      className="terminal-action-btn inline-flex size-7 items-center justify-center rounded-md text-foreground hover:bg-accent"
                       onClick={onNewThreadTerminalAction}
                       label={newThreadTerminalActionLabel}
                     >
-                      <TerminalSquare className="size-3.25" />
+                      <TerminalSquare className="size-3.5" />
                     </TerminalActionButton>
                     <TerminalActionButton
-                      className={`inline-flex h-7 items-center border-l border-border/40 px-1.5 text-foreground transition-all duration-150 ${
-                        hasWorkspaceScope
-                          ? "hover:bg-accent/25 hover:text-foreground"
-                          : "cursor-not-allowed opacity-40 hover:bg-transparent"
+                      className={`terminal-action-btn inline-flex size-7 items-center justify-center rounded-md text-foreground ${
+                        hasWorkspaceScope ? "hover:bg-accent" : "cursor-not-allowed opacity-40"
                       }`}
                       onClick={onNewWorkspaceTerminalAction}
                       label={newWorkspaceTerminalActionLabel}
                     >
-                      <Globe className="size-3.25" />
+                      <Globe className="size-3.5" />
                     </TerminalActionButton>
                     <TerminalActionButton
-                      className="inline-flex h-7 items-center border-l border-border/40 px-1.5 text-foreground transition-all duration-150 hover:bg-accent/25 hover:text-foreground"
-                      onClick={(event) => {
-                        handleTerminalSectionMenu(menuPositionFromElement(event.currentTarget));
-                      }}
-                      label="Terminal Actions"
-                    >
-                      <EllipsisVertical className="size-3.25" />
-                    </TerminalActionButton>
-                    <TerminalActionButton
-                      className="inline-flex h-7 items-center border-l border-border/40 px-1.5 text-foreground transition-all duration-150 hover:bg-accent/25 hover:text-foreground"
+                      className="terminal-action-btn inline-flex size-7 items-center justify-center rounded-md text-foreground hover:bg-accent"
                       onClick={() => onCloseTerminal(resolvedActiveTerminalId)}
                       label={closeTerminalActionLabel}
                     >
-                      <Trash2 className="size-3.25" />
+                      <XIcon className="size-3.5" />
                     </TerminalActionButton>
                   </div>
                 </div>
@@ -2308,10 +2341,10 @@ export default function ThreadTerminalDrawer({
                                 return (
                                   <div
                                     key={terminalId}
-                                    className={`group flex items-center gap-2 border-l-2 ${rowPaddingClass} ${rowTextClass} transition-colors ${
+                                    className={`terminal-item group flex items-center gap-2 border-l-2 ${rowPaddingClass} ${rowTextClass} ${
                                       isActive
-                                        ? "border-primary/40 bg-accent/25 text-foreground"
-                                        : "border-transparent text-muted-foreground hover:bg-accent/15 hover:text-foreground"
+                                        ? "active border-primary/40 text-foreground"
+                                        : "border-transparent text-muted-foreground"
                                     }`}
                                     draggable={!isEditing}
                                     onDragStart={(event) => {
@@ -2370,8 +2403,10 @@ export default function ThreadTerminalDrawer({
                                       {ordinal}
                                     </span>
                                     <span
-                                      className={`size-1.5 shrink-0 rounded-full ${
-                                        isRunning ? "bg-emerald-400" : "bg-border"
+                                      className={`terminal-live-indicator shrink-0 rounded-full ${
+                                        isRunning
+                                          ? "size-1.5 bg-emerald-400 shadow-sm shadow-emerald-400/50"
+                                          : "size-1 bg-border"
                                       }`}
                                     />
                                     {isEditing ? (
@@ -2418,13 +2453,15 @@ export default function ThreadTerminalDrawer({
                                           className: "size-3 shrink-0",
                                         })}
                                         <span className="min-w-0 flex-1">
-                                          <span className="block truncate">{displayLabel}</span>
+                                          <span className="block truncate font-medium">
+                                            {displayLabel}
+                                          </span>
                                           <span className="block truncate text-[9px] text-muted-foreground">
                                             {subtitle}
                                           </span>
                                         </span>
                                         {isRunning ? (
-                                          <span className="px-1 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-emerald-600 dark:text-emerald-300">
+                                          <span className="rounded-sm bg-emerald-500/15 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-emerald-600 dark:text-emerald-300">
                                             live
                                           </span>
                                         ) : null}

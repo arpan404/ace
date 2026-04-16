@@ -18,8 +18,11 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
     const serverConfig = yield* ServerConfig;
     const workspacePaths = yield* WorkspacePaths;
 
-    const normalizeProjectWorkspaceRoot = (workspaceRoot: string) =>
-      workspacePaths.normalizeWorkspaceRoot(workspaceRoot).pipe(
+    const normalizeProjectWorkspaceRoot = (
+      workspaceRoot: string,
+      options?: { readonly createIfMissing?: boolean },
+    ) =>
+      workspacePaths.normalizeWorkspaceRoot(workspaceRoot, options).pipe(
         Effect.mapError(
           (cause) =>
             new OrchestrationDispatchCommandError({
@@ -31,7 +34,12 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
     if (command.type === "project.create") {
       return {
         ...command,
-        workspaceRoot: yield* normalizeProjectWorkspaceRoot(command.workspaceRoot),
+        workspaceRoot: yield* normalizeProjectWorkspaceRoot(
+          command.workspaceRoot,
+          command.createWorkspaceRootIfMissing === undefined
+            ? undefined
+            : { createIfMissing: command.createWorkspaceRootIfMissing },
+        ),
       } satisfies OrchestrationCommand;
     }
 

@@ -8,9 +8,12 @@
     "ACE_LOG_WS_EVENTS",
     "ACE_MODE",
     "ACE_PORT",
+    "ACE_HOST",
     "ACE_NO_BROWSER",
+    "ACE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
     "ACE_HOME",
     "ACE_AUTH_TOKEN",
+    "ACE_DAEMONIZED",
     "ACE_DESKTOP_WS_URL"
   ],
   "tasks": {

@@ -127,6 +127,7 @@ export const ThreadEnvMode = Schema.Literals(["local", "worktree"]);
 export type ThreadEnvMode = typeof ThreadEnvMode.Type;
 export const DEFAULT_PROVIDER_CLI_MAX_OPEN = 5;
 export const DEFAULT_PROVIDER_CLI_IDLE_TTL_SECONDS = 300;
+export const DEFAULT_ADD_PROJECT_BASE_DIRECTORY = "";
 
 const makeBinaryPathSetting = (fallback: string) =>
   TrimmedString.pipe(
@@ -193,6 +194,9 @@ export const ServerSettings = Schema.Struct({
   notifyOnUserInputRequired: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   defaultThreadEnvMode: ThreadEnvMode.pipe(
     Schema.withDecodingDefault(() => "local" as const satisfies ThreadEnvMode),
+  ),
+  addProjectBaseDirectory: TrimmedString.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ADD_PROJECT_BASE_DIRECTORY),
   ),
   providerCliMaxOpen: PositiveInt.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_CLI_MAX_OPEN),
@@ -347,6 +351,7 @@ export const ServerSettingsPatch = Schema.Struct({
   notifyOnApprovalRequired: Schema.optionalKey(Schema.Boolean),
   notifyOnUserInputRequired: Schema.optionalKey(Schema.Boolean),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
+  addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   providerCliMaxOpen: Schema.optionalKey(PositiveInt),
   providerCliIdleTtlSeconds: Schema.optionalKey(PositiveInt),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),

@@ -4,8 +4,18 @@ import * as Os from "node:os";
 import * as Readline from "node:readline/promises";
 
 import pc from "picocolors";
-import { WS_METHODS, type ServerRuntimeProfile } from "@ace/contracts";
-import { normalizeWsUrl } from "@ace/shared/hostConnections";
+import QRCode from "qrcode";
+import {
+  DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM,
+  WS_METHODS,
+  type ServerRuntimeProfile,
+} from "@ace/contracts";
+import {
+  normalizeWsUrl,
+  parseHostConnectionQrPayload,
+  requestPairingClaim,
+  waitForPairingApproval,
+} from "@ace/shared/hostConnections";
 import { NetService } from "@ace/shared/Net";
 import { createWsRpcProtocolLayer, makeWsRpcProtocolClient } from "@ace/shared/wsRpcProtocol";
 import {
@@ -22,6 +32,13 @@ import {
   type CliRemoteConnectionSummary,
   CliRemoteConnectionServicesLive,
 } from "./cliRemoteConnections";
+import {
+  createCliPairingSession,
+  listCliPairingSessions,
+  pingCliHostConnection,
+  revokeCliPairingSession,
+  type CliPairingSessionStatus,
+} from "./cliPairing";
 import { normalizeCliWorkspaceRoot } from "./cliPaths";
 import {
   type AceServerDaemonState,
@@ -55,6 +72,7 @@ import {
   RuntimeMode,
 } from "./config";
 import { readBootstrapEnvelope } from "./bootstrap";
+import { Open, OpenLive } from "./open";
 import { resolveBaseDir } from "./os-jank";
 import {
   buildProcessTree,
@@ -249,7 +267,7 @@ export const resolveServerConfig = (
         ),
       ),
     );
-    const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
+    const derivedPaths = yield* deriveServerPaths(baseDir, devUrl, mode);
     yield* ensureServerDirectories(derivedPaths);
     const noBrowser = resolveBooleanFlag(
       flags.noBrowser,
@@ -351,7 +369,7 @@ const resolveDataConfig = (flags: CliDataFlags, cliLogLevel: Option.Option<LogLe
         resolveOptionPrecedence(flags.baseDir, Option.fromUndefinedOr(env.aceHome)),
       ),
     );
-    const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
+    const derivedPaths = yield* deriveServerPaths(baseDir, devUrl, "web");
     yield* ensureServerDirectories(derivedPaths);
 
     return {
@@ -373,6 +391,18 @@ const resolveDataConfig = (flags: CliDataFlags, cliLogLevel: Option.Option<LogLe
 
 const serveCommandFlags = {
   mode: modeFlag,
+  port: portFlag,
+  host: hostFlag,
+  baseDir: baseDirFlag,
+  devUrl: devUrlFlag,
+  noBrowser: noBrowserFlag,
+  authToken: authTokenFlag,
+  bootstrapFd: bootstrapFdFlag,
+  autoBootstrapProjectFromCwd: autoBootstrapProjectFromCwdFlag,
+  logWebSocketEvents: logWebSocketEventsFlag,
+} as const;
+
+const webCommandFlags = {
   port: portFlag,
   host: hostFlag,
   baseDir: baseDirFlag,
@@ -476,6 +506,148 @@ const formatRemoteConnectionRows = (
   ]);
   return formatRows(headers, rows);
 };
+
+const formatPairingSessionRows = (sessions: ReadonlyArray<CliPairingSessionStatus>): string => {
+  if (sessions.length === 0) {
+    return `${pc.dim("No pairing sessions found.")}\n`;
+  }
+  const headers = ["LABEL", "REQUESTER", "STATUS", "PAIRED AT", "EXPIRES", "SESSION"] as const;
+  const rows = sessions.map((session) => [
+    session.name,
+    session.requesterName ?? "-",
+    session.status,
+    session.resolvedAt ?? "-",
+    session.expiresAt,
+    session.sessionId,
+  ]);
+  return formatRows(headers, rows);
+};
+
+const promptPairingSessionSelection = (sessions: ReadonlyArray<CliPairingSessionStatus>) =>
+  Effect.tryPromise({
+    try: async (): Promise<string> => {
+      if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        throw new Error(
+          "Interactive pairing revoke requires a TTY. Pass a session id explicitly in non-interactive environments.",
+        );
+      }
+      if (sessions.length === 0) {
+        throw new Error("No pairing sessions are available for interactive revoke.");
+      }
+      const rl = Readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      try {
+        process.stdout.write(`${pc.bold("Select pairing session to revoke")}\n`);
+        sessions.forEach((session, index) => {
+          const requester = session.requesterName ?? "pending claim";
+          const pairedAt = session.resolvedAt ?? "pending";
+          process.stdout.write(
+            `  ${pc.cyan(String(index + 1))}. ${session.name} ${pc.dim(
+              `(${requester}, ${session.status}, paired ${pairedAt})`,
+            )}\n`,
+          );
+        });
+        const answer = (await rl.question(`${pc.magenta("›")} `)).trim();
+        const byIndex = Number.parseInt(answer, 10);
+        if (Number.isFinite(byIndex) && byIndex >= 1 && byIndex <= sessions.length) {
+          const selected = sessions[byIndex - 1];
+          if (selected) {
+            return selected.sessionId;
+          }
+        }
+        const bySessionId = sessions.find((session) => session.sessionId === answer);
+        if (bySessionId) {
+          return bySessionId.sessionId;
+        }
+        throw new Error("Invalid selection. Use a list number or session id.");
+      } finally {
+        rl.close();
+      }
+    },
+    catch: (cause) =>
+      new DaemonCommandError({
+        message: "Failed to resolve interactive pairing session selection.",
+        cause,
+      }),
+  });
+
+const promptRemoteConnectionSelection = (
+  connections: ReadonlyArray<CliRemoteConnectionSummary>,
+  purpose: "remove" | "ping",
+) =>
+  Effect.tryPromise({
+    try: async (): Promise<string> => {
+      if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        throw new Error(
+          `Interactive remote ${purpose} requires a TTY. Pass a selector in non-interactive environments.`,
+        );
+      }
+      if (connections.length === 0) {
+        throw new Error("No linked remote hosts found.");
+      }
+      const rl = Readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      try {
+        process.stdout.write(
+          `${pc.bold(
+            purpose === "remove"
+              ? "Select linked remote host to remove"
+              : "Select linked remote host to ping",
+          )}\n`,
+        );
+        process.stdout.write(`  ${pc.cyan("0")}. ${pc.dim("all linked hosts")}\n`);
+        connections.forEach((connection, index) => {
+          process.stdout.write(
+            `  ${pc.cyan(String(index + 1))}. ${connection.name} ${pc.dim(`(${connection.wsUrl})`)}\n`,
+          );
+        });
+        const answer = (await rl.question(`${pc.magenta("›")} `)).trim();
+        if (answer === "0" || answer.toLowerCase() === "all") {
+          return "__all__";
+        }
+        const byIndex = Number.parseInt(answer, 10);
+        if (Number.isFinite(byIndex) && byIndex >= 1 && byIndex <= connections.length) {
+          const selected = connections[byIndex - 1];
+          if (selected) {
+            return selected.id;
+          }
+        }
+        const bySelector = connections.find(
+          (connection) =>
+            connection.id === answer || connection.name === answer || connection.wsUrl === answer,
+        );
+        if (bySelector) {
+          return bySelector.id;
+        }
+        throw new Error("Invalid selection. Use a list number, id, name, ws url, or 0 for all.");
+      } finally {
+        rl.close();
+      }
+    },
+    catch: (cause) =>
+      new DaemonCommandError({
+        message: `Failed to resolve interactive remote ${purpose} selection.`,
+        cause,
+      }),
+  });
+
+const renderQrToken = (token: string) =>
+  Effect.tryPromise({
+    try: () =>
+      QRCode.toString(token, {
+        type: "terminal",
+        small: true,
+      }),
+    catch: (cause) =>
+      new DaemonCommandError({
+        message: "Failed to render pairing QR in terminal output.",
+        cause,
+      }),
+  });
 
 interface RuntimeProfileWsClient {
   readonly readSnapshot: () => Promise<ServerRuntimeProfile>;
@@ -624,6 +796,38 @@ function formatProviderSessionCounts(snapshot: ServerRuntimeProfile | null): str
     .join("  ");
 }
 
+function buildBar(
+  value: number,
+  max: number,
+  width: number,
+  colorFn: (s: string) => string,
+): string {
+  if (max <= 0) {
+    return colorFn("─".repeat(width));
+  }
+  const filled = Math.round((Math.min(value, max) / max) * width);
+  const empty = width - filled;
+  return colorFn("█".repeat(filled)) + pc.dim("░".repeat(empty));
+}
+
+function buildCpuBar(cpuPercent: number | null): string {
+  const value = cpuPercent ?? 0;
+  return buildBar(value, 100, 20, (s) => {
+    if (value > 80) return pc.red(s);
+    if (value > 50) return pc.yellow(s);
+    return pc.green(s);
+  });
+}
+
+function buildMemoryBar(rssBytes: number): string {
+  return buildBar(rssBytes, 8 * 1024 * 1024 * 1024, 20, (s) => {
+    const gb = rssBytes / (1024 * 1024 * 1024);
+    if (gb > 6) return pc.red(s);
+    if (gb > 4) return pc.yellow(s);
+    return pc.cyan(s);
+  });
+}
+
 function renderProfileDashboard(input: {
   readonly targetPid: number;
   readonly intervalMs: number;
@@ -642,44 +846,90 @@ function renderProfileDashboard(input: {
   });
   const processTable = formatRows(["PID", "PPID", "RSS", "CPU", "COMMAND"], rows);
   const runtimeProfile = input.runtimeProfile;
-  const processMemoryLine = runtimeProfile
-    ? `Process memory: rss ${formatByteCount(runtimeProfile.process.rssBytes)} | heap ${formatByteCount(
-        runtimeProfile.process.heapUsedBytes,
-      )}/${formatByteCount(runtimeProfile.process.heapTotalBytes)} | external ${formatByteCount(
-        runtimeProfile.process.externalBytes,
-      )} | arrayBuffers ${formatByteCount(runtimeProfile.process.arrayBuffersBytes)}`
-    : "Process memory: unavailable";
-  const cacheLine = runtimeProfile
-    ? `Caches: snapshot-view ${String(runtimeProfile.caches.snapshotView.currentEntries)}/${String(
-        runtimeProfile.caches.snapshotView.maxEntries,
-      )} | assistant-streams ${String(
-        runtimeProfile.caches.providerRuntimeIngestion.activeAssistantStreams,
-      )} | pending-deltas ${String(
-        runtimeProfile.caches.providerRuntimeIngestion.pendingAssistantDeltaStreams,
-      )} | thinking ${String(runtimeProfile.caches.providerRuntimeIngestion.bufferedThinkingActivities)}`
-    : "Caches: unavailable";
-  const runtimeLine = runtimeProfile
-    ? `Runtime: ${runtimeProfile.process.platform} ${runtimeProfile.process.nodeVersion} | uptime ${formatUptimeSeconds(
-        runtimeProfile.process.uptimeSeconds,
-      )}`
-    : "Runtime: unavailable";
   const errorLine =
     input.runtimeProfileError === null
       ? ""
-      : `\n${pc.yellow(`Runtime profile unavailable: ${input.runtimeProfileError}`)}`;
+      : pc.yellow(`Runtime profile unavailable: ${input.runtimeProfileError}`);
+
+  const cpuBar = buildCpuBar(input.processTree.totalCpuPercent);
+  const memBar = buildMemoryBar(input.processTree.totalRssBytes);
+  const cpuPercent = formatCpuPercent(input.processTree.totalCpuPercent);
+  const memDisplay = formatByteCount(input.processTree.totalRssBytes);
+
+  const line1 = pc.bold(pc.cyan("ace")) + pc.dim(" process monitor  ") + pc.dim("│");
+  const line2 =
+    pc.dim("  PID ") +
+    pc.bold(pc.white(String(input.targetPid))) +
+    pc.dim(" │ ") +
+    pc.dim("refresh ") +
+    pc.white(String(input.intervalMs)) +
+    pc.dim("ms │ ") +
+    pc.dim("sampled ") +
+    pc.white(input.sampledAt.split("T")[1]?.split(".")[0] ?? input.sampledAt);
+
+  const barSection = pc.dim(
+    "┌─ " +
+      "CPU".padEnd(22) +
+      "MEM".padEnd(22) +
+      pc.dim(" ─┐\n") +
+      "│  " +
+      pc.bold(pc.dim("cpu")) +
+      pc.dim(" ") +
+      cpuBar +
+      pc.dim(" ") +
+      pc.bold(pc.dim("mem")) +
+      pc.dim(" ") +
+      memBar +
+      pc.dim("  │\n") +
+      pc.dim("│  ") +
+      pc.white(cpuPercent.padEnd(18)) +
+      pc.dim("       ") +
+      pc.white(memDisplay.padEnd(22)) +
+      pc.dim("  │\n") +
+      pc.dim("└" + "─".repeat(54) + "┘"),
+  );
+
+  const statSection = runtimeProfile
+    ? [
+        pc.dim("┌─ " + pc.bold("Runtime") + pc.dim(" ".repeat(44) + " ─┐")),
+        `│  ${pc.bold(pc.dim("platform"))}  ${pc.white(runtimeProfile.process.platform.padEnd(40))}  │`,
+        `│  ${pc.bold(pc.dim("node"))}       ${pc.white(runtimeProfile.process.nodeVersion.padEnd(40))}  │`,
+        `│  ${pc.bold(pc.dim("uptime"))}     ${pc.white(formatUptimeSeconds(runtimeProfile.process.uptimeSeconds).padEnd(40))}  │`,
+        pc.dim("│  " + " ".repeat(52) + "  │"),
+        `│  ${pc.bold(pc.dim("heap"))}       ${pc.white(formatByteCount(runtimeProfile.process.heapUsedBytes).padEnd(16) + "/" + formatByteCount(runtimeProfile.process.heapTotalBytes).padEnd(16))}  │`,
+        `│  ${pc.bold(pc.dim("external"))}    ${pc.white(formatByteCount(runtimeProfile.process.externalBytes).padEnd(40))}  │`,
+        `│  ${pc.bold(pc.dim("buffers"))}    ${pc.white(formatByteCount(runtimeProfile.process.arrayBuffersBytes).padEnd(40))}  │`,
+        pc.dim("│  " + " ".repeat(52) + "  │"),
+        `│  ${pc.bold(pc.dim("sessions"))}   ${pc.white(formatProviderSessionCounts(runtimeProfile).padEnd(40))}  │`,
+        pc.dim("└" + "─".repeat(54) + "┘"),
+      ].join("\n")
+    : "";
+
+  const processSection =
+    pc.dim(
+      "┌─ " +
+        pc.bold("Processes") +
+        pc.dim(` (${input.processTree.processes.length})`.padEnd(44) + " ─┐"),
+    ) +
+    "\n" +
+    processTable
+      .split("\n")
+      .map((line) => (line.trim() ? `│  ${line.padEnd(52)}  │` : ""))
+      .join("\n") +
+    pc.dim("\n└" + "─".repeat(54) + "┘");
 
   return [
-    `ace profile ${pc.dim(`(refresh ${String(input.intervalMs)}ms)`)} | sampled ${input.sampledAt}`,
-    `Target pid: ${String(input.targetPid)} | Processes: ${String(input.processTree.processes.length)} | Total rss: ${formatByteCount(input.processTree.totalRssBytes)} | Total cpu: ${formatCpuPercent(input.processTree.totalCpuPercent)}`,
-    processMemoryLine,
-    cacheLine,
-    `Provider sessions: ${formatProviderSessionCounts(runtimeProfile)}`,
-    runtimeLine,
+    line1,
+    line2,
     "",
-    processTable.trimEnd(),
-    errorLine,
+    barSection,
+    errorLine ? `\n\n${errorLine}` : "",
     "",
-    pc.dim("Press Ctrl+C to stop."),
+    statSection,
+    "",
+    processSection,
+    "",
+    pc.dim("  Ctrl+C to exit"),
   ].join("\n");
 }
 
@@ -719,6 +969,46 @@ const runDaemonCommand = <A, E, R>(flags: CliDataFlags, effect: Effect.Effect<A,
     const config = yield* resolveDataConfig(flags, logLevel);
     return yield* effect.pipe(Effect.provideService(ServerConfig, config));
   });
+
+const resolveLocalDaemonConnection = Effect.fn("resolveLocalDaemonConnection")(function* (
+  flags: CliDataFlags,
+) {
+  const logLevel = yield* GlobalFlag.LogLevel;
+  const config = yield* resolveDataConfig(flags, logLevel);
+  const daemonStatus = yield* readDaemonStatusPayload(config.baseDir);
+  if (daemonStatus.status !== "running" || !daemonStatus.state) {
+    return yield* new DaemonCommandError({
+      message: "Daemon is not running. Start it with `ace serve` or `ace daemon start`.",
+    });
+  }
+  return {
+    wsUrl: daemonStatus.state.wsUrl,
+    authToken: daemonStatus.state.authToken,
+  } as const;
+});
+
+const resolveRemoteLinkDraft = Effect.fn("resolveRemoteLinkDraft")(function* (token: string) {
+  const parsed = parseHostConnectionQrPayload(token);
+  if (!parsed) {
+    return yield* new DaemonCommandError({
+      message: "Invalid token. Use a pairing token (ace://pair?...) or host URL.",
+    });
+  }
+  if (parsed.kind === "direct") {
+    return parsed.draft;
+  }
+  const receipt = yield* Effect.promise(() =>
+    requestPairingClaim(parsed.pairing, {
+      requesterName: "ace cli",
+    }),
+  );
+  return yield* Effect.promise(() =>
+    waitForPairingApproval(receipt, {
+      timeoutMs: 120_000,
+      pollIntervalMs: 1_200,
+    }),
+  );
+});
 
 export const shouldRunServeInForeground = (env: NodeJS.ProcessEnv = process.env): boolean =>
   env.ACE_DAEMONIZED === "1";
@@ -851,6 +1141,35 @@ const normalizeDaemonWsHost = (host: string | null): string => {
 
 const buildDaemonWsUrl = (host: string | null, port: number, authToken: string): string =>
   `ws://${normalizeDaemonWsHost(host)}:${port}/?token=${encodeURIComponent(authToken)}`;
+
+const normalizeDaemonHttpHost = (host: string | null): string => {
+  if (!host || host === "0.0.0.0" || host === "::" || host === "[::]") {
+    return "localhost";
+  }
+  return host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+};
+
+const buildDaemonHttpUrl = (state: AceServerDaemonState): string =>
+  `http://${normalizeDaemonHttpHost(state.host)}:${state.port}`;
+
+const buildDaemonWebAppUrl = (state: AceServerDaemonState): string => {
+  const parsed = new URL(buildDaemonHttpUrl(state));
+  parsed.searchParams.set(DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM, state.wsUrl);
+  return parsed.toString();
+};
+
+const openBrowserTarget = (target: string) =>
+  Effect.gen(function* () {
+    const { openBrowser } = yield* Open;
+    yield* openBrowser(target);
+  }).pipe(
+    Effect.provide(OpenLive),
+    Effect.catch(() =>
+      writeStdout(
+        `${pc.yellow("Browser auto-open unavailable")}. Open ${target} in your browser.\n`,
+      ),
+    ),
+  );
 
 const isErrnoCode = (cause: unknown, code: string): boolean =>
   typeof cause === "object" &&
@@ -1049,6 +1368,66 @@ const startDaemonAndPersistState = Effect.fn("startDaemonAndPersistState")(funct
   return state;
 });
 
+const ensureDaemonStarted = Effect.fn("ensureDaemonStarted")(function* (input: {
+  readonly config: ServerConfigShape;
+}) {
+  const existingStatus = yield* readDaemonStatusPayload(input.config.baseDir);
+  if (existingStatus.state && existingStatus.processAlive) {
+    const eventuallyReady = yield* waitForDaemonReady(existingStatus.state, {
+      timeoutMs: DEFAULT_DAEMON_START_TIMEOUT_MS,
+    });
+    if (eventuallyReady) {
+      if (isDaemonStateCurrentVersion(existingStatus.state)) {
+        return {
+          status: "already-running" as const,
+          daemon: existingStatus.state,
+        };
+      }
+
+      const stopResult = yield* stopDaemonIfPresent({
+        baseDir: input.config.baseDir,
+        timeoutMs: DEFAULT_DAEMON_RESTART_TIMEOUT_MS,
+      });
+      const state = yield* startDaemonAndPersistState({
+        config: input.config,
+      });
+      return {
+        status: "started" as const,
+        daemon: state,
+        upgraded: true as const,
+        previousVersion: existingStatus.state.serverVersion,
+        stop: stopResult,
+      };
+    }
+
+    const stopResult = yield* stopDaemonIfPresent({
+      baseDir: input.config.baseDir,
+      timeoutMs: DEFAULT_DAEMON_RESTART_TIMEOUT_MS,
+    });
+    const state = yield* startDaemonAndPersistState({
+      config: input.config,
+    });
+    return {
+      status: "started" as const,
+      daemon: state,
+      recovered: true as const,
+      replacedPid: existingStatus.state.pid,
+      stop: stopResult,
+    };
+  }
+
+  if (existingStatus.status === "stale") {
+    yield* clearDaemonState(input.config.baseDir);
+  }
+  const state = yield* startDaemonAndPersistState({
+    config: input.config,
+  });
+  return {
+    status: "started" as const,
+    daemon: state,
+  };
+});
+
 const streamDaemonLogs = (logPath: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const fs = yield* Effect.promise(() => import("node:fs"));
@@ -1075,7 +1454,7 @@ const serveCommand = Command.make("serve", {
   ...serveCommandFlags,
   workspaceRoot: openWorkspaceArgument,
 }).pipe(
-  Command.withDescription("Run the ace HTTP/WebSocket server."),
+  Command.withDescription("Run or attach to the persistent background ace server daemon."),
   Command.withHandler(({ workspaceRoot, ...flags }) =>
     Effect.gen(function* () {
       const logLevel = yield* GlobalFlag.LogLevel;
@@ -1099,6 +1478,43 @@ const serveCommand = Command.make("serve", {
       const state = yield* startDaemonAndPersistState({ config });
       yield* writeStdout(`${pc.green("Daemon started")} pid=${String(state.pid)} ${state.wsUrl}\n`);
       return yield* streamDaemonLogs(state.serverLogPath);
+    }),
+  ),
+);
+
+const webCommand = Command.make("web", {
+  ...webCommandFlags,
+  workspaceRoot: openWorkspaceArgument,
+}).pipe(
+  Command.withDescription("Open the ace web app by reusing or starting the background daemon."),
+  Command.withHandler(({ workspaceRoot, ...flags }) =>
+    Effect.gen(function* () {
+      const logLevel = yield* GlobalFlag.LogLevel;
+      const config = yield* resolveServerConfig(
+        {
+          ...flags,
+          mode: Option.some("web"),
+        },
+        logLevel,
+        workspaceRoot,
+      );
+      const daemonResult = yield* ensureDaemonStarted({ config });
+      const webUrl = buildDaemonWebAppUrl(daemonResult.daemon);
+
+      if (daemonResult.status === "already-running") {
+        yield* writeStdout(
+          `${pc.green("Using daemon")} pid=${String(daemonResult.daemon.pid)} ${daemonResult.daemon.wsUrl}\n`,
+        );
+      } else {
+        yield* writeStdout(
+          `${pc.green("Started daemon")} pid=${String(daemonResult.daemon.pid)} ${daemonResult.daemon.wsUrl}\n`,
+        );
+      }
+
+      if (!config.noBrowser) {
+        yield* openBrowserTarget(webUrl);
+      }
+      return yield* writeStdout(`${pc.green("Web ready")} ${webUrl}\n`);
     }),
   ),
 );
@@ -1194,37 +1610,226 @@ const projectCommand = Command.make("project").pipe(
   Command.withSubcommands([projectAddCommand, projectRemoveCommand, projectListCommand]),
 );
 
-const remoteAddCommand = Command.make("add", {
+const remoteCreateCommand = Command.make("create", {
   ...dataCommandFlags,
-  wsUrl: Argument.string("ws-url").pipe(
-    Argument.withDescription("Remote host ws/http URL (token can be embedded with ?token=...)."),
+  deviceName: Flag.string("device-name").pipe(
+    Flag.withDescription("Label shown while pairing this host."),
   ),
-  name: Flag.string("name").pipe(
-    Flag.withDescription("Optional display name override."),
-    Flag.optional,
+  wait: Flag.boolean("wait").pipe(
+    Flag.withDescription("Wait for status updates until paired/revoked/expired."),
+    Flag.withDefault(true),
   ),
-  authToken: Flag.string("auth-token").pipe(
-    Flag.withAlias("token"),
-    Flag.withDescription("Optional auth token override."),
+  waitTimeoutMs: Flag.integer("wait-timeout-ms").pipe(
+    Flag.withDescription("How long to wait for pairing status updates."),
     Flag.optional,
   ),
   json: jsonFlag,
 }).pipe(
-  Command.withDescription("Add or update a saved remote connection."),
-  Command.withHandler(({ wsUrl, name, authToken, json, ...flags }) =>
+  Command.withDescription("Create a host pairing token and QR for remote linking."),
+  Command.withHandler(({ deviceName, wait, waitTimeoutMs, json, ...flags }) =>
     Effect.gen(function* () {
-      const result = yield* runCliRemoteConnectionCommand(
-        flags,
-        addCliRemoteConnection({
-          wsUrl,
-          ...(Option.isSome(name) ? { name: name.value } : {}),
-          ...(Option.isSome(authToken) ? { authToken: authToken.value } : {}),
+      const host = yield* resolveLocalDaemonConnection(flags);
+      const result = yield* Effect.promise(() =>
+        createCliPairingSession({
+          wsUrl: host.wsUrl,
+          authToken: host.authToken,
+          name: deviceName,
+        }),
+      );
+      const qr = yield* renderQrToken(result.connectionString);
+      const statusLabel = (status: CliPairingSessionStatus["status"]) => {
+        switch (status) {
+          case "approved":
+            return pc.green(status);
+          case "rejected":
+          case "expired":
+            return pc.red(status);
+          default:
+            return pc.yellow(status);
+        }
+      };
+
+      if (json) {
+        return yield* writeJson({
+          ...result,
+          qr,
+        });
+      }
+
+      yield* writeStdout(
+        [
+          `${pc.green("Created")} pairing session ${result.sessionId} ${pc.dim(`(expires ${result.expiresAt})`)}`,
+          `${pc.bold("Device label:")} ${result.name}`,
+          `${pc.bold("Pairing token:")} ${result.connectionString}`,
+          `${pc.bold("Pairing status:")} ${statusLabel(result.status)}`,
+          "",
+          qr,
+        ].join("\n") + "\n",
+      );
+
+      if (!wait) {
+        return;
+      }
+
+      const timeoutMs = Math.max(
+        1_000,
+        Option.isSome(waitTimeoutMs) ? waitTimeoutMs.value : 120_000,
+      );
+      const startedAt = Date.now();
+      let lastStatus = result.status;
+      while (lastStatus === "waiting-claim" || lastStatus === "claim-pending") {
+        if (Date.now() - startedAt >= timeoutMs) {
+          yield* writeStdout(`${pc.yellow("Pairing status wait timed out.")}\n`);
+          break;
+        }
+        yield* Effect.sleep("1200 millis");
+        const sessions = yield* Effect.promise(() =>
+          listCliPairingSessions({
+            wsUrl: host.wsUrl,
+            authToken: host.authToken,
+          }),
+        );
+        const current = sessions.find((session) => session.sessionId === result.sessionId);
+        if (!current) {
+          yield* writeStdout(`${pc.yellow("Pairing session no longer exists on host.")}\n`);
+          break;
+        }
+        if (current.status !== lastStatus) {
+          lastStatus = current.status;
+          const requesterSuffix = current.requesterName
+            ? ` ${pc.dim(`(${current.requesterName})`)}`
+            : "";
+          yield* writeStdout(
+            `${pc.bold("Pairing status:")} ${statusLabel(current.status)}${requesterSuffix}\n`,
+          );
+        }
+      }
+    }),
+  ),
+);
+
+const remoteListCommand = Command.make("list", {
+  ...dataCommandFlags,
+  json: jsonFlag,
+}).pipe(
+  Command.withAlias("ls"),
+  Command.withDescription("List pairing sessions/devices granted access by this host."),
+  Command.withHandler(({ json, ...flags }) =>
+    Effect.gen(function* () {
+      const host = yield* resolveLocalDaemonConnection(flags);
+      const sessions = yield* Effect.promise(() =>
+        listCliPairingSessions({
+          wsUrl: host.wsUrl,
+          authToken: host.authToken,
+        }),
+      );
+      if (json) {
+        return yield* writeJson(sessions);
+      }
+      return yield* writeStdout(formatPairingSessionRows(sessions));
+    }),
+  ),
+);
+
+const remoteRevokeCommand = Command.make("revoke", {
+  ...dataCommandFlags,
+  session: Argument.string("session").pipe(
+    Argument.withDescription("Pairing session id to revoke."),
+    Argument.optional,
+  ),
+  interactive: Flag.boolean("interactive").pipe(
+    Flag.withAlias("i"),
+    Flag.withDescription("Choose session interactively."),
+    Flag.withDefault(true),
+  ),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Revoke host-side pairing access."),
+  Command.withHandler(({ session, interactive, json, ...flags }) =>
+    Effect.gen(function* () {
+      const host = yield* resolveLocalDaemonConnection(flags);
+      const sessions = yield* Effect.promise(() =>
+        listCliPairingSessions({
+          wsUrl: host.wsUrl,
+          authToken: host.authToken,
+        }),
+      );
+      if (sessions.length === 0) {
+        return yield* new DaemonCommandError({
+          message: "No pairing sessions found to revoke.",
+        });
+      }
+      const revokable = sessions.filter(
+        (entry) =>
+          entry.status === "waiting-claim" ||
+          entry.status === "claim-pending" ||
+          entry.status === "approved",
+      );
+      if (revokable.length === 0) {
+        return yield* new DaemonCommandError({
+          message: "No active pairing sessions can be revoked.",
+        });
+      }
+      const sessionId =
+        Option.isSome(session) && !interactive
+          ? session.value
+          : yield* promptPairingSessionSelection(revokable);
+      const result = yield* Effect.promise(() =>
+        revokeCliPairingSession({
+          wsUrl: host.wsUrl,
+          authToken: host.authToken,
+          sessionId,
         }),
       );
       if (json) {
         return yield* writeJson(result);
       }
-      const verb = result.status === "created" ? pc.green("Added") : pc.yellow("Updated");
+      return yield* writeStdout(
+        `${pc.green("Revoked")} access for "${result.name}" (${result.sessionId}).\n`,
+      );
+    }),
+  ),
+);
+
+const remoteLinkCommand = Command.make("link", {
+  ...dataCommandFlags,
+  token: Flag.string("token").pipe(
+    Flag.withDescription("Pairing token generated by `ace remote create`."),
+  ),
+  name: Flag.string("name").pipe(
+    Flag.withDescription("Optional local display name override."),
+    Flag.optional,
+  ),
+  json: jsonFlag,
+}).pipe(
+  Command.withDescription("Claim a pairing token and save the remote host."),
+  Command.withHandler(({ token, name, json, ...flags }) =>
+    Effect.gen(function* () {
+      const draft = yield* resolveRemoteLinkDraft(token);
+      const result = yield* runCliRemoteConnectionCommand(
+        flags,
+        addCliRemoteConnection({
+          wsUrl: draft.wsUrl,
+          ...(draft.authToken
+            ? {
+                authToken: draft.authToken,
+              }
+            : {}),
+          ...(Option.isSome(name)
+            ? {
+                name: name.value,
+              }
+            : draft.name
+              ? {
+                  name: draft.name,
+                }
+              : {}),
+        }),
+      );
+      if (json) {
+        return yield* writeJson(result);
+      }
+      const verb = result.status === "created" ? pc.green("Linked") : pc.yellow("Updated");
       return yield* writeStdout(
         `${verb} remote "${result.connection.name}" (${result.connection.wsUrl}) [${result.connection.id}]\n`,
       );
@@ -1235,48 +1840,195 @@ const remoteAddCommand = Command.make("add", {
 const remoteRemoveCommand = Command.make("remove", {
   ...dataCommandFlags,
   selector: Argument.string("remote").pipe(
-    Argument.withDescription("Remote connection id, name, or ws url."),
+    Argument.withDescription("Remote id/name/ws-url. Use 'all' to remove all."),
+    Argument.optional,
+  ),
+  interactive: Flag.boolean("interactive").pipe(
+    Flag.withAlias("i"),
+    Flag.withDescription("Choose a linked remote interactively when selector is omitted."),
+    Flag.withDefault(true),
   ),
   json: jsonFlag,
 }).pipe(
   Command.withAlias("delete"),
-  Command.withDescription("Remove a saved remote connection."),
-  Command.withHandler(({ selector, json, ...flags }) =>
+  Command.withDescription("Remove linked remote host connections."),
+  Command.withHandler(({ selector, interactive, json, ...flags }) =>
     Effect.gen(function* () {
-      const result = yield* runCliRemoteConnectionCommand(
-        flags,
-        removeCliRemoteConnection({ selector }),
-      );
-      if (json) {
-        return yield* writeJson(result);
+      const connections = yield* runCliRemoteConnectionCommand(flags, listCliRemoteConnections);
+      if (connections.length === 0) {
+        return yield* new DaemonCommandError({
+          message: "No linked remote hosts found.",
+        });
       }
-      return yield* writeStdout(
-        `${pc.green("Removed")} remote "${result.connection.name}" (${result.connection.wsUrl}).\n`,
-      );
+      const selected = Option.isSome(selector)
+        ? selector.value
+        : interactive
+          ? yield* promptRemoteConnectionSelection(connections, "remove")
+          : yield* new DaemonCommandError({
+              message: "Provide a remote selector or enable interactive mode.",
+            });
+      const selectors =
+        selected === "__all__" || selected === "all"
+          ? connections.map((connection) => connection.id)
+          : [selected];
+      const uniqueSelectors = Array.from(new Set(selectors));
+      const removed: Array<CliRemoteConnectionSummary> = [];
+      for (const item of uniqueSelectors) {
+        const result = yield* runCliRemoteConnectionCommand(
+          flags,
+          removeCliRemoteConnection({ selector: item }),
+        );
+        removed.push(result.connection);
+      }
+      if (json) {
+        return yield* writeJson(removed);
+      }
+      if (removed.length === 1) {
+        const entry = removed[0];
+        if (!entry) {
+          return;
+        }
+        return yield* writeStdout(
+          `${pc.green("Removed")} remote "${entry.name}" (${entry.wsUrl}).\n`,
+        );
+      }
+      yield* writeStdout(`${pc.green("Removed")} ${String(removed.length)} remote hosts.\n`);
+      return yield* writeStdout(formatRemoteConnectionRows(removed));
     }),
   ),
 );
 
-const remoteListCommand = Command.make("list", {
+const remotePingCommand = Command.make("ping", {
   ...dataCommandFlags,
+  selector: Argument.string("remote").pipe(
+    Argument.withDescription("Remote id/name/ws-url. Use 'all' to ping every linked host."),
+    Argument.optional,
+  ),
+  interactive: Flag.boolean("interactive").pipe(
+    Flag.withAlias("i"),
+    Flag.withDescription("Choose linked remote host interactively when selector is omitted."),
+    Flag.withDefault(true),
+  ),
+  once: Flag.boolean("once").pipe(
+    Flag.withDescription("Run a single ping round and exit."),
+    Flag.withDefault(false),
+  ),
+  timeoutMs: Flag.integer("timeout-ms").pipe(
+    Flag.withDescription("HTTP timeout per ping attempt."),
+    Flag.optional,
+  ),
   json: jsonFlag,
 }).pipe(
-  Command.withAlias("ls"),
-  Command.withDescription("List saved remote connections."),
-  Command.withHandler(({ json, ...flags }) =>
+  Command.withDescription("Continuously ping linked remote hosts."),
+  Command.withHandler(({ selector, interactive, once, timeoutMs, json, ...flags }) =>
     Effect.gen(function* () {
-      const remotes = yield* runCliRemoteConnectionCommand(flags, listCliRemoteConnections);
-      if (json) {
-        return yield* writeJson(remotes);
+      const connections = yield* runCliRemoteConnectionCommand(flags, listCliRemoteConnections);
+      if (connections.length === 0) {
+        return yield* new DaemonCommandError({
+          message: "No linked remote hosts found.",
+        });
       }
-      return yield* writeStdout(formatRemoteConnectionRows(remotes));
+      const resolvedSelector = Option.isSome(selector)
+        ? selector.value
+        : interactive
+          ? yield* promptRemoteConnectionSelection(connections, "ping")
+          : "__all__";
+      const normalizedResolvedSelector = (() => {
+        try {
+          return normalizeWsUrl(resolvedSelector);
+        } catch {
+          return null;
+        }
+      })();
+      const selectedConnections =
+        resolvedSelector === "__all__" || resolvedSelector === "all"
+          ? connections
+          : connections.filter(
+              (entry) =>
+                entry.id === resolvedSelector ||
+                entry.name === resolvedSelector ||
+                entry.wsUrl === normalizedResolvedSelector,
+            );
+      if (selectedConnections.length === 0) {
+        return yield* new DaemonCommandError({
+          message: `No linked remote matched '${resolvedSelector}'.`,
+        });
+      }
+      if (json && !once) {
+        return yield* new DaemonCommandError({
+          message: "JSON output for `ace remote ping` requires --once.",
+        });
+      }
+      const resolvedTimeoutMs = Math.max(250, Option.isSome(timeoutMs) ? timeoutMs.value : 4_000);
+      const renderStatus = (status: "available" | "unauthenticated" | "unavailable") => {
+        switch (status) {
+          case "available":
+            return pc.green(status);
+          case "unauthenticated":
+            return pc.yellow(status);
+          case "unavailable":
+            return pc.red(status);
+        }
+      };
+      while (true) {
+        const startedAt = new Date().toISOString();
+        const pingRows = yield* Effect.all(
+          selectedConnections.map((connection) =>
+            Effect.promise(() =>
+              pingCliHostConnection({
+                wsUrl: connection.wsUrl,
+                authToken: connection.authToken,
+                timeoutMs: resolvedTimeoutMs,
+              }),
+            ).pipe(
+              Effect.map((ping) => ({
+                connection,
+                ping,
+              })),
+            ),
+          ),
+        );
+        if (json) {
+          return yield* writeJson(
+            pingRows.map((entry) => ({
+              id: entry.connection.id,
+              name: entry.connection.name,
+              wsUrl: entry.connection.wsUrl,
+              ...entry.ping,
+            })),
+          );
+        }
+        const table = formatRows(
+          ["TIME", "DEVICE", "STATUS", "LATENCY", "DETAIL"],
+          pingRows.map((entry) => [
+            startedAt,
+            entry.connection.name,
+            renderStatus(entry.ping.status),
+            `${String(entry.ping.latencyMs)}ms`,
+            entry.ping.detail ?? "-",
+          ]),
+        );
+        yield* writeStdout(table);
+        if (once) {
+          return;
+        }
+        const nextDelayMs = Math.floor(4_990 + Math.random() * 5_011);
+        yield* Effect.sleep(nextDelayMs);
+      }
     }),
   ),
 );
 
 const remoteCommand = Command.make("remote").pipe(
-  Command.withDescription("Manage saved remote host connections."),
-  Command.withSubcommands([remoteAddCommand, remoteRemoveCommand, remoteListCommand]),
+  Command.withDescription("Manage host pairing and linked remote connections."),
+  Command.withSubcommands([
+    remoteCreateCommand,
+    remoteListCommand,
+    remoteRevokeCommand,
+    remoteLinkCommand,
+    remoteRemoveCommand,
+    remotePingCommand,
+  ]),
 );
 
 const daemonStartCommand = Command.make("start", {
@@ -1294,85 +2046,31 @@ const daemonStartCommand = Command.make("start", {
         },
         logLevel,
       );
-
-      const existingStatus = yield* readDaemonStatusPayload(config.baseDir);
-      if (existingStatus.state && existingStatus.processAlive) {
-        const eventuallyReady = yield* waitForDaemonReady(existingStatus.state, {
-          timeoutMs: DEFAULT_DAEMON_START_TIMEOUT_MS,
-        });
-        if (eventuallyReady) {
-          if (isDaemonStateCurrentVersion(existingStatus.state)) {
-            const payload = {
-              status: "already-running" as const,
-              daemon: existingStatus.state,
-            };
-            if (json) {
-              return yield* writeJson(payload);
-            }
-            return yield* writeStdout(
-              `${pc.yellow("Already running")} daemon pid=${String(existingStatus.state.pid)} ${existingStatus.state.wsUrl}\n`,
-            );
-          }
-
-          const stopResult = yield* stopDaemonIfPresent({
-            baseDir: config.baseDir,
-            timeoutMs: DEFAULT_DAEMON_RESTART_TIMEOUT_MS,
-          });
-          const state = yield* startDaemonAndPersistState({ config });
-          const payload = {
-            status: "started" as const,
-            daemon: state,
-            upgraded: true as const,
-            previousVersion: existingStatus.state.serverVersion,
-            stop: stopResult,
-          };
-          if (json) {
-            return yield* writeJson(payload);
-          }
-          return yield* writeStdout(
-            `${pc.green("Started")} daemon pid=${String(state.pid)} ${state.wsUrl} ${pc.dim(
-              `(upgraded from ${existingStatus.state.serverVersion})`,
-            )}\n`,
-          );
-        }
-
-        const stopResult = yield* stopDaemonIfPresent({
-          baseDir: config.baseDir,
-          timeoutMs: DEFAULT_DAEMON_RESTART_TIMEOUT_MS,
-        });
-        const state = yield* startDaemonAndPersistState({ config });
-        const payload = {
-          status: "started" as const,
-          daemon: state,
-          recovered: true as const,
-          stop: stopResult,
-        };
-        if (json) {
-          return yield* writeJson(payload);
-        }
+      const result = yield* ensureDaemonStarted({ config });
+      if (json) {
+        return yield* writeJson(result);
+      }
+      if (result.status === "already-running") {
         return yield* writeStdout(
-          `${pc.green("Started")} daemon pid=${String(state.pid)} ${state.wsUrl} ${pc.dim(
-            `(replaced unhealthy pid ${existingStatus.state.pid})`,
+          `${pc.yellow("Already running")} daemon pid=${String(result.daemon.pid)} ${result.daemon.wsUrl}\n`,
+        );
+      }
+      if ("upgraded" in result) {
+        return yield* writeStdout(
+          `${pc.green("Started")} daemon pid=${String(result.daemon.pid)} ${result.daemon.wsUrl} ${pc.dim(
+            `(upgraded from ${result.previousVersion})`,
           )}\n`,
         );
       }
-
-      if (existingStatus.status === "stale") {
-        yield* clearDaemonState(config.baseDir);
+      if ("recovered" in result) {
+        return yield* writeStdout(
+          `${pc.green("Started")} daemon pid=${String(result.daemon.pid)} ${result.daemon.wsUrl} ${pc.dim(
+            `(replaced unhealthy pid ${String(result.replacedPid)})`,
+          )}\n`,
+        );
       }
-
-      const state = yield* startDaemonAndPersistState({ config });
-
-      const payload = {
-        status: "started" as const,
-        daemon: state,
-      };
-      if (json) {
-        return yield* writeJson(payload);
-      }
-
       return yield* writeStdout(
-        `${pc.green("Started")} daemon pid=${String(state.pid)} ${state.wsUrl}\n`,
+        `${pc.green("Started")} daemon pid=${String(result.daemon.pid)} ${result.daemon.wsUrl}\n`,
       );
     }),
   ),
@@ -1693,13 +2391,16 @@ const formatRootCliGuide = (): string =>
   [
     `${pc.bold("ace CLI")}`,
     `${pc.bold("Quick start")}`,
-    `  ${pc.cyan("ace serve")}              run server in foreground`,
+    `  ${pc.cyan("ace --web")}              open ace web app in your browser`,
+    `  ${pc.cyan("ace serve")}              run or attach to background daemon`,
     `  ${pc.cyan("ace --profile")}          live ace-specific process/memory profiler`,
     `  ${pc.cyan("ace daemon start")}       run reusable background daemon`,
     `  ${pc.cyan("ace --restart")}          restart background daemon`,
     `  ${pc.cyan("ace interactive")}        launch quick interactive command picker`,
     `  ${pc.cyan("ace project list")}       list saved local projects`,
-    `  ${pc.cyan("ace remote list")}        list saved remote hosts`,
+    `  ${pc.cyan('ace remote create --device-name="Macbook Pro"')}  create pairing token + QR`,
+    `  ${pc.cyan("ace remote list")}        list paired devices/sessions`,
+    `  ${pc.cyan("ace remote ping")}        continuously ping linked remotes`,
     `  ${pc.cyan("ace --help")}             show full command reference`,
   ].join("\n");
 
@@ -1728,6 +2429,7 @@ export const playRootCliLogoAnimation = Effect.gen(function* () {
 });
 
 const interactiveActionIds = [
+  "web",
   "serve",
   "daemon-status",
   "daemon-restart",
@@ -1740,8 +2442,12 @@ const interactiveActions: Record<
   InteractiveActionId,
   { readonly description: string; readonly argv: ReadonlyArray<string> }
 > = {
+  web: {
+    description: "Open ace web app",
+    argv: ["web"],
+  },
   serve: {
-    description: "Run server in foreground",
+    description: "Run or attach to daemon",
     argv: ["serve"],
   },
   "daemon-status": {
@@ -1757,7 +2463,7 @@ const interactiveActions: Record<
     argv: ["project", "list"],
   },
   "remote-list": {
-    description: "List saved remote hosts",
+    description: "List paired devices and sessions",
     argv: ["remote", "list"],
   },
 };
@@ -1884,6 +2590,7 @@ const rootCommand = Command.make("ace").pipe(
 
 export const cli = rootCommand.pipe(
   Command.withSubcommands([
+    webCommand,
     serveCommand,
     profileCommand,
     projectCommand,

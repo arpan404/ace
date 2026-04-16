@@ -1,229 +1,181 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { View, ScrollView, StyleSheet, Pressable, Text } from "react-native";
 import { useRouter } from "expo-router";
-import { ChevronRight, Laptop, Plus, Info, Sun, Moon, Monitor } from "lucide-react-native";
-import { useTheme } from "../../src/design/ThemeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Sun, Moon, Monitor, Plus, ChevronRight, Check, Info } from "lucide-react-native";
+import { useTheme, type ThemeMode } from "../../src/design/ThemeContext";
 import { useHostStore } from "../../src/store/HostStore";
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
-import {
-  GlassGroup,
-  GlassIconOrb,
-  GlassRow,
-  LiquidScreen,
-  PageHeader,
-  RowSeparator,
-  SectionLabel,
-} from "../../src/design/LiquidGlass";
+import type { LucideIcon } from "lucide-react-native";
+
+const THEME_OPTIONS: Array<{ label: string; value: ThemeMode; Icon: LucideIcon }> = [
+  { label: "Light", value: "light", Icon: Sun },
+  { label: "Dark", value: "dark", Icon: Moon },
+  { label: "System", value: "system", Icon: Monitor },
+];
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const { colors, themeMode, setThemeMode } = useTheme();
   const insets = useSafeAreaInsets();
-  const { theme, themeMode, setThemeMode } = useTheme();
   const { hosts } = useHostStore();
   const [connections, setConnections] = useState<ManagedConnection[]>([]);
 
   useEffect(() => {
     setConnections(connectionManager.getConnections());
-    return connectionManager.onStatusChange((conns) => {
-      setConnections(conns);
-    });
+    return connectionManager.onStatusChange(setConnections);
   }, []);
 
   return (
-    <LiquidScreen>
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 20 }]}>
-        <PageHeader title="Settings" />
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      <ScrollView
+        contentContainerStyle={{
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom + 100,
+        }}
+      >
+        <View style={styles.header}>
+          <Text style={[styles.largeTitle, { color: colors.foreground }]}>Settings</Text>
+        </View>
 
-        <View style={styles.section}>
-          <SectionLabel>Devices</SectionLabel>
-          <GlassGroup>
-            {hosts.length === 0 ? (
-              <GlassRow scaleOnPress={false}>
-                <Text style={{ color: theme.mutedForeground }}>No devices configured yet.</Text>
-              </GlassRow>
-            ) : (
-              hosts.map((host) => {
-                const conn = connections.find((c) => c.host.id === host.id);
-                const isConnected = conn?.status.kind === "connected";
-
-                return (
-                  <React.Fragment key={host.id}>
-                    <GlassRow
-                      onPress={() =>
-                        router.push({ pathname: `/settings/device/[id]`, params: { id: host.id } })
-                      }
-                    >
-                      <View style={styles.itemLeft}>
-                        <GlassIconOrb>
-                          <Laptop
-                            size={18}
-                            color={isConnected ? theme.primaryForeground : theme.foreground}
-                          />
-                        </GlassIconOrb>
-                        <View>
-                          <Text style={[styles.itemName, { color: theme.foreground }]}>
-                            {host.name}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.itemSub,
-                              { color: isConnected ? theme.primary : theme.mutedForeground },
-                            ]}
-                          >
-                            {isConnected ? "Connected" : "Disconnected"}
-                          </Text>
-                        </View>
-                      </View>
-                      <ChevronRight size={20} color={theme.mutedForeground} />
-                    </GlassRow>
-                    <RowSeparator inset={56} />
-                  </React.Fragment>
-                );
-              })
-            )}
-            <GlassRow onPress={() => router.push("/pairing")}>
-              <View style={styles.itemLeft}>
-                <View style={[styles.addIconWrap, { backgroundColor: theme.primary }]}>
-                  <Plus size={16} color={theme.primaryForeground} />
+        {/* Hosts Section */}
+        <Text style={[styles.sectionLabel, { color: colors.muted }]}>HOSTS</Text>
+        {hosts.length === 0 ? (
+          <View style={styles.emptyRow}>
+            <Text style={[styles.emptyRowText, { color: colors.muted }]}>No hosts paired yet</Text>
+          </View>
+        ) : (
+          hosts.map((host, i) => {
+            const conn = connections.find((c) => c.host.id === host.id);
+            const isConnected = conn?.status.kind === "connected";
+            return (
+              <Pressable
+                key={host.id}
+                onPress={() =>
+                  router.push({
+                    pathname: "/settings/device/[id]",
+                    params: { id: host.id },
+                  })
+                }
+                style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
+              >
+                <View
+                  style={[
+                    styles.statusDot,
+                    { backgroundColor: isConnected ? colors.green : colors.muted },
+                  ]}
+                />
+                <View style={styles.rowContent}>
+                  <Text style={[styles.rowTitle, { color: colors.foreground }]}>{host.name}</Text>
+                  <Text style={[styles.rowSubtitle, { color: colors.muted }]}>
+                    {isConnected ? "Connected" : "Disconnected"}
+                  </Text>
                 </View>
-                <Text style={[styles.itemName, { color: theme.primary }]}>
-                  Add Device Instance...{" "}
-                </Text>
-              </View>
-            </GlassRow>
-          </GlassGroup>
-        </View>
+                <ChevronRight size={16} color={colors.muted} strokeWidth={2} />
+                {i < hosts.length - 1 && (
+                  <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+                )}
+              </Pressable>
+            );
+          })
+        )}
 
-        <View style={styles.section}>
-          <SectionLabel>Appearance</SectionLabel>
-          <GlassGroup>
-            <GlassRow scaleOnPress={false} style={{ paddingVertical: 14 }}>
-              <View style={[styles.modeSelector, { backgroundColor: theme.secondary }]}>
-                {(["system", "light", "dark"] as const).map((mode) => {
-                  const isSelected = themeMode === mode;
-                  const Icon = mode === "light" ? Sun : mode === "dark" ? Moon : Monitor;
-                  return (
-                    <Pressable
-                      key={mode}
-                      onPress={() => setThemeMode(mode)}
-                      style={[
-                        styles.modeButton,
-                        {
-                          backgroundColor: isSelected ? theme.card : "transparent",
-                          shadowOpacity: isSelected ? 0.05 : 0,
-                          borderColor: isSelected ? theme.border : "transparent",
-                          borderWidth: isSelected ? StyleSheet.hairlineWidth : 0,
-                        },
-                      ]}
-                    >
-                      <Icon size={16} color={isSelected ? theme.foreground : theme.info} />
-                      <Text
-                        style={[
-                          styles.modeButtonLabel,
-                          {
-                            color: isSelected ? theme.foreground : theme.info,
-                          },
-                        ]}
-                      >
-                        {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </GlassRow>
-          </GlassGroup>
-        </View>
+        <Pressable
+          onPress={() => router.push("/pairing")}
+          style={({ pressed }) => [styles.addRow, pressed && { opacity: 0.6 }]}
+        >
+          <Plus size={18} color={colors.primary} strokeWidth={2} />
+          <Text style={[styles.addRowText, { color: colors.primary }]}>Pair New Host</Text>
+        </Pressable>
 
-        <View style={styles.section}>
-          <SectionLabel>About</SectionLabel>
-          <GlassGroup>
-            <GlassRow style={styles.aboutRow}>
-              <View style={styles.itemLeft}>
-                <GlassIconOrb>
-                  <Info size={18} color={theme.foreground} />
-                </GlassIconOrb>
-                <Text style={[styles.itemName, { color: theme.foreground }]}>ace Mobile</Text>
+        {/* Appearance Section */}
+        <Text style={[styles.sectionLabel, { color: colors.muted, marginTop: 32 }]}>
+          APPEARANCE
+        </Text>
+        {THEME_OPTIONS.map((option, i) => {
+          const isActive = themeMode === option.value;
+          const OptionIcon = option.Icon;
+          return (
+            <Pressable
+              key={option.value}
+              onPress={() => setThemeMode(option.value)}
+              style={({ pressed }) => [styles.row, pressed && { opacity: 0.6 }]}
+            >
+              <OptionIcon size={20} color={colors.foreground} strokeWidth={1.8} />
+              <View style={styles.rowContent}>
+                <Text style={[styles.rowTitle, { color: colors.foreground }]}>{option.label}</Text>
               </View>
-              <View style={styles.aboutMeta}>
-                <Text style={[styles.aboutVersion, { color: theme.mutedForeground }]}>0.0.1</Text>
-                <ChevronRight size={20} color={theme.mutedForeground} />
-              </View>
-            </GlassRow>
-          </GlassGroup>
+              {isActive && <Check size={18} color={colors.primary} strokeWidth={2.5} />}
+              {i < THEME_OPTIONS.length - 1 && (
+                <View style={[styles.separator, { backgroundColor: colors.separator }]} />
+              )}
+            </Pressable>
+          );
+        })}
+
+        {/* About Section */}
+        <Text style={[styles.sectionLabel, { color: colors.muted, marginTop: 32 }]}>ABOUT</Text>
+        <View style={styles.aboutRow}>
+          <Info size={18} color={colors.muted} strokeWidth={1.8} />
+          <View style={styles.rowContent}>
+            <Text style={[styles.aboutLabel, { color: colors.foreground }]}>ace Mobile</Text>
+            <Text style={[styles.aboutValue, { color: colors.muted }]}>v0.0.1</Text>
+          </View>
         </View>
       </ScrollView>
-    </LiquidScreen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    paddingBottom: 140,
-  },
-  section: {
-    paddingHorizontal: 16,
-    marginBottom: 26,
-  },
-  itemLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    flex: 1,
-  },
-  itemName: {
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  itemSub: {
-    fontSize: 13,
-    marginTop: 2,
-    fontWeight: "400",
-  },
-  addIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modeSelector: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 3,
-    borderRadius: 12,
-    width: "100%",
-  },
-  modeButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  modeButtonLabel: {
-    fontSize: 14,
+  root: { flex: 1 },
+  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
+  largeTitle: { fontSize: 34, fontWeight: "700", letterSpacing: 0.37 },
+  sectionLabel: {
+    fontSize: 12,
     fontWeight: "600",
-    letterSpacing: -0.1,
+    letterSpacing: 0.5,
+    paddingHorizontal: 20,
+    marginTop: 24,
+    marginBottom: 8,
   },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 13,
+    paddingHorizontal: 20,
+    gap: 12,
+    minHeight: 44,
+  },
+  rowContent: { flex: 1 },
+  rowTitle: { fontSize: 17 },
+  rowSubtitle: { fontSize: 13, marginTop: 1 },
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  separator: {
+    position: "absolute",
+    bottom: 0,
+    left: 44,
+    right: 0,
+    height: StyleSheet.hairlineWidth,
+  },
+  addRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 13,
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  addRowText: { fontSize: 17, fontWeight: "600" },
+  emptyRow: { paddingVertical: 20, paddingHorizontal: 20, alignItems: "center" },
+  emptyRowText: { fontSize: 15 },
   aboutRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    paddingVertical: 13,
+    paddingHorizontal: 20,
+    gap: 12,
+    minHeight: 44,
   },
-  aboutMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  aboutVersion: {
-    fontSize: 15,
-    marginRight: 4,
-  },
+  aboutLabel: { fontSize: 17 },
+  aboutValue: { fontSize: 13, marginTop: 1 },
 });

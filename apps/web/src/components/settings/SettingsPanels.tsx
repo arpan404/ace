@@ -4,6 +4,8 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   type DesktopCliInstallState,
   type ProviderKind,
+  type ServerLspMarketplaceSearchResult,
+  type ServerInstallLspToolInput,
   type ServerLspToolsStatus,
   ThreadId,
 } from "@ace/contracts";
@@ -21,7 +23,6 @@ import {
 import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
-import { shortcutLabelForCommand } from "../../keybindings";
 import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
@@ -31,7 +32,6 @@ import {
 } from "../../lib/desktopUpdate";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
-import { resolveAndPersistPreferredEditor } from "../../editorPreferences";
 import { isElectron } from "../../env";
 import { resetThemePresetToDefault, useAppearancePrefs } from "../../appearancePrefs";
 import { DEFAULT_THEME_PRESET } from "../../themePresets";
@@ -73,6 +73,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectAvatar } from "../ProjectAvatar";
 import type { Project } from "../../types";
 import { ProviderSettingsSection, type ProviderCard } from "./ProviderSettingsSection";
+import { KeybindingsSettingsEditor } from "./KeybindingsSettingsEditor";
 import {
   SettingsPageContainer,
   SettingsRow,
@@ -81,12 +82,7 @@ import {
   getProviderSummary,
   getProviderVersionLabel,
 } from "./SettingsPanelPrimitives";
-import {
-  useServerAvailableEditors,
-  useServerKeybindings,
-  useServerKeybindingsConfigPath,
-  useServerProviders,
-} from "../../rpc/serverState";
+import { useServerProviders } from "../../rpc/serverState";
 
 const THEME_OPTIONS = [
   {
@@ -140,6 +136,17 @@ const UI_FONT_FAMILY_VALUE_SET = new Set(UI_FONT_FAMILY_OPTIONS.map((o) => o.val
 const UI_MONO_FONT_VALUE_SET = new Set(UI_MONO_FONT_OPTIONS.map((o) => o.value));
 const UI_FONT_SIZE_VALUE_SET = new Set(UI_FONT_SIZE_OPTIONS.map((o) => o.value));
 const UI_LETTER_SPACING_VALUE_SET = new Set(UI_LETTER_SPACING_OPTIONS.map((o) => o.value));
+
+function parseDelimitedValues(input: string): string[] {
+  return Array.from(
+    new Set(
+      input
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    ),
+  );
+}
 
 function resolveNotificationSettingsUrl(): string | null {
   if (typeof navigator === "undefined") {
@@ -266,24 +273,23 @@ function AboutVersionSection() {
     }
 
     if (action === "install") {
-      const confirmed = window.confirm(
-        getDesktopUpdateInstallConfirmationMessage(
-          updateState ?? { availableVersion: null, downloadedVersion: null },
-        ),
-      );
-      if (!confirmed) return;
-      void bridge
-        .installUpdate()
-        .then((result) => {
-          setDesktopUpdateStateQueryData(queryClient, result.state);
-        })
-        .catch((error: unknown) => {
-          toastManager.add({
-            type: "error",
-            title: "Could not install update",
-            description: error instanceof Error ? error.message : "Install failed.",
-          });
+      const api = readNativeApi() ?? ensureNativeApi();
+      void (async () => {
+        const confirmed = await api.dialogs.confirm(
+          getDesktopUpdateInstallConfirmationMessage(
+            updateState ?? { availableVersion: null, downloadedVersion: null },
+          ),
+        );
+        if (!confirmed) return;
+        const result = await bridge.installUpdate();
+        setDesktopUpdateStateQueryData(queryClient, result.state);
+      })().catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not install update",
+          description: error instanceof Error ? error.message : "Install failed.",
         });
+      });
       return;
     }
 
@@ -594,6 +600,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
+      ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
+        ? ["Add project base directory"]
+        : []),
       ...(settings.providerCliMaxOpen !== DEFAULT_UNIFIED_SETTINGS.providerCliMaxOpen
         ? ["Provider CLI max open"]
         : []),
@@ -621,6 +630,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.defaultThreadEnvMode,
+      settings.addProjectBaseDirectory,
       settings.providerCliIdleTtlSeconds,
       settings.providerCliMaxOpen,
       settings.diffWordWrap,
@@ -690,8 +700,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       isElectron ? "default" : readAgentAttentionNotificationPermission(),
     );
   const [isUpdatingNotificationPermission, setIsUpdatingNotificationPermission] = useState(false);
-  const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
-  const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
   const [openProviderDetails, setOpenProviderDetails] = useState<Record<ProviderKind, boolean>>({
     codex: Boolean(
       settings.providers.codex.binaryPath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.binaryPath ||
@@ -741,6 +749,26 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const [lspToolsStatus, setLspToolsStatus] = useState<ServerLspToolsStatus | null>(null);
   const [lspToolsError, setLspToolsError] = useState<string | null>(null);
   const [isInstallingLspTools, setIsInstallingLspTools] = useState(false);
+  const [lspMarketplaceQuery, setLspMarketplaceQuery] = useState("");
+  const [lspMarketplaceResult, setLspMarketplaceResult] =
+    useState<ServerLspMarketplaceSearchResult | null>(null);
+  const [isSearchingLspMarketplace, setIsSearchingLspMarketplace] = useState(false);
+  const [isInstallingCustomLsp, setIsInstallingCustomLsp] = useState(false);
+  const [lspCustomForm, setLspCustomForm] = useState<{
+    packageName: string;
+    command: string;
+    label: string;
+    args: string;
+    languageIds: string;
+    fileExtensions: string;
+  }>({
+    packageName: "",
+    command: "",
+    label: "",
+    args: "",
+    languageIds: "",
+    fileExtensions: "",
+  });
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
   const refreshProviders = useCallback(() => {
@@ -972,76 +1000,8 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       });
   }, []);
 
-  const keybindingsConfigPath = useServerKeybindingsConfigPath();
-  const keybindings = useServerKeybindings();
-  const availableEditors = useServerAvailableEditors();
   const serverProviders = useServerProviders();
   const codexHomePath = settings.providers.codex.homePath;
-  const editorShortcutLabelOptions = useMemo(
-    () => ({
-      context: {
-        browserOpen: false,
-        editorFocus: true,
-        terminalFocus: false,
-        terminalOpen: false,
-      },
-    }),
-    [],
-  );
-  const workspaceShortcutSummaries = useMemo(
-    () =>
-      [
-        [
-          "Toggle workspace mode",
-          shortcutLabelForCommand(
-            keybindings,
-            "chat.toggleWorkspaceMode",
-            editorShortcutLabelOptions,
-          ),
-        ],
-        [
-          "Split window",
-          shortcutLabelForCommand(keybindings, "editor.split", editorShortcutLabelOptions),
-        ],
-        [
-          "Split window down",
-          shortcutLabelForCommand(keybindings, "editor.splitDown", editorShortcutLabelOptions),
-        ],
-        [
-          "Focus previous window",
-          shortcutLabelForCommand(
-            keybindings,
-            "editor.focusPreviousWindow",
-            editorShortcutLabelOptions,
-          ),
-        ],
-        [
-          "Focus next window",
-          shortcutLabelForCommand(
-            keybindings,
-            "editor.focusNextWindow",
-            editorShortcutLabelOptions,
-          ),
-        ],
-        [
-          "Previous tab",
-          shortcutLabelForCommand(keybindings, "editor.previousTab", editorShortcutLabelOptions),
-        ],
-        [
-          "Next tab",
-          shortcutLabelForCommand(keybindings, "editor.nextTab", editorShortcutLabelOptions),
-        ],
-        [
-          "Move tab left",
-          shortcutLabelForCommand(keybindings, "editor.moveTabLeft", editorShortcutLabelOptions),
-        ],
-        [
-          "Move tab right",
-          shortcutLabelForCommand(keybindings, "editor.moveTabRight", editorShortcutLabelOptions),
-        ],
-      ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-    [editorShortcutLabelOptions, keybindings],
-  );
 
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenProvider = textGenerationModelSelection.provider;
@@ -1057,28 +1017,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
-
-  const openKeybindingsFile = useCallback(() => {
-    if (!keybindingsConfigPath) return;
-    setOpenKeybindingsError(null);
-    setIsOpeningKeybindings(true);
-    const editor = resolveAndPersistPreferredEditor(availableEditors ?? []);
-    if (!editor) {
-      setOpenKeybindingsError("No available editors found.");
-      setIsOpeningKeybindings(false);
-      return;
-    }
-    void ensureNativeApi()
-      .shell.openInEditor(keybindingsConfigPath, editor)
-      .catch((error) => {
-        setOpenKeybindingsError(
-          error instanceof Error ? error.message : "Unable to open keybindings file.",
-        );
-      })
-      .finally(() => {
-        setIsOpeningKeybindings(false);
-      });
-  }, [availableEditors, keybindingsConfigPath]);
 
   const addCustomModel = useCallback(
     (provider: ProviderKind) => {
@@ -1277,6 +1215,88 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       })
       .finally(() => setIsInstallingLspTools(false));
   }, []);
+
+  const searchLspMarketplace = useCallback(() => {
+    const query = lspMarketplaceQuery.trim();
+    if (query.length === 0) {
+      setLspMarketplaceResult(null);
+      return;
+    }
+    setIsSearchingLspMarketplace(true);
+    setLspToolsError(null);
+    void ensureNativeApi()
+      .server.searchLspMarketplace({ query, limit: 12 })
+      .then((result) => {
+        setLspMarketplaceResult(result);
+      })
+      .catch((error: unknown) => {
+        setLspToolsError(
+          error instanceof Error ? error.message : "Unable to search LSP marketplace.",
+        );
+      })
+      .finally(() => setIsSearchingLspMarketplace(false));
+  }, [lspMarketplaceQuery]);
+
+  const installCustomLspTool = useCallback((input: ServerInstallLspToolInput) => {
+    setIsInstallingCustomLsp(true);
+    setLspToolsError(null);
+    void ensureNativeApi()
+      .server.installLspTool(input)
+      .then((status) => {
+        setLspToolsStatus(status);
+        toastManager.add({
+          type: "success",
+          title: `Installed ${input.label}.`,
+        });
+      })
+      .catch((error: unknown) => {
+        setLspToolsError(
+          error instanceof Error ? error.message : "Unable to install custom language server.",
+        );
+      })
+      .finally(() => setIsInstallingCustomLsp(false));
+  }, []);
+
+  const installMarketplacePackage = useCallback((packageName: string) => {
+    const packageBasename = packageName.split("/").at(-1) ?? packageName;
+    const normalized = packageBasename.replace(/[^a-zA-Z0-9]+/g, " ").trim();
+    const fallbackLabel = normalized.length > 0 ? normalized : packageName;
+    setLspCustomForm((current) => ({
+      ...current,
+      packageName,
+      command: current.command || packageBasename,
+      label: current.label || fallbackLabel,
+    }));
+  }, []);
+
+  const submitCustomLspInstall = useCallback(() => {
+    const packageName = lspCustomForm.packageName.trim();
+    const command = lspCustomForm.command.trim();
+    const label = lspCustomForm.label.trim();
+    const languageIds = parseDelimitedValues(lspCustomForm.languageIds);
+    const fileExtensions = parseDelimitedValues(lspCustomForm.fileExtensions).map((value) =>
+      value.startsWith(".") ? value.toLowerCase() : `.${value.toLowerCase()}`,
+    );
+    const args = parseDelimitedValues(lspCustomForm.args);
+    if (
+      !packageName ||
+      !command ||
+      !label ||
+      languageIds.length === 0 ||
+      fileExtensions.length === 0
+    ) {
+      setLspToolsError("Package, command, label, language IDs, and file extensions are required.");
+      return;
+    }
+    installCustomLspTool({
+      packageName,
+      command,
+      label,
+      languageIds,
+      fileExtensions,
+      ...(args.length > 0 ? { args } : {}),
+    });
+  }, [installCustomLspTool, lspCustomForm]);
 
   useEffect(() => {
     if (!isEditorPage || lspToolsStatus) return;
@@ -1622,6 +1642,35 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     </SelectItem>
                   </SelectPopup>
                 </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Add project starts in"
+              description="Optional base directory used when opening the add-project browser."
+              resetAction={
+                settings.addProjectBaseDirectory !==
+                DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
+                  <SettingResetButton
+                    label="add project start directory"
+                    onClick={() =>
+                      updateSettings({
+                        addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Input
+                  className="w-full sm:w-72"
+                  value={settings.addProjectBaseDirectory}
+                  onChange={(event) => {
+                    updateSettings({ addProjectBaseDirectory: event.target.value });
+                  }}
+                  placeholder="Current project or home directory"
+                  aria-label="Add project base directory"
+                />
               }
             />
 
@@ -2141,7 +2190,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
             <SettingsRow
               title="Language server tools"
-              description="Install and repair built-in language servers used by the workspace editor."
+              description="Manage built-in and custom language servers for diagnostics and autocomplete."
               status={
                 <div className="space-y-1 text-[11px] text-muted-foreground">
                   {lspToolsStatus?.tools.map((tool) => (
@@ -2158,7 +2207,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 </div>
               }
               control={
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
                     variant="outline"
@@ -2180,29 +2229,117 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   </Button>
                 </div>
               }
-            />
-
-            <SettingsRow
-              title="Workspace editor shortcuts"
-              description="These commands resolve through the same keybindings.json file that drives the rest of the app."
-              status={
-                workspaceShortcutSummaries.length > 0 ? (
-                  <div className="space-y-1 text-[11px] text-muted-foreground">
-                    {workspaceShortcutSummaries.map(([label, shortcut]) => (
-                      <div key={label} className="flex items-center gap-2">
-                        <span>{label}</span>
-                        <span className="rounded border border-border/60 px-1.5 py-0.5 font-mono text-foreground">
-                          {shortcut}
-                        </span>
+            >
+              <div className="mt-4 space-y-3">
+                <div className="flex gap-2">
+                  <Input
+                    value={lspMarketplaceQuery}
+                    onChange={(event) => setLspMarketplaceQuery(event.target.value)}
+                    placeholder="Search npm for language servers"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={searchLspMarketplace}
+                    disabled={isSearchingLspMarketplace}
+                  >
+                    {isSearchingLspMarketplace ? "Searching..." : "Search"}
+                  </Button>
+                </div>
+                {lspMarketplaceResult && lspMarketplaceResult.packages.length > 0 ? (
+                  <div className="max-h-40 space-y-1 overflow-auto rounded-md bg-secondary/30 p-2">
+                    {lspMarketplaceResult.packages.map((pkg) => (
+                      <div
+                        key={pkg.packageName}
+                        className="flex items-center justify-between gap-2 rounded px-2 py-1"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-medium">{pkg.packageName}</div>
+                          {pkg.description ? (
+                            <div className="truncate text-[11px] text-muted-foreground">
+                              {pkg.description}
+                            </div>
+                          ) : null}
+                        </div>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          onClick={() => installMarketplacePackage(pkg.packageName)}
+                        >
+                          Use
+                        </Button>
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <span className="text-muted-foreground">
-                    No editor shortcuts are currently configured.
-                  </span>
-                )
-              }
+                ) : null}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Input
+                    value={lspCustomForm.packageName}
+                    onChange={(event) =>
+                      setLspCustomForm((current) => ({
+                        ...current,
+                        packageName: event.target.value,
+                      }))
+                    }
+                    placeholder="Package name (e.g. @tailwindcss/language-server)"
+                  />
+                  <Input
+                    value={lspCustomForm.command}
+                    onChange={(event) =>
+                      setLspCustomForm((current) => ({ ...current, command: event.target.value }))
+                    }
+                    placeholder="Command (e.g. tailwindcss-language-server)"
+                  />
+                  <Input
+                    value={lspCustomForm.label}
+                    onChange={(event) =>
+                      setLspCustomForm((current) => ({ ...current, label: event.target.value }))
+                    }
+                    placeholder="Display label"
+                  />
+                  <Input
+                    value={lspCustomForm.args}
+                    onChange={(event) =>
+                      setLspCustomForm((current) => ({ ...current, args: event.target.value }))
+                    }
+                    placeholder="Args (comma-separated, optional)"
+                  />
+                  <Input
+                    value={lspCustomForm.languageIds}
+                    onChange={(event) =>
+                      setLspCustomForm((current) => ({
+                        ...current,
+                        languageIds: event.target.value,
+                      }))
+                    }
+                    placeholder="Language IDs (comma-separated)"
+                  />
+                  <Input
+                    value={lspCustomForm.fileExtensions}
+                    onChange={(event) =>
+                      setLspCustomForm((current) => ({
+                        ...current,
+                        fileExtensions: event.target.value,
+                      }))
+                    }
+                    placeholder="File extensions (comma-separated)"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    onClick={submitCustomLspInstall}
+                    disabled={isInstallingCustomLsp}
+                  >
+                    {isInstallingCustomLsp ? "Installing..." : "Install custom LSP"}
+                  </Button>
+                </div>
+              </div>
+            </SettingsRow>
+
+            <SettingsRow
+              title="Workspace editor shortcuts"
+              description="Editor and workspace commands now share the same in-app keybinding editor below."
             />
           </SettingsSection>
         </>
@@ -2561,30 +2698,12 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
           <SettingsSection title="Keybindings">
             <SettingsRow
               title="Keybindings"
-              description="Open the persisted `keybindings.json` file to edit advanced bindings directly, including workspace editor tabs and window commands."
-              status={
-                <>
-                  <span className="block break-all font-mono text-[11px] text-foreground">
-                    {keybindingsConfigPath ?? "Resolving keybindings path..."}
-                  </span>
-                  {openKeybindingsError ? (
-                    <span className="mt-1 block text-destructive">{openKeybindingsError}</span>
-                  ) : (
-                    <span className="mt-1 block">Opens in your preferred editor.</span>
-                  )}
-                </>
-              }
-              control={
-                <Button
-                  size="xs"
-                  variant="outline"
-                  disabled={!keybindingsConfigPath || isOpeningKeybindings}
-                  onClick={openKeybindingsFile}
-                >
-                  {isOpeningKeybindings ? "Opening..." : "Open file"}
-                </Button>
-              }
-            />
+              description="Configure shortcuts directly here. Press keys to record bindings, then save or revert."
+            >
+              <div className="mt-4">
+                <KeybindingsSettingsEditor />
+              </div>
+            </SettingsRow>
           </SettingsSection>
         </>
       ) : null}

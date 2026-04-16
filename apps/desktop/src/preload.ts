@@ -58,7 +58,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ? result
       : "unsupported";
   },
-  pickFolder: () => ipcRenderer.invoke(PICK_FOLDER_CHANNEL),
+  pickFolder: (options) => ipcRenderer.invoke(PICK_FOLDER_CHANNEL, options),
   confirm: (message) => ipcRenderer.invoke(CONFIRM_CHANNEL, message),
   repairBrowserStorage: () => ipcRenderer.invoke(REPAIR_BROWSER_STORAGE_CHANNEL),
   setTheme: (theme) => ipcRenderer.invoke(SET_THEME_CHANNEL, theme),

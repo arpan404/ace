@@ -2,9 +2,9 @@ import {
   KeybindingRule as KeybindingRuleSchema,
   type KeybindingCommand,
   type KeybindingRule,
-  type ResolvedKeybindingsConfig,
 } from "@ace/contracts";
 import { Schema } from "effect";
+import { shortcutValueForCommand } from "~/keybindings";
 
 export const PROJECT_SCRIPT_KEYBINDING_INVALID_MESSAGE = "Invalid keybinding.";
 
@@ -33,27 +33,8 @@ export function decodeProjectScriptKeybindingRule(input: {
 }
 
 export function keybindingValueForCommand(
-  keybindings: ResolvedKeybindingsConfig,
+  keybindings: Parameters<typeof shortcutValueForCommand>[0],
   command: KeybindingCommand,
 ): string | null {
-  for (let index = keybindings.length - 1; index >= 0; index -= 1) {
-    const binding = keybindings[index];
-    if (!binding || binding.command !== command) continue;
-
-    const parts: string[] = [];
-    if (binding.shortcut.modKey) parts.push("mod");
-    if (binding.shortcut.ctrlKey) parts.push("ctrl");
-    if (binding.shortcut.metaKey) parts.push("meta");
-    if (binding.shortcut.altKey) parts.push("alt");
-    if (binding.shortcut.shiftKey) parts.push("shift");
-    const keyToken =
-      binding.shortcut.key === " "
-        ? "space"
-        : binding.shortcut.key === "escape"
-          ? "esc"
-          : binding.shortcut.key;
-    parts.push(keyToken);
-    return parts.join("+");
-  }
-  return null;
+  return shortcutValueForCommand(keybindings, command);
 }

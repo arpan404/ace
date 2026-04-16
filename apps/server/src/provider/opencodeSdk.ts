@@ -30,6 +30,11 @@ interface OpenCodeListedModel {
       readonly cache_write?: number;
     };
   };
+  readonly limit?: {
+    readonly context: number;
+    readonly input?: number;
+    readonly output: number;
+  };
   readonly experimental?: boolean;
   readonly status?: "alpha" | "beta" | "deprecated";
   readonly variants?: Record<string, Record<string, unknown>>;
@@ -67,6 +72,7 @@ interface OpenCodeCatalogEntry {
   readonly isDefaultModel: boolean;
   readonly isConnectedProvider: boolean;
   readonly variants: ReadonlyArray<string>;
+  readonly contextWindowTokens: number | undefined;
 }
 
 interface OpenCodeProviderListCacheEntry {
@@ -118,6 +124,10 @@ function toCatalogEntry(
   defaults: Record<string, string>,
   connectedProviderIds: ReadonlySet<string>,
 ): OpenCodeCatalogEntry {
+  const contextWindowTokens =
+    typeof model.limit?.context === "number" && model.limit.context > 0
+      ? model.limit.context
+      : undefined;
   return {
     providerId: provider.id,
     providerName: provider.name,
@@ -133,6 +143,7 @@ function toCatalogEntry(
     isDefaultModel: defaults[provider.id] === model.id,
     isConnectedProvider: connectedProviderIds.has(provider.id),
     variants: Object.keys(model.variants ?? {}).filter((variant) => variant.trim().length > 0),
+    contextWindowTokens,
   };
 }
 
@@ -167,13 +178,16 @@ function toServerProviderModel(entry: OpenCodeCatalogEntry): ServerProviderModel
     name: entry.name,
     isCustom: false,
     capabilities:
-      contextWindowOptions.length > 0
+      contextWindowOptions.length > 0 || entry.contextWindowTokens !== undefined
         ? {
             reasoningEffortLevels: [],
             supportsFastMode: false,
             supportsThinkingToggle: false,
             contextWindowOptions,
             promptInjectedEffortLevels: [],
+            ...(entry.contextWindowTokens !== undefined
+              ? { maxTokens: entry.contextWindowTokens }
+              : {}),
           }
         : null,
   };
@@ -577,4 +591,40 @@ export async function searchOpenCodeModels(
     toProviderListResponseFromConfigProviders(configProviders),
     options,
   );
+}
+
+export function getOpenCodeModelContextWindowTokens(
+  baseUrl: string,
+  modelSlug: string,
+): number | undefined {
+  const cacheEntry = openCodeConfigProvidersCache.get(baseUrl);
+  if (!cacheEntry?.value) {
+    return undefined;
+  }
+
+  const slugParts = modelSlug.split("/");
+  if (slugParts.length !== 2) {
+    return undefined;
+  }
+  const providerId = slugParts[0];
+  const modelId = slugParts[1];
+  if (!providerId || !modelId) {
+    return undefined;
+  }
+
+  const provider = cacheEntry.value.providers.find((p) => p.id === providerId);
+  if (!provider) {
+    return undefined;
+  }
+
+  const model = provider.models[modelId];
+  if (!model) {
+    return undefined;
+  }
+
+  if (typeof model.limit?.context === "number" && model.limit.context > 0) {
+    return model.limit.context;
+  }
+
+  return undefined;
 }
