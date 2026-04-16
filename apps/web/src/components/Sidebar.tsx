@@ -1459,15 +1459,20 @@ export default function Sidebar() {
       return;
     }
     const itemTop = activeItem.offsetTop;
-    const itemBottom = itemTop + activeItem.offsetHeight;
+    const itemHeight = activeItem.offsetHeight;
+    const itemBottom = itemTop + itemHeight;
     const visibleTop = listElement.scrollTop;
-    const visibleBottom = visibleTop + listElement.clientHeight;
-    if (itemTop < visibleTop) {
-      listElement.scrollTop = itemTop;
+    const visibleHeight = listElement.clientHeight;
+
+    const minVisibleItems = 3;
+    const targetPosition = Math.floor((visibleHeight - itemHeight) * 0.3);
+
+    if (itemTop < visibleTop + minVisibleItems * itemHeight) {
+      listElement.scrollTop = Math.max(0, itemTop - targetPosition);
       return;
     }
-    if (itemBottom > visibleBottom) {
-      listElement.scrollTop = itemBottom - listElement.clientHeight;
+    if (itemBottom > visibleTop + visibleHeight - minVisibleItems * itemHeight) {
+      listElement.scrollTop = itemBottom - visibleHeight + targetPosition;
     }
   }, [activeProjectBrowseIndex, addingProject, projectPickerStep]);
 
