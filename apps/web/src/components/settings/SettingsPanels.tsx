@@ -273,24 +273,23 @@ function AboutVersionSection() {
     }
 
     if (action === "install") {
-      const confirmed = window.confirm(
-        getDesktopUpdateInstallConfirmationMessage(
-          updateState ?? { availableVersion: null, downloadedVersion: null },
-        ),
-      );
-      if (!confirmed) return;
-      void bridge
-        .installUpdate()
-        .then((result) => {
-          setDesktopUpdateStateQueryData(queryClient, result.state);
-        })
-        .catch((error: unknown) => {
-          toastManager.add({
-            type: "error",
-            title: "Could not install update",
-            description: error instanceof Error ? error.message : "Install failed.",
-          });
+      const api = readNativeApi() ?? ensureNativeApi();
+      void (async () => {
+        const confirmed = await api.dialogs.confirm(
+          getDesktopUpdateInstallConfirmationMessage(
+            updateState ?? { availableVersion: null, downloadedVersion: null },
+          ),
+        );
+        if (!confirmed) return;
+        const result = await bridge.installUpdate();
+        setDesktopUpdateStateQueryData(queryClient, result.state);
+      })().catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not install update",
+          description: error instanceof Error ? error.message : "Install failed.",
         });
+      });
       return;
     }
 

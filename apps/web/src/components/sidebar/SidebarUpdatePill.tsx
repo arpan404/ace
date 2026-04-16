@@ -2,6 +2,7 @@ import { DownloadIcon, RotateCwIcon, TriangleAlertIcon, XIcon } from "lucide-rea
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { isElectron } from "../../env";
+import { ensureNativeApi, readNativeApi } from "../../nativeApi";
 import {
   setDesktopUpdateStateQueryData,
   useDesktopUpdateState,
@@ -72,28 +73,29 @@ export function SidebarUpdatePill() {
     }
 
     if (action === "install") {
-      const confirmed = window.confirm(getDesktopUpdateInstallConfirmationMessage(state));
-      if (!confirmed) return;
-      void bridge
-        .installUpdate()
-        .then((result) => {
-          setDesktopUpdateStateQueryData(queryClient, result.state);
-          if (!shouldToastDesktopUpdateActionResult(result)) return;
-          const actionError = getDesktopUpdateActionError(result);
-          if (!actionError) return;
-          toastManager.add({
-            type: "error",
-            title: "Could not install update",
-            description: actionError,
-          });
-        })
-        .catch((error) => {
-          toastManager.add({
-            type: "error",
-            title: "Could not install update",
-            description: error instanceof Error ? error.message : "An unexpected error occurred.",
-          });
+      const api = readNativeApi() ?? ensureNativeApi();
+      void (async () => {
+        const confirmed = await api.dialogs.confirm(
+          getDesktopUpdateInstallConfirmationMessage(state),
+        );
+        if (!confirmed) return;
+        const result = await bridge.installUpdate();
+        setDesktopUpdateStateQueryData(queryClient, result.state);
+        if (!shouldToastDesktopUpdateActionResult(result)) return;
+        const actionError = getDesktopUpdateActionError(result);
+        if (!actionError) return;
+        toastManager.add({
+          type: "error",
+          title: "Could not install update",
+          description: actionError,
         });
+      })().catch((error) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not install update",
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      });
     }
   }, [action, disabled, queryClient, state]);
 
