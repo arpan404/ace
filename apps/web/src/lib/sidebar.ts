@@ -497,6 +497,16 @@ function getThreadSortTimestamp(
   return getLatestUserMessageTimestamp(thread);
 }
 
+function getProjectThreadSortTimestamp(
+  thread: SidebarThreadSortInput,
+  sortOrder: Exclude<SidebarProjectSortOrder, "manual">,
+): number {
+  if (sortOrder === "created_at") {
+    return toSortableTimestamp(thread.createdAt) ?? Number.NEGATIVE_INFINITY;
+  }
+  return toSortableTimestamp(thread.updatedAt ?? thread.createdAt) ?? Number.NEGATIVE_INFINITY;
+}
+
 function buildThreadSortTimestampById<
   T extends Pick<Thread, "id" | "createdAt" | "updatedAt"> & SidebarThreadSortInput,
 >(
@@ -559,7 +569,7 @@ export function getProjectSortTimestamp(
   if (projectThreads.length > 0) {
     let latest = Number.NEGATIVE_INFINITY;
     for (const thread of projectThreads) {
-      latest = Math.max(latest, getThreadSortTimestamp(thread, sortOrder));
+      latest = Math.max(latest, getProjectThreadSortTimestamp(thread, sortOrder));
     }
     return latest;
   }
@@ -587,7 +597,7 @@ export function sortProjectsForSidebar<
 
   for (const thread of threads) {
     projectsWithThreads.add(thread.projectId);
-    const threadTimestamp = getThreadSortTimestamp(thread, sortOrder);
+    const threadTimestamp = getProjectThreadSortTimestamp(thread, sortOrder);
     const currentTimestamp = projectTimestampById.get(thread.projectId) ?? Number.NEGATIVE_INFINITY;
     if (threadTimestamp > currentTimestamp) {
       projectTimestampById.set(thread.projectId, threadTimestamp);

@@ -4,7 +4,7 @@ import { normalizeWsUrl, splitWsUrlAuthToken } from "@ace/shared/hostConnections
 import { reportBackgroundError } from "./async";
 import { createWsRpcClient, getWsRpcClient, type WsRpcClient } from "../wsRpcClient";
 import { WsTransport } from "../wsTransport";
-import { resolveActiveWsUrl } from "./remoteHosts";
+import { resolveLocalDeviceWsUrl } from "./remoteHosts";
 
 const routeClientsByConnectionUrl = new Map<string, WsRpcClient>();
 const routeAvailabilityByConnectionUrl = new Map<string, RemoteRouteAvailabilitySnapshot>();
@@ -44,7 +44,7 @@ function createRouteClientSessionId(): string {
 function isActiveConnectionUrl(connectionUrl: string): boolean {
   return (
     normalizeConnectionEndpointUrl(connectionUrl) ===
-    normalizeConnectionEndpointUrl(resolveActiveWsUrl())
+    normalizeConnectionEndpointUrl(resolveLocalDeviceWsUrl())
   );
 }
 
@@ -131,6 +131,11 @@ export function registerRemoteRoute(connectionUrl: string): void {
       checkedAt: 0,
     });
   }
+}
+
+export function getRouteRpcClient(connectionUrl: string): WsRpcClient {
+  registerRemoteRoute(connectionUrl);
+  return getOrCreateRouteClient(connectionUrl);
 }
 
 export function unregisterRemoteRoute(connectionUrl: string): void {

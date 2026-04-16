@@ -1389,6 +1389,69 @@ export function syncServerReadModel(
   };
 }
 
+export function mergeServerReadModel(
+  state: AppState,
+  readModel: OrchestrationReadModel,
+  options?: SnapshotSyncOptions,
+): AppState {
+  const incomingProjects = readModel.projects
+    .filter((project) => project.deletedAt === null)
+    .map(mapProject);
+  const incomingThreads = readModel.threads
+    .filter((thread) => thread.deletedAt === null)
+    .map((thread) => {
+      const nextThread = mapThread(thread, options);
+      if (options !== undefined && nextThread.historyLoaded !== false) {
+        primeHydratedThreadCache(thread);
+      }
+      return nextThread;
+    });
+
+  const projectsById = new Map(state.projects.map((project) => [project.id, project] as const));
+  for (const project of incomingProjects) {
+    projectsById.set(project.id, project);
+  }
+
+  const threadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
+  for (const thread of incomingThreads) {
+    threadsById.set(thread.id, thread);
+  }
+
+  const projects = [...projectsById.values()];
+  const threads = [...threadsById.values()];
+  return {
+    ...state,
+    projects,
+    threads,
+    sidebarThreadsById: buildSidebarThreadsById(threads),
+    threadIdsByProjectId: buildThreadIdsByProjectId(threads),
+    bootstrapComplete: true,
+  };
+}
+
+export function removeReadModelEntities(
+  state: AppState,
+  input: {
+    readonly projectIds: ReadonlyArray<ProjectId>;
+    readonly threadIds: ReadonlyArray<ThreadId>;
+  },
+): AppState {
+  if (input.projectIds.length === 0 && input.threadIds.length === 0) {
+    return state;
+  }
+  const projectIds = new Set(input.projectIds);
+  const threadIds = new Set(input.threadIds);
+  const projects = state.projects.filter((project) => !projectIds.has(project.id));
+  const threads = state.threads.filter((thread) => !threadIds.has(thread.id));
+  return {
+    ...state,
+    projects,
+    threads,
+    sidebarThreadsById: buildSidebarThreadsById(threads),
+    threadIdsByProjectId: buildThreadIdsByProjectId(threads),
+  };
+}
+
 export function hydrateThreadFromReadModel(
   state: AppState,
   readModelThread: OrchestrationReadModel["threads"][number],
@@ -1524,6 +1587,11 @@ export function setThreadQueueState(
 interface AppStore extends AppState {
   resetToInitialState: () => void;
   syncServerReadModel: (readModel: OrchestrationReadModel, options?: SnapshotSyncOptions) => void;
+  mergeServerReadModel: (readModel: OrchestrationReadModel, options?: SnapshotSyncOptions) => void;
+  removeReadModelEntities: (input: {
+    readonly projectIds: ReadonlyArray<ProjectId>;
+    readonly threadIds: ReadonlyArray<ThreadId>;
+  }) => void;
   hydrateThreadFromReadModel: (readModelThread: OrchestrationReadModel["threads"][number]) => void;
   pruneHydratedThreadHistories: (keepThreadIds: readonly ThreadId[]) => void;
   applyOrchestrationEvent: (event: OrchestrationEvent) => void;
@@ -1542,6 +1610,9 @@ export const useStore = create<AppStore>((set) => ({
   resetToInitialState: () => set(() => createInitialState()),
   syncServerReadModel: (readModel, options) =>
     set((state) => syncServerReadModel(state, readModel, options)),
+  mergeServerReadModel: (readModel, options) =>
+    set((state) => mergeServerReadModel(state, readModel, options)),
+  removeReadModelEntities: (input) => set((state) => removeReadModelEntities(state, input)),
   hydrateThreadFromReadModel: (readModelThread) =>
     set((state) => hydrateThreadFromReadModel(state, readModelThread)),
   pruneHydratedThreadHistories: (keepThreadIds) =>

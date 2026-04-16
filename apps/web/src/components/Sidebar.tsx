@@ -159,12 +159,10 @@ import type {
 } from "./sidebar/sidebarTypes";
 import { prefetchHydratedThread, readCachedHydratedThread } from "../lib/threadHydrationCache";
 import {
-  connectToWsHost,
   isHostConnectionActive,
-  loadPinnedRemoteHostIds,
+  loadConnectedRemoteHostIds,
   loadRemoteHostInstances,
   normalizeWsUrl,
-  resolveActiveWsUrl,
   resolveHostConnectionWsUrl,
   resolveLocalDeviceWsUrl,
   splitWsUrlAuthToken,
@@ -183,6 +181,11 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
 import type { Project, SidebarThreadSummary } from "../types";
+import { useHostConnectionStore } from "../hostConnectionStore";
+import {
+  readRouteConnectionUrlFromLocation,
+  THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
+} from "../lib/connectionRouting";
 const THREAD_REVEAL_STEP = 5;
 const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
 const sortedSidebarThreadsCache = new WeakMap<
@@ -230,7 +233,7 @@ interface ProjectPickerEnvironment {
   connectionUrl: string;
   icon: Project["icon"];
   isLocal: boolean;
-  isPinned: boolean;
+  isConnected: boolean;
 }
 
 function resolveIsoTimestamp(input: string | undefined): number {
@@ -618,7 +621,7 @@ export default function Sidebar() {
   const [projectPickerRemoteHosts, setProjectPickerRemoteHosts] = useState<RemoteHostInstance[]>(
     [],
   );
-  const [projectPickerPinnedHostIds, setProjectPickerPinnedHostIds] = useState<string[]>([]);
+  const [projectPickerConnectedHostIds, setProjectPickerConnectedHostIds] = useState<string[]>([]);
   const [projectPickerSelectedConnectionUrl, setProjectPickerSelectedConnectionUrl] = useState<
     string | null
   >(null);
@@ -674,21 +677,10 @@ export default function Sidebar() {
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const platform = navigator.platform;
-  const [activeWsUrl, setActiveWsUrl] = useState(() => resolveActiveWsUrl());
   const localDeviceHost = splitWsUrlAuthToken(resolveLocalDeviceWsUrl());
   const localDeviceConnectionUrl = resolveHostConnectionWsUrl(localDeviceHost);
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const handleHostChange = () => {
-      setActiveWsUrl(resolveActiveWsUrl());
-    };
-    window.addEventListener("ace:ws-host-changed", handleHostChange);
-    return () => {
-      window.removeEventListener("ace:ws-host-changed", handleHostChange);
-    };
-  }, []);
+  const activeWsUrl = localDeviceConnectionUrl;
+  const activeRouteConnectionUrl = readRouteConnectionUrlFromLocation() ?? localDeviceConnectionUrl;
   const [remoteSidebarHosts, setRemoteSidebarHosts] = useState<
     ReadonlyArray<RemoteSidebarHostEntry>
   >(() => remoteSidebarHostSnapshotCache);
@@ -704,6 +696,7 @@ export default function Sidebar() {
   const [remoteThreadRevealCountByProject, setRemoteThreadRevealCountByProject] = useState<
     Record<string, number>
   >({});
+  const projectConnectionById = useHostConnectionStore((store) => store.projectConnectionById);
   useEffect(() => {
     remoteSidebarHostsRef.current = remoteSidebarHosts;
     remoteSidebarHostSnapshotCache = remoteSidebarHosts;
@@ -711,8 +704,18 @@ export default function Sidebar() {
   const shouldShowProjectPathEntry = addingProject;
   const normalizedProjectSearchQuery = "";
   const activeProjects = useMemo(
-    () => projects.filter((project) => project.archivedAt === null),
-    [projects],
+    () =>
+      projects.filter((project) => {
+        if (project.archivedAt !== null) {
+          return false;
+        }
+        const ownerConnectionUrl = projectConnectionById[project.id];
+        return (
+          ownerConnectionUrl === undefined ||
+          connectionUrlsEqual(ownerConnectionUrl, localDeviceConnectionUrl)
+        );
+      }),
+    [localDeviceConnectionUrl, projectConnectionById, projects],
   );
   const orderedProjects = useMemo(() => {
     return orderItemsByPreferredIds({
@@ -731,7 +734,7 @@ export default function Sidebar() {
   );
   const pickerEnvironments = useMemo((): ProjectPickerEnvironment[] => {
     const uniqueByConnection = new Map<string, ProjectPickerEnvironment>();
-    const pinnedHostIds = new Set(projectPickerPinnedHostIds);
+    const connectedHostIds = new Set(projectPickerConnectedHostIds);
 
     uniqueByConnection.set(localDeviceConnectionUrl, {
       id: "local-device",
@@ -743,11 +746,11 @@ export default function Sidebar() {
         color: "blue",
       },
       isLocal: true,
-      isPinned: true,
+      isConnected: true,
     });
 
     for (const host of projectPickerRemoteHosts) {
-      if (!pinnedHostIds.has(host.id)) {
+      if (!connectedHostIds.has(host.id)) {
         continue;
       }
       const connectionUrl = resolveHostConnectionWsUrl(host);
@@ -767,7 +770,7 @@ export default function Sidebar() {
               }
             : null,
         isLocal: false,
-        isPinned: true,
+        isConnected: true,
       });
     }
 
@@ -775,7 +778,7 @@ export default function Sidebar() {
   }, [
     localDeviceConnectionUrl,
     localDeviceHost.wsUrl,
-    projectPickerPinnedHostIds,
+    projectPickerConnectedHostIds,
     projectPickerRemoteHosts,
   ]);
   const selectedProjectPickerEnvironment = useMemo(() => {
@@ -810,9 +813,9 @@ export default function Sidebar() {
     }
 
     const refreshPromise = (async () => {
-      const pinnedHostIds = new Set(loadPinnedRemoteHostIds());
+      const connectedHostIds = new Set(loadConnectedRemoteHostIds());
       const hosts = loadRemoteHostInstances()
-        .filter((host) => pinnedHostIds.has(host.id))
+        .filter((host) => connectedHostIds.has(host.id))
         .filter((host) => resolveHostConnectionWsUrl(host) !== localDeviceConnectionUrl)
         .toSorted((left, right) => left.name.localeCompare(right.name));
       const nextConnectionUrls = new Set<string>([
@@ -828,6 +831,11 @@ export default function Sidebar() {
       for (const connectionUrl of previousConnectionUrls) {
         if (!nextConnectionUrls.has(connectionUrl)) {
           unregisterRemoteRoute(connectionUrl);
+          const ownership = useHostConnectionStore.getState().getOwnership(connectionUrl);
+          if (ownership) {
+            useStore.getState().removeReadModelEntities(ownership);
+          }
+          useHostConnectionStore.getState().removeConnection(connectionUrl);
         }
       }
       registeredRemoteRouteConnectionUrlsRef.current = nextConnectionUrls;
@@ -835,6 +843,16 @@ export default function Sidebar() {
       await probeRemoteRouteAvailability(localDeviceConnectionUrl, {
         force: true,
       }).catch(() => undefined);
+      const localSnapshot = await routeOrchestrationGetSnapshotFromRemote(
+        localDeviceConnectionUrl,
+        LEAN_SNAPSHOT_RECOVERY_INPUT,
+      ).catch(() => null);
+      if (localSnapshot) {
+        useStore.getState().mergeServerReadModel(localSnapshot, LEAN_SNAPSHOT_RECOVERY_INPUT);
+        useHostConnectionStore
+          .getState()
+          .upsertSnapshotOwnership(localDeviceConnectionUrl, localSnapshot);
+      }
 
       const requestVersion = remoteSidebarRefreshVersionRef.current + 1;
       remoteSidebarRefreshVersionRef.current = requestVersion;
@@ -856,6 +874,8 @@ export default function Sidebar() {
               connectionUrl,
               LEAN_SNAPSHOT_RECOVERY_INPUT,
             )) as OrchestrationReadModel;
+            useStore.getState().mergeServerReadModel(snapshot, LEAN_SNAPSHOT_RECOVERY_INPUT);
+            useHostConnectionStore.getState().upsertSnapshotOwnership(connectionUrl, snapshot);
             const mappedProjects = mapRemoteProjectsFromSnapshot(snapshot);
             const projects = previousEntry
               ? reuseRemoteProjectEntries(previousEntry.projects, mappedProjects)
@@ -910,6 +930,9 @@ export default function Sidebar() {
       }
     }
   }, [localDeviceConnectionUrl]);
+  useEffect(() => {
+    void refreshRemoteSidebarHosts();
+  }, [activeWsUrl, refreshRemoteSidebarHosts]);
   useEffect(() => {
     let cancelled = false;
     let timeoutHandle: number | null = null;
@@ -1478,9 +1501,9 @@ export default function Sidebar() {
       return;
     }
     const remoteHosts = loadRemoteHostInstances();
-    const pinnedHostIds = loadPinnedRemoteHostIds();
+    const connectedHostIds = loadConnectedRemoteHostIds();
     for (const host of remoteHosts) {
-      if (!pinnedHostIds.includes(host.id)) {
+      if (!connectedHostIds.includes(host.id)) {
         continue;
       }
       const connectionUrl = resolveHostConnectionWsUrl(host);
@@ -1490,11 +1513,11 @@ export default function Sidebar() {
       registerRemoteRoute(connectionUrl);
     }
     setProjectPickerRemoteHosts(remoteHosts);
-    setProjectPickerPinnedHostIds(pinnedHostIds);
+    setProjectPickerConnectedHostIds(connectedHostIds);
     setProjectPickerSelectedConnectionUrl(localDeviceConnectionUrl);
     const hasRemoteEnvironment = remoteHosts.some(
       (host) =>
-        pinnedHostIds.includes(host.id) &&
+        connectedHostIds.includes(host.id) &&
         resolveHostConnectionWsUrl(host) !== localDeviceConnectionUrl,
     );
     const initialPath = addProjectBaseDirectory;
@@ -1741,6 +1764,7 @@ export default function Sidebar() {
         clearSelection();
       }
       setSelectionAnchor(threadId);
+      useHostConnectionStore.getState().upsertThreadOwnership(connectionUrl, threadId);
       const thread = sidebarThreadsById[threadId];
       const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
       if (cached) {
@@ -1754,22 +1778,19 @@ export default function Sidebar() {
         });
       }
       startTransition(() => {
-        if (connectionUrlsEqual(connectionUrl, activeWsUrl)) {
-          void navigate({
-            to: "/$threadId",
-            params: { threadId },
-          });
-        } else {
-          connectToWsHost(connectionUrl, {
-            path: `/${threadId}`,
-            reload: false,
-          });
-        }
+        const threadRouteSearch = connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl)
+          ? {}
+          : { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: connectionUrl };
+        void navigate({
+          to: "/$threadId",
+          params: { threadId },
+          search: threadRouteSearch,
+        });
       });
     },
     [
       clearSelection,
-      activeWsUrl,
+      localDeviceConnectionUrl,
       navigate,
       rangeSelectTo,
       selectedThreadIds.size,
@@ -1818,6 +1839,7 @@ export default function Sidebar() {
         void navigate({
           to: "/$threadId",
           params: { threadId },
+          search: {},
         });
       });
     },
@@ -1825,16 +1847,21 @@ export default function Sidebar() {
   );
   const navigateToThreadOnConnection = useCallback(
     (connectionUrl: string, threadId: ThreadId) => {
-      if (connectionUrlsEqual(connectionUrl, activeWsUrl)) {
+      if (connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl)) {
         navigateToThread(threadId);
         return;
       }
-      connectToWsHost(connectionUrl, {
-        path: `/${threadId}`,
-        reload: false,
+      startTransition(() => {
+        void navigate({
+          to: "/$threadId",
+          params: { threadId },
+          search: {
+            [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: connectionUrl,
+          },
+        });
       });
     },
-    [activeWsUrl, navigateToThread],
+    [localDeviceConnectionUrl, navigate, navigateToThread],
   );
 
   const handleProjectContextMenu = useCallback(
@@ -2495,6 +2522,50 @@ export default function Sidebar() {
         }),
       );
   }, [filteredRemoteSidebarHosts, remoteProjectExpandedById, remoteThreadRevealCountByProject]);
+  const unifiedRenderedProjects = useMemo(() => {
+    const localProjects = filteredRenderedProjects.map((project) => ({
+      kind: "local" as const,
+      key: `local:${project.project.id}`,
+      timestamp: getProjectSortTimestamp(
+        project.project,
+        visibleProjectThreadsByProjectId.get(project.project.id) ?? EMPTY_SIDEBAR_THREADS,
+        appSettings.sidebarProjectSortOrder === "created_at" ? "created_at" : "updated_at",
+      ),
+      projectName: project.project.name,
+      projectId: project.project.id,
+      payload: project,
+    }));
+    const remoteProjects = renderedRemoteProjects.map((project) => {
+      const threadTimestamp = project.project.threads.reduce(
+        (latest, thread) => Math.max(latest, resolveIsoTimestamp(thread.updatedAt)),
+        Number.NEGATIVE_INFINITY,
+      );
+      const projectTimestamp = resolveIsoTimestamp(project.project.updatedAt);
+      return {
+        kind: "remote" as const,
+        key: `remote:${project.projectKey}`,
+        timestamp: Math.max(threadTimestamp, projectTimestamp),
+        projectName: project.project.name,
+        projectId: project.project.id,
+        payload: project,
+      };
+    });
+    return [...localProjects, ...remoteProjects].toSorted((left, right) => {
+      if (left.timestamp !== right.timestamp) {
+        return right.timestamp - left.timestamp;
+      }
+      const byName = left.projectName.localeCompare(right.projectName);
+      if (byName !== 0) {
+        return byName;
+      }
+      return left.projectId.localeCompare(right.projectId);
+    });
+  }, [
+    appSettings.sidebarProjectSortOrder,
+    filteredRenderedProjects,
+    renderedRemoteProjects,
+    visibleProjectThreadsByProjectId,
+  ]);
   const sortedActiveThreads = useMemo(
     () =>
       Object.values(sidebarThreadsById)
@@ -3061,57 +3132,59 @@ export default function Sidebar() {
               </div>
             </SidebarMenuSubItem>
           ) : null}
-          {(projectExpanded ? visibleThreads : visibleThreads.slice(0, 1)).map((thread) => {
-            const threadId = ThreadId.makeUnsafe(thread.id);
-            const isActive =
-              routeThreadId === threadId && connectionUrlsEqual(activeWsUrl, connectionUrl);
-            return (
-              <SidebarMenuSubItem key={thread.id} className="w-full" data-thread-item>
-                <SidebarMenuSubButton
-                  render={<button type="button" />}
-                  size="sm"
-                  isActive={isActive}
-                  className={`${resolveThreadRowClassName({
-                    isActive,
-                    isSelected: false,
-                  })} relative isolate`}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    navigateToThreadOnConnection(connectionUrl, threadId);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    navigateToThreadOnConnection(connectionUrl, threadId);
-                  }}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void handleRemoteThreadContextMenu(
-                      {
-                        connectionUrl,
-                        project,
-                        thread,
-                      },
-                      {
-                        x: event.clientX,
-                        y: event.clientY,
-                      },
-                    );
-                  }}
-                >
-                  <span className="min-w-0 flex-1 truncate text-xs">{thread.title}</span>
-                  <span
-                    className={`text-[10px] ${isActive ? "text-foreground/60" : "text-muted-foreground/50"}`}
+          {projectExpanded &&
+            visibleThreads.map((thread) => {
+              const threadId = ThreadId.makeUnsafe(thread.id);
+              const isActive =
+                routeThreadId === threadId &&
+                connectionUrlsEqual(activeRouteConnectionUrl, connectionUrl);
+              return (
+                <SidebarMenuSubItem key={thread.id} className="w-full" data-thread-item>
+                  <SidebarMenuSubButton
+                    render={<button type="button" />}
+                    size="sm"
+                    isActive={isActive}
+                    className={`${resolveThreadRowClassName({
+                      isActive,
+                      isSelected: false,
+                    })} relative isolate`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      navigateToThreadOnConnection(connectionUrl, threadId);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      navigateToThreadOnConnection(connectionUrl, threadId);
+                    }}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void handleRemoteThreadContextMenu(
+                        {
+                          connectionUrl,
+                          project,
+                          thread,
+                        },
+                        {
+                          x: event.clientX,
+                          y: event.clientY,
+                        },
+                      );
+                    }}
                   >
-                    {formatRelativeTimeLabel(thread.updatedAt)}
-                  </span>
-                </SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            );
-          })}
+                    <span className="min-w-0 flex-1 truncate text-xs">{thread.title}</span>
+                    <span
+                      className={`text-[10px] ${isActive ? "text-foreground/60" : "text-muted-foreground/50"}`}
+                    >
+                      {formatRelativeTimeLabel(thread.updatedAt)}
+                    </span>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
+              );
+            })}
 
           {projectExpanded && hasHiddenThreads ? (
             <SidebarMenuSubItem className="w-full">
@@ -3961,9 +4034,9 @@ export default function Sidebar() {
                           <span className="rounded-lg border border-amber-500/40 bg-amber-500/12 px-2 py-1 text-[11px] font-medium text-amber-400/90 shrink-0">
                             Checking…
                           </span>
-                        ) : environment.isPinned ? (
+                        ) : environment.isConnected ? (
                           <span className="rounded-lg border border-blue-500/40 bg-blue-500/12 px-2 py-1 text-[11px] font-medium text-blue-400/90 shrink-0">
-                            Pinned
+                            Connected
                           </span>
                         ) : null}
                       </button>
@@ -4227,14 +4300,11 @@ export default function Sidebar() {
                 </DndContext>
               ) : (
                 <SidebarMenu>
-                  {filteredRenderedProjects.map((renderedProject) => (
-                    <SidebarMenuItem key={renderedProject.project.id} className="rounded-md">
-                      {renderProjectItem(renderedProject, null)}
-                    </SidebarMenuItem>
-                  ))}
-                  {renderedRemoteProjects.map((renderedProject) => (
-                    <SidebarMenuItem key={renderedProject.projectKey} className="rounded-md">
-                      {renderRemoteProjectItem(renderedProject)}
+                  {unifiedRenderedProjects.map((renderedProject) => (
+                    <SidebarMenuItem key={renderedProject.key} className="rounded-md">
+                      {renderedProject.kind === "local"
+                        ? renderProjectItem(renderedProject.payload, null)
+                        : renderRemoteProjectItem(renderedProject.payload)}
                     </SidebarMenuItem>
                   ))}
                 </SidebarMenu>
@@ -4249,8 +4319,7 @@ export default function Sidebar() {
                 )}
               {(projects.length > 0 || remoteSidebarHosts.length > 0) &&
                 normalizedProjectSearchQuery.length > 0 &&
-                filteredRenderedProjects.length === 0 &&
-                renderedRemoteProjects.length === 0 && (
+                unifiedRenderedProjects.length === 0 && (
                   <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
                     No matching projects
                   </div>
