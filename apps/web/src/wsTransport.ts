@@ -23,6 +23,7 @@ interface WsTransportOptions {
   readonly connectionProbeIntervalMs?: number;
   readonly connectionProbeTimeoutMs?: number;
   readonly clientSessionId?: string;
+  readonly disableConnectionProbeLifecycle?: boolean;
 }
 
 export interface WsTransportConnectionState {
@@ -97,6 +98,7 @@ export class WsTransport {
   private readonly identity: WsClientConnectionIdentity;
   private readonly connectionProbeIntervalMs: number;
   private readonly connectionProbeTimeoutMs: number;
+  private readonly disableConnectionProbeLifecycle: boolean;
   private readonly connectionStateListeners = new Set<
     (state: WsTransportConnectionState) => void
   >();
@@ -121,6 +123,7 @@ export class WsTransport {
       1,
       options.connectionProbeTimeoutMs ?? DEFAULT_CONNECTION_PROBE_TIMEOUT_MS,
     );
+    this.disableConnectionProbeLifecycle = options.disableConnectionProbeLifecycle ?? false;
     logLoadDiagnostic({
       phase: "ws",
       message: "Creating WebSocket transport",
@@ -200,7 +203,7 @@ export class WsTransport {
   }
 
   private setupConnectionProbeLifecycle(): void {
-    if (typeof window === "undefined") {
+    if (this.disableConnectionProbeLifecycle || typeof window === "undefined") {
       return;
     }
 

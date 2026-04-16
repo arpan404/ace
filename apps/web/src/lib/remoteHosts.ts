@@ -15,7 +15,12 @@ import {
   wsUrlToBrowserBaseUrl,
 } from "@ace/shared/hostConnections";
 
-import { clearActiveWsUrlOverride, persistActiveWsUrlOverride, resolveServerUrl } from "./utils";
+import {
+  clearActiveWsUrlOverride,
+  loadBootstrapWsUrl,
+  persistActiveWsUrlOverride,
+  resolveServerUrl,
+} from "./utils";
 
 const REMOTE_HOSTS_STORAGE_KEY = "ace.remote-hosts.v1";
 const PINNED_REMOTE_HOST_IDS_STORAGE_KEY = "ace.pinned-remote-host-ids.v1";
@@ -234,6 +239,10 @@ export function resolveLocalDeviceWsUrl(): string {
     } catch {
       // Ignore bridge read errors and fall back to active transport resolution.
     }
+  }
+  const bootstrapWsUrl = loadBootstrapWsUrl();
+  if (bootstrapWsUrl) {
+    return normalizeWsUrl(bootstrapWsUrl);
   }
   if (typeof window !== "undefined" && window.location.origin) {
     const localUrl = resolveServerUrl({

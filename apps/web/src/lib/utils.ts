@@ -24,6 +24,7 @@ export function isLinuxPlatform(platform: string): boolean {
 
 const isNonEmptyString = Predicate.compose(Predicate.isString, String.isNonEmpty);
 const ACTIVE_WS_URL_OVERRIDE_STORAGE_KEY = "ace.active-ws-url";
+const BOOTSTRAP_WS_URL_STORAGE_KEY = "ace.bootstrap-ws-url";
 
 export function loadActiveWsUrlOverride(): string | undefined {
   if (typeof window === "undefined") {
@@ -70,8 +71,14 @@ export function clearBootstrapWsUrlQueryParam(): void {
     return;
   }
   const currentUrl = new URL(window.location.href);
-  if (!currentUrl.searchParams.has(DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM)) {
+  const bootstrapWsUrl = currentUrl.searchParams.get(DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM)?.trim();
+  if (!bootstrapWsUrl) {
     return;
+  }
+  try {
+    window.sessionStorage?.setItem(BOOTSTRAP_WS_URL_STORAGE_KEY, bootstrapWsUrl);
+  } catch {
+    // Ignore storage failures and keep current URL cleanup behavior.
   }
   currentUrl.searchParams.delete(DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM);
   const nextSearch = currentUrl.searchParams.toString();
@@ -79,15 +86,29 @@ export function clearBootstrapWsUrlQueryParam(): void {
   window.history.replaceState(window.history.state, "", replacement);
 }
 
-function readRendererBootstrapWsUrl(): string | undefined {
+export function loadBootstrapWsUrl(): string | undefined {
   if (typeof window === "undefined") {
     return undefined;
   }
 
-  const value = new URLSearchParams(window.location.search).get(
-    DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM,
-  );
-  return isNonEmptyString(value) ? value : undefined;
+  const queryParamValue = new URLSearchParams(window.location.search)
+    .get(DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM)
+    ?.trim();
+  if (queryParamValue && queryParamValue.length > 0) {
+    try {
+      window.sessionStorage?.setItem(BOOTSTRAP_WS_URL_STORAGE_KEY, queryParamValue);
+    } catch {
+      // Ignore storage failures and continue with in-memory value only.
+    }
+    return queryParamValue;
+  }
+
+  try {
+    const cached = window.sessionStorage?.getItem(BOOTSTRAP_WS_URL_STORAGE_KEY);
+    return isNonEmptyString(cached) ? cached : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function readDesktopBridgeWsUrl(): string | undefined {
@@ -120,10 +141,10 @@ export const resolveServerUrl = (options?: {
     loadActiveWsUrlOverride() ??
     readDesktopBridgeWsUrl() ??
     (isNonEmptyString(import.meta.env.VITE_WS_URL) ? import.meta.env.VITE_WS_URL : undefined) ??
+    loadBootstrapWsUrl() ??
     (typeof window !== "undefined" && isNonEmptyString(window.location.origin)
       ? window.location.origin
-      : undefined) ??
-    readRendererBootstrapWsUrl();
+      : undefined);
 
   if (!rawUrl) {
     throw new Error("No non-empty server URL provided");

@@ -179,6 +179,7 @@ import {
   routeFilesystemBrowseToRemote,
   routeOrchestrationDispatchCommandToRemote,
   routeOrchestrationGetSnapshotFromRemote,
+  unregisterRemoteRoute,
 } from "../lib/remoteWsRouter";
 import { LEAN_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
@@ -1313,6 +1314,7 @@ export default function Sidebar() {
   const remoteSidebarHostsRef = useRef<ReadonlyArray<RemoteSidebarHostEntry>>(
     remoteSidebarHostSnapshotCache,
   );
+  const registeredRemoteRouteConnectionUrlsRef = useRef<Set<string>>(new Set());
   const remoteSidebarRefreshVersionRef = useRef(0);
   const remoteSidebarRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const [remoteProjectExpandedById, setRemoteProjectExpandedById] = useState<
@@ -1428,6 +1430,27 @@ export default function Sidebar() {
         .filter((host) => pinnedHostIds.has(host.id))
         .filter((host) => resolveHostConnectionWsUrl(host) !== localDeviceConnectionUrl)
         .toSorted((left, right) => left.name.localeCompare(right.name));
+      const nextConnectionUrls = new Set<string>([
+        localDeviceConnectionUrl,
+        ...hosts.map((host) => resolveHostConnectionWsUrl(host)),
+      ]);
+      const previousConnectionUrls = registeredRemoteRouteConnectionUrlsRef.current;
+      for (const connectionUrl of nextConnectionUrls) {
+        if (!previousConnectionUrls.has(connectionUrl)) {
+          registerRemoteRoute(connectionUrl);
+        }
+      }
+      for (const connectionUrl of previousConnectionUrls) {
+        if (!nextConnectionUrls.has(connectionUrl)) {
+          unregisterRemoteRoute(connectionUrl);
+        }
+      }
+      registeredRemoteRouteConnectionUrlsRef.current = nextConnectionUrls;
+
+      await probeRemoteRouteAvailability(localDeviceConnectionUrl, {
+        force: true,
+      }).catch(() => undefined);
+
       const requestVersion = remoteSidebarRefreshVersionRef.current + 1;
       remoteSidebarRefreshVersionRef.current = requestVersion;
 
@@ -1443,7 +1466,6 @@ export default function Sidebar() {
         hosts.map(async (host): Promise<RemoteSidebarHostEntry> => {
           const connectionUrl = resolveHostConnectionWsUrl(host);
           const previousEntry = previousEntriesByConnectionUrl.get(connectionUrl);
-          registerRemoteRoute(connectionUrl);
           try {
             const snapshot = (await routeOrchestrationGetSnapshotFromRemote(
               connectionUrl,
@@ -1530,6 +1552,10 @@ export default function Sidebar() {
       if (timeoutHandle !== null) {
         window.clearTimeout(timeoutHandle);
       }
+      for (const connectionUrl of registeredRemoteRouteConnectionUrlsRef.current) {
+        unregisterRemoteRoute(connectionUrl);
+      }
+      registeredRemoteRouteConnectionUrlsRef.current.clear();
     };
   }, [refreshRemoteSidebarHosts]);
   const projectCwdById = useMemo(
