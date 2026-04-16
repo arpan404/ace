@@ -20,6 +20,8 @@ import { clearActiveWsUrlOverride, resolveServerUrl } from "./utils";
 const REMOTE_HOSTS_STORAGE_KEY = "ace.remote-hosts.v1";
 const CONNECTED_REMOTE_HOST_IDS_STORAGE_KEY = "ace.connected-remote-host-ids.v1";
 const LEGACY_PINNED_REMOTE_HOST_IDS_STORAGE_KEY = "ace.pinned-remote-host-ids.v1";
+export const REMOTE_HOSTS_CHANGED_EVENT = "ace:remote-hosts-changed";
+export const CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT = "ace:connected-remote-host-ids-changed";
 
 export interface RemoteHostInstance {
   readonly id: string;
@@ -54,6 +56,13 @@ export interface HostPairingSessionCreated extends HostPairingSessionStatus {
 
 export interface PairingAdvertisedEndpoint {
   readonly wsUrl: string;
+}
+
+function emitRemoteHostStorageChange(eventName: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.dispatchEvent(new Event(eventName));
 }
 
 function isRemoteIconGlyph(
@@ -176,6 +185,7 @@ export function persistRemoteHostInstances(hosts: ReadonlyArray<RemoteHostInstan
     return;
   }
   window.localStorage.setItem(REMOTE_HOSTS_STORAGE_KEY, JSON.stringify(hosts));
+  emitRemoteHostStorageChange(REMOTE_HOSTS_CHANGED_EVENT);
 }
 
 function decodeStoredHostIds(raw: string | null): string[] {
@@ -224,6 +234,7 @@ export function persistConnectedRemoteHostIds(hostIds: ReadonlyArray<string>): v
     }
   }
   window.localStorage.setItem(CONNECTED_REMOTE_HOST_IDS_STORAGE_KEY, JSON.stringify([...deduped]));
+  emitRemoteHostStorageChange(CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT);
 }
 
 export function loadPinnedRemoteHostIds(): string[] {

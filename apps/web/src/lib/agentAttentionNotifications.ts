@@ -13,6 +13,28 @@ import {
 } from "../session-logic";
 import type { ChatMessage, Thread } from "../types";
 
+type AgentAttentionMessageLike = Pick<ChatMessage, "id" | "role" | "text" | "createdAt"> &
+  Partial<Pick<ChatMessage, "completedAt">> & {
+    updatedAt?: string | undefined;
+    streaming?: boolean | undefined;
+  };
+
+type AgentAttentionThreadLike = {
+  id: ThreadId;
+  title: string;
+  activities: ReadonlyArray<Thread["activities"][number]>;
+  latestTurn: {
+    state: string;
+    completedAt?: string | null;
+    assistantMessageId?: string | null;
+  } | null;
+  session: {
+    orchestrationStatus?: string | null | undefined;
+    activeTurnId?: string | null | undefined;
+  } | null;
+  messages: ReadonlyArray<AgentAttentionMessageLike>;
+};
+
 export type AgentAttentionNotificationPermission = NotificationPermission | "unsupported";
 export type AgentAttentionNotificationConstructor = typeof Notification;
 export type AgentAttentionNotificationPermissionSource = Pick<
@@ -104,7 +126,9 @@ function buildThreadDeepLink(threadId: ThreadId): string {
   return `/${threadId}`;
 }
 
-function findLatestAssistantCompletionMessage(thread: Thread): ChatMessage | null {
+function findLatestAssistantCompletionMessage(
+  thread: AgentAttentionThreadLike,
+): AgentAttentionMessageLike | null {
   const assistantMessageId = thread.latestTurn?.assistantMessageId;
   if (assistantMessageId) {
     const matchingMessage = thread.messages.find((message) => message.id === assistantMessageId);
@@ -115,7 +139,10 @@ function findLatestAssistantCompletionMessage(thread: Thread): ChatMessage | nul
 
   for (let index = thread.messages.length - 1; index >= 0; index -= 1) {
     const message = thread.messages[index];
-    if (message?.role === "assistant" && message.completedAt) {
+    if (
+      message?.role === "assistant" &&
+      (message.completedAt || (message.updatedAt && message.streaming !== true))
+    ) {
       return message;
     }
   }
@@ -123,7 +150,7 @@ function findLatestAssistantCompletionMessage(thread: Thread): ChatMessage | nul
   return null;
 }
 
-function buildCompletionNotificationBody(thread: Thread): string {
+function buildCompletionNotificationBody(thread: AgentAttentionThreadLike): string {
   const assistantMessage = findLatestAssistantCompletionMessage(thread);
   const text = assistantMessage?.text;
   if (text) {
@@ -133,7 +160,7 @@ function buildCompletionNotificationBody(thread: Thread): string {
   return "The agent finished working.";
 }
 
-function isCompletionNotificationEligible(thread: Thread): boolean {
+function isCompletionNotificationEligible(thread: AgentAttentionThreadLike): boolean {
   const latestTurn = thread.latestTurn;
   if (!latestTurn || latestTurn.state !== "completed" || !latestTurn.completedAt) {
     return false;
@@ -211,7 +238,7 @@ export function resolveAgentAttentionNotificationReply(
 }
 
 export function deriveAgentAttentionRequests(
-  threads: ReadonlyArray<Thread>,
+  threads: ReadonlyArray<AgentAttentionThreadLike>,
 ): AgentAttentionRequest[] {
   const requests: AgentAttentionRequest[] = [];
 
@@ -275,10 +302,10 @@ export function deriveAgentAttentionRequests(
   return requests.toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
-export function filterAgentAttentionRequestsBySettings(
-  requests: ReadonlyArray<AgentAttentionRequest>,
+export function filterAgentAttentionRequestsBySettings<T extends AgentAttentionRequest>(
+  requests: ReadonlyArray<T>,
   settings: AgentAttentionNotificationSettings,
-): AgentAttentionRequest[] {
+): T[] {
   return requests.filter((request) => {
     switch (request.kind) {
       case "approval":
@@ -363,13 +390,13 @@ export function getAgentAttentionDesktopNotificationBridge(
   };
 }
 
-export function collectAgentAttentionRequestsToNotify(input: {
-  requests: ReadonlyArray<AgentAttentionRequest>;
+export function collectAgentAttentionRequestsToNotify<T extends AgentAttentionRequest>(input: {
+  requests: ReadonlyArray<T>;
   notifiedRequestKeys: ReadonlySet<string>;
   isAppFocused: boolean;
   notificationSessionStartedAt?: string;
   historicalRequestThresholdMs?: number;
-}): AgentAttentionRequest[] {
+}): T[] {
   if (input.isAppFocused) {
     return [];
   }
