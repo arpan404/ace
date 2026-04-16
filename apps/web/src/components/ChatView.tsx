@@ -48,7 +48,10 @@ import {
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
-import { MAC_TITLEBAR_LEFT_INSET_STYLE } from "../lib/desktopChrome";
+import {
+  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+  MAC_TITLEBAR_LEFT_INSET_STYLE,
+} from "../lib/desktopChrome";
 import {
   normalizeThreadWorkspaceLayoutMode,
   normalizeThreadWorkspaceMode,
@@ -137,7 +140,7 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import { BotIcon, CircleAlertIcon, ListTodoIcon, XIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
-import { useSidebar } from "./ui/sidebar";
+import { SidebarTrigger, useSidebar } from "./ui/sidebar";
 import { cn, randomUUID } from "~/lib/utils";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -276,6 +279,11 @@ import {
   useServerConfig,
   useServerKeybindings,
 } from "~/rpc/serverState";
+import {
+  loadRemoteHostInstances,
+  resolveActiveWsUrl,
+  resolveHostConnectionWsUrl,
+} from "~/lib/remoteHosts";
 
 const ThreadWorkspaceEditor = lazy(() => import("./editor/ThreadWorkspaceEditor"));
 
@@ -314,7 +322,7 @@ interface PendingPullRequestSetupRequest {
 }
 
 export default function ChatView({ threadId }: ChatViewProps) {
-  const { state: sidebarState } = useSidebar();
+  const { isMobile, state: sidebarState } = useSidebar();
   const serverThread = useThreadById(threadId);
   const threads = useStore((store) => store.threads);
   const setStoreThreadError = useStore((store) => store.setError);
@@ -429,6 +437,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     useState<Record<string, number>>({});
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
+  const [isHeaderHidden, setIsHeaderHidden] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
@@ -497,6 +506,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
   const sendInFlightRef = useRef(false);
+  const queueDispatchInFlightRef = useRef(false);
+  const queueAutoResumeAfterPauseRef = useRef(false);
   const queuedDesignMessageEditRef = useRef<QueuedComposerMessage | null>(null);
   const [handoffInFlight, setHandoffInFlight] = useState(false);
   const dragDepthRef = useRef(0);
@@ -1233,6 +1244,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const queuedComposerMessages =
     serverThread?.queuedComposerMessages ?? EMPTY_QUEUED_COMPOSER_MESSAGES;
   const queuedSteerRequest = serverThread?.queuedSteerRequest ?? null;
+  const isQueueAutoDispatchPaused =
+    activeThread?.session?.orchestrationStatus === "stopped" ||
+    (activeThread?.latestTurn?.state === "interrupted" && queuedSteerRequest === null);
   const queuedComposerMessagesRef = useRef(queuedComposerMessages);
   queuedComposerMessagesRef.current = queuedComposerMessages;
 
@@ -2254,6 +2268,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const toggleWorkspaceMode = useCallback(() => {
     onWorkspaceModeChange(workspaceMode === "chat" ? "editor" : "chat");
   }, [onWorkspaceModeChange, workspaceMode]);
+  const toggleHeaderVisibility = useCallback(() => {
+    setIsHeaderHidden((previous) => !previous);
+  }, []);
   const onToggleDiff = useCallback(() => {
     startTransition(() => {
       void navigate({
@@ -2421,6 +2438,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [persistQueuedComposerState, queuedComposerMessages, queuedSteerRequest, serverThread],
   );
+  const clearQueuedComposerMessages = useCallback(async () => {
+    if (!serverThread || queuedComposerMessages.length === 0) {
+      return;
+    }
+    if (!(await persistQueuedComposerState([], null, queuedComposerMessages, queuedSteerRequest))) {
+      return;
+    }
+    for (const queuedMessage of queuedComposerMessages) {
+      revokeComposerImagePreviewUrls(queuedMessage.images);
+    }
+  }, [persistQueuedComposerState, queuedComposerMessages, queuedSteerRequest, serverThread]);
   const restoreQueuedComposerMessageToDraft = useCallback(
     (message: QueuedComposerMessage, restoredImages: ReadonlyArray<ComposerImageAttachment>) => {
       promptRef.current = message.prompt;
@@ -4562,6 +4590,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return;
       }
 
+      if (command === "chat.toggleHeader") {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleHeaderVisibility();
+        return;
+      }
+
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject) return;
       const script = activeProject.scripts.find((entry) => entry.id === scriptId);
@@ -4588,6 +4623,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     onToggleDiff,
     toggleInteractionMode,
     toggleWorkspaceMode,
+    toggleHeaderVisibility,
     toggleTerminalVisibility,
   ]);
 
@@ -4764,8 +4800,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
       },
     ) => {
       const api = readNativeApi();
-      if (!api || !activeThread || sendInFlightRef.current) return;
-      if (!activeProject) return;
+      if (!api || !activeThread || sendInFlightRef.current) return false;
+      if (!activeProject) return false;
 
       const promptForSend = stripIssueReferenceMarkers(submission.prompt);
       const composerImagesSnapshot = [...submission.images];
@@ -4800,7 +4836,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           threadIdForSend,
           "Select a base branch before sending in New worktree mode.",
         );
-        return;
+        return false;
       }
 
       const strippedPrompt = deriveDisplayedUserMessageState(promptForSend).visibleText.trim();
@@ -5025,9 +5061,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
           setComposerTrigger(
             detectComposerTriggerWithDismissal(promptForRestore, promptForRestore.length),
           );
-        } else {
-          options?.onFailure?.();
         }
+        options?.onFailure?.();
         setThreadError(
           threadIdForSend,
           err instanceof Error ? err.message : "Failed to send message.",
@@ -5037,6 +5072,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (!turnStartSucceeded) {
         resetLocalDispatch();
       }
+      return turnStartSucceeded;
     },
     [
       activeProject,
@@ -5060,6 +5096,84 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setThreadError,
     ],
   );
+  const dispatchNextQueuedComposerMessage = useCallback(async () => {
+    if (!activeThread || queuedComposerMessages.length === 0) {
+      return false;
+    }
+    if (sendInFlightRef.current || queueDispatchInFlightRef.current) {
+      return false;
+    }
+
+    const nextQueuedMessage = queuedComposerMessages[0];
+    if (!nextQueuedMessage) {
+      return false;
+    }
+
+    const previousMessages = queuedComposerMessages;
+    const previousSteerRequest = queuedSteerRequest;
+    const nextMessages = queuedComposerMessages.slice(1);
+    const nextSteerRequest =
+      queuedSteerRequest?.messageId === nextQueuedMessage.id ? null : queuedSteerRequest;
+
+    queueDispatchInFlightRef.current = true;
+    let restored = false;
+    const restoreQueue = () => {
+      if (restored) {
+        return;
+      }
+      restored = true;
+      void persistQueuedComposerState(
+        [nextQueuedMessage, ...nextMessages],
+        previousSteerRequest,
+        nextMessages,
+        nextSteerRequest,
+      );
+    };
+
+    try {
+      if (
+        !(await persistQueuedComposerState(
+          nextMessages,
+          nextSteerRequest,
+          previousMessages,
+          previousSteerRequest,
+        ))
+      ) {
+        return false;
+      }
+
+      const sent = await dispatchComposerMessage(
+        {
+          prompt: nextQueuedMessage.prompt,
+          images: [...nextQueuedMessage.images],
+          terminalContexts: nextQueuedMessage.terminalContexts.map((context) => ({
+            ...context,
+            threadId,
+          })),
+          modelSelection: nextQueuedMessage.modelSelection,
+          runtimeMode: nextQueuedMessage.runtimeMode,
+          interactionMode: nextQueuedMessage.interactionMode,
+        },
+        {
+          onFailure: restoreQueue,
+        },
+      );
+
+      if (!sent) {
+        restoreQueue();
+      }
+      return sent;
+    } finally {
+      queueDispatchInFlightRef.current = false;
+    }
+  }, [
+    activeThread,
+    dispatchComposerMessage,
+    persistQueuedComposerState,
+    queuedComposerMessages,
+    queuedSteerRequest,
+    threadId,
+  ]);
 
   const onSend = async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
@@ -5173,6 +5287,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
     if (!hasSendableContent) {
+      if (queuedComposerMessages.length > 0) {
+        if (isQueueAutoDispatchPaused) {
+          queueAutoResumeAfterPauseRef.current = true;
+        }
+        await dispatchNextQueuedComposerMessage();
+        return;
+      }
       if (expiredTerminalContextCount > 0) {
         const toastCopy = buildExpiredTerminalContextToastCopy(
           expiredTerminalContextCount,
@@ -5285,6 +5406,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
   };
 
   useEffect(() => {
+    if (isQueueAutoDispatchPaused) {
+      queueAutoResumeAfterPauseRef.current = false;
+    }
+  }, [isQueueAutoDispatchPaused]);
+
+  useEffect(() => {
+    if (queuedComposerMessages.length === 0) {
+      queueAutoResumeAfterPauseRef.current = false;
+    }
+  }, [queuedComposerMessages.length]);
+
+  useEffect(() => {
     if (!activeThread || queuedComposerMessages.length === 0) {
       return;
     }
@@ -5298,63 +5431,23 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ) {
       return;
     }
-
-    const nextQueuedMessage = queuedComposerMessages[0];
-    if (!nextQueuedMessage) {
+    if (isQueueAutoDispatchPaused && !queueAutoResumeAfterPauseRef.current) {
       return;
     }
-    const previousMessages = queuedComposerMessages;
-    const previousSteerRequest = queuedSteerRequest;
-    const nextMessages = queuedComposerMessages.slice(1);
-    const nextSteerRequest =
-      queuedSteerRequest?.messageId === nextQueuedMessage.id ? null : queuedSteerRequest;
-    void (async () => {
-      if (
-        !(await persistQueuedComposerState(
-          nextMessages,
-          nextSteerRequest,
-          previousMessages,
-          previousSteerRequest,
-        ))
-      ) {
-        return;
-      }
-      void dispatchComposerMessage(
-        {
-          prompt: nextQueuedMessage.prompt,
-          images: [...nextQueuedMessage.images],
-          terminalContexts: nextQueuedMessage.terminalContexts.map((context) => ({
-            ...context,
-            threadId,
-          })),
-          modelSelection: nextQueuedMessage.modelSelection,
-          runtimeMode: nextQueuedMessage.runtimeMode,
-          interactionMode: nextQueuedMessage.interactionMode,
-        },
-        {
-          onFailure: () => {
-            void persistQueuedComposerState(
-              [nextQueuedMessage, ...nextMessages],
-              previousSteerRequest,
-              nextMessages,
-              nextSteerRequest,
-            );
-          },
-        },
-      );
-    })();
+    if (queueDispatchInFlightRef.current) {
+      return;
+    }
+    void dispatchNextQueuedComposerMessage();
   }, [
     activePendingApproval,
     activePendingProgress,
     activeThread,
-    dispatchComposerMessage,
+    dispatchNextQueuedComposerMessage,
+    isQueueAutoDispatchPaused,
     isConnecting,
     isSendBusy,
     liveTurnInProgress,
-    persistQueuedComposerState,
-    queuedSteerRequest,
     queuedComposerMessages,
-    threadId,
   ]);
 
   useEffect(() => {
@@ -5417,6 +5510,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const onInterrupt = async () => {
     const api = readNativeApi();
     if (!api || !activeThread) return;
+    queueAutoResumeAfterPauseRef.current = false;
     await api.orchestration.dispatchCommand({
       type: "thread.session.stop",
       commandId: newCommandId(),
@@ -6465,6 +6559,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
         threadId: activeThread.id,
         onEnvModeChange,
         envLocked,
+        localEnvironmentLabel:
+          loadRemoteHostInstances().find(
+            (host) => resolveHostConnectionWsUrl(host) === resolveActiveWsUrl(),
+          )?.name ?? "Local",
         runtimeMode,
         onRuntimeModeChange: handleRuntimeModeChange,
         onComposerFocusRequest: scheduleComposerFocus,
@@ -6607,56 +6705,68 @@ export default function ChatView({ threadId }: ChatViewProps) {
       : null;
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
       {/* Persistent top bar — always visible regardless of workspace mode */}
-      <header
+      <div
         className={cn(
-          "relative z-30 w-full shrink-0 border-b border-sidebar-border bg-sidebar",
-          isElectron
-            ? "drag-region flex min-h-[52px] items-center px-4 sm:px-6"
-            : "px-4 py-3 sm:px-6 sm:py-3.5",
+          "overflow-hidden transition-[max-height,opacity] duration-200 ease-out",
+          isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
         )}
-        style={
-          isElectron && sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined
-        }
       >
-        <ChatHeader
-          activeThreadId={activeThread.id}
-          activeThreadTitle={activeThread.title}
-          activeProjectId={activeProject?.id ?? null}
-          activeProjectName={activeProject?.name}
-          isGitRepo={isGitRepo}
-          activeProjectScripts={activeProject?.scripts}
-          preferredScriptId={
-            activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+        <header
+          className={cn(
+            "relative z-30 w-full shrink-0 border-b border-sidebar-border bg-sidebar",
+            isElectron
+              ? "drag-region flex min-h-[52px] items-center px-4 sm:px-6"
+              : "px-4 py-3 sm:px-6 sm:py-3.5",
+          )}
+          style={
+            isElectron && sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined
           }
-          keybindings={keybindings}
-          terminalAvailable={activeProject !== undefined}
-          terminalOpen={terminalState.terminalOpen}
-          terminalToggleShortcutLabel={terminalToggleShortcutLabel}
-          diffToggleShortcutLabel={diffPanelShortcutLabel}
-          browserToggleShortcutLabel={browserToggleShortcutLabel}
-          browserAvailable={isElectron}
-          browserOpen={browserOpen}
-          browserDevToolsOpen={browserDevToolsOpen}
-          gitCwd={gitCwd}
-          diffOpen={diffOpen}
-          workspaceMode={workspaceMode}
-          workspaceName={activeProject?.name}
-          onRunProjectScript={(script) => {
-            void runProjectScript(script);
-          }}
-          onAddProjectScript={saveProjectScript}
-          onUpdateProjectScript={updateProjectScript}
-          onDeleteProjectScript={deleteProjectScript}
-          onOpenBrowser={openBrowser}
-          onCloseBrowser={closeBrowser}
-          onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
-          onToggleTerminal={toggleTerminalVisibility}
-          onToggleDiff={onToggleDiff}
-          onWorkspaceModeChange={onWorkspaceModeChange}
-        />
-      </header>
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            {!isMobile && sidebarState === "collapsed" ? (
+              <SidebarTrigger className={cn("shrink-0", DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME)} />
+            ) : null}
+            <ChatHeader
+              activeThreadId={activeThread.id}
+              activeThreadTitle={activeThread.title}
+              activeProjectId={activeProject?.id ?? null}
+              activeProjectName={activeProject?.name}
+              isGitRepo={isGitRepo}
+              activeProjectScripts={activeProject?.scripts}
+              preferredScriptId={
+                activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+              }
+              keybindings={keybindings}
+              terminalAvailable={activeProject !== undefined}
+              terminalOpen={terminalState.terminalOpen}
+              terminalToggleShortcutLabel={terminalToggleShortcutLabel}
+              diffToggleShortcutLabel={diffPanelShortcutLabel}
+              browserToggleShortcutLabel={browserToggleShortcutLabel}
+              browserAvailable={isElectron}
+              browserOpen={browserOpen}
+              browserDevToolsOpen={browserDevToolsOpen}
+              gitCwd={gitCwd}
+              diffOpen={diffOpen}
+              workspaceMode={workspaceMode}
+              workspaceName={activeProject?.name}
+              onRunProjectScript={(script) => {
+                void runProjectScript(script);
+              }}
+              onAddProjectScript={saveProjectScript}
+              onUpdateProjectScript={updateProjectScript}
+              onDeleteProjectScript={deleteProjectScript}
+              onOpenBrowser={openBrowser}
+              onCloseBrowser={closeBrowser}
+              onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
+              onToggleTerminal={toggleTerminalVisibility}
+              onToggleDiff={onToggleDiff}
+              onWorkspaceModeChange={onWorkspaceModeChange}
+            />
+          </div>
+        </header>
+      </div>
 
       {/* Error banner */}
       <ProviderStatusBanner status={activeProviderStatus} />
@@ -6839,6 +6949,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             steerMessageId={queuedSteerRequest?.messageId ?? null}
                             onEdit={onEditQueuedComposerMessage}
                             onDelete={removeQueuedComposerMessage}
+                            onClearAll={clearQueuedComposerMessages}
                             onSteer={onSteerQueuedComposerMessage}
                           />
 

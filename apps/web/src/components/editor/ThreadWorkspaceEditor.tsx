@@ -684,12 +684,22 @@ export default function ThreadWorkspaceEditor(inputProps: {
   const editorOptions = useMemo(
     () => ({
       acceptSuggestionOnCommitCharacter: editorSettings.suggestions,
-      acceptSuggestionOnEnter: editorSettings.suggestions ? ("on" as const) : ("off" as const),
+      acceptSuggestionOnEnter: editorSettings.suggestions ? ("smart" as const) : ("off" as const),
+      autoClosingBrackets: "always" as const,
+      autoClosingComments: "always" as const,
+      autoClosingDelete: "always" as const,
+      autoClosingOvertype: "always" as const,
+      autoClosingQuotes: "always" as const,
+      autoIndent: "advanced" as const,
       automaticLayout: true,
       bracketPairColorization: { enabled: true },
       cursorBlinking: "smooth" as const,
+      cursorSmoothCaretAnimation: "on" as const,
+      cursorSurroundingLines: 3,
       fontLigatures: true,
       fontSize: 13.5,
+      formatOnPaste: true,
+      formatOnType: true,
       guides: {
         bracketPairs: true,
         highlightActiveBracketPair: true,
@@ -697,22 +707,48 @@ export default function ThreadWorkspaceEditor(inputProps: {
       },
       inlineSuggest: { enabled: editorSettings.suggestions },
       lineNumbers: editorSettings.lineNumbers,
+      matchBrackets: "always" as const,
       minimap: { enabled: editorSettings.minimap },
+      mouseWheelZoom: true,
+      occurrencesHighlight: "singleFile" as const,
       padding: { top: 12, bottom: 24 },
       parameterHints: { enabled: editorSettings.suggestions },
-      quickSuggestions: editorSettings.suggestions,
+      quickSuggestions: editorSettings.suggestions
+        ? ({
+            comments: false,
+            other: true,
+            strings: true,
+          } as const)
+        : false,
       renderLineHighlightOnlyWhenFocus: true,
       renderWhitespace: editorSettings.renderWhitespace ? ("all" as const) : ("none" as const),
       roundedSelection: true,
+      scrollbar: {
+        horizontalScrollbarSize: 10,
+        useShadows: false,
+        verticalScrollbarSize: 10,
+      },
       scrollBeyondLastLine: false,
       smoothScrolling: true,
-      snippetSuggestions: editorSettings.suggestions ? ("inline" as const) : ("none" as const),
+      snippetSuggestions: editorSettings.suggestions ? ("top" as const) : ("none" as const),
       stickyScroll: { enabled: editorSettings.stickyScroll },
+      suggest: {
+        localityBonus: true,
+        preview: true,
+        previewMode: "subwordSmart" as const,
+        selectionMode: "whenTriggerCharacter" as const,
+        showInlineDetails: true,
+        showStatusBar: true,
+        snippetsPreventQuickSuggestions: false,
+      },
+      suggestSelection: editorSettings.suggestions
+        ? ("recentlyUsedByPrefix" as const)
+        : ("first" as const),
       suggestOnTriggerCharacters: editorSettings.suggestions,
       tabCompletion: editorSettings.suggestions ? ("on" as const) : ("off" as const),
       tabSize: 2,
       wordBasedSuggestions: editorSettings.suggestions
-        ? ("currentDocument" as const)
+        ? ("matchingDocuments" as const)
         : ("off" as const),
       wordWrap: editorSettings.wordWrap ? ("on" as const) : ("off" as const),
     }),
@@ -882,11 +918,6 @@ export default function ThreadWorkspaceEditor(inputProps: {
         version: result.version,
       });
       void queryClient.invalidateQueries({ queryKey: projectQueryKeys.listTree(props.gitCwd) });
-      toastManager.add({
-        description: variables.relativePath,
-        title: "File saved",
-        type: "success",
-      });
     },
   });
 
@@ -1960,8 +1991,8 @@ export default function ThreadWorkspaceEditor(inputProps: {
   ]);
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className="flex items-center justify-between border-b border-border/60 bg-secondary px-3 py-2">
+    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-gradient-to-b from-background via-background to-secondary/25">
+      <div className="flex items-center justify-between bg-secondary/80 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-secondary/60">
         <Tooltip>
           <TooltipTrigger
             render={
@@ -1969,7 +2000,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
                 type="button"
                 variant="outline"
                 size="icon-xs"
-                className="size-7 rounded-full border-border/60 bg-background/80 text-muted-foreground hover:text-foreground"
+                className="size-7 rounded-full bg-background/80 text-muted-foreground hover:text-foreground"
                 aria-label={
                   explorerOpen ? "Collapse workspace sidebar" : "Expand workspace sidebar"
                 }
@@ -1997,7 +2028,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
                   type="button"
                   variant="outline"
                   size="icon-xs"
-                  className="size-7 rounded-full border-border/60 bg-background/80 text-muted-foreground hover:text-foreground"
+                  className="size-7 rounded-full bg-background/80 text-muted-foreground hover:text-foreground"
                   aria-label={
                     editorWorkspaceMode === "split"
                       ? "Switch to full editor"
@@ -2033,13 +2064,8 @@ export default function ThreadWorkspaceEditor(inputProps: {
       >
         {explorerOpen ? (
           <>
-            <aside
-              className={cn(
-                "flex min-h-0 min-w-0 flex-col border-r border-border/60",
-                "bg-secondary",
-              )}
-            >
-              <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
+            <aside className={cn("flex min-h-0 min-w-0 flex-col", "bg-secondary/70")}>
+              <div className="flex items-center gap-2 px-3 py-2.5">
                 <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
                 <span className="min-w-0 truncate text-[11px] font-semibold tracking-[0.16em] text-muted-foreground/80 uppercase">
                   Explorer
@@ -2238,7 +2264,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
           </>
         ) : null}
 
-        <section className="min-h-0 min-w-0 overflow-hidden bg-background">
+        <section className="min-h-0 min-w-0 overflow-hidden bg-transparent p-1.5">
           <div className="flex h-full min-h-0 flex-col">
             <div ref={editorGridRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {layoutRows.map((row, rowIndex) => (
@@ -2370,7 +2396,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
           </DialogHeader>
           <DialogPanel className="space-y-3">
             {saveConflict ? (
-              <div className="overflow-hidden rounded-md border border-border/60">
+              <div className="overflow-hidden rounded-md">
                 <DiffEditor
                   height={WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT}
                   original={saveConflict.currentContents}

@@ -19,6 +19,9 @@ const MAX_PORT = 65535;
 export const DEFAULT_ACE_HOME = Effect.map(Effect.service(Path.Path), (path) =>
   path.join(homedir(), ".ace"),
 );
+export const DEFAULT_ACE_DEV_HOME = Effect.map(Effect.service(Path.Path), (path) =>
+  path.join(homedir(), ".ace-dev"),
+);
 
 const MODE_ARGS = {
   dev: [
@@ -27,11 +30,28 @@ const MODE_ARGS = {
     "--ui=tui",
     "--filter=@ace/contracts",
     "--filter=@ace/web",
+    "--filter=@ace/mobile",
     "--filter=ace",
     "--parallel",
   ],
   "dev:server": ["run", "dev", "--filter=ace"],
-  "dev:web": ["run", "dev", "--filter=@ace/web"],
+  "dev:web": [
+    "run",
+    "dev",
+    "--ui=tui",
+    "--filter=@ace/contracts",
+    "--filter=@ace/web",
+    "--filter=ace",
+    "--parallel",
+  ],
+  "dev:mobile": [
+    "run",
+    "dev",
+    "--ui=tui",
+    "--filter=@ace/contracts",
+    "--filter=@ace/mobile",
+    "--parallel",
+  ],
   "dev:desktop": ["run", "dev", "--filter=@ace/desktop", "--filter=@ace/web", "--parallel"],
 } as const satisfies Record<string, ReadonlyArray<string>>;
 
@@ -103,7 +123,13 @@ export function resolveOffset(config: {
   return { offset, source: `hashed ACE_DEV_INSTANCE=${seed}` };
 }
 
-function resolveBaseDir(baseDir: string | undefined): Effect.Effect<string, never, Path.Path> {
+function resolveBaseDir({
+  baseDir,
+  mode: _mode,
+}: {
+  readonly baseDir: string | undefined;
+  readonly mode: DevMode;
+}): Effect.Effect<string, never, Path.Path> {
   return Effect.gen(function* () {
     const path = yield* Path.Path;
     const configured = baseDir?.trim();
@@ -111,8 +137,8 @@ function resolveBaseDir(baseDir: string | undefined): Effect.Effect<string, neve
     if (configured) {
       return path.resolve(configured);
     }
-
-    return yield* DEFAULT_ACE_HOME;
+    // Keep all dev flows isolated from normal app data under ~/.ace.
+    return yield* DEFAULT_ACE_DEV_HOME;
   });
 }
 
@@ -148,7 +174,7 @@ export function createDevRunnerEnv({
   return Effect.gen(function* () {
     const serverPort = port ?? BASE_SERVER_PORT + serverOffset;
     const webPort = BASE_WEB_PORT + webOffset;
-    const resolvedBaseDir = yield* resolveBaseDir(aceHome);
+    const resolvedBaseDir = yield* resolveBaseDir({ baseDir: aceHome, mode });
     const isDesktopMode = mode === "dev:desktop";
 
     const output: NodeJS.ProcessEnv = {
@@ -162,6 +188,7 @@ export function createDevRunnerEnv({
     if (!isDesktopMode) {
       output.ACE_PORT = String(serverPort);
       output.VITE_WS_URL = `ws://localhost:${serverPort}`;
+      output.ACE_DAEMONIZED = "1";
     } else {
       delete output.ACE_PORT;
       delete output.VITE_WS_URL;
@@ -169,6 +196,7 @@ export function createDevRunnerEnv({
       delete output.ACE_MODE;
       delete output.ACE_NO_BROWSER;
       delete output.ACE_HOST;
+      delete output.ACE_DAEMONIZED;
     }
 
     if (!isDesktopMode && host !== undefined) {
@@ -199,12 +227,7 @@ export function createDevRunnerEnv({
       delete output.ACE_LOG_WS_EVENTS;
     }
 
-    if (mode === "dev") {
-      output.ACE_MODE = "web";
-      delete output.ACE_DESKTOP_WS_URL;
-    }
-
-    if (mode === "dev:server" || mode === "dev:web") {
+    if (mode === "dev" || mode === "dev:server" || mode === "dev:web" || mode === "dev:mobile") {
       output.ACE_MODE = "web";
       delete output.ACE_DESKTOP_WS_URL;
     }
@@ -311,17 +334,13 @@ export function resolveModePortOffsets<R = NetService>({
       defaultCheckPortAvailability) as PortAvailabilityCheck<R>;
 
     if (mode === "dev:web") {
-      if (hasExplicitDevUrl) {
-        return { serverOffset: startOffset, webOffset: startOffset };
-      }
-
-      const webOffset = yield* findFirstAvailableOffset({
+      const sharedOffset = yield* findFirstAvailableOffset({
         startOffset,
-        requireServerPort: false,
-        requireWebPort: true,
+        requireServerPort: !hasExplicitServerPort,
+        requireWebPort: !hasExplicitDevUrl,
         checkPortAvailability: checkPort,
       });
-      return { serverOffset: startOffset, webOffset };
+      return { serverOffset: sharedOffset, webOffset: sharedOffset };
     }
 
     if (mode === "dev:server") {

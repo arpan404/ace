@@ -54,8 +54,38 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
     ),
   );
 
+  it.effect("recognizes web command", () =>
+    Command.runWith(cli, { version: "0.0.0" })(["web", "--help"]).pipe(
+      Effect.provide(CliRuntimeLayer),
+    ),
+  );
+
   it.effect("recognizes profile command", () =>
     Command.runWith(cli, { version: "0.0.0" })(["profile", "--help"]).pipe(
+      Effect.provide(CliRuntimeLayer),
+    ),
+  );
+
+  it.effect("recognizes remote command", () =>
+    Command.runWith(cli, { version: "0.0.0" })(["remote", "--help"]).pipe(
+      Effect.provide(CliRuntimeLayer),
+    ),
+  );
+
+  it.effect("recognizes remote host create command", () =>
+    Command.runWith(cli, { version: "0.0.0" })(["remote", "create", "--help"]).pipe(
+      Effect.provide(CliRuntimeLayer),
+    ),
+  );
+
+  it.effect("recognizes remote link command", () =>
+    Command.runWith(cli, { version: "0.0.0" })(["remote", "link", "--help"]).pipe(
+      Effect.provide(CliRuntimeLayer),
+    ),
+  );
+
+  it.effect("recognizes remote ping command", () =>
+    Command.runWith(cli, { version: "0.0.0" })(["remote", "ping", "--help"]).pipe(
       Effect.provide(CliRuntimeLayer),
     ),
   );

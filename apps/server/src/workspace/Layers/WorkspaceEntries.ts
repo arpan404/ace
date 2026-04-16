@@ -1,13 +1,16 @@
+import * as OS from "node:os";
 import fsPromises from "node:fs/promises";
 import type { Dirent } from "node:fs";
 
 import { Cache, Duration, Effect, Exit, Layer, Option, Path } from "effect";
 
-import { type ProjectEntry } from "@ace/contracts";
+import { type FilesystemBrowseInput, type ProjectEntry } from "@ace/contracts";
+import { isExplicitRelativePath, isWindowsAbsolutePath } from "@ace/shared/path";
 
 import { GitCore } from "../../git/Services/GitCore.ts";
 import {
   WorkspaceEntries,
+  WorkspaceEntriesBrowseError,
   WorkspaceEntriesError,
   type WorkspaceEntriesShape,
 } from "../Services/WorkspaceEntries.ts";
@@ -72,6 +75,16 @@ type WorkspaceSearchQuery =
 
 function toPosixPath(input: string): string {
   return input.replaceAll("\\", "/");
+}
+
+function expandHomePath(input: string, path: Path.Path): string {
+  if (input === "~") {
+    return OS.homedir();
+  }
+  if (input.startsWith("~/") || input.startsWith("~\\")) {
+    return path.join(OS.homedir(), input.slice(2));
+  }
+  return input;
 }
 
 function parentPathOf(input: string): string | undefined {
@@ -354,6 +367,36 @@ function directoryAncestorsOf(relativePath: string): string[] {
 const processErrorDetail = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
+const resolveBrowseTarget = (
+  input: FilesystemBrowseInput,
+  pathService: Path.Path,
+): Effect.Effect<string, WorkspaceEntriesBrowseError> =>
+  Effect.gen(function* () {
+    if (process.platform !== "win32" && isWindowsAbsolutePath(input.partialPath)) {
+      return yield* new WorkspaceEntriesBrowseError({
+        cwd: input.cwd,
+        partialPath: input.partialPath,
+        operation: "workspaceEntries.resolveBrowseTarget",
+        detail: "Windows-style paths are only supported on Windows.",
+      });
+    }
+
+    if (!isExplicitRelativePath(input.partialPath)) {
+      return pathService.resolve(expandHomePath(input.partialPath, pathService));
+    }
+
+    if (!input.cwd) {
+      return yield* new WorkspaceEntriesBrowseError({
+        cwd: input.cwd,
+        partialPath: input.partialPath,
+        operation: "workspaceEntries.resolveBrowseTarget",
+        detail: "Relative filesystem browse paths require a current project.",
+      });
+    }
+
+    return pathService.resolve(expandHomePath(input.cwd, pathService), input.partialPath);
+  });
+
 export const makeWorkspaceEntries = Effect.gen(function* () {
   const path = yield* Path.Path;
   const gitOption = yield* Effect.serviceOption(GitCore);
@@ -608,6 +651,46 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
     },
   );
 
+  const browse: WorkspaceEntriesShape["browse"] = Effect.fn("WorkspaceEntries.browse")(
+    function* (input) {
+      const resolvedInputPath = yield* resolveBrowseTarget(input, path);
+      const endsWithSeparator = /[\\/]$/.test(input.partialPath) || input.partialPath === "~";
+      const parentPath = endsWithSeparator ? resolvedInputPath : path.dirname(resolvedInputPath);
+      const prefix = endsWithSeparator ? "" : path.basename(resolvedInputPath);
+
+      const dirents = yield* Effect.tryPromise({
+        try: () => fsPromises.readdir(parentPath, { withFileTypes: true }),
+        catch: (cause) =>
+          new WorkspaceEntriesBrowseError({
+            cwd: input.cwd,
+            partialPath: input.partialPath,
+            operation: "workspaceEntries.browse.readDirectory",
+            detail: `Unable to browse '${parentPath}': ${processErrorDetail(cause)}`,
+            cause,
+          }),
+      });
+
+      const showHidden = endsWithSeparator || prefix.startsWith(".");
+      const lowerPrefix = prefix.toLowerCase();
+
+      return {
+        parentPath,
+        entries: dirents
+          .filter(
+            (dirent) =>
+              dirent.isDirectory() &&
+              dirent.name.toLowerCase().startsWith(lowerPrefix) &&
+              (showHidden || !dirent.name.startsWith(".")),
+          )
+          .map((dirent) => ({
+            name: dirent.name,
+            fullPath: path.join(parentPath, dirent.name),
+          }))
+          .toSorted((left, right) => left.name.localeCompare(right.name)),
+      };
+    },
+  );
+
   const matchFileContents = Effect.fn("WorkspaceEntries.matchFileContents")(function* (
     cwd: string,
     relativePath: string,
@@ -796,6 +879,7 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
   );
 
   return {
+    browse,
     invalidate,
     listTree,
     search,

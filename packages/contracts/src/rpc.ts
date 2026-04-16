@@ -3,6 +3,7 @@ import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
 import { OpenError, OpenInEditorInput, OpenRevealInFileManagerInput } from "./editor";
+import { FilesystemBrowseError, FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
 import {
   GitActionProgressEvent,
   GitCheckoutInput,
@@ -74,6 +75,9 @@ import {
   WorkspaceEditorCloseBufferError,
   WorkspaceEditorCloseBufferInput,
   WorkspaceEditorCloseBufferResult,
+  WorkspaceEditorCompleteError,
+  WorkspaceEditorCompleteInput,
+  WorkspaceEditorCompleteResult,
   WorkspaceEditorSyncBufferError,
   WorkspaceEditorSyncBufferInput,
   WorkspaceEditorSyncBufferResult,
@@ -92,7 +96,10 @@ import {
 import {
   ServerConfigStreamEvent,
   ServerConfig,
+  ServerInstallLspToolInput,
   ServerInstallLspToolsInput,
+  ServerLspMarketplaceSearchInput,
+  ServerLspMarketplaceSearchResult,
   ServerLspToolsError,
   ServerLspToolsStatus,
   ServerSearchOpenCodeModelsInput,
@@ -103,6 +110,7 @@ import {
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server";
+import { PickFolderOptions } from "./ipc";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
 
 export const WS_METHODS = {
@@ -119,10 +127,14 @@ export const WS_METHODS = {
   projectsWriteFile: "projects.writeFile",
   workspaceEditorSyncBuffer: "workspaceEditor.syncBuffer",
   workspaceEditorCloseBuffer: "workspaceEditor.closeBuffer",
+  workspaceEditorComplete: "workspaceEditor.complete",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
   shellRevealInFileManager: "shell.revealInFileManager",
+
+  // Filesystem methods
+  filesystemBrowse: "filesystem.browse",
 
   // Git methods
   gitPull: "git.pull",
@@ -155,6 +167,8 @@ export const WS_METHODS = {
   serverSearchOpenCodeModels: "server.searchOpenCodeModels",
   serverGetLspToolsStatus: "server.getLspToolsStatus",
   serverInstallLspTools: "server.installLspTools",
+  serverSearchLspMarketplace: "server.searchLspMarketplace",
+  serverInstallLspTool: "server.installLspTool",
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
@@ -190,7 +204,7 @@ export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
 });
 
 export const WsServerPickFolderRpc = Rpc.make(WS_METHODS.serverPickFolder, {
-  payload: Schema.Struct({}),
+  payload: PickFolderOptions,
   success: Schema.NullOr(Schema.String),
   error: OpenError,
 });
@@ -218,6 +232,18 @@ export const WsServerGetLspToolsStatusRpc = Rpc.make(WS_METHODS.serverGetLspTool
 
 export const WsServerInstallLspToolsRpc = Rpc.make(WS_METHODS.serverInstallLspTools, {
   payload: ServerInstallLspToolsInput,
+  success: ServerLspToolsStatus,
+  error: ServerLspToolsError,
+});
+
+export const WsServerSearchLspMarketplaceRpc = Rpc.make(WS_METHODS.serverSearchLspMarketplace, {
+  payload: ServerLspMarketplaceSearchInput,
+  success: ServerLspMarketplaceSearchResult,
+  error: ServerLspToolsError,
+});
+
+export const WsServerInstallLspToolRpc = Rpc.make(WS_METHODS.serverInstallLspTool, {
+  payload: ServerInstallLspToolInput,
   success: ServerLspToolsStatus,
   error: ServerLspToolsError,
 });
@@ -293,6 +319,12 @@ export const WsWorkspaceEditorCloseBufferRpc = Rpc.make(WS_METHODS.workspaceEdit
   error: WorkspaceEditorCloseBufferError,
 });
 
+export const WsWorkspaceEditorCompleteRpc = Rpc.make(WS_METHODS.workspaceEditorComplete, {
+  payload: WorkspaceEditorCompleteInput,
+  success: WorkspaceEditorCompleteResult,
+  error: WorkspaceEditorCompleteError,
+});
+
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: OpenInEditorInput,
   error: OpenError,
@@ -301,6 +333,12 @@ export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
 export const WsShellRevealInFileManagerRpc = Rpc.make(WS_METHODS.shellRevealInFileManager, {
   payload: OpenRevealInFileManagerInput,
   error: OpenError,
+});
+
+export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
+  payload: FilesystemBrowseInput,
+  success: FilesystemBrowseResult,
+  error: FilesystemBrowseError,
 });
 
 export const WsGitStatusRpc = Rpc.make(WS_METHODS.gitStatus, {
@@ -488,6 +526,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerSearchOpenCodeModelsRpc,
   WsServerGetLspToolsStatusRpc,
   WsServerInstallLspToolsRpc,
+  WsServerSearchLspMarketplaceRpc,
+  WsServerInstallLspToolRpc,
   WsServerUpsertKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
@@ -501,8 +541,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsWorkspaceEditorSyncBufferRpc,
   WsWorkspaceEditorCloseBufferRpc,
+  WsWorkspaceEditorCompleteRpc,
   WsShellOpenInEditorRpc,
   WsShellRevealInFileManagerRpc,
+  WsFilesystemBrowseRpc,
   WsGitStatusRpc,
   WsGitPullRpc,
   WsGitRunStackedActionRpc,

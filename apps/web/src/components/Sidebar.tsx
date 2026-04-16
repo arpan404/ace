@@ -1,30 +1,25 @@
 import {
-  ArchiveIcon,
-  ArrowUpDownIcon,
+  ArrowUpIcon,
   ChevronRightIcon,
   FolderIcon,
-  GitPullRequestIcon,
+  LaptopIcon,
   PlusIcon,
+  SearchIcon,
   SettingsIcon,
   SquarePenIcon,
-  TerminalIcon,
   TriangleAlertIcon,
+  ChevronLeftIcon,
 } from "lucide-react";
 import {
-  memo,
   startTransition,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type Dispatch,
   type KeyboardEvent,
   type MouseEvent,
-  type MutableRefObject,
   type PointerEvent,
-  type ReactNode,
-  type SetStateAction,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -39,24 +34,24 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
-import { CSS } from "@dnd-kit/utilities";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_RUNTIME_MODE,
   type DesktopUpdateState,
+  type FilesystemBrowseResult,
+  type OrchestrationReadModel,
   ProjectId,
   ThreadId,
-  type GitStatusResult,
 } from "@ace/contracts";
-import { useQueries } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { type SidebarProjectSortOrder, type SidebarThreadSortOrder } from "@ace/contracts/settings";
+import { type SidebarThreadSortOrder } from "@ace/contracts/settings";
 import { isElectron } from "../env";
 import { APP_BASE_NAME, APP_VERSION, IS_DEV_BUILD } from "../branding";
 import { reportBackgroundError } from "../lib/async";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
+import { isMacPlatform, newCommandId, newProjectId, newThreadId } from "../lib/utils";
 import {
   DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
   MAC_TITLEBAR_LEFT_INSET_STYLE,
@@ -72,8 +67,7 @@ import {
   threadJumpIndexFromCommand,
   threadTraversalDirectionFromCommand,
 } from "../keybindings";
-import { gitStatusQueryOptions } from "../lib/gitReactQuery";
-import { readNativeApi } from "../nativeApi";
+import { ensureNativeApi, readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 
@@ -108,8 +102,8 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
+import { CommandDialog, CommandDialogPopup } from "./ui/command";
 import { Input } from "./ui/input";
-import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
   SidebarContent,
@@ -127,9 +121,14 @@ import {
   useSidebar,
 } from "./ui/sidebar";
 import { useThreadSelectionStore } from "../threadSelectionStore";
-import { isNonEmpty as isNonEmptyString } from "effect/String";
 import {
-  getVisibleSidebarThreadIds,
+  findExistingProjectByPath,
+  inferProjectTitle,
+  parentPath,
+  resolveProjectPath,
+  toBrowseDirectoryPath,
+} from "../lib/projectPaths";
+import {
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
   resolveAdjacentThreadId,
@@ -145,11 +144,44 @@ import {
   useThreadJumpHintVisibility,
 } from "../lib/sidebar";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
+import { ProjectSortMenu } from "./sidebar/ProjectSortMenu";
+import {
+  SortableProjectItem,
+  type SortableProjectHandleProps,
+} from "./sidebar/SortableProjectItem";
+import { SidebarThreadRow, ThreadStatusLabel } from "./sidebar/SidebarThreadRow";
+import { useSidebarCommandPalette } from "./sidebar/useSidebarCommandPalette";
+import { useSidebarThreadPrStatus } from "./sidebar/useSidebarThreadPrStatus";
+import type {
+  RemoteSidebarHostEntry,
+  RemoteSidebarProjectEntry,
+  RemoteSidebarThreadEntry,
+} from "./sidebar/sidebarTypes";
 import { prefetchHydratedThread, readCachedHydratedThread } from "../lib/threadHydrationCache";
+import {
+  connectToWsHost,
+  isHostConnectionActive,
+  loadPinnedRemoteHostIds,
+  loadRemoteHostInstances,
+  normalizeWsUrl,
+  resolveActiveWsUrl,
+  resolveHostConnectionWsUrl,
+  resolveLocalDeviceWsUrl,
+  splitWsUrlAuthToken,
+  type RemoteHostInstance,
+} from "../lib/remoteHosts";
+import {
+  probeRemoteRouteAvailability,
+  registerRemoteRoute,
+  routeFilesystemBrowseToRemote,
+  routeOrchestrationDispatchCommandToRemote,
+  routeOrchestrationGetSnapshotFromRemote,
+  unregisterRemoteRoute,
+} from "../lib/remoteWsRouter";
+import { LEAN_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
-import { useSidebarThreadSummaryById } from "../storeSelectors";
 import type { Project, SidebarThreadSummary } from "../types";
 const THREAD_REVEAL_STEP = 5;
 const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
@@ -172,29 +204,257 @@ const hiddenThreadStatusCache = new WeakMap<
     Map<string, ReturnType<typeof resolveProjectStatusIndicator>>
   >
 >();
-const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
-  updated_at: "Last user message",
-  created_at: "Created at",
-  manual: "Manual",
-};
-const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
-  updated_at: "Last user message",
-  created_at: "Created at",
-};
-interface TerminalStatusIndicator {
-  label: "Terminal process running";
-  colorClass: string;
-  pulse: boolean;
+let remoteSidebarHostSnapshotCache: ReadonlyArray<RemoteSidebarHostEntry> = [];
+
+function isEditableHotkeyTarget(target: EventTarget | null): boolean {
+  const element = target instanceof HTMLElement ? target : null;
+  if (!element) {
+    return false;
+  }
+  if (element.isContentEditable) {
+    return true;
+  }
+  return (
+    element.closest(
+      'input, textarea, select, [contenteditable="true"], [role="textbox"], [data-lexical-editor="true"]',
+    ) !== null
+  );
 }
 
-interface PrStatusIndicator {
-  label: "PR open" | "PR closed" | "PR merged";
-  colorClass: string;
-  tooltip: string;
-  url: string;
+type ProjectPickerStep = "environment" | "directory";
+
+interface ProjectPickerEnvironment {
+  id: string;
+  name: string;
+  subtitle: string;
+  connectionUrl: string;
+  icon: Project["icon"];
+  isLocal: boolean;
+  isPinned: boolean;
 }
 
-type ThreadPr = GitStatusResult["pr"];
+function resolveIsoTimestamp(input: string | undefined): number {
+  if (!input) {
+    return 0;
+  }
+  const parsed = Date.parse(input);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function connectionUrlsEqual(left: string, right: string): boolean {
+  return normalizeWsUrl(left) === normalizeWsUrl(right);
+}
+
+function sortByUpdatedAtDescending<T extends { readonly updatedAt: string }>(
+  entries: ReadonlyArray<T>,
+): T[] {
+  return [...entries].toSorted((left, right) => {
+    return resolveIsoTimestamp(right.updatedAt) - resolveIsoTimestamp(left.updatedAt);
+  });
+}
+
+function remoteProjectKey(connectionUrl: string, projectId: ProjectId): string {
+  return `${connectionUrl}::${projectId}`;
+}
+
+function modelSelectionEquals(
+  left: Project["defaultModelSelection"],
+  right: Project["defaultModelSelection"],
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left === null || right === null) {
+    return false;
+  }
+  return left.provider === right.provider && left.model === right.model;
+}
+
+function remoteThreadEntryEquals(
+  left: RemoteSidebarThreadEntry,
+  right: RemoteSidebarThreadEntry,
+): boolean {
+  return left.id === right.id && left.title === right.title && left.updatedAt === right.updatedAt;
+}
+
+function remoteThreadEntriesEqual(
+  left: ReadonlyArray<RemoteSidebarThreadEntry>,
+  right: ReadonlyArray<RemoteSidebarThreadEntry>,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftThread = left[index];
+    const rightThread = right[index];
+    if (!leftThread || !rightThread || !remoteThreadEntryEquals(leftThread, rightThread)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function remoteProjectEntryEquals(
+  left: RemoteSidebarProjectEntry,
+  right: RemoteSidebarProjectEntry,
+): boolean {
+  return (
+    left.id === right.id &&
+    left.name === right.name &&
+    left.cwd === right.cwd &&
+    left.updatedAt === right.updatedAt &&
+    projectIconsEqual(left.icon, right.icon) &&
+    modelSelectionEquals(left.defaultModelSelection, right.defaultModelSelection) &&
+    remoteThreadEntriesEqual(left.threads, right.threads)
+  );
+}
+
+function remoteProjectEntriesEqual(
+  left: ReadonlyArray<RemoteSidebarProjectEntry>,
+  right: ReadonlyArray<RemoteSidebarProjectEntry>,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftProject = left[index];
+    const rightProject = right[index];
+    if (!leftProject || !rightProject || !remoteProjectEntryEquals(leftProject, rightProject)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function remoteHostEquals(left: RemoteHostInstance, right: RemoteHostInstance): boolean {
+  return (
+    left.id === right.id &&
+    left.name === right.name &&
+    left.wsUrl === right.wsUrl &&
+    left.authToken === right.authToken &&
+    left.iconGlyph === right.iconGlyph &&
+    left.iconColor === right.iconColor &&
+    left.lastConnectedAt === right.lastConnectedAt
+  );
+}
+
+function remoteSidebarHostEntryEquals(
+  left: RemoteSidebarHostEntry,
+  right: RemoteSidebarHostEntry,
+): boolean {
+  return (
+    left.connectionUrl === right.connectionUrl &&
+    left.status === right.status &&
+    left.error === right.error &&
+    remoteHostEquals(left.host, right.host) &&
+    remoteProjectEntriesEqual(left.projects, right.projects)
+  );
+}
+
+function remoteSidebarHostEntriesEqual(
+  left: ReadonlyArray<RemoteSidebarHostEntry>,
+  right: ReadonlyArray<RemoteSidebarHostEntry>,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftHost = left[index];
+    const rightHost = right[index];
+    if (!leftHost || !rightHost || !remoteSidebarHostEntryEquals(leftHost, rightHost)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function reuseRemoteThreadEntries(
+  previousThreads: ReadonlyArray<RemoteSidebarThreadEntry>,
+  nextThreads: ReadonlyArray<RemoteSidebarThreadEntry>,
+): ReadonlyArray<RemoteSidebarThreadEntry> {
+  if (previousThreads === nextThreads || previousThreads.length === 0) {
+    return nextThreads;
+  }
+  const previousById = new Map(previousThreads.map((thread) => [thread.id, thread] as const));
+  let changed = previousThreads.length !== nextThreads.length;
+  const merged = nextThreads.map((thread) => {
+    const previousThread = previousById.get(thread.id);
+    if (previousThread && remoteThreadEntryEquals(previousThread, thread)) {
+      return previousThread;
+    }
+    changed = true;
+    return thread;
+  });
+  return changed ? merged : previousThreads;
+}
+
+function reuseRemoteProjectEntries(
+  previousProjects: ReadonlyArray<RemoteSidebarProjectEntry>,
+  nextProjects: ReadonlyArray<RemoteSidebarProjectEntry>,
+): ReadonlyArray<RemoteSidebarProjectEntry> {
+  if (previousProjects === nextProjects || previousProjects.length === 0) {
+    return nextProjects;
+  }
+  const previousById = new Map(previousProjects.map((project) => [project.id, project] as const));
+  let changed = previousProjects.length !== nextProjects.length;
+  const merged = nextProjects.map((project) => {
+    const previousProject = previousById.get(project.id);
+    if (!previousProject) {
+      changed = true;
+      return project;
+    }
+    const mergedThreads = reuseRemoteThreadEntries(previousProject.threads, project.threads);
+    const candidate =
+      mergedThreads === project.threads ? project : { ...project, threads: mergedThreads };
+    if (remoteProjectEntryEquals(previousProject, candidate)) {
+      return previousProject;
+    }
+    changed = true;
+    return candidate;
+  });
+  return changed ? merged : previousProjects;
+}
+
+function mapRemoteProjectsFromSnapshot(
+  snapshot: OrchestrationReadModel,
+): RemoteSidebarProjectEntry[] {
+  const threadsByProjectId = new Map<string, RemoteSidebarThreadEntry[]>();
+  for (const thread of snapshot.threads) {
+    if (thread.deletedAt !== null || thread.archivedAt !== null) {
+      continue;
+    }
+    const projectThreads = threadsByProjectId.get(thread.projectId) ?? [];
+    projectThreads.push({
+      id: thread.id,
+      title: thread.title,
+      updatedAt: thread.updatedAt,
+    });
+    threadsByProjectId.set(thread.projectId, projectThreads);
+  }
+
+  return sortByUpdatedAtDescending(
+    snapshot.projects
+      .filter((project) => project.deletedAt === null && project.archivedAt === null)
+      .map((project) => ({
+        id: project.id,
+        name: project.title,
+        cwd: project.workspaceRoot,
+        updatedAt: project.updatedAt,
+        icon: project.icon ?? null,
+        defaultModelSelection: project.defaultModelSelection,
+        threads: sortByUpdatedAtDescending(threadsByProjectId.get(project.id) ?? []),
+      })),
+  );
+}
 
 function getCachedSortedSidebarThreads(
   threads: ReadonlyArray<SidebarThreadSummary>,
@@ -303,498 +563,6 @@ function getCachedHiddenThreadStatus(input: {
   return status;
 }
 
-function ThreadStatusLabel({
-  status,
-  compact = false,
-}: {
-  status: NonNullable<ReturnType<typeof resolveThreadStatusPill>>;
-  compact?: boolean;
-}) {
-  if (compact) {
-    return (
-      <span
-        title={status.label}
-        className={`inline-flex size-3.5 shrink-0 items-center justify-center ${status.colorClass}`}
-      >
-        <span
-          className={`size-[9px] rounded-full ${status.dotClass} ${
-            status.pulse ? "animate-pulse" : ""
-          }`}
-        />
-        <span className="sr-only">{status.label}</span>
-      </span>
-    );
-  }
-
-  return (
-    <span
-      title={status.label}
-      className={`inline-flex items-center gap-1 text-[10px] ${status.colorClass}`}
-    >
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${status.dotClass} ${
-          status.pulse ? "animate-pulse" : ""
-        }`}
-      />
-      <span className="hidden md:inline">{status.label}</span>
-    </span>
-  );
-}
-
-function terminalStatusFromRunningIds(
-  runningTerminalIds: string[],
-): TerminalStatusIndicator | null {
-  if (runningTerminalIds.length === 0) {
-    return null;
-  }
-  return {
-    label: "Terminal process running",
-    colorClass: "text-teal-600 dark:text-teal-300/90",
-    pulse: true,
-  };
-}
-
-function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
-  if (!pr) return null;
-
-  if (pr.state === "open") {
-    return {
-      label: "PR open",
-      colorClass: "text-emerald-600 dark:text-emerald-300/90",
-      tooltip: `#${pr.number} PR open: ${pr.title}`,
-      url: pr.url,
-    };
-  }
-  if (pr.state === "closed") {
-    return {
-      label: "PR closed",
-      colorClass: "text-zinc-500 dark:text-zinc-400/80",
-      tooltip: `#${pr.number} PR closed: ${pr.title}`,
-      url: pr.url,
-    };
-  }
-  if (pr.state === "merged") {
-    return {
-      label: "PR merged",
-      colorClass: "text-violet-600 dark:text-violet-300/90",
-      tooltip: `#${pr.number} PR merged: ${pr.title}`,
-      url: pr.url,
-    };
-  }
-  return null;
-}
-
-interface SidebarThreadRowProps {
-  threadId: ThreadId;
-  orderedProjectThreadIds: readonly ThreadId[];
-  routeThreadId: ThreadId | null;
-  selectedThreadIds: ReadonlySet<ThreadId>;
-  showThreadJumpHints: boolean;
-  jumpLabel: string | null;
-  appSettingsConfirmThreadArchive: boolean;
-  renamingThreadId: ThreadId | null;
-  renamingTitle: string;
-  setRenamingTitle: (title: string) => void;
-  renamingInputRef: MutableRefObject<HTMLInputElement | null>;
-  renamingCommittedRef: MutableRefObject<boolean>;
-  confirmingArchiveThreadId: ThreadId | null;
-  setConfirmingArchiveThreadId: Dispatch<SetStateAction<ThreadId | null>>;
-  confirmArchiveButtonRefs: MutableRefObject<Map<ThreadId, HTMLButtonElement>>;
-  handleThreadClick: (
-    event: MouseEvent,
-    threadId: ThreadId,
-    orderedProjectThreadIds: readonly ThreadId[],
-  ) => void;
-  navigateToThread: (threadId: ThreadId) => void;
-  prefetchThreadHistory: (threadId: ThreadId) => void;
-  handleMultiSelectContextMenu: (position: { x: number; y: number }) => Promise<void>;
-  handleThreadContextMenu: (
-    threadId: ThreadId,
-    position: { x: number; y: number },
-  ) => Promise<void>;
-  clearSelection: () => void;
-  commitRename: (threadId: ThreadId, newTitle: string, originalTitle: string) => Promise<void>;
-  cancelRename: () => void;
-  attemptArchiveThread: (threadId: ThreadId) => Promise<void>;
-  openPrLink: (event: MouseEvent<HTMLElement>, prUrl: string) => void;
-  pr: ThreadPr | null;
-}
-
-const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowProps) {
-  const thread = useSidebarThreadSummaryById(props.threadId);
-  const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[props.threadId]);
-  const runningTerminalIds = useTerminalStateStore(
-    (state) =>
-      selectThreadTerminalState(state.terminalStateByThreadId, props.threadId).runningTerminalIds,
-  );
-
-  if (!thread) {
-    return null;
-  }
-
-  const isActive = props.routeThreadId === thread.id;
-  const isSelected = props.selectedThreadIds.has(thread.id);
-  const isHighlighted = isActive || isSelected;
-  const isThreadRunning =
-    thread.session?.status === "running" && thread.session.activeTurnId != null;
-  const threadStatus = resolveThreadStatusPill({
-    thread: {
-      ...thread,
-      lastVisitedAt,
-    },
-  });
-  const prStatus = prStatusIndicator(props.pr);
-  const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
-  const isConfirmingArchive = props.confirmingArchiveThreadId === thread.id && !isThreadRunning;
-  const threadMetaClassName = isConfirmingArchive
-    ? "pointer-events-none opacity-0"
-    : !isThreadRunning
-      ? "pointer-events-none transition-opacity duration-150 group-hover/menu-sub-item:opacity-0 group-focus-within/menu-sub-item:opacity-0"
-      : "pointer-events-none";
-  const prefetchThreadHistory = () => {
-    if (thread.id === props.routeThreadId) {
-      return;
-    }
-    props.prefetchThreadHistory(thread.id);
-  };
-
-  return (
-    <SidebarMenuSubItem
-      className="w-full"
-      data-thread-item
-      onMouseLeave={() => {
-        props.setConfirmingArchiveThreadId((current) => (current === thread.id ? null : current));
-      }}
-      onBlurCapture={(event) => {
-        const currentTarget = event.currentTarget;
-        requestAnimationFrame(() => {
-          if (currentTarget.contains(document.activeElement)) {
-            return;
-          }
-          props.setConfirmingArchiveThreadId((current) => (current === thread.id ? null : current));
-        });
-      }}
-    >
-      <SidebarMenuSubButton
-        render={<div role="button" tabIndex={0} />}
-        size="sm"
-        isActive={isActive}
-        data-testid={`thread-row-${thread.id}`}
-        className={`${resolveThreadRowClassName({
-          isActive,
-          isSelected,
-        })} relative isolate`}
-        onMouseEnter={prefetchThreadHistory}
-        onFocus={prefetchThreadHistory}
-        onClick={(event) => {
-          props.handleThreadClick(event, thread.id, props.orderedProjectThreadIds);
-        }}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          props.navigateToThread(thread.id);
-        }}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          if (props.selectedThreadIds.size > 0 && props.selectedThreadIds.has(thread.id)) {
-            void props.handleMultiSelectContextMenu({
-              x: event.clientX,
-              y: event.clientY,
-            });
-          } else {
-            if (props.selectedThreadIds.size > 0) {
-              props.clearSelection();
-            }
-            void props.handleThreadContextMenu(thread.id, {
-              x: event.clientX,
-              y: event.clientY,
-            });
-          }
-        }}
-      >
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-          {prStatus && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label={prStatus.tooltip}
-                    className={`inline-flex items-center justify-center ${prStatus.colorClass} cursor-pointer rounded-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring`}
-                    onClick={(event) => {
-                      props.openPrLink(event, prStatus.url);
-                    }}
-                  >
-                    <GitPullRequestIcon className="size-3" />
-                  </button>
-                }
-              />
-              <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
-            </Tooltip>
-          )}
-          {threadStatus && <ThreadStatusLabel status={threadStatus} />}
-          {props.renamingThreadId === thread.id ? (
-            <input
-              ref={(element) => {
-                if (element && props.renamingInputRef.current !== element) {
-                  props.renamingInputRef.current = element;
-                  element.focus();
-                  element.select();
-                }
-              }}
-              className="min-w-0 flex-1 truncate text-xs bg-transparent outline-none border border-ring rounded px-0.5"
-              value={props.renamingTitle}
-              onChange={(event) => props.setRenamingTitle(event.target.value)}
-              onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  props.renamingCommittedRef.current = true;
-                  void props.commitRename(thread.id, props.renamingTitle, thread.title);
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  props.renamingCommittedRef.current = true;
-                  props.cancelRename();
-                }
-              }}
-              onBlur={() => {
-                if (!props.renamingCommittedRef.current) {
-                  void props.commitRename(thread.id, props.renamingTitle, thread.title);
-                }
-              }}
-              onClick={(event) => event.stopPropagation()}
-            />
-          ) : (
-            <span className="min-w-0 flex-1 truncate text-xs">{thread.title}</span>
-          )}
-        </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {terminalStatus && (
-            <span
-              role="img"
-              aria-label={terminalStatus.label}
-              title={terminalStatus.label}
-              className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
-            >
-              <TerminalIcon className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`} />
-            </span>
-          )}
-          <div className="flex min-w-12 justify-end">
-            {isConfirmingArchive ? (
-              <button
-                ref={(element) => {
-                  if (element) {
-                    props.confirmArchiveButtonRefs.current.set(thread.id, element);
-                  } else {
-                    props.confirmArchiveButtonRefs.current.delete(thread.id);
-                  }
-                }}
-                type="button"
-                data-thread-selection-safe
-                data-testid={`thread-archive-confirm-${thread.id}`}
-                aria-label={`Confirm archive ${thread.title}`}
-                className="absolute top-1/2 right-1 inline-flex h-5 -translate-y-1/2 cursor-pointer items-center rounded-full bg-destructive/12 px-2 text-[10px] font-medium text-destructive transition-colors hover:bg-destructive/18 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-destructive/40"
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                }}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  props.setConfirmingArchiveThreadId((current) =>
-                    current === thread.id ? null : current,
-                  );
-                  void props.attemptArchiveThread(thread.id);
-                }}
-              >
-                Confirm
-              </button>
-            ) : !isThreadRunning ? (
-              props.appSettingsConfirmThreadArchive ? (
-                <div className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
-                  <button
-                    type="button"
-                    data-thread-selection-safe
-                    data-testid={`thread-archive-${thread.id}`}
-                    aria-label={`Archive ${thread.title}`}
-                    className="inline-flex size-5 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                    onPointerDown={(event) => {
-                      event.stopPropagation();
-                    }}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      props.setConfirmingArchiveThreadId(thread.id);
-                      requestAnimationFrame(() => {
-                        props.confirmArchiveButtonRefs.current.get(thread.id)?.focus();
-                      });
-                    }}
-                  >
-                    <ArchiveIcon className="size-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <div className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
-                        <button
-                          type="button"
-                          data-thread-selection-safe
-                          data-testid={`thread-archive-${thread.id}`}
-                          aria-label={`Archive ${thread.title}`}
-                          className="inline-flex size-5 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                          onPointerDown={(event) => {
-                            event.stopPropagation();
-                          }}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            void props.attemptArchiveThread(thread.id);
-                          }}
-                        >
-                          <ArchiveIcon className="size-3.5" />
-                        </button>
-                      </div>
-                    }
-                  />
-                  <TooltipPopup side="top">Archive</TooltipPopup>
-                </Tooltip>
-              )
-            ) : null}
-            <span className={threadMetaClassName}>
-              {props.showThreadJumpHints && props.jumpLabel ? (
-                <span
-                  className="inline-flex h-5 items-center rounded-full border border-border/50 bg-background/80 px-1.5 font-mono text-[10px] font-medium tracking-tight text-foreground shadow-sm"
-                  title={props.jumpLabel}
-                >
-                  {props.jumpLabel}
-                </span>
-              ) : (
-                <span
-                  className={`text-[10px] ${
-                    isHighlighted ? "text-foreground/60" : "text-muted-foreground/50"
-                  }`}
-                >
-                  {formatRelativeTimeLabel(thread.updatedAt ?? thread.createdAt)}
-                </span>
-              )}
-            </span>
-          </div>
-        </div>
-      </SidebarMenuSubButton>
-    </SidebarMenuSubItem>
-  );
-});
-
-type SortableProjectHandleProps = Pick<
-  ReturnType<typeof useSortable>,
-  "attributes" | "listeners" | "setActivatorNodeRef"
->;
-
-function ProjectSortMenu({
-  projectSortOrder,
-  threadSortOrder,
-  onProjectSortOrderChange,
-  onThreadSortOrderChange,
-}: {
-  projectSortOrder: SidebarProjectSortOrder;
-  threadSortOrder: SidebarThreadSortOrder;
-  onProjectSortOrderChange: (sortOrder: SidebarProjectSortOrder) => void;
-  onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
-}) {
-  return (
-    <Menu>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <MenuTrigger className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground" />
-          }
-        >
-          <ArrowUpDownIcon className="size-3.5" />
-        </TooltipTrigger>
-        <TooltipPopup side="right">Sort projects</TooltipPopup>
-      </Tooltip>
-      <MenuPopup align="end" side="bottom" className="min-w-44">
-        <MenuGroup>
-          <div className="px-2 py-1 sm:text-xs font-medium text-muted-foreground">
-            Sort projects
-          </div>
-          <MenuRadioGroup
-            value={projectSortOrder}
-            onValueChange={(value) => {
-              onProjectSortOrderChange(value as SidebarProjectSortOrder);
-            }}
-          >
-            {(Object.entries(SIDEBAR_SORT_LABELS) as Array<[SidebarProjectSortOrder, string]>).map(
-              ([value, label]) => (
-                <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
-                  {label}
-                </MenuRadioItem>
-              ),
-            )}
-          </MenuRadioGroup>
-        </MenuGroup>
-        <MenuGroup>
-          <div className="px-2 pt-2 pb-1 sm:text-xs font-medium text-muted-foreground">
-            Sort threads
-          </div>
-          <MenuRadioGroup
-            value={threadSortOrder}
-            onValueChange={(value) => {
-              onThreadSortOrderChange(value as SidebarThreadSortOrder);
-            }}
-          >
-            {(
-              Object.entries(SIDEBAR_THREAD_SORT_LABELS) as Array<[SidebarThreadSortOrder, string]>
-            ).map(([value, label]) => (
-              <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
-                {label}
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </MenuGroup>
-      </MenuPopup>
-    </Menu>
-  );
-}
-
-function SortableProjectItem({
-  projectId,
-  disabled = false,
-  children,
-}: {
-  projectId: ProjectId;
-  disabled?: boolean;
-  children: (handleProps: SortableProjectHandleProps) => ReactNode;
-}) {
-  const {
-    attributes,
-    listeners,
-    setActivatorNodeRef,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-    isOver,
-  } = useSortable({ id: projectId, disabled });
-  return (
-    <li
-      ref={setNodeRef}
-      style={{
-        transform: CSS.Translate.toString(transform),
-        transition,
-      }}
-      className={`group/menu-item relative rounded-md ${
-        isDragging ? "z-20 opacity-80" : ""
-      } ${isOver && !isDragging ? "ring-1 ring-primary/40" : ""}`}
-      data-sidebar="menu-item"
-      data-slot="sidebar-menu-item"
-    >
-      {children({ attributes, listeners, setActivatorNodeRef })}
-    </li>
-  );
-}
-
 function projectIconsEqual(left: Project["icon"], right: Project["icon"]): boolean {
   if (left === right) {
     return true;
@@ -840,16 +608,36 @@ export default function Sidebar() {
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
   const keybindings = useServerKeybindings();
-  const sidebarToggleShortcutLabel =
-    typeof navigator !== "undefined" && isMacPlatform(navigator.platform)
-      ? "\u21e7\u2318B"
-      : "Ctrl+Shift+B";
+  const sidebarToggleShortcutLabel = useMemo(
+    () => shortcutLabelForCommand(keybindings, "sidebar.toggle"),
+    [keybindings],
+  );
   const [addingProject, setAddingProject] = useState(false);
+  const [projectPickerStep, setProjectPickerStep] = useState<ProjectPickerStep>("environment");
+  const [projectPickerEnvironmentQuery, setProjectPickerEnvironmentQuery] = useState("");
+  const [projectPickerRemoteHosts, setProjectPickerRemoteHosts] = useState<RemoteHostInstance[]>(
+    [],
+  );
+  const [projectPickerPinnedHostIds, setProjectPickerPinnedHostIds] = useState<string[]>([]);
+  const [projectPickerSelectedConnectionUrl, setProjectPickerSelectedConnectionUrl] = useState<
+    string | null
+  >(null);
   const [newCwd, setNewCwd] = useState("");
-  const [isPickingFolder, setIsPickingFolder] = useState(false);
+  const [isBrowsingProjectPaths, setIsBrowsingProjectPaths] = useState(false);
+  const [projectBrowseResult, setProjectBrowseResult] = useState<FilesystemBrowseResult | null>(
+    null,
+  );
+  const [activeProjectBrowseIndex, setActiveProjectBrowseIndex] = useState(-1);
+  const lastKeyboardNavigationTimeRef = useRef(0);
+  const [projectPickerEnvironmentProbeId, setProjectPickerEnvironmentProbeId] = useState<
+    string | null
+  >(null);
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
   const addProjectInputRef = useRef<HTMLInputElement | null>(null);
+  const projectPickerListRef = useRef<HTMLDivElement | null>(null);
+  const searchPaletteListRef = useRef<HTMLDivElement | null>(null);
+  const browseRequestVersionRef = useRef(0);
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [confirmingArchiveThreadId, setConfirmingArchiveThreadId] = useState<ThreadId | null>(null);
@@ -858,8 +646,17 @@ export default function Sidebar() {
   >({});
   const [projectEditorOpen, setProjectEditorOpen] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<ProjectId | null>(null);
+  const [editingProjectConnectionUrl, setEditingProjectConnectionUrl] = useState<string | null>(
+    null,
+  );
   const [editingProjectName, setEditingProjectName] = useState("");
   const [editingProjectIcon, setEditingProjectIcon] = useState<Project["icon"]>(null);
+  const [remoteThreadRenameTarget, setRemoteThreadRenameTarget] = useState<{
+    connectionUrl: string;
+    project: RemoteSidebarProjectEntry;
+    thread: RemoteSidebarThreadEntry;
+  } | null>(null);
+  const [remoteThreadRenameTitle, setRemoteThreadRenameTitle] = useState("");
   const { showThreadJumpHints, updateThreadJumpHintsVisibility } = useThreadJumpHintVisibility();
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
@@ -877,7 +674,42 @@ export default function Sidebar() {
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const platform = navigator.platform;
+  const [activeWsUrl, setActiveWsUrl] = useState(() => resolveActiveWsUrl());
+  const localDeviceHost = splitWsUrlAuthToken(resolveLocalDeviceWsUrl());
+  const localDeviceConnectionUrl = resolveHostConnectionWsUrl(localDeviceHost);
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleHostChange = () => {
+      setActiveWsUrl(resolveActiveWsUrl());
+    };
+    window.addEventListener("ace:ws-host-changed", handleHostChange);
+    return () => {
+      window.removeEventListener("ace:ws-host-changed", handleHostChange);
+    };
+  }, []);
+  const [remoteSidebarHosts, setRemoteSidebarHosts] = useState<
+    ReadonlyArray<RemoteSidebarHostEntry>
+  >(() => remoteSidebarHostSnapshotCache);
+  const remoteSidebarHostsRef = useRef<ReadonlyArray<RemoteSidebarHostEntry>>(
+    remoteSidebarHostSnapshotCache,
+  );
+  const registeredRemoteRouteConnectionUrlsRef = useRef<Set<string>>(new Set());
+  const remoteSidebarRefreshVersionRef = useRef(0);
+  const remoteSidebarRefreshInFlightRef = useRef<Promise<void> | null>(null);
+  const [remoteProjectExpandedById, setRemoteProjectExpandedById] = useState<
+    Record<string, boolean>
+  >({});
+  const [remoteThreadRevealCountByProject, setRemoteThreadRevealCountByProject] = useState<
+    Record<string, number>
+  >({});
+  useEffect(() => {
+    remoteSidebarHostsRef.current = remoteSidebarHosts;
+    remoteSidebarHostSnapshotCache = remoteSidebarHosts;
+  }, [remoteSidebarHosts]);
   const shouldShowProjectPathEntry = addingProject;
+  const normalizedProjectSearchQuery = "";
   const activeProjects = useMemo(
     () => projects.filter((project) => project.archivedAt === null),
     [projects],
@@ -893,6 +725,228 @@ export default function Sidebar() {
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
   );
+  const projectById = useMemo(
+    () => new Map(activeProjects.map((project) => [project.id, project] as const)),
+    [activeProjects],
+  );
+  const pickerEnvironments = useMemo((): ProjectPickerEnvironment[] => {
+    const uniqueByConnection = new Map<string, ProjectPickerEnvironment>();
+    const pinnedHostIds = new Set(projectPickerPinnedHostIds);
+
+    uniqueByConnection.set(localDeviceConnectionUrl, {
+      id: "local-device",
+      name: "This device",
+      subtitle: localDeviceHost.wsUrl,
+      connectionUrl: localDeviceConnectionUrl,
+      icon: {
+        glyph: "terminal",
+        color: "blue",
+      },
+      isLocal: true,
+      isPinned: true,
+    });
+
+    for (const host of projectPickerRemoteHosts) {
+      if (!pinnedHostIds.has(host.id)) {
+        continue;
+      }
+      const connectionUrl = resolveHostConnectionWsUrl(host);
+      if (uniqueByConnection.has(connectionUrl)) {
+        continue;
+      }
+      uniqueByConnection.set(connectionUrl, {
+        id: host.id,
+        name: host.name,
+        subtitle: host.wsUrl,
+        connectionUrl,
+        icon:
+          host.iconGlyph && host.iconColor
+            ? {
+                glyph: host.iconGlyph,
+                color: host.iconColor,
+              }
+            : null,
+        isLocal: false,
+        isPinned: true,
+      });
+    }
+
+    return [...uniqueByConnection.values()];
+  }, [
+    localDeviceConnectionUrl,
+    localDeviceHost.wsUrl,
+    projectPickerPinnedHostIds,
+    projectPickerRemoteHosts,
+  ]);
+  const selectedProjectPickerEnvironment = useMemo(() => {
+    if (projectPickerSelectedConnectionUrl === null) {
+      return pickerEnvironments[0] ?? null;
+    }
+    return (
+      pickerEnvironments.find(
+        (environment) => environment.connectionUrl === projectPickerSelectedConnectionUrl,
+      ) ??
+      pickerEnvironments[0] ??
+      null
+    );
+  }, [pickerEnvironments, projectPickerSelectedConnectionUrl]);
+  const normalizedProjectPickerEnvironmentQuery = projectPickerEnvironmentQuery
+    .trim()
+    .toLowerCase();
+  const filteredPickerEnvironments = useMemo(() => {
+    if (normalizedProjectPickerEnvironmentQuery.length === 0) {
+      return pickerEnvironments;
+    }
+    return pickerEnvironments.filter(
+      (environment) =>
+        environment.name.toLowerCase().includes(normalizedProjectPickerEnvironmentQuery) ||
+        environment.subtitle.toLowerCase().includes(normalizedProjectPickerEnvironmentQuery),
+    );
+  }, [normalizedProjectPickerEnvironmentQuery, pickerEnvironments]);
+  const refreshRemoteSidebarHosts = useCallback(async () => {
+    const existingRefresh = remoteSidebarRefreshInFlightRef.current;
+    if (existingRefresh) {
+      return existingRefresh;
+    }
+
+    const refreshPromise = (async () => {
+      const pinnedHostIds = new Set(loadPinnedRemoteHostIds());
+      const hosts = loadRemoteHostInstances()
+        .filter((host) => pinnedHostIds.has(host.id))
+        .filter((host) => resolveHostConnectionWsUrl(host) !== localDeviceConnectionUrl)
+        .toSorted((left, right) => left.name.localeCompare(right.name));
+      const nextConnectionUrls = new Set<string>([
+        localDeviceConnectionUrl,
+        ...hosts.map((host) => resolveHostConnectionWsUrl(host)),
+      ]);
+      const previousConnectionUrls = registeredRemoteRouteConnectionUrlsRef.current;
+      for (const connectionUrl of nextConnectionUrls) {
+        if (!previousConnectionUrls.has(connectionUrl)) {
+          registerRemoteRoute(connectionUrl);
+        }
+      }
+      for (const connectionUrl of previousConnectionUrls) {
+        if (!nextConnectionUrls.has(connectionUrl)) {
+          unregisterRemoteRoute(connectionUrl);
+        }
+      }
+      registeredRemoteRouteConnectionUrlsRef.current = nextConnectionUrls;
+
+      await probeRemoteRouteAvailability(localDeviceConnectionUrl, {
+        force: true,
+      }).catch(() => undefined);
+
+      const requestVersion = remoteSidebarRefreshVersionRef.current + 1;
+      remoteSidebarRefreshVersionRef.current = requestVersion;
+
+      if (hosts.length === 0) {
+        setRemoteSidebarHosts((current) => (current.length === 0 ? current : []));
+        return;
+      }
+
+      const previousEntriesByConnectionUrl = new Map(
+        remoteSidebarHostsRef.current.map((entry) => [entry.connectionUrl, entry] as const),
+      );
+      const hostEntries = await Promise.all(
+        hosts.map(async (host): Promise<RemoteSidebarHostEntry> => {
+          const connectionUrl = resolveHostConnectionWsUrl(host);
+          const previousEntry = previousEntriesByConnectionUrl.get(connectionUrl);
+          try {
+            const snapshot = (await routeOrchestrationGetSnapshotFromRemote(
+              connectionUrl,
+              LEAN_SNAPSHOT_RECOVERY_INPUT,
+            )) as OrchestrationReadModel;
+            const mappedProjects = mapRemoteProjectsFromSnapshot(snapshot);
+            const projects = previousEntry
+              ? reuseRemoteProjectEntries(previousEntry.projects, mappedProjects)
+              : mappedProjects;
+            const availableEntry: RemoteSidebarHostEntry = {
+              host,
+              connectionUrl,
+              status: "available",
+              projects,
+            };
+            return previousEntry && remoteSidebarHostEntryEquals(previousEntry, availableEntry)
+              ? previousEntry
+              : availableEntry;
+          } catch (error) {
+            const fallbackProjects = previousEntry?.projects ?? [];
+            const unavailableEntry: RemoteSidebarHostEntry =
+              error instanceof Error
+                ? {
+                    host,
+                    connectionUrl,
+                    status: "unavailable",
+                    projects: fallbackProjects,
+                    error: error.message,
+                  }
+                : {
+                    host,
+                    connectionUrl,
+                    status: "unavailable",
+                    projects: fallbackProjects,
+                  };
+            return previousEntry && remoteSidebarHostEntryEquals(previousEntry, unavailableEntry)
+              ? previousEntry
+              : unavailableEntry;
+          }
+        }),
+      );
+
+      if (remoteSidebarRefreshVersionRef.current !== requestVersion) {
+        return;
+      }
+      setRemoteSidebarHosts((current) =>
+        remoteSidebarHostEntriesEqual(current, hostEntries) ? current : hostEntries,
+      );
+    })();
+
+    remoteSidebarRefreshInFlightRef.current = refreshPromise;
+    try {
+      await refreshPromise;
+    } finally {
+      if (remoteSidebarRefreshInFlightRef.current === refreshPromise) {
+        remoteSidebarRefreshInFlightRef.current = null;
+      }
+    }
+  }, [localDeviceConnectionUrl]);
+  useEffect(() => {
+    let cancelled = false;
+    let timeoutHandle: number | null = null;
+
+    const schedule = () => {
+      if (cancelled) {
+        return;
+      }
+      timeoutHandle = window.setTimeout(() => {
+        void tick();
+      }, 6_000);
+    };
+
+    const tick = async () => {
+      if (cancelled) {
+        return;
+      }
+      await refreshRemoteSidebarHosts();
+      schedule();
+    };
+
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timeoutHandle !== null) {
+        window.clearTimeout(timeoutHandle);
+      }
+      for (const connectionUrl of registeredRemoteRouteConnectionUrlsRef.current) {
+        unregisterRemoteRoute(connectionUrl);
+      }
+      registeredRemoteRouteConnectionUrlsRef.current.clear();
+    };
+  }, [refreshRemoteSidebarHosts]);
+  const addProjectBaseDirectory = useMemo(() => {
+    const configuredBaseDirectory = appSettings.addProjectBaseDirectory.trim();
+    return configuredBaseDirectory.length > 0 ? configuredBaseDirectory : "~";
+  }, [appSettings.addProjectBaseDirectory]);
   const editingProject = useMemo(
     () =>
       editingProjectId
@@ -900,6 +954,20 @@ export default function Sidebar() {
         : null,
     [editingProjectId, projects],
   );
+  const editingRemoteProject = useMemo(() => {
+    if (!editingProjectId || !editingProjectConnectionUrl) {
+      return null;
+    }
+    return (
+      remoteSidebarHosts
+        .find(
+          (entry) =>
+            normalizeWsUrl(entry.connectionUrl) === normalizeWsUrl(editingProjectConnectionUrl),
+        )
+        ?.projects.find((project) => project.id === editingProjectId) ?? null
+    );
+  }, [editingProjectConnectionUrl, editingProjectId, remoteSidebarHosts]);
+  const editingProjectTarget = editingProject ?? editingRemoteProject;
   const routeTerminalOpen = routeThreadId
     ? selectThreadTerminalState(terminalStateByThreadId, routeThreadId).terminalOpen
     : false;
@@ -970,26 +1038,97 @@ export default function Sidebar() {
     [appSettings.sidebarThreadSortOrder, navigate, sidebarThreadsById, threadIdsByProjectId],
   );
 
+  const refreshProjectBrowse = useCallback(
+    async (partialPath: string) => {
+      const trimmedPath = partialPath.trim();
+      if (!addingProject || projectPickerStep !== "directory" || !trimmedPath) {
+        setProjectBrowseResult(null);
+        setActiveProjectBrowseIndex(-1);
+        return;
+      }
+
+      const requestVersion = browseRequestVersionRef.current + 1;
+      browseRequestVersionRef.current = requestVersion;
+      setIsBrowsingProjectPaths(true);
+      try {
+        const targetEnvironment = selectedProjectPickerEnvironment;
+        const targetConnectionUrl = targetEnvironment?.connectionUrl ?? localDeviceConnectionUrl;
+        const browseResult = await routeFilesystemBrowseToRemote(targetConnectionUrl, {
+          partialPath: trimmedPath,
+        });
+        if (browseRequestVersionRef.current !== requestVersion) {
+          return;
+        }
+        setProjectBrowseResult(browseResult);
+        setActiveProjectBrowseIndex(browseResult.entries.length > 0 ? 0 : -1);
+      } catch (error) {
+        if (browseRequestVersionRef.current !== requestVersion) {
+          return;
+        }
+        setProjectBrowseResult(null);
+        setActiveProjectBrowseIndex(-1);
+        setAddProjectError(
+          error instanceof Error ? error.message : "Unable to browse this directory path.",
+        );
+      } finally {
+        if (browseRequestVersionRef.current === requestVersion) {
+          setIsBrowsingProjectPaths(false);
+        }
+      }
+    },
+    [addingProject, localDeviceConnectionUrl, projectPickerStep, selectedProjectPickerEnvironment],
+  );
+
+  useEffect(() => {
+    if (!addingProject || projectPickerStep !== "directory") {
+      setProjectBrowseResult(null);
+      setActiveProjectBrowseIndex(-1);
+      setIsBrowsingProjectPaths(false);
+      return;
+    }
+    const trimmedPath = newCwd.trim();
+    if (!trimmedPath) {
+      setProjectBrowseResult(null);
+      setActiveProjectBrowseIndex(-1);
+      return;
+    }
+    void refreshProjectBrowse(trimmedPath);
+  }, [addingProject, newCwd, projectPickerStep, refreshProjectBrowse]);
+
+  useEffect(() => {
+    if (!addingProject) {
+      return;
+    }
+    addProjectInputRef.current?.focus();
+  }, [addingProject]);
+
   const addProjectFromPath = useCallback(
     async (rawCwd: string, options?: { revealOnError?: boolean }) => {
-      const cwd = rawCwd.trim();
+      const targetEnvironment = selectedProjectPickerEnvironment;
+      const isLocalEnvironment = targetEnvironment?.isLocal ?? true;
+      const targetConnectionUrl = targetEnvironment?.connectionUrl ?? localDeviceConnectionUrl;
+      const cwd = resolveProjectPath(
+        rawCwd,
+        isLocalEnvironment ? addProjectBaseDirectory : undefined,
+      ).trim();
       if (!cwd || isAddingProject) return;
-      const api = readNativeApi();
-      if (!api) return;
 
       setIsAddingProject(true);
       const finishAddingProject = () => {
         setIsAddingProject(false);
         setNewCwd("");
         setAddProjectError(null);
+        setProjectBrowseResult(null);
+        setActiveProjectBrowseIndex(-1);
         setAddingProject(false);
       };
 
-      const existing = projects.find((project) => project.cwd === cwd);
+      const shouldUseLocalProjectDedup = isLocalEnvironment;
+      const existing = shouldUseLocalProjectDedup ? findExistingProjectByPath(projects, cwd) : null;
       if (existing) {
         try {
           if (existing.archivedAt !== null) {
-            await api.orchestration.dispatchCommand({
+            await routeOrchestrationDispatchCommandToRemote(localDeviceConnectionUrl, {
               type: "project.meta.update",
               commandId: newCommandId(),
               projectId: existing.id,
@@ -997,39 +1136,51 @@ export default function Sidebar() {
             });
           }
           focusMostRecentThreadForProject(existing.id);
-          finishAddingProject();
         } catch (error) {
-          setIsAddingProject(false);
           toastManager.add({
             type: "error",
             title: `Failed to restore "${existing.name}"`,
             description: error instanceof Error ? error.message : "An error occurred.",
           });
         }
+        finishAddingProject();
         return;
       }
 
       const projectId = newProjectId();
       const createdAt = new Date().toISOString();
-      const title = cwd.split(/[/\\]/).findLast(isNonEmptyString) ?? cwd;
+      const title = inferProjectTitle(cwd) || cwd;
       try {
-        await api.orchestration.dispatchCommand({
+        await routeOrchestrationDispatchCommandToRemote(targetConnectionUrl, {
           type: "project.create",
           commandId: newCommandId(),
           projectId,
           title,
           workspaceRoot: cwd,
+          createWorkspaceRootIfMissing: true,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
           },
           createdAt,
         });
-        await handleNewThread(projectId, {
-          envMode: appSettings.defaultThreadEnvMode,
-        }).catch((error) => {
-          reportBackgroundError("Failed to create the initial thread for the new project.", error);
-        });
+        finishAddingProject();
+        refreshRemoteSidebarHosts().catch(() => undefined);
+        if (!isLocalEnvironment) {
+          toastManager.add({
+            type: "success",
+            title: `Added project on ${targetEnvironment?.name ?? "remote host"}.`,
+          });
+        } else {
+          handleNewThread(projectId, {
+            envMode: appSettings.defaultThreadEnvMode,
+          }).catch((error) => {
+            reportBackgroundError(
+              "Failed to create the initial thread for the new project.",
+              error,
+            );
+          });
+        }
       } catch (error) {
         const description =
           error instanceof Error ? error.message : "An error occurred while adding the project.";
@@ -1044,55 +1195,316 @@ export default function Sidebar() {
       finishAddingProject();
     },
     [
+      addProjectBaseDirectory,
+      appSettings.defaultThreadEnvMode,
       focusMostRecentThreadForProject,
       handleNewThread,
       isAddingProject,
+      localDeviceConnectionUrl,
       projects,
-      appSettings.defaultThreadEnvMode,
+      refreshRemoteSidebarHosts,
+      selectedProjectPickerEnvironment,
     ],
   );
 
-  const handleAddProject = () => {
+  const handleAddProject = useCallback(() => {
     void addProjectFromPath(newCwd);
-  };
+  }, [addProjectFromPath, newCwd]);
 
-  const canAddProject = newCwd.trim().length > 0 && !isAddingProject;
-
-  const handlePickFolder = async (options?: { revealOnCancel?: boolean }) => {
-    const api = readNativeApi();
-    if (!api || isPickingFolder) return;
+  const handleBrowseProjectEntry = useCallback((fullPath: string) => {
     setAddProjectError(null);
-    setIsPickingFolder(true);
-    try {
-      const pickedPath = await api.dialogs.pickFolder();
-      if (pickedPath) {
-        setNewCwd(pickedPath);
-        await addProjectFromPath(pickedPath, { revealOnError: true });
+    setNewCwd(toBrowseDirectoryPath(fullPath));
+  }, []);
+
+  const handleBrowseParentPath = useCallback(() => {
+    const currentPath = projectBrowseResult?.parentPath ?? newCwd.trim();
+    if (!currentPath) {
+      return;
+    }
+    const nextPath = parentPath(currentPath);
+    if (!nextPath || nextPath === currentPath) {
+      return;
+    }
+    setNewCwd(toBrowseDirectoryPath(nextPath));
+    setAddProjectError(null);
+  }, [newCwd, projectBrowseResult]);
+
+  const canAddProject =
+    projectPickerStep === "directory" && newCwd.trim().length > 0 && !isAddingProject;
+  const normalizedResolvedProjectPath = useMemo(() => {
+    const shouldResolveAsLocal = selectedProjectPickerEnvironment?.isLocal ?? true;
+    return resolveProjectPath(newCwd, shouldResolveAsLocal ? addProjectBaseDirectory : undefined)
+      .trim()
+      .toLowerCase();
+  }, [addProjectBaseDirectory, newCwd, selectedProjectPickerEnvironment]);
+  const isBrowsePathExactDirectoryMatch = useMemo(() => {
+    const trimmedPath = newCwd.trim();
+    if (!trimmedPath) {
+      return false;
+    }
+    if (/[\\/]$/.test(trimmedPath) || trimmedPath === "~") {
+      return true;
+    }
+    return (
+      projectBrowseResult?.entries.some(
+        (entry) => entry.fullPath.trim().toLowerCase() === normalizedResolvedProjectPath,
+      ) ?? false
+    );
+  }, [newCwd, normalizedResolvedProjectPath, projectBrowseResult]);
+  const addProjectActionLabel = isAddingProject
+    ? "Adding..."
+    : isBrowsePathExactDirectoryMatch
+      ? "Add"
+      : "Create & Add";
+
+  const handleSelectProjectPickerEnvironment = useCallback(
+    async (environment: ProjectPickerEnvironment) => {
+      if (projectPickerEnvironmentProbeId !== null) {
         return;
       }
-      if (options?.revealOnCancel) {
-        setAddingProject(true);
+      setAddProjectError(null);
+      if (!environment.isLocal) {
+        setProjectPickerEnvironmentProbeId(environment.id);
+        registerRemoteRoute(environment.connectionUrl);
+        let availability: Awaited<ReturnType<typeof probeRemoteRouteAvailability>>;
+        try {
+          availability = await probeRemoteRouteAvailability(environment.connectionUrl, {
+            force: true,
+          });
+        } finally {
+          setProjectPickerEnvironmentProbeId(null);
+        }
+        if (availability.status !== "available") {
+          setAddProjectError(
+            availability.error?.trim().length
+              ? availability.error
+              : `Unable to reach ${environment.name}. We'll keep pinging it in the background.`,
+          );
+          return;
+        }
       }
-      addProjectInputRef.current?.focus();
-    } catch (error) {
-      setAddingProject(true);
-      setAddProjectError(
-        error instanceof Error ? error.message : "Unable to open the folder picker.",
-      );
-      addProjectInputRef.current?.focus();
-    } finally {
-      setIsPickingFolder(false);
-    }
-  };
+      setProjectPickerSelectedConnectionUrl(environment.connectionUrl);
+      setProjectPickerStep("directory");
+      const initialPath = environment.isLocal ? addProjectBaseDirectory : "~";
+      setNewCwd(toBrowseDirectoryPath(initialPath));
+      setProjectBrowseResult(null);
+      setAddProjectError(null);
+      setProjectPickerEnvironmentQuery("");
+      setActiveProjectBrowseIndex(-1);
+    },
+    [addProjectBaseDirectory, projectPickerEnvironmentProbeId],
+  );
 
-  const handleStartAddProject = () => {
+  const handleAddProjectInputKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (projectPickerStep === "environment") {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setActiveProjectBrowseIndex((index) => {
+            if (filteredPickerEnvironments.length === 0) {
+              return -1;
+            }
+            return Math.min(index + 1, filteredPickerEnvironments.length - 1);
+          });
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setActiveProjectBrowseIndex((index) => {
+            if (filteredPickerEnvironments.length === 0) {
+              return -1;
+            }
+            return index <= 0 ? 0 : index - 1;
+          });
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          const environment =
+            activeProjectBrowseIndex >= 0
+              ? filteredPickerEnvironments[activeProjectBrowseIndex]
+              : filteredPickerEnvironments[0];
+          if (environment) {
+            void handleSelectProjectPickerEnvironment(environment);
+          }
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setAddingProject(false);
+          setAddProjectError(null);
+          setProjectPickerEnvironmentProbeId(null);
+          return;
+        }
+        if (event.key === "Backspace" && projectPickerEnvironmentQuery.trim().length === 0) {
+          event.preventDefault();
+          setAddingProject(false);
+          setAddProjectError(null);
+          setProjectPickerEnvironmentProbeId(null);
+        }
+        return;
+      }
+
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveProjectBrowseIndex((index) => {
+          const entryCount = projectBrowseResult?.entries.length ?? 0;
+          if (entryCount === 0) {
+            return -1;
+          }
+          return Math.min(index + 1, entryCount - 1);
+        });
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveProjectBrowseIndex((index) => {
+          const entryCount = projectBrowseResult?.entries.length ?? 0;
+          if (entryCount === 0) {
+            return -1;
+          }
+          return index <= 0 ? 0 : index - 1;
+        });
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        const selectedEntry =
+          activeProjectBrowseIndex >= 0
+            ? projectBrowseResult?.entries[activeProjectBrowseIndex]
+            : undefined;
+        if (selectedEntry) {
+          event.preventDefault();
+          handleBrowseProjectEntry(selectedEntry.fullPath);
+        }
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        handleBrowseParentPath();
+        return;
+      }
+      if (event.key === "Backspace") {
+        if (event.currentTarget.value.trim().length === 0 && pickerEnvironments.length > 1) {
+          event.preventDefault();
+          setProjectPickerStep("environment");
+          setProjectPickerEnvironmentQuery("");
+          setActiveProjectBrowseIndex(0);
+          return;
+        }
+        const target = event.currentTarget;
+        const hasSelection = target.selectionStart !== target.selectionEnd;
+        const cursorAtEnd = target.selectionStart === target.value.length;
+        if (!hasSelection && cursorAtEnd && /[\\/]$/.test(target.value.trim())) {
+          event.preventDefault();
+          handleBrowseParentPath();
+          return;
+        }
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        handleAddProject();
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setAddingProject(false);
+        setAddProjectError(null);
+        setProjectPickerEnvironmentProbeId(null);
+      }
+    },
+    [
+      activeProjectBrowseIndex,
+      filteredPickerEnvironments,
+      handleAddProject,
+      handleBrowseParentPath,
+      handleBrowseProjectEntry,
+      handleSelectProjectPickerEnvironment,
+      projectPickerEnvironmentQuery,
+      projectPickerStep,
+      projectBrowseResult,
+      pickerEnvironments.length,
+    ],
+  );
+
+  useEffect(() => {
+    if (!addingProject) {
+      return;
+    }
+    const itemCount =
+      projectPickerStep === "environment"
+        ? filteredPickerEnvironments.length
+        : (projectBrowseResult?.entries.length ?? 0);
+    setActiveProjectBrowseIndex((currentIndex) => {
+      if (itemCount === 0) {
+        return -1;
+      }
+      if (currentIndex < 0) {
+        return 0;
+      }
+      return Math.min(currentIndex, itemCount - 1);
+    });
+  }, [addingProject, filteredPickerEnvironments.length, projectBrowseResult, projectPickerStep]);
+
+  useEffect(() => {
+    if (!addingProject || activeProjectBrowseIndex < 0) {
+      return;
+    }
+    lastKeyboardNavigationTimeRef.current = Date.now();
+    const listElement = projectPickerListRef.current;
+    if (!listElement) {
+      return;
+    }
+    const stepSelector =
+      projectPickerStep === "environment"
+        ? "data-project-picker-environment-index"
+        : "data-project-picker-index";
+    const activeItem = listElement.querySelector<HTMLElement>(
+      `[${stepSelector}="${String(activeProjectBrowseIndex)}"]`,
+    );
+    if (!activeItem) {
+      return;
+    }
+    activeItem.scrollIntoView({
+      block: "center",
+      behavior: "auto",
+    });
+  }, [activeProjectBrowseIndex, addingProject, projectPickerStep]);
+
+  const handleStartAddProject = useCallback(() => {
     setAddProjectError(null);
     if (shouldShowProjectPathEntry) {
       setAddingProject(false);
+      setProjectPickerEnvironmentProbeId(null);
       return;
     }
-    void handlePickFolder({ revealOnCancel: true });
-  };
+    const remoteHosts = loadRemoteHostInstances();
+    const pinnedHostIds = loadPinnedRemoteHostIds();
+    for (const host of remoteHosts) {
+      if (!pinnedHostIds.includes(host.id)) {
+        continue;
+      }
+      const connectionUrl = resolveHostConnectionWsUrl(host);
+      if (connectionUrl === localDeviceConnectionUrl) {
+        continue;
+      }
+      registerRemoteRoute(connectionUrl);
+    }
+    setProjectPickerRemoteHosts(remoteHosts);
+    setProjectPickerPinnedHostIds(pinnedHostIds);
+    setProjectPickerSelectedConnectionUrl(localDeviceConnectionUrl);
+    const hasRemoteEnvironment = remoteHosts.some(
+      (host) =>
+        pinnedHostIds.includes(host.id) &&
+        resolveHostConnectionWsUrl(host) !== localDeviceConnectionUrl,
+    );
+    const initialPath = addProjectBaseDirectory;
+    setProjectPickerStep(hasRemoteEnvironment ? "environment" : "directory");
+    setProjectPickerEnvironmentQuery("");
+    setNewCwd(hasRemoteEnvironment ? "" : toBrowseDirectoryPath(initialPath));
+    setProjectBrowseResult(null);
+    setActiveProjectBrowseIndex(-1);
+    setAddingProject(true);
+  }, [addProjectBaseDirectory, localDeviceConnectionUrl, shouldShowProjectPathEntry]);
 
   const cancelRename = useCallback(() => {
     setRenamingThreadId(null);
@@ -1122,13 +1534,8 @@ export default function Sidebar() {
         finishRename();
         return;
       }
-      const api = readNativeApi();
-      if (!api) {
-        finishRename();
-        return;
-      }
       try {
-        await api.orchestration.dispatchCommand({
+        await routeOrchestrationDispatchCommandToRemote(activeWsUrl, {
           type: "thread.meta.update",
           commandId: newCommandId(),
           threadId,
@@ -1143,7 +1550,7 @@ export default function Sidebar() {
       }
       finishRename();
     },
-    [],
+    [activeWsUrl],
   );
 
   const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{
@@ -1308,7 +1715,12 @@ export default function Sidebar() {
   );
 
   const handleThreadClick = useCallback(
-    (event: MouseEvent, threadId: ThreadId, orderedProjectThreadIds: readonly ThreadId[]) => {
+    (
+      event: MouseEvent,
+      threadId: ThreadId,
+      orderedProjectThreadIds: readonly ThreadId[],
+      connectionUrl: string,
+    ) => {
       const isMac = isMacPlatform(navigator.platform);
       const isModClick = isMac ? event.metaKey : event.ctrlKey;
       const isShiftClick = event.shiftKey;
@@ -1325,7 +1737,6 @@ export default function Sidebar() {
         return;
       }
 
-      // Plain click — clear selection, set anchor for future shift-clicks, and navigate
       if (selectedThreadIds.size > 0) {
         clearSelection();
       }
@@ -1343,14 +1754,22 @@ export default function Sidebar() {
         });
       }
       startTransition(() => {
-        void navigate({
-          to: "/$threadId",
-          params: { threadId },
-        });
+        if (connectionUrlsEqual(connectionUrl, activeWsUrl)) {
+          void navigate({
+            to: "/$threadId",
+            params: { threadId },
+          });
+        } else {
+          connectToWsHost(connectionUrl, {
+            path: `/${threadId}`,
+            reload: false,
+          });
+        }
       });
     },
     [
       clearSelection,
+      activeWsUrl,
       navigate,
       rangeSelectTo,
       selectedThreadIds.size,
@@ -1404,6 +1823,19 @@ export default function Sidebar() {
     },
     [clearSelection, navigate, selectedThreadIds.size, setSelectionAnchor, sidebarThreadsById],
   );
+  const navigateToThreadOnConnection = useCallback(
+    (connectionUrl: string, threadId: ThreadId) => {
+      if (connectionUrlsEqual(connectionUrl, activeWsUrl)) {
+        navigateToThread(threadId);
+        return;
+      }
+      connectToWsHost(connectionUrl, {
+        path: `/${threadId}`,
+        reload: false,
+      });
+    },
+    [activeWsUrl, navigateToThread],
+  );
 
   const handleProjectContextMenu = useCallback(
     async (projectId: ProjectId, position: { x: number; y: number }) => {
@@ -1423,6 +1855,7 @@ export default function Sidebar() {
       );
       if (clicked === "edit") {
         setEditingProjectId(project.id);
+        setEditingProjectConnectionUrl(activeWsUrl);
         setEditingProjectName(project.name);
         setEditingProjectIcon(project.icon);
         setProjectEditorOpen(true);
@@ -1437,7 +1870,7 @@ export default function Sidebar() {
         if (!confirmed) return;
 
         try {
-          await api.orchestration.dispatchCommand({
+          await routeOrchestrationDispatchCommandToRemote(activeWsUrl, {
             type: "project.meta.update",
             commandId: newCommandId(),
             projectId,
@@ -1475,7 +1908,7 @@ export default function Sidebar() {
           clearComposerDraftForThread(projectDraftThread.threadId);
         }
         clearProjectDraftThreadId(projectId);
-        await api.orchestration.dispatchCommand({
+        await routeOrchestrationDispatchCommandToRemote(activeWsUrl, {
           type: "project.delete",
           commandId: newCommandId(),
           projectId,
@@ -1495,26 +1928,239 @@ export default function Sidebar() {
       clearProjectDraftThreadId,
       copyPathToClipboard,
       getDraftThreadByProjectId,
+      activeWsUrl,
       projects,
       setEditingProjectIcon,
+      setEditingProjectConnectionUrl,
       setEditingProjectId,
       setEditingProjectName,
       setProjectEditorOpen,
       threadIdsByProjectId,
     ],
   );
+  const handleRemoteProjectContextMenu = useCallback(
+    async (
+      input: {
+        connectionUrl: string;
+        project: RemoteSidebarProjectEntry;
+      },
+      position: { x: number; y: number },
+    ) => {
+      const api = readNativeApi();
+      if (!api) return;
+
+      const clicked = await api.contextMenu.show(
+        [
+          { id: "edit", label: "Edit project" },
+          { id: "copy-path", label: "Copy Project Path" },
+          { id: "archive", label: "Archive project" },
+          { id: "delete", label: "Remove project", destructive: true },
+        ],
+        position,
+      );
+      if (clicked === "edit") {
+        setEditingProjectId(input.project.id);
+        setEditingProjectConnectionUrl(input.connectionUrl);
+        setEditingProjectName(input.project.name);
+        setEditingProjectIcon(input.project.icon);
+        setProjectEditorOpen(true);
+        return;
+      }
+      if (clicked === "copy-path") {
+        copyPathToClipboard(input.project.cwd, { path: input.project.cwd });
+        return;
+      }
+      if (clicked === "archive") {
+        const confirmed = await api.dialogs.confirm(`Archive project "${input.project.name}"?`);
+        if (!confirmed) return;
+        try {
+          await routeOrchestrationDispatchCommandToRemote(input.connectionUrl, {
+            type: "project.meta.update",
+            commandId: newCommandId(),
+            projectId: input.project.id,
+            archivedAt: new Date().toISOString(),
+          });
+          await refreshRemoteSidebarHosts();
+        } catch (error) {
+          toastManager.add({
+            type: "error",
+            title: `Failed to archive "${input.project.name}"`,
+            description: error instanceof Error ? error.message : "An error occurred.",
+          });
+        }
+        return;
+      }
+      if (clicked !== "delete") return;
+      if (input.project.threads.length > 0) {
+        toastManager.add({
+          type: "warning",
+          title: "Project is not empty",
+          description: "Delete all threads in this project before removing it.",
+        });
+        return;
+      }
+      const confirmed = await api.dialogs.confirm(`Remove project "${input.project.name}"?`);
+      if (!confirmed) return;
+      try {
+        await routeOrchestrationDispatchCommandToRemote(input.connectionUrl, {
+          type: "project.delete",
+          commandId: newCommandId(),
+          projectId: input.project.id,
+        });
+        await refreshRemoteSidebarHosts();
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: `Failed to remove "${input.project.name}"`,
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+    },
+    [copyPathToClipboard, refreshRemoteSidebarHosts],
+  );
+  const handleRemoteThreadContextMenu = useCallback(
+    async (
+      input: {
+        connectionUrl: string;
+        project: RemoteSidebarProjectEntry;
+        thread: RemoteSidebarThreadEntry;
+      },
+      position: { x: number; y: number },
+    ) => {
+      const api = readNativeApi();
+      if (!api) return;
+      const clicked = await api.contextMenu.show(
+        [
+          { id: "rename", label: "Rename thread" },
+          { id: "copy-path", label: "Copy Path" },
+          { id: "copy-thread-id", label: "Copy Thread ID" },
+          { id: "archive", label: "Archive thread" },
+          { id: "delete", label: "Delete", destructive: true },
+        ],
+        position,
+      );
+
+      if (clicked === "rename") {
+        setRemoteThreadRenameTarget(input);
+        setRemoteThreadRenameTitle(input.thread.title);
+        return;
+      }
+      if (clicked === "copy-path") {
+        copyPathToClipboard(input.project.cwd, { path: input.project.cwd });
+        return;
+      }
+      if (clicked === "copy-thread-id") {
+        copyThreadIdToClipboard(ThreadId.makeUnsafe(input.thread.id), {
+          threadId: ThreadId.makeUnsafe(input.thread.id),
+        });
+        return;
+      }
+      if (clicked === "archive") {
+        try {
+          await routeOrchestrationDispatchCommandToRemote(input.connectionUrl, {
+            type: "thread.archive",
+            commandId: newCommandId(),
+            threadId: ThreadId.makeUnsafe(input.thread.id),
+          });
+          await refreshRemoteSidebarHosts();
+        } catch (error) {
+          toastManager.add({
+            type: "error",
+            title: "Failed to archive thread",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          });
+        }
+        return;
+      }
+      if (clicked !== "delete") return;
+      if (appSettings.confirmThreadDelete) {
+        const confirmed = await api.dialogs.confirm(
+          [
+            `Delete thread "${input.thread.title}"?`,
+            "This permanently clears conversation history for this thread.",
+          ].join("\n"),
+        );
+        if (!confirmed) return;
+      }
+      try {
+        await routeOrchestrationDispatchCommandToRemote(input.connectionUrl, {
+          type: "thread.delete",
+          commandId: newCommandId(),
+          threadId: ThreadId.makeUnsafe(input.thread.id),
+        });
+        await refreshRemoteSidebarHosts();
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Failed to delete thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+    },
+    [
+      appSettings.confirmThreadDelete,
+      copyPathToClipboard,
+      copyThreadIdToClipboard,
+      refreshRemoteSidebarHosts,
+    ],
+  );
+  const closeRemoteThreadRenameDialog = useCallback(() => {
+    setRemoteThreadRenameTarget(null);
+    setRemoteThreadRenameTitle("");
+  }, []);
+  const saveRemoteThreadRename = useCallback(async () => {
+    const target = remoteThreadRenameTarget;
+    if (!target) {
+      return;
+    }
+    const nextTitle = remoteThreadRenameTitle.trim();
+    if (nextTitle.length === 0) {
+      toastManager.add({
+        type: "warning",
+        title: "Thread title cannot be empty",
+      });
+      return;
+    }
+    if (nextTitle === target.thread.title) {
+      closeRemoteThreadRenameDialog();
+      return;
+    }
+    try {
+      await routeOrchestrationDispatchCommandToRemote(target.connectionUrl, {
+        type: "thread.meta.update",
+        commandId: newCommandId(),
+        threadId: ThreadId.makeUnsafe(target.thread.id),
+        title: nextTitle,
+      });
+      await refreshRemoteSidebarHosts();
+      closeRemoteThreadRenameDialog();
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Failed to rename thread",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    }
+  }, [
+    closeRemoteThreadRenameDialog,
+    refreshRemoteSidebarHosts,
+    remoteThreadRenameTarget,
+    remoteThreadRenameTitle,
+  ]);
 
   const closeProjectEditor = useCallback(() => {
     setProjectEditorOpen(false);
     setEditingProjectId(null);
+    setEditingProjectConnectionUrl(null);
     setEditingProjectName("");
     setEditingProjectIcon(null);
-  }, []);
+  }, [setEditingProjectConnectionUrl]);
 
   const saveProjectEdits = useCallback(
     async (event?: { preventDefault: () => void }) => {
       event?.preventDefault();
-      if (!editingProject) {
+      const editingTarget = editingProject ?? editingRemoteProject;
+      if (!editingTarget) {
         closeProjectEditor();
         return;
       }
@@ -1529,37 +2175,43 @@ export default function Sidebar() {
       }
 
       if (
-        trimmedName === editingProject.name &&
-        projectIconsEqual(editingProject.icon, editingProjectIcon)
+        trimmedName === editingTarget.name &&
+        projectIconsEqual(editingTarget.icon, editingProjectIcon)
       ) {
         closeProjectEditor();
         return;
       }
 
-      const api = readNativeApi();
-      if (!api) {
-        closeProjectEditor();
-        return;
-      }
+      const resolvedTargetConnectionUrl = editingProjectConnectionUrl ?? activeWsUrl;
 
       try {
-        await api.orchestration.dispatchCommand({
+        await routeOrchestrationDispatchCommandToRemote(resolvedTargetConnectionUrl, {
           type: "project.meta.update",
           commandId: newCommandId(),
-          projectId: editingProject.id,
+          projectId: editingTarget.id,
           title: trimmedName,
           icon: editingProjectIcon,
         });
+        await refreshRemoteSidebarHosts();
         closeProjectEditor();
       } catch (error) {
         toastManager.add({
           type: "error",
-          title: `Failed to update "${editingProject.name}"`,
+          title: `Failed to update "${editingTarget.name}"`,
           description: error instanceof Error ? error.message : "An error occurred.",
         });
       }
     },
-    [closeProjectEditor, editingProject, editingProjectIcon, editingProjectName],
+    [
+      closeProjectEditor,
+      editingProject,
+      editingProjectConnectionUrl,
+      editingProjectIcon,
+      editingProjectName,
+      editingRemoteProject,
+      activeWsUrl,
+      refreshRemoteSidebarHosts,
+    ],
   );
 
   const projectDnDSensors = useSensors(
@@ -1631,10 +2283,8 @@ export default function Sidebar() {
   const visibleProjectThreadsByProjectId = useMemo(() => {
     const next = new Map<ProjectId, SidebarThreadSummary[]>();
     for (const project of activeProjects) {
-      next.set(project.id, []);
-    }
-    for (const [projectId, threadIds] of Object.entries(threadIdsByProjectId)) {
       const projectThreads: SidebarThreadSummary[] = [];
+      const threadIds = threadIdsByProjectId[project.id] ?? [];
       for (const threadId of threadIds) {
         const thread = sidebarThreadsById[threadId];
         if (!thread || thread.archivedAt !== null) {
@@ -1642,7 +2292,7 @@ export default function Sidebar() {
         }
         projectThreads.push(thread);
       }
-      next.set(ProjectId.makeUnsafe(projectId), projectThreads);
+      next.set(project.id, projectThreads);
     }
     return next;
   }, [activeProjects, sidebarThreadsById, threadIdsByProjectId]);
@@ -1671,7 +2321,8 @@ export default function Sidebar() {
       return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
     });
   }, [appSettings.sidebarProjectSortOrder, orderedProjects, visibleProjectThreadsByProjectId]);
-  const isManualProjectSorting = appSettings.sidebarProjectSortOrder === "manual";
+  const isManualProjectSorting =
+    appSettings.sidebarProjectSortOrder === "manual" && normalizedProjectSearchQuery.length === 0;
   const renderedProjects = useMemo(
     () =>
       sortedProjects.map((project) => {
@@ -1739,9 +2390,11 @@ export default function Sidebar() {
           showEmptyThreadState,
           shouldShowThreadPanel,
           canCollapseThreadList: visibleThreadCount > THREAD_REVEAL_STEP,
+          connectionUrl: activeWsUrl,
         };
       }),
     [
+      activeWsUrl,
       appSettings.sidebarThreadSortOrder,
       threadRevealCountByProject,
       projectExpandedById,
@@ -1751,65 +2404,232 @@ export default function Sidebar() {
       visibleProjectThreadsByProjectId,
     ],
   );
-  const visibleSidebarThreadIds = useMemo(
-    () => getVisibleSidebarThreadIds(renderedProjects),
-    [renderedProjects],
-  );
-  const visibleSidebarThreads = useMemo(
-    () =>
-      visibleSidebarThreadIds.flatMap((threadId) => {
-        const thread = sidebarThreadsById[threadId];
-        return thread ? [thread] : [];
-      }),
-    [sidebarThreadsById, visibleSidebarThreadIds],
-  );
-  const threadGitTargets = useMemo(
-    () =>
-      visibleSidebarThreads.map((thread) => ({
-        threadId: thread.id,
-        branch: thread.branch,
-        cwd: thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null,
-      })),
-    [projectCwdById, visibleSidebarThreads],
-  );
-  const threadGitStatusCwds = useMemo(
-    () => [
-      ...new Set(
-        threadGitTargets
-          .filter((target) => target.branch !== null)
-          .map((target) => target.cwd)
-          .filter((cwd): cwd is string => cwd !== null),
-      ),
-    ],
-    [threadGitTargets],
-  );
-  const threadGitStatusQueries = useQueries({
-    queries: threadGitStatusCwds.map((cwd) => ({
-      ...gitStatusQueryOptions(cwd),
-      staleTime: 30_000,
-      refetchInterval: 60_000,
-    })),
-  });
-  const prByThreadId = useMemo(() => {
-    const statusByCwd = new Map<string, GitStatusResult>();
-    for (let index = 0; index < threadGitStatusCwds.length; index += 1) {
-      const cwd = threadGitStatusCwds[index];
-      if (!cwd) continue;
-      const status = threadGitStatusQueries[index]?.data;
-      if (status) {
-        statusByCwd.set(cwd, status);
+  const filteredRenderedProjects = useMemo(() => {
+    if (normalizedProjectSearchQuery.length === 0) {
+      return renderedProjects;
+    }
+    return renderedProjects.filter((renderedProject) => {
+      const { project } = renderedProject;
+      if (
+        project.name.toLowerCase().includes(normalizedProjectSearchQuery) ||
+        project.cwd.toLowerCase().includes(normalizedProjectSearchQuery)
+      ) {
+        return true;
       }
+      const projectThreads =
+        visibleProjectThreadsByProjectId.get(project.id) ?? EMPTY_SIDEBAR_THREADS;
+      return projectThreads.some((thread) =>
+        thread.title.toLowerCase().includes(normalizedProjectSearchQuery),
+      );
+    });
+  }, [normalizedProjectSearchQuery, renderedProjects, visibleProjectThreadsByProjectId]);
+  const filteredRemoteSidebarHosts = useMemo(() => {
+    const visibleRemoteSidebarHosts = remoteSidebarHosts.filter(
+      (entry) => !isHostConnectionActive(entry.host, activeWsUrl),
+    );
+    if (normalizedProjectSearchQuery.length === 0) {
+      return visibleRemoteSidebarHosts;
     }
+    return visibleRemoteSidebarHosts
+      .map((entry) => {
+        const hostMatches =
+          entry.host.name.toLowerCase().includes(normalizedProjectSearchQuery) ||
+          entry.host.wsUrl.toLowerCase().includes(normalizedProjectSearchQuery);
+        const filteredProjects = entry.projects.filter((project) => {
+          if (
+            project.name.toLowerCase().includes(normalizedProjectSearchQuery) ||
+            project.cwd.toLowerCase().includes(normalizedProjectSearchQuery)
+          ) {
+            return true;
+          }
+          return project.threads.some((thread) =>
+            thread.title.toLowerCase().includes(normalizedProjectSearchQuery),
+          );
+        });
+        if (hostMatches || filteredProjects.length > 0) {
+          const projects = hostMatches ? entry.projects : filteredProjects;
+          if (entry.error) {
+            return {
+              host: entry.host,
+              connectionUrl: entry.connectionUrl,
+              status: entry.status,
+              projects,
+              error: entry.error,
+            };
+          }
+          return {
+            host: entry.host,
+            connectionUrl: entry.connectionUrl,
+            status: entry.status,
+            projects,
+          };
+        }
+        return null;
+      })
+      .filter((entry): entry is RemoteSidebarHostEntry => entry !== null);
+  }, [activeWsUrl, normalizedProjectSearchQuery, remoteSidebarHosts]);
+  const renderedRemoteProjects = useMemo(() => {
+    return filteredRemoteSidebarHosts
+      .filter((entry) => entry.status === "available")
+      .flatMap((entry) =>
+        entry.projects.map((project) => {
+          const projectKey = remoteProjectKey(entry.connectionUrl, project.id);
+          const projectExpanded = remoteProjectExpandedById[projectKey] ?? true;
+          const visibleThreadCount =
+            remoteThreadRevealCountByProject[projectKey] ?? THREAD_REVEAL_STEP;
+          const sortedThreads = sortByUpdatedAtDescending(project.threads);
+          const visibleThreads = projectExpanded
+            ? sortedThreads.slice(0, visibleThreadCount)
+            : sortedThreads.slice(0, 1);
+          const hiddenThreadCount = Math.max(0, sortedThreads.length - visibleThreadCount);
+          return {
+            project,
+            projectKey,
+            connectionUrl: entry.connectionUrl,
+            projectExpanded,
+            visibleThreads,
+            hiddenThreadCount,
+            hasHiddenThreads: hiddenThreadCount > 0,
+            canCollapseThreadList: visibleThreadCount > THREAD_REVEAL_STEP,
+          };
+        }),
+      );
+  }, [filteredRemoteSidebarHosts, remoteProjectExpandedById, remoteThreadRevealCountByProject]);
+  const sortedActiveThreads = useMemo(
+    () =>
+      Object.values(sidebarThreadsById)
+        .filter((thread): thread is SidebarThreadSummary => thread !== undefined)
+        .filter((thread) => thread.archivedAt === null)
+        .toSorted(
+          (left, right) =>
+            Math.max(
+              resolveIsoTimestamp(right.latestUserMessageAt ?? undefined),
+              resolveIsoTimestamp(right.updatedAt),
+              resolveIsoTimestamp(right.createdAt),
+            ) -
+            Math.max(
+              resolveIsoTimestamp(left.latestUserMessageAt ?? undefined),
+              resolveIsoTimestamp(left.updatedAt),
+              resolveIsoTimestamp(left.createdAt),
+            ),
+        ),
+    [sidebarThreadsById],
+  );
+  const handleStartNewThreadForProject = useCallback(
+    (projectId: ProjectId) => {
+      void handleNewThread(
+        projectId,
+        resolveSidebarNewThreadOptions({
+          projectId,
+          defaultEnvMode: resolveSidebarNewThreadEnvMode({
+            defaultEnvMode: appSettings.defaultThreadEnvMode,
+          }),
+          activeThread:
+            activeThread && activeThread.projectId === projectId
+              ? {
+                  projectId: activeThread.projectId,
+                  branch: activeThread.branch,
+                  worktreePath: activeThread.worktreePath,
+                }
+              : null,
+          activeDraftThread:
+            activeDraftThread && activeDraftThread.projectId === projectId
+              ? {
+                  projectId: activeDraftThread.projectId,
+                  branch: activeDraftThread.branch,
+                  worktreePath: activeDraftThread.worktreePath,
+                  envMode: activeDraftThread.envMode,
+                }
+              : null,
+        }),
+      );
+    },
+    [activeDraftThread, activeThread, appSettings.defaultThreadEnvMode, handleNewThread],
+  );
 
-    const map = new Map<ThreadId, ThreadPr>();
-    for (const target of threadGitTargets) {
-      const status = target.cwd ? statusByCwd.get(target.cwd) : undefined;
-      const branchMatches =
-        target.branch !== null && status?.branch !== null && status?.branch === target.branch;
-      map.set(target.threadId, branchMatches ? (status?.pr ?? null) : null);
-    }
-    return map;
-  }, [threadGitStatusCwds, threadGitStatusQueries, threadGitTargets]);
+  const handleStartNewThreadForRemoteProject = useCallback(
+    async (input: { connectionUrl: string; project: RemoteSidebarProjectEntry }) => {
+      const createdAt = new Date().toISOString();
+      const threadId = newThreadId();
+      const modelSelection = input.project.defaultModelSelection ?? {
+        provider: "codex",
+        model: DEFAULT_MODEL_BY_PROVIDER.codex,
+      };
+
+      try {
+        await routeOrchestrationDispatchCommandToRemote(input.connectionUrl, {
+          type: "thread.create",
+          commandId: newCommandId(),
+          threadId,
+          projectId: input.project.id,
+          title: "New thread",
+          modelSelection,
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        });
+        await refreshRemoteSidebarHosts();
+        navigateToThreadOnConnection(input.connectionUrl, threadId);
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: `Failed to create thread in ${input.project.name}`,
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+    },
+    [navigateToThreadOnConnection, refreshRemoteSidebarHosts],
+  );
+
+  const {
+    searchPaletteOpen,
+    searchPaletteMode,
+    searchPaletteQuery,
+    searchPaletteActiveIndex,
+    searchPaletteInputRef,
+    normalizedSearchPaletteQuery,
+    searchPaletteItems,
+    searchPaletteActionItems,
+    searchPaletteProjectItems,
+    searchPaletteThreadItems,
+    searchPaletteIndexById,
+    openSearchPalette,
+    closeSearchPalette,
+    handleSearchPaletteOpenChange,
+    handleSearchPaletteBack,
+    handleSearchPaletteQueryChange,
+    handleSearchPaletteItemHover,
+    handleSearchPaletteInputKeyDown,
+    handleSearchPaletteSelect,
+  } = useSidebarCommandPalette({
+    sortedProjects,
+    visibleProjectThreadsByProjectId,
+    remoteSidebarHosts,
+    sortedActiveThreads,
+    projectById,
+    activeWsUrl,
+    localDeviceConnectionUrl,
+    threadIdsByProjectId,
+    onStartAddProject: handleStartAddProject,
+    onStartNewThreadForProject: handleStartNewThreadForProject,
+    onStartNewThreadForRemoteProject: (input) => {
+      void handleStartNewThreadForRemoteProject(input);
+    },
+    onFocusMostRecentThreadForProject: focusMostRecentThreadForProject,
+    onNavigateSettings: () => {
+      void navigate({ to: "/settings" });
+    },
+    onNavigateToThread: navigateToThread,
+    onNavigateToThreadOnConnection: navigateToThreadOnConnection,
+  });
+
+  const { visibleSidebarThreadIds, prByThreadId } = useSidebarThreadPrStatus({
+    renderedProjects: filteredRenderedProjects,
+    sidebarThreadsById,
+    projectCwdById,
+  });
   const threadJumpCommandById = useMemo(() => {
     const mapping = new Map<ThreadId, NonNullable<ReturnType<typeof threadJumpCommandForIndex>>>();
     for (const [visibleThreadIndex, threadId] of visibleSidebarThreadIds.entries()) {
@@ -1886,6 +2706,28 @@ export default function Sidebar() {
         platform,
         context: getShortcutContext(),
       });
+      if (command === "search.open") {
+        if (isEditableHotkeyTarget(event.target) || isOnSettings) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        if (searchPaletteOpen) {
+          closeSearchPalette();
+          return;
+        }
+        openSearchPalette();
+        return;
+      }
+      if (command === "project.add") {
+        if (isEditableHotkeyTarget(event.target) || isOnSettings) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        handleStartAddProject();
+        return;
+      }
       const traversalDirection = threadTraversalDirectionFromCommand(command);
       if (traversalDirection !== null) {
         const targetThreadId = resolveAdjacentThreadId({
@@ -1942,11 +2784,16 @@ export default function Sidebar() {
     };
   }, [
     keybindings,
+    closeSearchPalette,
+    handleStartAddProject,
+    isOnSettings,
     navigateToThread,
+    openSearchPalette,
     orderedSidebarThreadIds,
     platform,
     routeTerminalOpen,
     routeThreadId,
+    searchPaletteOpen,
     threadJumpThreadIds,
     updateThreadJumpHintsVisibility,
   ]);
@@ -1967,6 +2814,7 @@ export default function Sidebar() {
       showEmptyThreadState,
       shouldShowThreadPanel,
       canCollapseThreadList,
+      connectionUrl,
     } = renderedProject;
     return (
       <>
@@ -2034,32 +2882,7 @@ export default function Sidebar() {
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    void handleNewThread(
-                      project.id,
-                      resolveSidebarNewThreadOptions({
-                        projectId: project.id,
-                        defaultEnvMode: resolveSidebarNewThreadEnvMode({
-                          defaultEnvMode: appSettings.defaultThreadEnvMode,
-                        }),
-                        activeThread:
-                          activeThread && activeThread.projectId === project.id
-                            ? {
-                                projectId: activeThread.projectId,
-                                branch: activeThread.branch,
-                                worktreePath: activeThread.worktreePath,
-                              }
-                            : null,
-                        activeDraftThread:
-                          activeDraftThread && activeDraftThread.projectId === project.id
-                            ? {
-                                projectId: activeDraftThread.projectId,
-                                branch: activeDraftThread.branch,
-                                worktreePath: activeDraftThread.worktreePath,
-                                envMode: activeDraftThread.envMode,
-                              }
-                            : null,
-                      }),
-                    );
+                    handleStartNewThreadForProject(project.id);
                   }}
                 >
                   <SquarePenIcon className="size-3.5" />
@@ -2090,6 +2913,7 @@ export default function Sidebar() {
                 threadId={threadId}
                 orderedProjectThreadIds={orderedProjectThreadIds}
                 routeThreadId={routeThreadId}
+                connectionUrl={connectionUrl}
                 selectedThreadIds={selectedThreadIds}
                 showThreadJumpHints={showThreadJumpHints}
                 jumpLabel={threadJumpLabelById.get(threadId) ?? null}
@@ -2149,6 +2973,176 @@ export default function Sidebar() {
               </SidebarMenuSubButton>
             </SidebarMenuSubItem>
           )}
+        </SidebarMenuSub>
+      </>
+    );
+  }
+
+  function renderRemoteProjectItem(renderedProject: (typeof renderedRemoteProjects)[number]) {
+    const {
+      project,
+      projectKey,
+      connectionUrl,
+      projectExpanded,
+      visibleThreads,
+      hiddenThreadCount,
+      hasHiddenThreads,
+      canCollapseThreadList,
+    } = renderedProject;
+
+    return (
+      <>
+        <div className="group/project-header relative">
+          <SidebarMenuButton
+            size="sm"
+            className="cursor-pointer gap-2 px-2 py-1.5 text-left transition-colors duration-150 hover:bg-accent group-hover/project-header:bg-accent"
+            onClick={() => toggleRemoteProject(projectKey)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              void handleRemoteProjectContextMenu(
+                {
+                  connectionUrl,
+                  project,
+                },
+                {
+                  x: event.clientX,
+                  y: event.clientY,
+                },
+              );
+            }}
+          >
+            <ChevronRightIcon
+              className={`-ml-0.5 size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-150 ${
+                projectExpanded ? "rotate-90" : ""
+              }`}
+            />
+            <ProjectAvatar project={{ cwd: project.cwd, icon: project.icon }} />
+            <span className="flex-1 truncate text-xs font-medium text-foreground">
+              {project.name}
+            </span>
+          </SidebarMenuButton>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <SidebarMenuAction
+                  render={
+                    <button
+                      type="button"
+                      aria-label={`Create new thread in ${project.name}`}
+                      data-testid="new-thread-button"
+                    />
+                  }
+                  showOnHover
+                  className="top-1 right-1.5 size-5 rounded-md p-0 text-muted-foreground/70 hover:bg-secondary hover:text-foreground"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void handleStartNewThreadForRemoteProject({
+                      connectionUrl,
+                      project,
+                    });
+                  }}
+                >
+                  <SquarePenIcon className="size-3.5" />
+                </SidebarMenuAction>
+              }
+            />
+            <TooltipPopup side="top">
+              {newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"}
+            </TooltipPopup>
+          </Tooltip>
+        </div>
+
+        <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0.5">
+          {projectExpanded && visibleThreads.length === 0 ? (
+            <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
+              <div className="flex h-6 w-full translate-x-0 items-center px-2 text-left text-[10px] text-muted-foreground/60">
+                <span>No threads yet</span>
+              </div>
+            </SidebarMenuSubItem>
+          ) : null}
+          {(projectExpanded ? visibleThreads : visibleThreads.slice(0, 1)).map((thread) => {
+            const threadId = ThreadId.makeUnsafe(thread.id);
+            const isActive =
+              routeThreadId === threadId && connectionUrlsEqual(activeWsUrl, connectionUrl);
+            return (
+              <SidebarMenuSubItem key={thread.id} className="w-full" data-thread-item>
+                <SidebarMenuSubButton
+                  render={<button type="button" />}
+                  size="sm"
+                  isActive={isActive}
+                  className={`${resolveThreadRowClassName({
+                    isActive,
+                    isSelected: false,
+                  })} relative isolate`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    navigateToThreadOnConnection(connectionUrl, threadId);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    navigateToThreadOnConnection(connectionUrl, threadId);
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void handleRemoteThreadContextMenu(
+                      {
+                        connectionUrl,
+                        project,
+                        thread,
+                      },
+                      {
+                        x: event.clientX,
+                        y: event.clientY,
+                      },
+                    );
+                  }}
+                >
+                  <span className="min-w-0 flex-1 truncate text-xs">{thread.title}</span>
+                  <span
+                    className={`text-[10px] ${isActive ? "text-foreground/60" : "text-muted-foreground/50"}`}
+                  >
+                    {formatRelativeTimeLabel(thread.updatedAt)}
+                  </span>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            );
+          })}
+
+          {projectExpanded && hasHiddenThreads ? (
+            <SidebarMenuSubItem className="w-full">
+              <SidebarMenuSubButton
+                render={<button type="button" />}
+                data-thread-selection-safe
+                size="sm"
+                className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                onClick={() => {
+                  expandThreadListForRemoteProject(projectKey);
+                }}
+              >
+                <span>Show {Math.min(THREAD_REVEAL_STEP, hiddenThreadCount)} more</span>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+          ) : null}
+          {projectExpanded && canCollapseThreadList ? (
+            <SidebarMenuSubItem className="w-full">
+              <SidebarMenuSubButton
+                render={<button type="button" />}
+                data-thread-selection-safe
+                size="sm"
+                className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                onClick={() => {
+                  collapseThreadListForRemoteProject(projectKey);
+                }}
+              >
+                <span>Show less</span>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+          ) : null}
         </SidebarMenuSub>
       </>
     );
@@ -2260,6 +3254,16 @@ export default function Sidebar() {
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.newLocal", sidebarShortcutLabelOptions) ??
     shortcutLabelForCommand(keybindings, "chat.new", sidebarShortcutLabelOptions);
+  const searchShortcutLabel = shortcutLabelForCommand(
+    keybindings,
+    "search.open",
+    sidebarShortcutLabelOptions,
+  );
+  const addProjectShortcutLabel = shortcutLabelForCommand(
+    keybindings,
+    "project.add",
+    sidebarShortcutLabelOptions,
+  );
 
   useEffect(() => {
     const headerRow = sidebarHeaderRowRef.current;
@@ -2279,6 +3283,26 @@ export default function Sidebar() {
       observer.disconnect();
     };
   }, []);
+
+  // Auto-scroll search palette list when navigating with keyboard
+  useEffect(() => {
+    const listElement = searchPaletteListRef.current;
+    if (!listElement || searchPaletteActiveIndex < 0) {
+      return;
+    }
+
+    const activeItem = listElement.querySelector<HTMLElement>(
+      `[data-search-palette-index="${String(searchPaletteActiveIndex)}"]`,
+    );
+    if (!activeItem) {
+      return;
+    }
+
+    activeItem.scrollIntoView({
+      block: "center",
+      behavior: "smooth",
+    });
+  }, [searchPaletteActiveIndex]);
 
   const handleDesktopUpdateButtonClick = useCallback(() => {
     const bridge = window.desktopBridge;
@@ -2316,29 +3340,28 @@ export default function Sidebar() {
     }
 
     if (desktopUpdateButtonAction === "install") {
-      const confirmed = window.confirm(
-        getDesktopUpdateInstallConfirmationMessage(desktopUpdateState),
-      );
-      if (!confirmed) return;
-      void bridge
-        .installUpdate()
-        .then((result) => {
-          if (!shouldToastDesktopUpdateActionResult(result)) return;
-          const actionError = getDesktopUpdateActionError(result);
-          if (!actionError) return;
-          toastManager.add({
-            type: "error",
-            title: "Could not install update",
-            description: actionError,
-          });
-        })
-        .catch((error) => {
-          toastManager.add({
-            type: "error",
-            title: "Could not install update",
-            description: error instanceof Error ? error.message : "An unexpected error occurred.",
-          });
+      const api = readNativeApi() ?? ensureNativeApi();
+      void (async () => {
+        const confirmed = await api.dialogs.confirm(
+          getDesktopUpdateInstallConfirmationMessage(desktopUpdateState),
+        );
+        if (!confirmed) return;
+        const result = await bridge.installUpdate();
+        if (!shouldToastDesktopUpdateActionResult(result)) return;
+        const actionError = getDesktopUpdateActionError(result);
+        if (!actionError) return;
+        toastManager.add({
+          type: "error",
+          title: "Could not install update",
+          description: actionError,
         });
+      })().catch((error) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not install update",
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        });
+      });
     }
   }, [desktopUpdateButtonAction, desktopUpdateButtonDisabled, desktopUpdateState]);
 
@@ -2360,6 +3383,38 @@ export default function Sidebar() {
         if (current[projectId] === undefined) return current;
         const next = { ...current };
         delete next[projectId];
+        return next;
+      });
+    });
+  }, []);
+
+  const toggleRemoteProject = useCallback((projectKey: string) => {
+    startTransition(() => {
+      setRemoteProjectExpandedById((current) => ({
+        ...current,
+        [projectKey]: !(current[projectKey] ?? true),
+      }));
+    });
+  }, []);
+
+  const expandThreadListForRemoteProject = useCallback((projectKey: string) => {
+    startTransition(() => {
+      setRemoteThreadRevealCountByProject((current) => {
+        const nextCount = (current[projectKey] ?? THREAD_REVEAL_STEP) + THREAD_REVEAL_STEP;
+        return {
+          ...current,
+          [projectKey]: nextCount,
+        };
+      });
+    });
+  }, []);
+
+  const collapseThreadListForRemoteProject = useCallback((projectKey: string) => {
+    startTransition(() => {
+      setRemoteThreadRevealCountByProject((current) => {
+        if (current[projectKey] === undefined) return current;
+        const next = { ...current };
+        delete next[projectKey];
         return next;
       });
     });
@@ -2397,7 +3452,7 @@ export default function Sidebar() {
   return (
     <>
       <Dialog
-        open={projectEditorOpen && editingProject !== null}
+        open={projectEditorOpen && editingProjectTarget !== null}
         onOpenChange={(open) => {
           if (!open) {
             closeProjectEditor();
@@ -2412,7 +3467,7 @@ export default function Sidebar() {
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
-            {editingProject ? (
+            {editingProjectTarget ? (
               <form
                 id="sidebar-project-editor-form"
                 className="space-y-4"
@@ -2440,7 +3495,7 @@ export default function Sidebar() {
                     >
                       <ProjectAvatar
                         project={{
-                          cwd: editingProject.cwd,
+                          cwd: editingProjectTarget.cwd,
                           icon: null,
                         }}
                         className="size-5"
@@ -2513,6 +3568,502 @@ export default function Sidebar() {
           </DialogFooter>
         </DialogPopup>
       </Dialog>
+      <Dialog
+        open={remoteThreadRenameTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeRemoteThreadRenameDialog();
+          }
+        }}
+      >
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>Rename thread</DialogTitle>
+            <DialogDescription>
+              {remoteThreadRenameTarget
+                ? `Update the thread title in ${remoteThreadRenameTarget.project.name}.`
+                : "Update the thread title."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">Thread title</p>
+              <Input
+                autoFocus
+                value={remoteThreadRenameTitle}
+                onChange={(event) => setRemoteThreadRenameTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") {
+                    return;
+                  }
+                  event.preventDefault();
+                  void saveRemoteThreadRename();
+                }}
+              />
+            </div>
+          </DialogPanel>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={closeRemoteThreadRenameDialog}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void saveRemoteThreadRename()}>
+              Rename
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      <CommandDialog open={searchPaletteOpen} onOpenChange={handleSearchPaletteOpenChange}>
+        <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0 shadow-lg rounded-xl">
+          <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3 bg-gradient-to-b from-popover/50 to-popover/20">
+            {searchPaletteMode === "new-thread-project" ? (
+              <button
+                type="button"
+                className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent/80 hover:text-foreground active:scale-95"
+                onClick={handleSearchPaletteBack}
+                aria-label="Back to search"
+              >
+                <ChevronLeftIcon className="size-5" strokeWidth={2.5} />
+              </button>
+            ) : (
+              <SearchIcon className="size-5 shrink-0 text-muted-foreground/60" strokeWidth={2} />
+            )}
+            <input
+              ref={searchPaletteInputRef}
+              className="h-9 min-w-0 flex-1 rounded-lg border border-border/50 bg-background/60 px-3 text-sm font-medium text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all"
+              placeholder={
+                searchPaletteMode === "new-thread-project"
+                  ? "Select project for a new thread..."
+                  : "Search commands, projects, and threads..."
+              }
+              value={searchPaletteQuery}
+              onChange={(event) => handleSearchPaletteQueryChange(event.target.value)}
+              onKeyDown={handleSearchPaletteInputKeyDown}
+              autoFocus
+            />
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3" ref={searchPaletteListRef}>
+            {searchPaletteItems.length === 0 ? (
+              <p className="px-0 py-6 text-center text-sm text-muted-foreground/60">
+                No matching results
+              </p>
+            ) : (
+              <div className="py-1">
+                {searchPaletteMode === "root" &&
+                  normalizedSearchPaletteQuery.length === 0 &&
+                  searchPaletteActionItems.length > 0 && (
+                    <p className="px-0 pt-0 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
+                      Actions
+                    </p>
+                  )}
+                {searchPaletteActionItems.map((item) => {
+                  const itemIndex = searchPaletteIndexById.get(item.id) ?? -1;
+                  const isActive = itemIndex === searchPaletteActiveIndex;
+                  const icon =
+                    item.type === "action.new-thread" ? (
+                      <SquarePenIcon className="size-4 shrink-0" strokeWidth={2} />
+                    ) : item.type === "action.new-project" ? (
+                      <FolderIcon className="size-4 shrink-0" strokeWidth={2} />
+                    ) : (
+                      <SettingsIcon className="size-4 shrink-0" strokeWidth={2} />
+                    );
+
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      data-search-palette-index={itemIndex}
+                      className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium transition-all duration-150 rounded-md ${
+                        isActive
+                          ? "bg-primary/15 text-foreground"
+                          : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
+                      }`}
+                      onMouseMove={() => handleSearchPaletteItemHover(item.id)}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => handleSearchPaletteSelect(item)}
+                    >
+                      <span
+                        className={`text-muted-foreground ${isActive ? "text-primary/70" : ""}`}
+                      >
+                        {icon}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    </button>
+                  );
+                })}
+
+                {searchPaletteProjectItems.length > 0 && (
+                  <>
+                    <p className="px-0 pt-3 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
+                      {searchPaletteMode === "new-thread-project"
+                        ? "Projects"
+                        : normalizedSearchPaletteQuery.length === 0
+                          ? "Recent Projects"
+                          : "Projects"}
+                    </p>
+                    {searchPaletteProjectItems.map((item) => {
+                      if (item.type !== "project") {
+                        return null;
+                      }
+                      const itemIndex = searchPaletteIndexById.get(item.id) ?? -1;
+                      const isActive = itemIndex === searchPaletteActiveIndex;
+                      const project =
+                        item.connectionUrl === undefined
+                          ? projectById.get(item.projectId)
+                          : undefined;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          data-search-palette-index={itemIndex}
+                          className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-all duration-150 rounded-md ${
+                            isActive
+                              ? "bg-primary/15 text-foreground"
+                              : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
+                          }`}
+                          onMouseMove={() => handleSearchPaletteItemHover(item.id)}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => handleSearchPaletteSelect(item)}
+                        >
+                          {project ? (
+                            <ProjectAvatar project={project} className="size-5" />
+                          ) : (
+                            <FolderIcon
+                              className="size-4 shrink-0 text-muted-foreground/60"
+                              strokeWidth={2}
+                            />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <span className="block truncate font-medium text-sm">{item.label}</span>
+                            <span className="block truncate text-muted-foreground text-xs font-normal">
+                              {item.description}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+
+                {searchPaletteMode === "root" && searchPaletteThreadItems.length > 0 && (
+                  <>
+                    <p className="px-0 pt-3 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
+                      {normalizedSearchPaletteQuery.length === 0 ? "Recent Threads" : "Threads"}
+                    </p>
+                    {searchPaletteThreadItems.map((item) => {
+                      const itemIndex = searchPaletteIndexById.get(item.id) ?? -1;
+                      const isActive = itemIndex === searchPaletteActiveIndex;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          data-search-palette-index={itemIndex}
+                          className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-all duration-150 rounded-md ${
+                            isActive
+                              ? "bg-primary/15 text-foreground"
+                              : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
+                          }`}
+                          onMouseMove={() => handleSearchPaletteItemHover(item.id)}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => handleSearchPaletteSelect(item)}
+                        >
+                          <SquarePenIcon
+                            className="size-4 shrink-0 text-muted-foreground/60"
+                            strokeWidth={2}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <span className="block truncate font-medium text-sm">{item.label}</span>
+                            <span className="block truncate text-muted-foreground text-xs font-normal">
+                              {item.description}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between border-t border-border/40 bg-muted/30 px-4 py-2.5 text-muted-foreground text-xs gap-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex gap-0.5">
+                  <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
+                    ↑
+                  </span>
+                  <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
+                    ↓
+                  </span>
+                </span>
+                <span className="font-medium">Navigate</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="rounded border border-border/50 bg-background/50 px-2 py-0.5 text-[10px] font-medium text-foreground/70">
+                  Enter
+                </span>
+                <span className="font-medium">Select</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
+                  Esc
+                </span>
+                <span className="font-medium">Close</span>
+              </span>
+            </div>
+          </div>
+        </CommandDialogPopup>
+      </CommandDialog>
+
+      <CommandDialog
+        open={shouldShowProjectPathEntry}
+        onOpenChange={(open) => {
+          setAddingProject(open);
+          if (!open) {
+            setAddProjectError(null);
+            setProjectPickerStep("environment");
+            setProjectPickerEnvironmentQuery("");
+            setProjectPickerSelectedConnectionUrl(null);
+            setProjectPickerEnvironmentProbeId(null);
+          }
+        }}
+      >
+        <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0 shadow-lg rounded-xl">
+          <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3 bg-gradient-to-b from-popover/50 to-popover/20">
+            <button
+              type="button"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent/80 hover:text-foreground active:scale-95 disabled:opacity-50"
+              onClick={() => {
+                if (projectPickerStep === "environment") {
+                  setAddingProject(false);
+                  setAddProjectError(null);
+                  setProjectPickerEnvironmentProbeId(null);
+                  return;
+                }
+                if (pickerEnvironments.length > 1) {
+                  setProjectPickerStep("environment");
+                  setProjectPickerEnvironmentQuery("");
+                  setActiveProjectBrowseIndex(0);
+                  return;
+                }
+                handleBrowseParentPath();
+              }}
+              disabled={isAddingProject || isBrowsingProjectPaths}
+              aria-label={
+                projectPickerStep === "environment"
+                  ? "Close project picker"
+                  : pickerEnvironments.length > 1
+                    ? "Back to environments"
+                    : "Browse parent directory"
+              }
+            >
+              <ChevronLeftIcon className="size-5" strokeWidth={2.5} />
+            </button>
+            <input
+              ref={addProjectInputRef}
+              className={`h-9 min-w-0 flex-1 rounded-lg border bg-background/60 px-3 text-sm font-medium text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all ${
+                addProjectError
+                  ? "border-red-500/50 focus:ring-red-500/20 focus:border-red-500"
+                  : "border-border/50"
+              }`}
+              placeholder={
+                projectPickerStep === "environment" ? "Search environments..." : "/path/to/project"
+              }
+              value={projectPickerStep === "environment" ? projectPickerEnvironmentQuery : newCwd}
+              onChange={(event) => {
+                if (projectPickerStep === "environment") {
+                  setProjectPickerEnvironmentQuery(event.target.value);
+                } else {
+                  setNewCwd(event.target.value);
+                }
+                setAddProjectError(null);
+              }}
+              onKeyDown={handleAddProjectInputKeyDown}
+              autoFocus
+            />
+            {projectPickerStep === "directory" ? (
+              <button
+                type="button"
+                className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-60"
+                onClick={handleAddProject}
+                disabled={!canAddProject}
+              >
+                <span>{addProjectActionLabel}</span>
+                <span className="rounded border border-primary-foreground/30 bg-primary-foreground/15 px-1.5 py-0.5 text-[9px] font-medium text-primary-foreground/90">
+                  Enter
+                </span>
+              </button>
+            ) : null}
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-hidden px-4 py-3">
+            <div className="flex h-full min-h-0 flex-col gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/50 mb-2">
+                  {projectPickerStep === "environment"
+                    ? "Available Environments"
+                    : "Browse Directories"}
+                </p>
+                {projectPickerStep === "directory" && selectedProjectPickerEnvironment ? (
+                  <p className="text-xs text-muted-foreground/70">
+                    Target:{" "}
+                    <span className="font-semibold text-foreground">
+                      {selectedProjectPickerEnvironment.name}
+                    </span>
+                  </p>
+                ) : null}
+              </div>
+              <div ref={projectPickerListRef} className="min-h-0 flex-1 overflow-y-auto">
+                {projectPickerStep === "environment" ? (
+                  filteredPickerEnvironments.length > 0 ? (
+                    filteredPickerEnvironments.map((environment, index) => (
+                      <button
+                        key={environment.id}
+                        type="button"
+                        data-project-picker-environment-index={index}
+                        className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-all duration-150 border-b border-border/20 last:border-b-0 ${
+                          index === activeProjectBrowseIndex
+                            ? "bg-primary/15 text-foreground"
+                            : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
+                        }`}
+                        onMouseEnter={() => {
+                          if (Date.now() - lastKeyboardNavigationTimeRef.current > 500) {
+                            setActiveProjectBrowseIndex(index);
+                          }
+                        }}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => void handleSelectProjectPickerEnvironment(environment)}
+                        disabled={projectPickerEnvironmentProbeId !== null}
+                      >
+                        {environment.icon ? (
+                          <ProjectGlyphIcon icon={environment.icon} className="size-5 shrink-0" />
+                        ) : (
+                          <LaptopIcon
+                            className="size-5 shrink-0 text-muted-foreground/60"
+                            strokeWidth={2}
+                          />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <span className="block truncate font-semibold text-sm">
+                            {environment.name}
+                          </span>
+                          <span className="block truncate text-muted-foreground text-xs font-normal">
+                            {environment.subtitle}
+                          </span>
+                        </div>
+                        {environment.isLocal ? (
+                          <span className="rounded-lg border border-emerald-500/40 bg-emerald-500/12 px-2 py-1 text-[11px] font-medium text-emerald-400/90 shrink-0">
+                            Local
+                          </span>
+                        ) : projectPickerEnvironmentProbeId === environment.id ? (
+                          <span className="rounded-lg border border-amber-500/40 bg-amber-500/12 px-2 py-1 text-[11px] font-medium text-amber-400/90 shrink-0">
+                            Checking…
+                          </span>
+                        ) : environment.isPinned ? (
+                          <span className="rounded-lg border border-blue-500/40 bg-blue-500/12 px-2 py-1 text-[11px] font-medium text-blue-400/90 shrink-0">
+                            Pinned
+                          </span>
+                        ) : null}
+                      </button>
+                    ))
+                  ) : (
+                    <p className="px-4 py-6 text-center text-sm text-muted-foreground/60">
+                      No matching environments
+                    </p>
+                  )
+                ) : isBrowsingProjectPaths ? (
+                  <p className="px-4 py-6 text-center text-sm text-muted-foreground/60">
+                    Browsing directories...
+                  </p>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-3 border-border/20 border-b px-4 py-2.5 text-left text-sm font-medium text-muted-foreground/70 transition-all hover:bg-accent/40 hover:text-foreground"
+                      onClick={handleBrowseParentPath}
+                      disabled={isAddingProject}
+                    >
+                      <ArrowUpIcon className="size-4" strokeWidth={2} />
+                      <span className="font-semibold">..</span>
+                    </button>
+                    {projectBrowseResult?.entries.length ? (
+                      projectBrowseResult.entries.map((entry, index) => (
+                        <button
+                          key={entry.fullPath}
+                          type="button"
+                          data-project-picker-index={index}
+                          className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-all duration-150 border-b border-border/20 last:border-b-0 ${
+                            index === activeProjectBrowseIndex
+                              ? "bg-primary/15 text-foreground"
+                              : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
+                          }`}
+                          onMouseEnter={() => {
+                            if (Date.now() - lastKeyboardNavigationTimeRef.current > 500) {
+                              setActiveProjectBrowseIndex(index);
+                            }
+                          }}
+                          onClick={() => handleBrowseProjectEntry(entry.fullPath)}
+                        >
+                          <FolderIcon
+                            className="size-4 shrink-0 text-muted-foreground/60"
+                            strokeWidth={2}
+                          />
+                          <span className="truncate font-medium text-sm">{entry.name}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="px-4 py-6 text-center text-sm text-muted-foreground/60">
+                        No directories found
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+              {addProjectError ? (
+                <p className="pt-2 text-xs leading-tight text-red-400/80 font-medium">
+                  {addProjectError}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-border/40 bg-muted/30 px-4 py-2.5 text-muted-foreground text-xs gap-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex gap-0.5">
+                  <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
+                    ↑
+                  </span>
+                  <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
+                    ↓
+                  </span>
+                </span>
+                <span className="font-medium">Navigate</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="rounded border border-border/50 bg-background/50 px-2 py-0.5 text-[10px] font-medium text-foreground/70">
+                  Enter
+                </span>
+                <span className="font-medium">Select</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
+                  ⌫
+                </span>
+                <span className="font-medium">Back</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
+                  Esc
+                </span>
+                <span className="font-medium">Close</span>
+              </span>
+            </div>
+          </div>
+        </CommandDialogPopup>
+      </CommandDialog>
 
       {isElectron ? (
         <SidebarHeader
@@ -2534,7 +4085,9 @@ export default function Sidebar() {
                     render={<SidebarTrigger className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME} />}
                   />
                   <TooltipPopup side="bottom">
-                    Toggle sidebar ({sidebarToggleShortcutLabel})
+                    {sidebarToggleShortcutLabel
+                      ? `Toggle sidebar (${sidebarToggleShortcutLabel})`
+                      : "Toggle sidebar"}
                   </TooltipPopup>
                 </Tooltip>
               </div>
@@ -2543,7 +4096,10 @@ export default function Sidebar() {
         </SidebarHeader>
       ) : (
         <SidebarHeader className="gap-3 px-3.5 py-3 sm:gap-2.5 sm:px-4 sm:py-3.5">
-          {wordmark}
+          <div className="relative flex h-full min-w-0 flex-1 items-center">
+            <div className="flex min-w-0 flex-1 items-center">{wordmark}</div>
+            <SidebarTrigger className="size-7" />
+          </div>
         </SidebarHeader>
       )}
 
@@ -2575,6 +4131,22 @@ export default function Sidebar() {
                 </Alert>
               </SidebarGroup>
             ) : null}
+            <SidebarGroup className="px-2.5 pt-2.5 pb-0">
+              <button
+                type="button"
+                className="flex h-8 w-full items-center gap-2 rounded-md border border-border/60 bg-secondary/40 px-2.5 text-left text-muted-foreground text-xs transition-colors hover:bg-accent hover:text-foreground"
+                onClick={openSearchPalette}
+                aria-label="Open search"
+              >
+                <SearchIcon className="size-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">Search</span>
+                {searchShortcutLabel ? (
+                  <span className="rounded border border-border/70 bg-muted/65 px-1.5 py-0.5 text-[10px] text-foreground/82">
+                    {searchShortcutLabel}
+                  </span>
+                ) : null}
+              </button>
+            </SidebarGroup>
             <SidebarGroup className="px-2.5 py-2.5">
               <div className="mb-1.5 flex items-center justify-between pl-2 pr-1.5">
                 <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
@@ -2612,62 +4184,15 @@ export default function Sidebar() {
                       />
                     </TooltipTrigger>
                     <TooltipPopup side="right">
-                      {shouldShowProjectPathEntry ? "Cancel add project" : "Add project"}
+                      {shouldShowProjectPathEntry
+                        ? "Cancel add project"
+                        : addProjectShortcutLabel
+                          ? `Add project (${addProjectShortcutLabel})`
+                          : "Add project"}
                     </TooltipPopup>
                   </Tooltip>
                 </div>
               </div>
-              {shouldShowProjectPathEntry && (
-                <div className="mb-2 px-1">
-                  <button
-                    type="button"
-                    className="mb-1.5 flex w-full items-center justify-center gap-2 rounded-md border border-border/50 bg-secondary/70 py-1.5 text-xs text-foreground/80 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={() => void handlePickFolder()}
-                    disabled={isPickingFolder || isAddingProject}
-                  >
-                    <FolderIcon className="size-3.5" />
-                    {isPickingFolder ? "Picking folder..." : "Browse for folder"}
-                  </button>
-                  <div className="flex gap-1.5">
-                    <input
-                      ref={addProjectInputRef}
-                      className={`min-w-0 flex-1 rounded-md border bg-secondary px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none ${
-                        addProjectError
-                          ? "border-red-500/70 focus:border-red-500"
-                          : "border-border focus:border-ring"
-                      }`}
-                      placeholder="/path/to/project"
-                      value={newCwd}
-                      onChange={(event) => {
-                        setNewCwd(event.target.value);
-                        setAddProjectError(null);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") handleAddProject();
-                        if (event.key === "Escape") {
-                          setAddingProject(false);
-                          setAddProjectError(null);
-                        }
-                      }}
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90 disabled:opacity-60"
-                      onClick={handleAddProject}
-                      disabled={!canAddProject}
-                    >
-                      {isAddingProject ? "Adding..." : "Add"}
-                    </button>
-                  </div>
-                  {addProjectError && (
-                    <p className="mt-1 px-0.5 text-[11px] leading-tight text-red-400">
-                      {addProjectError}
-                    </p>
-                  )}
-                </div>
-              )}
-
               {isManualProjectSorting ? (
                 <DndContext
                   sensors={projectDnDSensors}
@@ -2679,10 +4204,12 @@ export default function Sidebar() {
                 >
                   <SidebarMenu>
                     <SortableContext
-                      items={renderedProjects.map((renderedProject) => renderedProject.project.id)}
+                      items={filteredRenderedProjects.map(
+                        (renderedProject) => renderedProject.project.id,
+                      )}
                       strategy={verticalListSortingStrategy}
                     >
-                      {renderedProjects.map((renderedProject) => (
+                      {filteredRenderedProjects.map((renderedProject) => (
                         <SortableProjectItem
                           key={renderedProject.project.id}
                           projectId={renderedProject.project.id}
@@ -2691,23 +4218,43 @@ export default function Sidebar() {
                         </SortableProjectItem>
                       ))}
                     </SortableContext>
+                    {renderedRemoteProjects.map((renderedProject) => (
+                      <SidebarMenuItem key={renderedProject.projectKey} className="rounded-md">
+                        {renderRemoteProjectItem(renderedProject)}
+                      </SidebarMenuItem>
+                    ))}
                   </SidebarMenu>
                 </DndContext>
               ) : (
                 <SidebarMenu>
-                  {renderedProjects.map((renderedProject) => (
+                  {filteredRenderedProjects.map((renderedProject) => (
                     <SidebarMenuItem key={renderedProject.project.id} className="rounded-md">
                       {renderProjectItem(renderedProject, null)}
+                    </SidebarMenuItem>
+                  ))}
+                  {renderedRemoteProjects.map((renderedProject) => (
+                    <SidebarMenuItem key={renderedProject.projectKey} className="rounded-md">
+                      {renderRemoteProjectItem(renderedProject)}
                     </SidebarMenuItem>
                   ))}
                 </SidebarMenu>
               )}
 
-              {projects.length === 0 && !shouldShowProjectPathEntry && (
-                <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
-                  No projects yet
-                </div>
-              )}
+              {projects.length === 0 &&
+                renderedRemoteProjects.length === 0 &&
+                !shouldShowProjectPathEntry && (
+                  <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
+                    No projects yet
+                  </div>
+                )}
+              {(projects.length > 0 || remoteSidebarHosts.length > 0) &&
+                normalizedProjectSearchQuery.length > 0 &&
+                filteredRenderedProjects.length === 0 &&
+                renderedRemoteProjects.length === 0 && (
+                  <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
+                    No matching projects
+                  </div>
+                )}
             </SidebarGroup>
           </SidebarContent>
 

@@ -243,7 +243,7 @@ export const makeOrchestrationIntegrationHarness = (
       prefix: "ace-orchestration-integration-",
     });
     const workspaceDir = path.join(rootDir, "workspace");
-    const { stateDir, dbPath } = yield* deriveServerPaths(rootDir, undefined).pipe(
+    const { stateDir, dbPath } = yield* deriveServerPaths(rootDir, undefined, "web").pipe(
       Effect.provideService(Path.Path, path),
     );
     yield* fileSystem.makeDirectory(workspaceDir, { recursive: true });

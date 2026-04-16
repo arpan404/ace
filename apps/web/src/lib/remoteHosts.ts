@@ -1,13 +1,10 @@
-import { DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM } from "@ace/contracts";
 import { randomUUID } from "@ace/shared/ids";
 import {
-  buildRelayConnectionString,
   appendWsAuthToken,
   buildPairingPayload,
   normalizeWsUrl,
   parseHostConnectionQrPayload,
   parseHostDraftFromQrPayload,
-  requestRelayConnection,
   readPairingClaim,
   requestPairingClaim,
   resolveHostDisplayName,
@@ -15,19 +12,21 @@ import {
   waitForPairingApproval,
   type HostConnectionDraft,
   type HostPairingPayload,
-  type HostRelayPayload,
   wsUrlToBrowserBaseUrl,
 } from "@ace/shared/hostConnections";
 
-import { resolveServerUrl } from "./utils";
+import { clearActiveWsUrlOverride, persistActiveWsUrlOverride, resolveServerUrl } from "./utils";
 
 const REMOTE_HOSTS_STORAGE_KEY = "ace.remote-hosts.v1";
+const PINNED_REMOTE_HOST_IDS_STORAGE_KEY = "ace.pinned-remote-host-ids.v1";
 
 export interface RemoteHostInstance {
   readonly id: string;
   readonly name: string;
   readonly wsUrl: string;
   readonly authToken: string;
+  readonly iconGlyph?: "folder" | "terminal" | "code" | "flask" | "rocket" | "package";
+  readonly iconColor?: "slate" | "blue" | "violet" | "emerald" | "amber" | "rose";
   readonly createdAt: string;
   readonly lastConnectedAt?: string;
 }
@@ -40,33 +39,46 @@ export interface HostPairingSessionStatus {
   readonly claimId?: string;
 }
 
+export interface HostPairingSessionSummary extends HostPairingSessionStatus {
+  readonly name: string;
+  readonly createdAt: string;
+  readonly resolvedAt?: string;
+}
+
 export interface HostPairingSessionCreated extends HostPairingSessionStatus {
   readonly secret: string;
-  readonly claimUrl: string;
+  readonly claimUrl?: string;
+  readonly pollingUrl?: string;
 }
 
 export interface PairingAdvertisedEndpoint {
   readonly wsUrl: string;
 }
 
-export type RelayDeviceIcon = "iphone" | "ipad" | "laptop" | "desktop" | "watch";
-
-export interface RelayDeviceView {
-  readonly deviceId: string;
-  readonly name: string;
-  readonly icon: RelayDeviceIcon;
-  readonly apiKey: string;
-  readonly createdAt: string;
-  readonly lastSeenAt?: string;
-  readonly revokedAt?: string;
-  readonly activeConnectionCount: number;
+function isRemoteIconGlyph(
+  value: unknown,
+): value is "folder" | "terminal" | "code" | "flask" | "rocket" | "package" {
+  return (
+    value === "folder" ||
+    value === "terminal" ||
+    value === "code" ||
+    value === "flask" ||
+    value === "rocket" ||
+    value === "package"
+  );
 }
 
-export interface RelayHostSnapshot {
-  readonly hostToken: string;
-  readonly relayUrl: string;
-  readonly wsUrl: string;
-  readonly devices: readonly RelayDeviceView[];
+function isRemoteIconColor(
+  value: unknown,
+): value is "slate" | "blue" | "violet" | "emerald" | "amber" | "rose" {
+  return (
+    value === "slate" ||
+    value === "blue" ||
+    value === "violet" ||
+    value === "emerald" ||
+    value === "amber" ||
+    value === "rose"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -78,7 +90,10 @@ function resolveWsProtocol(): "ws" | "wss" {
 }
 
 export function createRemoteHostInstance(
-  draft: HostConnectionDraft,
+  draft: HostConnectionDraft & {
+    readonly iconGlyph?: "folder" | "terminal" | "code" | "flask" | "rocket" | "package";
+    readonly iconColor?: "slate" | "blue" | "violet" | "emerald" | "amber" | "rose";
+  },
   existing?: RemoteHostInstance,
   nowIso = new Date().toISOString(),
 ): RemoteHostInstance {
@@ -90,6 +105,8 @@ export function createRemoteHostInstance(
     name: resolveHostDisplayName(draft.name, wsUrl),
     wsUrl,
     authToken: explicitToken || embeddedAuthToken || existing?.authToken || "",
+    ...(draft.iconGlyph ? { iconGlyph: draft.iconGlyph } : {}),
+    ...(draft.iconColor ? { iconColor: draft.iconColor } : {}),
     createdAt: existing?.createdAt ?? nowIso,
     ...(existing?.lastConnectedAt ? { lastConnectedAt: existing.lastConnectedAt } : {}),
   };
@@ -105,6 +122,8 @@ function decodeRemoteHostInstance(value: unknown): RemoteHostInstance | null {
     name: typeof value.name === "string" ? value.name : "",
     wsUrl: value.wsUrl,
     authToken: typeof value.authToken === "string" ? value.authToken : "",
+    ...(isRemoteIconGlyph(value.iconGlyph) ? { iconGlyph: value.iconGlyph } : {}),
+    ...(isRemoteIconColor(value.iconColor) ? { iconColor: value.iconColor } : {}),
     createdAt: typeof value.createdAt === "string" ? value.createdAt : nowIso,
     ...(typeof value.lastConnectedAt === "string"
       ? { lastConnectedAt: value.lastConnectedAt }
@@ -117,6 +136,8 @@ function decodeRemoteHostInstance(value: unknown): RemoteHostInstance | null {
         name: existing.name,
         wsUrl: existing.wsUrl,
         authToken: existing.authToken,
+        ...(existing.iconGlyph ? { iconGlyph: existing.iconGlyph } : {}),
+        ...(existing.iconColor ? { iconColor: existing.iconColor } : {}),
       },
       existing,
       nowIso,
@@ -156,6 +177,45 @@ export function persistRemoteHostInstances(hosts: ReadonlyArray<RemoteHostInstan
   window.localStorage.setItem(REMOTE_HOSTS_STORAGE_KEY, JSON.stringify(hosts));
 }
 
+export function loadPinnedRemoteHostIds(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  const raw = window.localStorage.getItem(PINNED_REMOTE_HOST_IDS_STORAGE_KEY);
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    const deduped = new Set<string>();
+    for (const value of parsed) {
+      if (typeof value === "string" && value.length > 0) {
+        deduped.add(value);
+      }
+    }
+    return [...deduped];
+  } catch {
+    return [];
+  }
+}
+
+export function persistPinnedRemoteHostIds(hostIds: ReadonlyArray<string>): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const deduped = new Set<string>();
+  for (const hostId of hostIds) {
+    const trimmed = hostId.trim();
+    if (trimmed.length > 0) {
+      deduped.add(trimmed);
+    }
+  }
+  window.localStorage.setItem(PINNED_REMOTE_HOST_IDS_STORAGE_KEY, JSON.stringify([...deduped]));
+}
+
 export function resolveActiveWsUrl(): string {
   const resolved = resolveServerUrl({
     protocol: resolveWsProtocol(),
@@ -165,17 +225,23 @@ export function resolveActiveWsUrl(): string {
 }
 
 export function resolveLocalDeviceWsUrl(): string {
+  const activeWsUrl = resolveActiveWsUrl();
   if (typeof window !== "undefined" && window.desktopBridge?.getWsUrl) {
     try {
       const bridged = window.desktopBridge.getWsUrl()?.trim();
       if (bridged && bridged.length > 0) {
-        return normalizeWsUrl(bridged);
+        const normalizedBridged = normalizeWsUrl(bridged);
+        const { wsUrl: bridgedEndpoint } = splitWsUrlAuthToken(normalizedBridged);
+        const { wsUrl: activeEndpoint } = splitWsUrlAuthToken(activeWsUrl);
+        if (normalizeWsUrl(bridgedEndpoint) === normalizeWsUrl(activeEndpoint)) {
+          return normalizedBridged;
+        }
       }
     } catch {
       // Ignore bridge read errors and fall back to active transport resolution.
     }
   }
-  return resolveActiveWsUrl();
+  return activeWsUrl;
 }
 
 export function resolveHostConnectionWsUrl(
@@ -191,13 +257,177 @@ export function isHostConnectionActive(
   return resolveHostConnectionWsUrl(host) === normalizeWsUrl(activeWsUrl);
 }
 
-export function connectToWsHost(targetWsUrl: string): void {
+export function connectToWsHost(
+  targetWsUrl: string,
+  options?: { readonly path?: string; readonly reload?: boolean },
+): void {
+  const previousActiveWsUrl = resolveActiveWsUrl();
+  const normalizedTarget = normalizeWsUrl(targetWsUrl);
+  const normalizedLocal = resolveLocalDeviceWsUrl();
+  if (normalizedTarget === normalizedLocal) {
+    clearActiveWsUrlOverride();
+  } else {
+    persistActiveWsUrlOverride(normalizedTarget);
+  }
+  const nextActiveWsUrl = resolveActiveWsUrl();
+  const didPrimaryHostChange =
+    normalizeWsUrl(previousActiveWsUrl) !== normalizeWsUrl(nextActiveWsUrl);
   if (typeof window === "undefined") {
     return;
   }
-  const nextUrl = new URL(window.location.href);
-  nextUrl.searchParams.set(DESKTOP_BOOTSTRAP_WS_URL_QUERY_PARAM, normalizeWsUrl(targetWsUrl));
-  window.location.assign(nextUrl.toString());
+  const requestedPath = options?.path?.trim() ?? "";
+  const nextUrl =
+    requestedPath.length > 0
+      ? requestedPath
+      : `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (!didPrimaryHostChange) {
+    if (requestedPath.length > 0) {
+      window.history.pushState(window.history.state, "", nextUrl);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }
+    return;
+  }
+  if (options?.reload === false) {
+    window.history.pushState(window.history.state, "", nextUrl);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    window.dispatchEvent(
+      new CustomEvent("ace:ws-host-changed", {
+        detail: {
+          targetWsUrl: normalizedTarget,
+        },
+      }),
+    );
+    return;
+  }
+  window.location.assign(nextUrl);
+}
+
+export async function verifyWsHostConnection(
+  targetWsUrl: string,
+  options?: { readonly timeoutMs?: number },
+): Promise<void> {
+  const normalizedTarget = normalizeWsUrl(targetWsUrl);
+  const { wsUrl, authToken } = splitWsUrlAuthToken(normalizedTarget);
+  const timeoutMs = Math.max(1_000, options?.timeoutMs ?? 5_000);
+  const probeErrors: string[] = [];
+
+  try {
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    try {
+      await Promise.race([
+        readHostPairingAdvertisedEndpoint({
+          wsUrl,
+          ...(authToken ? { authToken } : {}),
+        }),
+        new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => {
+            reject(new Error(`Connection check timed out after ${String(timeoutMs)}ms.`));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+    return;
+  } catch (error) {
+    probeErrors.push(error instanceof Error ? error.message : String(error));
+  }
+
+  if (typeof window !== "undefined" && typeof WebSocket === "function") {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let opened = false;
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+      let socket: WebSocket | null = null;
+      let onOpen: (() => void) | null = null;
+      let onError: (() => void) | null = null;
+      let onClose: ((event: CloseEvent) => void) | null = null;
+
+      const detachListeners = () => {
+        if (!socket) {
+          return;
+        }
+        if (onOpen) {
+          socket.removeEventListener("open", onOpen);
+        }
+        if (onError) {
+          socket.removeEventListener("error", onError);
+        }
+        if (onClose) {
+          socket.removeEventListener("close", onClose);
+        }
+      };
+
+      const finish = (handler: () => void) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeoutHandle !== null) {
+          clearTimeout(timeoutHandle);
+        }
+        detachListeners();
+        handler();
+      };
+
+      timeoutHandle = setTimeout(() => {
+        finish(() => {
+          reject(new Error(`Connection check timed out after ${String(timeoutMs)}ms.`));
+        });
+      }, timeoutMs);
+
+      try {
+        socket = new WebSocket(normalizedTarget);
+      } catch (error) {
+        finish(() => {
+          reject(error instanceof Error ? error : new Error(String(error)));
+        });
+        return;
+      }
+
+      onOpen = () => {
+        opened = true;
+        finish(() => {
+          try {
+            socket?.close(1_000, "probe-complete");
+          } catch {
+            // Ignore close failures in probe flow.
+          }
+          resolve();
+        });
+      };
+      socket.addEventListener("open", onOpen);
+
+      onError = () => {
+        finish(() => {
+          reject(new Error(`Unable to establish a WebSocket connection to ${normalizedTarget}.`));
+        });
+      };
+      socket.addEventListener("error", onError);
+
+      onClose = (event) => {
+        if (opened) {
+          return;
+        }
+        finish(() => {
+          reject(new Error(`WebSocket closed before opening (code ${String(event.code)}).`));
+        });
+      };
+      socket.addEventListener("close", onClose);
+    })
+      .then(() => undefined)
+      .catch((error) => {
+        probeErrors.push(error instanceof Error ? error.message : String(error));
+      });
+    if (probeErrors.length === 1) {
+      // Socket probe succeeded.
+      return;
+    }
+  }
+
+  throw new Error(probeErrors.filter((message) => message.trim().length > 0).join(" "));
 }
 
 export function buildHostSharePayload(input: {
@@ -294,19 +524,55 @@ function assertPairingSessionStatus(payload: unknown): HostPairingSessionStatus 
   };
 }
 
+function assertPairingSessionSummary(payload: unknown): HostPairingSessionSummary {
+  const status = assertPairingSessionStatus(payload);
+  if (typeof payload !== "object" || payload === null) {
+    throw new Error("Pairing session response was invalid.");
+  }
+  const value = payload as {
+    name?: unknown;
+    createdAt?: unknown;
+    resolvedAt?: unknown;
+  };
+  if (typeof value.name !== "string" || typeof value.createdAt !== "string") {
+    throw new Error("Pairing session response was missing required fields.");
+  }
+  return {
+    ...status,
+    name: value.name,
+    createdAt: value.createdAt,
+    ...(typeof value.resolvedAt === "string" ? { resolvedAt: value.resolvedAt } : {}),
+  };
+}
+
+function assertPairingSessionSummaryList(
+  payload: unknown,
+): ReadonlyArray<HostPairingSessionSummary> {
+  if (!Array.isArray(payload)) {
+    throw new Error("Pairing sessions response was invalid.");
+  }
+  return payload.map((entry) => assertPairingSessionSummary(entry));
+}
+
 function assertPairingSessionCreated(payload: unknown): HostPairingSessionCreated {
   const status = assertPairingSessionStatus(payload);
   if (typeof payload !== "object" || payload === null) {
     throw new Error("Pairing session response was invalid.");
   }
-  const value = payload as { secret?: unknown; claimUrl?: unknown };
-  if (typeof value.secret !== "string" || typeof value.claimUrl !== "string") {
+  const value = payload as { secret?: unknown; claimUrl?: unknown; pollingUrl?: unknown };
+  if (typeof value.secret !== "string") {
     throw new Error("Pairing session creation response was missing required fields.");
+  }
+  const claimUrl = typeof value.claimUrl === "string" ? value.claimUrl : undefined;
+  const pollingUrl = typeof value.pollingUrl === "string" ? value.pollingUrl : undefined;
+  if (!claimUrl && !pollingUrl) {
+    throw new Error("Pairing session creation response did not include a polling endpoint.");
   }
   return {
     ...status,
     secret: value.secret,
-    claimUrl: value.claimUrl,
+    ...(claimUrl ? { claimUrl } : {}),
+    ...(pollingUrl ? { pollingUrl } : {}),
   };
 }
 
@@ -320,85 +586,6 @@ function assertPairingAdvertisedEndpoint(payload: unknown): PairingAdvertisedEnd
   }
   return {
     wsUrl: value.wsUrl,
-  };
-}
-
-function isRelayDeviceIcon(value: unknown): value is RelayDeviceIcon {
-  return (
-    value === "iphone" ||
-    value === "ipad" ||
-    value === "laptop" ||
-    value === "desktop" ||
-    value === "watch"
-  );
-}
-
-function assertRelayDeviceView(payload: unknown): RelayDeviceView {
-  if (!isRecord(payload)) {
-    throw new Error("Relay device response was invalid.");
-  }
-  if (
-    typeof payload.deviceId !== "string" ||
-    typeof payload.name !== "string" ||
-    !isRelayDeviceIcon(payload.icon) ||
-    typeof payload.apiKey !== "string" ||
-    typeof payload.createdAt !== "string" ||
-    typeof payload.activeConnectionCount !== "number"
-  ) {
-    throw new Error("Relay device response was missing required fields.");
-  }
-  return {
-    deviceId: payload.deviceId,
-    name: payload.name,
-    icon: payload.icon,
-    apiKey: payload.apiKey,
-    createdAt: payload.createdAt,
-    ...(typeof payload.lastResolvedAt === "string"
-      ? { lastSeenAt: payload.lastResolvedAt }
-      : typeof payload.lastSeenAt === "string"
-        ? { lastSeenAt: payload.lastSeenAt }
-        : {}),
-    ...(typeof payload.revokedAt === "string" ? { revokedAt: payload.revokedAt } : {}),
-    activeConnectionCount: payload.activeConnectionCount,
-  };
-}
-
-function assertRelayDeviceCreated(payload: unknown): RelayHostSnapshot {
-  if (!isRecord(payload)) {
-    throw new Error("Relay device creation response was invalid.");
-  }
-  if (
-    typeof payload.hostToken !== "string" ||
-    typeof payload.relayUrl !== "string" ||
-    typeof payload.wsUrl !== "string"
-  ) {
-    throw new Error("Relay device creation response was missing required fields.");
-  }
-  const device = assertRelayDeviceView(payload.device);
-  return {
-    hostToken: payload.hostToken,
-    relayUrl: payload.relayUrl,
-    wsUrl: payload.wsUrl,
-    devices: [device],
-  };
-}
-
-function assertRelayHostSnapshot(payload: unknown): RelayHostSnapshot {
-  if (!isRecord(payload) || !Array.isArray(payload.devices)) {
-    throw new Error("Relay devices response was invalid.");
-  }
-  if (
-    typeof payload.hostToken !== "string" ||
-    typeof payload.relayUrl !== "string" ||
-    typeof payload.wsUrl !== "string"
-  ) {
-    throw new Error("Relay devices response was missing required fields.");
-  }
-  return {
-    hostToken: payload.hostToken,
-    relayUrl: payload.relayUrl,
-    wsUrl: payload.wsUrl,
-    devices: payload.devices.map((device) => assertRelayDeviceView(device)),
   };
 }
 
@@ -470,78 +657,57 @@ export async function readHostPairingAdvertisedEndpoint(input: {
   return assertPairingAdvertisedEndpoint(payload);
 }
 
-export async function listHostRelayDevices(input: {
-  readonly wsUrl: string;
-  readonly authToken?: string;
-}): Promise<RelayHostSnapshot> {
-  const normalizedWsUrl = normalizeWsUrl(input.wsUrl);
-  const payload = await requestPairingSessionJson(
-    {
-      wsUrl: normalizedWsUrl,
-      ...(input.authToken ? { authToken: input.authToken } : {}),
-    },
-    {
-      method: "GET",
-      path: `/api/pairing/relay/devices?wsUrl=${encodeURIComponent(normalizedWsUrl)}`,
-    },
+function encodeBase64UrlUtf8(input: string): string {
+  const utf8 = encodeURIComponent(input).replace(/%([0-9A-F]{2})/g, (_, byte) =>
+    String.fromCharCode(Number.parseInt(byte, 16)),
   );
-  return assertRelayHostSnapshot(payload);
+  return btoa(utf8).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-export async function createHostRelayDevice(input: {
-  readonly wsUrl: string;
-  readonly authToken?: string;
-  readonly name?: string;
-  readonly icon?: RelayDeviceIcon;
-}): Promise<RelayHostSnapshot> {
-  const payload = await requestPairingSessionJson(
-    {
-      wsUrl: normalizeWsUrl(input.wsUrl),
-      ...(input.authToken ? { authToken: input.authToken } : {}),
-    },
-    {
-      method: "POST",
-      path: "/api/pairing/relay/devices",
-      body: {
-        wsUrl: normalizeWsUrl(input.wsUrl),
-        ...(input.name?.trim() ? { name: input.name.trim() } : {}),
-        ...(input.icon ? { icon: input.icon } : {}),
-      },
-    },
-  );
-  return assertRelayDeviceCreated(payload);
+export function buildHostPairingConnectionString(pairing: HostPairingPayload): string {
+  const payload = JSON.stringify({
+    ...(pairing.name?.trim() ? { name: pairing.name.trim() } : {}),
+    wsUrl: pairing.wsUrl,
+    sessionId: pairing.sessionId,
+    secret: pairing.secret,
+    ...(pairing.claimUrl ? { claimUrl: new URL(pairing.claimUrl).toString() } : {}),
+    ...(pairing.pollingUrl ? { pollingUrl: pairing.pollingUrl } : {}),
+  });
+  const pairingUrl = new URL("ace://pair");
+  pairingUrl.searchParams.set("p", encodeBase64UrlUtf8(payload));
+  return pairingUrl.toString();
 }
 
-export async function revokeHostRelayDevice(input: {
-  readonly wsUrl: string;
-  readonly authToken?: string;
-  readonly deviceId: string;
-}): Promise<RelayHostSnapshot> {
-  const payload = await requestPairingSessionJson(
-    {
-      wsUrl: normalizeWsUrl(input.wsUrl),
-      ...(input.authToken ? { authToken: input.authToken } : {}),
-    },
-    {
-      method: "POST",
-      path: `/api/pairing/relay/devices/${encodeURIComponent(input.deviceId)}/revoke`,
-      body: {
-        wsUrl: normalizeWsUrl(input.wsUrl),
-      },
-    },
-  );
-  return assertRelayDeviceCreated(payload);
-}
-
-export function buildHostRelayConnectionString(input: HostRelayPayload): string {
-  return buildRelayConnectionString(input);
-}
-
-export async function resolveRelayHostConnection(
-  relay: HostRelayPayload,
-  options?: { readonly requesterName?: string; readonly lastKnownWsUrl?: string },
+export async function resolvePairingHostConnection(
+  pairing: HostPairingPayload,
+  options?: {
+    readonly requesterName?: string;
+    readonly timeoutMs?: number;
+    readonly pollIntervalMs?: number;
+  },
 ): Promise<HostConnectionDraft> {
-  return requestRelayConnection(relay, options);
+  const claimOptions = options?.requesterName
+    ? { requesterName: options.requesterName }
+    : undefined;
+  const receipt = await requestPairingClaim(pairing, claimOptions);
+
+  let approvalOptions:
+    | {
+        timeoutMs?: number;
+        pollIntervalMs?: number;
+      }
+    | undefined;
+  if (options?.timeoutMs !== undefined || options?.pollIntervalMs !== undefined) {
+    approvalOptions = {};
+    if (options.timeoutMs !== undefined) {
+      approvalOptions.timeoutMs = options.timeoutMs;
+    }
+    if (options.pollIntervalMs !== undefined) {
+      approvalOptions.pollIntervalMs = options.pollIntervalMs;
+    }
+  }
+
+  return waitForPairingApproval(receipt, approvalOptions);
 }
 
 export async function readHostPairingSession(input: {
@@ -560,6 +726,23 @@ export async function readHostPairingSession(input: {
     },
   );
   return assertPairingSessionStatus(payload);
+}
+
+export async function listHostPairingSessions(input: {
+  readonly wsUrl: string;
+  readonly authToken?: string;
+}): Promise<ReadonlyArray<HostPairingSessionSummary>> {
+  const payload = await requestPairingSessionJson(
+    {
+      wsUrl: input.wsUrl,
+      ...(input.authToken ? { authToken: input.authToken } : {}),
+    },
+    {
+      method: "GET",
+      path: "/api/pairing/sessions",
+    },
+  );
+  return assertPairingSessionSummaryList(payload);
 }
 
 export async function resolveHostPairingSession(input: {
@@ -584,6 +767,24 @@ export async function resolveHostPairingSession(input: {
   return assertPairingSessionStatus(payload);
 }
 
+export async function revokeHostPairingSession(input: {
+  readonly wsUrl: string;
+  readonly authToken?: string;
+  readonly sessionId: string;
+}): Promise<HostPairingSessionStatus> {
+  const payload = await requestPairingSessionJson(
+    {
+      wsUrl: input.wsUrl,
+      ...(input.authToken ? { authToken: input.authToken } : {}),
+    },
+    {
+      method: "POST",
+      path: `/api/pairing/sessions/${encodeURIComponent(input.sessionId)}/revoke`,
+    },
+  );
+  return assertPairingSessionStatus(payload);
+}
+
 export { normalizeWsUrl, parseHostDraftFromQrPayload, splitWsUrlAuthToken };
 export {
   buildPairingPayload,
@@ -592,4 +793,4 @@ export {
   requestPairingClaim,
   waitForPairingApproval,
 };
-export type { HostConnectionDraft, HostPairingPayload, HostRelayPayload };
+export type { HostConnectionDraft, HostPairingPayload };

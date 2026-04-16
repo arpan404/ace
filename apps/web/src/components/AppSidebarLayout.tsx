@@ -8,8 +8,9 @@ import { useSettings } from "../hooks/useSettings";
 import { resolveDesktopMenuSettingsRoute } from "../lib/desktopMenu";
 import { resolveSidebarNewThreadEnvMode } from "../lib/sidebar";
 import { resolveThreadCreationOptions } from "../lib/threadCreation";
-import { isMacPlatform } from "../lib/utils";
+import { resolveShortcutCommand } from "../keybindings";
 import { useUiStateStore } from "../uiStateStore";
+import { useServerKeybindings } from "../rpc/serverState";
 import ThreadSidebar from "./Sidebar";
 import { Sidebar, SidebarProvider, SidebarRail, useSidebar } from "./ui/sidebar";
 import { toastManager } from "./ui/toast";
@@ -35,20 +36,18 @@ function isEditableHotkeyTarget(target: EventTarget | null): boolean {
 
 function SidebarToggleHotkeyHandler() {
   const { isMobile, toggleSidebar } = useSidebar();
+  const keybindings = useServerKeybindings();
 
   useEffect(() => {
     if (isMobile) {
       return;
     }
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.defaultPrevented || event.repeat || event.altKey) {
+      if (event.defaultPrevented || event.repeat) {
         return;
       }
-      const isMac = isMacPlatform(navigator.platform);
-      const matchesToggleShortcut = isMac
-        ? event.metaKey && !event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "b"
-        : event.ctrlKey && !event.metaKey && event.shiftKey && event.key.toLowerCase() === "b";
-      if (!matchesToggleShortcut || isEditableHotkeyTarget(event.target)) {
+      const command = resolveShortcutCommand(event, keybindings);
+      if (command !== "sidebar.toggle" || isEditableHotkeyTarget(event.target)) {
         return;
       }
       event.preventDefault();
@@ -60,7 +59,7 @@ function SidebarToggleHotkeyHandler() {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [isMobile, toggleSidebar]);
+  }, [isMobile, keybindings, toggleSidebar]);
 
   return null;
 }

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildRelayConnectionString,
   parseHostConnectionQrPayload,
   parseHostDraftFromQrPayload,
   requestPairingClaim,
@@ -15,6 +14,14 @@ function mockResponse(status: number, payload: unknown) {
     status,
     text: async () => JSON.stringify(payload),
   };
+}
+
+function encodeBase64UrlUtf8(input: string): string {
+  return Buffer.from(input, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
 }
 
 describe("hostConnections", () => {
@@ -31,25 +38,6 @@ describe("hostConnections", () => {
     });
   });
 
-  it("parses relay connection strings", () => {
-    const payload = buildRelayConnectionString({
-      name: "Primary host",
-      relayUrl: "https://relay.example.com/v1/resolve",
-      hostToken: "host-token",
-      apiKey: "api-key",
-    });
-    const parsed = parseHostConnectionQrPayload(payload);
-    expect(parsed).toEqual({
-      kind: "relay",
-      relay: {
-        name: "Primary host",
-        relayUrl: "https://relay.example.com/v1/resolve",
-        hostToken: "host-token",
-        apiKey: "api-key",
-      },
-    });
-  });
-
   it("rejects legacy JSON payloads", () => {
     const parsed = parseHostConnectionQrPayload(
       JSON.stringify({
@@ -60,8 +48,32 @@ describe("hostConnections", () => {
     expect(parsed).toBeNull();
   });
 
+  it("parses encoded pairing payloads", () => {
+    const encoded = encodeBase64UrlUtf8(
+      JSON.stringify({
+        name: "Primary host",
+        wsUrl: "ws://192.168.0.12:3773/ws",
+        sessionId: "session-1",
+        secret: "secret-1",
+        claimUrl: "https://example.com/api/pairing/claims",
+      }),
+    );
+    const parsed = parseHostConnectionQrPayload(`ace://pair?p=${encoded}`);
+    expect(parsed).toEqual({
+      kind: "pairing",
+      pairing: {
+        name: "Primary host",
+        wsUrl: "ws://192.168.0.12:3773/ws",
+        sessionId: "session-1",
+        secret: "secret-1",
+        claimUrl: "https://example.com/api/pairing/claims",
+      },
+    });
+  });
+
   it("requests claim and waits for pairing approval", async () => {
     const pairing = {
+      wsUrl: "ws://192.168.0.12:3773/ws",
       sessionId: "session-1",
       secret: "secret-1",
       claimUrl: "https://example.com/api/pairing/claims",

@@ -8,9 +8,10 @@
  */
 import { spawn } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
-import { dirname, extname, join } from "node:path";
+import * as OS from "node:os";
+import { dirname, extname, isAbsolute, join, resolve as resolvePath } from "node:path";
 
-import { EDITORS, OpenError, type EditorId } from "@ace/contracts";
+import { EDITORS, OpenError, type EditorId, type PickFolderOptions } from "@ace/contracts";
 import { ServiceMap, Effect, Layer } from "effect";
 
 import { runProcess, type ProcessRunResult } from "./processRunner";
@@ -141,11 +142,41 @@ function normalizePickedFolderPath(stdout: string): string | null {
   return path.length > 0 ? path : null;
 }
 
-function resolveLinuxFolderPickerLaunch(env: NodeJS.ProcessEnv): FolderPickerLaunch | null {
+function normalizeInitialFolderPath(options?: PickFolderOptions): string | null {
+  const initialPath = options?.initialPath?.trim();
+  if (!initialPath || initialPath.length === 0) {
+    return null;
+  }
+  if (initialPath === "~") {
+    return OS.homedir();
+  }
+  if (initialPath.startsWith("~/") || initialPath.startsWith("~\\")) {
+    return join(OS.homedir(), initialPath.slice(2));
+  }
+  return isAbsolute(initialPath) ? initialPath : resolvePath(initialPath);
+}
+
+function escapeAppleScriptStringLiteral(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+
+function escapePowerShellSingleQuotedLiteral(value: string): string {
+  return value.replaceAll("'", "''");
+}
+
+function resolveLinuxFolderPickerLaunch(
+  env: NodeJS.ProcessEnv,
+  options?: PickFolderOptions,
+): FolderPickerLaunch | null {
+  const initialPath = normalizeInitialFolderPath(options);
   if (isCommandAvailable("zenity", { platform: "linux", env })) {
+    const args = ["--file-selection", "--directory", "--title=Select a project folder"];
+    if (initialPath) {
+      args.push(`--filename=${initialPath}`);
+    }
     return {
       command: "zenity",
-      args: ["--file-selection", "--directory", "--title=Select a project folder"],
+      args,
       isCancelled: (result) => result.code === 1 && result.stderr.trim().length === 0,
     };
   }
@@ -153,7 +184,12 @@ function resolveLinuxFolderPickerLaunch(env: NodeJS.ProcessEnv): FolderPickerLau
   if (isCommandAvailable("kdialog", { platform: "linux", env })) {
     return {
       command: "kdialog",
-      args: ["--getexistingdirectory", ".", "--title", "Select a project folder"],
+      args: [
+        "--getexistingdirectory",
+        normalizeInitialFolderPath(options) ?? ".",
+        "--title",
+        "Select a project folder",
+      ],
       isCancelled: (result) => result.code === 1 && result.stderr.trim().length === 0,
     };
   }
@@ -219,7 +255,9 @@ export function resolveAvailableEditors(
 export const resolveFolderPickerLaunch = Effect.fnUntraced(function* (
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
+  options?: PickFolderOptions,
 ): Effect.fn.Return<FolderPickerLaunch, OpenError> {
+  const initialPath = normalizeInitialFolderPath(options);
   switch (platform) {
     case "darwin":
       if (!isCommandAvailable("osascript", { platform, env })) {
@@ -233,7 +271,9 @@ export const resolveFolderPickerLaunch = Effect.fnUntraced(function* (
           "-e",
           "try",
           "-e",
-          'POSIX path of (choose folder with prompt "Select a project folder")',
+          initialPath
+            ? `POSIX path of (choose folder with prompt "Select a project folder" default location POSIX file "${escapeAppleScriptStringLiteral(initialPath)}")`
+            : 'POSIX path of (choose folder with prompt "Select a project folder")',
           "-e",
           "on error number -128",
           "-e",
@@ -261,13 +301,16 @@ export const resolveFolderPickerLaunch = Effect.fnUntraced(function* (
             "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
             '$dialog.Description = "Select a project folder"',
             "$dialog.ShowNewFolderButton = $true",
+            ...(initialPath
+              ? [`$dialog.SelectedPath = '${escapePowerShellSingleQuotedLiteral(initialPath)}'`]
+              : []),
             "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($dialog.SelectedPath) }",
           ].join("; "),
         ],
         isCancelled: () => false,
       };
     default: {
-      const launch = resolveLinuxFolderPickerLaunch(env);
+      const launch = resolveLinuxFolderPickerLaunch(env, options);
       if (launch) {
         return launch;
       }
@@ -281,10 +324,11 @@ export const resolveFolderPickerLaunch = Effect.fnUntraced(function* (
 export const pickFolder = (
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
+  options: PickFolderOptions = {},
   runner: typeof runProcess = runProcess,
 ) =>
   Effect.gen(function* () {
-    const launch = yield* resolveFolderPickerLaunch(platform, env);
+    const launch = yield* resolveFolderPickerLaunch(platform, env, options);
     const result = yield* Effect.tryPromise({
       try: () =>
         runner(launch.command, launch.args, {
@@ -325,7 +369,7 @@ export interface OpenShape {
   /**
    * Open a native folder picker and return the selected path.
    */
-  readonly pickFolder: () => Effect.Effect<string | null, OpenError>;
+  readonly pickFolder: (options?: PickFolderOptions) => Effect.Effect<string | null, OpenError>;
 
   /**
    * Open a workspace path in a selected editor integration.
@@ -442,7 +486,7 @@ const make = Effect.gen(function* () {
         try: () => open.default(target),
         catch: (cause) => new OpenError({ message: "Browser auto-open failed", cause }),
       }),
-    pickFolder: () => pickFolder(),
+    pickFolder: (options) => pickFolder(process.platform, process.env, options),
     openInEditor: (input) => Effect.flatMap(resolveEditorLaunch(input), launchDetached),
     revealInFileManager: (input) =>
       Effect.flatMap(resolveRevealInFileManagerLaunch(input), launchDetached),

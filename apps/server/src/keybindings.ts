@@ -56,6 +56,8 @@ type WhenToken =
   | { type: "rparen" };
 
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
+  { key: "mod+k", command: "search.open", when: "!terminalFocus" },
+  { key: "mod+shift+b", command: "sidebar.toggle" },
   { key: "mod+j", command: "terminal.toggle" },
   { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
   { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
@@ -72,8 +74,11 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+  { key: "mod+shift+a", command: "project.add", when: "!terminalFocus" },
+  { key: "mod+shift++", command: "project.add", when: "!terminalFocus" },
   { key: "mod+e", command: "chat.toggleWorkspaceMode", when: "!terminalFocus" },
   { key: "mod+shift+p", command: "chat.togglePlanMode", when: "!terminalFocus" },
+  { key: "mod+shift+h", command: "chat.toggleHeader", when: "!terminalFocus" },
   { key: "mod+o", command: "editor.openFavorite" },
   { key: "mod+alt+n", command: "editor.newFile", when: "editorFocus" },
   { key: "mod+alt+shift+n", command: "editor.newFolder", when: "editorFocus" },

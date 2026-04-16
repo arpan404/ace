@@ -14,6 +14,7 @@ import {
   OrchestrationGetThreadError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
+  FilesystemBrowseError,
   ProjectCreateEntryError,
   ProjectDeleteEntryError,
   ProjectSearchEntriesError,
@@ -25,6 +26,7 @@ import {
   type TerminalEvent,
   ServerLspToolsError,
   WorkspaceEditorCloseBufferError,
+  WorkspaceEditorCompleteError,
   WorkspaceEditorSyncBufferError,
   WS_METHODS,
   WsRpcGroup,
@@ -55,7 +57,12 @@ import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./pro
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
-import { getLspToolsStatus, installLspTools } from "./lspTools";
+import {
+  getLspToolsStatus,
+  installLspTool,
+  installLspTools,
+  searchLspMarketplace,
+} from "./lspTools";
 import { collectRuntimeProfileSnapshot } from "./runtimeProfile";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
@@ -69,7 +76,6 @@ import {
   WorkspaceRootNotDirectoryError,
   WorkspaceRootNotExistsError,
 } from "./workspace/Services/WorkspacePaths";
-import { publishRelayConnectionActivity, verifyRelayApiKeyForHost } from "./relayClient";
 
 const WS_UPGRADE_RATE_LIMIT_WINDOW_MS = 60_000;
 const WS_UPGRADE_RATE_LIMIT_MAX_ATTEMPTS = 30;
@@ -92,7 +98,6 @@ type WsClientSessionRecord = {
 
 const wsClientSessions = new Map<string, WsClientSessionRecord>();
 let nextWsClientSessionPruneAt = 0;
-const relayApiTokenByConnectionId = new Map<string, string>();
 
 function pruneWsClientSessions(now = Date.now()): void {
   for (const [clientSessionId, record] of wsClientSessions.entries()) {
@@ -150,7 +155,6 @@ function disconnectWsClientSession(clientSessionId: string, connectionId: string
   if (current?.connectionId === connectionId) {
     wsClientSessions.delete(clientSessionId);
   }
-  relayApiTokenByConnectionId.delete(connectionId);
 }
 
 function normalizeStreamIdentity(input: {
@@ -250,17 +254,6 @@ function selectDueProviderForRefresh(
   const oldestDueProviders = dueProviders.filter((provider) => provider.dueAt === oldestDueAt);
   const selectedIndex = Math.floor(Math.random() * oldestDueProviders.length);
   return oldestDueProviders[selectedIndex]?.provider ?? null;
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.trim().toLowerCase();
-  return (
-    normalized === "localhost" ||
-    normalized === "127.0.0.1" ||
-    normalized === "::1" ||
-    normalized === "0.0.0.0" ||
-    normalized === "::"
-  );
 }
 
 function hasExplicitSnapshotHydrationMode(
@@ -566,7 +559,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           }),
         ),
       [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig,
-      [WS_METHODS.serverPickFolder]: (_input) => open.pickFolder(),
+      [WS_METHODS.serverPickFolder]: (input) => open.pickFolder(input),
       [WS_METHODS.serverRefreshProviders]: (_input) =>
         providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
       [WS_METHODS.serverGetRuntimeProfile]: (_input) => loadRuntimeProfile,
@@ -620,6 +613,24 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               cause,
             }),
         }),
+      [WS_METHODS.serverSearchLspMarketplace]: (input) =>
+        Effect.tryPromise({
+          try: () => searchLspMarketplace(input.query, input.limit),
+          catch: (cause) =>
+            new ServerLspToolsError({
+              message: "Unable to search language server marketplace.",
+              cause,
+            }),
+        }),
+      [WS_METHODS.serverInstallLspTool]: (input) =>
+        Effect.tryPromise({
+          try: () => installLspTool(config.stateDir, input),
+          catch: (cause) =>
+            new ServerLspToolsError({
+              message: "Unable to install language server tool.",
+              cause,
+            }),
+        }),
       [WS_METHODS.serverUpsertKeybinding]: (rule) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.upsertKeybindingRule(rule);
@@ -628,20 +639,8 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.serverGetSettings]: (_input) => serverSettings.getSettings,
       [WS_METHODS.serverUpdateSettings]: ({ patch }) => serverSettings.updateSettings(patch),
       [WS_METHODS.serverDisconnect]: (input) =>
-        Effect.gen(function* () {
-          const relayApiToken = relayApiTokenByConnectionId.get(input.connectionId);
+        Effect.sync(() => {
           disconnectWsClientSession(input.clientSessionId, input.connectionId);
-          if (relayApiToken) {
-            yield* Effect.tryPromise(() =>
-              publishRelayConnectionActivity({
-                stateDir: config.stateDir,
-                apiKey: relayApiToken,
-                clientSessionId: input.clientSessionId,
-                connectionId: input.connectionId,
-                status: "disconnected",
-              }),
-            ).pipe(Effect.catch(() => Effect.void));
-          }
           return {};
         }),
       [WS_METHODS.projectsSearchEntries]: (input) =>
@@ -764,8 +763,33 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             });
           }),
         ),
+      [WS_METHODS.workspaceEditorComplete]: (input) =>
+        workspaceEditor.complete(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : Schema.is(WorkspaceRootNotExistsError)(cause) ||
+                  Schema.is(WorkspaceRootNotDirectoryError)(cause)
+                ? cause.message
+                : "Failed to load workspace completions.";
+            return new WorkspaceEditorCompleteError({
+              message,
+              cause,
+            });
+          }),
+        ),
       [WS_METHODS.shellOpenInEditor]: (input) => open.openInEditor(input),
       [WS_METHODS.shellRevealInFileManager]: (input) => open.revealInFileManager(input),
+      [WS_METHODS.filesystemBrowse]: (input) =>
+        workspaceEntries.browse(input).pipe(
+          Effect.mapError(
+            (cause) =>
+              new FilesystemBrowseError({
+                message: cause.detail,
+                cause,
+              }),
+          ),
+        ),
       [WS_METHODS.gitStatus]: (input) => gitManager.status(input),
       [WS_METHODS.gitPull]: (input) => git.pullCurrentBranch(input.cwd),
       [WS_METHODS.gitRunStackedAction]: (input) =>
@@ -932,46 +956,12 @@ export const websocketRpcRouteLayer = Layer.unwrap(
         const connectionId = extractWebSocketConnectionIdFromProtocolHeader(
           request.headers["sec-websocket-protocol"],
         );
-        const requestUrl = HttpServerRequest.toURL(request);
         const connectionToken =
           extractWebSocketAuthTokenFromProtocolHeader(request.headers["sec-websocket-protocol"]) ??
           "";
-        const isLoopbackRequest =
-          Option.isSome(requestUrl) && isLoopbackHostname(requestUrl.value.hostname);
-        const requestWsUrl = Option.match(requestUrl, {
-          onNone: () => undefined,
-          onSome: (url) => {
-            const next = new URL(url.toString());
-            next.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-            next.pathname = "/ws";
-            next.search = "";
-            next.hash = "";
-            return next.toString();
-          },
-        });
-        const relayServerConfigured = Boolean(process.env.ACE_RELAY_SERVER_URL?.trim());
-        const hasRelayToken =
-          relayServerConfigured &&
-          connectionToken.length > 0 &&
-          connectionToken !== config.authToken
-            ? yield* Effect.tryPromise(() =>
-                verifyRelayApiKeyForHost({
-                  stateDir: config.stateDir,
-                  apiKey: connectionToken,
-                  ...(requestWsUrl ? { wsUrl: requestWsUrl } : {}),
-                }),
-              ).pipe(
-                Effect.map(() => true),
-                Effect.catch(() => Effect.succeed(false)),
-              )
-            : false;
 
         if (config.authToken) {
-          if (connectionToken !== config.authToken && !hasRelayToken) {
-            return HttpServerResponse.text("Unauthorized WebSocket connection", { status: 401 });
-          }
-        } else if (relayServerConfigured && !isLoopbackRequest) {
-          if (!hasRelayToken) {
+          if (connectionToken !== config.authToken) {
             return HttpServerResponse.text("Unauthorized WebSocket connection", { status: 401 });
           }
         }
@@ -980,18 +970,6 @@ export const websocketRpcRouteLayer = Layer.unwrap(
         }
         if (clientSessionId && connectionId) {
           registerWsClientSession(clientSessionId, connectionId);
-        }
-        if (hasRelayToken && clientSessionId && connectionId) {
-          relayApiTokenByConnectionId.set(connectionId, connectionToken);
-          yield* Effect.tryPromise(() =>
-            publishRelayConnectionActivity({
-              stateDir: config.stateDir,
-              apiKey: connectionToken,
-              clientSessionId,
-              connectionId,
-              status: "connected",
-            }),
-          ).pipe(Effect.catch(() => Effect.void));
         }
         return yield* rpcWebSocketHttpEffect;
       }),

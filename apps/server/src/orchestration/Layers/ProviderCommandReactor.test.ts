@@ -49,8 +49,12 @@ const asApprovalRequestId = (value: string): ApprovalRequestId =>
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 
-const deriveServerPathsSync = (baseDir: string, devUrl: URL | undefined) =>
-  Effect.runSync(deriveServerPaths(baseDir, devUrl).pipe(Effect.provide(NodeServices.layer)));
+const deriveServerPathsSync = (
+  baseDir: string,
+  devUrl: URL | undefined,
+  mode: "web" | "desktop" = "web",
+) =>
+  Effect.runSync(deriveServerPaths(baseDir, devUrl, mode).pipe(Effect.provide(NodeServices.layer)));
 
 async function waitFor(
   predicate: () => boolean | Promise<boolean>,

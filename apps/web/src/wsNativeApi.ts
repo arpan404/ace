@@ -1,6 +1,7 @@
 import { type ContextMenuItem, type NativeApi } from "@ace/contracts";
 
 import { showContextMenuFallback } from "./contextMenuFallback";
+import { requestAppConfirm } from "./lib/appConfirm";
 import { runAsyncTask } from "./lib/async";
 import { resetServerStateForTests } from "./rpc/serverState";
 import { __resetWsRpcClientForTests, getWsRpcClient } from "./wsRpcClient";
@@ -39,17 +40,16 @@ export function createWsNativeApi(): NativeApi {
 
   const api: NativeApi = {
     dialogs: {
-      pickFolder: async () => {
+      pickFolder: async (options) => {
         if (window.desktopBridge) {
-          return window.desktopBridge.pickFolder();
+          return options === undefined
+            ? window.desktopBridge.pickFolder()
+            : window.desktopBridge.pickFolder(options);
         }
-        return rpcClient.server.pickFolder();
+        return rpcClient.server.pickFolder(options ?? {});
       },
       confirm: async (message) => {
-        if (window.desktopBridge) {
-          return window.desktopBridge.confirm(message);
-        }
-        return window.confirm(message);
+        return requestAppConfirm(message);
       },
     },
     browser: {
@@ -78,9 +78,13 @@ export function createWsNativeApi(): NativeApi {
       renameEntry: rpcClient.projects.renameEntry,
       writeFile: rpcClient.projects.writeFile,
     },
+    filesystem: {
+      browse: rpcClient.filesystem.browse,
+    },
     workspaceEditor: {
       syncBuffer: rpcClient.workspaceEditor.syncBuffer,
       closeBuffer: rpcClient.workspaceEditor.closeBuffer,
+      complete: rpcClient.workspaceEditor.complete,
     },
     shell: {
       openInEditor: (cwd, editor) => rpcClient.shell.openInEditor({ cwd, editor }),
@@ -127,6 +131,8 @@ export function createWsNativeApi(): NativeApi {
       refreshProviders: rpcClient.server.refreshProviders,
       getLspToolsStatus: rpcClient.server.getLspToolsStatus,
       installLspTools: (input) => rpcClient.server.installLspTools(input ?? {}),
+      searchLspMarketplace: rpcClient.server.searchLspMarketplace,
+      installLspTool: rpcClient.server.installLspTool,
       searchOpenCodeModels: rpcClient.server.searchOpenCodeModels,
       upsertKeybinding: rpcClient.server.upsertKeybinding,
       getSettings: rpcClient.server.getSettings,

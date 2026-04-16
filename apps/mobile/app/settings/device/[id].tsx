@@ -1,24 +1,18 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Alert, Pressable } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
-import { Trash2, Laptop, RefreshCw } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { RefreshCw, Trash2 } from "lucide-react-native";
 import { useTheme } from "../../../src/design/ThemeContext";
 import { useHostStore } from "../../../src/store/HostStore";
 import { connectionManager } from "../../../src/rpc/ConnectionManager";
 import { formatErrorMessage } from "../../../src/errors";
-import {
-  GlassGroup,
-  GlassRow,
-  LiquidScreen,
-  PageHeader,
-  RowSeparator,
-  SectionLabel,
-} from "../../../src/design/LiquidGlass";
 
 export default function DeviceSettingsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { theme } = useTheme();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const { hosts, removeHost } = useHostStore();
   const host = hosts.find((h) => h.id === id);
   const [reconnecting, setReconnecting] = useState(false);
@@ -26,11 +20,12 @@ export default function DeviceSettingsScreen() {
 
   if (!host) {
     return (
-      <LiquidScreen>
+      <View style={[styles.root, { backgroundColor: colors.background }]}>
+        <Stack.Screen options={{ headerShown: true, title: "" }} />
         <View style={styles.center}>
-          <Text style={{ color: theme.mutedForeground }}>Device not found.</Text>
+          <Text style={{ color: colors.muted }}>Device not found.</Text>
         </View>
-      </LiquidScreen>
+      </View>
     );
   }
 
@@ -64,101 +59,109 @@ export default function DeviceSettingsScreen() {
   };
 
   return (
-    <LiquidScreen>
-      <Stack.Screen options={{ headerShown: true, title: "", headerBackTitleVisible: false }} />
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: host.name,
+          headerBackTitleVisible: false,
+          headerStyle: { backgroundColor: colors.background },
+          headerTintColor: colors.primary,
+          headerTitleStyle: { color: colors.foreground },
+        }}
+      />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <PageHeader
-            title={host.name}
-            subtitle={host.id}
-            trailing={<Laptop size={20} color={theme.primary} />}
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
+        {/* Connection Details */}
+        <Text style={[styles.sectionLabel, { color: colors.muted }]}>CONNECTION DETAILS</Text>
+        <View style={styles.detailGroup}>
+          <View style={styles.detailRow}>
+            <Text style={[styles.detailLabel, { color: colors.muted }]}>WebSocket URL</Text>
+            <Text style={[styles.detailValue, { color: colors.foreground }]} numberOfLines={2}>
+              {host.wsUrl}
+            </Text>
+          </View>
+          <View style={[styles.detailSeparator, { backgroundColor: colors.separator }]} />
+          <View style={styles.detailRow}>
+            <Text style={[styles.detailLabel, { color: colors.muted }]}>Session ID</Text>
+            <Text
+              style={[styles.detailValue, { color: colors.foreground, fontFamily: "Menlo" }]}
+              numberOfLines={1}
+            >
+              {host.clientSessionId}
+            </Text>
+          </View>
+        </View>
+
+        {/* Actions */}
+        <Text style={[styles.sectionLabel, { color: colors.muted, marginTop: 32 }]}>ACTIONS</Text>
+        <Pressable
+          onPress={() => void reconnect()}
+          disabled={reconnecting}
+          style={({ pressed }) => [styles.actionRow, pressed && { opacity: 0.6 }]}
+        >
+          <RefreshCw
+            size={18}
+            color={colors.primary}
+            strokeWidth={2}
+            style={reconnecting ? { opacity: 0.5 } : undefined}
           />
-        </View>
+          <Text style={[styles.actionText, { color: colors.primary }]}>
+            {reconnecting ? "Restarting…" : "Restart Connection"}
+          </Text>
+        </Pressable>
+        <View style={[styles.actionSeparator, { backgroundColor: colors.separator }]} />
+        <Pressable
+          onPress={handleDelete}
+          style={({ pressed }) => [styles.actionRow, pressed && { opacity: 0.6 }]}
+        >
+          <Trash2 size={18} color={colors.red} strokeWidth={2} />
+          <Text style={[styles.actionText, { color: colors.red }]}>Remove Device</Text>
+        </Pressable>
 
-        <View style={styles.section}>
-          <SectionLabel>CONNECTION DETAILS</SectionLabel>
-          <GlassGroup>
-            <GlassRow>
-              <View>
-                <Text style={[styles.itemLabel, { color: theme.mutedForeground }]}>WS URL</Text>
-                <Text style={[styles.itemValue, { color: theme.foreground }]}>{host.wsUrl}</Text>
-              </View>
-            </GlassRow>
-            <RowSeparator inset={16} />
-            <GlassRow>
-              <View>
-                <Text style={[styles.itemLabel, { color: theme.mutedForeground }]}>Session ID</Text>
-                <Text style={[styles.itemValue, { color: theme.foreground }]}>
-                  {host.clientSessionId}
-                </Text>
-              </View>
-            </GlassRow>
-          </GlassGroup>
-        </View>
-
-        <View style={styles.section}>
-          <GlassGroup>
-            <GlassRow onPress={reconnect} disabled={reconnecting} style={styles.actionCard}>
-              <RefreshCw size={20} color={theme.primary} />
-              <Text style={[styles.actionText, { color: theme.primary }]}>
-                {reconnecting ? "Restarting Connection..." : "Restart Connection"}
-              </Text>
-            </GlassRow>
-            <RowSeparator inset={16} />
-            <GlassRow onPress={handleDelete} style={styles.actionCard}>
-              <Trash2 size={20} color={theme.destructive} />
-              <Text style={[styles.actionText, { color: theme.destructive }]}>Remove Device</Text>
-            </GlassRow>
-          </GlassGroup>
-          {reconnectError ? (
-            <Text style={[styles.errorText, { color: theme.destructive }]}>{reconnectError}</Text>
-          ) : null}
-        </View>
+        {reconnectError ? (
+          <Text style={[styles.errorText, { color: colors.red }]}>{reconnectError}</Text>
+        ) : null}
       </ScrollView>
-    </LiquidScreen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  center: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  header: {
+  root: { flex: 1 },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.5,
     paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 8,
+    marginTop: 28,
+    marginBottom: 8,
   },
-  section: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-  },
-  scrollContent: {
-    paddingBottom: 44,
-  },
-  itemLabel: {
-    fontSize: 10,
-    fontWeight: "700",
+  detailGroup: { paddingHorizontal: 20 },
+  detailRow: { paddingVertical: 12 },
+  detailLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.5,
     marginBottom: 4,
   },
-  itemValue: {
-    fontSize: 14,
-  },
-  actionCard: {
+  detailValue: { fontSize: 15, lineHeight: 20 },
+  detailSeparator: { height: StyleSheet.hairlineWidth },
+  actionRow: {
     flexDirection: "row",
     alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     gap: 12,
+    minHeight: 44,
   },
-  actionText: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
+  actionSeparator: { height: StyleSheet.hairlineWidth, marginLeft: 50 },
+  actionText: { fontSize: 17, fontWeight: "500" },
   errorText: {
-    marginTop: 8,
-    marginLeft: 4,
-    fontSize: 12,
-    lineHeight: 16,
+    marginTop: 12,
+    marginHorizontal: 24,
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

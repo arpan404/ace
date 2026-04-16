@@ -19,6 +19,7 @@ export function ComposerQueuedMessages(props: {
   steerMessageId?: MessageId | null;
   onEdit: (messageId: MessageId) => void;
   onDelete: (messageId: MessageId) => void;
+  onClearAll: () => void;
   onSteer: (messageId: MessageId) => void;
 }) {
   if (props.messages.length === 0) {
@@ -43,11 +44,24 @@ export function ComposerQueuedMessages(props: {
               Queued
             </span>
           </div>
-          {props.messages.length > 1 ? (
-            <span className="flex h-[18px] items-center rounded-full bg-primary/8 px-2 text-[10px] font-semibold tabular-nums text-primary/70">
-              {props.messages.length}
-            </span>
-          ) : null}
+          <div className="flex items-center gap-1.5">
+            {props.messages.length > 1 ? (
+              <span className="flex h-[18px] items-center rounded-full bg-primary/8 px-2 text-[10px] font-semibold tabular-nums text-primary/70">
+                {props.messages.length}
+              </span>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-6 rounded-md px-2 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground/60 uppercase hover:bg-destructive/10 hover:text-destructive"
+              onClick={props.onClearAll}
+              aria-label="Clear queued messages"
+              title="Clear queue"
+            >
+              Clear
+            </Button>
+          </div>
         </div>
 
         <div className="mt-2.5 max-h-44 space-y-1.5 overflow-y-auto pr-1">
@@ -58,6 +72,7 @@ export function ComposerQueuedMessages(props: {
               terminalContextCount: message.terminalContexts.length,
             });
             const isSteered = props.steerMessageId === message.id;
+            const showSteerButton = props.steerMessageId === null || isSteered;
 
             return (
               <div
@@ -118,22 +133,26 @@ export function ComposerQueuedMessages(props: {
                 </div>
 
                 <div className="mt-2.5 flex items-center gap-0.5 pl-8 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
-                  <Button
-                    type="button"
-                    size="icon-xs"
-                    variant="ghost"
-                    className={cn(
-                      "size-6 rounded-lg transition-all duration-200",
-                      isSteered
-                        ? "bg-primary/12 text-primary hover:bg-primary/18"
-                        : "text-muted-foreground/60 hover:bg-muted/40 hover:text-primary",
-                    )}
-                    onClick={() => props.onSteer(message.id)}
-                    aria-label={isSteered ? "Steering queued message" : "Steer queued message"}
-                    title={isSteered ? "Steering queued message" : "Steer queued message"}
-                  >
-                    <BotIcon className="size-3.5" />
-                  </Button>
+                  {showSteerButton ? (
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="ghost"
+                      className={cn(
+                        "size-6 rounded-lg transition-all duration-200",
+                        isSteered
+                          ? "bg-primary/12 text-primary hover:bg-primary/18"
+                          : "text-muted-foreground/60 hover:bg-muted/40 hover:text-primary",
+                      )}
+                      onClick={() => props.onSteer(message.id)}
+                      aria-label={isSteered ? "Steering queued message" : "Steer queued message"}
+                      title={isSteered ? "Steering queued message" : "Steer queued message"}
+                    >
+                      <BotIcon className="size-3.5" />
+                    </Button>
+                  ) : (
+                    <span className="size-6" aria-hidden="true" />
+                  )}
                   <Button
                     type="button"
                     size="icon-xs"
