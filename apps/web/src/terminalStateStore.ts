@@ -1,5 +1,5 @@
 /**
- * Single Zustand store for terminal UI state keyed by terminal scope id.
+ * Single Zustand store for terminal UI state keyed by thread id.
  *
  * Terminal transition helpers are intentionally private to keep the public
  * API constrained to store actions/selectors.
@@ -30,7 +30,6 @@ import {
   normalizeTerminalIdList as normalizeTerminalIds,
   normalizeTerminalSidebarWidth,
 } from "./lib/terminalStateNormalization";
-import { isWorkspaceTerminalScopeThreadId } from "./lib/terminalScopes";
 
 interface ThreadTerminalState {
   terminalOpen: boolean;
@@ -1004,7 +1003,7 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
         removeOrphanedTerminalStates: (activeThreadIds) =>
           set((state) => {
             const orphanedIds = Object.keys(state.terminalStateByThreadId).filter(
-              (id) => !isWorkspaceTerminalScopeThreadId(id) && !activeThreadIds.has(id as ThreadId),
+              (id) => !activeThreadIds.has(id as ThreadId),
             );
             if (orphanedIds.length === 0) return state;
             const next = { ...state.terminalStateByThreadId };

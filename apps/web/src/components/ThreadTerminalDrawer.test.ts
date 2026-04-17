@@ -91,21 +91,12 @@ describe("buildTerminalColorMenuItems", () => {
 });
 
 describe("buildTerminalSectionMenuItems", () => {
-  it("includes scoped creation and bulk terminal actions", () => {
-    expect(buildTerminalSectionMenuItems({ hasWorkspaceScope: true })).toEqual([
-      { id: "new-thread-shell", label: "New Thread Shell" },
-      { id: "new-workspace-shell", label: "New Workspace Shell", disabled: false },
+  it("includes creation and bulk terminal actions", () => {
+    expect(buildTerminalSectionMenuItems()).toEqual([
+      { id: "new-terminal", label: "New Terminal" },
       { id: "clear-all", label: "Clear All Terminals" },
       { id: "close-all", label: "Kill All Terminals", destructive: true },
     ]);
-  });
-
-  it("disables workspace shell creation when no project scope exists", () => {
-    expect(buildTerminalSectionMenuItems({ hasWorkspaceScope: false })[1]).toEqual({
-      id: "new-workspace-shell",
-      label: "New Workspace Shell",
-      disabled: true,
-    });
   });
 });
 

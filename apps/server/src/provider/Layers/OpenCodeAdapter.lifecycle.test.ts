@@ -134,10 +134,12 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
       assert.equal(secondClient.session.create.mock.calls.length, 1);
       assert.deepStrictEqual(firstClient.session.create.mock.calls[0]?.[0], {
         directory: "/repo-a",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
         title: "Repo A thread",
       });
       assert.deepStrictEqual(secondClient.session.create.mock.calls[0]?.[0], {
         directory: "/repo-b",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
         title: "Repo B thread",
       });
 
@@ -149,6 +151,39 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
       yield* adapter.stopSession(asThreadId("thread-opencode-2"));
       assert.equal(secondClient.session.delete.mock.calls.length, 1);
       assert.equal(secondServerClose.mock.calls.length, 1);
+    }),
+  );
+
+  it.effect("does not override OpenCode defaults for approval-required sessions", () =>
+    Effect.gen(function* () {
+      const serverClose = vi.fn(async () => undefined);
+      const client = makeFakeOpenCodeClient("opencode-session-approval");
+
+      mockedStartOpenCodeServerIsolated.mockResolvedValueOnce({
+        binaryPath: "/bin/opencode",
+        url: "http://127.0.0.1:4013",
+        close: serverClose,
+      });
+      mockedCreateOpenCodeSdkClient.mockReturnValueOnce(
+        client as unknown as ReturnType<typeof createOpenCodeSdkClient>,
+      );
+
+      const adapter = yield* OpenCodeAdapter;
+      yield* adapter.startSession({
+        provider: "opencode",
+        threadId: asThreadId("thread-opencode-approval"),
+        cwd: "/repo-c",
+        threadTitle: "Repo C thread",
+        runtimeMode: "approval-required",
+      });
+
+      assert.deepStrictEqual(client.session.create.mock.calls[0]?.[0], {
+        directory: "/repo-c",
+        title: "Repo C thread",
+      });
+
+      yield* adapter.stopSession(asThreadId("thread-opencode-approval"));
+      assert.equal(serverClose.mock.calls.length, 1);
     }),
   );
 });
