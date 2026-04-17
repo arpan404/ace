@@ -9,6 +9,7 @@ import {
   mapOpenCodeTodoStatus,
   mapOpenCodePermissionReplyDecision,
   mapOpenCodeQuestionAnswers,
+  openCodePermissionRulesForRuntimeMode,
   openCodeTimestampToIso,
   openCodeTimestampToEpochMs,
   rankOpenCodeToolStateStatus,
@@ -136,14 +137,32 @@ describe("mapOpenCodeTodoStatus", () => {
 });
 
 describe("readOpenCodeEventRequestId", () => {
-  it("prefers id but falls back to requestID", () => {
-    expect(readOpenCodeEventRequestId({ id: "req-1", requestID: "req-2" })).toBe("req-1");
+  it("prefers id but falls back to requestID and requestId", () => {
+    expect(
+      readOpenCodeEventRequestId({ id: "req-1", requestID: "req-2", requestId: "req-3" }),
+    ).toBe("req-1");
     expect(readOpenCodeEventRequestId({ requestID: "req-2" })).toBe("req-2");
+    expect(readOpenCodeEventRequestId({ requestId: "req-3" })).toBe("req-3");
   });
 
   it("returns undefined for missing ids", () => {
     expect(readOpenCodeEventRequestId({})).toBeUndefined();
     expect(readOpenCodeEventRequestId({ id: 123 })).toBeUndefined();
+  });
+});
+
+describe("openCodePermissionRulesForRuntimeMode", () => {
+  it("enables a wildcard allow rule for full-access modes", () => {
+    expect(openCodePermissionRulesForRuntimeMode("full-access")).toEqual([
+      { permission: "*", pattern: "*", action: "allow" },
+    ]);
+    expect(openCodePermissionRulesForRuntimeMode("andy")).toEqual([
+      { permission: "*", pattern: "*", action: "allow" },
+    ]);
+  });
+
+  it("keeps approval-required mode on OpenCode defaults", () => {
+    expect(openCodePermissionRulesForRuntimeMode("approval-required")).toBeUndefined();
   });
 });
 

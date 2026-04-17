@@ -275,7 +275,6 @@ import {
   encodeScopedTerminalGroupId,
   encodeScopedTerminalUiId,
   type TerminalScopeKind,
-  workspaceTerminalScopeThreadId,
 } from "~/lib/terminalScopes";
 import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -1010,14 +1009,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
           color: activeRemoteHost.iconColor ?? "slate",
         }
       : null;
-  const workspaceTerminalScopeId = useMemo(
-    () => (activeProjectId ? workspaceTerminalScopeThreadId(activeProjectId) : null),
-    [activeProjectId],
-  );
-  const workspaceTerminalState = useTerminalStateStore((state) =>
-    workspaceTerminalScopeId
-      ? selectThreadTerminalState(state.terminalStateByThreadId, workspaceTerminalScopeId)
-      : null,
+  const workspaceTerminalScopeId = useMemo<ThreadId | null>(() => null, []);
+  const workspaceTerminalState = useMemo<ReturnType<typeof selectThreadTerminalState> | null>(
+    () => null,
+    [],
   );
   const [activeTerminalScope, setActiveTerminalScope] = useState<TerminalScopeKind>("thread");
   const resolvedActiveTerminalScope: TerminalScopeKind =
@@ -1054,16 +1049,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     return Object.fromEntries(entries);
   }, [threadId, threadTerminalState.terminalIds, workspaceTerminalScopeId, workspaceTerminalState]);
-  const terminalScopeById = useMemo<Record<string, TerminalScopeKind>>(
-    () =>
-      Object.fromEntries(
-        Object.entries(terminalDescriptorById).map(([terminalId, descriptor]) => [
-          terminalId,
-          descriptor.scope,
-        ]),
-      ),
-    [terminalDescriptorById],
-  );
   const terminalRuntimeThreadIdById = useMemo<Record<string, ThreadId>>(
     () =>
       Object.fromEntries(
@@ -1224,18 +1209,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     threadTerminalState,
     workspaceTerminalState,
   ]);
-  const terminalGroupScopeById = useMemo<Record<string, TerminalScopeKind>>(() => {
-    const entries: Array<[string, TerminalScopeKind]> = [];
-    if (workspaceTerminalState) {
-      for (const group of workspaceTerminalState.terminalGroups) {
-        entries.push([encodeScopedTerminalGroupId("workspace", group.id), "workspace"]);
-      }
-    }
-    for (const group of threadTerminalState.terminalGroups) {
-      entries.push([encodeScopedTerminalGroupId("thread", group.id), "thread"]);
-    }
-    return Object.fromEntries(entries);
-  }, [threadTerminalState.terminalGroups, workspaceTerminalState]);
   const resolveTerminalDescriptor = useCallback(
     (terminalId: string): CombinedTerminalDescriptor | null => {
       return terminalDescriptorById[terminalId] ?? null;
@@ -3336,12 +3309,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const scope = resolveScopeFromTerminalId(terminalState.activeTerminalId);
     createNewTerminalForScope(scope);
   }, [createNewTerminalForScope, resolveScopeFromTerminalId, terminalState.activeTerminalId]);
-  const createNewThreadTerminal = useCallback(() => {
-    createNewTerminalForScope("thread");
-  }, [createNewTerminalForScope]);
-  const createNewWorkspaceTerminal = useCallback(() => {
-    createNewTerminalForScope("workspace");
-  }, [createNewTerminalForScope]);
   const activateTerminal = useCallback(
     (terminalId: string) => {
       const descriptor = resolveTerminalDescriptor(terminalId);
@@ -6720,14 +6687,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           splitRatiosByGroupId: terminalState.splitRatiosByGroupId,
           terminalRuntimeThreadIdById,
           terminalRuntimeIdById,
-          terminalScopeById,
-          terminalGroupScopeById,
           focusRequestId: terminalFocusRequestId,
-          hasWorkspaceScope: workspaceTerminalScopeId !== null,
           onSplitTerminal: splitTerminal,
           onNewTerminal: createNewTerminal,
-          onNewThreadTerminal: createNewThreadTerminal,
-          onNewWorkspaceTerminal: createNewWorkspaceTerminal,
           splitShortcutLabel: splitTerminalShortcutLabel ?? undefined,
           newShortcutLabel: newTerminalShortcutLabel ?? undefined,
           closeShortcutLabel: closeTerminalShortcutLabel ?? undefined,

@@ -69,10 +69,15 @@ describe("terminal pane ratios", () => {
 });
 
 describe("buildTerminalFallbackTitle", () => {
-  it("uses the cwd for the default terminal and a shell label for extra terminals", () => {
-    expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "default")).toBe("ace");
+  it("returns stable terminal labels independent of cwd", () => {
+    expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "default")).toBe(
+      "Terminal 1",
+    );
     expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "terminal-2")).toBe(
-      "ace shell",
+      "Terminal 3",
+    );
+    expect(buildTerminalFallbackTitle("/Users/arpanbhandari/Code/ace", "terminal-abc123")).toBe(
+      "Terminal C123",
     );
   });
 });

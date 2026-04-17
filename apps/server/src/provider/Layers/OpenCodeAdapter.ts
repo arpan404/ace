@@ -11,6 +11,7 @@ import type {
   Message as OpenCodeSdkMessage,
   OpencodeClient,
   Part as OpenCodeSdkPart,
+  PermissionRuleset,
   PermissionRequest as OpenCodeSdkPermissionRequest,
   QuestionRequest as OpenCodeSdkQuestionRequest,
   ReasoningPart as OpenCodeSdkReasoningPart,
@@ -20,6 +21,7 @@ import type {
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   EventId,
+  isFullAccessRuntimeMode,
   type ModelSelection,
   type ProviderApprovalDecision,
   type ProviderRuntimeEvent,
@@ -608,6 +610,15 @@ function classifyOpenCodePermission(
   return "dynamic_tool_call";
 }
 
+export function openCodePermissionRulesForRuntimeMode(
+  runtimeMode: ProviderSession["runtimeMode"],
+): PermissionRuleset | undefined {
+  if (!isFullAccessRuntimeMode(runtimeMode)) {
+    return undefined;
+  }
+  return [{ permission: "*", pattern: "*", action: "allow" }];
+}
+
 export function classifyOpenCodeToolItemType(toolName: string): OpenCodeToolItemType {
   const lower = toolName.toLowerCase();
   if (
@@ -792,7 +803,9 @@ export function readOpenCodeEventRequestId(
     ? properties.id
     : typeof properties.requestID === "string"
       ? properties.requestID
-      : undefined;
+      : typeof properties.requestId === "string"
+        ? properties.requestId
+        : undefined;
 }
 
 export function mapOpenCodePermissionReplyDecision(
@@ -1641,7 +1654,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         return;
       }
       case "permission.replied": {
-        const requestId = event.properties.requestID;
+        const requestId = readOpenCodeEventRequestId(event.properties);
         if (!requestId) {
           return;
         }
@@ -1688,7 +1701,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         return;
       }
       case "question.replied": {
-        const requestId = event.properties.requestID;
+        const requestId = readOpenCodeEventRequestId(event.properties);
         if (!requestId) {
           return;
         }
@@ -1711,7 +1724,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         return;
       }
       case "question.rejected": {
-        const requestId = event.properties.requestID;
+        const requestId = readOpenCodeEventRequestId(event.properties);
         if (!requestId) {
           return;
         }
@@ -1804,9 +1817,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           const defaultModels = body?.default ?? {};
 
           const createSession = async (): Promise<string> => {
+            const permission = openCodePermissionRulesForRuntimeMode(input.runtimeMode);
             const created = await client.session.create({
               directory: cwd,
               ...(input.threadTitle ? { title: input.threadTitle } : {}),
+              ...(permission ? { permission } : {}),
             });
             if (created.error || !created.data) {
               throw new ProviderAdapterRequestError({
