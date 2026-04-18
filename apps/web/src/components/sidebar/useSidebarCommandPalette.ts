@@ -98,13 +98,13 @@ export function useSidebarCommandPalette(
             id: thread.id,
             title: thread.title,
             updatedAt: thread.updatedAt ?? thread.createdAt,
-            lastUserMessageAt: thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt ?? "",
+            lastUserMessageAt:
+              thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt ?? "",
           })),
         );
-        const lastUserMessageAt =
-          threads.length > 0 && threads.some((t) => t.lastUserMessageAt)
-            ? threads.find((t) => t.lastUserMessageAt)?.lastUserMessageAt ?? ""
-            : "";
+        const lastUserMessageAt = threads.some((t) => t.lastUserMessageAt)
+          ? (threads.find((t) => t.lastUserMessageAt)?.lastUserMessageAt ?? "")
+          : "";
         return {
           id: project.id,
           name: project.name,
@@ -159,29 +159,32 @@ export function useSidebarCommandPalette(
           threads: project.threads,
         })),
       );
-    const projects = [...localProjectSnapshots, ...remoteProjectSnapshots].toSorted((left, right) => {
-      const leftTs = resolveProjectSortTimestamp(left, input.projectSortOrder);
-      const rightTs = resolveProjectSortTimestamp(right, input.projectSortOrder);
-      if (rightTs !== leftTs) {
-        return rightTs - leftTs;
-      }
-      const byName = left.name.localeCompare(right.name);
-      if (byName !== 0) {
-        return byName;
-      }
-      return `${left.connectionUrl}:${left.id}`.localeCompare(
-        `${right.connectionUrl}:${right.id}`,
-      );
-    });
+    const projects = [...localProjectSnapshots, ...remoteProjectSnapshots].toSorted(
+      (left, right) => {
+        const leftTs = resolveProjectSortTimestamp(left, input.projectSortOrder);
+        const rightTs = resolveProjectSortTimestamp(right, input.projectSortOrder);
+        if (rightTs !== leftTs) {
+          return rightTs - leftTs;
+        }
+        const byName = left.name.localeCompare(right.name);
+        if (byName !== 0) {
+          return byName;
+        }
+        return `${left.connectionUrl}:${left.id}`.localeCompare(
+          `${right.connectionUrl}:${right.id}`,
+        );
+      },
+    );
     const localThreads: CombinedSidebarSnapshotThread[] = input.sortedActiveThreads.map(
       (thread) => {
         const parentProject = input.projectById.get(thread.projectId);
-        const lastUserMessageAt = thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt;
+        const lastUserMessageAt =
+          thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt;
         return {
           id: thread.id,
           title: thread.title,
           description: parentProject?.name ?? thread.worktreePath ?? thread.branch ?? "Thread",
-          updatedAt: thread.updatedAt,
+          updatedAt: thread.updatedAt ?? thread.createdAt ?? "",
           lastUserMessageAt,
           connectionUrl: input.activeWsUrl,
         };

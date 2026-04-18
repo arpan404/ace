@@ -49,10 +49,6 @@ import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import {
-  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-  MAC_TITLEBAR_LEFT_INSET_STYLE,
-} from "../lib/desktopChrome";
-import {
   normalizeThreadWorkspaceLayoutMode,
   normalizeThreadWorkspaceMode,
   THREAD_WORKSPACE_LAYOUT_BY_THREAD_ID_STORAGE_KEY,
@@ -139,9 +135,9 @@ import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { BotIcon, CircleAlertIcon, ListTodoIcon, XIcon } from "lucide-react";
+import { AppPageTopBar } from "./AppPageTopBar";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
-import { SidebarTrigger, useSidebar } from "./ui/sidebar";
 import { cn, randomUUID } from "~/lib/utils";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -326,7 +322,6 @@ interface PendingPullRequestSetupRequest {
 }
 
 export default function ChatView({ threadId }: ChatViewProps) {
-  const { isMobile, state: sidebarState } = useSidebar();
   const serverThread = useThreadById(threadId);
   const threads = useStore((store) => store.threads);
   const setStoreThreadError = useStore((store) => store.setError);
@@ -6732,59 +6727,44 @@ export default function ChatView({ threadId }: ChatViewProps) {
           isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
         )}
       >
-        <header
-          className={cn(
-            "relative z-30 w-full shrink-0 border-b border-sidebar-border bg-sidebar",
-            isElectron
-              ? "drag-region flex min-h-[52px] items-center px-4 sm:px-6"
-              : "px-4 py-3 sm:px-6 sm:py-3.5",
-          )}
-          style={
-            isElectron && sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined
-          }
-        >
-          <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            {!isMobile && sidebarState === "collapsed" ? (
-              <SidebarTrigger className={cn("shrink-0", DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME)} />
-            ) : null}
-            <ChatHeader
-              activeThreadId={activeThread.id}
-              activeThreadTitle={activeThread.title}
-              activeProjectId={activeProject?.id ?? null}
-              activeProjectName={activeProject?.name}
-              isGitRepo={isGitRepo}
-              activeProjectScripts={activeProject?.scripts}
-              preferredScriptId={
-                activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-              }
-              keybindings={keybindings}
-              terminalAvailable={activeProject !== undefined}
-              terminalOpen={terminalState.terminalOpen}
-              terminalToggleShortcutLabel={terminalToggleShortcutLabel}
-              diffToggleShortcutLabel={diffPanelShortcutLabel}
-              browserToggleShortcutLabel={browserToggleShortcutLabel}
-              browserAvailable={isElectron}
-              browserOpen={browserOpen}
-              browserDevToolsOpen={browserDevToolsOpen}
-              gitCwd={gitCwd}
-              diffOpen={diffOpen}
-              workspaceMode={workspaceMode}
-              workspaceName={activeProject?.name}
-              onRunProjectScript={(script) => {
-                void runProjectScript(script);
-              }}
-              onAddProjectScript={saveProjectScript}
-              onUpdateProjectScript={updateProjectScript}
-              onDeleteProjectScript={deleteProjectScript}
-              onOpenBrowser={openBrowser}
-              onCloseBrowser={closeBrowser}
-              onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
-              onToggleTerminal={toggleTerminalVisibility}
-              onToggleDiff={onToggleDiff}
-              onWorkspaceModeChange={onWorkspaceModeChange}
-            />
-          </div>
-        </header>
+        <AppPageTopBar>
+          <ChatHeader
+            activeThreadId={activeThread.id}
+            activeThreadTitle={activeThread.title}
+            activeProjectId={activeProject?.id ?? null}
+            activeProjectName={activeProject?.name}
+            isGitRepo={isGitRepo}
+            activeProjectScripts={activeProject?.scripts}
+            preferredScriptId={
+              activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+            }
+            keybindings={keybindings}
+            terminalAvailable={activeProject !== undefined}
+            terminalOpen={terminalState.terminalOpen}
+            terminalToggleShortcutLabel={terminalToggleShortcutLabel}
+            diffToggleShortcutLabel={diffPanelShortcutLabel}
+            browserToggleShortcutLabel={browserToggleShortcutLabel}
+            browserAvailable={isElectron}
+            browserOpen={browserOpen}
+            browserDevToolsOpen={browserDevToolsOpen}
+            gitCwd={gitCwd}
+            diffOpen={diffOpen}
+            workspaceMode={workspaceMode}
+            workspaceName={activeProject?.name}
+            onRunProjectScript={(script) => {
+              void runProjectScript(script);
+            }}
+            onAddProjectScript={saveProjectScript}
+            onUpdateProjectScript={updateProjectScript}
+            onDeleteProjectScript={deleteProjectScript}
+            onOpenBrowser={openBrowser}
+            onCloseBrowser={closeBrowser}
+            onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
+            onToggleTerminal={toggleTerminalVisibility}
+            onToggleDiff={onToggleDiff}
+            onWorkspaceModeChange={onWorkspaceModeChange}
+          />
+        </AppPageTopBar>
       </div>
 
       {/* Error banner */}
