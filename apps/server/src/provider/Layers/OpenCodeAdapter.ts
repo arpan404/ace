@@ -527,6 +527,43 @@ function nonEmptyString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+const OPENCODE_RETRY_ERROR_MESSAGE_FRAGMENTS = [
+  "rate limit",
+  "free usage exceeded",
+  "usage exceeded",
+  "quota exceeded",
+  "too many requests",
+] as const;
+
+export function isOpenCodeRetryStatusError(status: unknown): boolean {
+  const record = asRecord(status);
+  if (!record || record.type !== "retry") {
+    return false;
+  }
+
+  if (asNumber(record.code) === 429 || asNumber(record.status) === 429) {
+    return true;
+  }
+
+  const nestedError = asRecord(record.error);
+  if (asNumber(nestedError?.code) === 429 || asNumber(nestedError?.status) === 429) {
+    return true;
+  }
+
+  const messageCandidates = [
+    nonEmptyString(record.message),
+    nonEmptyString(record.reason),
+    nonEmptyString(nestedError?.message),
+  ];
+  return messageCandidates.some((message) => {
+    if (!message) {
+      return false;
+    }
+    const lower = message.toLowerCase();
+    return OPENCODE_RETRY_ERROR_MESSAGE_FRAGMENTS.some((fragment) => lower.includes(fragment));
+  });
+}
+
 function safeJsonStringify(value: unknown): string | undefined {
   if (value === undefined) {
     return undefined;
@@ -1567,13 +1604,29 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         if (status.type !== "retry") {
           return;
         }
+        const message = nonEmptyString(status.message) ?? "OpenCode is retrying the request.";
+        const detail = safeJsonStringify(status);
+        if (isOpenCodeRetryStatusError(status)) {
+          emit(
+            sseEvent({
+              type: "runtime.error",
+              ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
+              payload: {
+                message,
+                class: "provider_error",
+                ...(detail ? { detail } : {}),
+              },
+            }),
+          );
+          return;
+        }
         emit(
           sseEvent({
             type: "runtime.warning",
             ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
             payload: {
-              message: nonEmptyString(status.message) ?? "OpenCode is retrying the request.",
-              ...(safeJsonStringify(status) ? { detail: safeJsonStringify(status) } : {}),
+              message,
+              ...(detail ? { detail } : {}),
             },
           }),
         );

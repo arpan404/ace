@@ -49,9 +49,13 @@ import { type SidebarThreadSortOrder } from "@ace/contracts/settings";
 import { isElectron } from "../env";
 import { APP_BASE_NAME, APP_VERSION, IS_DEV_BUILD } from "../branding";
 import { reportBackgroundError } from "../lib/async";
+import { cn } from "../lib/utils";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
-import { MAC_TITLEBAR_LEFT_INSET_STYLE } from "../lib/desktopChrome";
+import {
+  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+  MAC_TITLEBAR_LEFT_INSET_STYLE,
+} from "../lib/desktopChrome";
 import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
@@ -76,6 +80,7 @@ import {
 } from "./ProjectAvatar";
 import { toastManager } from "./ui/toast";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
+import { HEADER_PILL_ICON_TRIGGER_CLASS_NAME } from "./thread/TopBarCluster";
 import {
   getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
@@ -112,6 +117,8 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  SidebarTrigger,
+  useSidebar,
 } from "./ui/sidebar";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import {
@@ -702,6 +709,7 @@ function getVisibleRemoteThreadsForProject<T extends { id: string }>(input: {
 }
 
 export default function Sidebar() {
+  const { isMobile, state: sidebarState } = useSidebar();
   const projects = useStore((store) => store.projects);
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const sidebarThreadsById = useStore((store) => store.sidebarThreadsById);
@@ -792,6 +800,7 @@ export default function Sidebar() {
   const suppressProjectClickForContextMenuRef = useRef(false);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
   const [isSidebarHeaderCompact, setIsSidebarHeaderCompact] = useState(false);
+  const showSidebarHeaderToggle = !isMobile && sidebarState === "expanded";
   const selectedThreadIds = useThreadSelectionStore((s) => s.selectedThreadIds);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
@@ -4411,14 +4420,33 @@ export default function Sidebar() {
           className="drag-region h-[52px] px-4 py-0"
           style={MAC_TITLEBAR_LEFT_INSET_STYLE}
         >
-          <div ref={sidebarHeaderRowRef} className="relative flex h-full min-w-0 items-center">
+          <div
+            ref={sidebarHeaderRowRef}
+            className="relative flex h-full min-w-0 items-center gap-2"
+          >
             <div className="flex min-w-0 flex-1 items-center">{wordmark}</div>
+            {showSidebarHeaderToggle ? (
+              <SidebarTrigger
+                className={cn(
+                  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+                  HEADER_PILL_ICON_TRIGGER_CLASS_NAME,
+                )}
+              />
+            ) : null}
           </div>
         </SidebarHeader>
       ) : (
         <SidebarHeader className="gap-3 px-3.5 py-3 sm:gap-2.5 sm:px-4 sm:py-3.5">
-          <div className="relative flex h-full min-w-0 flex-1 items-center">
+          <div className="relative flex h-full min-w-0 flex-1 items-center gap-2">
             <div className="flex min-w-0 flex-1 items-center">{wordmark}</div>
+            {showSidebarHeaderToggle ? (
+              <SidebarTrigger
+                className={cn(
+                  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+                  HEADER_PILL_ICON_TRIGGER_CLASS_NAME,
+                )}
+              />
+            ) : null}
           </div>
         </SidebarHeader>
       )}

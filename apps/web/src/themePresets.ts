@@ -6,10 +6,11 @@ export type ThemePresetPreview = {
   accentMuted: string;
 };
 
-/** Twelve unified UI presets: 3 neutrals + 9 accents. */
+/** Twelve unified UI presets: 4 neutrals + 8 accents. */
 export const THEME_PRESET_OPTIONS: ReadonlyArray<{
   id:
     | "obsidian"
+    | "neutral"
     | "ember"
     | "terminal"
     | "midnight"
@@ -19,7 +20,6 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
     | "evergreen"
     | "solaris"
     | "vermillion"
-    | "cobalt"
     | "graphite";
   label: string;
   description: string;
@@ -33,6 +33,17 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
     preview: {
       panel: "oklch(0.17 0 0)",
       panelDeep: "oklch(0.13 0 0)",
+      accent: "oklch(0.68 0.18 255)",
+      accentMuted: "oklch(0.5 0.1 255)",
+    },
+  },
+  {
+    id: "neutral",
+    label: "Neutral",
+    description: "Pure black or white surfaces with classic obsidian accents.",
+    preview: {
+      panel: "oklch(0.14 0 0)",
+      panelDeep: "oklch(0.05 0 0)",
       accent: "oklch(0.68 0.18 255)",
       accentMuted: "oklch(0.5 0.1 255)",
     },
@@ -135,17 +146,6 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
       panelDeep: "oklch(0.14 0.02 25)",
       accent: "oklch(0.7 0.18 25)",
       accentMuted: "oklch(0.55 0.012 25)",
-    },
-  },
-  {
-    id: "cobalt",
-    label: "Cobalt",
-    description: "Rich blue for deep focus.",
-    preview: {
-      panel: "oklch(0.18 0.025 235)",
-      panelDeep: "oklch(0.14 0.02 235)",
-      accent: "oklch(0.68 0.17 235)",
-      accentMuted: "oklch(0.55 0.012 235)",
     },
   },
   {

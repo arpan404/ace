@@ -285,6 +285,8 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("lucide-terminal");
     expect(markup).toContain("yoo what&#x27;s ");
     expect(markup).toContain('data-user-message-bubble="true"');
+    expect(markup).toContain("bg-chat-bubble");
+    expect(markup).toContain("rounded-br-md");
     expect(markup).not.toContain('data-thread-row="true"');
   });
 
@@ -739,7 +741,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-tool-disclosure="true"');
     expect(markup).toContain('data-tool-disclosure-open="false"');
     expect(markup).toContain('data-meta-disclosure="true"');
-    expect(markup).toContain("Worked for 9s");
+    expect(markup).toContain("Elapsed 9s");
     expect(markup).toContain("10 tool calls");
     expect(markup).not.toContain("rounded-xl border border-border/45 bg-background/70");
     expect(markup).not.toContain('data-work-entry-id="work-tool-1"');
@@ -958,7 +960,7 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain('data-thinking-disclosure="true"');
     expect(markup).toContain('data-thinking-disclosure-open="false"');
-    expect(markup).toContain("Worked for 2s");
+    expect(markup).toContain("Elapsed 2s");
     expect(markup).not.toContain('data-work-entry-id="thinking-collapsed"');
     expect(markup).not.toContain('data-work-entry-id="thinking-collapsed-2"');
     expect(markup).not.toContain("Inspecting package scripts before patching the renderer.");
@@ -1029,12 +1031,12 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    const thinkingIndex = markup.indexOf("Worked for 3s");
+    const thinkingIndex = markup.indexOf("Elapsed 3s");
     const toolIndex = markup.indexOf('data-work-entry-id="tool-after-thinking"');
 
     expect(thinkingIndex).toBeGreaterThanOrEqual(0);
     expect(toolIndex).toBeGreaterThan(thinkingIndex);
-    expect(markup).not.toContain("Worked for 1s");
+    expect(markup).not.toContain("Elapsed 1s");
   });
 
   it("moves completed thinking behind a disclosure once assistant output starts", async () => {
@@ -1144,7 +1146,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-thinking-disclosure="true"');
     expect(markup).toContain('data-work-entry-tone="thinking"');
     expect(markup).toContain("Tracing the ordering boundary before patching the renderer.");
-    expect(markup).toContain("Worked for 1s");
+    expect(markup).toContain("Elapsed 1s");
   });
 
   it("keeps assistant follow-ups beneath the preceding work row in order", async () => {
@@ -1555,7 +1557,9 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-meta-disclosure="true"');
     expect(markup).not.toContain('data-intent-disclosure="true"');
     expect(markup).toContain('data-thinking-disclosure="true"');
-    expect(markup).toContain("1 intent · 1 reasoning step");
+    expect(markup).toContain('title="1 intent"');
+    expect(markup).toContain('title="1 reasoning step"');
+    expect(markup).toContain("Elapsed 1s");
     expect(markup).not.toContain("0 tool calls");
   });
 
@@ -1854,6 +1858,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
+    expect(markup).not.toContain('data-assistant-message-card="true"');
     expect(markup).not.toContain("Assistant");
     expect(markup).toContain("Updated the timeline rendering.");
   });

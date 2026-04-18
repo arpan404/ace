@@ -12,7 +12,11 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
-import { TopBarCluster, interleaveTopBarItems } from "../thread/TopBarCluster";
+import {
+  HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME,
+  TopBarCluster,
+  interleaveTopBarItems,
+} from "../thread/TopBarCluster";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 interface ChatHeaderProps {
@@ -107,8 +111,7 @@ export const ChatHeader = memo(function ChatHeader({
   const workspaceActionNodes = workspaceActionItems.filter(
     (item): item is NonNullable<ReactNode> => item !== null,
   );
-  const utilityToggleClassName =
-    "shrink-0 rounded-full border border-transparent text-foreground/60 hover:text-foreground/85 data-[pressed]:border-border/45 data-[pressed]:text-foreground disabled:text-foreground/25";
+  const utilityToggleClassName = `shrink-0 ${HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME}`;
   const utilityItems = interleaveTopBarItems([
     <Tooltip key="editor-workspace">
       <TooltipTrigger
@@ -225,8 +228,8 @@ export const ChatHeader = memo(function ChatHeader({
   ]);
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2.5">
-      <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
+    <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden sm:gap-2">
         {workspaceMode === "editor" ? (
           <span
             className="min-w-0 truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80"
@@ -235,7 +238,7 @@ export const ChatHeader = memo(function ChatHeader({
             {workspaceName ?? activeProjectName ?? "Workspace"}
           </span>
         ) : (
-          <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
             <h2
               className="min-w-0 shrink truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80"
               title={activeThreadTitle}
@@ -243,7 +246,7 @@ export const ChatHeader = memo(function ChatHeader({
               {activeThreadTitle}
             </h2>
             {activeProjectName ? (
-              <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+              <div className="flex min-w-0 items-center gap-1 overflow-hidden">
                 {activeProjectId !== null && onActiveProjectChange ? (
                   <ProjectContextSwitcher
                     activeProjectId={activeProjectId}
@@ -254,7 +257,7 @@ export const ChatHeader = memo(function ChatHeader({
                   <Badge
                     variant="outline"
                     size="sm"
-                    className="min-w-0 max-w-48 shrink overflow-hidden border-border/15 bg-muted/15 text-muted-foreground/45"
+                    className="min-w-0 max-w-40 shrink overflow-hidden border-pill-border/70 bg-pill/88 text-pill-foreground/65 sm:max-w-48"
                   >
                     <span className="min-w-0 truncate">{activeProjectName}</span>
                   </Badge>
@@ -270,9 +273,9 @@ export const ChatHeader = memo(function ChatHeader({
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-0.75 overflow-x-auto sm:gap-1">
         {workspaceActionNodes.length > 0 ? (
-          <div className="flex min-w-0 items-center gap-1.5">{workspaceActionNodes}</div>
+          <div className="flex min-w-0 items-center gap-0.75 sm:gap-1">{workspaceActionNodes}</div>
         ) : null}
         <TopBarCluster>{utilityItems}</TopBarCluster>
       </div>

@@ -41,7 +41,12 @@ import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast";
-import { TopBarCluster, TopBarClusterDivider } from "~/components/thread/TopBarCluster";
+import {
+  HEADER_PILL_CONTROL_CLASS_NAME,
+  HEADER_PILL_ICON_CONTROL_CLASS_NAME,
+  TopBarCluster,
+  TopBarClusterDivider,
+} from "~/components/thread/TopBarCluster";
 import {
   gitBranchesQueryOptions,
   gitInitMutationOptions,
@@ -97,9 +102,6 @@ interface RunGitActionWithToastInput {
   progressToastId?: GitActionToastId;
   filePaths?: string[];
 }
-
-const TOP_BAR_ACTION_BUTTON_CLASS_NAME =
-  "rounded-full border-transparent bg-transparent text-foreground/80 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08]";
 
 function formatElapsedDescription(startedAtMs: number | null): string | undefined {
   if (startedAtMs === null) {
@@ -810,7 +812,7 @@ export default function GitActionsControl({
                 render={
                   <Button
                     aria-disabled="true"
-                    className={`${TOP_BAR_ACTION_BUTTON_CLASS_NAME} cursor-not-allowed opacity-64`}
+                    className={`${HEADER_PILL_CONTROL_CLASS_NAME} cursor-not-allowed opacity-64`}
                     size="xs"
                     variant="ghost"
                   />
@@ -827,7 +829,7 @@ export default function GitActionsControl({
             <Button
               variant="ghost"
               size="xs"
-              className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
+              className={HEADER_PILL_CONTROL_CLASS_NAME}
               disabled={isGitActionRunning || quickAction.disabled}
               onClick={runQuickAction}
             >
@@ -850,7 +852,7 @@ export default function GitActionsControl({
                         aria-label="More Git actions"
                         size="icon-xs"
                         variant="ghost"
-                        className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
+                        className={HEADER_PILL_ICON_CONTROL_CLASS_NAME}
                       />
                     }
                     disabled={isGitActionRunning}
