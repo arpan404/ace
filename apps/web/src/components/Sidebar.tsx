@@ -51,10 +51,7 @@ import { APP_BASE_NAME, APP_VERSION, IS_DEV_BUILD } from "../branding";
 import { reportBackgroundError } from "../lib/async";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
-import {
-  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-  MAC_TITLEBAR_LEFT_INSET_STYLE,
-} from "../lib/desktopChrome";
+import { MAC_TITLEBAR_LEFT_INSET_STYLE } from "../lib/desktopChrome";
 import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
@@ -115,8 +112,6 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
-  SidebarTrigger,
-  useSidebar,
 } from "./ui/sidebar";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import {
@@ -273,7 +268,12 @@ function remoteThreadEntryEquals(
   left: RemoteSidebarThreadEntry,
   right: RemoteSidebarThreadEntry,
 ): boolean {
-  return left.id === right.id && left.title === right.title && left.updatedAt === right.updatedAt;
+  return (
+    left.id === right.id &&
+    left.title === right.title &&
+    left.updatedAt === right.updatedAt &&
+    left.lastUserMessageAt === right.lastUserMessageAt
+  );
 }
 
 function remoteThreadEntriesEqual(
@@ -306,6 +306,7 @@ function remoteProjectEntryEquals(
     left.cwd === right.cwd &&
     left.createdAt === right.createdAt &&
     left.updatedAt === right.updatedAt &&
+    left.lastUserMessageAt === right.lastUserMessageAt &&
     projectIconsEqual(left.icon, right.icon) &&
     modelSelectionEquals(left.defaultModelSelection, right.defaultModelSelection) &&
     remoteThreadEntriesEqual(left.threads, right.threads)
@@ -430,7 +431,7 @@ function getLastUserMessageTimestamp(
   let lastUserMessageAt = "";
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
-    if (message.role === "user") {
+    if (message && message.role === "user") {
       lastUserMessageAt = message.createdAt;
       break;
     }
@@ -454,17 +455,22 @@ function getProjectLastUserMessageAt(
   return latestTimestamp;
 }
 
+function sortByLastUserMessage(a: string, b: string): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return b.localeCompare(a);
+}
+
 function mapRemoteProjectsFromSnapshot(
   snapshot: OrchestrationReadModel,
-  sortOrder: "updated_at" | "created_at" | "last_user_message" = "last_user_message",
+  sortOrder:
+    | "updated_at"
+    | "created_at"
+    | "last_user_message"
+    | "manual"
+    | undefined = "last_user_message",
 ): RemoteSidebarProjectEntry[] {
-  const sortByLastUserMessage = (a: string, b: string) => {
-    if (!a && !b) return 0;
-    if (!a) return 1;
-    if (!b) return -1;
-    return b.localeCompare(a);
-  };
-
   const sortFn =
     sortOrder === "created_at"
       ? (a: RemoteSidebarProjectEntry, b: RemoteSidebarProjectEntry) =>
@@ -476,7 +482,7 @@ function mapRemoteProjectsFromSnapshot(
             b.updatedAt.localeCompare(a.updatedAt);
 
   const sortThreadsFn = (threads: RemoteSidebarThreadEntry[]) =>
-    [...threads].sort((a, b) => {
+    threads.toSorted((a, b) => {
       if (sortOrder === "created_at") {
         return b.updatedAt.localeCompare(a.updatedAt);
       }
@@ -520,7 +526,7 @@ function mapRemoteProjectsFromSnapshot(
         threads: sortThreadsFn(projectThreads),
       };
     })
-    .sort(sortFn);
+    .toSorted(sortFn);
 }
 
 function getCachedSortedSidebarThreads(
@@ -696,7 +702,6 @@ function getVisibleRemoteThreadsForProject<T extends { id: string }>(input: {
 }
 
 export default function Sidebar() {
-  const { isMobile, state } = useSidebar();
   const projects = useStore((store) => store.projects);
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const sidebarThreadsById = useStore((store) => store.sidebarThreadsById);
@@ -732,10 +737,6 @@ export default function Sidebar() {
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
   const keybindings = useServerKeybindings();
-  const sidebarToggleShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "sidebar.toggle"),
-    [keybindings],
-  );
   const [addingProject, setAddingProject] = useState(false);
   const [projectPickerStep, setProjectPickerStep] = useState<ProjectPickerStep>("environment");
   const [projectPickerEnvironmentQuery, setProjectPickerEnvironmentQuery] = useState("");
@@ -1069,7 +1070,7 @@ export default function Sidebar() {
         remoteSidebarRefreshInFlightRef.current = null;
       }
     }
-  }, [localDeviceConnectionUrl, reconcileThreadDerivedState]);
+  }, [appSettings.sidebarProjectSortOrder, localDeviceConnectionUrl, reconcileThreadDerivedState]);
   useEffect(() => {
     if (!bootstrapComplete) {
       return;
@@ -4411,34 +4412,13 @@ export default function Sidebar() {
           style={MAC_TITLEBAR_LEFT_INSET_STYLE}
         >
           <div ref={sidebarHeaderRowRef} className="relative flex h-full min-w-0 items-center">
-            <div
-              className={`flex min-w-0 flex-1 items-center justify-center ${
-                !isMobile && state === "expanded" ? "pr-10" : ""
-              }`}
-            >
-              {wordmark}
-            </div>
-            {!isMobile && state === "expanded" ? (
-              <div className="absolute inset-y-0 right-0 flex items-center">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={<SidebarTrigger className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME} />}
-                  />
-                  <TooltipPopup side="bottom">
-                    {sidebarToggleShortcutLabel
-                      ? `Toggle sidebar (${sidebarToggleShortcutLabel})`
-                      : "Toggle sidebar"}
-                  </TooltipPopup>
-                </Tooltip>
-              </div>
-            ) : null}
+            <div className="flex min-w-0 flex-1 items-center">{wordmark}</div>
           </div>
         </SidebarHeader>
       ) : (
         <SidebarHeader className="gap-3 px-3.5 py-3 sm:gap-2.5 sm:px-4 sm:py-3.5">
           <div className="relative flex h-full min-w-0 flex-1 items-center">
             <div className="flex min-w-0 flex-1 items-center">{wordmark}</div>
-            <SidebarTrigger className="size-7" />
           </div>
         </SidebarHeader>
       )}

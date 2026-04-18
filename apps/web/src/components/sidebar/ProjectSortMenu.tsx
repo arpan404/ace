@@ -12,7 +12,8 @@ const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
 };
 
 const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
-  updated_at: "Last user message",
+  updated_at: "Latest thread activity",
+  last_user_message: "Last user message",
   created_at: "Created at",
 };
 

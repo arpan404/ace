@@ -944,7 +944,7 @@ describe("sortProjectsForSidebar", () => {
       }),
     ];
 
-    const sorted = sortProjectsForSidebar(projects, threads, "updated_at");
+    const sorted = sortProjectsForSidebar(projects, threads, "last_user_message");
 
     expect(sorted.map((project) => project.id)).toEqual([
       ProjectId.makeUnsafe("project-2"),

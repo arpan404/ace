@@ -290,8 +290,14 @@ function mapTurnDiffSummary(
 function mergeThreadPreservingHydratedHistory(
   existingThread: Thread | undefined,
   incomingThread: Thread,
+  preserveHydratedHistory = true,
 ): Thread {
-  if (!existingThread || existingThread.historyLoaded === false || incomingThread.historyLoaded) {
+  if (
+    !preserveHydratedHistory ||
+    !existingThread ||
+    existingThread.historyLoaded === false ||
+    incomingThread.historyLoaded
+  ) {
     return incomingThread;
   }
   return {
@@ -1415,9 +1421,11 @@ export function syncServerReadModel(
   const threads = readModel.threads
     .filter((thread) => thread.deletedAt === null)
     .map((thread) => {
+      const mappedThread = mapThread(thread, options);
       const nextThread = mergeThreadPreservingHydratedHistory(
         existingThreadsById.get(thread.id),
-        mapThread(thread, options),
+        mappedThread,
+        options === undefined || mappedThread.historyLoaded,
       );
       if (options !== undefined && nextThread.historyLoaded !== false) {
         primeHydratedThreadCache(thread);
