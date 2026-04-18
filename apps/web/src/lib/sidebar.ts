@@ -504,6 +504,9 @@ function getProjectThreadSortTimestamp(
   if (sortOrder === "created_at") {
     return toSortableTimestamp(thread.createdAt) ?? Number.NEGATIVE_INFINITY;
   }
+  if (sortOrder === "last_user_message") {
+    return getLatestUserMessageTimestamp(thread);
+  }
   return toSortableTimestamp(thread.updatedAt ?? thread.createdAt) ?? Number.NEGATIVE_INFINITY;
 }
 
