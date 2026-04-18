@@ -409,9 +409,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           (() => (
             <AssistantMessageTimelineRow
               completionSummary={row.completionSummary}
+              durationStart={row.durationStart}
+              isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}
+              showAssistantSummaryByDefault={row.showAssistantSummaryByDefault ?? false}
               markdownCwd={markdownCwd}
               message={row.message}
               onOpenBrowserUrl={onOpenBrowserUrl}
+              timestampFormat={timestampFormat}
             />
           ))()}
 
@@ -609,6 +613,8 @@ type TimelineRow =
       message: TimelineMessage;
       durationStart: string;
       completionSummary: string | null;
+      isAssistantTurnTerminal?: boolean;
+      showAssistantSummaryByDefault?: boolean;
     }
   | {
       kind: "proposed-plan";
@@ -719,6 +725,37 @@ function buildTimelineRows(input: {
   isWorking: boolean;
 }): TimelineRow[] {
   const nextRows: TimelineRow[] = [];
+  const terminalAssistantMessageIds = new Set<string>();
+  const assistantMessageIdsWithoutLaterUser = new Set<string>();
+  const lastAssistantMessageIdByTurnId = new Map<string, string>();
+  for (const timelineEntry of input.timelineEntries) {
+    if (timelineEntry?.kind !== "message" || timelineEntry.message.role !== "assistant") {
+      continue;
+    }
+    const turnId = timelineEntry.message.turnId;
+    if (turnId) {
+      lastAssistantMessageIdByTurnId.set(turnId, timelineEntry.id);
+      continue;
+    }
+    terminalAssistantMessageIds.add(timelineEntry.id);
+  }
+  for (const messageId of lastAssistantMessageIdByTurnId.values()) {
+    terminalAssistantMessageIds.add(messageId);
+  }
+  let seenLaterUserMessage = false;
+  for (let index = input.timelineEntries.length - 1; index >= 0; index -= 1) {
+    const timelineEntry = input.timelineEntries[index];
+    if (timelineEntry?.kind !== "message") {
+      continue;
+    }
+    if (timelineEntry.message.role === "user") {
+      seenLaterUserMessage = true;
+      continue;
+    }
+    if (timelineEntry.message.role === "assistant" && !seenLaterUserMessage) {
+      assistantMessageIdsWithoutLaterUser.add(timelineEntry.id);
+    }
+  }
   const activeTurnStartedAtMs =
     typeof input.activeTurnStartedAt === "string"
       ? Date.parse(input.activeTurnStartedAt)
@@ -914,6 +951,13 @@ function buildTimelineRows(input: {
         input.completionDividerBeforeEntryId === timelineEntry.id
           ? input.completionSummary
           : null,
+      isAssistantTurnTerminal:
+        timelineEntry.message.role === "assistant" &&
+        terminalAssistantMessageIds.has(timelineEntry.id),
+      showAssistantSummaryByDefault:
+        timelineEntry.message.role === "assistant" &&
+        terminalAssistantMessageIds.has(timelineEntry.id) &&
+        assistantMessageIdsWithoutLaterUser.has(timelineEntry.id),
     });
 
     if (timelineEntry.message.role === "assistant" && timelineEntry.message.completedAt) {
@@ -1085,7 +1129,8 @@ function estimateTimelineRowHeight(
         height = messageHeight + 18;
         break;
       }
-      const completionSummaryExtra = row.completionSummary ? 24 : 0;
+      const completionSummaryExtra =
+        row.isAssistantTurnTerminal && row.message.completedAt ? 24 : 0;
       height = messageHeight + completionSummaryExtra + 16;
       break;
     }
@@ -1143,6 +1188,8 @@ function getTimelineRowHeightCacheKey(
         row.message.attachments?.length ?? 0,
         row.message.streaming ? 1 : 0,
         row.message.completedAt ?? "incomplete",
+        row.isAssistantTurnTerminal && row.message.completedAt ? 1 : 0,
+        row.showAssistantSummaryByDefault ? 1 : 0,
         row.completionSummary ? 1 : 0,
         widthCacheKey,
       ].join(":");
@@ -1234,6 +1281,14 @@ function formatCompletedWorkTimer(startIso: string, endIso: string): string | nu
   }
 
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+function normalizeCompletionSummaryElapsed(summary: string | null): string | null {
+  if (!summary) {
+    return null;
+  }
+
+  return summary.replace(/^Worked for\s+/i, "").trim() || null;
 }
 
 function summarizeWorkGroupBreakdownParts(entries: ReadonlyArray<TimelineMetaGroupEntry>): Array<{
@@ -1465,8 +1520,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
         className="group relative max-w-[82%] px-0 py-0 sm:max-w-[72%]"
         data-user-message-bubble="true"
       >
-        <span className="-right-0.5 absolute bottom-2 h-3.5 w-3.5 rotate-45 rounded-[3px] border-border/65 border-r border-b bg-chat-bubble" />
-        <div className="relative rounded-[1.35rem] rounded-br-md border border-border/65 bg-chat-bubble px-3.5 py-2.5 shadow-[0_10px_24px_-22px_rgba(0,0,0,0.55)]">
+        <div className="relative rounded-2xl rounded-br-lg border border-border/65 bg-chat-bubble px-3.5 py-2.5 shadow-[0_10px_24px_-22px_rgba(0,0,0,0.55)]">
           {userImages.length > 0 && (
             <div className="mb-2.5 grid max-w-105 grid-cols-2 gap-1.5">
               {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
@@ -1501,10 +1555,12 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
             </div>
           )}
           {(displayedUserMessage.visibleText.trim().length > 0 || terminalContexts.length > 0) && (
-            <UserMessageBody
-              text={displayedUserMessage.visibleText}
-              terminalContexts={terminalContexts}
-            />
+            <div>
+              <UserMessageBody
+                text={displayedUserMessage.visibleText}
+                terminalContexts={terminalContexts}
+              />
+            </div>
           )}
         </div>
         <div className="mt-1.5 flex items-center justify-end gap-2 pr-1">
@@ -1538,9 +1594,13 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
 
 const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(props: {
   completionSummary: string | null;
+  durationStart: string;
+  isAssistantTurnTerminal?: boolean;
+  showAssistantSummaryByDefault?: boolean;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
   onOpenBrowserUrl?: ((url: string) => void) | null;
+  timestampFormat: TimestampFormat;
 }) {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   const renderedMessageText = getChatMessageRenderableText(props.message);
@@ -1550,6 +1610,17 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
       : props.message.streaming
         ? ""
         : "(empty response)";
+  const completedAt = props.message.completedAt ?? null;
+  const elapsedLabel =
+    props.isAssistantTurnTerminal && completedAt
+      ? (normalizeCompletionSummaryElapsed(props.completionSummary) ??
+        formatCompletedWorkTimer(props.durationStart, completedAt))
+      : null;
+  const completedAtLabel =
+    props.isAssistantTurnTerminal && completedAt
+      ? formatTimestamp(completedAt, props.timestampFormat)
+      : null;
+  const persistVisible = Boolean(props.completionSummary || props.showAssistantSummaryByDefault);
 
   return (
     <div className="min-w-0">
@@ -1562,17 +1633,26 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
           ? { streamingTextState: props.message.streamingTextState }
           : {})}
       />
-      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-        {props.completionSummary && (
+      {completedAtLabel && elapsedLabel && (
+        <div className="mt-2 flex min-h-4 flex-wrap items-center gap-x-2 gap-y-1">
           <span
-            className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/52"
+            className={cn(
+              "inline-flex items-center gap-1.5 text-[10px] text-muted-foreground/52 transition-opacity duration-150",
+              persistVisible
+                ? "opacity-100"
+                : "opacity-0 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
+            )}
             data-response-summary="true"
+            data-response-summary-time={completedAtLabel}
+            data-response-summary-elapsed={elapsedLabel}
           >
             <Clock3Icon className="size-3 shrink-0" />
-            <span>{props.completionSummary}</span>
+            <span>{completedAtLabel}</span>
+            <span className="text-muted-foreground/34">·</span>
+            <span>{elapsedLabel}</span>
           </span>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 });

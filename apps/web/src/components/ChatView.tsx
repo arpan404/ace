@@ -89,7 +89,6 @@ import {
   filterVisibleWorkLogActivities,
   hasLiveTurn,
   hasActionableProposedPlan,
-  hasToolActivityForTurn,
   isLatestTurnSettled,
   formatElapsed,
 } from "../session-logic";
@@ -1492,10 +1491,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () => deriveWorkLogEntries(visibleThreadActivities),
     [visibleThreadActivities],
   );
-  const latestTurnHasToolActivity = useMemo(
-    () => hasToolActivityForTurn(visibleThreadActivities, activeLatestTurn?.turnId),
-    [activeLatestTurn?.turnId, visibleThreadActivities],
-  );
   const pendingApprovals = useMemo(
     () => derivePendingApprovals(threadActivities),
     [threadActivities],
@@ -1875,16 +1870,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (!latestTurnSettled) return null;
     if (!activeLatestTurn?.startedAt) return null;
     if (!activeLatestTurn.completedAt) return null;
-    if (!latestTurnHasToolActivity) return null;
 
     const elapsed = formatElapsed(activeLatestTurn.startedAt, activeLatestTurn.completedAt);
     return elapsed ? `Worked for ${elapsed}` : null;
-  }, [
-    activeLatestTurn?.completedAt,
-    activeLatestTurn?.startedAt,
-    latestTurnHasToolActivity,
-    latestTurnSettled,
-  ]);
+  }, [activeLatestTurn?.completedAt, activeLatestTurn?.startedAt, latestTurnSettled]);
   const completionDividerBeforeEntryId = useMemo(() => {
     if (!latestTurnSettled) return null;
     if (!completionSummary) return null;

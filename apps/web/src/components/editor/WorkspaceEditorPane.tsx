@@ -861,9 +861,9 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     <section
       data-pane-active={props.active ? "true" : "false"}
       className={cn(
-        "group relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] bg-background/95 transition-colors",
+        "group relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/55 bg-background/96 transition-[border-color,box-shadow,background-color]",
         props.active
-          ? "shadow-[0_18px_40px_-24px_hsl(var(--primary)/0.35)]"
+          ? "border-primary/25 shadow-[0_12px_30px_-24px_hsl(var(--foreground)/0.3)]"
           : "shadow-[inset_0_1px_0_hsl(var(--foreground)/0.03)]",
       )}
       onPointerDown={() => {
@@ -872,8 +872,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     >
       <div
         className={cn(
-          "flex h-[35px] shrink-0 items-center overflow-x-auto scrollbar-none",
-          "bg-gradient-to-b from-secondary/95 to-secondary/65 backdrop-blur supports-[backdrop-filter]:from-secondary/85",
+          "flex h-9 shrink-0 items-center overflow-x-auto border-border/55 border-b bg-card/88 scrollbar-none backdrop-blur supports-[backdrop-filter]:bg-card/76",
         )}
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -891,16 +890,16 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             return (
               <div key={filePath} className="relative flex shrink-0">
                 {dropTargetIndex === props.pane.openFilePaths.indexOf(filePath) ? (
-                  <div className="absolute top-1.5 bottom-1.5 left-0 z-20 w-[2px] rounded-full bg-primary" />
+                  <div className="absolute top-1.5 bottom-1.5 left-0 z-20 w-[2px] rounded-full bg-primary/85" />
                 ) : null}
                 <button
                   type="button"
                   data-editor-tab="true"
                   className={cn(
-                    "group/tab relative flex h-[35px] shrink-0 items-center gap-1.5 px-3 text-[12px] transition-colors",
+                    "group/tab relative flex h-9 shrink-0 items-center gap-1.5 border-r border-border/45 px-3 text-[12px] transition-colors",
                     isActive
-                      ? "bg-background/90 text-foreground shadow-[inset_0_1px_0_hsl(var(--foreground)/0.06)]"
-                      : "bg-transparent text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground",
+                      ? "bg-background text-foreground shadow-[inset_0_2px_0_hsl(var(--primary)/0.55)]"
+                      : "bg-transparent text-muted-foreground/88 hover:bg-foreground/[0.045] hover:text-foreground",
                   )}
                   draggable
                   onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
@@ -936,7 +935,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   title={filePath}
                 >
                   {isActive && (
-                    <div className="absolute bottom-0 left-0 h-px w-full bg-background" />
+                    <div className="absolute right-0 bottom-0 left-0 h-px bg-background" />
                   )}
                   <VscodeEntryIcon
                     pathValue={filePath}
@@ -946,11 +945,11 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                   />
                   <span className="max-w-[140px] truncate">{basenameOfPath(filePath)}</span>
                   {isDirty ? (
-                    <span className="size-1.5 shrink-0 rounded-full bg-foreground/40 group-hover/tab:hidden" />
+                    <span className="size-1.5 shrink-0 rounded-full bg-foreground/45 group-hover/tab:hidden" />
                   ) : null}
                   <span
                     className={cn(
-                      "flex size-4 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-foreground/10 group-hover/tab:opacity-100",
+                      "flex size-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity hover:bg-foreground/10 group-hover/tab:opacity-100",
                       isDirty ? "hidden group-hover/tab:flex" : "",
                     )}
                     onClick={(event) => {
@@ -970,11 +969,11 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </div>
           ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-0.5 px-1.5">
+        <div className="flex shrink-0 items-center gap-0.5 border-border/45 border-l px-1.5">
           <Button
             variant="ghost"
             size="icon-xs"
-            className="size-5 rounded text-muted-foreground/70 hover:text-foreground"
+            className="size-5 rounded-sm text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
             onClick={() => props.onSplitPane(props.pane.id)}
             disabled={!props.canSplitPane}
             title="Split Editor Right"
@@ -984,7 +983,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           <Button
             variant="ghost"
             size="icon-xs"
-            className="size-5 rounded text-muted-foreground/70 hover:text-foreground"
+            className="size-5 rounded-sm text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
             onClick={() => props.onSplitPaneDown(props.pane.id)}
             disabled={!props.canSplitPane}
             title="Split Editor Down"
@@ -995,7 +994,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             <Button
               variant="ghost"
               size="icon-xs"
-              className="size-5 rounded text-muted-foreground/70 hover:text-foreground"
+              className="size-5 rounded-sm text-muted-foreground/70 hover:bg-foreground/6 hover:text-foreground"
               onClick={() => props.onClosePane(props.pane.id)}
               title="Close Editor Group"
             >
@@ -1005,7 +1004,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         </div>
       </div>
 
-      <div className={cn("min-h-0 min-w-0 flex-1 relative", "bg-background")}>
+      <div className={cn("relative min-h-0 min-w-0 flex-1 bg-background")}>
         {!props.pane.activeFilePath ? (
           <div className="flex h-full items-center justify-center">
             <div className="opacity-[0.03] pointer-events-none text-foreground flex items-center justify-center">
@@ -1024,7 +1023,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         ) : isBinaryPreviewMode && previewUrl ? (
           <div className="flex h-full min-h-0 flex-col">
             <div className="min-h-0 flex-1 overflow-auto p-4">
-              <div className="flex h-full min-h-[220px] items-center justify-center rounded-xl bg-secondary/30">
+              <div className="flex h-full min-h-[220px] items-center justify-center rounded-md border border-border/45 bg-card/60">
                 {activePreviewKind === "image" ? (
                   <img
                     src={previewUrl}
@@ -1046,7 +1045,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 )}
               </div>
             </div>
-            <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between gap-2 border-border/45 border-t px-3 py-2 text-xs text-muted-foreground">
               <span className="truncate">{previewModeLabel}</span>
               <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
                 Open in Editor
@@ -1056,7 +1055,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         ) : isTextPreviewMode && activeFileQuery.data?.contents !== undefined ? (
           <div className="flex h-full min-h-0 flex-col">
             <div className="min-h-0 flex-1 overflow-auto p-4">
-              <div className="min-h-[220px] rounded-xl bg-secondary/30 p-4">
+              <div className="min-h-[220px] rounded-md border border-border/45 bg-card/60 p-4">
                 {activePreviewKind === "markdown" ? (
                   <ChatMarkdown
                     text={activeFileQuery.data.contents}
@@ -1072,7 +1071,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 )}
               </div>
             </div>
-            <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between gap-2 border-border/45 border-t px-3 py-2 text-xs text-muted-foreground">
               <span className="truncate">{previewModeLabel}</span>
               <Button size="sm" variant="outline" onClick={() => void handleOpenInExternalEditor()}>
                 Open in Editor
@@ -1139,10 +1138,12 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       </div>
 
       {!isPreviewMode && problemsOpen ? (
-        <section className="shrink-0 bg-secondary/50">
-          <header className="flex h-7 items-center justify-between px-2.5 text-[11px] text-muted-foreground">
-            <span className="font-medium">Problems</span>
-            <span>{sortedProblems.length}</span>
+        <section className="shrink-0 border-border/55 border-t bg-card/72">
+          <header className="flex h-7 items-center justify-between border-border/45 border-b px-2.5 text-[11px] text-muted-foreground">
+            <span className="font-medium tracking-[0.08em] uppercase">Problems</span>
+            <span className="rounded-sm bg-foreground/6 px-1.5 py-px text-[10px] text-foreground/75">
+              {sortedProblems.length}
+            </span>
           </header>
           <div className="max-h-44 overflow-y-auto">
             {sortedProblems.length > 0 ? (
@@ -1185,22 +1186,24 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         </section>
       ) : null}
 
-      <footer className="flex h-[24px] shrink-0 items-center justify-between gap-3 bg-secondary/55 px-2.5 text-[11px] text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-secondary/40">
+      <footer className="flex h-6 shrink-0 items-center justify-between gap-3 border-border/55 border-t bg-card/82 px-2.5 text-[10.5px] text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-card/72">
         <div className="flex min-w-0 items-center gap-2.5 overflow-hidden">
           {props.pane.activeFilePath ? (
             <>
               <span className="truncate">{props.pane.activeFilePath}</span>
               {activeFileSizeBytes !== null ? (
-                <span className="shrink-0 opacity-60">{formatFileSize(activeFileSizeBytes)}</span>
+                <span className="shrink-0 rounded-sm bg-foreground/6 px-1.5 py-px opacity-80">
+                  {formatFileSize(activeFileSizeBytes)}
+                </span>
               ) : null}
               {activeFileDirty ? (
-                <span className="shrink-0 rounded-sm bg-primary/15 px-1 py-px text-[9px] font-semibold tracking-wider text-primary uppercase">
+                <span className="shrink-0 rounded-sm bg-primary/12 px-1.5 py-px text-[9px] font-semibold tracking-[0.12em] text-primary uppercase">
                   Modified
                 </span>
               ) : null}
             </>
           ) : (
-            <span className="opacity-60">Ready</span>
+            <span className="rounded-sm bg-foreground/6 px-1.5 py-px opacity-70">Ready</span>
           )}
         </div>
 
@@ -1223,7 +1226,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           {props.pane.activeFilePath && !isPreviewMode ? (
             <button
               type="button"
-              className="opacity-70 transition-opacity hover:opacity-100 hover:text-foreground"
+              className="rounded-sm px-1.5 py-px opacity-75 transition-[opacity,background-color,color] hover:bg-foreground/6 hover:text-foreground hover:opacity-100"
               onClick={() => {
                 setProblemsOpen((open) => !open);
               }}
@@ -1239,7 +1242,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           {props.pane.activeFilePath && activeFileDirty ? (
             <button
               type="button"
-              className="opacity-60 hover:opacity-100 transition-opacity hover:text-foreground"
+              className="rounded-sm px-1.5 py-px opacity-70 transition-[opacity,background-color,color] hover:bg-foreground/6 hover:text-foreground hover:opacity-100"
               onClick={() => props.onDiscardDraft(props.pane.activeFilePath!)}
             >
               Revert
@@ -1248,7 +1251,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           {props.pane.activeFilePath && activeFileDirty ? (
             <button
               type="button"
-              className="font-medium opacity-80 hover:opacity-100 transition-opacity hover:text-foreground"
+              className="rounded-sm bg-foreground/6 px-1.5 py-px font-medium opacity-85 transition-[opacity,background-color,color] hover:bg-foreground/10 hover:text-foreground hover:opacity-100"
               onClick={handleSave}
               disabled={props.savingFilePath === props.pane.activeFilePath}
             >

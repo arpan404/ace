@@ -286,7 +286,8 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("yoo what&#x27;s ");
     expect(markup).toContain('data-user-message-bubble="true"');
     expect(markup).toContain("bg-chat-bubble");
-    expect(markup).toContain("rounded-br-md");
+    expect(markup).toContain("rounded-2xl");
+    expect(markup).not.toContain("translate-y-[38%] rotate-45");
     expect(markup).not.toContain('data-thread-row="true"');
   });
 
@@ -1393,9 +1394,11 @@ describe("MessagesTimeline", () => {
       markup.indexOf("Updated the timeline rendering."),
     );
     expect(markup.indexOf("Updated the timeline rendering.")).toBeLessThan(
-      markup.indexOf("Worked for 2m"),
+      markup.indexOf('data-response-summary="true"'),
     );
-    expect(markup.indexOf("Worked for 2m")).toBeLessThan(markup.indexOf("Changed files (2)"));
+    expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
+      markup.indexOf("Changed files (2)"),
+    );
   });
 
   it("shows completed intent and tool activity after completion", async () => {
@@ -1763,17 +1766,19 @@ describe("MessagesTimeline", () => {
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
-        timestampFormat="locale"
+        timestampFormat="24-hour"
         workspaceRoot={undefined}
       />,
     );
 
     expect(markup).toContain('data-response-summary="true"');
-    expect(markup).toContain("Worked for 2m 20s");
+    expect(markup).toContain('data-response-summary-time="');
+    expect(markup).toContain('data-response-summary-elapsed="2m 20s"');
+    expect(markup).toContain("opacity-100");
     expect(markup).not.toContain("•");
   });
 
-  it("does not render time metadata beneath assistant messages", async () => {
+  it("keeps previous assistant time metadata hidden until hover after a later user reply", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1791,6 +1796,66 @@ describe("MessagesTimeline", () => {
               id: MessageId.makeUnsafe("assistant-no-meta-message"),
               role: "assistant",
               text: "Updated the timeline rendering.",
+              createdAt: "2026-03-17T19:12:31.500Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "user-after-assistant-no-meta",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:35.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-after-assistant-no-meta"),
+              role: "user",
+              text: "Follow-up",
+              createdAt: "2026-03-17T19:12:35.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-response-summary="true"');
+    expect(markup).toContain('data-response-summary-time="');
+    expect(markup).toContain('data-response-summary-elapsed="3s"');
+    expect(markup).toContain("mt-2 flex min-h-4 flex-wrap");
+    expect(markup).toContain("opacity-0 group-hover/timeline:opacity-100");
+  });
+
+  it("shows the latest assistant time metadata without hover when no later user reply exists", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "assistant-tail-visible",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.500Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-tail-visible"),
+              role: "assistant",
+              text: "Latest assistant response.",
               createdAt: "2026-03-17T19:12:31.500Z",
               completedAt: "2026-03-17T19:12:34.000Z",
               streaming: false,
@@ -1814,8 +1879,70 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).not.toContain("19:12:31");
-    expect(markup).not.toContain("•");
+    expect(markup).toContain('data-response-summary="true"');
+    expect(markup).toContain('data-response-summary-elapsed="3s"');
+    expect(markup).toContain("opacity-100");
+  });
+
+  it("shows hover metadata only on the last assistant message within a turn", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const turnId = TurnId.makeUnsafe("turn-multi-assistant");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "assistant-turn-part-1",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-turn-part-1"),
+              role: "assistant",
+              turnId,
+              text: "First response chunk.",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              completedAt: "2026-03-17T19:12:32.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-turn-part-2",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:33.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-turn-part-2"),
+              role: "assistant",
+              turnId,
+              text: "Final response chunk.",
+              createdAt: "2026-03-17T19:12:33.000Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup.match(/data-response-summary="true"/g) ?? []).toHaveLength(1);
+    expect(markup).toContain('data-response-summary-elapsed="2s"');
   });
 
   it("does not render an assistant header for assistant messages", async () => {

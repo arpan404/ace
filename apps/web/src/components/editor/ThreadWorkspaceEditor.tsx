@@ -1233,6 +1233,10 @@ export default function ThreadWorkspaceEditor(inputProps: {
     () => treeEntries.filter((entry) => entry.kind === "file").length,
     [treeEntries],
   );
+  const workspaceLabel = useMemo(
+    () => (props.gitCwd ? basenameOfPath(props.gitCwd) : "Workspace"),
+    [props.gitCwd],
+  );
 
   const handleSplitPane = useCallback(
     (paneId?: string, filePath?: string, direction: "down" | "right" = "right") => {
@@ -1991,36 +1995,9 @@ export default function ThreadWorkspaceEditor(inputProps: {
   ]);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-gradient-to-b from-background via-background to-secondary/25">
-      <div className="flex items-center justify-between bg-secondary/80 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-secondary/60">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-xs"
-                className="size-7 rounded-full bg-background/80 text-muted-foreground hover:text-foreground"
-                aria-label={
-                  explorerOpen ? "Collapse workspace sidebar" : "Expand workspace sidebar"
-                }
-                onClick={() => {
-                  setExplorerOpen(props.threadId, !explorerOpen);
-                }}
-              >
-                {explorerOpen ? (
-                  <PanelLeftCloseIcon className="size-3.5" />
-                ) : (
-                  <PanelLeftIcon className="size-3.5" />
-                )}
-              </Button>
-            }
-          />
-          <TooltipPopup side="bottom">
-            {explorerOpen ? "Collapse workspace explorer" : "Expand workspace explorer"}
-          </TooltipPopup>
-        </Tooltip>
-        {onWorkspaceModeChange ? (
+    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,color-mix(in_oklch,var(--background)_92%,var(--card)_8%)_0%,var(--background)_100%)]">
+      <div className="flex h-10 items-center justify-between border-border/60 border-b bg-card/86 px-3 backdrop-blur supports-[backdrop-filter]:bg-card/72">
+        <div className="flex min-w-0 items-center gap-2">
           <Tooltip>
             <TooltipTrigger
               render={
@@ -2028,31 +2005,79 @@ export default function ThreadWorkspaceEditor(inputProps: {
                   type="button"
                   variant="outline"
                   size="icon-xs"
-                  className="size-7 rounded-full bg-background/80 text-muted-foreground hover:text-foreground"
+                  className="size-7 rounded-md border-border/60 bg-background/70 text-muted-foreground hover:bg-background hover:text-foreground"
                   aria-label={
-                    editorWorkspaceMode === "split"
-                      ? "Switch to full editor"
-                      : "Switch to split editor"
+                    explorerOpen ? "Collapse workspace sidebar" : "Expand workspace sidebar"
                   }
-                  onClick={() =>
-                    onWorkspaceModeChange(editorWorkspaceMode === "split" ? "editor" : "split")
-                  }
+                  onClick={() => {
+                    setExplorerOpen(props.threadId, !explorerOpen);
+                  }}
                 >
-                  {editorWorkspaceMode === "split" ? (
-                    <Maximize2Icon className="size-3.5" />
+                  {explorerOpen ? (
+                    <PanelLeftCloseIcon className="size-3.5" />
                   ) : (
-                    <Columns2Icon className="size-3.5" />
+                    <PanelLeftIcon className="size-3.5" />
                   )}
                 </Button>
               }
             />
             <TooltipPopup side="bottom">
-              {editorWorkspaceMode === "split"
-                ? "Show editor in full-screen mode"
-                : "Show editor side-by-side with chat"}
+              {explorerOpen ? "Collapse workspace explorer" : "Expand workspace explorer"}
             </TooltipPopup>
           </Tooltip>
-        ) : null}
+          <div className="h-4 w-px bg-border/60" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground/72 uppercase">
+                Workspace
+              </span>
+              <Badge variant="outline" size="sm" className="h-5 rounded-sm px-1.5 text-[10px]">
+                {workspaceFileCount}
+              </Badge>
+            </div>
+            <p className="truncate text-[12px] font-medium text-foreground/88">{workspaceLabel}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {workspaceTreeQuery.data?.truncated ? (
+            <Badge variant="warning" size="sm" className="rounded-sm">
+              Partial index
+            </Badge>
+          ) : null}
+          {onWorkspaceModeChange ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-xs"
+                    className="size-7 rounded-md border-border/60 bg-background/70 text-muted-foreground hover:bg-background hover:text-foreground"
+                    aria-label={
+                      editorWorkspaceMode === "split"
+                        ? "Switch to full editor"
+                        : "Switch to split editor"
+                    }
+                    onClick={() =>
+                      onWorkspaceModeChange(editorWorkspaceMode === "split" ? "editor" : "split")
+                    }
+                  >
+                    {editorWorkspaceMode === "split" ? (
+                      <Maximize2Icon className="size-3.5" />
+                    ) : (
+                      <Columns2Icon className="size-3.5" />
+                    )}
+                  </Button>
+                }
+              />
+              <TooltipPopup side="bottom">
+                {editorWorkspaceMode === "split"
+                  ? "Show editor in full-screen mode"
+                  : "Show editor side-by-side with chat"}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+        </div>
       </div>
       <div
         className="grid min-h-0 min-w-0 flex-1"
@@ -2064,10 +2089,14 @@ export default function ThreadWorkspaceEditor(inputProps: {
       >
         {explorerOpen ? (
           <>
-            <aside className={cn("flex min-h-0 min-w-0 flex-col", "bg-secondary/70")}>
-              <div className="flex items-center gap-2 px-3 py-2.5">
+            <aside
+              className={cn(
+                "flex min-h-0 min-w-0 flex-col border-border/60 border-r bg-card/72 shadow-[inset_-1px_0_0_rgba(255,255,255,0.02)]",
+              )}
+            >
+              <div className="flex h-10 items-center gap-2 border-border/45 border-b px-3">
                 <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
-                <span className="min-w-0 truncate text-[11px] font-semibold tracking-[0.16em] text-muted-foreground/80 uppercase">
+                <span className="min-w-0 truncate text-[10px] font-semibold tracking-[0.18em] text-muted-foreground/78 uppercase">
                   Explorer
                 </span>
                 <div className="ml-auto flex min-w-0 items-center gap-1.5">
@@ -2076,18 +2105,10 @@ export default function ThreadWorkspaceEditor(inputProps: {
                     gitCwd={props.gitCwd}
                     keybindings={props.keybindings}
                   />
-                  <Badge variant="outline" size="sm" className="text-[10px]">
-                    {workspaceFileCount}
-                  </Badge>
-                  {workspaceTreeQuery.data?.truncated ? (
-                    <Badge variant="warning" size="sm">
-                      Partial
-                    </Badge>
-                  ) : null}
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    className="size-6 shrink-0 rounded-md text-muted-foreground/75 hover:text-foreground"
+                    className="size-6 shrink-0 rounded-sm text-muted-foreground/75 hover:bg-foreground/6 hover:text-foreground"
                     onClick={() =>
                       startInlineEntry({
                         kind: "create-file",
@@ -2105,7 +2126,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    className="size-6 shrink-0 rounded-md text-muted-foreground/75 hover:text-foreground"
+                    className="size-6 shrink-0 rounded-sm text-muted-foreground/75 hover:bg-foreground/6 hover:text-foreground"
                     onClick={() =>
                       startInlineEntry({
                         kind: "create-folder",
@@ -2122,7 +2143,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
                   </Button>
                 </div>
               </div>
-              <div className="px-2.5 py-2">
+              <div className="border-border/40 border-b px-2.5 py-2">
                 <div className="relative">
                   <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
                   <Input
@@ -2130,7 +2151,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
                     value={treeSearch}
                     onChange={(event) => setTreeSearch(event.target.value)}
                     placeholder="Filter files (re:, in:, inre:)"
-                    className="pl-8"
+                    className="h-8 rounded-sm border-border/55 bg-background/70 pl-8 shadow-none"
                     size="sm"
                     type="search"
                   />
@@ -2139,7 +2160,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
 
               <div
                 ref={treeScrollRef}
-                className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 py-1"
+                className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 py-1.5"
                 tabIndex={0}
                 onKeyDown={handleExplorerKeyDown}
                 onDragOver={(event) => {
@@ -2253,7 +2274,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
               aria-label="Resize workspace sidebar"
               role="separator"
               aria-orientation="vertical"
-              className="relative cursor-col-resize hover:bg-primary/35"
+              className="relative cursor-col-resize bg-transparent hover:bg-foreground/5"
               onPointerDown={handleTreeResizeStart}
               onPointerMove={handleTreeResizeMove}
               onPointerUp={handleTreeResizeEnd}
@@ -2264,7 +2285,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
           </>
         ) : null}
 
-        <section className="min-h-0 min-w-0 overflow-hidden bg-transparent p-1.5">
+        <section className="min-h-0 min-w-0 overflow-hidden bg-transparent p-1">
           <div className="flex h-full min-h-0 flex-col">
             <div ref={editorGridRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {layoutRows.map((row, rowIndex) => (
