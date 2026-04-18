@@ -424,37 +424,103 @@ function reuseRemoteProjectEntries(
   return changed ? merged : previousProjects;
 }
 
+function getLastUserMessageTimestamp(
+  messages: OrchestrationReadModel["threads"][number]["messages"],
+): string {
+  let lastUserMessageAt = "";
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role === "user") {
+      lastUserMessageAt = message.createdAt;
+      break;
+    }
+  }
+  return lastUserMessageAt;
+}
+
+function getProjectLastUserMessageAt(
+  projectId: string,
+  threads: OrchestrationReadModel["threads"],
+): string {
+  let latestTimestamp = "";
+  for (const thread of threads) {
+    if (thread.projectId !== projectId) continue;
+    if (thread.deletedAt !== null || thread.archivedAt !== null) continue;
+    const threadLastUserAt = getLastUserMessageTimestamp(thread.messages);
+    if (threadLastUserAt && (!latestTimestamp || threadLastUserAt > latestTimestamp)) {
+      latestTimestamp = threadLastUserAt;
+    }
+  }
+  return latestTimestamp;
+}
+
 function mapRemoteProjectsFromSnapshot(
   snapshot: OrchestrationReadModel,
+  sortOrder: "updated_at" | "created_at" | "last_user_message" = "last_user_message",
 ): RemoteSidebarProjectEntry[] {
+  const sortByLastUserMessage = (a: string, b: string) => {
+    if (!a && !b) return 0;
+    if (!a) return 1;
+    if (!b) return -1;
+    return b.localeCompare(a);
+  };
+
+  const sortFn =
+    sortOrder === "created_at"
+      ? (a: RemoteSidebarProjectEntry, b: RemoteSidebarProjectEntry) =>
+          b.createdAt.localeCompare(a.createdAt)
+      : sortOrder === "last_user_message"
+        ? (a: RemoteSidebarProjectEntry, b: RemoteSidebarProjectEntry) =>
+            sortByLastUserMessage(a.lastUserMessageAt, b.lastUserMessageAt)
+        : (a: RemoteSidebarProjectEntry, b: RemoteSidebarProjectEntry) =>
+            b.updatedAt.localeCompare(a.updatedAt);
+
+  const sortThreadsFn = (threads: RemoteSidebarThreadEntry[]) =>
+    [...threads].sort((a, b) => {
+      if (sortOrder === "created_at") {
+        return b.updatedAt.localeCompare(a.updatedAt);
+      }
+      if (sortOrder === "last_user_message") {
+        return sortByLastUserMessage(a.lastUserMessageAt, b.lastUserMessageAt);
+      }
+      return b.updatedAt.localeCompare(a.updatedAt);
+    });
+
   const threadsByProjectId = new Map<string, RemoteSidebarThreadEntry[]>();
   for (const thread of snapshot.threads) {
     if (thread.deletedAt !== null || thread.archivedAt !== null) {
       continue;
     }
     const projectThreads = threadsByProjectId.get(thread.projectId) ?? [];
+    const lastUserMessageAt = getLastUserMessageTimestamp(thread.messages);
     projectThreads.push({
       id: thread.id,
       title: thread.title,
       updatedAt: thread.updatedAt,
+      lastUserMessageAt: lastUserMessageAt || thread.updatedAt,
     });
     threadsByProjectId.set(thread.projectId, projectThreads);
   }
 
-  return sortByUpdatedAtDescending(
-    snapshot.projects
-      .filter((project) => project.deletedAt === null && project.archivedAt === null)
-      .map((project) => ({
+  return snapshot.projects
+    .filter((project) => project.deletedAt === null && project.archivedAt === null)
+    .map((project) => {
+      const projectThreads = threadsByProjectId.get(project.id) ?? [];
+      const lastUserMessageAt =
+        getProjectLastUserMessageAt(project.id, snapshot.threads) || project.updatedAt;
+      return {
         id: project.id,
         name: project.title,
         cwd: project.workspaceRoot,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
+        lastUserMessageAt,
         icon: project.icon ?? null,
         defaultModelSelection: project.defaultModelSelection,
-        threads: sortByUpdatedAtDescending(threadsByProjectId.get(project.id) ?? []),
-      })),
-  );
+        threads: sortThreadsFn(projectThreads),
+      };
+    })
+    .sort(sortFn);
 }
 
 function getCachedSortedSidebarThreads(
@@ -946,7 +1012,10 @@ export default function Sidebar() {
               ...LEAN_SNAPSHOT_RECOVERY_INPUT,
               connectionUrl,
             });
-            const mappedProjects = mapRemoteProjectsFromSnapshot(snapshot);
+            const mappedProjects = mapRemoteProjectsFromSnapshot(
+              snapshot,
+              appSettings.sidebarProjectSortOrder,
+            );
             const projects = previousEntry
               ? reuseRemoteProjectEntries(previousEntry.projects, mappedProjects)
               : mappedProjects;
@@ -2876,6 +2945,8 @@ export default function Sidebar() {
     activeWsUrl,
     localDeviceConnectionUrl,
     threadIdsByProjectId,
+    projectSortOrder: appSettings.sidebarProjectSortOrder,
+    threadSortOrder: appSettings.sidebarThreadSortOrder,
     onStartAddProject: handleStartAddProject,
     onStartNewThreadForProject: handleStartNewThreadForProject,
     onStartNewThreadForRemoteProject: (input) => {
