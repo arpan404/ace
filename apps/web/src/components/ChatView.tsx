@@ -202,7 +202,10 @@ import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
-import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
+import ThreadTerminalDrawer, {
+  type TerminalSessionOverview,
+  type TerminalSessionOverviewItem,
+} from "./ThreadTerminalDrawer";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NewThreadLanding } from "./chat/NewThreadLanding";
 import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
@@ -333,6 +336,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const trackActiveThread = useUiStateStore((store) => store.trackActiveThread);
   const trackedActiveThreadId = useUiStateStore((store) => store.activeThreadId);
   const previousActiveThreadId = useUiStateStore((store) => store.previousActiveThreadId);
+  const threadLastVisitedAtById = useUiStateStore((store) => store.threadLastVisitedAtById);
   const activeThreadLastVisitedAt = useUiStateStore(
     (store) => store.threadLastVisitedAtById[threadId],
   );
@@ -530,6 +534,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const threadTerminalState = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadId, threadId),
   );
+  const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
   const storeSetTerminalOpen = useTerminalStateStore((s) => s.setTerminalOpen);
   const storeSetTerminalHeight = useTerminalStateStore((s) => s.setTerminalHeight);
   const storeSetTerminalSidebarWidth = useTerminalStateStore((s) => s.setTerminalSidebarWidth);
@@ -3360,9 +3365,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const clearTerminal = useCallback(
     (terminalId: string) => {
-      const api = readNativeApi();
       const descriptor = resolveTerminalDescriptor(terminalId);
-      if (!descriptor || !api) return;
+      if (!descriptor) return;
+      const api = readNativeApi();
+      if (!api) return;
       storeSetTerminalAutoTitle(descriptor.runtimeThreadId, descriptor.runtimeTerminalId, null);
       runAsyncTask(
         api.terminal.clear({
@@ -3373,6 +3379,57 @@ export default function ChatView({ threadId }: ChatViewProps) {
       );
     },
     [resolveTerminalDescriptor, storeSetTerminalAutoTitle],
+  );
+  const closeTerminalTarget = useCallback(
+    (targetThreadId: ThreadId, targetTerminalId: string) => {
+      const api = readNativeApi();
+      if (!api) return;
+      const targetTerminalState = selectThreadTerminalState(
+        terminalStateByThreadId,
+        targetThreadId,
+      );
+      const isFinalTerminal = targetTerminalState.terminalIds.length <= 1;
+      const fallbackExitWrite = () =>
+        api.terminal
+          .write({
+            threadId: targetThreadId,
+            terminalId: targetTerminalId,
+            data: "exit\n",
+          })
+          .catch((error) => {
+            reportBackgroundError(
+              "Failed to write the terminal exit fallback from ChatView.",
+              error,
+            );
+          });
+      if ("close" in api.terminal && typeof api.terminal.close === "function") {
+        void (async () => {
+          if (isFinalTerminal) {
+            await api.terminal
+              .clear({
+                threadId: targetThreadId,
+                terminalId: targetTerminalId,
+              })
+              .catch((error) => {
+                reportBackgroundError(
+                  "Failed to clear the final terminal before closing it from ChatView.",
+                  error,
+                );
+              });
+          }
+          await api.terminal.close({
+            threadId: targetThreadId,
+            terminalId: targetTerminalId,
+            deleteHistory: true,
+          });
+        })().catch(() => fallbackExitWrite());
+      } else {
+        void fallbackExitWrite();
+      }
+      storeCloseTerminal(targetThreadId, targetTerminalId);
+      setTerminalFocusRequestId((value) => value + 1);
+    },
+    [storeCloseTerminal, terminalStateByThreadId],
   );
   const restartTerminal = useCallback(
     (terminalId: string) => {
@@ -3510,52 +3567,111 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [activeThreadId, resolveScopeThreadId, resolvedActiveTerminalScope, storeClearTerminalState]);
   const closeTerminal = useCallback(
     (terminalId: string) => {
-      const api = readNativeApi();
       const descriptor = resolveTerminalDescriptor(terminalId);
-      if (!descriptor || !activeThreadId || !api) return;
-      const scopeState = resolveScopeState(descriptor.scope);
-      const isFinalTerminal = scopeState.terminalIds.length <= 1;
-      const fallbackExitWrite = () =>
-        api.terminal
-          .write({
-            threadId: descriptor.runtimeThreadId,
-            terminalId: descriptor.runtimeTerminalId,
-            data: "exit\n",
-          })
-          .catch((error) => {
-            reportBackgroundError(
-              "Failed to write the terminal exit fallback from ChatView.",
-              error,
-            );
-          });
-      if ("close" in api.terminal && typeof api.terminal.close === "function") {
-        void (async () => {
-          if (isFinalTerminal) {
-            await api.terminal
-              .clear({
-                threadId: descriptor.runtimeThreadId,
-                terminalId: descriptor.runtimeTerminalId,
-              })
-              .catch((error) => {
-                reportBackgroundError(
-                  "Failed to clear the final terminal before closing it from ChatView.",
-                  error,
-                );
-              });
-          }
-          await api.terminal.close({
-            threadId: descriptor.runtimeThreadId,
-            terminalId: descriptor.runtimeTerminalId,
-            deleteHistory: true,
-          });
-        })().catch(() => fallbackExitWrite());
-      } else {
-        void fallbackExitWrite();
-      }
-      storeCloseTerminal(descriptor.runtimeThreadId, descriptor.runtimeTerminalId);
-      setTerminalFocusRequestId((value) => value + 1);
+      if (!descriptor || !activeThreadId) return;
+      closeTerminalTarget(descriptor.runtimeThreadId, descriptor.runtimeTerminalId);
     },
-    [activeThreadId, resolveScopeState, resolveTerminalDescriptor, storeCloseTerminal],
+    [activeThreadId, closeTerminalTarget, resolveTerminalDescriptor],
+  );
+  const sessionTerminalOverview = useMemo<TerminalSessionOverview>(() => {
+    const overviewEntries: Array<TerminalSessionOverviewItem & { lastVisitedAtMs: number }> = [];
+    for (const threadWithTerminalsId of Object.keys(terminalStateByThreadId) as ThreadId[]) {
+      const terminalStateForThread = selectThreadTerminalState(
+        terminalStateByThreadId,
+        threadWithTerminalsId,
+      );
+      const threadWithTerminals = getThreadById(threads, threadWithTerminalsId);
+      if (!threadWithTerminals || threadWithTerminals.archivedAt) {
+        continue;
+      }
+      const lastVisitedAtMs = Date.parse(
+        threadLastVisitedAtById[threadWithTerminalsId] ??
+          threadWithTerminals.updatedAt ??
+          threadWithTerminals.createdAt,
+      );
+      for (const runtimeTerminalId of terminalStateForThread.terminalIds) {
+        overviewEntries.push({
+          id: `${threadWithTerminalsId}:${runtimeTerminalId}`,
+          threadId: threadWithTerminalsId,
+          runtimeTerminalId,
+          terminalLabel:
+            terminalStateForThread.customTerminalTitlesById[runtimeTerminalId] ??
+            terminalStateForThread.autoTerminalTitlesById[runtimeTerminalId] ??
+            "Terminal",
+          threadTitle: threadWithTerminals.title,
+          isRunning: terminalStateForThread.runningTerminalIds.includes(runtimeTerminalId),
+          isCurrentThread: threadWithTerminalsId === activeThreadId,
+          isActive:
+            threadWithTerminalsId === activeThreadId &&
+            terminalStateForThread.activeTerminalId === runtimeTerminalId,
+          icon: terminalStateForThread.terminalIconsById[runtimeTerminalId] ?? null,
+          color: terminalStateForThread.terminalColorsById[runtimeTerminalId] ?? null,
+          lastVisitedAtMs: Number.isFinite(lastVisitedAtMs) ? lastVisitedAtMs : 0,
+        });
+      }
+    }
+    const sortOverviewEntries = (
+      left: TerminalSessionOverviewItem & { lastVisitedAtMs: number },
+      right: TerminalSessionOverviewItem & { lastVisitedAtMs: number },
+    ) => {
+      if (left.isCurrentThread !== right.isCurrentThread) {
+        return left.isCurrentThread ? -1 : 1;
+      }
+      if (left.lastVisitedAtMs !== right.lastVisitedAtMs) {
+        return right.lastVisitedAtMs - left.lastVisitedAtMs;
+      }
+      return left.terminalLabel.localeCompare(right.terminalLabel);
+    };
+    return {
+      live: overviewEntries
+        .filter((entry) => entry.isRunning)
+        .toSorted(sortOverviewEntries)
+        .map(({ lastVisitedAtMs: _lastVisitedAtMs, ...entry }) => entry),
+      recent: overviewEntries
+        .filter((entry) => !entry.isRunning)
+        .toSorted(sortOverviewEntries)
+        .slice(0, 5)
+        .map(({ lastVisitedAtMs: _lastVisitedAtMs, ...entry }) => entry),
+    };
+  }, [activeThreadId, terminalStateByThreadId, threadLastVisitedAtById, threads]);
+  const activateSessionTerminal = useCallback(
+    (item: TerminalSessionOverviewItem) => {
+      storeSetTerminalOpen(item.threadId, true);
+      storeSetActiveTerminal(item.threadId, item.runtimeTerminalId);
+      if (item.threadId === activeThreadId) {
+        setActiveTerminalScope("thread");
+        setTerminalFocusRequestId((value) => value + 1);
+        return;
+      }
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: item.threadId },
+      });
+    },
+    [activeThreadId, navigate, storeSetActiveTerminal, storeSetTerminalOpen],
+  );
+  const handleSessionTerminalAction = useCallback(
+    (item: TerminalSessionOverviewItem, action: "open" | "clear" | "close") => {
+      if (action === "open") {
+        activateSessionTerminal(item);
+        return;
+      }
+      const api = readNativeApi();
+      if (!api) return;
+      if (action === "clear") {
+        storeSetTerminalAutoTitle(item.threadId, item.runtimeTerminalId, null);
+        runAsyncTask(
+          api.terminal.clear({
+            threadId: item.threadId,
+            terminalId: item.runtimeTerminalId,
+          }),
+          "Failed to clear a session terminal from ChatView.",
+        );
+        return;
+      }
+      closeTerminalTarget(item.threadId, item.runtimeTerminalId);
+    },
+    [activateSessionTerminal, closeTerminalTarget, storeSetTerminalAutoTitle],
   );
   const runProjectScript = useCallback(
     async (
@@ -6706,6 +6822,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           onSidebarWidthChange: setTerminalSidebarWidth,
           onSidebarDensityChange: setTerminalSidebarDensity,
           onAddTerminalContext: addTerminalContextToDraft,
+          sessionOverview: sessionTerminalOverview,
+          onSessionTerminalSelect: activateSessionTerminal,
+          onSessionTerminalAction: handleSessionTerminalAction,
         }
       : null;
   const expandedImageOverlay =

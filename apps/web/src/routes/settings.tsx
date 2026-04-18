@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { AppPageTopBar } from "../components/AppPageTopBar";
 import { useSettingsRestore } from "../components/settings/SettingsPanels";
 import { getSettingsNavItem } from "../components/settings/settingsNavigation";
+import { HEADER_PILL_CONTROL_CLASS_NAME, TopBarCluster } from "../components/thread/TopBarCluster";
 import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
 
@@ -39,16 +40,18 @@ function SettingsContentLayout() {
             <h1 className="min-w-0 flex-1 truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80">
               {currentItem.label}
             </h1>
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={changedSettingLabels.length === 0}
-              onClick={() => void restoreDefaults()}
-              className="shrink-0"
-            >
-              <RotateCcwIcon className="size-3.5" />
-              Restore defaults
-            </Button>
+            <TopBarCluster className="shrink-0">
+              <Button
+                size="default"
+                variant="ghost"
+                disabled={changedSettingLabels.length === 0}
+                onClick={() => void restoreDefaults()}
+                className={HEADER_PILL_CONTROL_CLASS_NAME}
+              >
+                <RotateCcwIcon className="size-3.5" />
+                Restore defaults
+              </Button>
+            </TopBarCluster>
           </div>
         </AppPageTopBar>
 

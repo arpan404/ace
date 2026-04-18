@@ -67,16 +67,16 @@ export function NewThreadLanding() {
         </div>
       </AppPageTopBar>
 
-      <div className="relative flex flex-1 items-center justify-center overflow-x-hidden overflow-y-auto px-6 py-12 sm:px-10">
+      <div className="relative flex flex-1 items-center justify-center overflow-x-hidden overflow-y-auto px-5 py-10 sm:px-10 sm:py-12">
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <div className="absolute inset-0 bg-muted/5" />
         </div>
 
         <section className="relative flex w-full max-w-2xl flex-col items-center text-center">
-          <div className="mb-8">
-            <HammerIcon className="size-10 text-foreground/60" aria-hidden="true" />
+          <div className="mb-6 sm:mb-8">
+            <HammerIcon className="size-9 text-foreground/60 sm:size-10" aria-hidden="true" />
           </div>
-          <h1 className="text-balance text-5xl font-semibold tracking-tight sm:text-6xl">
+          <h1 className="text-balance text-4xl font-semibold tracking-tight sm:text-6xl">
             Let's build
           </h1>
 
@@ -84,12 +84,16 @@ export function NewThreadLanding() {
             <>
               <ProjectContextSwitcher
                 activeProjectId={activeProjectId}
-                className="mt-4"
+                className="mt-4 max-w-full"
                 onSelectProject={setSelectedProjectId}
                 variant="hero"
               />
-              <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-                <Button size="lg" onClick={startNewThread}>
+              <div className="mt-7 flex w-full flex-wrap items-center justify-center gap-3 sm:mt-8">
+                <Button
+                  size="lg"
+                  onClick={startNewThread}
+                  className="h-10.5 w-full rounded-[var(--control-radius)] px-4.5 text-sm sm:h-11 sm:w-auto sm:px-5"
+                >
                   Start new thread
                   <ArrowRightIcon className="size-4.5" />
                 </Button>
@@ -101,7 +105,7 @@ export function NewThreadLanding() {
                 Add a project from the sidebar to get started. Once a project is available, new
                 threads open with visible project context and a quick switcher.
               </p>
-              <div className="mt-8 inline-flex items-center gap-2 rounded-md border border-dashed border-border/50 bg-muted/20 px-4 py-2.5 text-sm text-muted-foreground">
+              <div className="mt-8 inline-flex items-center gap-2 rounded-[var(--control-radius)] border border-dashed border-border/50 bg-muted/20 px-4 py-2.5 text-sm text-muted-foreground">
                 <PlusIcon className="size-4" />
                 Use the Add project button in the sidebar.
               </div>

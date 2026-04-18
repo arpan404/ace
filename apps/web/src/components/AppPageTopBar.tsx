@@ -6,6 +6,7 @@ import {
   MAC_TITLEBAR_LEFT_INSET_STYLE,
 } from "../lib/desktopChrome";
 import { cn } from "../lib/utils";
+import { HEADER_PILL_ICON_TRIGGER_CLASS_NAME } from "./thread/TopBarCluster";
 import { SidebarTrigger, useSidebar } from "./ui/sidebar";
 
 interface AppPageTopBarProps {
@@ -15,21 +16,30 @@ interface AppPageTopBarProps {
 }
 
 export function AppPageTopBar({ children, className, contentClassName }: AppPageTopBarProps) {
-  const { state: sidebarState } = useSidebar();
+  const { isMobile, state: sidebarState } = useSidebar();
+  const showHeaderSidebarTrigger = isMobile || sidebarState === "collapsed";
 
   return (
     <header
       className={cn(
         "relative z-30 w-full shrink-0 border-b border-sidebar-border bg-sidebar",
         isElectron
-          ? "drag-region flex min-h-[52px] items-center px-4 sm:px-6"
-          : "px-4 py-3 sm:px-6 sm:py-3.5",
+          ? "drag-region flex min-h-[48px] items-center px-3.5 sm:px-6"
+          : "px-3.5 py-1.5 sm:px-6 sm:py-2",
         className,
       )}
       style={isElectron && sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined}
     >
-      <div className={cn("flex min-w-0 flex-1 items-center gap-2.5", contentClassName)}>
-        <SidebarTrigger className={cn("shrink-0", DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME)} />
+      <div className={cn("flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2", contentClassName)}>
+        {showHeaderSidebarTrigger ? (
+          <SidebarTrigger
+            className={cn(
+              "shrink-0",
+              DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+              HEADER_PILL_ICON_TRIGGER_CLASS_NAME,
+            )}
+          />
+        ) : null}
         {children}
       </div>
     </header>
