@@ -11,8 +11,8 @@ import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
 import {
-  BotIcon,
   ArrowLeftRightIcon,
+  BrainIcon,
   CheckIcon,
   CircleAlertIcon,
   ChevronDownIcon,
@@ -281,7 +281,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const groupId = workGroupId(row.id);
             const isExpanded = expandedWorkGroups[groupId] ?? false;
             const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon;
-            const disclosureLabel = summarizeWorkGroupLabel(row.entries, row.summaryEndAt);
             const breakdownParts = summarizeWorkGroupBreakdownParts(row.entries);
             const hasThinkingEntries = row.entries.some(
               (entry) => entry.kind === "work" && entry.workEntry.tone === "thinking",
@@ -308,7 +307,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               <div className="min-w-0 py-0.5" data-thread-group={threadGroupTone}>
                 <button
                   type="button"
-                  className="w-full text-left"
+                  className="group/disclosure w-full text-left"
                   onClick={() => onToggleWorkGroup(groupId)}
                   data-meta-disclosure="true"
                   data-meta-disclosure-open={String(isExpanded)}
@@ -319,10 +318,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   data-tool-disclosure={hasToolEntries ? "true" : undefined}
                   data-tool-disclosure-open={hasToolEntries ? String(isExpanded) : undefined}
                 >
-                  <div className="flex min-w-0 items-center gap-2.5 border-border/45 border-b pb-1.5 transition-colors duration-100 hover:text-foreground/92">
+                  <div className="flex min-w-0 items-center gap-2.5 border-b border-transparent pb-1.5 transition-colors duration-100 group-hover/disclosure:border-border/55 group-hover/disclosure:text-foreground/92">
                     <ChevronIcon
+                      strokeWidth={2.5}
                       className={cn(
-                        "size-3.5 shrink-0 text-muted-foreground/52 transition-transform duration-150",
+                        "size-3.5 shrink-0 text-muted-foreground/64 transition-transform duration-150",
                         metaToneTextClass(surfaceTone),
                       )}
                     />
@@ -331,22 +331,30 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         {breakdownParts.map((part, index) => (
                           <Fragment key={`${row.id}:summary:${part.label}:${part.count}`}>
                             {index > 0 && (
-                              <span className="shrink-0 text-muted-foreground/30">·</span>
+                              <span className="shrink-0 text-muted-foreground/52">·</span>
                             )}
                             <span
-                              className="min-w-0 truncate"
+                              className="min-w-0 truncate font-semibold text-foreground/88"
                               title={`${part.count} ${part.label}`}
                             >
-                              {part.count} {part.label}
+                              <span className="inline-flex items-baseline gap-1">
+                                <span>{part.count}</span>
+                                <span>{part.label}</span>
+                              </span>
                             </span>
                           </Fragment>
                         ))}
                       </div>
                     </div>
-                    <div className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground/52">
-                      <Clock3Icon className="size-3 shrink-0" />
-                      <span>{elapsedLabel ?? disclosureLabel}</span>
-                    </div>
+                    {elapsedLabel && (
+                      <div
+                        className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground/60"
+                        data-meta-disclosure-elapsed={elapsedLabel}
+                      >
+                        <Clock3Icon className="size-3.5 shrink-0" strokeWidth={2.4} />
+                        <span>{elapsedLabel}</span>
+                      </div>
+                    )}
                   </div>
                 </button>
                 {isExpanded && (
@@ -1193,13 +1201,6 @@ function metaToneTextClass(tone: TimelineMetaTone): string {
   return "text-muted-foreground/45";
 }
 
-function summarizeWorkGroupLabel(
-  entries: ReadonlyArray<TimelineMetaGroupEntry>,
-  summaryEndAt: string | null,
-): string {
-  return summarizeWorkGroupElapsedLabel(entries, summaryEndAt) ?? "Activity log";
-}
-
 function summarizeWorkGroupElapsedLabel(
   entries: ReadonlyArray<TimelineMetaGroupEntry>,
   summaryEndAt: string | null,
@@ -1209,8 +1210,7 @@ function summarizeWorkGroupElapsedLabel(
     firstEntry && summaryEndAt
       ? formatCompletedWorkTimer(firstEntry.createdAt, summaryEndAt)
       : null;
-
-  return duration ? `Elapsed ${duration}` : null;
+  return duration;
 }
 
 function formatCompletedWorkTimer(startIso: string, endIso: string): string | null {
@@ -1253,6 +1253,7 @@ function summarizeWorkGroupBreakdownParts(entries: ReadonlyArray<TimelineMetaGro
   const infoCount = entries.filter(
     (entry) => entry.kind === "work" && entry.workEntry.tone === "info",
   ).length;
+  const eventCount = intentCount + infoCount;
   const parts: Array<{ label: string; count: number }> = [];
 
   if (intentCount > 0) {
@@ -1270,8 +1271,8 @@ function summarizeWorkGroupBreakdownParts(entries: ReadonlyArray<TimelineMetaGro
   if (errorCount > 0) {
     parts.push({ label: errorCount === 1 ? "issue" : "issues", count: errorCount });
   }
-  if (infoCount > 0) {
-    parts.push({ label: infoCount === 1 ? "event" : "events", count: infoCount });
+  if (eventCount > 0) {
+    parts.push({ label: eventCount === 1 ? "event" : "events", count: eventCount });
   }
 
   if (parts.length > 0) {
@@ -1662,7 +1663,7 @@ function workToneIcon(tone: TimelineWorkEntry["tone"]): {
   }
   if (tone === "thinking") {
     return {
-      icon: BotIcon,
+      icon: BrainIcon,
       className: "text-foreground/92",
     };
   }
