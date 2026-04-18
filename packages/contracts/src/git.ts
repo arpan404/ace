@@ -41,6 +41,8 @@ const GitPushStepStatus = Schema.Literals([
 const GitBranchStepStatus = Schema.Literals(["created", "skipped_not_requested"]);
 const GitPrStepStatus = Schema.Literals(["created", "opened_existing", "skipped_not_requested"]);
 const GitStatusPrState = Schema.Literals(["open", "closed", "merged"]);
+export const GitWorkingTreeFileStatus = Schema.Literals(["A", "M", "D", "U", "R", "C"]);
+export type GitWorkingTreeFileStatus = typeof GitWorkingTreeFileStatus.Type;
 const GitPullRequestReference = TrimmedNonEmptyStringSchema;
 const GitPullRequestState = Schema.Literals(["open", "closed", "merged"]);
 const GitPreparePullRequestThreadMode = Schema.Literals(["local", "worktree"]);
@@ -252,6 +254,7 @@ export const GitStatusResult = Schema.Struct({
     files: Schema.Array(
       Schema.Struct({
         path: TrimmedNonEmptyStringSchema,
+        status: Schema.optional(GitWorkingTreeFileStatus),
         insertions: NonNegativeInt,
         deletions: NonNegativeInt,
       }),

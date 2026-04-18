@@ -18,7 +18,7 @@ import {
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError } from "@ace/contracts";
+import { GitCommandError, type GitWorkingTreeFileStatus } from "@ace/contracts";
 import {
   GitCore,
   type ExecuteGitProgress,
@@ -143,6 +143,76 @@ function parsePorcelainPath(line: string): string | null {
   const parts = line.trim().split(/\s+/g);
   const filePath = parts.at(-1) ?? "";
   return filePath.length > 0 ? filePath : null;
+}
+
+function rankWorkingTreeFileStatus(status: GitWorkingTreeFileStatus): number {
+  switch (status) {
+    case "C":
+      return 0;
+    case "U":
+      return 1;
+    case "A":
+      return 2;
+    case "D":
+      return 3;
+    case "R":
+      return 4;
+    case "M":
+    default:
+      return 5;
+  }
+}
+
+function mergeWorkingTreeFileStatus(
+  current: GitWorkingTreeFileStatus | undefined,
+  next: GitWorkingTreeFileStatus,
+): GitWorkingTreeFileStatus {
+  if (!current) {
+    return next;
+  }
+  return rankWorkingTreeFileStatus(next) < rankWorkingTreeFileStatus(current) ? next : current;
+}
+
+function statusFromPorcelainCode(code: string): GitWorkingTreeFileStatus | null {
+  if (code.includes("U")) {
+    return "C";
+  }
+  if (code.includes("A")) {
+    return "A";
+  }
+  if (code.includes("D")) {
+    return "D";
+  }
+  if (code.includes("R")) {
+    return "R";
+  }
+  if (code.includes("M") || code.includes("T")) {
+    return "M";
+  }
+  return null;
+}
+
+function parsePorcelainFileStatus(
+  line: string,
+): { path: string; status: GitWorkingTreeFileStatus } | null {
+  if (line.startsWith("? ")) {
+    const path = parsePorcelainPath(line);
+    return path ? { path, status: "U" } : null;
+  }
+
+  if (line.startsWith("u ")) {
+    const path = parsePorcelainPath(line);
+    return path ? { path, status: "C" } : null;
+  }
+
+  if (!(line.startsWith("1 ") || line.startsWith("2 "))) {
+    return null;
+  }
+
+  const code = line.trim().split(/\s+/g)[1] ?? "";
+  const status = statusFromPorcelainCode(code);
+  const path = parsePorcelainPath(line);
+  return status && path ? { path, status } : null;
 }
 
 function parseBranchLine(line: string): { name: string; current: boolean } | null {
@@ -1120,6 +1190,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     let behindCount = 0;
     let hasWorkingTreeChanges = false;
     const changedFilesWithoutNumstat = new Set<string>();
+    const changedFileStatusByPath = new Map<string, GitWorkingTreeFileStatus>();
 
     for (const line of statusStdout.split(/\r?\n/g)) {
       if (line.startsWith("# branch.head ")) {
@@ -1143,6 +1214,16 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
         hasWorkingTreeChanges = true;
         const pathValue = parsePorcelainPath(line);
         if (pathValue) changedFilesWithoutNumstat.add(pathValue);
+        const fileStatus = parsePorcelainFileStatus(line);
+        if (fileStatus) {
+          changedFileStatusByPath.set(
+            fileStatus.path,
+            mergeWorkingTreeFileStatus(
+              changedFileStatusByPath.get(fileStatus.path),
+              fileStatus.status,
+            ),
+          );
+        }
       }
     }
 
@@ -1169,13 +1250,31 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       .map(([filePath, stat]) => {
         insertions += stat.insertions;
         deletions += stat.deletions;
-        return { path: filePath, insertions: stat.insertions, deletions: stat.deletions };
+        const status = changedFileStatusByPath.get(filePath);
+        const file = {
+          path: filePath,
+          insertions: stat.insertions,
+          deletions: stat.deletions,
+        };
+        if (status) {
+          Object.assign(file, { status });
+        }
+        return file;
       })
       .toSorted((a, b) => a.path.localeCompare(b.path));
 
     for (const filePath of changedFilesWithoutNumstat) {
       if (fileStatMap.has(filePath)) continue;
-      files.push({ path: filePath, insertions: 0, deletions: 0 });
+      const status = changedFileStatusByPath.get(filePath);
+      const file = {
+        path: filePath,
+        insertions: 0,
+        deletions: 0,
+      };
+      if (status) {
+        Object.assign(file, { status });
+      }
+      files.push(file);
     }
     files.sort((a, b) => a.path.localeCompare(b.path));
 

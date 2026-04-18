@@ -1,6 +1,7 @@
 import { DiffEditor } from "@monaco-editor/react";
 import type {
   EditorId,
+  GitWorkingTreeFileStatus,
   ProjectEntry,
   ProjectReadFileResult,
   ResolvedKeybindingsConfig,
@@ -42,6 +43,7 @@ import { useSettings } from "~/hooks/useSettings";
 import { useUpdateSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { isTerminalFocused } from "~/lib/terminalFocus";
+import { gitStatusQueryOptions } from "~/lib/gitReactQuery";
 import { normalizePaneRatios, resizePaneRatios } from "~/lib/paneRatios";
 import {
   projectListTreeQueryOptions,
@@ -57,7 +59,6 @@ import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 import { OpenInEditorMenuSection } from "../chat/OpenInPicker";
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import {
@@ -143,7 +144,7 @@ const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
                 <Button
                   variant="outline"
                   size="icon-xs"
-                  className="size-6 shrink-0 border-border/60 bg-background/80 text-muted-foreground hover:text-foreground"
+                  className="size-6 shrink-0 rounded-sm border-transparent bg-transparent text-muted-foreground/75 hover:bg-foreground/6 hover:text-foreground"
                   aria-label="Open workspace in external editor"
                 />
               }
@@ -349,6 +350,130 @@ function buildExplorerRenderRows(
   return baseRows;
 }
 
+function isContentSearchQuery(query: string): boolean {
+  const trimmed = query.trim().toLowerCase();
+  return trimmed.startsWith("in:") || trimmed.startsWith("content:") || trimmed.startsWith("inre:");
+}
+
+function scoreSubsequenceMatch(value: string, query: string): number | null {
+  if (!query) return 0;
+
+  let queryIndex = 0;
+  let firstMatchIndex = -1;
+  let previousMatchIndex = -1;
+  let gapPenalty = 0;
+
+  for (let valueIndex = 0; valueIndex < value.length; valueIndex += 1) {
+    if (value[valueIndex] !== query[queryIndex]) {
+      continue;
+    }
+
+    if (firstMatchIndex === -1) {
+      firstMatchIndex = valueIndex;
+    }
+    if (previousMatchIndex !== -1) {
+      gapPenalty += valueIndex - previousMatchIndex - 1;
+    }
+
+    previousMatchIndex = valueIndex;
+    queryIndex += 1;
+    if (queryIndex === query.length) {
+      const spanPenalty = valueIndex - firstMatchIndex + 1 - query.length;
+      const lengthPenalty = Math.min(64, value.length - query.length);
+      return firstMatchIndex * 2 + gapPenalty * 3 + spanPenalty + lengthPenalty;
+    }
+  }
+
+  return null;
+}
+
+function compileExplorerPathRegex(query: string): RegExp | null {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  try {
+    return new RegExp(trimmed, "i");
+  } catch {
+    return null;
+  }
+}
+
+function searchWorkspaceEntriesLocally(
+  entries: readonly ProjectEntry[],
+  query: string,
+): readonly ProjectEntry[] {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) {
+    return entries;
+  }
+
+  const lowerTrimmed = trimmed.toLowerCase();
+  if (lowerTrimmed.startsWith("re:")) {
+    const regex = compileExplorerPathRegex(trimmed.slice(3));
+    if (!regex) {
+      return EMPTY_PROJECT_ENTRIES;
+    }
+    return entries.filter((entry) => regex.test(entry.path));
+  }
+
+  const normalizedQuery = lowerTrimmed.replace(/^[@./]+/, "");
+  if (normalizedQuery.length === 0) {
+    return entries;
+  }
+
+  return entries
+    .map((entry) => {
+      const normalizedPath = entry.path.toLowerCase();
+      const normalizedName = basenameOfPath(entry.path).toLowerCase();
+      let score: number | null = null;
+
+      if (normalizedName === normalizedQuery) score = 0;
+      else if (normalizedPath === normalizedQuery) score = 1;
+      else if (normalizedName.startsWith(normalizedQuery)) score = 2;
+      else if (normalizedPath.startsWith(normalizedQuery)) score = 3;
+      else if (normalizedPath.includes(`/${normalizedQuery}`)) score = 4;
+      else if (normalizedName.includes(normalizedQuery)) score = 5;
+      else if (normalizedPath.includes(normalizedQuery)) score = 6;
+      else {
+        const fuzzyNameScore = scoreSubsequenceMatch(normalizedName, normalizedQuery);
+        if (fuzzyNameScore !== null) {
+          score = 100 + fuzzyNameScore;
+        } else {
+          const fuzzyPathScore = scoreSubsequenceMatch(normalizedPath, normalizedQuery);
+          if (fuzzyPathScore !== null) {
+            score = 200 + fuzzyPathScore;
+          }
+        }
+      }
+
+      return score === null ? null : { entry, score };
+    })
+    .filter((value): value is { entry: ProjectEntry; score: number } => value !== null)
+    .toSorted(
+      (left, right) => left.score - right.score || left.entry.path.localeCompare(right.entry.path),
+    )
+    .map((value) => value.entry);
+}
+
+function gitDecorationClass(status: GitWorkingTreeFileStatus): string {
+  switch (status) {
+    case "A":
+      return "text-success";
+    case "U":
+      return "text-emerald-500";
+    case "D":
+      return "text-destructive";
+    case "C":
+      return "text-rose-500";
+    case "R":
+      return "text-sky-500";
+    case "M":
+    default:
+      return "text-amber-500";
+  }
+}
+
 function shouldIgnoreEditorShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -364,10 +489,10 @@ function shouldIgnoreEditorShortcutTarget(target: EventTarget | null): boolean {
 }
 
 const FileTreeRow = memo(function FileTreeRow(props: {
-  activeFilePaths: ReadonlySet<string>;
   dragTargetPath: string | null;
   expandedDirectoryPaths: ReadonlySet<string>;
   focusedFilePath: string | null;
+  gitStatus: GitWorkingTreeFileStatus | null;
   onDropEntry: (sourcePath: string, targetParentPath: string | null) => void;
   onFocusEntry: (path: string) => void;
   onHoverDropTarget: (targetParentPath: string | null) => void;
@@ -375,7 +500,6 @@ const FileTreeRow = memo(function FileTreeRow(props: {
   onOpenRowContextMenu: (entry: ProjectEntry, position: { x: number; y: number }) => void;
   onSelectEntry: (path: string) => void;
   onToggleDirectory: (directoryPath: string) => void;
-  openFilePaths: ReadonlySet<string>;
   resolvedTheme: "light" | "dark";
   row: TreeRow;
   searchMode: boolean;
@@ -383,8 +507,6 @@ const FileTreeRow = memo(function FileTreeRow(props: {
 }) {
   const isFocused = props.focusedFilePath === props.row.entry.path;
   const isSelected = props.selectedEntryPath === props.row.entry.path;
-  const isOpen = props.openFilePaths.has(props.row.entry.path);
-  const isActiveElsewhere = props.activeFilePaths.has(props.row.entry.path);
   const dropTargetPath =
     props.row.kind === "directory" ? props.row.entry.path : (props.row.entry.parentPath ?? null);
   const isDropTarget = props.dragTargetPath !== null && props.dragTargetPath === dropTargetPath;
@@ -395,20 +517,18 @@ const FileTreeRow = memo(function FileTreeRow(props: {
     <button
       type="button"
       className={cn(
-        "group flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
+        "group flex h-[22px] w-full items-center gap-1.5 px-2 text-left text-[12px] transition-colors",
         isFocused
-          ? "bg-primary/12 text-foreground shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-primary)_25%,transparent)]"
+          ? "bg-foreground/10 text-foreground"
           : isSelected
-            ? "bg-foreground/6 text-foreground"
+            ? "bg-foreground/7 text-foreground"
             : isDropTarget
-              ? "bg-primary/10 text-foreground"
-              : isOpen
-                ? "bg-foreground/4 text-foreground"
-                : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+              ? "bg-foreground/9 text-foreground"
+              : "text-muted-foreground/90 hover:bg-foreground/5 hover:text-foreground",
       )}
       data-explorer-path={props.row.entry.path}
       style={{
-        paddingLeft: `${props.searchMode ? 8 : 8 + props.row.depth * 14}px`,
+        paddingLeft: `${props.searchMode ? 8 : 8 + props.row.depth * 10}px`,
       }}
       draggable
       onClick={(event) => {
@@ -466,9 +586,15 @@ const FileTreeRow = memo(function FileTreeRow(props: {
       {props.row.kind === "directory" ? (
         props.row.hasChildren ? (
           isExpanded ? (
-            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground/80" />
+            <ChevronDownIcon
+              className="size-3.5 shrink-0 text-muted-foreground/80"
+              strokeWidth={2}
+            />
           ) : (
-            <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/80" />
+            <ChevronRightIcon
+              className="size-3.5 shrink-0 text-muted-foreground/80"
+              strokeWidth={2}
+            />
           )
         ) : (
           <span className="size-3.5 shrink-0" />
@@ -480,21 +606,23 @@ const FileTreeRow = memo(function FileTreeRow(props: {
         pathValue={props.row.entry.path}
         kind={props.row.entry.kind}
         theme={props.resolvedTheme}
-        className="size-4"
+        className="size-[15px]"
       />
-      <span className="min-w-0 flex-1 truncate font-medium">{props.row.name}</span>
+      <span className="min-w-0 flex-1 truncate">{props.row.name}</span>
       {props.searchMode && props.row.entry.parentPath ? (
-        <span className="min-w-0 max-w-[34%] truncate text-[11px] text-muted-foreground/70">
+        <span className="min-w-0 max-w-[34%] truncate text-[10px] text-muted-foreground/65">
           {props.row.entry.parentPath}
         </span>
       ) : null}
-      {props.row.kind === "file" && isOpen ? (
+      {props.row.kind === "file" && props.gitStatus ? (
         <span
           className={cn(
-            "size-1.5 shrink-0 rounded-full",
-            isFocused ? "bg-primary" : isActiveElsewhere ? "bg-sky-500" : "bg-muted-foreground/60",
+            "shrink-0 text-[10px] font-semibold tracking-[0.08em]",
+            gitDecorationClass(props.gitStatus),
           )}
-        />
+        >
+          {props.gitStatus}
+        </span>
       ) : null}
     </button>
   );
@@ -512,9 +640,9 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
 }) {
   return (
     <div
-      className="flex h-8 w-full items-center gap-2 rounded-lg bg-primary/8 px-2"
+      className="flex h-[22px] w-full items-center gap-1.5 bg-foreground/6 px-2"
       style={{
-        paddingLeft: `${props.searchMode ? 8 : 8 + props.depth * 14}px`,
+        paddingLeft: `${props.searchMode ? 8 : 8 + props.depth * 10}px`,
       }}
     >
       <span className="size-3.5 shrink-0" />
@@ -528,7 +656,7 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
         }
         kind={props.state.kind === "create-folder" ? "directory" : "file"}
         theme={props.resolvedTheme}
-        className="size-4"
+        className="size-[15px]"
       />
       <Input
         ref={props.inputRef}
@@ -552,7 +680,7 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
             props.onCancel();
           }
         }}
-        className="h-7"
+        className="h-6 rounded-none border-border/60 bg-background/90 px-1.5 shadow-none"
         size="sm"
       />
     </div>
@@ -693,11 +821,15 @@ export default function ThreadWorkspaceEditor(inputProps: {
       autoIndent: "advanced" as const,
       automaticLayout: true,
       bracketPairColorization: { enabled: true },
-      cursorBlinking: "smooth" as const,
-      cursorSmoothCaretAnimation: "on" as const,
-      cursorSurroundingLines: 3,
-      fontLigatures: true,
-      fontSize: 13.5,
+      cursorBlinking: "blink" as const,
+      cursorSmoothCaretAnimation: "off" as const,
+      cursorSurroundingLines: 2,
+      fontFamily:
+        '"SF Mono", "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+      fontLigatures: false,
+      fontSize: 13,
+      lineHeight: 22,
+      letterSpacing: 0,
       formatOnPaste: true,
       formatOnType: true,
       guides: {
@@ -711,7 +843,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
       minimap: { enabled: editorSettings.minimap },
       mouseWheelZoom: true,
       occurrencesHighlight: "singleFile" as const,
-      padding: { top: 12, bottom: 24 },
+      padding: { top: 0, bottom: 0 },
       parameterHints: { enabled: editorSettings.suggestions },
       quickSuggestions: editorSettings.suggestions
         ? ({
@@ -720,16 +852,16 @@ export default function ThreadWorkspaceEditor(inputProps: {
             strings: true,
           } as const)
         : false,
-      renderLineHighlightOnlyWhenFocus: true,
+      renderLineHighlightOnlyWhenFocus: false,
       renderWhitespace: editorSettings.renderWhitespace ? ("all" as const) : ("none" as const),
-      roundedSelection: true,
+      roundedSelection: false,
       scrollbar: {
-        horizontalScrollbarSize: 10,
+        horizontalScrollbarSize: 14,
         useShadows: false,
-        verticalScrollbarSize: 10,
+        verticalScrollbarSize: 14,
       },
       scrollBeyondLastLine: false,
-      smoothScrolling: true,
+      smoothScrolling: false,
       snippetSuggestions: editorSettings.suggestions ? ("top" as const) : ("none" as const),
       stickyScroll: { enabled: editorSettings.stickyScroll },
       suggest: {
@@ -819,16 +951,27 @@ export default function ThreadWorkspaceEditor(inputProps: {
       staleTime: 0,
     }),
   );
+  const gitStatusQuery = useQuery(gitStatusQueryOptions(props.gitCwd));
+  const remoteSearchEnabled = isContentSearchQuery(deferredTreeSearch);
   const workspaceSearchQuery = useQuery(
     projectSearchEntriesQueryOptions({
       cwd: props.gitCwd,
-      enabled: deferredTreeSearch.length > 0,
+      enabled: remoteSearchEnabled,
       limit: 400,
       query: deferredTreeSearch,
     }),
   );
   const treeEntries = workspaceTreeQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
-  const searchEntries = workspaceSearchQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
+  const localSearchEntries = useMemo(
+    () =>
+      deferredTreeSearch.length > 0 && !remoteSearchEnabled
+        ? searchWorkspaceEntriesLocally(treeEntries, deferredTreeSearch)
+        : EMPTY_PROJECT_ENTRIES,
+    [deferredTreeSearch, remoteSearchEnabled, treeEntries],
+  );
+  const searchEntries = remoteSearchEnabled
+    ? (workspaceSearchQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES)
+    : localSearchEntries;
   const entryByPath = useMemo(
     () => new Map(treeEntries.map((entry) => [entry.path, entry] as const)),
     [treeEntries],
@@ -1023,19 +1166,17 @@ export default function ThreadWorkspaceEditor(inputProps: {
       ),
     [draftsByFilePath],
   );
+  const gitStatusByPath = useMemo(() => {
+    const files = gitStatusQuery.data?.workingTree.files ?? [];
+    return new Map(
+      files
+        .filter((file): file is typeof file & { status: GitWorkingTreeFileStatus } =>
+          Boolean(file.status),
+        )
+        .map((file) => [file.path, file.status] as const),
+    );
+  }, [gitStatusQuery.data?.workingTree.files]);
 
-  const openFilePaths = useMemo(
-    () => new Set(panes.flatMap((pane) => pane.openFilePaths)),
-    [panes],
-  );
-  const activeFilePaths = useMemo(
-    () =>
-      panes
-        .map((pane) => pane.activeFilePath)
-        .filter((path): path is string => typeof path === "string" && path.length > 0),
-    [panes],
-  );
-  const activeFilePathSet = useMemo(() => new Set(activeFilePaths), [activeFilePaths]);
   useEffect(() => {
     if (!activePane?.activeFilePath) {
       return;
@@ -1067,7 +1208,8 @@ export default function ThreadWorkspaceEditor(inputProps: {
   );
   const searchMode = deferredTreeSearch.length > 0;
   const explorerPending =
-    workspaceTreeQuery.isPending || (searchMode && workspaceSearchQuery.isPending);
+    workspaceTreeQuery.isPending ||
+    (searchMode && remoteSearchEnabled && workspaceSearchQuery.isPending);
 
   const rowVirtualizer = useVirtualizer({
     count: explorerRows.length,
@@ -1995,111 +2137,31 @@ export default function ThreadWorkspaceEditor(inputProps: {
   ]);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,color-mix(in_oklch,var(--background)_92%,var(--card)_8%)_0%,var(--background)_100%)]">
-      <div className="flex h-10 items-center justify-between border-border/60 border-b bg-card/86 px-3 backdrop-blur supports-[backdrop-filter]:bg-card/72">
-        <div className="flex min-w-0 items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-xs"
-                  className="size-7 rounded-md border-border/60 bg-background/70 text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={
-                    explorerOpen ? "Collapse workspace sidebar" : "Expand workspace sidebar"
-                  }
-                  onClick={() => {
-                    setExplorerOpen(props.threadId, !explorerOpen);
-                  }}
-                >
-                  {explorerOpen ? (
-                    <PanelLeftCloseIcon className="size-3.5" />
-                  ) : (
-                    <PanelLeftIcon className="size-3.5" />
-                  )}
-                </Button>
-              }
-            />
-            <TooltipPopup side="bottom">
-              {explorerOpen ? "Collapse workspace explorer" : "Expand workspace explorer"}
-            </TooltipPopup>
-          </Tooltip>
-          <div className="h-4 w-px bg-border/60" />
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground/72 uppercase">
-                Workspace
-              </span>
-              <Badge variant="outline" size="sm" className="h-5 rounded-sm px-1.5 text-[10px]">
-                {workspaceFileCount}
-              </Badge>
-            </div>
-            <p className="truncate text-[12px] font-medium text-foreground/88">{workspaceLabel}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {workspaceTreeQuery.data?.truncated ? (
-            <Badge variant="warning" size="sm" className="rounded-sm">
-              Partial index
-            </Badge>
-          ) : null}
-          {onWorkspaceModeChange ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-xs"
-                    className="size-7 rounded-md border-border/60 bg-background/70 text-muted-foreground hover:bg-background hover:text-foreground"
-                    aria-label={
-                      editorWorkspaceMode === "split"
-                        ? "Switch to full editor"
-                        : "Switch to split editor"
-                    }
-                    onClick={() =>
-                      onWorkspaceModeChange(editorWorkspaceMode === "split" ? "editor" : "split")
-                    }
-                  >
-                    {editorWorkspaceMode === "split" ? (
-                      <Maximize2Icon className="size-3.5" />
-                    ) : (
-                      <Columns2Icon className="size-3.5" />
-                    )}
-                  </Button>
-                }
-              />
-              <TooltipPopup side="bottom">
-                {editorWorkspaceMode === "split"
-                  ? "Show editor in full-screen mode"
-                  : "Show editor side-by-side with chat"}
-              </TooltipPopup>
-            </Tooltip>
-          ) : null}
-        </div>
-      </div>
+    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
       <div
-        className="grid min-h-0 min-w-0 flex-1"
+        className="grid min-h-0 min-w-0 flex-1 bg-background"
         style={{
           gridTemplateColumns: explorerOpen
-            ? `minmax(220px, ${treeWidth}px) 6px minmax(0, 1fr)`
+            ? `minmax(220px, ${treeWidth}px) 4px minmax(0, 1fr)`
             : "minmax(0, 1fr)",
         }}
       >
         {explorerOpen ? (
           <>
-            <aside
-              className={cn(
-                "flex min-h-0 min-w-0 flex-col border-border/60 border-r bg-card/72 shadow-[inset_-1px_0_0_rgba(255,255,255,0.02)]",
-              )}
-            >
-              <div className="flex h-10 items-center gap-2 border-border/45 border-b px-3">
-                <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
-                <span className="min-w-0 truncate text-[10px] font-semibold tracking-[0.18em] text-muted-foreground/78 uppercase">
-                  Explorer
-                </span>
-                <div className="ml-auto flex min-w-0 items-center gap-1.5">
+            <aside className="flex min-h-0 min-w-0 flex-col bg-card/72 text-foreground">
+              <div className="flex h-10 items-center gap-2 border-b border-border/60 px-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/72" />
+                    <span className="min-w-0 truncate text-[11px] font-semibold tracking-[0.16em] text-muted-foreground/82 uppercase">
+                      Explorer
+                    </span>
+                  </div>
+                  <div className="truncate pt-0.5 text-[11px] text-muted-foreground/72">
+                    {workspaceLabel}
+                  </div>
+                </div>
+                <div className="ml-auto flex shrink-0 items-center gap-1">
                   <ExternalEditorOpenMenu
                     availableEditors={props.availableEditors}
                     gitCwd={props.gitCwd}
@@ -2108,7 +2170,43 @@ export default function ThreadWorkspaceEditor(inputProps: {
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    className="size-6 shrink-0 rounded-sm text-muted-foreground/75 hover:bg-foreground/6 hover:text-foreground"
+                    className="size-6 shrink-0 text-muted-foreground/76 hover:bg-foreground/6 hover:text-foreground"
+                    onClick={() => setExplorerOpen(props.threadId, false)}
+                    title="Collapse explorer"
+                  >
+                    <PanelLeftCloseIcon className="size-3.5" />
+                  </Button>
+                  {onWorkspaceModeChange ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      className="size-6 shrink-0 text-muted-foreground/76 hover:bg-foreground/6 hover:text-foreground"
+                      aria-label={
+                        editorWorkspaceMode === "split"
+                          ? "Switch to full editor"
+                          : "Switch to split editor"
+                      }
+                      onClick={() =>
+                        onWorkspaceModeChange(editorWorkspaceMode === "split" ? "editor" : "split")
+                      }
+                      title={
+                        editorWorkspaceMode === "split"
+                          ? "Show editor in full-screen mode"
+                          : "Show editor side-by-side with chat"
+                      }
+                    >
+                      {editorWorkspaceMode === "split" ? (
+                        <Maximize2Icon className="size-3.5" />
+                      ) : (
+                        <Columns2Icon className="size-3.5" />
+                      )}
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="size-6 shrink-0 text-muted-foreground/76 hover:bg-foreground/6 hover:text-foreground"
                     onClick={() =>
                       startInlineEntry({
                         kind: "create-file",
@@ -2126,7 +2224,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    className="size-6 shrink-0 rounded-sm text-muted-foreground/75 hover:bg-foreground/6 hover:text-foreground"
+                    className="size-6 shrink-0 text-muted-foreground/76 hover:bg-foreground/6 hover:text-foreground"
                     onClick={() =>
                       startInlineEntry({
                         kind: "create-folder",
@@ -2143,24 +2241,41 @@ export default function ThreadWorkspaceEditor(inputProps: {
                   </Button>
                 </div>
               </div>
-              <div className="border-border/40 border-b px-2.5 py-2">
+              <div className="border-b border-border/60 px-2.5 py-2">
                 <div className="relative">
-                  <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+                  <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
                   <Input
                     ref={treeSearchInputRef}
+                    nativeInput
                     value={treeSearch}
                     onChange={(event) => setTreeSearch(event.target.value)}
-                    placeholder="Filter files (re:, in:, inre:)"
-                    className="h-8 rounded-sm border-border/55 bg-background/70 pl-8 shadow-none"
+                    placeholder="Search"
+                    className="h-7 border-border/60 bg-background/88 pl-7 text-[12px] shadow-none focus-within:bg-background"
                     size="sm"
                     type="search"
                   />
                 </div>
               </div>
-
+              <div className="flex h-7 items-center gap-1.5 border-b border-border/60 px-2.5 text-[11px]">
+                <ChevronDownIcon
+                  className="size-3.5 shrink-0 text-muted-foreground/74"
+                  strokeWidth={2}
+                />
+                <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
+                  {searchMode ? "Search results" : workspaceLabel}
+                </span>
+                {workspaceTreeQuery.data?.truncated ? (
+                  <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-amber-600 uppercase">
+                    Partial index
+                  </span>
+                ) : null}
+                <span className="shrink-0 text-[10px] font-medium text-muted-foreground/76">
+                  {searchMode ? explorerRows.length : workspaceFileCount}
+                </span>
+              </div>
               <div
                 ref={treeScrollRef}
-                className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 py-1.5"
+                className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-0 py-1"
                 tabIndex={0}
                 onKeyDown={handleExplorerKeyDown}
                 onDragOver={(event) => {
@@ -2192,11 +2307,11 @@ export default function ThreadWorkspaceEditor(inputProps: {
                 }}
               >
                 {explorerPending ? (
-                  <div className="space-y-1.5 px-1 py-2">
+                  <div className="space-y-1 px-2 py-2">
                     {Array.from({ length: 10 }, (_, index) => (
                       <div
                         key={index}
-                        className="h-7 rounded-md bg-foreground/5"
+                        className="h-[22px] bg-foreground/5"
                         style={{ opacity: 1 - index * 0.06 }}
                       />
                     ))}
@@ -2223,10 +2338,10 @@ export default function ThreadWorkspaceEditor(inputProps: {
                         >
                           {row.kind === "entry" ? (
                             <FileTreeRow
-                              activeFilePaths={activeFilePathSet}
                               dragTargetPath={dragTargetParentPath}
                               expandedDirectoryPaths={expandedDirectoryPathSet}
                               focusedFilePath={activePane?.activeFilePath ?? null}
+                              gitStatus={gitStatusByPath.get(row.row.entry.path) ?? null}
                               onDropEntry={(sourcePath, targetParentPath) => {
                                 moveExplorerEntry(sourcePath, targetParentPath);
                               }}
@@ -2240,7 +2355,6 @@ export default function ThreadWorkspaceEditor(inputProps: {
                               onToggleDirectory={(directoryPath) =>
                                 toggleDirectory(props.threadId, directoryPath)
                               }
-                              openFilePaths={openFilePaths}
                               resolvedTheme={resolvedTheme}
                               row={row.row}
                               searchMode={searchMode}
@@ -2274,18 +2388,18 @@ export default function ThreadWorkspaceEditor(inputProps: {
               aria-label="Resize workspace sidebar"
               role="separator"
               aria-orientation="vertical"
-              className="relative cursor-col-resize bg-transparent hover:bg-foreground/5"
+              className="group relative cursor-col-resize bg-transparent hover:bg-foreground/6"
               onPointerDown={handleTreeResizeStart}
               onPointerMove={handleTreeResizeMove}
               onPointerUp={handleTreeResizeEnd}
               onPointerCancel={handleTreeResizeEnd}
             >
-              <div className="mx-auto h-full w-px bg-border/60" />
+              <div className="mx-auto h-full w-px bg-border/60 transition-colors group-hover:bg-foreground/28" />
             </div>
           </>
         ) : null}
 
-        <section className="min-h-0 min-w-0 overflow-hidden bg-transparent p-1">
+        <section className="min-h-0 min-w-0 overflow-hidden bg-background">
           <div className="flex h-full min-h-0 flex-col">
             <div ref={editorGridRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {layoutRows.map((row, rowIndex) => (
@@ -2319,6 +2433,54 @@ export default function ThreadWorkspaceEditor(inputProps: {
                             canClosePane={panes.length > 1}
                             canReopenClosedTab={hasRecentlyClosedFiles}
                             canSplitPane={panes.length < MAX_THREAD_EDITOR_PANES}
+                            chromeActions={
+                              rowIndex === 0 && paneIndex === row.panes.length - 1 ? (
+                                <>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    className="size-5 text-muted-foreground/72 hover:bg-foreground/6 hover:text-foreground"
+                                    onClick={() => setExplorerOpen(props.threadId, !explorerOpen)}
+                                    title={
+                                      explorerOpen
+                                        ? "Collapse workspace explorer"
+                                        : "Expand workspace explorer"
+                                    }
+                                  >
+                                    {explorerOpen ? (
+                                      <PanelLeftCloseIcon className="size-3" />
+                                    ) : (
+                                      <PanelLeftIcon className="size-3" />
+                                    )}
+                                  </Button>
+                                  {onWorkspaceModeChange ? (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon-xs"
+                                      className="size-5 text-muted-foreground/72 hover:bg-foreground/6 hover:text-foreground"
+                                      onClick={() =>
+                                        onWorkspaceModeChange(
+                                          editorWorkspaceMode === "split" ? "editor" : "split",
+                                        )
+                                      }
+                                      title={
+                                        editorWorkspaceMode === "split"
+                                          ? "Show editor in full-screen mode"
+                                          : "Show editor side-by-side with chat"
+                                      }
+                                    >
+                                      {editorWorkspaceMode === "split" ? (
+                                        <Maximize2Icon className="size-3" />
+                                      ) : (
+                                        <Columns2Icon className="size-3" />
+                                      )}
+                                    </Button>
+                                  ) : null}
+                                </>
+                              ) : undefined
+                            }
                             diagnosticsCwd={diagnosticsCwd}
                             dirtyFilePaths={activeDirtyPaths}
                             draftsByFilePath={draftsByFilePath}
@@ -2365,7 +2527,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
                               aria-label={`Resize between editor windows ${paneIndex + 1} and ${paneIndex + 2}`}
                               role="separator"
                               aria-orientation="vertical"
-                              className="group relative z-10 -mx-0.75 flex w-1.5 shrink-0 cursor-col-resize items-center justify-center touch-none select-none"
+                              className="group relative z-10 -mx-px flex w-2 shrink-0 cursor-col-resize items-center justify-center touch-none select-none"
                               onPointerDown={handlePaneResizeStart(
                                 row.id,
                                 paneIndex,
@@ -2375,7 +2537,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
                               onPointerUp={handlePaneResizeEnd}
                               onPointerCancel={handlePaneResizeEnd}
                             >
-                              <div className="h-full w-0.5 bg-border/40 transition-colors group-hover:bg-primary" />
+                              <div className="h-full w-px bg-border/55 transition-colors group-hover:bg-foreground/30" />
                             </div>
                           ) : null}
                         </div>
@@ -2387,13 +2549,13 @@ export default function ThreadWorkspaceEditor(inputProps: {
                       aria-label={`Resize between editor rows ${rowIndex + 1} and ${rowIndex + 2}`}
                       role="separator"
                       aria-orientation="horizontal"
-                      className="group relative z-10 -my-0.75 flex h-1.5 shrink-0 cursor-row-resize items-center justify-center touch-none select-none"
+                      className="group relative z-10 -my-px flex h-2 shrink-0 cursor-row-resize items-center justify-center touch-none select-none"
                       onPointerDown={handleRowResizeStart(rowIndex)}
                       onPointerMove={handleRowResizeMove}
                       onPointerUp={handleRowResizeEnd}
                       onPointerCancel={handleRowResizeEnd}
                     >
-                      <div className="h-0.5 w-full bg-border/40 transition-colors group-hover:bg-primary" />
+                      <div className="h-px w-full bg-border/55 transition-colors group-hover:bg-foreground/30" />
                     </div>
                   ) : null}
                 </div>
