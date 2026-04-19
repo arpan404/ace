@@ -1,5 +1,5 @@
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { delimiter, extname, join } from "node:path";
+import { access, readFile, writeFile } from "node:fs/promises";
+import { extname, join } from "node:path";
 
 import type {
   ServerInstallLspToolInput,
@@ -11,6 +11,11 @@ import type {
 
 import { isCommandAvailable } from "./open";
 import { runProcess } from "./processRunner";
+import {
+  ensurePackageInstallRoot,
+  installPackagesWithNpm as installRuntimePackagesWithNpm,
+  readInstalledPackageVersion,
+} from "./runtimePackageManager";
 
 interface LspToolDefinition {
   readonly id: string;
@@ -100,10 +105,6 @@ const BUILTIN_LSP_PACKAGE_VERSION_BY_NAME = {
 
 const LSP_REGISTRY_FILENAME = "registry.json";
 
-function normalizePathVariable(env: NodeJS.ProcessEnv): string {
-  return env.PATH ?? env.Path ?? env.path ?? "";
-}
-
 function normalizeExtension(value: string): string {
   const trimmed = value.trim().toLowerCase();
   if (trimmed.length === 0) {
@@ -181,14 +182,6 @@ function resolveRegistryPath(stateDir: string): string {
   return join(resolveInstallDir(stateDir), LSP_REGISTRY_FILENAME);
 }
 
-function createInstallEnvironment(stateDir: string): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  const binDir = resolveBinDir(stateDir);
-  const currentPath = normalizePathVariable(env);
-  env.PATH = [binDir, ...currentPath.split(delimiter).filter(Boolean)].join(delimiter);
-  return env;
-}
-
 async function isPathExecutable(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -198,27 +191,8 @@ async function isPathExecutable(path: string): Promise<boolean> {
   }
 }
 
-async function readPackageVersion(installDir: string, packageName: string): Promise<string | null> {
-  const packageJsonPath = join(installDir, "node_modules", packageName, "package.json");
-  try {
-    const rawPackageJson = await readFile(packageJsonPath, "utf8");
-    const decoded = JSON.parse(rawPackageJson) as { version?: unknown };
-    return typeof decoded.version === "string" && decoded.version.length > 0
-      ? decoded.version
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 async function ensureInstallRoot(installDir: string): Promise<void> {
-  await mkdir(installDir, { recursive: true });
-  const packageJsonPath = join(installDir, "package.json");
-  const packageJson = {
-    name: "ace-lsp-tools",
-    private: true,
-  };
-  await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2), "utf8");
+  await ensurePackageInstallRoot(installDir, "ace-lsp-tools");
 }
 
 async function readCustomRegistry(stateDir: string): Promise<readonly LspToolDefinition[]> {
@@ -295,7 +269,7 @@ export async function getLspToolsStatus(stateDir: string): Promise<ServerLspTool
     definitions.map(async (tool) => {
       const binaryPath = join(resolveBinDir(stateDir), `${tool.command}${commandSuffix}`);
       const installed = await isPathExecutable(binaryPath);
-      const version = await readPackageVersion(installDir, tool.packageName);
+      const version = await readInstalledPackageVersion(installDir, tool.packageName);
       return {
         id: tool.id,
         label: tool.label,
@@ -324,23 +298,12 @@ async function installPackagesWithNpm(
   options: { readonly reinstall?: boolean } = {},
 ): Promise<void> {
   const installDir = resolveInstallDir(stateDir);
-  if (options.reinstall) {
-    await rm(installDir, { recursive: true, force: true });
-  }
-  await ensureInstallRoot(installDir);
-  if (packages.length === 0) {
-    return;
-  }
-  await runProcess(
-    "npm",
-    ["install", "--no-audit", "--no-fund", "--save-exact", "--prefix", installDir, ...packages],
-    {
-      timeoutMs: 240_000,
-      env: createInstallEnvironment(stateDir),
-      maxBufferBytes: 2 * 1024 * 1024,
-      outputMode: "truncate",
-    },
-  );
+  await installRuntimePackagesWithNpm({
+    installDir,
+    packageJsonName: "ace-lsp-tools",
+    packages,
+    ...(options.reinstall !== undefined ? { reinstall: options.reinstall } : {}),
+  });
 }
 
 export async function installLspTools(

@@ -9,7 +9,6 @@ import type {
 import { Cache, Duration, Effect, Equal, Layer, Option, Result, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { decodeJsonResult } from "@ace/shared/schemaJson";
-import { query as claudeQuery } from "@anthropic-ai/claude-agent-sdk";
 
 import {
   buildPendingServerProvider,
@@ -25,8 +24,10 @@ import {
 } from "../providerSnapshot";
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import { ClaudeProvider } from "../Services/ClaudeProvider";
+import { ServerConfig } from "../../config";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@ace/contracts";
+import { loadClaudeAgentSdkModule, type ClaudeAgentSdkLoader } from "../providerSdkRuntime";
 
 const PROVIDER = "claudeAgent" as const;
 const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
@@ -396,10 +397,11 @@ const CAPABILITIES_PROBE_TIMEOUT_MS = 8_000;
  * This is used as a fallback when `claude auth status` does not include
  * subscription type information.
  */
-const probeClaudeCapabilities = (binaryPath: string) => {
+const probeClaudeCapabilities = (binaryPath: string, loadSdk: ClaudeAgentSdkLoader) => {
   const abort = new AbortController();
   return Effect.tryPromise(async () => {
-    const q = claudeQuery({
+    const sdk = await loadSdk();
+    const q = sdk.query({
       prompt: ".",
       options: {
         persistSession: false,
@@ -619,6 +621,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
 export const ClaudeProviderLive = Layer.effect(
   ClaudeProvider,
   Effect.gen(function* () {
+    const serverConfigOption = yield* Effect.serviceOption(ServerConfig);
     const serverSettings = yield* ServerSettingsService;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
@@ -626,7 +629,11 @@ export const ClaudeProviderLive = Layer.effect(
       capacity: 1,
       timeToLive: Duration.minutes(5),
       lookup: (binaryPath: string) =>
-        probeClaudeCapabilities(binaryPath).pipe(Effect.map((r) => r?.subscriptionType)),
+        Option.isSome(serverConfigOption)
+          ? probeClaudeCapabilities(binaryPath, () =>
+              loadClaudeAgentSdkModule(serverConfigOption.value.stateDir),
+            ).pipe(Effect.map((r) => r?.subscriptionType))
+          : Effect.succeed<string | undefined>(undefined),
     });
 
     const checkProvider = checkClaudeProviderStatus((binaryPath) =>
