@@ -74,13 +74,28 @@ export const WorkspaceEditorCompletionItem = Schema.Struct({
 });
 export type WorkspaceEditorCompletionItem = typeof WorkspaceEditorCompletionItem.Type;
 
-export const WorkspaceEditorCompleteInput = Schema.Struct({
+export const WorkspaceEditorLocation = Schema.Struct({
+  relativePath: ProjectReadFileInput.fields.relativePath,
+  startLine: NonNegativeInt,
+  startColumn: NonNegativeInt,
+  endLine: NonNegativeInt,
+  endColumn: NonNegativeInt,
+});
+export type WorkspaceEditorLocation = typeof WorkspaceEditorLocation.Type;
+
+const WorkspaceEditorPositionFields = {
+  line: NonNegativeInt,
+  column: NonNegativeInt,
+} as const;
+
+const WorkspaceEditorLspRequestFields = {
   contents: ProjectWriteFileInput.fields.contents,
   cwd: ProjectReadFileInput.fields.cwd,
   relativePath: ProjectReadFileInput.fields.relativePath,
-  line: NonNegativeInt,
-  column: NonNegativeInt,
-});
+  ...WorkspaceEditorPositionFields,
+} as const;
+
+export const WorkspaceEditorCompleteInput = Schema.Struct(WorkspaceEditorLspRequestFields);
 export type WorkspaceEditorCompleteInput = typeof WorkspaceEditorCompleteInput.Type;
 
 export const WorkspaceEditorCompleteResult = Schema.Struct({
@@ -91,6 +106,40 @@ export type WorkspaceEditorCompleteResult = typeof WorkspaceEditorCompleteResult
 
 export class WorkspaceEditorCompleteError extends Schema.TaggedErrorClass<WorkspaceEditorCompleteError>()(
   "WorkspaceEditorCompleteError",
+  {
+    cause: Schema.optional(Schema.Defect),
+    message: TrimmedNonEmptyString,
+  },
+) {}
+
+export const WorkspaceEditorDefinitionInput = Schema.Struct(WorkspaceEditorLspRequestFields);
+export type WorkspaceEditorDefinitionInput = typeof WorkspaceEditorDefinitionInput.Type;
+
+export const WorkspaceEditorDefinitionResult = Schema.Struct({
+  relativePath: ProjectReadFileInput.fields.relativePath,
+  locations: Schema.Array(WorkspaceEditorLocation),
+});
+export type WorkspaceEditorDefinitionResult = typeof WorkspaceEditorDefinitionResult.Type;
+
+export class WorkspaceEditorDefinitionError extends Schema.TaggedErrorClass<WorkspaceEditorDefinitionError>()(
+  "WorkspaceEditorDefinitionError",
+  {
+    cause: Schema.optional(Schema.Defect),
+    message: TrimmedNonEmptyString,
+  },
+) {}
+
+export const WorkspaceEditorReferencesInput = Schema.Struct(WorkspaceEditorLspRequestFields);
+export type WorkspaceEditorReferencesInput = typeof WorkspaceEditorReferencesInput.Type;
+
+export const WorkspaceEditorReferencesResult = Schema.Struct({
+  relativePath: ProjectReadFileInput.fields.relativePath,
+  locations: Schema.Array(WorkspaceEditorLocation),
+});
+export type WorkspaceEditorReferencesResult = typeof WorkspaceEditorReferencesResult.Type;
+
+export class WorkspaceEditorReferencesError extends Schema.TaggedErrorClass<WorkspaceEditorReferencesError>()(
+  "WorkspaceEditorReferencesError",
   {
     cause: Schema.optional(Schema.Defect),
     message: TrimmedNonEmptyString,

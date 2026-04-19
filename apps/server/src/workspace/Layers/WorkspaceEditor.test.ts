@@ -96,6 +96,57 @@ function handleMessage(message) {
     }
     return;
   }
+  if (message.method === "textDocument/definition") {
+    const document = message.params && message.params.textDocument;
+    if (document && typeof document.uri === "string") {
+      const targetUri = new URL("../types/example.ts", document.uri).toString();
+      write({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: [
+          {
+            targetUri,
+            targetRange: {
+              start: { line: 2, character: 2 },
+              end: { line: 2, character: 18 }
+            },
+            targetSelectionRange: {
+              start: { line: 2, character: 6 },
+              end: { line: 2, character: 17 }
+            }
+          }
+        ]
+      });
+    }
+    return;
+  }
+  if (message.method === "textDocument/references") {
+    const document = message.params && message.params.textDocument;
+    if (document && typeof document.uri === "string") {
+      const targetUri = new URL("../types/example.ts", document.uri).toString();
+      write({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: [
+          {
+            uri: document.uri,
+            range: {
+              start: { line: 0, character: 6 },
+              end: { line: 0, character: 13 }
+            }
+          },
+          {
+            uri: targetUri,
+            range: {
+              start: { line: 2, character: 6 },
+              end: { line: 2, character: 17 }
+            }
+          }
+        ]
+      });
+    }
+    return;
+  }
 }
 
 function tryReadMessages() {
@@ -286,11 +337,27 @@ describe("WorkspaceEditorLive", () => {
             relativePath: "src/example.ts",
             contents: "const ready = true;\nERROR();\n",
           });
+          const definition = yield* workspaceEditor.definition({
+            cwd: workspaceDir,
+            relativePath: "src/example.ts",
+            contents:
+              'import { ExampleType } from "../types/example";\nconst value: ExampleType = createValue();\n',
+            line: 1,
+            column: 13,
+          });
+          const references = yield* workspaceEditor.references({
+            cwd: workspaceDir,
+            relativePath: "src/example.ts",
+            contents:
+              'import { ExampleType } from "../types/example";\nconst value: ExampleType = createValue();\n',
+            line: 1,
+            column: 13,
+          });
           const closed = yield* workspaceEditor.closeBuffer({
             cwd: workspaceDir,
             relativePath: "src/example.ts",
           });
-          return { clean, broken, closed };
+          return { clean, broken, definition, references, closed };
         }),
       );
 
@@ -312,6 +379,37 @@ describe("WorkspaceEditorLive", () => {
           },
         ],
         relativePath: "src/example.ts",
+      });
+      expect(result.definition).toEqual({
+        relativePath: "src/example.ts",
+        locations: [
+          {
+            relativePath: "types/example.ts",
+            startLine: 2,
+            startColumn: 6,
+            endLine: 2,
+            endColumn: 17,
+          },
+        ],
+      });
+      expect(result.references).toEqual({
+        relativePath: "src/example.ts",
+        locations: [
+          {
+            relativePath: "src/example.ts",
+            startLine: 0,
+            startColumn: 6,
+            endLine: 0,
+            endColumn: 13,
+          },
+          {
+            relativePath: "types/example.ts",
+            startLine: 2,
+            startColumn: 6,
+            endLine: 2,
+            endColumn: 17,
+          },
+        ],
       });
       expect(result.closed).toEqual({
         relativePath: "src/example.ts",

@@ -246,17 +246,17 @@ export const ChatHeader = memo(function ChatHeader({
       <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden sm:gap-2">
         {editorWorkspaceActive ? (
           <div
-            className="flex min-w-0 max-w-full items-center gap-2 rounded-[var(--panel-radius)] border border-pill-border/72 bg-pill/92 px-2.5 py-1.5 supports-[backdrop-filter]:bg-pill/84"
+            className="flex min-w-0 max-w-full items-center gap-2.5"
             title={workspaceDisplayName}
           >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)+2px)] border border-pill-border/72 bg-background/60 text-pill-foreground/84">
+            <span className="flex size-5 shrink-0 items-center justify-center text-foreground/72">
               <FolderIcon className="size-4" />
             </span>
             <span className="min-w-0 flex flex-col">
               <span className="truncate text-[13px] leading-none font-medium tracking-tight text-foreground/84">
                 {workspaceDisplayName}
               </span>
-              <span className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] leading-none text-muted-foreground/78">
+              <span className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] leading-none text-muted-foreground/72">
                 {activeThreadBranch ? (
                   <span className="inline-flex min-w-0 items-center gap-1 truncate">
                     <GitBranchIcon className="size-3 shrink-0" />

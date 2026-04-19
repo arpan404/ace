@@ -27,6 +27,8 @@ import {
   ServerLspToolsError,
   WorkspaceEditorCloseBufferError,
   WorkspaceEditorCompleteError,
+  WorkspaceEditorDefinitionError,
+  WorkspaceEditorReferencesError,
   WorkspaceEditorSyncBufferError,
   WS_METHODS,
   WsRpcGroup,
@@ -773,6 +775,36 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 ? cause.message
                 : "Failed to load workspace completions.";
             return new WorkspaceEditorCompleteError({
+              message,
+              cause,
+            });
+          }),
+        ),
+      [WS_METHODS.workspaceEditorDefinition]: (input) =>
+        workspaceEditor.definition(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : Schema.is(WorkspaceRootNotExistsError)(cause) ||
+                  Schema.is(WorkspaceRootNotDirectoryError)(cause)
+                ? cause.message
+                : "Failed to resolve workspace definitions.";
+            return new WorkspaceEditorDefinitionError({
+              message,
+              cause,
+            });
+          }),
+        ),
+      [WS_METHODS.workspaceEditorReferences]: (input) =>
+        workspaceEditor.references(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : Schema.is(WorkspaceRootNotExistsError)(cause) ||
+                  Schema.is(WorkspaceRootNotDirectoryError)(cause)
+                ? cause.message
+                : "Failed to resolve workspace references.";
+            return new WorkspaceEditorReferencesError({
               message,
               cause,
             });

@@ -62,6 +62,8 @@ export interface WsRpcClient {
     readonly syncBuffer: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorSyncBuffer>;
     readonly closeBuffer: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorCloseBuffer>;
     readonly complete: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorComplete>;
+    readonly definition: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorDefinition>;
+    readonly references: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorReferences>;
   };
   readonly shell: {
     readonly openInEditor: (input: {
@@ -186,6 +188,10 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) => client[WS_METHODS.workspaceEditorCloseBuffer](input)),
       complete: (input) =>
         transport.request((client) => client[WS_METHODS.workspaceEditorComplete](input)),
+      definition: (input) =>
+        transport.request((client) => client[WS_METHODS.workspaceEditorDefinition](input)),
+      references: (input) =>
+        transport.request((client) => client[WS_METHODS.workspaceEditorReferences](input)),
     },
     shell: {
       openInEditor: (input) =>

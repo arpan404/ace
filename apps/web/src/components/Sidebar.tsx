@@ -181,7 +181,11 @@ import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
 import type { Project, SidebarThreadSummary } from "../types";
 import { useHostConnectionStore } from "../hostConnectionStore";
-import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
+import {
+  resolveConnectionForThreadId,
+  THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
+} from "../lib/connectionRouting";
+import { useChatThreadBoardStore } from "../chatThreadBoardStore";
 const THREAD_REVEAL_STEP = 5;
 const REMOTE_HOST_REFRESH_INTERVAL_MS = 6_000;
 const REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS = 1_500;
@@ -1832,6 +1836,7 @@ export default function Sidebar() {
         thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
       const clicked = await api.contextMenu.show(
         [
+          { id: "open-in-board", label: "Open in split board" },
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
@@ -1840,6 +1845,19 @@ export default function Sidebar() {
         ],
         position,
       );
+
+      if (clicked === "open-in-board") {
+        const connectionUrl = resolveConnectionForThreadId(threadId) ?? null;
+        if (connectionUrl) {
+          useHostConnectionStore.getState().upsertThreadOwnership(connectionUrl, threadId);
+        }
+        useChatThreadBoardStore.getState().openThreadInBoard({
+          connectionUrl,
+          direction: "right",
+          threadId,
+        });
+        return;
+      }
 
       if (clicked === "rename") {
         setRenamingThreadId(threadId);
@@ -1903,11 +1921,29 @@ export default function Sidebar() {
 
       const clicked = await api.contextMenu.show(
         [
+          { id: "open-in-board", label: `Open in split board (${count})` },
           { id: "mark-unread", label: `Mark unread (${count})` },
           { id: "delete", label: `Delete (${count})`, destructive: true },
         ],
         position,
       );
+
+      if (clicked === "open-in-board") {
+        const boardInputs = ids.map((id) => ({
+          connectionUrl: resolveConnectionForThreadId(id) ?? null,
+          threadId: id,
+        }));
+        for (const input of boardInputs) {
+          if (input.connectionUrl) {
+            useHostConnectionStore
+              .getState()
+              .upsertThreadOwnership(input.connectionUrl, input.threadId);
+          }
+        }
+        useChatThreadBoardStore.getState().openThreadsInBoard(boardInputs);
+        clearSelection();
+        return;
+      }
 
       if (clicked === "mark-unread") {
         for (const id of ids) {
@@ -2293,6 +2329,7 @@ export default function Sidebar() {
       if (!api) return;
       const clicked = await api.contextMenu.show(
         [
+          { id: "open-in-board", label: "Open in split board" },
           { id: "rename", label: "Rename thread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
@@ -2301,6 +2338,19 @@ export default function Sidebar() {
         ],
         position,
       );
+
+      if (clicked === "open-in-board") {
+        const remoteThreadId = ThreadId.makeUnsafe(input.thread.id);
+        useHostConnectionStore
+          .getState()
+          .upsertThreadOwnership(input.connectionUrl, remoteThreadId);
+        useChatThreadBoardStore.getState().openThreadInBoard({
+          connectionUrl: input.connectionUrl,
+          direction: "right",
+          threadId: remoteThreadId,
+        });
+        return;
+      }
 
       if (clicked === "rename") {
         setRemoteThreadRenameTarget(input);

@@ -11,7 +11,7 @@ import {
   useState,
 } from "react";
 
-import ChatView from "../components/ChatView";
+import { ThreadBoard } from "../components/chat/ThreadBoard";
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
 import {
   DiffPanelHeaderSkeleton,
@@ -438,7 +438,7 @@ function ChatThreadRouteView() {
     return (
       <>
         <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-          <ChatView threadId={threadId} />
+          <ThreadBoard threadId={threadId} connectionUrl={routeConnectionUrl ?? null} />
         </SidebarInset>
         <DiffPanelInlineSidebar
           diffOpen={diffOpen}
@@ -453,7 +453,7 @@ function ChatThreadRouteView() {
   return (
     <>
       <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-        <ChatView threadId={threadId} />
+        <ThreadBoard threadId={threadId} connectionUrl={routeConnectionUrl ?? null} />
       </SidebarInset>
       <DiffPanelSheet diffOpen={diffOpen} onCloseDiff={closeDiff}>
         {hasOpenedDiffPanel ? <LazyDiffPanel mode="sheet" /> : null}
