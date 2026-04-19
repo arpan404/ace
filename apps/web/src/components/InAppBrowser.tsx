@@ -206,7 +206,7 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   );
 }
 
-export function InAppBrowser(props: InAppBrowserProps) {
+export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps) {
   const {
     open,
     mode,
@@ -1053,4 +1053,4 @@ export function InAppBrowser(props: InAppBrowserProps) {
       </section>
     </div>
   );
-}
+});

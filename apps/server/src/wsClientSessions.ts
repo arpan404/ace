@@ -56,8 +56,21 @@ export function isCurrentWsClientSession(clientSessionId?: string, connectionId?
   if (!clientSessionId || !connectionId) {
     return true;
   }
+  const now = Date.now();
+  pruneWsClientSessionsIfNeeded(now);
   const current = wsClientSessions.get(clientSessionId);
-  return current?.connectionId === connectionId;
+  if (!current) {
+    registerWsClientSession(clientSessionId, connectionId, now);
+    return true;
+  }
+  if (current.connectionId !== connectionId) {
+    return false;
+  }
+  wsClientSessions.set(clientSessionId, {
+    ...current,
+    updatedAt: now,
+  });
+  return true;
 }
 
 export function disconnectWsClientSession(clientSessionId: string, connectionId: string): void {

@@ -574,7 +574,10 @@ function EventRouter() {
         });
         return;
       }
-      if (typeof requestAnimationFrame === "function") {
+      if (
+        typeof requestAnimationFrame === "function" &&
+        (typeof document === "undefined" || document.visibilityState === "visible")
+      ) {
         pendingDomainEventFlushHandle = {
           kind: "animation-frame",
           handle: requestAnimationFrame(() => {

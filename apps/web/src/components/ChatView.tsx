@@ -275,6 +275,7 @@ import {
   type TerminalScopeKind,
 } from "~/lib/terminalScopes";
 import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
+import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   useServerAvailableEditors,
@@ -2732,7 +2733,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       selectedModelSelection,
     ],
   );
-  const queueBrowserDesignRequest = useCallback(
+  const queueBrowserDesignRequest = useEffectEvent(
     async (submission: BrowserDesignRequestSubmission) => {
       const trimmedInstructions = submission.instructions.trim();
       if (!trimmedInstructions) {
@@ -2781,14 +2782,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
         title: "Queued redesign request.",
       });
     },
-    [
-      interactionMode,
-      persistQueuedComposerState,
-      queuedComposerMessages,
-      queuedSteerRequest,
-      runtimeMode,
-      selectedModelSelection,
-    ],
   );
   const onSteerQueuedComposerMessage = useCallback(
     async (messageId: MessageId) => {
@@ -2948,6 +2941,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     pendingBrowserOpenUrlRef.current = null;
     controller.openUrl(pendingUrl, { newTab: true });
+  }, []);
+  const handleBrowserRuntimeStateChange = useCallback((state: { devToolsOpen: boolean }) => {
+    setBrowserDevToolsOpen(state.devToolsOpen);
   }, []);
   const openBrowserUrl = useCallback(
     (url: string, options?: { newTab?: boolean }) => {
@@ -6758,9 +6754,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             onRestore: restoreBrowser,
             onSplit: openSplitBrowser,
             onControllerChange: setBrowserController,
-            onActiveRuntimeStateChange: (state: { devToolsOpen: boolean }) => {
-              setBrowserDevToolsOpen(state.devToolsOpen);
-            },
+            onActiveRuntimeStateChange: handleBrowserRuntimeStateChange,
             backShortcutLabel: browserBackShortcutLabel,
             devToolsShortcutLabel: browserDevToolsShortcutLabel,
             forwardShortcutLabel: browserForwardShortcutLabel,
