@@ -199,16 +199,23 @@ function isValidPairingWsUrl(value: string): boolean {
   }
 }
 
-function prunePairingSessions(nowMs = Date.now()): void {
+function prunePairingSessions(nowMs = Date.now()): number {
+  let removedCount = 0;
   for (const [sessionId, record] of pairingSessions.entries()) {
     if (record.expiresAtMs + PAIRING_SESSION_EXPIRED_GRACE_MS > nowMs) {
       continue;
     }
     pairingSessions.delete(sessionId);
+    removedCount += 1;
     if (record.claim) {
       pairingClaimSessions.delete(record.claim.claimId);
     }
   }
+  return removedCount;
+}
+
+export function prunePairingSessionsNow(nowMs = Date.now()): number {
+  return prunePairingSessions(nowMs);
 }
 
 function readPairingSession(sessionId: string, nowMs: number): PairingResult<PairingSessionRecord> {

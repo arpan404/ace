@@ -937,16 +937,20 @@ function SidebarMenuSub({ className, ...props }: React.ComponentProps<"ul">) {
   );
 }
 
-function SidebarMenuSubItem({ className, ...props }: React.ComponentProps<"li">) {
-  return (
-    <li
-      className={cn("group/menu-sub-item relative", className)}
-      data-sidebar="menu-sub-item"
-      data-slot="sidebar-menu-sub-item"
-      {...props}
-    />
-  );
-}
+const SidebarMenuSubItem = React.forwardRef<HTMLLIElement, React.ComponentProps<"li">>(
+  ({ className, ...props }, ref) => {
+    return (
+      <li
+        ref={ref}
+        className={cn("group/menu-sub-item relative", className)}
+        data-sidebar="menu-sub-item"
+        data-slot="sidebar-menu-sub-item"
+        {...props}
+      />
+    );
+  },
+);
+SidebarMenuSubItem.displayName = "SidebarMenuSubItem";
 
 function SidebarMenuSubButton({
   size = "md",
