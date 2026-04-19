@@ -6,7 +6,16 @@ import {
 } from "@ace/contracts";
 import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
-import { BugIcon, DiffIcon, GlobeIcon, SquarePenIcon, TerminalSquareIcon } from "lucide-react";
+import {
+  BugIcon,
+  DiffIcon,
+  FolderIcon,
+  GitBranchIcon,
+  GitForkIcon,
+  GlobeIcon,
+  SquarePenIcon,
+  TerminalSquareIcon,
+} from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
@@ -21,6 +30,8 @@ import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
+  activeThreadBranch: string | null;
+  activeThreadWorktreePath: string | null;
   activeThreadTitle: string;
   activeProjectId: ProjectId | null;
   activeProjectName: string | undefined;
@@ -54,6 +65,8 @@ interface ChatHeaderProps {
 
 export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
+  activeThreadBranch,
+  activeThreadWorktreePath,
   activeThreadTitle,
   activeProjectId,
   activeProjectName,
@@ -85,6 +98,7 @@ export const ChatHeader = memo(function ChatHeader({
   onWorkspaceModeChange,
 }: ChatHeaderProps) {
   const editorWorkspaceActive = workspaceMode === "editor" || workspaceMode === "split";
+  const workspaceDisplayName = workspaceName ?? activeProjectName ?? "Workspace";
   const workspaceActionItems: ReactNode[] = [
     activeProjectScripts ? (
       <ProjectScriptsControl
@@ -230,13 +244,37 @@ export const ChatHeader = memo(function ChatHeader({
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden sm:gap-2">
-        {workspaceMode === "editor" ? (
-          <span
-            className="min-w-0 truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80"
-            title={workspaceName ?? activeProjectName}
+        {editorWorkspaceActive ? (
+          <div
+            className="flex min-w-0 max-w-full items-center gap-2 rounded-[var(--panel-radius)] border border-pill-border/72 bg-pill/92 px-2.5 py-1.5 supports-[backdrop-filter]:bg-pill/84"
+            title={workspaceDisplayName}
           >
-            {workspaceName ?? activeProjectName ?? "Workspace"}
-          </span>
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)+2px)] border border-pill-border/72 bg-background/60 text-pill-foreground/84">
+              <FolderIcon className="size-4" />
+            </span>
+            <span className="min-w-0 flex flex-col">
+              <span className="truncate text-[13px] leading-none font-medium tracking-tight text-foreground/84">
+                {workspaceDisplayName}
+              </span>
+              <span className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] leading-none text-muted-foreground/78">
+                {activeThreadBranch ? (
+                  <span className="inline-flex min-w-0 items-center gap-1 truncate">
+                    <GitBranchIcon className="size-3 shrink-0" />
+                    <span className="truncate">{activeThreadBranch}</span>
+                  </span>
+                ) : null}
+                {activeThreadWorktreePath ? (
+                  <span className="inline-flex items-center gap-1" title={activeThreadWorktreePath}>
+                    <GitForkIcon className="size-3 shrink-0" />
+                    <span>Worktree</span>
+                  </span>
+                ) : null}
+                {!activeThreadBranch && !activeThreadWorktreePath ? (
+                  <span className="truncate">Editor workspace</span>
+                ) : null}
+              </span>
+            </span>
+          </div>
         ) : (
           <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
             <h2

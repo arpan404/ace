@@ -1899,6 +1899,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const branchesQuery = useQuery(gitBranchesQueryOptions(gitCwd));
   // Default true while loading to avoid toolbar flicker.
   const isGitRepo = branchesQuery.data?.isRepo ?? true;
+  const activeThreadBranchName =
+    activeThread?.branch ??
+    branchesQuery.data?.branches.find((branch) => branch.current)?.name ??
+    null;
   const keybindings = useServerKeybindings();
   const availableEditors = useServerAvailableEditors();
   const modelOptionsByProvider = useMemo(
@@ -6838,6 +6842,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
         <AppPageTopBar>
           <ChatHeader
             activeThreadId={activeThread.id}
+            activeThreadBranch={activeThreadBranchName}
+            activeThreadWorktreePath={activeThread.worktreePath ?? null}
             activeThreadTitle={activeThread.title}
             activeProjectId={activeProject?.id ?? null}
             activeProjectName={activeProject?.name}
@@ -6901,6 +6907,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             >
               <ThreadWorkspaceEditor
                 availableEditors={availableEditors}
+                branch={activeThreadBranchName}
                 gitCwd={gitCwd}
                 lspCwd={activeProject?.cwd ?? null}
                 keybindings={keybindings}
@@ -6909,6 +6916,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 onWorkspaceModeChange={onWorkspaceModeChange}
                 terminalOpen={terminalState.terminalOpen}
                 threadId={activeThread.id}
+                worktreePath={activeThread.worktreePath ?? null}
               />
             </Suspense>
           ) : (
@@ -7381,6 +7389,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     >
                       <ThreadWorkspaceEditor
                         availableEditors={availableEditors}
+                        branch={activeThreadBranchName}
                         gitCwd={gitCwd}
                         lspCwd={activeProject?.cwd ?? null}
                         keybindings={keybindings}
@@ -7389,6 +7398,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         onWorkspaceModeChange={onWorkspaceModeChange}
                         terminalOpen={terminalState.terminalOpen}
                         threadId={activeThread.id}
+                        worktreePath={activeThread.worktreePath ?? null}
                       />
                     </Suspense>
                   </div>
