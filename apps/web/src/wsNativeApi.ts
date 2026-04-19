@@ -96,6 +96,8 @@ export function createWsNativeApi(): NativeApi {
       syncBuffer: (input) => resolveRpcClientForActiveRoute().workspaceEditor.syncBuffer(input),
       closeBuffer: (input) => resolveRpcClientForActiveRoute().workspaceEditor.closeBuffer(input),
       complete: (input) => resolveRpcClientForActiveRoute().workspaceEditor.complete(input),
+      definition: (input) => resolveRpcClientForActiveRoute().workspaceEditor.definition(input),
+      references: (input) => resolveRpcClientForActiveRoute().workspaceEditor.references(input),
     },
     shell: {
       openInEditor: (cwd, editor) =>

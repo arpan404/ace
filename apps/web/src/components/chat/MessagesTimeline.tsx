@@ -318,23 +318,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   data-tool-disclosure={hasToolEntries ? "true" : undefined}
                   data-tool-disclosure-open={hasToolEntries ? String(isExpanded) : undefined}
                 >
-                  <div className="flex min-w-0 items-center gap-2.5 border-b border-transparent pb-1.5 transition-colors duration-100 group-hover/disclosure:border-border/55 group-hover/disclosure:text-foreground/92">
+                  <div className="flex min-w-0 items-center gap-2.5 border-b border-transparent pb-1.5 text-foreground/60 transition-[border-color,color,opacity] duration-100 group-hover/disclosure:border-border/75 group-hover/disclosure:text-foreground/94">
                     <ChevronIcon
                       strokeWidth={2.5}
                       className={cn(
-                        "size-3.5 shrink-0 text-muted-foreground/64 transition-transform duration-150",
+                        "size-3.5 shrink-0 text-muted-foreground/48 transition-[transform,color,opacity] duration-150 group-hover/disclosure:text-muted-foreground/78 group-hover/disclosure:opacity-100",
                         metaToneTextClass(surfaceTone),
                       )}
                     />
                     <div className="min-w-0 flex-1 overflow-hidden">
-                      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[12px] leading-5 text-foreground/82">
+                      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[12px] leading-5 text-foreground/62">
                         {breakdownParts.map((part, index) => (
                           <Fragment key={`${row.id}:summary:${part.label}:${part.count}`}>
                             {index > 0 && (
-                              <span className="shrink-0 text-muted-foreground/52">·</span>
+                              <span className="shrink-0 text-muted-foreground/46 group-hover/disclosure:text-muted-foreground/68">
+                                ·
+                              </span>
                             )}
                             <span
-                              className="min-w-0 truncate font-semibold text-foreground/88"
+                              className="min-w-0 truncate font-medium text-foreground/64 decoration-border/0 underline underline-offset-[5px] transition-[color,font-weight,text-decoration-color,opacity] duration-100 group-hover/disclosure:font-semibold group-hover/disclosure:text-foreground/96 group-hover/disclosure:decoration-border/85"
                               title={`${part.count} ${part.label}`}
                             >
                               <span className="inline-flex items-baseline gap-1">
@@ -348,7 +350,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     </div>
                     {elapsedLabel && (
                       <div
-                        className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground/60"
+                        className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground/46 transition-[color,opacity] duration-100 group-hover/disclosure:text-muted-foreground/72"
                         data-meta-disclosure-elapsed={elapsedLabel}
                       >
                         <Clock3Icon className="size-3.5 shrink-0" strokeWidth={2.4} />

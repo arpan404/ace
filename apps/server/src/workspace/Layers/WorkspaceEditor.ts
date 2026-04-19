@@ -1,5 +1,5 @@
-import { basename, delimiter, dirname, extname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { basename, delimiter, dirname, extname, join, relative } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import { Effect, Layer, Ref } from "effect";
@@ -10,6 +10,9 @@ import type {
   WorkspaceEditorCompleteResult,
   WorkspaceEditorDiagnostic,
   WorkspaceEditorCompletionItem,
+  WorkspaceEditorDefinitionResult,
+  WorkspaceEditorLocation,
+  WorkspaceEditorReferencesResult,
   WorkspaceEditorSyncBufferResult,
 } from "@ace/contracts";
 
@@ -408,6 +411,113 @@ function parseLspCompletionItems(payload: unknown): readonly WorkspaceEditorComp
       },
     ];
   });
+}
+
+function parseLspRange(payload: unknown): Omit<WorkspaceEditorLocation, "relativePath"> | null {
+  if (typeof payload !== "object" || payload === null) {
+    return null;
+  }
+  const start = Reflect.get(payload, "start");
+  const end = Reflect.get(payload, "end");
+  if (typeof start !== "object" || start === null || typeof end !== "object" || end === null) {
+    return null;
+  }
+
+  const startLine = Number(Reflect.get(start, "line"));
+  const startColumn = Number(Reflect.get(start, "character"));
+  const endLine = Number(Reflect.get(end, "line"));
+  const endColumn = Number(Reflect.get(end, "character"));
+  if (
+    !Number.isFinite(startLine) ||
+    !Number.isFinite(startColumn) ||
+    !Number.isFinite(endLine) ||
+    !Number.isFinite(endColumn)
+  ) {
+    return null;
+  }
+
+  return {
+    startLine: Math.max(0, Math.trunc(startLine)),
+    startColumn: Math.max(0, Math.trunc(startColumn)),
+    endLine: Math.max(Math.trunc(endLine), Math.trunc(startLine)),
+    endColumn: Math.max(Math.trunc(endColumn), Math.trunc(startColumn) + 1),
+  };
+}
+
+function resolveWorkspaceRelativePathFromUri(uri: string, workspaceRoot: string): string | null {
+  try {
+    const absolutePath = fileURLToPath(uri);
+    const relativePath = relative(workspaceRoot, absolutePath).replaceAll("\\", "/");
+    if (
+      relativePath.length === 0 ||
+      relativePath === "." ||
+      relativePath === ".." ||
+      relativePath.startsWith("../")
+    ) {
+      return null;
+    }
+    return relativePath;
+  } catch {
+    return null;
+  }
+}
+
+function parseLspLocation(payload: unknown, workspaceRoot: string): WorkspaceEditorLocation | null {
+  if (typeof payload !== "object" || payload === null) {
+    return null;
+  }
+
+  const targetUri = Reflect.get(payload, "targetUri");
+  const targetSelectionRange = Reflect.get(payload, "targetSelectionRange");
+  const targetRange = Reflect.get(payload, "targetRange");
+  if (typeof targetUri === "string") {
+    const relativePath = resolveWorkspaceRelativePathFromUri(targetUri, workspaceRoot);
+    const range = parseLspRange(targetSelectionRange) ?? parseLspRange(targetRange);
+    if (!relativePath || !range) {
+      return null;
+    }
+    return {
+      relativePath,
+      ...range,
+    };
+  }
+
+  const uri = Reflect.get(payload, "uri");
+  const range = parseLspRange(Reflect.get(payload, "range"));
+  if (typeof uri !== "string") {
+    return null;
+  }
+  const relativePath = resolveWorkspaceRelativePathFromUri(uri, workspaceRoot);
+  if (!relativePath || !range) {
+    return null;
+  }
+  return {
+    relativePath,
+    ...range,
+  };
+}
+
+function parseLspLocations(
+  payload: unknown,
+  workspaceRoot: string,
+): readonly WorkspaceEditorLocation[] {
+  const rawItems =
+    payload === null || payload === undefined ? [] : Array.isArray(payload) ? payload : [payload];
+  const seen = new Set<string>();
+  const locations: WorkspaceEditorLocation[] = [];
+  for (const item of rawItems) {
+    const location = parseLspLocation(item, workspaceRoot);
+    if (!location) {
+      continue;
+    }
+    const key = `${location.relativePath}:${location.startLine}:${location.startColumn}:${location.endLine}:${location.endColumn}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    locations.push(location);
+  }
+  return locations;
 }
 
 function isResponseMessage(message: unknown): message is {
@@ -1307,9 +1417,130 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
     },
   );
 
+  const definition: WorkspaceEditorShape["definition"] = Effect.fn("WorkspaceEditor.definition")(
+    function* (input) {
+      const normalizedWorkspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.cwd);
+      const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+        workspaceRoot: normalizedWorkspaceRoot,
+        relativePath: input.relativePath,
+      });
+      const resolved = yield* Effect.tryPromise({
+        try: () => resolveServerForPath(serverConfig.stateDir, target.relativePath),
+        catch: (cause) =>
+          new WorkspaceEditorError({
+            cause,
+            cwd: normalizedWorkspaceRoot,
+            detail: "Failed to resolve language server for definition lookup.",
+            operation: "workspaceEditor.definition",
+            relativePath: target.relativePath,
+          }),
+      });
+      if (!resolved) {
+        return {
+          relativePath: target.relativePath,
+          locations: [],
+        } satisfies WorkspaceEditorDefinitionResult;
+      }
+      const { languageId, server: languageServer } = resolved;
+      const session = yield* getOrCreateSession(normalizedWorkspaceRoot, languageServer);
+      const uri = pathToFileURL(target.absolutePath).toString();
+      const locations = yield* session.mutex.withPermits(1)(
+        Effect.tryPromise({
+          try: async () => {
+            await syncSessionDocument(session, uri, languageId, input.contents);
+            const result = await sendLspRequest(
+              session,
+              "textDocument/definition",
+              {
+                textDocument: { uri },
+                position: { line: input.line, character: input.column },
+              },
+              LSP_REQUEST_TIMEOUT_MS,
+            );
+            return parseLspLocations(result, normalizedWorkspaceRoot);
+          },
+          catch: (cause) =>
+            new WorkspaceEditorError({
+              cause,
+              cwd: normalizedWorkspaceRoot,
+              detail: `Workspace definition backend unavailable.${session.stderrTail.trim().length > 0 ? ` ${session.stderrTail.trim()}` : ""}`,
+              operation: "workspaceEditor.definition",
+              relativePath: target.relativePath,
+            }),
+        }),
+      );
+      return {
+        relativePath: target.relativePath,
+        locations,
+      } satisfies WorkspaceEditorDefinitionResult;
+    },
+  );
+
+  const references: WorkspaceEditorShape["references"] = Effect.fn("WorkspaceEditor.references")(
+    function* (input) {
+      const normalizedWorkspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.cwd);
+      const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+        workspaceRoot: normalizedWorkspaceRoot,
+        relativePath: input.relativePath,
+      });
+      const resolved = yield* Effect.tryPromise({
+        try: () => resolveServerForPath(serverConfig.stateDir, target.relativePath),
+        catch: (cause) =>
+          new WorkspaceEditorError({
+            cause,
+            cwd: normalizedWorkspaceRoot,
+            detail: "Failed to resolve language server for references lookup.",
+            operation: "workspaceEditor.references",
+            relativePath: target.relativePath,
+          }),
+      });
+      if (!resolved) {
+        return {
+          relativePath: target.relativePath,
+          locations: [],
+        } satisfies WorkspaceEditorReferencesResult;
+      }
+      const { languageId, server: languageServer } = resolved;
+      const session = yield* getOrCreateSession(normalizedWorkspaceRoot, languageServer);
+      const uri = pathToFileURL(target.absolutePath).toString();
+      const locations = yield* session.mutex.withPermits(1)(
+        Effect.tryPromise({
+          try: async () => {
+            await syncSessionDocument(session, uri, languageId, input.contents);
+            const result = await sendLspRequest(
+              session,
+              "textDocument/references",
+              {
+                textDocument: { uri },
+                position: { line: input.line, character: input.column },
+                context: { includeDeclaration: true },
+              },
+              LSP_REQUEST_TIMEOUT_MS,
+            );
+            return parseLspLocations(result, normalizedWorkspaceRoot);
+          },
+          catch: (cause) =>
+            new WorkspaceEditorError({
+              cause,
+              cwd: normalizedWorkspaceRoot,
+              detail: `Workspace references backend unavailable.${session.stderrTail.trim().length > 0 ? ` ${session.stderrTail.trim()}` : ""}`,
+              operation: "workspaceEditor.references",
+              relativePath: target.relativePath,
+            }),
+        }),
+      );
+      return {
+        relativePath: target.relativePath,
+        locations,
+      } satisfies WorkspaceEditorReferencesResult;
+    },
+  );
+
   return {
     closeBuffer,
     complete,
+    definition,
+    references,
     syncBuffer,
   } satisfies WorkspaceEditorShape;
 });

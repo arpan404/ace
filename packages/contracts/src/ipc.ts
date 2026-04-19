@@ -43,6 +43,10 @@ import type {
   WorkspaceEditorCloseBufferResult,
   WorkspaceEditorCompleteInput,
   WorkspaceEditorCompleteResult,
+  WorkspaceEditorDefinitionInput,
+  WorkspaceEditorDefinitionResult,
+  WorkspaceEditorReferencesInput,
+  WorkspaceEditorReferencesResult,
   WorkspaceEditorSyncBufferInput,
   WorkspaceEditorSyncBufferResult,
 } from "./workspaceEditor";
@@ -311,6 +315,8 @@ export interface NativeApi {
       input: WorkspaceEditorCloseBufferInput,
     ) => Promise<WorkspaceEditorCloseBufferResult>;
     complete: (input: WorkspaceEditorCompleteInput) => Promise<WorkspaceEditorCompleteResult>;
+    definition: (input: WorkspaceEditorDefinitionInput) => Promise<WorkspaceEditorDefinitionResult>;
+    references: (input: WorkspaceEditorReferencesInput) => Promise<WorkspaceEditorReferencesResult>;
   };
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;

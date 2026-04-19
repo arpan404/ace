@@ -1,5 +1,5 @@
 import Editor, { type OnMount } from "@monaco-editor/react";
-import type { WorkspaceEditorDiagnostic } from "@ace/contracts";
+import type { WorkspaceEditorDiagnostic, WorkspaceEditorLocation } from "@ace/contracts";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircleIcon,
@@ -100,6 +100,7 @@ const DIAGNOSTIC_SYNC_DEBOUNCE_MS = 250;
 const DIAGNOSTIC_UNAVAILABLE_RETRY_MS = 3_000;
 const WORKSPACE_FILE_REFETCH_INTERVAL_MS = 1_200;
 const COMPLETION_TRIGGER_CHARACTERS = [".", "/", '"', "'", ":", "<", "@"] as const;
+const WORKSPACE_MODEL_URI_SCHEME = "ace-workspace";
 
 type MonacoApi = typeof import("monaco-editor");
 
@@ -147,6 +148,86 @@ function resolveMonacoLanguageFromFilePath(filePath: string | null): string | un
     return normalizedPath.slice(extensionIndex + 1);
   }
   return undefined;
+}
+
+function normalizeWorkspaceRelativePath(filePath: string): string {
+  return filePath
+    .split(/[\\/]/g)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+    .join("/");
+}
+
+function createWorkspaceModelUriString(relativePath: string): string {
+  const encodedPath = normalizeWorkspaceRelativePath(relativePath)
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return `${WORKSPACE_MODEL_URI_SCHEME}:///${encodedPath}`;
+}
+
+function createWorkspaceModelUri(monacoInstance: MonacoApi, relativePath: string) {
+  return monacoInstance.Uri.parse(createWorkspaceModelUriString(relativePath));
+}
+
+function readRelativePathFromWorkspaceModelUri(uri: {
+  scheme: string;
+  path: string;
+}): string | null {
+  if (uri.scheme !== WORKSPACE_MODEL_URI_SCHEME) {
+    return null;
+  }
+  const relativePath = uri.path
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map((segment) => decodeURIComponent(segment))
+    .join("/");
+  return relativePath.length > 0 ? relativePath : null;
+}
+
+function toMonacoRangeFromWorkspaceLocation(location: WorkspaceEditorLocation) {
+  const startLineNumber = location.startLine + 1;
+  const startColumn = location.startColumn + 1;
+  const endLineNumber = location.endLine + 1;
+  const endColumn =
+    location.endLine === location.startLine
+      ? Math.max(startColumn + 1, location.endColumn + 1)
+      : Math.max(1, location.endColumn + 1);
+  return {
+    startLineNumber,
+    startColumn,
+    endLineNumber,
+    endColumn,
+  };
+}
+
+function toWorkspaceLocationFromSelection(
+  relativePath: string,
+  selection: {
+    selectionStartLineNumber: number;
+    selectionStartColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  },
+): WorkspaceEditorLocation {
+  return {
+    relativePath,
+    startLine: Math.max(0, selection.selectionStartLineNumber - 1),
+    startColumn: Math.max(0, selection.selectionStartColumn - 1),
+    endLine: Math.max(0, selection.endLineNumber - 1),
+    endColumn: Math.max(selection.endColumn - 1, selection.selectionStartColumn - 1),
+  };
+}
+
+function resolveRelativePathFromEditorModel(
+  model: MonacoEditor.ITextModel,
+  fallbackRelativePath: string | null,
+): string | null {
+  const fromWorkspaceUri = readRelativePathFromWorkspaceModelUri(model.uri);
+  if (fromWorkspaceUri) {
+    return fromWorkspaceUri;
+  }
+  return fallbackRelativePath;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -384,6 +465,33 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         ? "Mermaid preview"
         : "Preview mode";
   const activeMonacoLanguage = resolveMonacoLanguageFromFilePath(props.pane.activeFilePath);
+  const activeModelPath = pane.activeFilePath
+    ? createWorkspaceModelUriString(pane.activeFilePath)
+    : undefined;
+  const workspaceCwd = props.gitCwd ?? props.diagnosticsCwd;
+  const [pendingNavigationTarget, setPendingNavigationTarget] =
+    useState<WorkspaceEditorLocation | null>(null);
+  const latestPaneStateRef = useRef({
+    paneId: pane.id,
+    activeFilePath: pane.activeFilePath,
+  });
+  const onOpenFileInPaneRef = useRef(onOpenFileInPane);
+  const draftsByFilePathRef = useRef(props.draftsByFilePath);
+
+  useEffect(() => {
+    latestPaneStateRef.current = {
+      paneId: pane.id,
+      activeFilePath: pane.activeFilePath,
+    };
+  }, [pane.activeFilePath, pane.id]);
+
+  useEffect(() => {
+    onOpenFileInPaneRef.current = onOpenFileInPane;
+  }, [onOpenFileInPane]);
+
+  useEffect(() => {
+    draftsByFilePathRef.current = props.draftsByFilePath;
+  }, [props.draftsByFilePath]);
 
   const handleSave = useCallback(() => {
     if (!pane.activeFilePath || !activeDraft) {
@@ -425,6 +533,148 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     pane.activeFilePath !== null &&
     (isPreviewMode || activeDraft !== null || activeFileQuery.data?.contents !== undefined);
 
+  const ensureWorkspaceModelLoaded = useCallback(
+    async (relativePath: string): Promise<MonacoEditor.ITextModel | null> => {
+      const monacoInstance = monacoRef.current;
+      if (!api || !monacoInstance || !workspaceCwd) {
+        return null;
+      }
+      const uri = createWorkspaceModelUri(monacoInstance, relativePath);
+      const existingModel = monacoInstance.editor.getModel(uri);
+      if (existingModel) {
+        return existingModel;
+      }
+
+      const draft = draftsByFilePathRef.current[relativePath];
+      let contents = draft?.draftContents;
+      if (contents === undefined) {
+        const result = await api.projects.readFile({
+          cwd: workspaceCwd,
+          relativePath,
+        });
+        contents = result.contents;
+        onHydrateFile(relativePath, result.contents);
+      }
+
+      const reusedModel = monacoInstance.editor.getModel(uri);
+      if (reusedModel) {
+        return reusedModel;
+      }
+      return monacoInstance.editor.createModel(
+        contents,
+        resolveMonacoLanguageFromFilePath(relativePath),
+        uri,
+      );
+    },
+    [api, onHydrateFile, workspaceCwd],
+  );
+
+  const toMonacoLocations = useCallback(
+    async (locations: readonly WorkspaceEditorLocation[]) => {
+      const resolvedLocations = await Promise.all(
+        locations.map(async (location) => {
+          const model = await ensureWorkspaceModelLoaded(location.relativePath);
+          if (!model) {
+            return null;
+          }
+          return {
+            uri: model.uri,
+            range: toMonacoRangeFromWorkspaceLocation(location),
+          };
+        }),
+      );
+      return resolvedLocations.filter(
+        (
+          location,
+        ): location is {
+          uri: MonacoEditor.ITextModel["uri"];
+          range: ReturnType<typeof toMonacoRangeFromWorkspaceLocation>;
+        } => location !== null,
+      );
+    },
+    [ensureWorkspaceModelLoaded],
+  );
+
+  const focusWorkspaceLocation = useCallback((location: WorkspaceEditorLocation) => {
+    const editor = editorRef.current;
+    const latestPaneState = latestPaneStateRef.current;
+    if (!editor) {
+      return;
+    }
+    if (location.relativePath === latestPaneState.activeFilePath) {
+      const range = toMonacoRangeFromWorkspaceLocation(location);
+      editor.focus();
+      editor.setSelection(range);
+      editor.revealRangeInCenter(range);
+      return;
+    }
+    setPendingNavigationTarget(location);
+    onOpenFileInPaneRef.current(latestPaneState.paneId, location.relativePath);
+  }, []);
+
+  const loadDefinitionLocations = useCallback(
+    async (input: {
+      relativePath: string;
+      contents: string;
+      line: number;
+      column: number;
+    }): Promise<readonly WorkspaceEditorLocation[]> => {
+      if (!api || !props.diagnosticsCwd) {
+        return [];
+      }
+      try {
+        setActionError(null);
+        const result = await api.workspaceEditor.definition({
+          cwd: props.diagnosticsCwd,
+          relativePath: input.relativePath,
+          contents: input.contents,
+          line: input.line,
+          column: input.column,
+        });
+        return result.locations;
+      } catch (error) {
+        const message = toErrorMessage(error);
+        setActionError(message);
+        console.error("Failed to resolve workspace editor definitions", {
+          diagnosticsCwd: props.diagnosticsCwd,
+          relativePath: input.relativePath,
+          error,
+        });
+        return [];
+      }
+    },
+    [api, props.diagnosticsCwd],
+  );
+
+  const navigateToDefinitionAtPosition = useCallback(
+    async (position: { lineNumber: number; column: number }) => {
+      const editor = editorRef.current;
+      const model = editor?.getModel();
+      if (!editor || !model || isPreviewMode) {
+        return;
+      }
+      const relativePath = resolveRelativePathFromEditorModel(
+        model,
+        latestPaneStateRef.current.activeFilePath,
+      );
+      if (!relativePath) {
+        return;
+      }
+      const locations = await loadDefinitionLocations({
+        relativePath,
+        contents: model.getValue(),
+        line: Math.max(0, position.lineNumber - 1),
+        column: Math.max(0, position.column - 1),
+      });
+      const firstLocation = locations[0];
+      if (!firstLocation) {
+        return;
+      }
+      focusWorkspaceLocation(firstLocation);
+    },
+    [focusWorkspaceLocation, isPreviewMode, loadDefinitionLocations],
+  );
+
   const handleEditorMount = useCallback<OnMount>(
     (editor, monacoInstance) => {
       editorRef.current = editor;
@@ -432,6 +682,35 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       setEditorMountVersion((version) => version + 1);
       editor.onDidFocusEditorWidget(() => {
         onFocusPane(pane.id);
+      });
+      editor.onMouseDown((event) => {
+        if (
+          !event.target.position ||
+          event.target.type !== monacoInstance.editor.MouseTargetType.CONTENT_TEXT ||
+          !(event.event.metaKey || event.event.ctrlKey) ||
+          !event.event.leftButton
+        ) {
+          return;
+        }
+        event.event.preventDefault();
+        event.event.stopPropagation();
+        void navigateToDefinitionAtPosition(event.target.position);
+      });
+      editor.onDidChangeModel(() => {
+        const model = editor.getModel();
+        const nextRelativePath = model ? readRelativePathFromWorkspaceModelUri(model.uri) : null;
+        if (!nextRelativePath) {
+          return;
+        }
+        const latestPaneState = latestPaneStateRef.current;
+        if (nextRelativePath === latestPaneState.activeFilePath) {
+          return;
+        }
+        const selection = editor.getSelection();
+        if (selection) {
+          setPendingNavigationTarget(toWorkspaceLocationFromSelection(nextRelativePath, selection));
+        }
+        onOpenFileInPaneRef.current(latestPaneState.paneId, nextRelativePath);
       });
       editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, () => {
         saveActionRef.current();
@@ -448,6 +727,13 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           void action.run();
         }
       });
+      editor.addCommand(monacoInstance.KeyCode.F12, () => {
+        const position = editor.getPosition();
+        if (!position) {
+          return;
+        }
+        void navigateToDefinitionAtPosition(position);
+      });
       editor.addCommand(
         monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyM,
         () => {
@@ -460,8 +746,24 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       });
       syncProblemState();
     },
-    [onFocusPane, pane.id, syncProblemState],
+    [navigateToDefinitionAtPosition, onFocusPane, pane.id, syncProblemState],
   );
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (
+      !editor ||
+      !pendingNavigationTarget ||
+      pane.activeFilePath !== pendingNavigationTarget.relativePath
+    ) {
+      return;
+    }
+    const range = toMonacoRangeFromWorkspaceLocation(pendingNavigationTarget);
+    editor.focus();
+    editor.setSelection(range);
+    editor.revealRangeInCenter(range);
+    setPendingNavigationTarget(null);
+  }, [editorMountVersion, pane.activeFilePath, pendingNavigationTarget]);
 
   useEffect(() => {
     syncRequestIdRef.current += 1;
@@ -668,6 +970,88 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     isPreviewMode,
     pane.activeFilePath,
     props.diagnosticsCwd,
+  ]);
+
+  useEffect(() => {
+    const monacoInstance = monacoRef.current;
+    if (!api || !monacoInstance || !activeMonacoLanguage) {
+      return;
+    }
+    const provider = monacoInstance.languages.registerDefinitionProvider(activeMonacoLanguage, {
+      provideDefinition: async (model, position, token) => {
+        const relativePath = resolveRelativePathFromEditorModel(model, pane.activeFilePath);
+        if (!relativePath || isPreviewMode) {
+          return null;
+        }
+        const locations = await loadDefinitionLocations({
+          relativePath,
+          contents: model.getValue(),
+          line: Math.max(0, position.lineNumber - 1),
+          column: Math.max(0, position.column - 1),
+        });
+        if (token.isCancellationRequested) {
+          return null;
+        }
+        const monacoLocations = await toMonacoLocations(locations);
+        return monacoLocations.length > 0 ? monacoLocations : null;
+      },
+    });
+    return () => {
+      provider.dispose();
+    };
+  }, [
+    activeMonacoLanguage,
+    api,
+    editorMountVersion,
+    isPreviewMode,
+    loadDefinitionLocations,
+    pane.activeFilePath,
+    props.diagnosticsCwd,
+    toMonacoLocations,
+  ]);
+
+  useEffect(() => {
+    const monacoInstance = monacoRef.current;
+    if (!api || !monacoInstance || !activeMonacoLanguage) {
+      return;
+    }
+    const provider = monacoInstance.languages.registerReferenceProvider(activeMonacoLanguage, {
+      provideReferences: async (model, position, context, token) => {
+        const relativePath = resolveRelativePathFromEditorModel(model, pane.activeFilePath);
+        if (!props.diagnosticsCwd || !relativePath || isPreviewMode) {
+          return [];
+        }
+        try {
+          const result = await api.workspaceEditor.references({
+            cwd: props.diagnosticsCwd,
+            relativePath,
+            contents: model.getValue(),
+            line: Math.max(0, position.lineNumber - 1),
+            column: Math.max(0, position.column - 1),
+          });
+          if (token.isCancellationRequested) {
+            return [];
+          }
+          const filteredLocations = context.includeDeclaration
+            ? result.locations
+            : result.locations.filter((location) => location.relativePath !== relativePath);
+          return toMonacoLocations(filteredLocations);
+        } catch {
+          return [];
+        }
+      },
+    });
+    return () => {
+      provider.dispose();
+    };
+  }, [
+    activeMonacoLanguage,
+    api,
+    editorMountVersion,
+    isPreviewMode,
+    pane.activeFilePath,
+    props.diagnosticsCwd,
+    toMonacoLocations,
   ]);
 
   useEffect(
@@ -1139,7 +1523,6 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             <Editor
               key={`${props.pane.id}:${props.pane.activeFilePath ?? "empty"}:${props.resolvedTheme}`}
               height="100%"
-              path={props.pane.activeFilePath}
               value={activeFileContents}
               theme={props.resolvedTheme === "dark" ? "ace-carbon" : "ace-paper"}
               onMount={handleEditorMount}
@@ -1150,6 +1533,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
                 props.onUpdateDraft(props.pane.activeFilePath, value);
               }}
               options={props.editorOptions}
+              {...(activeModelPath ? { path: activeModelPath } : {})}
               {...(activeMonacoLanguage ? { language: activeMonacoLanguage } : {})}
             />
           </div>
