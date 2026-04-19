@@ -1,9 +1,12 @@
 import { defineConfig } from "tsdown";
 
+const sourcemapEnv = process.env.ACE_DESKTOP_SOURCEMAP?.trim().toLowerCase();
+const sourcemap = sourcemapEnv === "1" || sourcemapEnv === "true";
+
 const shared = {
   format: "cjs" as const,
   outDir: "dist-electron",
-  sourcemap: true,
+  sourcemap,
   outExtensions: () => ({ js: ".js" }),
 };
 
