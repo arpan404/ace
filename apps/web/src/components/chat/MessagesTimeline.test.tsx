@@ -793,6 +793,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-tool-disclosure="true"');
     expect(markup).toContain('data-tool-disclosure-open="true"');
     expect(markup).toContain("9 tool calls");
+    expect(markup).not.toContain('data-meta-disclosure-elapsed="');
     expect(markup).toContain('data-work-entry-id="live-work-tool-1"');
     expect(markup).toContain('data-work-entry-id="live-work-tool-10"');
   });
@@ -968,14 +969,14 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("Comparing the grouped timeline behavior after the patch.");
   });
 
-  it("measures completed thinking until the nearest next event", async () => {
+  it("measures completed thinking until the nearest next event after the turn finishes", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
         isWorking={false}
-        activeTurnInProgress
-        activeTurnStartedAt="2026-03-17T19:12:30.000Z"
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
         scrollContainer={null}
         timelineEntries={[
           {
@@ -1032,12 +1033,75 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    const thinkingIndex = markup.indexOf('data-meta-disclosure-elapsed="3s"');
-    const toolIndex = markup.indexOf('data-work-entry-id="tool-after-thinking"');
-
-    expect(thinkingIndex).toBeGreaterThanOrEqual(0);
-    expect(toolIndex).toBeGreaterThan(thinkingIndex);
+    expect(markup).toContain('data-meta-disclosure-elapsed="3s"');
     expect(markup).not.toContain('data-meta-disclosure-elapsed="1s"');
+  });
+
+  it("hides grouped elapsed metadata while the current turn is still running", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:30.000Z"
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "thinking-live-1",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:31.100Z",
+            entry: {
+              id: "thinking-live-1",
+              createdAt: "2026-03-17T19:12:31.100Z",
+              label: "Reasoning",
+              detail: "Checking the existing render boundary.",
+              tone: "thinking",
+            },
+          },
+          {
+            id: "thinking-live-2",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:31.600Z",
+            entry: {
+              id: "thinking-live-2",
+              createdAt: "2026-03-17T19:12:31.600Z",
+              label: "Reasoning",
+              detail: "Preparing the grouped summary after the reasoning block.",
+              tone: "thinking",
+            },
+          },
+          {
+            id: "tool-after-live-thinking",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:33.400Z",
+            entry: {
+              id: "tool-after-live-thinking",
+              createdAt: "2026-03-17T19:12:33.400Z",
+              label: "Read file",
+              detail: "Opening the patched timeline component.",
+              tone: "tool",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).not.toContain('data-meta-disclosure-elapsed="');
   });
 
   it("moves completed thinking behind a disclosure once assistant output starts", async () => {
@@ -2090,6 +2154,7 @@ describe("MessagesTimeline", () => {
       );
 
       expect(markup).toContain("Working for 30s");
+      expect(markup).not.toContain('data-response-summary="true"');
     } finally {
       vi.useRealTimers();
     }

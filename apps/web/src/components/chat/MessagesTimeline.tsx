@@ -307,7 +307,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               <div className="min-w-0 py-0.5" data-thread-group={threadGroupTone}>
                 <button
                   type="button"
-                  className="group/disclosure w-full text-left"
+                  className="group/disclosure w-full rounded-md border border-border/35 bg-background/45 px-2.5 py-1.5 text-left transition-[background-color,border-color] duration-100 hover:border-border/55 hover:bg-background/65"
                   onClick={() => onToggleWorkGroup(groupId)}
                   data-meta-disclosure="true"
                   data-meta-disclosure-open={String(isExpanded)}
@@ -318,7 +318,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   data-tool-disclosure={hasToolEntries ? "true" : undefined}
                   data-tool-disclosure-open={hasToolEntries ? String(isExpanded) : undefined}
                 >
-                  <div className="flex min-w-0 items-center gap-2.5 border-b border-transparent pb-1.5 text-foreground/60 transition-[border-color,color,opacity] duration-100 group-hover/disclosure:border-border/75 group-hover/disclosure:text-foreground/94">
+                  <div className="flex min-w-0 items-center gap-2.5 text-foreground/60 transition-[color,opacity] duration-100 group-hover/disclosure:text-foreground/94">
                     <ChevronIcon
                       strokeWidth={2.5}
                       className={cn(
@@ -360,7 +360,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   </div>
                 </button>
                 {isExpanded && (
-                  <div className="mt-2 space-y-2 border-border/40 border-l pl-4">
+                  <div className="mt-2 space-y-2 border-border/35 border-l pl-4">
                     {row.entries.map((entry) =>
                       entry.kind === "work" ? (
                         <SimpleWorkEntryRow
@@ -413,6 +413,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               completionSummary={row.completionSummary}
               durationStart={row.durationStart}
               isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}
+              showCompletedTiming={row.showAssistantTiming ?? false}
               showAssistantSummaryByDefault={row.showAssistantSummaryByDefault ?? false}
               markdownCwd={markdownCwd}
               message={row.message}
@@ -616,6 +617,7 @@ type TimelineRow =
       durationStart: string;
       completionSummary: string | null;
       isAssistantTurnTerminal?: boolean;
+      showAssistantTiming?: boolean;
       showAssistantSummaryByDefault?: boolean;
     }
   | {
@@ -690,7 +692,6 @@ function formatElapsedSeconds(elapsedSeconds: number): string {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-/** Self-contained timer that re-renders only itself every second. */
 const WorkingTimer = memo(function WorkingTimer({
   createdAt,
   label,
@@ -817,12 +818,17 @@ function buildTimelineRows(input: {
     }
 
     if (shouldCollapseMetaEntries(pendingMetaEntries)) {
+      const shouldHideLiveElapsed =
+        input.activeTurnInProgress &&
+        isEventInActiveTurn(pendingMetaCreatedAt, activeTurnStartedAtMs);
       nextRows.push({
         kind: "work-group",
         id: pendingMetaRowId,
         createdAt: pendingMetaCreatedAt,
         entries: pendingMetaEntries,
-        summaryEndAt: resolveWorkGroupSummaryEndAt(pendingMetaEntries, nextEventCreatedAt),
+        summaryEndAt: shouldHideLiveElapsed
+          ? null
+          : resolveWorkGroupSummaryEndAt(pendingMetaEntries, nextEventCreatedAt),
       });
     } else {
       for (const entry of pendingMetaEntries) {
@@ -956,6 +962,13 @@ function buildTimelineRows(input: {
       isAssistantTurnTerminal:
         timelineEntry.message.role === "assistant" &&
         terminalAssistantMessageIds.has(timelineEntry.id),
+      showAssistantTiming:
+        timelineEntry.message.role === "assistant" &&
+        terminalAssistantMessageIds.has(timelineEntry.id) &&
+        !(
+          input.activeTurnInProgress &&
+          isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
+        ),
       showAssistantSummaryByDefault:
         timelineEntry.message.role === "assistant" &&
         terminalAssistantMessageIds.has(timelineEntry.id) &&
@@ -1598,6 +1611,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   completionSummary: string | null;
   durationStart: string;
   isAssistantTurnTerminal?: boolean;
+  showCompletedTiming?: boolean;
   showAssistantSummaryByDefault?: boolean;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
@@ -1614,12 +1628,12 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         : "(empty response)";
   const completedAt = props.message.completedAt ?? null;
   const elapsedLabel =
-    props.isAssistantTurnTerminal && completedAt
+    props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt
       ? (normalizeCompletionSummaryElapsed(props.completionSummary) ??
         formatCompletedWorkTimer(props.durationStart, completedAt))
       : null;
   const completedAtLabel =
-    props.isAssistantTurnTerminal && completedAt
+    props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt
       ? formatTimestamp(completedAt, props.timestampFormat)
       : null;
   const persistVisible = Boolean(props.completionSummary || props.showAssistantSummaryByDefault);

@@ -461,6 +461,23 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Pending Approval", pulse: false });
   });
 
+  it("shows error before other states when the session fails", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          hasPendingApprovals: true,
+          session: {
+            ...baseThread.session,
+            status: "error",
+            orchestrationStatus: "error",
+            lastError: "Command exited with code 1",
+          },
+        },
+      }),
+    ).toMatchObject({ label: "Error", pulse: false });
+  });
+
   it("shows awaiting input when plan mode is blocked on user answers", () => {
     expect(
       resolveThreadStatusPill({
@@ -565,15 +582,15 @@ describe("resolveProjectStatusIndicator", () => {
     expect(
       resolveProjectStatusIndicator([
         {
-          label: "Completed",
-          colorClass: "text-emerald-600",
-          dotClass: "bg-emerald-500",
+          label: "Error",
+          colorClass: "text-rose-600",
+          dotClass: "bg-rose-500",
           pulse: false,
         },
         {
-          label: "Pending Approval",
-          colorClass: "text-amber-600",
-          dotClass: "bg-amber-500",
+          label: "Completed",
+          colorClass: "text-emerald-600",
+          dotClass: "bg-emerald-500",
           pulse: false,
         },
         {
@@ -583,7 +600,7 @@ describe("resolveProjectStatusIndicator", () => {
           pulse: true,
         },
       ]),
-    ).toMatchObject({ label: "Pending Approval", dotClass: "bg-amber-500" });
+    ).toMatchObject({ label: "Error", dotClass: "bg-rose-500" });
   });
 
   it("prefers plan-ready over completed when no stronger action is needed", () => {

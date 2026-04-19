@@ -440,6 +440,22 @@ label {
   }
 }
 
+@keyframes sidebar-thread-status-awaiting {
+  0%,
+  45%,
+  100% {
+    opacity: 1;
+  }
+  46%,
+  55% {
+    opacity: 0.15;
+  }
+}
+
+.sidebar-thread-status-awaiting {
+  animation: sidebar-thread-status-awaiting 1.1s steps(2, end) infinite;
+}
+
 .thread-terminal-drawer .terminal-live-indicator {
   animation: terminal-pulse 2s ease-in-out infinite;
 }

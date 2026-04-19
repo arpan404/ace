@@ -431,6 +431,7 @@ function EventRouter() {
       syncThreads(
         threads.map((thread) => ({
           id: thread.id,
+          projectId: thread.projectId,
           seedVisitedAt: thread.updatedAt ?? thread.createdAt,
         })),
       );
@@ -499,6 +500,7 @@ function EventRouter() {
         syncThreads(
           threads.map((thread) => ({
             id: thread.id,
+            projectId: thread.projectId,
             seedVisitedAt: thread.updatedAt ?? thread.createdAt,
           })),
         );

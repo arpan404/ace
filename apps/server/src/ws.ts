@@ -78,11 +78,15 @@ import {
   WorkspaceRootNotDirectoryError,
   WorkspaceRootNotExistsError,
 } from "./workspace/Services/WorkspacePaths";
+import {
+  disconnectWsClientSession,
+  hasActiveWsClientSessions,
+  isCurrentWsClientSession,
+  registerWsClientSession,
+} from "./wsClientSessions";
 
 const WS_UPGRADE_RATE_LIMIT_WINDOW_MS = 60_000;
 const WS_UPGRADE_RATE_LIMIT_MAX_ATTEMPTS = 30;
-const WS_CLIENT_SESSION_TTL_MS = 15 * 60_000;
-const WS_CLIENT_SESSION_PRUNE_INTERVAL_MS = 60_000;
 const PROVIDER_AUTO_REFRESH_TICK_MS = 60_000;
 const PROVIDER_AUTO_REFRESH_READY_TTL_MS = 2 * 60 * 60_000;
 const PROVIDER_AUTO_REFRESH_WARNING_TTL_MS = 45 * 60_000;
@@ -91,73 +95,6 @@ const ORCHESTRATION_EVENT_REORDER_MAX_PENDING = Math.max(
   128,
   Number.parseInt(process.env.ACE_ORCHESTRATION_EVENT_REORDER_MAX_PENDING ?? "1024", 10) || 1024,
 );
-
-type WsClientSessionRecord = {
-  readonly connectionId: string;
-  readonly generation: number;
-  readonly updatedAt: number;
-};
-
-const wsClientSessions = new Map<string, WsClientSessionRecord>();
-let nextWsClientSessionPruneAt = 0;
-
-function pruneWsClientSessions(now = Date.now()): void {
-  for (const [clientSessionId, record] of wsClientSessions.entries()) {
-    if (record.updatedAt + WS_CLIENT_SESSION_TTL_MS <= now) {
-      wsClientSessions.delete(clientSessionId);
-    }
-  }
-}
-
-function pruneWsClientSessionsIfNeeded(now = Date.now()): void {
-  if (now < nextWsClientSessionPruneAt) {
-    return;
-  }
-  pruneWsClientSessions(now);
-  nextWsClientSessionPruneAt = now + WS_CLIENT_SESSION_PRUNE_INTERVAL_MS;
-}
-
-function hasActiveWsClientSessions(now = Date.now()): boolean {
-  pruneWsClientSessionsIfNeeded(now);
-  return wsClientSessions.size > 0;
-}
-
-function registerWsClientSession(
-  clientSessionId: string,
-  connectionId: string,
-  now = Date.now(),
-): WsClientSessionRecord {
-  pruneWsClientSessionsIfNeeded(now);
-  const existing = wsClientSessions.get(clientSessionId);
-  const nextRecord: WsClientSessionRecord =
-    existing && existing.connectionId === connectionId
-      ? {
-          ...existing,
-          updatedAt: now,
-        }
-      : {
-          connectionId,
-          generation: (existing?.generation ?? 0) + 1,
-          updatedAt: now,
-        };
-  wsClientSessions.set(clientSessionId, nextRecord);
-  return nextRecord;
-}
-
-function isCurrentWsClientSession(clientSessionId?: string, connectionId?: string): boolean {
-  if (!clientSessionId || !connectionId) {
-    return true;
-  }
-  const current = wsClientSessions.get(clientSessionId);
-  return current?.connectionId === connectionId;
-}
-
-function disconnectWsClientSession(clientSessionId: string, connectionId: string): void {
-  const current = wsClientSessions.get(clientSessionId);
-  if (current?.connectionId === connectionId) {
-    wsClientSessions.delete(clientSessionId);
-  }
-}
 
 function normalizeStreamIdentity(input: {
   readonly clientSessionId?: string | undefined;

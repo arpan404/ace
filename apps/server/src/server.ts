@@ -41,6 +41,7 @@ import { RoutingTextGenerationLive } from "./git/Layers/RoutingTextGeneration";
 import { TerminalManagerLive } from "./terminal/Layers/Manager";
 import { GitManagerLive } from "./git/Layers/GitManager";
 import { KeybindingsLive } from "./keybindings";
+import { MaintenanceRuntimeLive } from "./maintenance";
 import { ServerLoggerLive } from "./serverLogger";
 import { ServerRuntimeStartup, ServerRuntimeStartupLive } from "./serverRuntimeStartup";
 import { logStartupEvent, withStartupTiming } from "./startupDiagnostics";
@@ -250,6 +251,7 @@ const RuntimeServicesLive = Layer.empty.pipe(
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(PersistenceLayerLive),
+  Layer.provideMerge(MaintenanceRuntimeLive),
   Layer.provideMerge(KeybindingsLive),
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(ServerSettingsLive),
