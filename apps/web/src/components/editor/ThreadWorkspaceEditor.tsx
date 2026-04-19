@@ -14,8 +14,9 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   FilePlus2Icon,
-  FolderIcon,
   FolderPlusIcon,
+  GitBranchIcon,
+  GitForkIcon,
   Maximize2Icon,
   PanelLeftCloseIcon,
   PanelLeftIcon,
@@ -39,6 +40,7 @@ import {
   selectThreadEditorState,
   useEditorStateStore,
 } from "~/editorStateStore";
+import { usePreferredEditor } from "~/editorPreferences";
 import { useSettings } from "~/hooks/useSettings";
 import { useUpdateSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
@@ -57,7 +59,7 @@ import { basenameOfPath } from "~/vscode-icons";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
-import { OpenInEditorMenuSection } from "../chat/OpenInPicker";
+import { OpenInEditorMenuSection, resolveOpenInEditorOptions } from "../chat/OpenInPicker";
 import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -125,36 +127,67 @@ const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
 }) {
+  const api = readNativeApi();
+  const [preferredEditor, setPreferredEditor] = usePreferredEditor(availableEditors);
   const openFavoriteEditorShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "editor.openFavorite"),
     [keybindings],
   );
+  const editorOptions = useMemo(
+    () => resolveOpenInEditorOptions(navigator.platform, availableEditors),
+    [availableEditors],
+  );
+  const preferredEditorOption = useMemo(
+    () =>
+      (preferredEditor
+        ? (editorOptions.find((option) => option.value === preferredEditor) ?? null)
+        : null) ??
+      editorOptions[0] ??
+      null,
+    [editorOptions, preferredEditor],
+  );
+  const handleOpenPreferredEditor = useCallback(() => {
+    if (!api || !gitCwd || !preferredEditorOption) {
+      return;
+    }
+    void api.shell.openInEditor(gitCwd, preferredEditorOption.value);
+    setPreferredEditor(preferredEditorOption.value);
+  }, [api, gitCwd, preferredEditorOption, setPreferredEditor]);
 
   if (!gitCwd) {
     return null;
   }
 
   return (
-    <Menu>
+    <div className="flex shrink-0 items-center gap-1">
       <Tooltip>
         <TooltipTrigger
           render={
-            <MenuTrigger
-              render={
-                <Button
-                  variant="outline"
-                  size="icon-xs"
-                  className="size-6 shrink-0 rounded-sm border-transparent bg-transparent text-muted-foreground/75 hover:bg-foreground/6 hover:text-foreground"
-                  aria-label="Open workspace in external editor"
-                />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 min-w-0 max-w-[15rem] shrink-0 gap-1.5 rounded-[var(--control-radius)] border-border/60 bg-background/84 px-2.5 text-[11px] font-medium text-foreground/84 shadow-none hover:bg-background"
+              aria-label={
+                preferredEditorOption
+                  ? `Open workspace in ${preferredEditorOption.label}`
+                  : "Open workspace in external editor"
               }
+              onClick={handleOpenPreferredEditor}
+              disabled={!preferredEditorOption}
             >
-              <ChevronDownIcon className="size-3.5" />
-            </MenuTrigger>
+              {preferredEditorOption ? (
+                <preferredEditorOption.Icon className="size-3.5 shrink-0" />
+              ) : null}
+              <span className="truncate">
+                {preferredEditorOption ? preferredEditorOption.label : "Open in editor"}
+              </span>
+            </Button>
           }
         />
-        <TooltipPopup side="bottom" align="center" className="max-w-xs">
-          Open this workspace in VS Code, Cursor, or another installed editor.
+        <TooltipPopup side="bottom" align="start" className="max-w-xs">
+          {preferredEditorOption
+            ? `Open this workspace in ${preferredEditorOption.label}.`
+            : "Open this workspace in an installed editor."}
           {openFavoriteEditorShortcutLabel ? (
             <>
               {" "}
@@ -165,14 +198,28 @@ const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
           ) : null}
         </TooltipPopup>
       </Tooltip>
-      <MenuPopup align="end" className="min-w-48">
-        <OpenInEditorMenuSection
-          keybindings={keybindings}
-          availableEditors={availableEditors}
-          openInCwd={gitCwd}
-        />
-      </MenuPopup>
-    </Menu>
+      <Menu>
+        <MenuTrigger
+          render={
+            <Button
+              variant="outline"
+              size="icon-xs"
+              className="size-7 shrink-0 rounded-[var(--control-radius)] border-border/60 bg-background/84 text-muted-foreground/78 shadow-none hover:bg-background hover:text-foreground"
+              aria-label="Choose external editor"
+            />
+          }
+        >
+          <ChevronDownIcon className="size-3.5" />
+        </MenuTrigger>
+        <MenuPopup align="start" className="min-w-48">
+          <OpenInEditorMenuSection
+            keybindings={keybindings}
+            availableEditors={availableEditors}
+            openInCwd={gitCwd}
+          />
+        </MenuPopup>
+      </Menu>
+    </div>
   );
 });
 
@@ -689,6 +736,7 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
 
 export default function ThreadWorkspaceEditor(inputProps: {
   availableEditors: ReadonlyArray<EditorId>;
+  branch?: string | null;
   browserOpen: boolean;
   gitCwd: string | null;
   keybindings: ResolvedKeybindingsConfig;
@@ -696,6 +744,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
   onWorkspaceModeChange?: ((mode: ThreadWorkspaceMode) => void) | undefined;
   terminalOpen: boolean;
   threadId: ThreadId;
+  worktreePath?: string | null;
   workspaceMode?: ThreadWorkspaceMode | undefined;
 }) {
   ensureMonacoConfigured();
@@ -1375,10 +1424,8 @@ export default function ThreadWorkspaceEditor(inputProps: {
     () => treeEntries.filter((entry) => entry.kind === "file").length,
     [treeEntries],
   );
-  const workspaceLabel = useMemo(
-    () => (props.gitCwd ? basenameOfPath(props.gitCwd) : "Workspace"),
-    [props.gitCwd],
-  );
+  const activeBranch = props.branch ?? gitStatusQuery.data?.branch ?? null;
+  const activeWorktreePath = props.worktreePath ?? null;
 
   const handleSplitPane = useCallback(
     (paneId?: string, filePath?: string, direction: "down" | "right" = "right") => {
@@ -2150,23 +2197,29 @@ export default function ThreadWorkspaceEditor(inputProps: {
           <>
             <aside className="flex min-h-0 min-w-0 flex-col bg-card/72 text-foreground">
               <div className="flex h-10 items-center gap-2 border-b border-border/60 px-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/72" />
-                    <span className="min-w-0 truncate text-[11px] font-semibold tracking-[0.16em] text-muted-foreground/82 uppercase">
-                      Explorer
-                    </span>
-                  </div>
-                  <div className="truncate pt-0.5 text-[11px] text-muted-foreground/72">
-                    {workspaceLabel}
-                  </div>
-                </div>
-                <div className="ml-auto flex shrink-0 items-center gap-1">
+                <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                   <ExternalEditorOpenMenu
                     availableEditors={props.availableEditors}
                     gitCwd={props.gitCwd}
                     keybindings={props.keybindings}
                   />
+                  {activeBranch ? (
+                    <span className="inline-flex min-w-0 max-w-[10rem] items-center gap-1 rounded-[var(--control-radius)] border border-border/60 bg-background/70 px-2 py-1 text-[10.5px] font-medium text-foreground/76">
+                      <GitBranchIcon className="size-3 shrink-0 text-muted-foreground/80" />
+                      <span className="truncate">{activeBranch}</span>
+                    </span>
+                  ) : null}
+                  {activeWorktreePath ? (
+                    <span
+                      className="inline-flex shrink-0 items-center gap-1 rounded-[var(--control-radius)] border border-border/60 bg-background/70 px-2 py-1 text-[10.5px] font-medium text-foreground/76"
+                      title={activeWorktreePath}
+                    >
+                      <GitForkIcon className="size-3 shrink-0 text-muted-foreground/80" />
+                      <span>Worktree</span>
+                    </span>
+                  ) : null}
+                </div>
+                <div className="ml-auto flex shrink-0 items-center gap-1">
                   <Button
                     variant="ghost"
                     size="icon-xs"
@@ -2262,7 +2315,7 @@ export default function ThreadWorkspaceEditor(inputProps: {
                   strokeWidth={2}
                 />
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
-                  {searchMode ? "Search results" : workspaceLabel}
+                  {searchMode ? "Search results" : "Files"}
                 </span>
                 {workspaceTreeQuery.data?.truncated ? (
                   <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-amber-600 uppercase">

@@ -8,8 +8,13 @@ import { AntigravityIcon, CursorIcon, Icon, TraeIcon, VisualStudioCode, Zed } fr
 import { isMacPlatform, isWindowsPlatform } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 
-const resolveOptions = (platform: string, availableEditors: ReadonlyArray<EditorId>) => {
-  const baseOptions: ReadonlyArray<{ label: string; Icon: Icon; value: EditorId }> = [
+export type OpenInEditorOption = { label: string; Icon: Icon; value: EditorId };
+
+export const resolveOpenInEditorOptions = (
+  platform: string,
+  availableEditors: ReadonlyArray<EditorId>,
+) => {
+  const baseOptions: ReadonlyArray<OpenInEditorOption> = [
     {
       label: "Cursor",
       Icon: CursorIcon,
@@ -70,7 +75,7 @@ export const OpenInEditorMenuSection = memo(function OpenInEditorMenuSection({
 }) {
   const [preferredEditor, setPreferredEditor] = usePreferredEditor(availableEditors);
   const options = useMemo(
-    () => resolveOptions(navigator.platform, availableEditors),
+    () => resolveOpenInEditorOptions(navigator.platform, availableEditors),
     [availableEditors],
   );
 
