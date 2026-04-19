@@ -5,7 +5,6 @@ import {
   Database,
   Edit2 as Edit2Icon,
   Globe,
-  GripVertical,
   MoreHorizontal,
   RefreshCw as RefreshCwIcon,
   Rows3,
@@ -1387,10 +1386,6 @@ export default function ThreadTerminalDrawer({
     resolvedTerminalGroups.length > 1 ||
     resolvedTerminalGroups.some((terminalGroup) => terminalGroup.terminalIds.length > 1);
   const hasReachedSplitLimit = visibleTerminalIds.length >= MAX_TERMINALS_PER_GROUP;
-  const terminalOrderById = useMemo(
-    () => new Map(normalizedTerminalIds.map((terminalId, index) => [terminalId, index + 1])),
-    [normalizedTerminalIds],
-  );
   const terminalLabelById = useMemo(
     () =>
       new Map(
@@ -2265,11 +2260,9 @@ export default function ThreadTerminalDrawer({
                     </div>
                     {index < visibleTerminalIds.length - 1 ? (
                       <div
-                        className="terminal-split-divider group relative flex w-4 shrink-0 cursor-col-resize items-stretch justify-center"
+                        className="terminal-split-divider relative flex w-2 shrink-0 cursor-col-resize"
                         onPointerDown={(event) => handleSplitResizePointerDown(index, event)}
-                      >
-                        <div className="my-3 w-px rounded-full bg-border/60" />
-                      </div>
+                      />
                     ) : null}
                   </Fragment>
                 ))}
@@ -2305,12 +2298,10 @@ export default function ThreadTerminalDrawer({
           {hasTerminalSidebar && (
             <>
               <div
-                className="terminal-sidebar-resize-handle group relative flex w-4 shrink-0 cursor-col-resize items-stretch justify-center"
+                className="terminal-sidebar-resize-handle relative w-2 shrink-0 cursor-col-resize"
                 onPointerDown={handleSidebarResizePointerDown}
                 aria-hidden="true"
-              >
-                <div className="my-3 w-px rounded-full bg-border/60 transition-colors duration-150 group-hover:bg-primary/40" />
-              </div>
+              />
 
               <aside
                 className="terminal-sidebar flex shrink-0 flex-col overflow-hidden"
@@ -2490,7 +2481,6 @@ export default function ThreadTerminalDrawer({
                                 const isEditing = editingTerminalId === terminalId;
                                 const displayLabel =
                                   sidebarTerminalLabelById.get(terminalId) ?? "shell";
-                                const ordinal = terminalOrderById.get(terminalId) ?? groupIndex + 1;
                                 const isRunning = runningTerminalIds.includes(terminalId);
                                 const terminalIcon = terminalIconById.get(terminalId) ?? null;
                                 const terminalColor = terminalColorById.get(terminalId) ?? null;
@@ -2500,11 +2490,22 @@ export default function ThreadTerminalDrawer({
                                 return (
                                   <div
                                     key={terminalId}
-                                    className={`terminal-item group flex items-center gap-2 rounded-[var(--control-radius)] border-l-2 ${rowPaddingClass} ${rowTextClass} ${
+                                    className={`terminal-item group flex items-center gap-2 rounded-[var(--control-radius)] border ${rowPaddingClass} ${rowTextClass} ${
                                       isActive
-                                        ? "active border-primary/60 text-foreground"
+                                        ? "active border-border/60 text-foreground"
                                         : "border-transparent text-muted-foreground"
-                                    }`}
+                                    } ${isEditing ? "" : "cursor-grab active:cursor-grabbing"}`}
+                                    draggable={!isEditing}
+                                    onDragStart={(event) => {
+                                      if (isEditing) {
+                                        event.preventDefault();
+                                        return;
+                                      }
+                                      event.dataTransfer.effectAllowed = "move";
+                                      event.dataTransfer.setData("text/plain", terminalId);
+                                      handleTerminalDragStart(terminalId);
+                                    }}
+                                    onDragEnd={clearDragState}
                                     onDragOver={(event) => {
                                       if (
                                         !draggedTerminalId ||
@@ -2551,22 +2552,6 @@ export default function ThreadTerminalDrawer({
                                     {showGroupHeader && (
                                       <span className="text-[10px] text-muted-foreground">└</span>
                                     )}
-                                    {!isEditing ? (
-                                      <button
-                                        type="button"
-                                        draggable
-                                        onDragStart={(event) => {
-                                          event.dataTransfer.effectAllowed = "move";
-                                          event.dataTransfer.setData("text/plain", terminalId);
-                                          handleTerminalDragStart(terminalId);
-                                        }}
-                                        onDragEnd={clearDragState}
-                                        className="terminal-drag-handle inline-flex size-5 shrink-0 cursor-grab items-center justify-center rounded-[calc(var(--control-radius)-2px)] text-muted-foreground/65 transition-[background-color,color,opacity] duration-150 hover:bg-background/75 hover:text-foreground active:cursor-grabbing"
-                                        aria-label={`Drag to rearrange ${displayLabel}`}
-                                      >
-                                        <GripVertical className="size-3" />
-                                      </button>
-                                    ) : null}
                                     <span
                                       className={`terminal-live-indicator shrink-0 rounded-full ${
                                         isRunning ? "size-2 bg-emerald-400" : "size-1.5 bg-border"
@@ -2605,7 +2590,7 @@ export default function ThreadTerminalDrawer({
                                           dropTarget.groupId === terminalGroup.id &&
                                           dropTarget.index ===
                                             terminalGroup.terminalIds.indexOf(terminalId)
-                                            ? "rounded-md bg-primary/10"
+                                            ? "rounded-md bg-accent/55"
                                             : ""
                                         }`}
                                         onClick={() => onActiveTerminalChange(terminalId)}
@@ -2617,9 +2602,6 @@ export default function ThreadTerminalDrawer({
                                         })}
                                         <span className="min-w-0 flex-1 truncate font-medium text-foreground">
                                           {displayLabel}
-                                        </span>
-                                        <span className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70">
-                                          {ordinal}
                                         </span>
                                       </button>
                                     )}

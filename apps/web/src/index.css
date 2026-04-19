@@ -382,52 +382,34 @@ label {
 
 .thread-terminal-drawer .terminal-resize-handle {
   position: relative;
+  background-color: transparent;
+  transition: background-color 120ms ease;
 }
 
-.thread-terminal-drawer .terminal-resize-handle::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 32px;
-  height: 3px;
-  background: var(--border);
-  border-radius: 2px;
-  opacity: 0.5;
+.thread-terminal-drawer .terminal-resize-handle:hover {
+  background-color: color-mix(in oklch, var(--accent) 30%, transparent);
+}
+
+.thread-terminal-drawer .terminal-resize-handle:active {
+  background-color: color-mix(in oklch, var(--accent) 45%, transparent);
+}
+
+.thread-terminal-drawer .terminal-split-divider,
+.thread-terminal-drawer .terminal-sidebar-resize-handle {
+  background-color: transparent;
   transition:
-    opacity 150ms ease,
-    width 150ms ease;
+    background-color 150ms ease,
+    opacity 150ms ease;
 }
 
-.thread-terminal-drawer .terminal-resize-handle:hover::before,
-.thread-terminal-drawer .terminal-resize-handle:active::before {
-  width: 48px;
-  opacity: 1;
-  background: var(--primary);
+.thread-terminal-drawer .terminal-split-divider:hover,
+.thread-terminal-drawer .terminal-sidebar-resize-handle:hover {
+  background-color: color-mix(in oklch, var(--accent) 35%, transparent);
 }
 
-.thread-terminal-drawer .terminal-split-divider {
-  transition: background-color 150ms ease;
-}
-
-.thread-terminal-drawer .terminal-split-divider > div,
-.thread-terminal-drawer .terminal-sidebar-resize-handle > div {
-  transition:
-    width 150ms ease,
-    background-color 150ms ease;
-}
-
-.thread-terminal-drawer .terminal-split-divider:hover > div,
-.thread-terminal-drawer .terminal-sidebar-resize-handle:hover > div {
-  width: 3px;
-  background: var(--primary);
-  opacity: 0.5;
-}
-
-.thread-terminal-drawer .terminal-split-divider:active > div,
-.thread-terminal-drawer .terminal-sidebar-resize-handle:active > div {
-  opacity: 0.8;
+.thread-terminal-drawer .terminal-split-divider:active,
+.thread-terminal-drawer .terminal-sidebar-resize-handle:active {
+  background-color: color-mix(in oklch, var(--accent) 48%, transparent);
 }
 
 @keyframes terminal-pulse {
@@ -472,21 +454,21 @@ label {
 }
 
 .thread-terminal-drawer .terminal-item:hover {
-  background-color: color-mix(in oklch, var(--accent) 32%, transparent);
+  background-color: color-mix(in oklch, var(--accent) 36%, transparent);
 }
 
 .thread-terminal-drawer .terminal-item.active {
-  background-color: color-mix(in oklch, var(--primary) 10%, transparent);
-  border-left-color: var(--primary) !important;
+  background-color: color-mix(in oklch, var(--accent) 46%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 14%, transparent);
 }
 
 .thread-terminal-drawer .terminal-item.active:hover {
-  background-color: color-mix(in oklch, var(--primary) 14%, transparent);
+  background-color: color-mix(in oklch, var(--accent) 54%, transparent);
 }
 
 .thread-terminal-drawer .terminal-item[data-drop-active="true"] {
-  background-color: color-mix(in oklch, var(--primary) 10%, transparent);
-  box-shadow: inset 2px 0 0 var(--primary);
+  background-color: color-mix(in oklch, var(--accent) 44%, transparent);
+  border-color: color-mix(in oklch, var(--primary) 32%, transparent);
 }
 
 .thread-terminal-drawer .terminal-action-btn {
@@ -498,10 +480,6 @@ label {
 
 .thread-terminal-drawer .terminal-action-btn:active {
   transform: scale(0.95);
-}
-
-.thread-terminal-drawer .terminal-drag-handle:active {
-  cursor: grabbing;
 }
 
 .thread-terminal-drawer .terminal-context-menu .menu-item-with-icon {

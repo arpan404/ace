@@ -734,7 +734,7 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
   );
 });
 
-export default function ThreadWorkspaceEditor(inputProps: {
+function ThreadWorkspaceEditor(inputProps: {
   availableEditors: ReadonlyArray<EditorId>;
   branch?: string | null;
   browserOpen: boolean;
@@ -2672,3 +2672,8 @@ export default function ThreadWorkspaceEditor(inputProps: {
     </div>
   );
 }
+
+const MemoizedThreadWorkspaceEditor = memo(ThreadWorkspaceEditor);
+MemoizedThreadWorkspaceEditor.displayName = "ThreadWorkspaceEditor";
+
+export default MemoizedThreadWorkspaceEditor;
