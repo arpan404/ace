@@ -1323,7 +1323,7 @@ export default function Sidebar() {
   const focusMostRecentThreadForProject = useCallback(
     (projectId: ProjectId) => {
       const sortOrder =
-        appSettings.sidebarProjectSortOrder === "manual"
+        appSettings.sidebarThreadSortOrder === "manual"
           ? "last_user_message"
           : appSettings.sidebarThreadSortOrder;
       const sortedThreads = sortThreadsForSidebar(
@@ -1334,7 +1334,7 @@ export default function Sidebar() {
         sortOrder,
       );
       const latestThread =
-        appSettings.sidebarProjectSortOrder === "manual"
+        appSettings.sidebarThreadSortOrder === "manual"
           ? orderProjectThreadsWithPinnedPriority({
               sortedThreads,
               pinnedThreadIds: new Set(pinnedThreadIds),
@@ -1351,7 +1351,6 @@ export default function Sidebar() {
       });
     },
     [
-      appSettings.sidebarProjectSortOrder,
       appSettings.sidebarThreadSortOrder,
       navigate,
       pinnedThreadIds,
@@ -2697,13 +2696,16 @@ export default function Sidebar() {
       if (!over || active.id === over.id) {
         return;
       }
+      if (appSettings.sidebarThreadSortOrder !== "manual") {
+        updateSettings({ sidebarThreadSortOrder: "manual" });
+      }
       reorderThreadsInProject(
         projectId,
         ThreadId.makeUnsafe(String(active.id)),
         ThreadId.makeUnsafe(String(over.id)),
       );
     },
-    [reorderThreadsInProject],
+    [appSettings.sidebarThreadSortOrder, reorderThreadsInProject, updateSettings],
   );
 
   const handleProjectTitlePointerDownCapture = useCallback(
@@ -2783,7 +2785,7 @@ export default function Sidebar() {
           appSettings.sidebarThreadSortOrder,
         );
         const projectThreads =
-          appSettings.sidebarProjectSortOrder === "manual"
+          appSettings.sidebarThreadSortOrder === "manual"
             ? orderProjectThreadsWithPinnedPriority({
                 sortedThreads: getCachedSortedSidebarThreads(
                   unsortedProjectThreads,
@@ -2851,7 +2853,6 @@ export default function Sidebar() {
       }),
     [
       activeWsUrl,
-      appSettings.sidebarProjectSortOrder,
       appSettings.sidebarThreadSortOrder,
       threadRevealCountByProject,
       projectExpandedById,
@@ -3358,7 +3359,6 @@ export default function Sidebar() {
       projectExpanded &&
       normalizedProjectSearchQuery.length === 0 &&
       renderedThreadIds.length > 1 &&
-      appSettings.sidebarProjectSortOrder === "manual" &&
       shouldShowThreadPanel;
     const renderThreadRow = (
       threadId: ThreadId,

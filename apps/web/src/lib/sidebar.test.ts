@@ -851,6 +851,29 @@ describe("sortThreadsForSidebar", () => {
       ThreadId.makeUnsafe("thread-2"),
     ]);
   });
+
+  it("preserves input order when manual thread sort is selected", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-2"),
+          createdAt: "2026-03-09T10:00:00.000Z",
+          updatedAt: "2026-03-09T10:10:00.000Z",
+        }),
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-1"),
+          createdAt: "2026-03-09T10:05:00.000Z",
+          updatedAt: "2026-03-09T10:05:00.000Z",
+        }),
+      ],
+      "manual",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      ThreadId.makeUnsafe("thread-2"),
+      ThreadId.makeUnsafe("thread-1"),
+    ]);
+  });
 });
 
 describe("getFallbackThreadIdAfterDelete", () => {
