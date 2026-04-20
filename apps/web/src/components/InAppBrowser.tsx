@@ -30,11 +30,13 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type MutableRefObject,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
   memo,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -179,6 +181,7 @@ const SortableBrowserTab = memo(function SortableBrowserTab(props: {
 interface InAppBrowserProps {
   open: boolean;
   mode: InAppBrowserMode;
+  scopeId?: string;
   onClose: () => void;
   onMinimize: () => void;
   onRestore: () => void;
@@ -206,10 +209,34 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   );
 }
 
+const DESIGNER_PILL_WIDTH_PX = 116;
+const DESIGNER_PILL_HEIGHT_PX = 186;
+const DESIGNER_PILL_MARGIN_PX = 18;
+
+function clampDesignerPillPosition(
+  position: { x: number; y: number } | null | undefined,
+  viewport: { width: number; height: number } | null,
+): { x: number; y: number } {
+  const maxX = Math.max(
+    DESIGNER_PILL_MARGIN_PX,
+    (viewport?.width ?? 0) - DESIGNER_PILL_WIDTH_PX - DESIGNER_PILL_MARGIN_PX,
+  );
+  const maxY = Math.max(
+    DESIGNER_PILL_MARGIN_PX,
+    (viewport?.height ?? 0) - DESIGNER_PILL_HEIGHT_PX - DESIGNER_PILL_MARGIN_PX,
+  );
+  const fallbackY = Math.max(DESIGNER_PILL_MARGIN_PX, maxY);
+  return {
+    x: Math.min(maxX, Math.max(DESIGNER_PILL_MARGIN_PX, position?.x ?? DESIGNER_PILL_MARGIN_PX)),
+    y: Math.min(maxY, Math.max(DESIGNER_PILL_MARGIN_PX, position?.y ?? fallbackY)),
+  };
+}
+
 export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps) {
   const {
     open,
     mode,
+    scopeId,
     onClose,
     onMinimize,
     onRestore,
@@ -239,6 +266,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     browserShellStyle,
     browserStatusLabel,
     closeTab,
+    designerState,
     draftUrl,
     goBack,
     goForward,
@@ -261,8 +289,11 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     reorderTabs,
     registerWebviewHandle,
     reload,
+    selectDesignerTool,
     selectedSuggestionIndex,
     setDraftUrl,
+    setDesignerModeActive,
+    setDesignerPillPosition,
     setIsAddressBarFocused,
     setSelectedSuggestionIndex,
     showAddressBarSuggestions,
@@ -271,6 +302,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   } = useInAppBrowserState({
     mode,
     open,
+    ...(scopeId ? { scopeId } : {}),
     ...(onActiveRuntimeStateChange ? { onActiveRuntimeStateChange } : {}),
     ...(onControllerChange ? { onControllerChange } : {}),
     ...(viewportRef ? { viewportRef } : {}),
@@ -297,9 +329,16 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   const suppressTabClickForContextMenuRef = useRef(false);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const tabNodeMapRef = useRef(new Map<string, HTMLDivElement>());
+  const browserViewportRef = useRef<HTMLDivElement | null>(null);
+  const designerPillDragStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
   const [canScrollTabsLeft, setCanScrollTabsLeft] = useState(false);
   const [canScrollTabsRight, setCanScrollTabsRight] = useState(false);
-  const [designCaptureArmed, setDesignCaptureArmed] = useState(false);
   const handleTabDragStart = useCallback((_event: DragStartEvent) => {
     suppressTabClickAfterDragRef.current = true;
   }, []);
@@ -393,24 +432,102 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
 
   useEffect(() => {
     if (!open) {
-      setDesignCaptureArmed(false);
+      setDesignerModeActive(false);
     }
-  }, [open]);
+  }, [open, setDesignerModeActive]);
 
   useEffect(() => {
-    if (activeTabIsInternal && designCaptureArmed) {
-      setDesignCaptureArmed(false);
+    if (activeTabIsInternal && designerState.active) {
+      setDesignerModeActive(false);
     }
-  }, [activeTabIsInternal, designCaptureArmed]);
-  const designCaptureAvailable = Boolean(onQueueDesignRequest) && !activeTabIsInternal;
-  const redesignShortcutLabel =
+  }, [activeTabIsInternal, designerState.active, setDesignerModeActive]);
+  const designerModeAvailable = Boolean(onQueueDesignRequest) && !activeTabIsInternal;
+  const designerShortcutLabel =
     typeof navigator !== "undefined" && /mac/i.test(navigator.platform) ? "⌘⇧E" : "Ctrl+Shift+E";
-  const toggleDesignCapture = useCallback(() => {
-    if (!designCaptureAvailable) {
+  const toggleDesignerMode = useCallback(() => {
+    if (!designerModeAvailable) {
       return;
     }
-    setDesignCaptureArmed((current) => !current);
-  }, [designCaptureAvailable]);
+    setDesignerModeActive(!designerState.active);
+  }, [designerModeAvailable, designerState.active, setDesignerModeActive]);
+  const designerPillPosition = useMemo(() => {
+    const viewport = browserViewportRef.current;
+    return clampDesignerPillPosition(
+      designerState.pillPosition,
+      viewport ? { height: viewport.clientHeight, width: viewport.clientWidth } : null,
+    );
+  }, [designerState.pillPosition]);
+  const designerToolSummary =
+    designerState.tool === "element-comment" ? "Element comment" : "Area comment";
+  const handleDesignerPillPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) {
+        return;
+      }
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest("button, [data-designer-pill-control]")) {
+        return;
+      }
+      event.preventDefault();
+      const currentPosition = designerPillPosition;
+      designerPillDragStateRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: currentPosition.x,
+        originY: currentPosition.y,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [designerPillPosition],
+  );
+  const handleDesignerPillPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const dragState = designerPillDragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) {
+        return;
+      }
+      event.preventDefault();
+      const viewport = browserViewportRef.current;
+      setDesignerPillPosition(
+        clampDesignerPillPosition(
+          {
+            x: dragState.originX + (event.clientX - dragState.startX),
+            y: dragState.originY + (event.clientY - dragState.startY),
+          },
+          viewport ? { height: viewport.clientHeight, width: viewport.clientWidth } : null,
+        ),
+      );
+    },
+    [setDesignerPillPosition],
+  );
+  const handleDesignerPillPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragState = designerPillDragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+    designerPillDragStateRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }, []);
+  useEffect(() => {
+    if (!designerState.active) {
+      return;
+    }
+    const viewport = browserViewportRef.current;
+    const clampedPosition = clampDesignerPillPosition(
+      designerState.pillPosition,
+      viewport ? { height: viewport.clientHeight, width: viewport.clientWidth } : null,
+    );
+    if (
+      clampedPosition.x === designerState.pillPosition?.x &&
+      clampedPosition.y === designerState.pillPosition?.y
+    ) {
+      return;
+    }
+    setDesignerPillPosition(clampedPosition);
+  }, [designerState.active, designerState.pillPosition, setDesignerPillPosition]);
   const handleBrowserSectionKeyDownCapture = useCallback(
     (event: ReactKeyboardEvent<HTMLElement>) => {
       const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
@@ -424,12 +541,12 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       ) {
         event.preventDefault();
         event.stopPropagation();
-        toggleDesignCapture();
+        toggleDesignerMode();
         return;
       }
       handleBrowserKeyDownCapture(event);
     },
-    [handleBrowserKeyDownCapture, toggleDesignCapture],
+    [handleBrowserKeyDownCapture, toggleDesignerMode],
   );
 
   const queueDesignRequest = useCallback(
@@ -449,9 +566,9 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
         pageUrl: activeTab.url,
         pagePath,
       });
-      setDesignCaptureArmed(false);
+      setDesignerModeActive(false);
     },
-    [activeTab, activeTabIsInternal, onQueueDesignRequest],
+    [activeTab, activeTabIsInternal, onQueueDesignRequest, setDesignerModeActive],
   );
 
   if (!open) {
@@ -500,9 +617,9 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     {activeTab?.url ?? draftUrl}
                   </div>
                 </div>
-                {designCaptureArmed ? (
+                {designerState.active ? (
                   <span className="rounded-full border border-primary/35 bg-primary/8 px-1.5 py-0.5 text-[10px] font-medium text-primary/75">
-                    Redesign mode
+                    Designer mode
                   </span>
                 ) : null}
                 {browserSession.tabs.length > 1 ? (
@@ -522,15 +639,15 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   size="icon-xs"
                   className={cn(
                     "rounded-md transition-all duration-150",
-                    designCaptureArmed &&
+                    designerState.active &&
                       "bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary",
                   )}
-                  onClick={toggleDesignCapture}
-                  disabled={!designCaptureAvailable}
+                  onClick={toggleDesignerMode}
+                  disabled={!designerModeAvailable}
                   aria-label={
-                    designCaptureArmed ? "Turn redesign mode off" : "Turn redesign mode on"
+                    designerState.active ? "Turn designer mode off" : "Turn designer mode on"
                   }
-                  title={`Toggle redesign mode (${redesignShortcutLabel})`}
+                  title={`Toggle designer mode (${designerShortcutLabel})`}
                   data-browser-control
                 >
                   <SparklesIcon className="size-3.5" />
@@ -639,7 +756,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   variant="ghost"
                   size="icon-xs"
                   className={cn(
-                    "absolute left-0 z-20 rounded-full border border-border bg-background transition-opacity",
+                    "pointer-events-auto absolute top-1/2 left-0 z-20 -translate-y-1/2 rounded-full border border-border bg-background transition-opacity",
                     canScrollTabsLeft ? "opacity-100" : "pointer-events-none opacity-0",
                   )}
                   onClick={() => scrollTabsBy(-1)}
@@ -700,7 +817,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   variant="ghost"
                   size="icon-xs"
                   className={cn(
-                    "absolute right-0 z-20 rounded-full border border-border bg-background transition-opacity",
+                    "pointer-events-auto absolute top-1/2 right-0 z-20 -translate-y-1/2 rounded-full border border-border bg-background transition-opacity",
                     canScrollTabsRight ? "opacity-100" : "pointer-events-none opacity-0",
                   )}
                   onClick={() => scrollTabsBy(1)}
@@ -735,13 +852,13 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                         variant="outline"
                         size="icon-xs"
                         className={cn(
-                          designCaptureArmed &&
+                          designerState.active &&
                             "border-primary/45 bg-primary/10 text-primary hover:bg-primary/14",
                         )}
-                        onClick={toggleDesignCapture}
-                        disabled={!designCaptureAvailable}
+                        onClick={toggleDesignerMode}
+                        disabled={!designerModeAvailable}
                         aria-label={
-                          designCaptureArmed ? "Turn redesign mode off" : "Turn redesign mode on"
+                          designerState.active ? "Turn designer mode off" : "Turn designer mode on"
                         }
                       >
                         <SparklesIcon className="size-3.5" />
@@ -749,16 +866,16 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     }
                   />
                   <TooltipPopup side="bottom">
-                    {designCaptureArmed
-                      ? `Turn redesign mode off (${redesignShortcutLabel})`
-                      : designCaptureAvailable
-                        ? `Capture a page area for redesign (${redesignShortcutLabel})`
-                        : "Design capture is unavailable for this tab"}
+                    {designerState.active
+                      ? `Turn designer mode off (${designerShortcutLabel})`
+                      : designerModeAvailable
+                        ? `Open designer mode (${designerShortcutLabel})`
+                        : "Designer mode is unavailable for this tab"}
                   </TooltipPopup>
                 </Tooltip>
-                {designCaptureArmed ? (
+                {designerState.active ? (
                   <span className="hidden items-center rounded-full border border-primary/25 bg-primary/6 px-2 py-0.5 text-[10px] font-medium text-primary/75 xl:inline-flex">
-                    Redesign mode
+                    {designerToolSummary}
                   </span>
                 ) : null}
                 <Tooltip>
@@ -997,7 +1114,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
           </>
         )}
 
-        <div className="relative min-h-0 flex-1 bg-background">
+        <div ref={browserViewportRef} className="relative min-h-0 flex-1 bg-background">
           {activeTabIsNewTab ? (
             <BrowserNewTabPanel
               browserSearchEngine={browserSearchEngine}
@@ -1012,17 +1129,18 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
               <BrowserTabWebview
                 key={`${browserResetKey}:${tab.id}`}
                 active={!activeTabIsInternal && activeTab?.id === tab.id}
-                designCaptureArmed={
-                  designCaptureArmed && !activeTabIsInternal && activeTab?.id === tab.id
+                designerModeActive={
+                  designerState.active && !activeTabIsInternal && activeTab?.id === tab.id
                 }
+                designerTool={designerState.tool}
                 onDesignCaptureCancel={() => {
-                  setDesignCaptureArmed(false);
+                  setDesignerModeActive(false);
                 }}
                 onDesignCaptureError={(message) => {
-                  setDesignCaptureArmed(false);
+                  setDesignerModeActive(false);
                   toastManager.add({
                     type: "error",
-                    title: "Design capture failed.",
+                    title: "Designer comment failed.",
                     description: message,
                   });
                 }}
@@ -1037,6 +1155,90 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 onSnapshotChange={handleTabSnapshotChange}
               />
             ))}
+          {designerState.active && designerModeAvailable ? (
+            <div
+              className="absolute z-30 w-[116px] select-none"
+              style={{
+                left: `${designerPillPosition.x}px`,
+                top: `${designerPillPosition.y}px`,
+              }}
+            >
+              <div
+                className="overflow-hidden rounded-[28px] border border-border/60 bg-background/92 shadow-[0_18px_60px_-24px_rgba(0,0,0,0.55)] backdrop-blur-xl"
+                onPointerDown={handleDesignerPillPointerDown}
+                onPointerMove={handleDesignerPillPointerMove}
+                onPointerUp={handleDesignerPillPointerEnd}
+                onPointerCancel={handleDesignerPillPointerEnd}
+              >
+                <div className="flex items-center justify-between border-b border-border/50 px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground/70 uppercase">
+                      Designer
+                    </div>
+                    <div className="truncate text-[11px] text-foreground/78">
+                      {designerToolSummary}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-full p-1 text-muted-foreground/65 transition-colors hover:bg-accent hover:text-foreground"
+                    onClick={() => {
+                      setDesignerModeActive(false);
+                    }}
+                    aria-label="Close designer mode"
+                    data-designer-pill-control
+                  >
+                    <XIcon className="size-3.5" />
+                  </button>
+                </div>
+                <div className="flex flex-col gap-2 p-2.5">
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded-[22px] border px-3 py-3 text-left transition-all",
+                      designerState.tool === "area-comment"
+                        ? "border-primary/45 bg-primary/10 text-primary"
+                        : "border-border/60 bg-background/80 text-foreground/82 hover:border-border hover:bg-accent/45",
+                    )}
+                    onClick={() => {
+                      selectDesignerTool("area-comment");
+                    }}
+                    data-designer-pill-control
+                  >
+                    <div className="text-[10px] font-semibold tracking-[0.16em] uppercase">
+                      Area
+                    </div>
+                    <div className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                      Drag a region and leave a comment.
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded-[22px] border px-3 py-3 text-left transition-all",
+                      designerState.tool === "element-comment"
+                        ? "border-primary/45 bg-primary/10 text-primary"
+                        : "border-border/60 bg-background/80 text-foreground/82 hover:border-border hover:bg-accent/45",
+                    )}
+                    onClick={() => {
+                      selectDesignerTool("element-comment");
+                    }}
+                    data-designer-pill-control
+                  >
+                    <div className="text-[10px] font-semibold tracking-[0.16em] uppercase">
+                      Element
+                    </div>
+                    <div className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                      Click any element and comment with markup.
+                    </div>
+                  </button>
+                </div>
+                <div className="border-t border-border/50 px-3 py-2 text-[10px] text-muted-foreground/70">
+                  Drag this pill. Draw markup in the preview before queueing.
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {mode === "pip" ? (

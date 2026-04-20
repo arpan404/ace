@@ -22,6 +22,13 @@ import {
   recordBrowserHistory,
 } from "~/lib/browser/history";
 import {
+  type BrowserDesignerPillPosition,
+  type BrowserDesignerTool,
+  BrowserDesignerStateSchema,
+  createBrowserDesignerState,
+  resolveBrowserDesignerStateStorageKey,
+} from "~/lib/browser/designer";
+import {
   BROWSER_PINNED_PAGES_STORAGE_KEY,
   BrowserPinnedPagesSchema,
   addPinnedBrowserPage,
@@ -32,7 +39,6 @@ import {
 } from "~/lib/browser/pinnedPages";
 import {
   BROWSER_NEW_TAB_URL,
-  BROWSER_SESSION_STORAGE_KEY,
   BrowserSessionStorageSchema,
   addBrowserTab,
   closeOtherBrowserTabs,
@@ -45,6 +51,7 @@ import {
   moveBrowserTab,
   normalizeBrowserSessionState,
   reorderBrowserTab,
+  resolveBrowserSessionStorageKey,
   setActiveBrowserTab,
   updateBrowserTab,
 } from "~/lib/browser/session";
@@ -96,6 +103,7 @@ export type InAppBrowserMode = "full" | "pip" | "split";
 interface UseInAppBrowserStateOptions {
   mode: InAppBrowserMode;
   open: boolean;
+  scopeId?: string;
   onActiveRuntimeStateChange?: (state: ActiveBrowserRuntimeState) => void;
   onControllerChange?: (controller: InAppBrowserController | null) => void;
   viewportRef?: RefObject<HTMLDivElement | null>;
@@ -132,11 +140,14 @@ export function resolveBrowserSuggestionDraftValue(suggestion: BrowserSuggestion
 }
 
 export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
-  const { mode, onActiveRuntimeStateChange, onControllerChange, open, viewportRef } = options;
+  const { mode, onActiveRuntimeStateChange, onControllerChange, open, scopeId, viewportRef } =
+    options;
   const api = readNativeApi();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
   const browserSearchEngine = settings.browserSearchEngine;
+  const browserSessionStorageKey = resolveBrowserSessionStorageKey(scopeId);
+  const browserDesignerStorageKey = resolveBrowserDesignerStateStorageKey(scopeId);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const initialAddressBarAutoFocusHandledRef = useRef(false);
   const browserContextMenuFallbackTimerRef = useRef<number | null>(null);
@@ -158,9 +169,14 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     startY: number;
   } | null>(null);
   const [browserSession, setBrowserSession] = useLocalStorage(
-    BROWSER_SESSION_STORAGE_KEY,
+    browserSessionStorageKey,
     createBrowserSessionState(),
     BrowserSessionStorageSchema,
+  );
+  const [designerState, setDesignerState] = useLocalStorage(
+    browserDesignerStorageKey,
+    createBrowserDesignerState(),
+    BrowserDesignerStateSchema,
   );
   const [browserHistory, setBrowserHistory] = useLocalStorage(
     BROWSER_HISTORY_STORAGE_KEY,
@@ -1123,6 +1139,10 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   }, [activeTabIsInternal, activeTabUrl]);
 
   useEffect(() => {
+    initialAddressBarAutoFocusHandledRef.current = false;
+  }, [browserSessionStorageKey]);
+
+  useEffect(() => {
     setSelectedSuggestionIndex(0);
   }, [draftUrl, addressBarSuggestions.length]);
 
@@ -1278,6 +1298,20 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   }, [browserSession.tabs]);
 
   useEffect(() => {
+    if (!activeTabIsInternal || !designerState.active) {
+      return;
+    }
+    setDesignerState((current) =>
+      current.active
+        ? {
+            ...current,
+            active: false,
+          }
+        : current,
+    );
+  }, [activeTabIsInternal, designerState.active, setDesignerState]);
+
+  useEffect(() => {
     const controller: InAppBrowserController = {
       closeActiveTab,
       closeDevTools,
@@ -1343,6 +1377,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     closeTabsRight,
     draftUrl,
     duplicateTab,
+    designerState,
     exportPinnedPages,
     focusAddressBar,
     goBack,
@@ -1373,8 +1408,40 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     reload,
     removePinnedPage,
     repairBrowserStorage,
+    selectDesignerTool: (tool: BrowserDesignerTool) => {
+      setDesignerState((current) =>
+        current.tool === tool
+          ? current
+          : {
+              ...current,
+              tool,
+            },
+      );
+    },
     selectSearchEngine: (engine: typeof browserSearchEngine) => {
       updateSettings({ browserSearchEngine: engine });
+    },
+    setDesignerModeActive: (active: boolean) => {
+      setDesignerState((current) =>
+        current.active === active
+          ? current
+          : {
+              ...current,
+              active,
+            },
+      );
+    },
+    setDesignerPillPosition: (pillPosition: BrowserDesignerPillPosition | null) => {
+      setDesignerState((current) => {
+        const currentPosition = current.pillPosition;
+        if (currentPosition?.x === pillPosition?.x && currentPosition?.y === pillPosition?.y) {
+          return current;
+        }
+        return {
+          ...current,
+          pillPosition,
+        };
+      });
     },
     selectedSuggestionIndex,
     setDraftUrl,
