@@ -267,6 +267,7 @@ import {
   subscribeToBrowserLaunchRequests,
   takePendingBrowserLaunchRequest,
 } from "~/lib/browser/launcher";
+import { resolveScopedBrowserStorageKey } from "~/lib/browser/storage";
 import { type BrowserDesignRequestSubmission } from "~/lib/browser/types";
 import {
   decodeScopedTerminalGroupId,
@@ -301,6 +302,8 @@ const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
+const BROWSER_PANEL_MODE_STORAGE_KEY = "ace:chat:browser-panel-mode:v1";
+const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "pip", "split"]);
 
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
@@ -2174,7 +2177,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
       shortcutLabelForCommand(keybindings, "browser.devtools", browserActionShortcutLabelOptions),
     [browserActionShortcutLabelOptions, keybindings],
   );
-  const [browserMode, setBrowserMode] = useState<"closed" | InAppBrowserMode>("closed");
+  const browserModeStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(BROWSER_PANEL_MODE_STORAGE_KEY, threadId),
+    [threadId],
+  );
+  const [browserMode, setBrowserMode] = useLocalStorage(
+    browserModeStorageKey,
+    "closed" as const,
+    BrowserPanelModeSchema,
+  );
   const [browserDevToolsOpen, setBrowserDevToolsOpen] = useState(false);
   const [storedBrowserSplitWidth, setStoredBrowserSplitWidth] = useLocalStorage(
     BROWSER_SPLIT_WIDTH_STORAGE_KEY,
@@ -2737,7 +2748,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     async (submission: BrowserDesignRequestSubmission) => {
       const trimmedInstructions = submission.instructions.trim();
       if (!trimmedInstructions) {
-        throw new Error("Add design instructions before queueing the request.");
+        throw new Error("Add a designer comment before queueing the request.");
       }
       const normalizedMimeType =
         submission.imageMimeType.trim().length > 0 ? submission.imageMimeType : "image/png";
@@ -2745,7 +2756,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       const imageAttachment: QueuedComposerImageAttachment = {
         type: "image",
         id: randomUUID(),
-        name: `redesign-capture.${fileExtension}`,
+        name: `designer-comment.${fileExtension}`,
         mimeType: normalizedMimeType,
         sizeBytes: submission.imageSizeBytes,
         dataUrl: submission.imageDataUrl,
@@ -2775,11 +2786,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
         queuedSteerRequest,
       );
       if (!persisted) {
-        throw new Error("Failed to queue the design request.");
+        throw new Error("Failed to queue the designer comment.");
       }
       toastManager.add({
         type: "success",
-        title: "Queued redesign request.",
+        title: "Queued designer comment.",
       });
     },
   );
@@ -2908,27 +2919,27 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const openBrowser = useCallback(() => {
     if (!isElectron) return;
     setBrowserMode(defaultBrowserMode);
-  }, [defaultBrowserMode]);
+  }, [defaultBrowserMode, setBrowserMode]);
   const openSplitBrowser = useCallback(() => {
     if (!isElectron) return;
     setBrowserMode("split");
-  }, []);
+  }, [setBrowserMode]);
   const closeBrowser = useCallback(() => {
     setBrowserMode("closed");
     setBrowserDevToolsOpen(false);
-  }, []);
+  }, [setBrowserMode]);
   const minimizeBrowser = useCallback(() => {
     if (!isElectron) return;
     setBrowserMode((current) => (current === "closed" ? current : "pip"));
-  }, []);
+  }, [setBrowserMode]);
   const restoreBrowser = useCallback(() => {
     if (!isElectron) return;
     setBrowserMode("full");
-  }, []);
+  }, [setBrowserMode]);
   const toggleBrowserVisibility = useCallback(() => {
     if (!isElectron) return;
     setBrowserMode((current) => (current === "closed" ? defaultBrowserMode : "closed"));
-  }, [defaultBrowserMode]);
+  }, [defaultBrowserMode, setBrowserMode]);
   const setBrowserController = useCallback((controller: InAppBrowserController | null) => {
     browserControllerRef.current = controller;
     if (!controller) {
@@ -2956,7 +2967,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
       controller.openUrl(url, options);
     },
-    [defaultBrowserMode],
+    [defaultBrowserMode, setBrowserMode],
   );
   const openBrowserUrlInNewTab = useCallback(
     (url: string) => {
@@ -3024,7 +3035,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     return () => {
       window.removeEventListener("ace:sidebar-interaction", handleSidebarInteraction);
     };
-  }, []);
+  }, [setBrowserMode]);
 
   const syncBrowserSplitWidth = useCallback(
     (nextWidth: number) => {
@@ -6759,6 +6770,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             devToolsShortcutLabel: browserDevToolsShortcutLabel,
             forwardShortcutLabel: browserForwardShortcutLabel,
             reloadShortcutLabel: browserReloadShortcutLabel,
+            scopeId: threadId,
             viewportRef: chatViewportRef,
             onQueueDesignRequest: queueBrowserDesignRequest,
           },

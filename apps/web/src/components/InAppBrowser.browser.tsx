@@ -60,6 +60,11 @@ function createHookState(tabs: readonly BrowserTabState[], activeTabId = tabs[0]
     browserStatusLabel: null,
     clearHistory: vi.fn(),
     closeTab: vi.fn(),
+    designerState: {
+      active: false,
+      pillPosition: null,
+      tool: "area-comment",
+    },
     draftUrl: "",
     exportPinnedPages: vi.fn(),
     goBack: vi.fn(),
@@ -87,8 +92,11 @@ function createHookState(tabs: readonly BrowserTabState[], activeTabId = tabs[0]
     reload: vi.fn(),
     removePinnedPage: vi.fn(),
     repairBrowserStorage: vi.fn(),
+    selectDesignerTool: vi.fn(),
     selectSearchEngine: vi.fn(),
     selectedSuggestionIndex: 0,
+    setDesignerModeActive: vi.fn(),
+    setDesignerPillPosition: vi.fn(),
     setDraftUrl: vi.fn(),
     setIsAddressBarFocused: vi.fn(),
     setSelectedSuggestionIndex: vi.fn(),
@@ -155,9 +163,26 @@ describe("InAppBrowser tab strip", () => {
 
     const tabStrip = document.querySelector('[data-testid="browser-tab-strip"]') as HTMLDivElement;
     expect(tabStrip).toBeTruthy();
+    let simulatedScrollLeft = 0;
+    Object.defineProperty(tabStrip, "scrollLeft", {
+      configurable: true,
+      get: () => simulatedScrollLeft,
+      set: (value: number) => {
+        simulatedScrollLeft = value;
+      },
+    });
+    tabStrip.scrollBy = ((options?: ScrollToOptions | number) => {
+      const nextLeft = typeof options === "number" ? options : Number(options?.left ?? 0);
+      tabStrip.scrollLeft += nextLeft;
+      tabStrip.dispatchEvent(new Event("scroll"));
+    }) as typeof tabStrip.scrollBy;
     const initialScrollLeft = tabStrip.scrollLeft;
 
-    await screen.getByLabelText("Scroll tabs right").click();
+    const scrollRightButton = document.querySelector(
+      '[aria-label="Scroll tabs right"]',
+    ) as HTMLButtonElement;
+    expect(scrollRightButton).toBeTruthy();
+    scrollRightButton.click();
 
     await vi.waitFor(() => {
       expect(tabStrip.scrollLeft).toBeGreaterThan(initialScrollLeft);
