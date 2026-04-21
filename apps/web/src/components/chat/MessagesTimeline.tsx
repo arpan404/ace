@@ -1323,7 +1323,7 @@ function summarizeWorkGroupBreakdownParts(entries: ReadonlyArray<TimelineMetaGro
   const infoCount = entries.filter(
     (entry) => entry.kind === "work" && entry.workEntry.tone === "info",
   ).length;
-  const eventCount = intentCount + infoCount;
+  const eventCount = infoCount;
   const parts: Array<{ label: string; count: number }> = [];
 
   if (intentCount > 0) {

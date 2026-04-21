@@ -72,12 +72,6 @@ function createHookState(tabs: readonly BrowserTabState[], activeTabId = tabs[0]
     goForward: vi.fn(),
     handleAddressBarKeyDown: vi.fn(),
     handleBrowserKeyDownCapture: vi.fn(),
-    handlePipDragPointerDown: vi.fn(),
-    handlePipDragPointerEnd: vi.fn(),
-    handlePipDragPointerMove: vi.fn(),
-    handlePipResizePointerDown: vi.fn(),
-    handlePipResizePointerEnd: vi.fn(),
-    handlePipResizePointerMove: vi.fn(),
     handleTabSnapshotChange: vi.fn(),
     handleWebviewContextMenuFallbackRequest: vi.fn(),
     importPinnedPages: vi.fn(),
@@ -153,26 +147,33 @@ describe("InAppBrowser tab strip", () => {
     const hookState = createHookState(tabs);
     useInAppBrowserStateMock.mockReturnValue(hookState);
 
-    const screen = await render(
+    await render(
       <div style={{ position: "relative", width: "720px", height: "560px" }}>
         <InAppBrowser
           open
           mode="full"
           onClose={() => undefined}
-          onMinimize={() => undefined}
           onRestore={() => undefined}
           onSplit={() => undefined}
         />
       </div>,
     );
 
-    await screen.getByTitle("Alpha Workspace").click({ button: "right" });
+    const alphaTab = document.querySelector(
+      '[title="Alpha Workspace"]',
+    ) as HTMLButtonElement | null;
+    expect(alphaTab).toBeTruthy();
+    alphaTab?.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, clientX: 48, clientY: 64 }),
+    );
     expect(hookState.openTabContextMenu).toHaveBeenCalledWith(
       "tab-1",
       expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
     );
 
-    await screen.getByTitle("Beta Docs").click({ button: "middle" });
+    const betaTab = document.querySelector('[title="Beta Docs"]') as HTMLButtonElement | null;
+    expect(betaTab).toBeTruthy();
+    betaTab?.dispatchEvent(new MouseEvent("auxclick", { bubbles: true, button: 1 }));
     expect(hookState.closeTab).toHaveBeenCalledWith("tab-2");
   });
 
@@ -189,7 +190,6 @@ describe("InAppBrowser tab strip", () => {
           open
           mode="full"
           onClose={() => undefined}
-          onMinimize={() => undefined}
           onRestore={() => undefined}
           onSplit={() => undefined}
         />
@@ -225,6 +225,45 @@ describe("InAppBrowser tab strip", () => {
       expect(tabStrip.scrollLeft).toBeGreaterThan(initialScrollLeft);
     });
     await expect.element(screen.getByLabelText("Scroll tabs left")).toBeVisible();
+  });
+
+  it("supports keyboard navigation across tabs", async () => {
+    const tabs = [
+      createTab("tab-1", "Alpha Workspace"),
+      createTab("tab-2", "Beta Docs"),
+      createTab("tab-3", "Gamma Notes"),
+    ];
+    const hookState = createHookState(tabs);
+    useInAppBrowserStateMock.mockReturnValue(hookState);
+
+    await render(
+      <div style={{ position: "relative", width: "720px", height: "560px" }}>
+        <InAppBrowser
+          open
+          mode="full"
+          onClose={() => undefined}
+          onRestore={() => undefined}
+          onSplit={() => undefined}
+        />
+      </div>,
+    );
+
+    const alphaTab = document.querySelector(
+      '[role="tab"][title="Alpha Workspace"]',
+    ) as HTMLButtonElement | null;
+    expect(alphaTab).toBeTruthy();
+    alphaTab?.focus();
+    alphaTab?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowRight" }));
+
+    expect(hookState.activateTab).toHaveBeenCalledWith("tab-2");
+
+    const betaTab = document.querySelector(
+      '[role="tab"][title="Beta Docs"]',
+    ) as HTMLButtonElement | null;
+    expect(betaTab).toBeTruthy();
+    betaTab?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "End" }));
+
+    expect(hookState.activateTab).toHaveBeenCalledWith("tab-3");
   });
 });
 

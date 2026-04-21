@@ -1627,8 +1627,57 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('title="1 intent"');
     expect(markup).toContain('title="1 reasoning step"');
     expect(markup).toContain('data-meta-disclosure-elapsed="1s"');
-    expect(markup).toContain('title="1 event"');
+    expect(markup).not.toContain('title="1 event"');
     expect(markup).not.toContain("0 tool calls");
+  });
+
+  it("counts info entries as events without double-counting intents", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "intent-refreshing-state",
+            kind: "intent",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            text: "Refreshing browser state",
+          },
+          {
+            id: "info-context-compacted",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            entry: {
+              id: "info-context-compacted",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              label: "Context compacted",
+              tone: "info",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('title="1 intent"');
+    expect(markup).toContain('title="1 event"');
   });
 
   it("keeps repeated completed intent bursts with tool calls in chronological order", async () => {
