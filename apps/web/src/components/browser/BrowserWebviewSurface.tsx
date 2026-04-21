@@ -78,12 +78,45 @@ interface BrowserDesignCaptureDraft {
   viewportHeight: number;
 }
 
+type AnnotationTool = "ellipse" | "eraser" | "line" | "pencil" | "rectangle";
+
+interface AnnotationBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 const MIN_CAPTURE_SIZE_PX = 24;
 const DESIGN_REQUEST_PANEL_WIDTH_PX = 272;
 const DESIGN_REQUEST_PANEL_HEIGHT_PX = 166;
+const DRAW_COLOR_SWATCHES: readonly string[] = [
+  "#4F8CFF",
+  "#FF6B57",
+  "#FDBA32",
+  "#32D399",
+  "#F472B6",
+  "#F8FAFC",
+];
+const DEFAULT_ANNOTATION_COLOR = DRAW_COLOR_SWATCHES[0] ?? "#4F8CFF";
 
 function clampPoint(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function resolveAnnotationBounds(
+  draft: BrowserDesignCaptureDraft,
+  canvas: HTMLCanvasElement | null,
+): AnnotationBounds {
+  if (draft.tool === "draw-comment") {
+    return {
+      x: 0,
+      y: 0,
+      width: Math.max(1, canvas?.width ?? draft.capture.selection.width),
+      height: Math.max(1, canvas?.height ?? draft.capture.selection.height),
+    };
+  }
+  return draft.capture.selection;
 }
 
 function normalizeSelectionRect(input: {
@@ -193,6 +226,17 @@ function buildBrowserElementCaptureScript(point: { x: number; y: number }): stri
     if (!collapsed) return null;
     return collapsed.length > maxLength ? collapsed.slice(0, maxLength - 1) + "…" : collapsed;
   };
+  const parseAlpha = (value) => {
+    if (typeof value !== "string") return 0;
+    const normalized = value.trim().toLowerCase();
+    if (!normalized || normalized === "transparent") return 0;
+    const rgbaMatch = normalized.match(/^rgba\\((.+)\\)$/);
+    if (!rgbaMatch) return 1;
+    const parts = rgbaMatch[1].split(",").map((part) => part.trim());
+    if (parts.length < 4) return 1;
+    const alpha = Number(parts[3]);
+    return Number.isFinite(alpha) ? alpha : 1;
+  };
   const escapeCss = (value) => {
     if (typeof value !== "string") return "";
     if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
@@ -250,13 +294,126 @@ function buildBrowserElementCaptureScript(point: { x: number; y: number }): stri
       height: Math.round(rect.height),
     };
   };
+  const pointWithinRect = (rect) =>
+    rect &&
+    point.x >= rect.left &&
+    point.x <= rect.right &&
+    point.y >= rect.top &&
+    point.y <= rect.bottom;
+  const preferredRoles = new Set([
+    "article",
+    "button",
+    "cell",
+    "checkbox",
+    "gridcell",
+    "link",
+    "listitem",
+    "menuitem",
+    "option",
+    "radio",
+    "row",
+    "switch",
+    "tab",
+  ]);
+  const preferredTags = new Set([
+    "a",
+    "article",
+    "aside",
+    "button",
+    "figure",
+    "header",
+    "img",
+    "input",
+    "label",
+    "li",
+    "nav",
+    "section",
+    "summary",
+  ]);
+  const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
+  const scoreCandidate = (element, depth) => {
+    if (!(element instanceof Element)) return Number.NEGATIVE_INFINITY;
+    const rect = element.getBoundingClientRect();
+    if (!pointWithinRect(rect) || rect.width < 8 || rect.height < 8) {
+      return Number.NEGATIVE_INFINITY;
+    }
+    const style = window.getComputedStyle(element);
+    const tagName = element.tagName.toLowerCase();
+    const role = (element.getAttribute("role") || "").toLowerCase();
+    const area = rect.width * rect.height;
+    const isInline =
+      style.display.startsWith("inline") &&
+      style.display !== "inline-block" &&
+      style.display !== "inline-flex" &&
+      style.display !== "inline-grid";
+    const hasVisualBox =
+      parseAlpha(style.backgroundColor) > 0.04 ||
+      style.backgroundImage !== "none" ||
+      parseFloat(style.borderTopWidth || "0") > 0 ||
+      parseFloat(style.borderRightWidth || "0") > 0 ||
+      parseFloat(style.borderBottomWidth || "0") > 0 ||
+      parseFloat(style.borderLeftWidth || "0") > 0 ||
+      style.boxShadow !== "none" ||
+      parseFloat(style.borderRadius || "0") > 0;
+    const isInteractive =
+      preferredTags.has(tagName) ||
+      preferredRoles.has(role) ||
+      element.hasAttribute("tabindex") ||
+      element.hasAttribute("aria-current") ||
+      element.hasAttribute("aria-pressed");
+    const textLength = (element.textContent || "").replace(/\\s+/g, " ").trim().length;
+    const childCount = element.childElementCount;
+    const isCustomElement = tagName.includes("-");
+    const isHuge =
+      area > viewportArea * 0.58 ||
+      rect.width > window.innerWidth * 0.94 ||
+      rect.height > window.innerHeight * 0.76;
+    let score = 0;
+    if (isInteractive) score += 10;
+    if (preferredTags.has(tagName)) score += 5;
+    if (preferredRoles.has(role)) score += 4;
+    if (isCustomElement) score += 4;
+    if (hasVisualBox) score += 5;
+    if (["block", "flex", "grid", "inline-block", "inline-flex", "inline-grid", "list-item"].includes(style.display)) {
+      score += 3;
+    }
+    if (childCount > 0) score += 2;
+    if (textLength > 0) score += Math.min(4, Math.ceil(textLength / 28));
+    if (isInline) score -= 7;
+    if (["svg", "path", "span", "strong", "small", "em", "b", "i"].includes(tagName)) score -= 3;
+    if (area < 420) score -= 5;
+    if (isHuge) score -= 10;
+    score -= depth * 0.45;
+    score -= (area / viewportArea) * 8;
+    return score;
+  };
+  const resolveTargetElement = (initialTarget) => {
+    if (!(initialTarget instanceof Element)) return null;
+    const candidates = [];
+    let current = initialTarget;
+    for (let depth = 0; current && depth < 8; depth += 1) {
+      if (current instanceof Element) {
+        const score = scoreCandidate(current, depth);
+        if (Number.isFinite(score)) {
+          candidates.push({ element: current, score, depth });
+        }
+      }
+      current = current.parentElement;
+    }
+    if (candidates.length === 0) {
+      return initialTarget;
+    }
+    candidates.sort((left, right) => right.score - left.score || left.depth - right.depth);
+    return candidates[0]?.element || initialTarget;
+  };
   const x = Math.max(0, Math.floor(point.x));
   const y = Math.max(0, Math.floor(point.y));
-  const target = document.elementFromPoint(x, y);
+  const rawTarget = document.elementFromPoint(x, y);
+  const target = resolveTargetElement(rawTarget);
   const mainContainer =
-    target instanceof Element
-      ? target.closest("main, [role='main'], article, section, [data-testid], [class*='container'], [class*='content']") ?? target.parentElement
-      : null;
+     target instanceof Element
+       ? target.closest("main, [role='main'], article, section, [data-testid], [class*='container'], [class*='content']") ?? target.parentElement
+       : null;
   return {
     targetRect: toRect(target),
     target: describe(target),
@@ -268,6 +425,87 @@ function buildBrowserElementCaptureScript(point: { x: number; y: number }): stri
 function generateDesignRequestId(): string {
   return `DR-${randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`;
 }
+
+function DrawingToolIcon(props: { tool: AnnotationTool; className?: string }) {
+  const { className, tool } = props;
+  switch (tool) {
+    case "eraser":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          className={className}
+        >
+          <path d="M6.5 14.5 13 8a2.5 2.5 0 0 1 3.5 0l1.5 1.5a2.5 2.5 0 0 1 0 3.5l-4.5 4.5H9.5l-3-3a2.5 2.5 0 0 1 0-3.5Z" />
+          <path d="M13.5 17.5h5" />
+        </svg>
+      );
+    case "line":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          className={className}
+        >
+          <path d="M5 19 19 5" />
+          <circle cx="6.5" cy="17.5" r="1.5" fill="currentColor" stroke="none" />
+          <circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case "rectangle":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          className={className}
+        >
+          <rect x="5" y="7" width="14" height="10" rx="2.5" />
+        </svg>
+      );
+    case "ellipse":
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          className={className}
+        >
+          <ellipse cx="12" cy="12" rx="7" ry="5" />
+        </svg>
+      );
+    default:
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          className={className}
+        >
+          <path d="M6 18 16.5 7.5a1.8 1.8 0 0 1 2.5 0l.5.5a1.8 1.8 0 0 1 0 2.5L9 21H6v-3Z" />
+          <path d="m14 10 3 3" />
+        </svg>
+      );
+  }
+}
+
+const DRAW_TOOL_OPTIONS: ReadonlyArray<{
+  label: string;
+  tool: AnnotationTool;
+}> = [
+  { label: "Pencil", tool: "pencil" },
+  { label: "Line", tool: "line" },
+  { label: "Rectangle", tool: "rectangle" },
+  { label: "Ellipse", tool: "ellipse" },
+  { label: "Eraser", tool: "eraser" },
+];
 
 export function BrowserFavicon(props: {
   url: string;
@@ -346,9 +584,14 @@ export function BrowserTabWebview(props: {
   const pendingElementHoverPointRef = useRef<{ x: number; y: number } | null>(null);
   const elementHoverRequestInFlightRef = useRef(false);
   const annotationPointerRef = useRef<{
+    color: string;
     pointerId: number;
     lastX: number;
     lastY: number;
+    snapshot: ImageData | null;
+    startX: number;
+    startY: number;
+    tool: AnnotationTool;
   } | null>(null);
   const requestedUrlRef = useRef(tab.url);
   const [selectionRect, setSelectionRect] = useState<BrowserDesignSelectionRect | null>(null);
@@ -356,6 +599,8 @@ export function BrowserTabWebview(props: {
     useState<BrowserPageElementCapture | null>(null);
   const [designDraft, setDesignDraft] = useState<BrowserDesignCaptureDraft | null>(null);
   const [designInstructions, setDesignInstructions] = useState("");
+  const [annotationColor, setAnnotationColor] = useState(DEFAULT_ANNOTATION_COLOR);
+  const [annotationTool, setAnnotationTool] = useState<AnnotationTool>("pencil");
   const [hasAnnotationStrokes, setHasAnnotationStrokes] = useState(false);
   const [isSubmittingDesignRequest, setIsSubmittingDesignRequest] = useState(false);
   const emitTabSnapshotChange = useEffectEvent((snapshot: BrowserTabSnapshot) => {
@@ -596,6 +841,7 @@ export function BrowserTabWebview(props: {
   }, [navigate, tab.url]);
 
   const clearAnnotationCanvas = useCallback(() => {
+    annotationPointerRef.current = null;
     const canvas = annotationCanvasRef.current;
     if (!canvas) {
       setHasAnnotationStrokes(false);
@@ -987,7 +1233,8 @@ export function BrowserTabWebview(props: {
       return;
     }
     const trimmedInstructions = designInstructions.trim();
-    if (trimmedInstructions.length === 0) {
+    const allowsEmptyComment = designDraft.tool === "draw-comment" && hasAnnotationStrokes;
+    if (trimmedInstructions.length === 0 && !allowsEmptyComment) {
       return;
     }
     setIsSubmittingDesignRequest(true);
@@ -1011,6 +1258,7 @@ export function BrowserTabWebview(props: {
     cancelDesignCapture,
     designDraft,
     designInstructions,
+    hasAnnotationStrokes,
     isSubmittingDesignRequest,
     onDesignCaptureError,
     onDesignCaptureSubmit,
@@ -1053,24 +1301,75 @@ export function BrowserTabWebview(props: {
   }, [clearAnnotationCanvas, designDraft]);
 
   const drawAnnotationStroke = useCallback(
-    (from: { x: number; y: number }, to: { x: number; y: number }) => {
-      const canvas = annotationCanvasRef.current;
-      if (!canvas) {
-        return;
-      }
-      const context = canvas.getContext("2d");
-      if (!context) {
-        return;
-      }
+    (
+      context: CanvasRenderingContext2D,
+      from: { x: number; y: number },
+      to: { x: number; y: number },
+      options: { color: string; tool: AnnotationTool },
+    ) => {
+      context.save();
+      context.globalCompositeOperation =
+        options.tool === "eraser" ? "destination-out" : "source-over";
       context.lineCap = "round";
       context.lineJoin = "round";
-      context.lineWidth = 4;
-      context.strokeStyle = "#ff6b57";
+      context.lineWidth = options.tool === "eraser" ? 18 : 3.5;
+      context.strokeStyle = options.color;
       context.beginPath();
       context.moveTo(from.x, from.y);
       context.lineTo(to.x, to.y);
       context.stroke();
+      context.restore();
       setHasAnnotationStrokes(true);
+    },
+    [],
+  );
+
+  const drawAnnotationShape = useCallback(
+    (
+      context: CanvasRenderingContext2D,
+      start: { x: number; y: number },
+      end: { x: number; y: number },
+      options: {
+        color: string;
+        preview?: boolean;
+        tool: Extract<AnnotationTool, "ellipse" | "line" | "rectangle">;
+      },
+    ) => {
+      context.save();
+      context.globalCompositeOperation = "source-over";
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.lineWidth = 3;
+      context.strokeStyle = options.color;
+      if (options.tool === "line") {
+        context.beginPath();
+        context.moveTo(start.x, start.y);
+        context.lineTo(end.x, end.y);
+        context.stroke();
+      } else if (options.tool === "rectangle") {
+        context.strokeRect(
+          Math.min(start.x, end.x),
+          Math.min(start.y, end.y),
+          Math.abs(end.x - start.x),
+          Math.abs(end.y - start.y),
+        );
+      } else {
+        context.beginPath();
+        context.ellipse(
+          (start.x + end.x) / 2,
+          (start.y + end.y) / 2,
+          Math.abs(end.x - start.x) / 2,
+          Math.abs(end.y - start.y) / 2,
+          0,
+          0,
+          Math.PI * 2,
+        );
+        context.stroke();
+      }
+      context.restore();
+      if (!options.preview) {
+        setHasAnnotationStrokes(true);
+      }
     },
     [],
   );
@@ -1095,21 +1394,41 @@ export function BrowserTabWebview(props: {
       if (event.button !== 0 || !designDraft) {
         return;
       }
+      const canvas = annotationCanvasRef.current;
+      const context = canvas?.getContext("2d");
       const point = resolveAnnotationPoint(event);
-      const selection = designDraft.capture.selection;
-      if (!point || !isPointInsideSelectionRect(point, selection)) {
+      const bounds = resolveAnnotationBounds(designDraft, canvas);
+      if (!point || !context || !isPointInsideSelectionRect(point, bounds)) {
         return;
       }
-      annotationPointerRef.current = {
-        pointerId: event.pointerId,
-        lastX: point.x,
-        lastY: point.y,
+      const clampedPoint = {
+        x: clampPoint(point.x, bounds.x, bounds.x + bounds.width),
+        y: clampPoint(point.y, bounds.y, bounds.y + bounds.height),
       };
-      drawAnnotationStroke(point, point);
+      const snapshot =
+        annotationTool === "pencil" || annotationTool === "eraser"
+          ? null
+          : context.getImageData(0, 0, canvas?.width ?? 0, canvas?.height ?? 0);
+      annotationPointerRef.current = {
+        color: annotationColor,
+        pointerId: event.pointerId,
+        lastX: clampedPoint.x,
+        lastY: clampedPoint.y,
+        snapshot,
+        startX: clampedPoint.x,
+        startY: clampedPoint.y,
+        tool: annotationTool,
+      };
+      if (annotationTool === "pencil" || annotationTool === "eraser") {
+        drawAnnotationStroke(context, clampedPoint, clampedPoint, {
+          color: annotationColor,
+          tool: annotationTool,
+        });
+      }
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
     },
-    [designDraft, drawAnnotationStroke, resolveAnnotationPoint],
+    [annotationColor, annotationTool, designDraft, drawAnnotationStroke, resolveAnnotationPoint],
   );
 
   const handleAnnotationPointerMove = useCallback(
@@ -1118,16 +1437,35 @@ export function BrowserTabWebview(props: {
       if (!drawingState || drawingState.pointerId !== event.pointerId || !designDraft) {
         return;
       }
+      const canvas = annotationCanvasRef.current;
+      const context = canvas?.getContext("2d");
       const point = resolveAnnotationPoint(event);
-      if (!point) {
+      if (!point || !canvas || !context) {
         return;
       }
-      const selection = designDraft.capture.selection;
+      const bounds = resolveAnnotationBounds(designDraft, canvas);
       const nextPoint = {
-        x: clampPoint(point.x, selection.x, selection.x + selection.width),
-        y: clampPoint(point.y, selection.y, selection.y + selection.height),
+        x: clampPoint(point.x, bounds.x, bounds.x + bounds.width),
+        y: clampPoint(point.y, bounds.y, bounds.y + bounds.height),
       };
-      drawAnnotationStroke({ x: drawingState.lastX, y: drawingState.lastY }, nextPoint);
+      if (drawingState.tool === "pencil" || drawingState.tool === "eraser") {
+        drawAnnotationStroke(context, { x: drawingState.lastX, y: drawingState.lastY }, nextPoint, {
+          color: drawingState.color,
+          tool: drawingState.tool,
+        });
+      } else if (drawingState.snapshot) {
+        context.putImageData(drawingState.snapshot, 0, 0);
+        drawAnnotationShape(
+          context,
+          { x: drawingState.startX, y: drawingState.startY },
+          nextPoint,
+          {
+            color: drawingState.color,
+            preview: true,
+            tool: drawingState.tool,
+          },
+        );
+      }
       annotationPointerRef.current = {
         ...drawingState,
         lastX: nextPoint.x,
@@ -1135,19 +1473,42 @@ export function BrowserTabWebview(props: {
       };
       event.preventDefault();
     },
-    [designDraft, drawAnnotationStroke, resolveAnnotationPoint],
+    [designDraft, drawAnnotationShape, drawAnnotationStroke, resolveAnnotationPoint],
   );
 
-  const handleAnnotationPointerEnd = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
-    const drawingState = annotationPointerRef.current;
-    if (!drawingState || drawingState.pointerId !== event.pointerId) {
-      return;
-    }
-    annotationPointerRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
+  const handleAnnotationPointerEnd = useCallback(
+    (event: ReactPointerEvent<HTMLCanvasElement>) => {
+      const drawingState = annotationPointerRef.current;
+      if (!drawingState || drawingState.pointerId !== event.pointerId) {
+        return;
+      }
+      const canvas = annotationCanvasRef.current;
+      const context = canvas?.getContext("2d");
+      if (
+        canvas &&
+        context &&
+        drawingState.snapshot &&
+        drawingState.tool !== "pencil" &&
+        drawingState.tool !== "eraser"
+      ) {
+        context.putImageData(drawingState.snapshot, 0, 0);
+        drawAnnotationShape(
+          context,
+          { x: drawingState.startX, y: drawingState.startY },
+          { x: drawingState.lastX, y: drawingState.lastY },
+          {
+            color: drawingState.color,
+            tool: drawingState.tool,
+          },
+        );
+      }
+      annotationPointerRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    [drawAnnotationShape],
+  );
 
   const designRequestPanelStyle = useMemo<CSSProperties | undefined>(() => {
     if (!designDraft) {
@@ -1196,6 +1557,10 @@ export function BrowserTabWebview(props: {
       ? null
       : (selectionRect ??
         (designerTool === "element-comment" ? (hoveredElementCapture?.targetRect ?? null) : null));
+  const canSubmitDesignDraft = designDraft
+    ? designInstructions.trim().length > 0 ||
+      (designDraft.tool === "draw-comment" && hasAnnotationStrokes)
+    : false;
 
   return (
     <div
@@ -1258,6 +1623,55 @@ export function BrowserTabWebview(props: {
                 void submitDesignDraft();
               }}
             >
+              {designDraft.tool === "draw-comment" ? (
+                <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                  <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/88 p-1">
+                    {DRAW_TOOL_OPTIONS.map(({ label, tool }) => (
+                      <button
+                        key={tool}
+                        type="button"
+                        onClick={() => {
+                          setAnnotationTool(tool);
+                        }}
+                        className={cn(
+                          "inline-flex size-7 items-center justify-center rounded-full transition-colors",
+                          annotationTool === tool
+                            ? "bg-primary/14 text-primary"
+                            : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+                        )}
+                        aria-label={label}
+                        title={label}
+                      >
+                        <DrawingToolIcon tool={tool} className="size-3.5" />
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/88 p-1">
+                    {DRAW_COLOR_SWATCHES.map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => {
+                          setAnnotationColor(color);
+                        }}
+                        className={cn(
+                          "inline-flex size-6 items-center justify-center rounded-full border transition-transform",
+                          annotationColor === color
+                            ? "scale-105 border-white/60"
+                            : "border-transparent hover:scale-105",
+                        )}
+                        aria-label={`Select ${color} drawing color`}
+                        title="Select drawing color"
+                      >
+                        <span
+                          className="size-3 rounded-full border border-black/15"
+                          style={{ backgroundColor: color }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <textarea
                 value={designInstructions}
                 onChange={(event) => setDesignInstructions(event.target.value)}
@@ -1291,7 +1705,7 @@ export function BrowserTabWebview(props: {
                 <button
                   type="submit"
                   className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-[13px] font-medium text-primary-foreground transition-opacity disabled:opacity-50"
-                  disabled={isSubmittingDesignRequest || designInstructions.trim().length === 0}
+                  disabled={isSubmittingDesignRequest || !canSubmitDesignDraft}
                 >
                   <CheckIcon className="size-3.5" />
                   Comment

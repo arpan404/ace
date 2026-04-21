@@ -59,6 +59,7 @@ import { BrowserNewTabPanel, BrowserSuggestionList } from "./browser/BrowserChro
 import { BrowserFavicon, BrowserTabWebview } from "./browser/BrowserWebviewSurface";
 import { isBrowserInternalTabUrl, isBrowserNewTabUrl } from "~/lib/browser/session";
 import type { BrowserDesignRequestSubmission } from "~/lib/browser/types";
+import type { BrowserDesignerTool } from "~/lib/browser/designer";
 import { toastManager } from "./ui/toast";
 
 export type {
@@ -215,6 +216,20 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 const DESIGNER_PILL_WIDTH_PX = 60;
 const DESIGNER_PILL_HEIGHT_PX = 238;
 const DESIGNER_PILL_MARGIN_PX = 14;
+const DESIGNER_TOOL_BUTTON_SIZE_PX = 40;
+const DESIGNER_TOOL_BUTTON_GAP_PX = 6;
+const DESIGNER_TOOL_BACKGROUND_STEP_PX = DESIGNER_TOOL_BUTTON_SIZE_PX + DESIGNER_TOOL_BUTTON_GAP_PX;
+
+const DESIGNER_TOOL_BUTTONS: ReadonlyArray<{
+  tool: BrowserDesignerTool;
+  label: string;
+  Icon: typeof MousePointer2Icon;
+}> = [
+  { tool: "cursor", label: "Normal cursor", Icon: MousePointer2Icon },
+  { tool: "area-comment", label: "Area comment", Icon: CropIcon },
+  { tool: "draw-comment", label: "Draw comment", Icon: SquarePenIcon },
+  { tool: "element-comment", label: "Element comment", Icon: CircleDotIcon },
+];
 
 function clampDesignerPillPosition(
   position: { x: number; y: number } | null | undefined,
@@ -457,6 +472,22 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       viewport ? { height: viewport.clientHeight, width: viewport.clientWidth } : null,
     );
   }, [designerState.pillPosition]);
+  const activeDesignerToolIndex = useMemo(
+    () =>
+      Math.max(
+        0,
+        DESIGNER_TOOL_BUTTONS.findIndex((entry) => entry.tool === designerState.tool),
+      ),
+    [designerState.tool],
+  );
+  const handleDesignerToolPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>, tool: BrowserDesignerTool) => {
+      event.preventDefault();
+      event.stopPropagation();
+      selectDesignerTool(tool);
+    },
+    [selectDesignerTool],
+  );
   const handleDesignerPillPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) {
@@ -1103,99 +1134,40 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 onPointerCancel={handleDesignerPillPointerEnd}
               >
                 <div className="h-1 w-4 rounded-full bg-border/70" />
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        className={cn(
-                          "inline-flex size-10 items-center justify-center rounded-[18px] border transition-all",
-                          designerState.tool === "cursor"
-                            ? "border-primary/35 bg-primary/12 text-primary shadow-[0_10px_24px_-18px_rgba(91,106,255,0.9)]"
-                            : "border-border/60 bg-background/85 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
-                        )}
-                        onClick={() => {
-                          selectDesignerTool("cursor");
-                        }}
-                        aria-label="Use normal cursor"
-                        data-designer-pill-control
-                      >
-                        <MousePointer2Icon className="size-4" />
-                      </button>
-                    }
-                  />
-                  <TooltipPopup side="right">Normal cursor</TooltipPopup>
-                </Tooltip>
                 <div className="h-px w-5 rounded-full bg-border/60" />
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        className={cn(
-                          "inline-flex size-10 items-center justify-center rounded-[18px] border transition-all",
-                          designerState.tool === "area-comment"
-                            ? "border-primary/35 bg-primary/12 text-primary shadow-[0_10px_32px_-20px_rgba(91,106,255,0.9)]"
-                            : "border-border/60 bg-background/85 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
-                        )}
-                        onClick={() => {
-                          selectDesignerTool("area-comment");
-                        }}
-                        aria-label="Select area comment tool"
-                        data-designer-pill-control
-                      >
-                        <CropIcon className="size-4" />
-                      </button>
-                    }
+                <div className="relative flex flex-col gap-1.5">
+                  <div
+                    className="pointer-events-none absolute inset-x-0 top-0 z-0 h-10 rounded-[18px] bg-primary/14 shadow-[0_14px_30px_-20px_rgba(91,106,255,0.9)] transition-transform duration-200 ease-out"
+                    style={{
+                      transform: `translateY(${activeDesignerToolIndex * DESIGNER_TOOL_BACKGROUND_STEP_PX}px)`,
+                    }}
                   />
-                  <TooltipPopup side="right">Area comment</TooltipPopup>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        className={cn(
-                          "inline-flex size-10 items-center justify-center rounded-[18px] border transition-all",
-                          designerState.tool === "draw-comment"
-                            ? "border-primary/35 bg-primary/12 text-primary"
-                            : "border-border/60 bg-background/85 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
-                        )}
-                        onClick={() => {
-                          selectDesignerTool("draw-comment");
-                        }}
-                        aria-label="Select draw comment tool"
-                        data-designer-pill-control
-                      >
-                        <SquarePenIcon className="size-4" />
-                      </button>
-                    }
-                  />
-                  <TooltipPopup side="right">Draw comment</TooltipPopup>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        className={cn(
-                          "inline-flex size-10 items-center justify-center rounded-[18px] border transition-all",
-                          designerState.tool === "element-comment"
-                            ? "border-primary/35 bg-primary/12 text-primary"
-                            : "border-border/60 bg-background/85 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
-                        )}
-                        onClick={() => {
-                          selectDesignerTool("element-comment");
-                        }}
-                        aria-label="Select element comment tool"
-                        data-designer-pill-control
-                      >
-                        <CircleDotIcon className="size-4" />
-                      </button>
-                    }
-                  />
-                  <TooltipPopup side="right">Element comment</TooltipPopup>
-                </Tooltip>
+                  {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
+                    <Tooltip key={tool}>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            className={cn(
+                              "relative z-10 inline-flex size-10 items-center justify-center rounded-[18px] border transition-[border-color,color,transform] duration-200",
+                              designerState.tool === tool
+                                ? "border-primary/35 text-primary"
+                                : "border-border/60 bg-background/85 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
+                            )}
+                            onPointerDown={(event) => {
+                              handleDesignerToolPointerDown(event, tool);
+                            }}
+                            aria-label={label}
+                            data-designer-pill-control
+                          >
+                            <Icon className="size-4" />
+                          </button>
+                        }
+                      />
+                      <TooltipPopup side="right">{label}</TooltipPopup>
+                    </Tooltip>
+                  ))}
+                </div>
               </div>
             </div>
           ) : null}
