@@ -349,6 +349,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const {
     activeDraftThread: currentRouteDraftThread,
     activeThread: currentRouteThread,
+    defaultProjectId,
     handleNewThread,
   } = useHandleNewThread();
   const setStickyComposerModelSelection = useComposerDraftStore(
@@ -1286,6 +1287,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     (activeThread?.latestTurn?.state === "interrupted" && queuedSteerRequest === null);
   const queuedComposerMessagesRef = useRef(queuedComposerMessages);
   queuedComposerMessagesRef.current = queuedComposerMessages;
+  const queuedSteerRequestRef = useRef(queuedSteerRequest);
+  queuedSteerRequestRef.current = queuedSteerRequest;
 
   const openPullRequestDialog = useCallback(
     (reference?: string) => {
@@ -2216,6 +2219,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     clampWorkspaceEditorSplitWidth(storedWorkspaceEditorSplitWidth, 0),
   );
   const browserControllerRef = useRef<InAppBrowserController | null>(null);
+  const browserControllerByThreadRef = useRef(new Map<ThreadId, InAppBrowserController>());
+  const browserRuntimeStateByThreadRef = useRef(new Map<ThreadId, { devToolsOpen: boolean }>());
+  const activeBrowserThreadIdRef = useRef<ThreadId | null>(activeThreadId);
   const pendingBrowserOpenUrlRef = useRef<string | null>(null);
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
   const workspaceViewportRef = useRef<HTMLDivElement | null>(null);
@@ -2227,6 +2233,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   } | null>(null);
   const didResizeBrowserSplitDuringDragRef = useRef(false);
   const lastSyncedBrowserSplitWidthRef = useRef(browserSplitWidth);
+  const [mountedBrowserThreadIds, setMountedBrowserThreadIds] = useState<readonly ThreadId[]>([]);
   const workspaceEditorSplitWidthRef = useRef(workspaceEditorSplitWidth);
   const workspaceEditorSplitResizePointerIdRef = useRef<number | null>(null);
   const workspaceEditorSplitResizeStateRef = useRef<{
@@ -2245,6 +2252,29 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const workspaceMode = routeWorkspaceMode === "chat" ? persistedWorkspaceMode : routeWorkspaceMode;
   const defaultBrowserMode: Extract<InAppBrowserMode, "full" | "split"> = settings.browserOpenMode;
   const browserOpen = browserMode !== "closed";
+  useEffect(() => {
+    activeBrowserThreadIdRef.current = activeThreadId;
+    browserControllerRef.current = activeThreadId
+      ? (browserControllerByThreadRef.current.get(activeThreadId) ?? null)
+      : null;
+    setBrowserDevToolsOpen(
+      activeThreadId
+        ? (browserRuntimeStateByThreadRef.current.get(activeThreadId)?.devToolsOpen ?? false)
+        : false,
+    );
+  }, [activeThreadId]);
+  useEffect(() => {
+    if (!isElectron || !browserOpen || !activeThreadId) {
+      browserControllerByThreadRef.current.clear();
+      browserRuntimeStateByThreadRef.current.clear();
+      browserControllerRef.current = null;
+      setMountedBrowserThreadIds([]);
+      return;
+    }
+    setMountedBrowserThreadIds((current) =>
+      current.includes(activeThreadId) ? current : [...current, activeThreadId],
+    );
+  }, [activeThreadId, browserOpen]);
   useEffect(() => {
     if (routeWorkspaceMode === "chat") {
       return;
@@ -2367,26 +2397,28 @@ export default function ChatView({ threadId }: ChatViewProps) {
       focusComposer();
     });
   }, [focusComposer]);
-  const persistQueuedComposerState = useCallback(
+  const persistQueuedComposerStateByThreadId = useCallback(
     async (
+      targetThreadId: ThreadId,
       nextMessages: Thread["queuedComposerMessages"],
       nextSteerRequest: Thread["queuedSteerRequest"],
       previousMessages: Thread["queuedComposerMessages"],
       previousSteerRequest: Thread["queuedSteerRequest"],
     ) => {
-      if (!serverThread) {
-        return false;
-      }
       const api = readNativeApi();
       if (!api) {
         return false;
       }
-      setStoreThreadQueueState(serverThread.id, nextMessages, nextSteerRequest);
+      const previousQueuedMessagesRef = queuedComposerMessagesRef.current;
+      const previousQueuedSteerRequestRef = queuedSteerRequestRef.current;
+      queuedComposerMessagesRef.current = nextMessages;
+      queuedSteerRequestRef.current = nextSteerRequest;
+      setStoreThreadQueueState(targetThreadId, nextMessages, nextSteerRequest);
       try {
         await api.orchestration.dispatchCommand({
           type: "thread.meta.update",
           commandId: newCommandId(),
-          threadId: serverThread.id,
+          threadId: targetThreadId,
           queuedComposerMessages: nextMessages.map((message) => ({
             id: message.id,
             prompt: message.prompt,
@@ -2407,22 +2439,90 @@ export default function ChatView({ threadId }: ChatViewProps) {
         });
         return true;
       } catch (error) {
-        const currentThread = getThreadById(useStore.getState().threads, serverThread.id);
+        const currentThread = getThreadById(useStore.getState().threads, targetThreadId);
         if (
           currentThread &&
           currentThread.queuedComposerMessages === nextMessages &&
           currentThread.queuedSteerRequest === nextSteerRequest
         ) {
-          setStoreThreadQueueState(serverThread.id, previousMessages, previousSteerRequest);
+          setStoreThreadQueueState(targetThreadId, previousMessages, previousSteerRequest);
+        }
+        if (queuedComposerMessagesRef.current === nextMessages) {
+          queuedComposerMessagesRef.current = previousQueuedMessagesRef;
+        }
+        if (queuedSteerRequestRef.current === nextSteerRequest) {
+          queuedSteerRequestRef.current = previousQueuedSteerRequestRef;
         }
         setThreadError(
-          serverThread.id,
+          targetThreadId,
           error instanceof Error ? error.message : "Failed to persist queued messages.",
         );
         return false;
       }
     },
-    [serverThread, setStoreThreadQueueState, setThreadError],
+    [setStoreThreadQueueState, setThreadError],
+  );
+  const persistQueuedComposerState = useCallback(
+    async (
+      nextMessages: Thread["queuedComposerMessages"],
+      nextSteerRequest: Thread["queuedSteerRequest"],
+      previousMessages: Thread["queuedComposerMessages"],
+      previousSteerRequest: Thread["queuedSteerRequest"],
+    ) => {
+      if (!serverThread) {
+        return false;
+      }
+      return await persistQueuedComposerStateByThreadId(
+        serverThread.id,
+        nextMessages,
+        nextSteerRequest,
+        previousMessages,
+        previousSteerRequest,
+      );
+    },
+    [persistQueuedComposerStateByThreadId, serverThread],
+  );
+  const ensureQueuedComposerThread = useCallback(
+    async (options: {
+      titleSeed: string;
+      modelSelection: ModelSelection;
+      runtimeMode: RuntimeMode;
+      interactionMode: ProviderInteractionMode;
+    }): Promise<ThreadId | null> => {
+      if (serverThread) {
+        return serverThread.id;
+      }
+      const api = readNativeApi();
+      const projectId = activeProject?.id ?? defaultProjectId;
+      if (!api || !projectId) {
+        return null;
+      }
+      const targetThreadId = activeThread?.id ?? threadId;
+      const normalizedTitleSeed = options.titleSeed.trim().replace(/\s+/gu, " ");
+      const title = truncate(normalizedTitleSeed.length > 0 ? normalizedTitleSeed : "New thread");
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "thread.create",
+          commandId: newCommandId(),
+          threadId: targetThreadId,
+          projectId,
+          title,
+          modelSelection: options.modelSelection,
+          runtimeMode: options.runtimeMode,
+          interactionMode: options.interactionMode,
+          branch: activeThread?.branch ?? null,
+          worktreePath: activeThread?.worktreePath ?? null,
+          createdAt: activeThread?.createdAt ?? new Date().toISOString(),
+        });
+      } catch (error) {
+        reportBackgroundError(
+          "Failed to create a thread before queueing a composer message.",
+          error,
+        );
+      }
+      return targetThreadId;
+    },
+    [activeProject?.id, activeThread, defaultProjectId, serverThread, threadId],
   );
   const buildQueuedComposerImages = useCallback(
     async (
@@ -2658,10 +2758,21 @@ export default function ChatView({ threadId }: ChatViewProps) {
         runtimeMode,
         interactionMode,
       };
+      const targetThreadId = await ensureQueuedComposerThread({
+        titleSeed: promptRef.current,
+        modelSelection: selectedModelSelection,
+        runtimeMode,
+        interactionMode,
+      });
+      if (!targetThreadId) {
+        return false;
+      }
+      const previousMessages = queuedComposerMessagesRef.current;
+      const previousSteerRequest = queuedSteerRequestRef.current;
       const nextMessages =
         mode === "steer"
-          ? [queuedMessage, ...queuedComposerMessages]
-          : [...queuedComposerMessages, queuedMessage];
+          ? [queuedMessage, ...previousMessages]
+          : [...previousMessages, queuedMessage];
       const nextSteerRequest: Thread["queuedSteerRequest"] =
         mode === "steer"
           ? {
@@ -2669,13 +2780,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
               baselineWorkLogEntryCount: workLogEntries.length,
               interruptRequested: false,
             }
-          : queuedSteerRequest;
+          : previousSteerRequest;
       if (
-        !(await persistQueuedComposerState(
+        !(await persistQueuedComposerStateByThreadId(
+          targetThreadId,
           nextMessages,
           nextSteerRequest,
-          queuedComposerMessages,
-          queuedSteerRequest,
+          previousMessages,
+          previousSteerRequest,
         ))
       ) {
         return false;
@@ -2706,10 +2818,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
       clearComposerDraftContent,
       composerImages,
       composerTerminalContexts,
+      ensureQueuedComposerThread,
       interactionMode,
-      persistQueuedComposerState,
-      queuedComposerMessages,
-      queuedSteerRequest,
+      persistQueuedComposerStateByThreadId,
       runtimeMode,
       selectedModelSelection,
       setThreadError,
@@ -2729,19 +2840,30 @@ export default function ChatView({ threadId }: ChatViewProps) {
         runtimeMode,
         interactionMode,
       };
-      return persistQueuedComposerState(
-        [...queuedComposerMessages, queuedMessage],
-        queuedSteerRequest,
-        queuedComposerMessages,
-        queuedSteerRequest,
+      const targetThreadId = await ensureQueuedComposerThread({
+        titleSeed: preparedPrompt,
+        modelSelection: selectedModelSelection,
+        runtimeMode,
+        interactionMode,
+      });
+      if (!targetThreadId) {
+        return false;
+      }
+      const previousMessages = queuedComposerMessagesRef.current;
+      const previousSteerRequest = queuedSteerRequestRef.current;
+      return persistQueuedComposerStateByThreadId(
+        targetThreadId,
+        [...previousMessages, queuedMessage],
+        previousSteerRequest,
+        previousMessages,
+        previousSteerRequest,
       );
     },
     [
       buildQueuedComposerImages,
+      ensureQueuedComposerThread,
       interactionMode,
-      persistQueuedComposerState,
-      queuedComposerMessages,
-      queuedSteerRequest,
+      persistQueuedComposerStateByThreadId,
       runtimeMode,
       selectedModelSelection,
     ],
@@ -2778,11 +2900,23 @@ export default function ChatView({ threadId }: ChatViewProps) {
         runtimeMode,
         interactionMode,
       };
-      const persisted = await persistQueuedComposerState(
-        [...queuedComposerMessages, queuedMessage],
-        queuedSteerRequest,
-        queuedComposerMessages,
-        queuedSteerRequest,
+      const targetThreadId = await ensureQueuedComposerThread({
+        titleSeed: trimmedInstructions || "Designer comment",
+        modelSelection: selectedModelSelection,
+        runtimeMode,
+        interactionMode,
+      });
+      if (!targetThreadId) {
+        throw new Error("Failed to add the comment.");
+      }
+      const previousMessages = queuedComposerMessagesRef.current;
+      const previousSteerRequest = queuedSteerRequestRef.current;
+      const persisted = await persistQueuedComposerStateByThreadId(
+        targetThreadId,
+        [...previousMessages, queuedMessage],
+        previousSteerRequest,
+        previousMessages,
+        previousSteerRequest,
       );
       if (!persisted) {
         throw new Error("Failed to add the comment.");
@@ -2935,22 +3069,40 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (!isElectron) return;
     setBrowserMode((current) => (current === "closed" ? defaultBrowserMode : "closed"));
   }, [defaultBrowserMode, setBrowserMode]);
-  const setBrowserController = useCallback((controller: InAppBrowserController | null) => {
-    browserControllerRef.current = controller;
-    if (!controller) {
-      setBrowserDevToolsOpen(false);
-      return;
-    }
-    const pendingUrl = pendingBrowserOpenUrlRef.current;
-    if (!pendingUrl) {
-      return;
-    }
-    pendingBrowserOpenUrlRef.current = null;
-    controller.openUrl(pendingUrl, { newTab: true });
-  }, []);
-  const handleBrowserRuntimeStateChange = useCallback((state: { devToolsOpen: boolean }) => {
-    setBrowserDevToolsOpen(state.devToolsOpen);
-  }, []);
+  const setBrowserController = useCallback(
+    (browserThreadId: ThreadId, controller: InAppBrowserController | null) => {
+      if (controller) {
+        browserControllerByThreadRef.current.set(browserThreadId, controller);
+      } else {
+        browserControllerByThreadRef.current.delete(browserThreadId);
+      }
+      if (activeBrowserThreadIdRef.current !== browserThreadId) {
+        return;
+      }
+      browserControllerRef.current = controller;
+      if (!controller) {
+        setBrowserDevToolsOpen(false);
+        return;
+      }
+      const pendingUrl = pendingBrowserOpenUrlRef.current;
+      if (!pendingUrl) {
+        return;
+      }
+      pendingBrowserOpenUrlRef.current = null;
+      controller.openUrl(pendingUrl, { newTab: true });
+    },
+    [],
+  );
+  const handleBrowserRuntimeStateChange = useCallback(
+    (browserThreadId: ThreadId, state: { devToolsOpen: boolean }) => {
+      browserRuntimeStateByThreadRef.current.set(browserThreadId, state);
+      if (activeBrowserThreadIdRef.current !== browserThreadId) {
+        return;
+      }
+      setBrowserDevToolsOpen(state.devToolsOpen);
+    },
+    [],
+  );
   const openBrowserUrl = useCallback(
     (url: string, options?: { newTab?: boolean }) => {
       if (!isElectron || typeof url !== "string" || url.length === 0) return;
@@ -3348,26 +3500,32 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [resolveScopeThreadId, resolveTerminalDescriptor, storeMoveTerminal],
   );
-  const moveTerminalToNewGroup = useCallback(
-    (terminalId: string, targetGroupIndex: number) => {
+  const unsplitTerminal = useCallback(
+    (terminalId: string) => {
       const descriptor = resolveTerminalDescriptor(terminalId);
       if (!descriptor) return;
-      const scopedGroupIndex = terminalState.terminalGroups
-        .slice(0, targetGroupIndex)
-        .filter(
-          (group) => decodeScopedTerminalGroupId(group.id)?.scope === descriptor.scope,
-        ).length;
+      const scopeState = resolveScopeState(descriptor.scope);
+      const sourceGroupIndex = scopeState.terminalGroups.findIndex((group) =>
+        group.terminalIds.includes(descriptor.runtimeTerminalId),
+      );
+      const sourceGroup =
+        sourceGroupIndex >= 0 ? scopeState.terminalGroups[sourceGroupIndex] : null;
+      if (!sourceGroup || sourceGroup.terminalIds.length <= 1) {
+        return;
+      }
       storeMoveTerminalToNewGroup(
         resolveScopeThreadId(descriptor.scope),
         descriptor.runtimeTerminalId,
-        scopedGroupIndex,
+        sourceGroupIndex + 1,
       );
+      setActiveTerminalScope(descriptor.scope);
+      setTerminalFocusRequestId((value) => value + 1);
     },
     [
+      resolveScopeState,
       resolveScopeThreadId,
       resolveTerminalDescriptor,
       storeMoveTerminalToNewGroup,
-      terminalState.terminalGroups,
     ],
   );
   const renameTerminal = useCallback(
@@ -6807,27 +6965,48 @@ export default function ChatView({ threadId }: ChatViewProps) {
         }
       : null;
   const browserPanel =
-    browserOpen && isElectron
+    browserOpen && isElectron && activeThreadId
       ? {
           mode: browserMode,
           splitWidth: browserSplitWidth,
           onResizeKeyDown: handleBrowserSplitResizeKeyDown,
           onResizePointerDown: handleBrowserSplitResizePointerDown,
-          inAppBrowserProps: {
-            open: browserOpen,
-            mode: browserMode,
-            onClose: closeBrowser,
-            onRestore: restoreBrowser,
-            onSplit: openSplitBrowser,
-            onControllerChange: setBrowserController,
-            onActiveRuntimeStateChange: handleBrowserRuntimeStateChange,
-            backShortcutLabel: browserBackShortcutLabel,
-            devToolsShortcutLabel: browserDevToolsShortcutLabel,
-            forwardShortcutLabel: browserForwardShortcutLabel,
-            reloadShortcutLabel: browserReloadShortcutLabel,
-            scopeId: threadId,
-            onQueueDesignRequest: queueBrowserDesignRequest,
-          },
+          instances: [
+            activeThreadId,
+            ...mountedBrowserThreadIds.filter(
+              (mountedThreadId) => mountedThreadId !== activeThreadId,
+            ),
+          ].map((browserThreadId) => {
+            const isActiveBrowserThread = browserThreadId === activeThreadId;
+            return {
+              key: browserThreadId,
+              inAppBrowserProps: {
+                open: browserOpen,
+                activeInstance: isActiveBrowserThread,
+                visible: isActiveBrowserThread,
+                mode: browserMode,
+                onClose: closeBrowser,
+                onRestore: restoreBrowser,
+                onSplit: openSplitBrowser,
+                ...(isActiveBrowserThread
+                  ? {
+                      onControllerChange: (controller: InAppBrowserController | null) => {
+                        setBrowserController(browserThreadId, controller);
+                      },
+                      onActiveRuntimeStateChange: (state: { devToolsOpen: boolean }) => {
+                        handleBrowserRuntimeStateChange(browserThreadId, state);
+                      },
+                    }
+                  : {}),
+                backShortcutLabel: browserBackShortcutLabel,
+                devToolsShortcutLabel: browserDevToolsShortcutLabel,
+                forwardShortcutLabel: browserForwardShortcutLabel,
+                reloadShortcutLabel: browserReloadShortcutLabel,
+                scopeId: browserThreadId,
+                onQueueDesignRequest: queueBrowserDesignRequest,
+              },
+            };
+          }),
         }
       : null;
   const terminalDrawerProps =
@@ -6853,13 +7032,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
           terminalRuntimeIdById,
           focusRequestId: terminalFocusRequestId,
           onSplitTerminal: splitTerminal,
+          onUnsplitTerminal: unsplitTerminal,
           onNewTerminal: createNewTerminal,
           splitShortcutLabel: splitTerminalShortcutLabel ?? undefined,
           newShortcutLabel: newTerminalShortcutLabel ?? undefined,
           closeShortcutLabel: closeTerminalShortcutLabel ?? undefined,
           onActiveTerminalChange: activateTerminal,
           onMoveTerminal: moveTerminal,
-          onMoveTerminalToNewGroup: moveTerminalToNewGroup,
           onDuplicateTerminal: duplicateTerminal,
           onRenameTerminal: renameTerminal,
           onClearTerminal: clearTerminal,

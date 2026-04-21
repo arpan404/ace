@@ -20,6 +20,9 @@ describe("deriveTerminalTitleFromCommand", () => {
     expect(deriveTerminalTitleFromCommand("git status")).toBe("git status");
     expect(deriveTerminalTitleFromCommand("docker compose up")).toBe("docker compose up");
     expect(deriveTerminalTitleFromCommand("python scripts/release.py")).toBe("python release.py");
+    expect(deriveTerminalTitleFromCommand('bash -lc "rg queuedSteerRequest src"')).toBe("rg");
+    expect(deriveTerminalTitleFromCommand("oa --model gpt-5.4 bun run dev")).toBe("bun dev");
+    expect(deriveTerminalTitleFromCommand("oa")).toBeNull();
   });
 });
 
@@ -47,6 +50,7 @@ describe("extractTerminalOscTitle", () => {
   it("reads OSC 0 and OSC 2 terminal titles", () => {
     expect(extractTerminalOscTitle("\u001b]0;bun dev\u0007")).toBe("bun dev");
     expect(extractTerminalOscTitle("\u001b]2;git status\u001b\\")).toBe("git status");
+    expect(extractTerminalOscTitle("\u001b]0;oa\u0007")).toBeNull();
   });
 });
 

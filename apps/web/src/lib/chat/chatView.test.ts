@@ -120,6 +120,18 @@ describe("formatQueuedComposerMessagePreview", () => {
       }),
     ).toBe("Increase spacing between cards");
   });
+
+  it("truncates long queued previews to 200 characters", () => {
+    const longPrompt = "A".repeat(250);
+
+    expect(
+      formatQueuedComposerMessagePreview({
+        prompt: longPrompt,
+        imageCount: 0,
+        terminalContextCount: 0,
+      }),
+    ).toBe(`${"A".repeat(197)}...`);
+  });
 });
 
 describe("deriveQueuedComposerMessageDraftForEditing", () => {

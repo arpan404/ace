@@ -220,8 +220,10 @@ const SortableBrowserTab = memo(function SortableBrowserTab(props: {
 
 interface InAppBrowserProps {
   open: boolean;
+  activeInstance?: boolean;
   mode: InAppBrowserMode;
   scopeId?: string;
+  visible?: boolean;
   onClose: () => void;
   onRestore: () => void;
   onSplit: () => void;
@@ -325,8 +327,10 @@ function resolveAnchoredDesignerPillPosition(
 export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps) {
   const {
     open,
+    activeInstance = true,
     mode,
     scopeId,
+    visible = activeInstance,
     onClose,
     onRestore,
     onSplit,
@@ -382,7 +386,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     togglePinnedActivePage,
   } = useInAppBrowserState({
     mode,
-    open,
+    open: open && activeInstance,
     ...(scopeId ? { scopeId } : {}),
     ...(onActiveRuntimeStateChange ? { onActiveRuntimeStateChange } : {}),
     ...(onControllerChange ? { onControllerChange } : {}),
@@ -859,11 +863,16 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
 
   return (
     <div
-      aria-hidden={!open}
+      aria-hidden={!visible}
       className={cn(
         mode === "split"
-          ? "relative flex h-full min-h-0 min-w-0"
-          : "absolute inset-0 z-30 min-h-0 min-w-0",
+          ? visible
+            ? "relative flex h-full min-h-0 min-w-0"
+            : "pointer-events-none invisible absolute inset-0 z-0 min-h-0 min-w-0"
+          : cn(
+              "absolute inset-0 min-h-0 min-w-0",
+              visible ? "z-30" : "pointer-events-none invisible z-0",
+            ),
       )}
       style={browserShellStyle}
     >
@@ -1211,9 +1220,12 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
             .map((tab) => (
               <BrowserTabWebview
                 key={`${browserResetKey}:${tab.id}`}
-                active={!activeTabIsInternal && activeTab?.id === tab.id}
+                active={visible && !activeTabIsInternal && activeTab?.id === tab.id}
                 designerModeActive={
-                  designerState.active && !activeTabIsInternal && activeTab?.id === tab.id
+                  visible &&
+                  designerState.active &&
+                  !activeTabIsInternal &&
+                  activeTab?.id === tab.id
                 }
                 designerTool={designerState.tool}
                 onDesignCaptureCancel={() => {
