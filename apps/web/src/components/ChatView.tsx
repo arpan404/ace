@@ -26,6 +26,7 @@ import * as Schema from "effect/Schema";
 import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/model";
 import { truncate } from "@ace/shared/String";
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   Suspense,
   lazy,
@@ -304,7 +305,7 @@ const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnsw
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 const BROWSER_PANEL_MODE_STORAGE_KEY = "ace:chat:browser-panel-mode:v1";
-const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "pip", "split"]);
+const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
 
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
@@ -2926,10 +2927,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     setBrowserMode("closed");
     setBrowserDevToolsOpen(false);
   }, [setBrowserMode]);
-  const minimizeBrowser = useCallback(() => {
-    if (!isElectron) return;
-    setBrowserMode((current) => (current === "closed" ? current : "pip"));
-  }, [setBrowserMode]);
   const restoreBrowser = useCallback(() => {
     if (!isElectron) return;
     setBrowserMode("full");
@@ -3024,17 +3021,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     return subscribeToBrowserLaunchRequests(handleBrowserLaunchRequest);
   }, [handleBrowserLaunchRequest]);
 
-  useEffect(() => {
-    if (!isElectron) return;
-    const handleSidebarInteraction = () => {
-      setBrowserMode((current) => (current === "full" ? "pip" : current));
-    };
-    window.addEventListener("ace:sidebar-interaction", handleSidebarInteraction);
-    return () => {
-      window.removeEventListener("ace:sidebar-interaction", handleSidebarInteraction);
-    };
-  }, [setBrowserMode]);
-
   const syncBrowserSplitWidth = useCallback(
     (nextWidth: number) => {
       const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
@@ -3088,6 +3074,37 @@ export default function ChatView({ threadId }: ChatViewProps) {
       didResizeBrowserSplitDuringDragRef.current = false;
     },
     [],
+  );
+  const handleBrowserSplitResizeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (browserMode !== "split") {
+        return;
+      }
+      const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+      const currentWidth = browserSplitWidthRef.current;
+      const step = event.shiftKey ? 96 : 32;
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        syncBrowserSplitWidth(currentWidth + step);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        syncBrowserSplitWidth(currentWidth - step);
+        return;
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        syncBrowserSplitWidth(viewportWidth);
+        return;
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        syncBrowserSplitWidth(0);
+      }
+    },
+    [browserMode, syncBrowserSplitWidth],
   );
 
   useEffect(() => {
@@ -4699,6 +4716,41 @@ export default function ChatView({ threadId }: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         browserControllerRef.current?.duplicateActiveTab();
+        return;
+      }
+
+      if (command === "browser.newTab") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.openNewTab();
+        return;
+      }
+
+      if (command === "browser.closeTab") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.closeActiveTab();
+        return;
+      }
+
+      if (command === "browser.focusAddressBar") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.focusAddressBar();
+        return;
+      }
+
+      if (command === "browser.previousTab") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.goToPreviousTab();
+        return;
+      }
+
+      if (command === "browser.nextTab") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.goToNextTab();
         return;
       }
 
@@ -6759,12 +6811,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
       ? {
           mode: browserMode,
           splitWidth: browserSplitWidth,
+          onResizeKeyDown: handleBrowserSplitResizeKeyDown,
           onResizePointerDown: handleBrowserSplitResizePointerDown,
           inAppBrowserProps: {
             open: browserOpen,
             mode: browserMode,
             onClose: closeBrowser,
-            onMinimize: minimizeBrowser,
             onRestore: restoreBrowser,
             onSplit: openSplitBrowser,
             onControllerChange: setBrowserController,
@@ -6774,7 +6826,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
             forwardShortcutLabel: browserForwardShortcutLabel,
             reloadShortcutLabel: browserReloadShortcutLabel,
             scopeId: threadId,
-            viewportRef: chatViewportRef,
             onQueueDesignRequest: queueBrowserDesignRequest,
           },
         }

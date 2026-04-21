@@ -43,16 +43,12 @@ function BrowserFocusHarnessPanel(props: { mode: InAppBrowserMode }) {
 
   return (
     <div>
-      {props.mode === "pip" ? (
-        <div aria-label="Browser pip chrome">PiP</div>
-      ) : (
-        <input
-          aria-label="Browser address bar"
-          ref={state.addressInputRef}
-          value={state.draftUrl}
-          readOnly
-        />
-      )}
+      <input
+        aria-label="Browser address bar"
+        ref={state.addressInputRef}
+        value={state.draftUrl}
+        readOnly
+      />
       <button type="button" onClick={state.openNewTab}>
         Open new tab
       </button>
@@ -77,9 +73,6 @@ function BrowserFocusHarness() {
       </button>
       <button type="button" onClick={() => setMode("split")} disabled={!open}>
         Split browser
-      </button>
-      <button type="button" onClick={() => setMode("pip")} disabled={!open}>
-        Minimize browser
       </button>
       <button type="button" onClick={() => setMode("full")} disabled={!open}>
         Restore browser
@@ -112,7 +105,6 @@ describe("InAppBrowser address bar focus", () => {
       expect(document.activeElement).not.toBe(queryAddressInput());
     });
 
-    await screen.getByText("Minimize browser").click();
     await screen.getByText("Restore browser").click();
 
     await vi.waitFor(() => {

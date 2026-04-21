@@ -97,10 +97,19 @@ interface DesignRequestPanelPosition {
   top: number;
 }
 
+interface FloatingOverlaySize {
+  width: number;
+  height: number;
+}
+
 const MIN_CAPTURE_SIZE_PX = 24;
 const DESIGN_REQUEST_PANEL_WIDTH_PX = 272;
 const DESIGN_REQUEST_PANEL_HEIGHT_PX = 166;
 const DESIGN_REQUEST_PANEL_MARGIN_PX = 8;
+const DEFAULT_DESIGN_REQUEST_PANEL_SIZE: FloatingOverlaySize = {
+  width: DESIGN_REQUEST_PANEL_WIDTH_PX,
+  height: DESIGN_REQUEST_PANEL_HEIGHT_PX,
+};
 const DRAW_COLOR_SWATCHES: readonly string[] = [
   "#4F8CFF",
   "#FF6B57",
@@ -118,6 +127,7 @@ function clampPoint(value: number, minimum: number, maximum: number): number {
 function clampDesignRequestPanelPosition(
   position: DesignRequestPanelPosition,
   viewport: OverlayViewportSize,
+  panelSize: FloatingOverlaySize = DEFAULT_DESIGN_REQUEST_PANEL_SIZE,
 ): DesignRequestPanelPosition {
   return {
     left: clampPoint(
@@ -125,7 +135,7 @@ function clampDesignRequestPanelPosition(
       DESIGN_REQUEST_PANEL_MARGIN_PX,
       Math.max(
         DESIGN_REQUEST_PANEL_MARGIN_PX,
-        viewport.width - DESIGN_REQUEST_PANEL_WIDTH_PX - DESIGN_REQUEST_PANEL_MARGIN_PX,
+        viewport.width - panelSize.width - DESIGN_REQUEST_PANEL_MARGIN_PX,
       ),
     ),
     top: clampPoint(
@@ -133,36 +143,83 @@ function clampDesignRequestPanelPosition(
       DESIGN_REQUEST_PANEL_MARGIN_PX,
       Math.max(
         DESIGN_REQUEST_PANEL_MARGIN_PX,
-        viewport.height - DESIGN_REQUEST_PANEL_HEIGHT_PX - DESIGN_REQUEST_PANEL_MARGIN_PX,
+        viewport.height - panelSize.height - DESIGN_REQUEST_PANEL_MARGIN_PX,
       ),
     ),
   };
 }
 
+function resolveAnchoredDesignRequestPanelPosition(
+  position: DesignRequestPanelPosition,
+  previousViewport: OverlayViewportSize,
+  nextViewport: OverlayViewportSize,
+  previousPanelSize: FloatingOverlaySize,
+  nextPanelSize: FloatingOverlaySize,
+): DesignRequestPanelPosition {
+  const previousMaxLeft = Math.max(
+    DESIGN_REQUEST_PANEL_MARGIN_PX,
+    previousViewport.width - previousPanelSize.width - DESIGN_REQUEST_PANEL_MARGIN_PX,
+  );
+  const previousMaxTop = Math.max(
+    DESIGN_REQUEST_PANEL_MARGIN_PX,
+    previousViewport.height - previousPanelSize.height - DESIGN_REQUEST_PANEL_MARGIN_PX,
+  );
+  const nextMaxLeft = Math.max(
+    DESIGN_REQUEST_PANEL_MARGIN_PX,
+    nextViewport.width - nextPanelSize.width - DESIGN_REQUEST_PANEL_MARGIN_PX,
+  );
+  const nextMaxTop = Math.max(
+    DESIGN_REQUEST_PANEL_MARGIN_PX,
+    nextViewport.height - nextPanelSize.height - DESIGN_REQUEST_PANEL_MARGIN_PX,
+  );
+  const leftOffset = Math.max(0, position.left - DESIGN_REQUEST_PANEL_MARGIN_PX);
+  const rightOffset = Math.max(0, previousMaxLeft - position.left);
+  const topOffset = Math.max(0, position.top - DESIGN_REQUEST_PANEL_MARGIN_PX);
+  const bottomOffset = Math.max(0, previousMaxTop - position.top);
+
+  return clampDesignRequestPanelPosition(
+    {
+      left:
+        rightOffset <= leftOffset
+          ? nextMaxLeft - rightOffset
+          : DESIGN_REQUEST_PANEL_MARGIN_PX + leftOffset,
+      top:
+        bottomOffset <= topOffset
+          ? nextMaxTop - bottomOffset
+          : DESIGN_REQUEST_PANEL_MARGIN_PX + topOffset,
+    },
+    nextViewport,
+    nextPanelSize,
+  );
+}
+
 function resolveDefaultDesignRequestPanelPosition(
   draft: BrowserDesignCaptureDraft,
   viewport: OverlayViewportSize,
+  panelSize: FloatingOverlaySize = DEFAULT_DESIGN_REQUEST_PANEL_SIZE,
 ): DesignRequestPanelPosition {
   if (draft.tool === "draw-comment") {
     return clampDesignRequestPanelPosition(
       {
-        left: 16,
-        top: Math.max(16, viewport.height - DESIGN_REQUEST_PANEL_HEIGHT_PX - 16),
+        left: Math.max(16, viewport.width - panelSize.width - 16),
+        top: Math.max(16, viewport.height - panelSize.height - 16),
       },
       viewport,
+      panelSize,
     );
   }
   const selection = draft.capture.selection;
   const desiredX = selection.x + selection.width + 12;
   const desiredY = selection.y;
   const fallbackY = selection.y + selection.height + 10;
-  if (desiredX <= viewport.width - DESIGN_REQUEST_PANEL_WIDTH_PX - DESIGN_REQUEST_PANEL_MARGIN_PX) {
+  if (desiredX <= viewport.width - panelSize.width - DESIGN_REQUEST_PANEL_MARGIN_PX) {
     return clampDesignRequestPanelPosition(
       {
         left: desiredX,
         top: desiredY,
       },
       viewport,
+      panelSize,
     );
   }
   return clampDesignRequestPanelPosition(
@@ -171,6 +228,7 @@ function resolveDefaultDesignRequestPanelPosition(
       top: fallbackY,
     },
     viewport,
+    panelSize,
   );
 }
 
@@ -1000,6 +1058,7 @@ export function BrowserTabWebview(props: {
   const pendingUrlRef = useRef<string | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const annotationCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const designRequestPanelRef = useRef<HTMLFormElement | null>(null);
   const dragSelectionRef = useRef<ActiveDragSelection | null>(null);
   const designRequestPanelDragStateRef = useRef<{
     originLeft: number;
@@ -1009,6 +1068,10 @@ export function BrowserTabWebview(props: {
     startY: number;
   } | null>(null);
   const designRequestPanelRequestIdRef = useRef<string | null>(null);
+  const previousDesignRequestPanelLayoutRef = useRef<{
+    panelSize: FloatingOverlaySize;
+    viewport: OverlayViewportSize;
+  } | null>(null);
   const elementHoverFrameRef = useRef<number | null>(null);
   const pendingElementHoverPointRef = useRef<{ x: number; y: number } | null>(null);
   const elementHoverRequestInFlightRef = useRef(false);
@@ -1026,6 +1089,15 @@ export function BrowserTabWebview(props: {
     startY: number;
     tool: AnnotationTool;
   } | null>(null);
+  const previousDrawModeStateRef = useRef<{
+    active: boolean;
+    designerModeActive: boolean;
+    designerTool: BrowserDesignerTool;
+  }>({
+    active,
+    designerModeActive,
+    designerTool,
+  });
   const requestedUrlRef = useRef(tab.url);
   const [selectionRect, setSelectionRect] = useState<BrowserDesignSelectionRect | null>(null);
   const [hoveredElementCapture, setHoveredElementCapture] =
@@ -1037,6 +1109,9 @@ export function BrowserTabWebview(props: {
   const [hasAnnotationStrokes, setHasAnnotationStrokes] = useState(false);
   const [isSubmittingDesignRequest, setIsSubmittingDesignRequest] = useState(false);
   const [overlayViewportSize, setOverlayViewportSize] = useState<OverlayViewportSize | null>(null);
+  const [designRequestPanelSize, setDesignRequestPanelSize] = useState<FloatingOverlaySize>(
+    DEFAULT_DESIGN_REQUEST_PANEL_SIZE,
+  );
   const [designRequestPanelPosition, setDesignRequestPanelPosition] =
     useState<DesignRequestPanelPosition | null>(null);
   const emitTabSnapshotChange = useEffectEvent((snapshot: BrowserTabSnapshot) => {
@@ -1438,6 +1513,25 @@ export function BrowserTabWebview(props: {
     },
     [startCapturedDraft],
   );
+  useEffect(() => {
+    const previousState = previousDrawModeStateRef.current;
+    previousDrawModeStateRef.current = {
+      active,
+      designerModeActive,
+      designerTool,
+    };
+    const enteredDrawMode =
+      active &&
+      designerModeActive &&
+      designerTool === "draw-comment" &&
+      (!previousState.active ||
+        !previousState.designerModeActive ||
+        previousState.designerTool !== "draw-comment");
+    if (!enteredDrawMode || designDraft || !readyRef.current) {
+      return;
+    }
+    startViewportDraft();
+  }, [active, designDraft, designerModeActive, designerTool, startViewportDraft]);
 
   const flushHoveredElementInspection = useCallback(() => {
     if (elementHoverFrameRef.current !== null) {
@@ -1837,6 +1931,40 @@ export function BrowserTabWebview(props: {
       observer?.disconnect();
     };
   }, [designDraft]);
+  useEffect(() => {
+    if (!designDraft) {
+      setDesignRequestPanelSize(DEFAULT_DESIGN_REQUEST_PANEL_SIZE);
+      previousDesignRequestPanelLayoutRef.current = null;
+      return;
+    }
+    const panel = designRequestPanelRef.current;
+    if (!panel) {
+      return;
+    }
+    const syncDesignRequestPanelSize = () => {
+      const nextSize = {
+        width: Math.max(1, Math.round(panel.offsetWidth)),
+        height: Math.max(1, Math.round(panel.offsetHeight)),
+      };
+      setDesignRequestPanelSize((current) => {
+        if (current.width === nextSize.width && current.height === nextSize.height) {
+          return current;
+        }
+        return nextSize;
+      });
+    };
+    syncDesignRequestPanelSize();
+    const observer =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            syncDesignRequestPanelSize();
+          })
+        : null;
+    observer?.observe(panel);
+    return () => {
+      observer?.disconnect();
+    };
+  }, [designDraft]);
 
   const drawAnnotationStroke = useCallback(
     (
@@ -2067,10 +2195,11 @@ export function BrowserTabWebview(props: {
     if (!viewport) {
       return null;
     }
-    return resolveDefaultDesignRequestPanelPosition(designDraft, viewport);
-  }, [designDraft, designRequestPanelViewport]);
+    return resolveDefaultDesignRequestPanelPosition(designDraft, viewport, designRequestPanelSize);
+  }, [designDraft, designRequestPanelSize, designRequestPanelViewport]);
   useEffect(() => {
     if (!designDraft || !defaultDesignRequestPanelPosition) {
+      designRequestPanelRequestIdRef.current = null;
       setDesignRequestPanelPosition(null);
       return;
     }
@@ -2078,16 +2207,37 @@ export function BrowserTabWebview(props: {
       return;
     }
     designRequestPanelRequestIdRef.current = designDraft.capture.requestId;
+    previousDesignRequestPanelLayoutRef.current = null;
     setDesignRequestPanelPosition(defaultDesignRequestPanelPosition);
   }, [defaultDesignRequestPanelPosition, designDraft]);
   useEffect(() => {
     if (!designRequestPanelPosition || !designRequestPanelViewport) {
+      previousDesignRequestPanelLayoutRef.current = null;
       return;
     }
-    const clampedPosition = clampDesignRequestPanelPosition(
-      designRequestPanelPosition,
-      designRequestPanelViewport,
-    );
+    const previousLayout = previousDesignRequestPanelLayoutRef.current;
+    previousDesignRequestPanelLayoutRef.current = {
+      panelSize: designRequestPanelSize,
+      viewport: designRequestPanelViewport,
+    };
+    const clampedPosition =
+      previousLayout &&
+      (previousLayout.viewport.width !== designRequestPanelViewport.width ||
+        previousLayout.viewport.height !== designRequestPanelViewport.height ||
+        previousLayout.panelSize.width !== designRequestPanelSize.width ||
+        previousLayout.panelSize.height !== designRequestPanelSize.height)
+        ? resolveAnchoredDesignRequestPanelPosition(
+            designRequestPanelPosition,
+            previousLayout.viewport,
+            designRequestPanelViewport,
+            previousLayout.panelSize,
+            designRequestPanelSize,
+          )
+        : clampDesignRequestPanelPosition(
+            designRequestPanelPosition,
+            designRequestPanelViewport,
+            designRequestPanelSize,
+          );
     if (
       clampedPosition.left === designRequestPanelPosition.left &&
       clampedPosition.top === designRequestPanelPosition.top
@@ -2095,7 +2245,7 @@ export function BrowserTabWebview(props: {
       return;
     }
     setDesignRequestPanelPosition(clampedPosition);
-  }, [designRequestPanelPosition, designRequestPanelViewport]);
+  }, [designRequestPanelPosition, designRequestPanelSize, designRequestPanelViewport]);
   const handleDesignRequestPanelPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) {
@@ -2131,12 +2281,13 @@ export function BrowserTabWebview(props: {
             top: dragState.originTop + (event.clientY - dragState.startY),
           },
           designRequestPanelViewport,
+          designRequestPanelSize,
         ),
       );
       event.preventDefault();
       event.stopPropagation();
     },
-    [designRequestPanelViewport],
+    [designRequestPanelSize, designRequestPanelViewport],
   );
   const handleDesignRequestPanelPointerEnd = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -2155,11 +2306,14 @@ export function BrowserTabWebview(props: {
   );
   const designRequestPanelStyle = useMemo<CSSProperties | undefined>(() => {
     const position = designRequestPanelPosition ?? defaultDesignRequestPanelPosition;
-    if (!position) {
+    if (!position || !designRequestPanelViewport) {
       return undefined;
     }
-    return position;
-  }, [defaultDesignRequestPanelPosition, designRequestPanelPosition]);
+    return {
+      ...position,
+      maxWidth: `${Math.max(160, designRequestPanelViewport.width - DESIGN_REQUEST_PANEL_MARGIN_PX * 2)}px`,
+    };
+  }, [defaultDesignRequestPanelPosition, designRequestPanelPosition, designRequestPanelViewport]);
   const activeOverlaySelection =
     designerTool === "draw-comment" || designDraft?.tool === "draw-comment"
       ? null
@@ -2224,7 +2378,8 @@ export function BrowserTabWebview(props: {
           )}
           {designDraft && designRequestPanelStyle && (
             <form
-              className="absolute z-30 w-[272px] rounded-2xl border border-border/60 bg-background/95 p-2.5 shadow-[0_28px_80px_-52px_rgba(0,0,0,0.88)] backdrop-blur-xl"
+              ref={designRequestPanelRef}
+              className="absolute z-30 w-[272px] max-w-[calc(100%-16px)] rounded-2xl border border-border/60 bg-background/95 p-2.5 shadow-[0_28px_80px_-52px_rgba(0,0,0,0.88)] backdrop-blur-xl"
               style={designRequestPanelStyle}
               onSubmit={(event) => {
                 event.preventDefault();

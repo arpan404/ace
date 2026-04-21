@@ -11,6 +11,7 @@ import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 interface BrowserPanelProps {
   mode: InAppBrowserMode;
   splitWidth: number;
+  onResizeKeyDown: ComponentProps<"div">["onKeyDown"];
   onResizePointerDown: ComponentProps<"div">["onPointerDown"];
   inAppBrowserProps: ComponentProps<typeof InAppBrowser>;
 }
@@ -116,7 +117,10 @@ export function ChatViewPanels({
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize browser panel"
+              aria-valuenow={browserPanel.splitWidth}
+              tabIndex={0}
               className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none"
+              onKeyDown={browserPanel.onResizeKeyDown}
               onPointerDown={browserPanel.onResizePointerDown}
             >
               <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-primary/55" />

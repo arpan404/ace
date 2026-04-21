@@ -2,8 +2,6 @@ import type { ContextMenuItem } from "@ace/contracts";
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
-  type RefObject,
   useDeferredValue,
   useCallback,
   useEffect,
@@ -56,13 +54,6 @@ import {
   updateBrowserTab,
 } from "~/lib/browser/session";
 import {
-  type BrowserPipBounds,
-  clampPipBounds,
-  createDefaultPipBounds,
-  resolveViewportHeight,
-  resolveViewportRect,
-} from "~/lib/browser/shell";
-import {
   type BrowserTabHandle,
   type BrowserTabContextMenuAction,
   type BrowserTabRuntimeState,
@@ -98,7 +89,11 @@ export type ActiveBrowserRuntimeState = {
   loading: boolean;
 };
 
-export type InAppBrowserMode = "full" | "pip" | "split";
+function resolveViewportHeight(): number {
+  return typeof window !== "undefined" ? window.innerHeight : 900;
+}
+
+export type InAppBrowserMode = "full" | "split";
 
 interface UseInAppBrowserStateOptions {
   mode: InAppBrowserMode;
@@ -106,7 +101,6 @@ interface UseInAppBrowserStateOptions {
   scopeId?: string;
   onActiveRuntimeStateChange?: (state: ActiveBrowserRuntimeState) => void;
   onControllerChange?: (controller: InAppBrowserController | null) => void;
-  viewportRef?: RefObject<HTMLDivElement | null>;
 }
 
 const EMPTY_BROWSER_SUGGESTIONS: BrowserSuggestion[] = [];
@@ -140,8 +134,7 @@ export function resolveBrowserSuggestionDraftValue(suggestion: BrowserSuggestion
 }
 
 export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
-  const { mode, onActiveRuntimeStateChange, onControllerChange, open, scopeId, viewportRef } =
-    options;
+  const { mode, onActiveRuntimeStateChange, onControllerChange, open, scopeId } = options;
   const api = readNativeApi();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
@@ -153,21 +146,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const browserContextMenuFallbackTimerRef = useRef<number | null>(null);
   const lastNativeBrowserContextMenuAtRef = useRef<number>(-Infinity);
   const webviewHandlesRef = useRef(new Map<string, BrowserTabHandle>());
-  const pipBoundsRef = useRef<BrowserPipBounds>(
-    createDefaultPipBounds(resolveViewportRect(viewportRef)),
-  );
-  const pipDragStateRef = useRef<{
-    pointerId: number;
-    startBounds: BrowserPipBounds;
-    startX: number;
-    startY: number;
-  } | null>(null);
-  const pipResizeStateRef = useRef<{
-    pointerId: number;
-    startBounds: BrowserPipBounds;
-    startX: number;
-    startY: number;
-  } | null>(null);
   const [browserSession, setBrowserSession] = useLocalStorage(
     browserSessionStorageKey,
     createBrowserSessionState(),
@@ -194,10 +172,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const [isAddressBarFocused, setIsAddressBarFocused] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
   const [tabRuntimeById, setTabRuntimeById] = useState<Record<string, BrowserTabRuntimeState>>({});
-  const [pipBounds, setPipBounds] = useState<BrowserPipBounds>(() =>
-    createDefaultPipBounds(resolveViewportRect(viewportRef)),
-  );
-
   const updateBrowserSession = useCallback(
     (updater: (state: typeof browserSession) => typeof browserSession) => {
       setBrowserSession((current) =>
@@ -222,7 +196,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const activeRuntime = activeTab
     ? (tabRuntimeById[activeTab.id] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE)
     : DEFAULT_BROWSER_TAB_RUNTIME_STATE;
-  const showAddressBarSuggestions = mode !== "pip" && isAddressBarFocused;
+  const showAddressBarSuggestions = isAddressBarFocused;
   const suggestionInput = activeTabIsInternal ? draftUrl : draftUrl || activeTabUrl;
   const deferredSuggestionInput = useDeferredValue(suggestionInput);
   const openTabs = useMemo(
@@ -1016,96 +990,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     [setBrowserHistory, updateBrowserSession],
   );
 
-  const syncPipBounds = useCallback(
-    (nextBounds: BrowserPipBounds) => {
-      const clamped = clampPipBounds(nextBounds, resolveViewportRect(viewportRef));
-      pipBoundsRef.current = clamped;
-      setPipBounds(clamped);
-    },
-    [viewportRef],
-  );
-
-  const handlePipDragPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (mode !== "pip" || event.button !== 0) return;
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest("button, input, form, [data-browser-control]")) {
-        return;
-      }
-      event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      pipDragStateRef.current = {
-        pointerId: event.pointerId,
-        startBounds: pipBoundsRef.current,
-        startX: event.clientX,
-        startY: event.clientY,
-      };
-    },
-    [mode],
-  );
-
-  const handlePipDragPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const dragState = pipDragStateRef.current;
-      if (!dragState || dragState.pointerId !== event.pointerId) return;
-      event.preventDefault();
-      syncPipBounds({
-        ...dragState.startBounds,
-        x: dragState.startBounds.x + (event.clientX - dragState.startX),
-        y: dragState.startBounds.y + (event.clientY - dragState.startY),
-      });
-    },
-    [syncPipBounds],
-  );
-
-  const handlePipDragPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const dragState = pipDragStateRef.current;
-    if (!dragState || dragState.pointerId !== event.pointerId) return;
-    pipDragStateRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
-
-  const handlePipResizePointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (mode !== "pip" || event.button !== 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      pipResizeStateRef.current = {
-        pointerId: event.pointerId,
-        startBounds: pipBoundsRef.current,
-        startX: event.clientX,
-        startY: event.clientY,
-      };
-    },
-    [mode],
-  );
-
-  const handlePipResizePointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const resizeState = pipResizeStateRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) return;
-      event.preventDefault();
-      syncPipBounds({
-        ...resizeState.startBounds,
-        width: resizeState.startBounds.width + (event.clientX - resizeState.startX),
-        height: resizeState.startBounds.height + (event.clientY - resizeState.startY),
-      });
-    },
-    [syncPipBounds],
-  );
-
-  const handlePipResizePointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const resizeState = pipResizeStateRef.current;
-    if (!resizeState || resizeState.pointerId !== event.pointerId) return;
-    pipResizeStateRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
-
   const browserShellStyle = useMemo<CSSProperties | undefined>(() => {
     if (mode === "full") {
       return {
@@ -1118,13 +1002,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     if (mode === "split") {
       return undefined;
     }
-    return {
-      height: `${pipBounds.height}px`,
-      left: `${pipBounds.x}px`,
-      top: `${pipBounds.y}px`,
-      width: `${pipBounds.width}px`,
-    };
-  }, [mode, pipBounds.height, pipBounds.width, pipBounds.x, pipBounds.y]);
+  }, [mode]);
 
   const browserStatusLabel = activeRuntime.devToolsOpen
     ? activeRuntime.loading
@@ -1261,35 +1139,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   }, []);
 
   useEffect(() => {
-    pipBoundsRef.current = pipBounds;
-  }, [pipBounds]);
-
-  useEffect(() => {
-    const syncBounds = () => {
-      const viewportRect = resolveViewportRect(viewportRef);
-      setPipBounds((current) => clampPipBounds(current, viewportRect));
-    };
-
-    syncBounds();
-    window.addEventListener("resize", syncBounds);
-    const viewport = viewportRef?.current;
-    const observer =
-      viewport && typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => {
-            syncBounds();
-          })
-        : null;
-    if (observer && viewport) {
-      observer.observe(viewport);
-    }
-
-    return () => {
-      window.removeEventListener("resize", syncBounds);
-      observer?.disconnect();
-    };
-  }, [viewportRef]);
-
-  useEffect(() => {
     setTabRuntimeById((current) => {
       const validIds = new Set(browserSession.tabs.map((tab) => tab.id));
       const entries = Object.entries(current).filter(([tabId]) => validIds.has(tabId));
@@ -1385,12 +1234,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     goForward,
     handleAddressBarKeyDown,
     handleBrowserKeyDownCapture,
-    handlePipDragPointerDown,
-    handlePipDragPointerEnd,
-    handlePipDragPointerMove,
-    handlePipResizePointerDown,
-    handlePipResizePointerEnd,
-    handlePipResizePointerMove,
     handleTabSnapshotChange,
     handleWebviewContextMenuFallbackRequest,
     importPinnedPages,
