@@ -1306,6 +1306,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         ? {
             ...current,
             active: false,
+            tool: "cursor",
           }
         : current,
     );
@@ -1410,10 +1411,11 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     repairBrowserStorage,
     selectDesignerTool: (tool: BrowserDesignerTool) => {
       setDesignerState((current) =>
-        current.tool === tool
+        current.tool === tool && current.active === (tool !== "cursor")
           ? current
           : {
               ...current,
+              active: tool !== "cursor",
               tool,
             },
       );
@@ -1423,11 +1425,14 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     },
     setDesignerModeActive: (active: boolean) => {
       setDesignerState((current) =>
-        current.active === active
+        current.active === active &&
+        (active || current.tool === "cursor") &&
+        (!active || current.tool !== "cursor")
           ? current
           : {
               ...current,
               active,
+              tool: active ? (current.tool === "cursor" ? "area-comment" : current.tool) : "cursor",
             },
       );
     },

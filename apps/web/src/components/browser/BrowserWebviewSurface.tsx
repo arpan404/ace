@@ -1,4 +1,4 @@
-import { GlobeIcon } from "lucide-react";
+import { CheckIcon, GlobeIcon, RotateCcwIcon, XIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -73,13 +73,14 @@ interface ActiveDragSelection {
 
 interface BrowserDesignCaptureDraft {
   capture: BrowserDesignCaptureResult;
+  tool: BrowserDesignerTool;
   viewportWidth: number;
   viewportHeight: number;
 }
 
 const MIN_CAPTURE_SIZE_PX = 24;
-const DESIGN_REQUEST_PANEL_WIDTH_PX = 344;
-const DESIGN_REQUEST_PANEL_HEIGHT_PX = 408;
+const DESIGN_REQUEST_PANEL_WIDTH_PX = 272;
+const DESIGN_REQUEST_PANEL_HEIGHT_PX = 166;
 
 function clampPoint(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
@@ -107,6 +108,18 @@ function normalizeSelectionRect(input: {
     width: Math.round(right - left),
     height: Math.round(bottom - top),
   };
+}
+
+function isPointInsideSelectionRect(
+  point: { x: number; y: number },
+  selection: BrowserDesignSelectionRect,
+): boolean {
+  return (
+    point.x >= selection.x &&
+    point.y >= selection.y &&
+    point.x <= selection.x + selection.width &&
+    point.y <= selection.y + selection.height
+  );
 }
 
 function resolveDataUrlMimeType(dataUrl: string): string {
@@ -327,7 +340,6 @@ export function BrowserTabWebview(props: {
   const readyRef = useRef(false);
   const pendingUrlRef = useRef<string | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
-  const annotationFrameRef = useRef<HTMLDivElement | null>(null);
   const annotationCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const dragSelectionRef = useRef<ActiveDragSelection | null>(null);
   const elementHoverFrameRef = useRef<number | null>(null);
@@ -632,6 +644,13 @@ export function BrowserTabWebview(props: {
   }, [designerTool]);
 
   useEffect(() => {
+    if (!designDraft || designDraft.tool === designerTool) {
+      return;
+    }
+    cancelDesignCapture();
+  }, [cancelDesignCapture, designDraft, designerTool]);
+
+  useEffect(() => {
     return () => {
       if (elementHoverFrameRef.current !== null) {
         window.cancelAnimationFrame(elementHoverFrameRef.current);
@@ -656,6 +675,7 @@ export function BrowserTabWebview(props: {
           clearAnnotationCanvas();
           setDesignDraft({
             capture,
+            tool: designerTool,
             viewportWidth,
             viewportHeight,
           });
@@ -666,7 +686,33 @@ export function BrowserTabWebview(props: {
           cancelDesignCapture();
         });
     },
-    [cancelDesignCapture, captureDesignSelection, clearAnnotationCanvas, onDesignCaptureError],
+    [
+      cancelDesignCapture,
+      captureDesignSelection,
+      clearAnnotationCanvas,
+      designerTool,
+      onDesignCaptureError,
+    ],
+  );
+
+  const startViewportDraft = useCallback(
+    (failureMessage = "Could not capture the current page.") => {
+      const host = overlayRef.current;
+      if (!host) {
+        return;
+      }
+      startCapturedDraft(
+        {
+          x: 0,
+          y: 0,
+          width: Math.max(1, Math.round(host.clientWidth)),
+          height: Math.max(1, Math.round(host.clientHeight)),
+        },
+        null,
+        failureMessage,
+      );
+    },
+    [startCapturedDraft],
   );
 
   const flushHoveredElementInspection = useCallback(() => {
@@ -714,6 +760,12 @@ export function BrowserTabWebview(props: {
       const bounds = host.getBoundingClientRect();
       const startX = event.clientX - bounds.left;
       const startY = event.clientY - bounds.top;
+      if (designerTool === "draw-comment") {
+        event.preventDefault();
+        event.stopPropagation();
+        startViewportDraft();
+        return;
+      }
       if (designerTool === "element-comment") {
         pendingElementHoverPointRef.current = { x: startX, y: startY };
         flushHoveredElementInspection();
@@ -741,7 +793,13 @@ export function BrowserTabWebview(props: {
       event.stopPropagation();
       event.currentTarget.setPointerCapture(event.pointerId);
     },
-    [designDraft, designerModeActive, designerTool, flushHoveredElementInspection],
+    [
+      designDraft,
+      designerModeActive,
+      designerTool,
+      flushHoveredElementInspection,
+      startViewportDraft,
+    ],
   );
 
   const onCaptureOverlayPointerMove = useCallback(
@@ -838,7 +896,7 @@ export function BrowserTabWebview(props: {
             selection.width < MIN_CAPTURE_SIZE_PX ||
             selection.height < MIN_CAPTURE_SIZE_PX
           ) {
-            throw new Error("Click a visible page element to leave a designer comment.");
+            throw new Error("Click a visible page element to leave a comment.");
           }
           setHoveredElementCapture(capture);
           startCapturedDraft(selection, capture, "Could not capture the selected page element.");
@@ -861,19 +919,30 @@ export function BrowserTabWebview(props: {
   );
 
   const buildAnnotatedPreviewCapture = useCallback(async () => {
-    if (!designDraft || !hasAnnotationStrokes) {
+    if (!designDraft) {
       return null;
+    }
+    if (!hasAnnotationStrokes) {
+      return {
+        imageDataUrl: designDraft.capture.imageDataUrl,
+        imageMimeType: designDraft.capture.imageMimeType,
+        imageSizeBytes: designDraft.capture.imageSizeBytes,
+      };
     }
     const canvas = annotationCanvasRef.current;
     if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
-      return null;
+      return {
+        imageDataUrl: designDraft.capture.imageDataUrl,
+        imageMimeType: designDraft.capture.imageMimeType,
+        imageSizeBytes: designDraft.capture.imageSizeBytes,
+      };
     }
     const image = new Image();
     const baseImageLoaded = new Promise<void>((resolve, reject) => {
       image.addEventListener("load", () => resolve(), { once: true });
       image.addEventListener(
         "error",
-        () => reject(new Error("Unable to prepare the annotated preview.")),
+        () => reject(new Error("Unable to prepare the comment capture.")),
         { once: true },
       );
     });
@@ -884,10 +953,27 @@ export function BrowserTabWebview(props: {
     composedCanvas.height = canvas.height;
     const context = composedCanvas.getContext("2d");
     if (!context) {
-      return null;
+      return {
+        imageDataUrl: designDraft.capture.imageDataUrl,
+        imageMimeType: designDraft.capture.imageMimeType,
+        imageSizeBytes: designDraft.capture.imageSizeBytes,
+      };
     }
+    const selection = designDraft.capture.selection;
+    composedCanvas.width = selection.width;
+    composedCanvas.height = selection.height;
     context.drawImage(image, 0, 0, composedCanvas.width, composedCanvas.height);
-    context.drawImage(canvas, 0, 0);
+    context.drawImage(
+      canvas,
+      selection.x,
+      selection.y,
+      selection.width,
+      selection.height,
+      0,
+      0,
+      composedCanvas.width,
+      composedCanvas.height,
+    );
     const imageDataUrl = composedCanvas.toDataURL("image/png");
     return {
       imageDataUrl,
@@ -907,15 +993,15 @@ export function BrowserTabWebview(props: {
     setIsSubmittingDesignRequest(true);
     try {
       const annotatedPreview = await buildAnnotatedPreviewCapture();
+      const capturePayload = annotatedPreview ?? designDraft.capture;
       await onDesignCaptureSubmit({
         ...designDraft.capture,
-        ...annotatedPreview,
+        ...capturePayload,
         instructions: trimmedInstructions,
       });
       cancelDesignCapture();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Could not queue the captured designer comment.";
+      const message = error instanceof Error ? error.message : "Could not add the comment.";
       onDesignCaptureError?.(message);
     } finally {
       setIsSubmittingDesignRequest(false);
@@ -936,13 +1022,13 @@ export function BrowserTabWebview(props: {
       return;
     }
     const syncCanvas = () => {
-      const frame = annotationFrameRef.current;
+      const overlay = overlayRef.current;
       const canvas = annotationCanvasRef.current;
-      if (!frame || !canvas) {
+      if (!overlay || !canvas) {
         return;
       }
-      const nextWidth = Math.max(1, Math.round(frame.clientWidth));
-      const nextHeight = Math.max(1, Math.round(frame.clientHeight));
+      const nextWidth = Math.max(1, Math.round(overlay.clientWidth));
+      const nextHeight = Math.max(1, Math.round(overlay.clientHeight));
       if (canvas.width === nextWidth && canvas.height === nextHeight) {
         return;
       }
@@ -951,15 +1037,15 @@ export function BrowserTabWebview(props: {
       clearAnnotationCanvas();
     };
     syncCanvas();
-    const frame = annotationFrameRef.current;
+    const overlay = overlayRef.current;
     const observer =
-      frame && typeof ResizeObserver !== "undefined"
+      overlay && typeof ResizeObserver !== "undefined"
         ? new ResizeObserver(() => {
             syncCanvas();
           })
         : null;
-    if (observer && frame) {
-      observer.observe(frame);
+    if (observer && overlay) {
+      observer.observe(overlay);
     }
     return () => {
       observer?.disconnect();
@@ -1006,11 +1092,12 @@ export function BrowserTabWebview(props: {
 
   const handleAnnotationPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLCanvasElement>) => {
-      if (event.button !== 0) {
+      if (event.button !== 0 || !designDraft) {
         return;
       }
       const point = resolveAnnotationPoint(event);
-      if (!point) {
+      const selection = designDraft.capture.selection;
+      if (!point || !isPointInsideSelectionRect(point, selection)) {
         return;
       }
       annotationPointerRef.current = {
@@ -1022,31 +1109,33 @@ export function BrowserTabWebview(props: {
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
     },
-    [drawAnnotationStroke, resolveAnnotationPoint],
+    [designDraft, drawAnnotationStroke, resolveAnnotationPoint],
   );
 
   const handleAnnotationPointerMove = useCallback(
     (event: ReactPointerEvent<HTMLCanvasElement>) => {
       const drawingState = annotationPointerRef.current;
-      if (!drawingState || drawingState.pointerId !== event.pointerId) {
+      if (!drawingState || drawingState.pointerId !== event.pointerId || !designDraft) {
         return;
       }
       const point = resolveAnnotationPoint(event);
       if (!point) {
         return;
       }
-      drawAnnotationStroke(
-        { x: drawingState.lastX, y: drawingState.lastY },
-        { x: point.x, y: point.y },
-      );
+      const selection = designDraft.capture.selection;
+      const nextPoint = {
+        x: clampPoint(point.x, selection.x, selection.x + selection.width),
+        y: clampPoint(point.y, selection.y, selection.y + selection.height),
+      };
+      drawAnnotationStroke({ x: drawingState.lastX, y: drawingState.lastY }, nextPoint);
       annotationPointerRef.current = {
         ...drawingState,
-        lastX: point.x,
-        lastY: point.y,
+        lastX: nextPoint.x,
+        lastY: nextPoint.y,
       };
       event.preventDefault();
     },
-    [drawAnnotationStroke, resolveAnnotationPoint],
+    [designDraft, drawAnnotationStroke, resolveAnnotationPoint],
   );
 
   const handleAnnotationPointerEnd = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -1063,6 +1152,12 @@ export function BrowserTabWebview(props: {
   const designRequestPanelStyle = useMemo<CSSProperties | undefined>(() => {
     if (!designDraft) {
       return undefined;
+    }
+    if (designDraft.tool === "draw-comment") {
+      return {
+        left: 16,
+        top: Math.max(16, designDraft.viewportHeight - DESIGN_REQUEST_PANEL_HEIGHT_PX - 16),
+      };
     }
     const selection = designDraft.capture.selection;
     const viewportWidth = designDraft.viewportWidth;
@@ -1097,8 +1192,10 @@ export function BrowserTabWebview(props: {
     };
   }, [designDraft]);
   const activeOverlaySelection =
-    selectionRect ??
-    (designerTool === "element-comment" ? (hoveredElementCapture?.targetRect ?? null) : null);
+    designerTool === "draw-comment" || designDraft?.tool === "draw-comment"
+      ? null
+      : (selectionRect ??
+        (designerTool === "element-comment" ? (hoveredElementCapture?.targetRect ?? null) : null));
 
   return (
     <div
@@ -1112,109 +1209,92 @@ export function BrowserTabWebview(props: {
           className={cn(
             "absolute inset-0 z-20",
             designerModeActive || designDraft ? "pointer-events-auto" : "pointer-events-none",
+            !designDraft && designerModeActive
+              ? designerTool === "element-comment"
+                ? "cursor-cell"
+                : designerTool === "draw-comment"
+                  ? "cursor-crosshair"
+                  : "cursor-crosshair"
+              : null,
           )}
           onPointerDown={onCaptureOverlayPointerDown}
           onPointerMove={onCaptureOverlayPointerMove}
           onPointerUp={onCaptureOverlayPointerEnd}
           onPointerCancel={onCaptureOverlayPointerEnd}
         >
-          {designerModeActive && !designDraft && (
-            <>
-              <div className="pointer-events-none absolute inset-0 bg-foreground/[0.03]" />
-              <div className="pointer-events-none absolute inset-3 rounded-xl border border-primary/25 border-dashed" />
-              <div className="pointer-events-none absolute top-5 left-5 rounded-full border border-primary/30 bg-background/78 px-2.5 py-1 text-[10px] font-medium tracking-wide text-primary/85 shadow-sm backdrop-blur">
-                {designerTool === "element-comment"
-                  ? "Designer mode · click an element"
-                  : "Designer mode · drag to select"}
-              </div>
-            </>
-          )}
+          {designDraft ? (
+            <canvas
+              ref={annotationCanvasRef}
+              className="absolute inset-0 z-10 size-full touch-none"
+              onPointerDown={handleAnnotationPointerDown}
+              onPointerMove={handleAnnotationPointerMove}
+              onPointerUp={handleAnnotationPointerEnd}
+              onPointerCancel={handleAnnotationPointerEnd}
+            />
+          ) : null}
           {activeOverlaySelection && (
             <div
-              className="pointer-events-none absolute border-2 border-primary/85 bg-primary/12 shadow-[0_0_0_9999px_rgba(0,0,0,0.16)]"
+              className="pointer-events-none absolute rounded-[24px] border border-primary/65 bg-linear-to-br from-primary/[0.14] via-primary/[0.05] to-transparent shadow-[0_28px_90px_-42px_rgba(91,106,255,0.85)]"
               style={{
                 left: `${activeOverlaySelection.x}px`,
                 top: `${activeOverlaySelection.y}px`,
                 width: `${activeOverlaySelection.width}px`,
                 height: `${activeOverlaySelection.height}px`,
               }}
-            />
+            >
+              <div className="absolute inset-[1px] rounded-[22px] border border-white/55" />
+              <div className="absolute -top-1.5 -left-1.5 size-3 rounded-full border border-white/70 bg-primary shadow-sm" />
+              <div className="absolute -top-1.5 -right-1.5 size-3 rounded-full border border-white/70 bg-primary shadow-sm" />
+              <div className="absolute -bottom-1.5 -left-1.5 size-3 rounded-full border border-white/70 bg-primary shadow-sm" />
+              <div className="absolute -right-1.5 -bottom-1.5 size-3 rounded-full border border-white/70 bg-primary shadow-sm" />
+            </div>
           )}
           {designDraft && designRequestPanelStyle && (
             <form
-              className="absolute z-30 w-[344px] rounded-2xl border border-border/60 bg-card/94 p-3 shadow-xl backdrop-blur-sm"
+              className="absolute z-30 w-[272px] rounded-[20px] border border-border/60 bg-background/95 p-2.5 shadow-[0_28px_80px_-52px_rgba(0,0,0,0.88)] backdrop-blur-xl"
               style={designRequestPanelStyle}
               onSubmit={(event) => {
                 event.preventDefault();
                 void submitDesignDraft();
               }}
             >
-              <div className="mb-2">
-                <p className="text-xs font-medium text-foreground/88">
-                  {designerTool === "element-comment"
-                    ? "Comment on selected element"
-                    : "Comment on selected area"}
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  Your note and annotated snapshot will be queued for the agent.
-                </p>
-              </div>
-              <div className="mb-2.5 rounded-xl border border-border/60 bg-background/80 p-2">
-                <div
-                  ref={annotationFrameRef}
-                  className="relative h-[132px] overflow-hidden rounded-lg bg-muted/10"
-                >
-                  <img
-                    src={designDraft.capture.imageDataUrl}
-                    alt="Selected website section"
-                    className="absolute inset-0 size-full object-fill"
-                  />
-                  <canvas
-                    ref={annotationCanvasRef}
-                    className="absolute inset-0 size-full cursor-crosshair touch-none"
-                    onPointerDown={handleAnnotationPointerDown}
-                    onPointerMove={handleAnnotationPointerMove}
-                    onPointerUp={handleAnnotationPointerEnd}
-                    onPointerCancel={handleAnnotationPointerEnd}
-                  />
-                </div>
-                <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                  <span>Draw callouts directly on the preview.</span>
-                  <button
-                    type="button"
-                    onClick={clearAnnotationCanvas}
-                    className="rounded-md border border-border px-2 py-1 transition-colors hover:text-foreground"
-                    disabled={!hasAnnotationStrokes}
-                  >
-                    Clear markup
-                  </button>
-                </div>
-              </div>
               <textarea
                 value={designInstructions}
                 onChange={(event) => setDesignInstructions(event.target.value)}
-                placeholder="Add a focused designer comment for the agent..."
-                className="h-[88px] w-full resize-none rounded-lg border border-border/70 bg-background/85 px-3 py-2 text-sm outline-none transition-colors focus:border-primary/45"
+                placeholder="Comment for the agent"
+                className="h-[78px] w-full resize-none rounded-[16px] border border-border/60 bg-background/92 px-3 py-2.5 text-[13px] outline-none transition-colors placeholder:text-muted-foreground/55 focus:border-primary/45"
                 autoFocus
               />
               <div className="mt-2.5 flex items-center justify-between gap-2">
-                <span className="text-[11px] text-muted-foreground">
-                  Comments cannot be edited after queueing.
-                </span>
-                <button
-                  type="button"
-                  onClick={cancelDesignCapture}
-                  className="rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                  disabled={isSubmittingDesignRequest}
-                >
-                  Cancel
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={clearAnnotationCanvas}
+                    className="inline-flex size-8 items-center justify-center rounded-full border border-border/60 bg-background/80 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                    disabled={!hasAnnotationStrokes}
+                    aria-label="Clear drawing"
+                    title="Clear drawing"
+                  >
+                    <RotateCcwIcon className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelDesignCapture}
+                    className="inline-flex size-8 items-center justify-center rounded-full border border-border/60 bg-background/80 text-muted-foreground transition-colors hover:text-foreground"
+                    disabled={isSubmittingDesignRequest}
+                    aria-label="Cancel comment"
+                    title="Cancel comment"
+                  >
+                    <XIcon className="size-3.5" />
+                  </button>
+                </div>
                 <button
                   type="submit"
-                  className="rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-opacity disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-[13px] font-medium text-primary-foreground transition-opacity disabled:opacity-50"
                   disabled={isSubmittingDesignRequest || designInstructions.trim().length === 0}
                 >
-                  {isSubmittingDesignRequest ? "Queueing..." : "Queue comment"}
+                  <CheckIcon className="size-3.5" />
+                  Comment
                 </button>
               </div>
             </form>

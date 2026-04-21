@@ -14,15 +14,18 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   BugIcon,
+  CircleDotIcon,
   Columns2Icon,
+  CropIcon,
   ExternalLinkIcon,
   LoaderCircleIcon,
   Maximize2Icon,
+  MousePointer2Icon,
   PinIcon,
   PictureInPicture2Icon,
   PlusIcon,
   RefreshCwIcon,
-  SparklesIcon,
+  SquarePenIcon,
   XIcon,
 } from "lucide-react";
 import {
@@ -209,9 +212,9 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   );
 }
 
-const DESIGNER_PILL_WIDTH_PX = 116;
-const DESIGNER_PILL_HEIGHT_PX = 186;
-const DESIGNER_PILL_MARGIN_PX = 18;
+const DESIGNER_PILL_WIDTH_PX = 60;
+const DESIGNER_PILL_HEIGHT_PX = 238;
+const DESIGNER_PILL_MARGIN_PX = 14;
 
 function clampDesignerPillPosition(
   position: { x: number; y: number } | null | undefined,
@@ -264,7 +267,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     browserSearchEngine,
     browserSession,
     browserShellStyle,
-    browserStatusLabel,
     closeTab,
     designerState,
     draftUrl,
@@ -442,8 +444,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     }
   }, [activeTabIsInternal, designerState.active, setDesignerModeActive]);
   const designerModeAvailable = Boolean(onQueueDesignRequest) && !activeTabIsInternal;
-  const designerShortcutLabel =
-    typeof navigator !== "undefined" && /mac/i.test(navigator.platform) ? "⌘⇧E" : "Ctrl+Shift+E";
   const toggleDesignerMode = useCallback(() => {
     if (!designerModeAvailable) {
       return;
@@ -457,8 +457,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       viewport ? { height: viewport.clientHeight, width: viewport.clientWidth } : null,
     );
   }, [designerState.pillPosition]);
-  const designerToolSummary =
-    designerState.tool === "element-comment" ? "Element comment" : "Area comment";
   const handleDesignerPillPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) {
@@ -512,9 +510,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     }
   }, []);
   useEffect(() => {
-    if (!designerState.active) {
-      return;
-    }
     const viewport = browserViewportRef.current;
     const clampedPosition = clampDesignerPillPosition(
       designerState.pillPosition,
@@ -527,7 +522,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       return;
     }
     setDesignerPillPosition(clampedPosition);
-  }, [designerState.active, designerState.pillPosition, setDesignerPillPosition]);
+  }, [designerState.pillPosition, setDesignerPillPosition]);
   const handleBrowserSectionKeyDownCapture = useCallback(
     (event: ReactKeyboardEvent<HTMLElement>) => {
       const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
@@ -566,9 +561,8 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
         pageUrl: activeTab.url,
         pagePath,
       });
-      setDesignerModeActive(false);
     },
-    [activeTab, activeTabIsInternal, onQueueDesignRequest, setDesignerModeActive],
+    [activeTab, activeTabIsInternal, onQueueDesignRequest],
   );
 
   if (!open) {
@@ -617,11 +611,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     {activeTab?.url ?? draftUrl}
                   </div>
                 </div>
-                {designerState.active ? (
-                  <span className="rounded-full border border-primary/35 bg-primary/8 px-1.5 py-0.5 text-[10px] font-medium text-primary/75">
-                    Designer mode
-                  </span>
-                ) : null}
                 {browserSession.tabs.length > 1 ? (
                   <span className="rounded-full border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     {browserSession.tabs.length} tabs
@@ -634,24 +623,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-0.5" data-browser-control>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className={cn(
-                    "rounded-md transition-all duration-150",
-                    designerState.active &&
-                      "bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary",
-                  )}
-                  onClick={toggleDesignerMode}
-                  disabled={!designerModeAvailable}
-                  aria-label={
-                    designerState.active ? "Turn designer mode off" : "Turn designer mode on"
-                  }
-                  title={`Toggle designer mode (${designerShortcutLabel})`}
-                  data-browser-control
-                >
-                  <SparklesIcon className="size-3.5" />
-                </Button>
                 <Button
                   variant="ghost"
                   size="icon-xs"
@@ -851,39 +822,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                       <Button
                         variant="outline"
                         size="icon-xs"
-                        className={cn(
-                          designerState.active &&
-                            "border-primary/45 bg-primary/10 text-primary hover:bg-primary/14",
-                        )}
-                        onClick={toggleDesignerMode}
-                        disabled={!designerModeAvailable}
-                        aria-label={
-                          designerState.active ? "Turn designer mode off" : "Turn designer mode on"
-                        }
-                      >
-                        <SparklesIcon className="size-3.5" />
-                      </Button>
-                    }
-                  />
-                  <TooltipPopup side="bottom">
-                    {designerState.active
-                      ? `Turn designer mode off (${designerShortcutLabel})`
-                      : designerModeAvailable
-                        ? `Open designer mode (${designerShortcutLabel})`
-                        : "Designer mode is unavailable for this tab"}
-                  </TooltipPopup>
-                </Tooltip>
-                {designerState.active ? (
-                  <span className="hidden items-center rounded-full border border-primary/25 bg-primary/6 px-2 py-0.5 text-[10px] font-medium text-primary/75 xl:inline-flex">
-                    {designerToolSummary}
-                  </span>
-                ) : null}
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="outline"
-                        size="icon-xs"
                         className={devToolsButtonClassName}
                         onClick={toggleDevTools}
                         disabled={activeTabIsInternal}
@@ -1010,11 +948,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     onSelect={applySuggestion}
                   />
                 ) : null}
-                {browserStatusLabel ? (
-                  <span className="hidden shrink-0 rounded-full border border-amber-500/20 bg-amber-500/[0.06] px-2 py-0.5 text-[11px] font-medium text-amber-800 sm:inline-flex dark:text-amber-200">
-                    {browserStatusLabel}
-                  </span>
-                ) : null}
               </form>
 
               <div className="flex shrink-0 items-center gap-1.5">
@@ -1134,13 +1067,12 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 }
                 designerTool={designerState.tool}
                 onDesignCaptureCancel={() => {
-                  setDesignerModeActive(false);
+                  return;
                 }}
                 onDesignCaptureError={(message) => {
-                  setDesignerModeActive(false);
                   toastManager.add({
                     type: "error",
-                    title: "Designer comment failed.",
+                    title: "Comment failed.",
                     description: message,
                   });
                 }}
@@ -1155,87 +1087,115 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 onSnapshotChange={handleTabSnapshotChange}
               />
             ))}
-          {designerState.active && designerModeAvailable ? (
+          {designerModeAvailable ? (
             <div
-              className="absolute z-30 w-[116px] select-none"
+              className="absolute z-30 select-none"
               style={{
                 left: `${designerPillPosition.x}px`,
                 top: `${designerPillPosition.y}px`,
               }}
             >
               <div
-                className="overflow-hidden rounded-[28px] border border-border/60 bg-background/92 shadow-[0_18px_60px_-24px_rgba(0,0,0,0.55)] backdrop-blur-xl"
+                className="flex w-[60px] flex-col items-center gap-1.5 rounded-[24px] border border-border/60 bg-background/90 px-1.5 py-2 shadow-[0_24px_80px_-42px_rgba(0,0,0,0.72)] backdrop-blur-xl"
                 onPointerDown={handleDesignerPillPointerDown}
                 onPointerMove={handleDesignerPillPointerMove}
                 onPointerUp={handleDesignerPillPointerEnd}
                 onPointerCancel={handleDesignerPillPointerEnd}
               >
-                <div className="flex items-center justify-between border-b border-border/50 px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-semibold tracking-[0.18em] text-muted-foreground/70 uppercase">
-                      Designer
-                    </div>
-                    <div className="truncate text-[11px] text-foreground/78">
-                      {designerToolSummary}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="rounded-full p-1 text-muted-foreground/65 transition-colors hover:bg-accent hover:text-foreground"
-                    onClick={() => {
-                      setDesignerModeActive(false);
-                    }}
-                    aria-label="Close designer mode"
-                    data-designer-pill-control
-                  >
-                    <XIcon className="size-3.5" />
-                  </button>
-                </div>
-                <div className="flex flex-col gap-2 p-2.5">
-                  <button
-                    type="button"
-                    className={cn(
-                      "rounded-[22px] border px-3 py-3 text-left transition-all",
-                      designerState.tool === "area-comment"
-                        ? "border-primary/45 bg-primary/10 text-primary"
-                        : "border-border/60 bg-background/80 text-foreground/82 hover:border-border hover:bg-accent/45",
-                    )}
-                    onClick={() => {
-                      selectDesignerTool("area-comment");
-                    }}
-                    data-designer-pill-control
-                  >
-                    <div className="text-[10px] font-semibold tracking-[0.16em] uppercase">
-                      Area
-                    </div>
-                    <div className="mt-1 text-[11px] leading-snug text-muted-foreground">
-                      Drag a region and leave a comment.
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      "rounded-[22px] border px-3 py-3 text-left transition-all",
-                      designerState.tool === "element-comment"
-                        ? "border-primary/45 bg-primary/10 text-primary"
-                        : "border-border/60 bg-background/80 text-foreground/82 hover:border-border hover:bg-accent/45",
-                    )}
-                    onClick={() => {
-                      selectDesignerTool("element-comment");
-                    }}
-                    data-designer-pill-control
-                  >
-                    <div className="text-[10px] font-semibold tracking-[0.16em] uppercase">
-                      Element
-                    </div>
-                    <div className="mt-1 text-[11px] leading-snug text-muted-foreground">
-                      Click any element and comment with markup.
-                    </div>
-                  </button>
-                </div>
-                <div className="border-t border-border/50 px-3 py-2 text-[10px] text-muted-foreground/70">
-                  Drag this pill. Draw markup in the preview before queueing.
-                </div>
+                <div className="h-1 w-4 rounded-full bg-border/70" />
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        className={cn(
+                          "inline-flex size-10 items-center justify-center rounded-[18px] border transition-all",
+                          designerState.tool === "cursor"
+                            ? "border-primary/35 bg-primary/12 text-primary shadow-[0_10px_24px_-18px_rgba(91,106,255,0.9)]"
+                            : "border-border/60 bg-background/85 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
+                        )}
+                        onClick={() => {
+                          selectDesignerTool("cursor");
+                        }}
+                        aria-label="Use normal cursor"
+                        data-designer-pill-control
+                      >
+                        <MousePointer2Icon className="size-4" />
+                      </button>
+                    }
+                  />
+                  <TooltipPopup side="right">Normal cursor</TooltipPopup>
+                </Tooltip>
+                <div className="h-px w-5 rounded-full bg-border/60" />
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        className={cn(
+                          "inline-flex size-10 items-center justify-center rounded-[18px] border transition-all",
+                          designerState.tool === "area-comment"
+                            ? "border-primary/35 bg-primary/12 text-primary shadow-[0_10px_32px_-20px_rgba(91,106,255,0.9)]"
+                            : "border-border/60 bg-background/85 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
+                        )}
+                        onClick={() => {
+                          selectDesignerTool("area-comment");
+                        }}
+                        aria-label="Select area comment tool"
+                        data-designer-pill-control
+                      >
+                        <CropIcon className="size-4" />
+                      </button>
+                    }
+                  />
+                  <TooltipPopup side="right">Area comment</TooltipPopup>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        className={cn(
+                          "inline-flex size-10 items-center justify-center rounded-[18px] border transition-all",
+                          designerState.tool === "draw-comment"
+                            ? "border-primary/35 bg-primary/12 text-primary"
+                            : "border-border/60 bg-background/85 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
+                        )}
+                        onClick={() => {
+                          selectDesignerTool("draw-comment");
+                        }}
+                        aria-label="Select draw comment tool"
+                        data-designer-pill-control
+                      >
+                        <SquarePenIcon className="size-4" />
+                      </button>
+                    }
+                  />
+                  <TooltipPopup side="right">Draw comment</TooltipPopup>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        className={cn(
+                          "inline-flex size-10 items-center justify-center rounded-[18px] border transition-all",
+                          designerState.tool === "element-comment"
+                            ? "border-primary/35 bg-primary/12 text-primary"
+                            : "border-border/60 bg-background/85 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
+                        )}
+                        onClick={() => {
+                          selectDesignerTool("element-comment");
+                        }}
+                        aria-label="Select element comment tool"
+                        data-designer-pill-control
+                      >
+                        <CircleDotIcon className="size-4" />
+                      </button>
+                    }
+                  />
+                  <TooltipPopup side="right">Element comment</TooltipPopup>
+                </Tooltip>
               </div>
             </div>
           ) : null}

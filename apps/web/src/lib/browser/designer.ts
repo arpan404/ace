@@ -4,7 +4,12 @@ import { resolveScopedBrowserStorageKey } from "./storage";
 
 export const BROWSER_DESIGNER_STATE_STORAGE_KEY = "ace:browser:designer:v1";
 
-export const BrowserDesignerToolSchema = Schema.Literals(["area-comment", "element-comment"]);
+export const BrowserDesignerToolSchema = Schema.Literals([
+  "cursor",
+  "area-comment",
+  "draw-comment",
+  "element-comment",
+]);
 export type BrowserDesignerTool = typeof BrowserDesignerToolSchema.Type;
 
 export const BrowserDesignerPillPositionSchema = Schema.Struct({
@@ -24,7 +29,7 @@ export function createBrowserDesignerState(): BrowserDesignerState {
   return {
     active: false,
     pillPosition: null,
-    tool: "area-comment",
+    tool: "cursor",
   };
 }
 
