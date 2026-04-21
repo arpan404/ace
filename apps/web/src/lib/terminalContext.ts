@@ -62,6 +62,17 @@ export interface BrowserDesignPromptContext {
   mainContainer: BrowserDesignElementDescriptor | null;
 }
 
+interface CompactBrowserDesignPromptContext {
+  requestId: string;
+  pageUrl: string;
+  selection: BrowserDesignSelectionRect;
+  targetElement: {
+    tagName: string | null;
+    id: string | null;
+    selector: string | null;
+  } | null;
+}
+
 export const INLINE_TERMINAL_CONTEXT_PLACEHOLDER = "\uFFFC";
 
 const DISPLAYED_USER_MESSAGE_STATE_CACHE_MAX_ENTRIES = 500;
@@ -257,9 +268,21 @@ export function appendTerminalContextsToPrompt(
 }
 
 export function buildBrowserDesignContextBlock(context: BrowserDesignPromptContext): string {
+  const compactContext: CompactBrowserDesignPromptContext = {
+    requestId: context.requestId,
+    pageUrl: context.pageUrl,
+    selection: context.selection,
+    targetElement: context.targetElement
+      ? {
+          tagName: context.targetElement.tagName,
+          id: context.targetElement.id,
+          selector: context.targetElement.selector,
+        }
+      : null,
+  };
   return [
     "<browser_design_context>",
-    JSON.stringify(context, null, 2),
+    JSON.stringify(compactContext, null, 2),
     "</browser_design_context>",
   ].join("\n");
 }

@@ -2748,7 +2748,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     async (submission: BrowserDesignRequestSubmission) => {
       const trimmedInstructions = submission.instructions.trim();
       if (!trimmedInstructions) {
-        throw new Error("Add a designer comment before queueing the request.");
+        throw new Error("Add a comment before sending it.");
       }
       const normalizedMimeType =
         submission.imageMimeType.trim().length > 0 ? submission.imageMimeType : "image/png";
@@ -2786,11 +2786,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
         queuedSteerRequest,
       );
       if (!persisted) {
-        throw new Error("Failed to queue the designer comment.");
+        throw new Error("Failed to add the comment.");
       }
       toastManager.add({
         type: "success",
-        title: "Queued designer comment.",
+        title: "Comment added.",
       });
     },
   );
