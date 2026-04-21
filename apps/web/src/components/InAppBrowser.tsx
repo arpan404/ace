@@ -39,6 +39,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -216,9 +217,6 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 const DESIGNER_PILL_WIDTH_PX = 60;
 const DESIGNER_PILL_HEIGHT_PX = 238;
 const DESIGNER_PILL_MARGIN_PX = 14;
-const DESIGNER_TOOL_BUTTON_SIZE_PX = 40;
-const DESIGNER_TOOL_BUTTON_GAP_PX = 6;
-const DESIGNER_TOOL_BACKGROUND_STEP_PX = DESIGNER_TOOL_BUTTON_SIZE_PX + DESIGNER_TOOL_BUTTON_GAP_PX;
 
 const DESIGNER_TOOL_BUTTONS: ReadonlyArray<{
   tool: BrowserDesignerTool;
@@ -347,12 +345,20 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const tabNodeMapRef = useRef(new Map<string, HTMLDivElement>());
   const browserViewportRef = useRef<HTMLDivElement | null>(null);
+  const designerToolListRef = useRef<HTMLDivElement | null>(null);
+  const designerToolButtonRefs = useRef(new Map<BrowserDesignerTool, HTMLButtonElement>());
   const designerPillDragStateRef = useRef<{
     pointerId: number;
     startX: number;
     startY: number;
     originX: number;
     originY: number;
+  } | null>(null);
+  const [designerToolHighlightFrame, setDesignerToolHighlightFrame] = useState<{
+    height: number;
+    left: number;
+    top: number;
+    width: number;
   } | null>(null);
   const [canScrollTabsLeft, setCanScrollTabsLeft] = useState(false);
   const [canScrollTabsRight, setCanScrollTabsRight] = useState(false);
@@ -472,13 +478,16 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       viewport ? { height: viewport.clientHeight, width: viewport.clientWidth } : null,
     );
   }, [designerState.pillPosition]);
-  const activeDesignerToolIndex = useMemo(
-    () =>
-      Math.max(
-        0,
-        DESIGNER_TOOL_BUTTONS.findIndex((entry) => entry.tool === designerState.tool),
-      ),
-    [designerState.tool],
+  const setDesignerToolButtonRef = useCallback(
+    (tool: BrowserDesignerTool, node: HTMLButtonElement | null) => {
+      const nodeMap = designerToolButtonRefs.current;
+      if (node) {
+        nodeMap.set(tool, node);
+        return;
+      }
+      nodeMap.delete(tool);
+    },
+    [],
   );
   const handleDesignerToolPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>, tool: BrowserDesignerTool) => {
@@ -554,6 +563,49 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     }
     setDesignerPillPosition(clampedPosition);
   }, [designerState.pillPosition, setDesignerPillPosition]);
+  useLayoutEffect(() => {
+    const toolList = designerToolListRef.current;
+    const activeButton = designerToolButtonRefs.current.get(designerState.tool);
+    if (!designerState.active || !toolList || !activeButton) {
+      setDesignerToolHighlightFrame(null);
+      return;
+    }
+    const syncHighlightFrame = () => {
+      const listRect = toolList.getBoundingClientRect();
+      const buttonRect = activeButton.getBoundingClientRect();
+      const nextFrame = {
+        height: Math.round(buttonRect.height),
+        left: Math.round(buttonRect.left - listRect.left),
+        top: Math.round(buttonRect.top - listRect.top),
+        width: Math.round(buttonRect.width),
+      };
+      setDesignerToolHighlightFrame((current) => {
+        if (
+          current?.height === nextFrame.height &&
+          current.left === nextFrame.left &&
+          current.top === nextFrame.top &&
+          current.width === nextFrame.width
+        ) {
+          return current;
+        }
+        return nextFrame;
+      });
+    };
+    syncHighlightFrame();
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            syncHighlightFrame();
+          })
+        : null;
+    resizeObserver?.observe(toolList);
+    resizeObserver?.observe(activeButton);
+    window.addEventListener("resize", syncHighlightFrame);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", syncHighlightFrame);
+    };
+  }, [designerPillPosition.x, designerPillPosition.y, designerState.active, designerState.tool]);
   const handleBrowserSectionKeyDownCapture = useCallback(
     (event: ReactKeyboardEvent<HTMLElement>) => {
       const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
@@ -1127,7 +1179,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
               }}
             >
               <div
-                className="flex w-[60px] flex-col items-center gap-1.5 rounded-[24px] border border-border/60 bg-background/90 px-1.5 py-2 shadow-[0_24px_80px_-42px_rgba(0,0,0,0.72)] backdrop-blur-xl"
+                className="flex w-[60px] flex-col items-center gap-1.5 rounded-2xl border border-border/60 bg-background/90 px-1.5 py-2 shadow-[0_24px_80px_-42px_rgba(0,0,0,0.72)] backdrop-blur-xl"
                 onPointerDown={handleDesignerPillPointerDown}
                 onPointerMove={handleDesignerPillPointerMove}
                 onPointerUp={handleDesignerPillPointerEnd}
@@ -1135,21 +1187,32 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
               >
                 <div className="h-1 w-4 rounded-full bg-border/70" />
                 <div className="h-px w-5 rounded-full bg-border/60" />
-                <div className="relative flex flex-col gap-1.5">
+                <div ref={designerToolListRef} className="relative flex flex-col gap-1.5">
                   <div
-                    className="pointer-events-none absolute inset-x-0 top-0 z-0 h-10 rounded-[18px] bg-primary/14 shadow-[0_14px_30px_-20px_rgba(91,106,255,0.9)] transition-transform duration-200 ease-out"
-                    style={{
-                      transform: `translateY(${activeDesignerToolIndex * DESIGNER_TOOL_BACKGROUND_STEP_PX}px)`,
-                    }}
+                    className="pointer-events-none absolute z-0 rounded-xl bg-primary/14 shadow-[0_14px_30px_-20px_rgba(91,106,255,0.9)] transition-[top,left,width,height,opacity] duration-200 ease-out"
+                    style={
+                      designerToolHighlightFrame
+                        ? {
+                            height: `${designerToolHighlightFrame.height}px`,
+                            left: `${designerToolHighlightFrame.left}px`,
+                            top: `${designerToolHighlightFrame.top}px`,
+                            width: `${designerToolHighlightFrame.width}px`,
+                          }
+                        : { opacity: 0 }
+                    }
+                    data-designer-tool-highlight
                   />
                   {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
                     <Tooltip key={tool}>
                       <TooltipTrigger
                         render={
                           <button
+                            ref={(node) => {
+                              setDesignerToolButtonRef(tool, node);
+                            }}
                             type="button"
                             className={cn(
-                              "relative z-10 inline-flex size-10 items-center justify-center rounded-[18px] border transition-[border-color,color,transform] duration-200",
+                              "relative z-10 inline-flex size-10 items-center justify-center rounded-xl border transition-[border-color,color,transform] duration-200",
                               designerState.tool === tool
                                 ? "border-primary/35 text-primary"
                                 : "border-border/60 bg-background/85 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",

@@ -95,6 +95,7 @@ import {
 import {
   isScrollContainerNearBottom,
   resolveAutoScrollOnScroll,
+  shouldPreserveInteractionAnchorOnClick,
   scrollContainerToBottom,
 } from "../chat-scroll";
 import {
@@ -4114,6 +4115,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     (event: React.MouseEvent<HTMLDivElement>) => {
       const scrollContainer = messagesScrollRef.current;
       if (!scrollContainer || !(event.target instanceof Element)) return;
+      if (!shouldPreserveInteractionAnchorOnClick(event.detail)) {
+        pendingInteractionAnchorRef.current = null;
+        cancelPendingInteractionAnchorAdjustment();
+        return;
+      }
 
       const trigger = event.target.closest<HTMLElement>(
         "button, summary, [role='button'], [data-scroll-anchor-target]",
