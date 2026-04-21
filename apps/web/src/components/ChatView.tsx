@@ -2747,9 +2747,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const queueBrowserDesignRequest = useEffectEvent(
     async (submission: BrowserDesignRequestSubmission) => {
       const trimmedInstructions = submission.instructions.trim();
-      if (!trimmedInstructions) {
-        throw new Error("Add a comment before sending it.");
-      }
       const normalizedMimeType =
         submission.imageMimeType.trim().length > 0 ? submission.imageMimeType : "image/png";
       const fileExtension = /^image\/([a-z0-9.+-]+)$/i.exec(normalizedMimeType)?.[1] ?? "png";
