@@ -4070,6 +4070,18 @@ export default function Sidebar() {
       </Tooltip>
     </div>
   );
+  const sidebarHeaderWordmark = (
+    <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex min-w-0 items-center justify-center px-12">
+      <div className="pointer-events-auto flex min-w-0 max-w-full items-center justify-center">
+        {wordmark}
+      </div>
+    </div>
+  );
+  const sidebarHeaderToggle = showSidebarHeaderToggle ? (
+    <SidebarTrigger
+      className={cn(DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME, HEADER_PILL_ICON_TRIGGER_CLASS_NAME)}
+    />
+  ) : null;
 
   return (
     <>
@@ -4692,33 +4704,16 @@ export default function Sidebar() {
           className="drag-region h-[52px] px-4 py-0"
           style={MAC_TITLEBAR_LEFT_INSET_STYLE}
         >
-          <div
-            ref={sidebarHeaderRowRef}
-            className="relative flex h-full min-w-0 items-center gap-2"
-          >
-            <div className="flex min-w-0 flex-1 items-center">{wordmark}</div>
-            {showSidebarHeaderToggle ? (
-              <SidebarTrigger
-                className={cn(
-                  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-                  HEADER_PILL_ICON_TRIGGER_CLASS_NAME,
-                )}
-              />
-            ) : null}
+          <div ref={sidebarHeaderRowRef} className="relative flex h-full min-w-0 items-center">
+            {sidebarHeaderWordmark}
+            <div className="ml-auto flex shrink-0 items-center">{sidebarHeaderToggle}</div>
           </div>
         </SidebarHeader>
       ) : (
         <SidebarHeader className="gap-3 px-3.5 py-3 sm:gap-2.5 sm:px-4 sm:py-3.5">
-          <div className="relative flex h-full min-w-0 flex-1 items-center gap-2">
-            <div className="flex min-w-0 flex-1 items-center">{wordmark}</div>
-            {showSidebarHeaderToggle ? (
-              <SidebarTrigger
-                className={cn(
-                  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-                  HEADER_PILL_ICON_TRIGGER_CLASS_NAME,
-                )}
-              />
-            ) : null}
+          <div className="relative flex h-full min-w-0 flex-1 items-center">
+            {sidebarHeaderWordmark}
+            <div className="ml-auto flex shrink-0 items-center">{sidebarHeaderToggle}</div>
           </div>
         </SidebarHeader>
       )}

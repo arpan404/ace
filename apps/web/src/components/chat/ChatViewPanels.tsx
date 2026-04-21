@@ -13,7 +13,10 @@ interface BrowserPanelProps {
   splitWidth: number;
   onResizeKeyDown: ComponentProps<"div">["onKeyDown"];
   onResizePointerDown: ComponentProps<"div">["onPointerDown"];
-  inAppBrowserProps: ComponentProps<typeof InAppBrowser>;
+  instances: ReadonlyArray<{
+    key: string;
+    inAppBrowserProps: ComponentProps<typeof InAppBrowser>;
+  }>;
 }
 
 interface ExpandedImageOverlayProps {
@@ -142,7 +145,9 @@ export function ChatViewPanels({
                 : undefined
             }
           >
-            <InAppBrowser {...browserPanel.inAppBrowserProps} />
+            {browserPanel.instances.map((instance) => (
+              <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
+            ))}
           </div>
         </>
       ) : null}

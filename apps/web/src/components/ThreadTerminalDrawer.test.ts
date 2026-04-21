@@ -17,6 +17,7 @@ describe("buildTerminalContextMenuItems", () => {
     expect(
       buildTerminalContextMenuItems({
         canSplit: false,
+        canUnsplit: false,
         hasCustomTitle: false,
       }),
     ).toEqual([
@@ -34,10 +35,12 @@ describe("buildTerminalContextMenuItems", () => {
     expect(
       buildTerminalContextMenuItems({
         canSplit: true,
+        canUnsplit: true,
         hasCustomTitle: true,
       }),
     ).toEqual([
       { id: "split", label: "Split Terminal", disabled: false },
+      { id: "unsplit", label: "Unsplit Terminal" },
       { id: "new", label: "New Terminal" },
       { id: "duplicate", label: "Duplicate Terminal" },
       { id: "rename", label: "Rename Terminal" },
@@ -110,11 +113,11 @@ describe("buildSessionTerminalMenuItems", () => {
     ]);
   });
 
-  it("opens a different thread from the session list", () => {
-    expect(buildSessionTerminalMenuItems({ isCurrentThread: false })[0]).toEqual({
-      id: "open",
-      label: "Open Thread",
-    });
+  it("does not offer thread switching from the live session list", () => {
+    expect(buildSessionTerminalMenuItems({ isCurrentThread: false })).toEqual([
+      { id: "clear", label: "Clear Terminal" },
+      { id: "close", label: "Close Terminal", destructive: true },
+    ]);
   });
 });
 

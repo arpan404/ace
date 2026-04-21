@@ -103,6 +103,7 @@ interface FloatingOverlaySize {
 }
 
 const MIN_CAPTURE_SIZE_PX = 24;
+const MIN_ELEMENT_CAPTURE_SIZE_PX = 8;
 const DESIGN_REQUEST_PANEL_WIDTH_PX = 272;
 const DESIGN_REQUEST_PANEL_HEIGHT_PX = 166;
 const DESIGN_REQUEST_PANEL_MARGIN_PX = 8;
@@ -284,6 +285,13 @@ function normalizeSelectionRect(input: {
     width: Math.round(right - left),
     height: Math.round(bottom - top),
   };
+}
+
+export function hasMinimumSelectionSize(
+  rect: BrowserDesignSelectionRect | null | undefined,
+  minimumSizePx = MIN_CAPTURE_SIZE_PX,
+): rect is BrowserDesignSelectionRect {
+  return Boolean(rect && rect.width >= minimumSizePx && rect.height >= minimumSizePx);
 }
 
 function resolveDataUrlMimeType(dataUrl: string): string {
@@ -1692,11 +1700,7 @@ export function BrowserTabWebview(props: {
         event.preventDefault();
         event.stopPropagation();
         const finalSelection = selectionRect;
-        if (
-          !finalSelection ||
-          finalSelection.width < MIN_CAPTURE_SIZE_PX ||
-          finalSelection.height < MIN_CAPTURE_SIZE_PX
-        ) {
+        if (!hasMinimumSelectionSize(finalSelection)) {
           setSelectionRect(null);
           return;
         }
@@ -1735,11 +1739,7 @@ export function BrowserTabWebview(props: {
       void capturePromise
         .then((capture) => {
           const selection = capture?.targetRect ?? null;
-          if (
-            !selection ||
-            selection.width < MIN_CAPTURE_SIZE_PX ||
-            selection.height < MIN_CAPTURE_SIZE_PX
-          ) {
+          if (!hasMinimumSelectionSize(selection, MIN_ELEMENT_CAPTURE_SIZE_PX)) {
             throw new Error("Click a visible page element to leave a comment.");
           }
           commitHoveredElementCapture(capture, point);
@@ -2370,10 +2370,6 @@ export function BrowserTabWebview(props: {
               }}
             >
               <div className="absolute inset-0 border border-primary/75 bg-primary/[0.06] shadow-[0_28px_90px_-42px_rgba(91,106,255,0.85)]" />
-              <div className="absolute top-1.5 left-1.5 h-3.5 w-3.5 border-t border-l border-white/90" />
-              <div className="absolute top-1.5 right-1.5 h-3.5 w-3.5 border-t border-r border-white/90" />
-              <div className="absolute bottom-1.5 left-1.5 h-3.5 w-3.5 border-b border-l border-white/90" />
-              <div className="absolute right-1.5 bottom-1.5 h-3.5 w-3.5 border-r border-b border-white/90" />
             </div>
           )}
           {designDraft && designRequestPanelStyle && (
