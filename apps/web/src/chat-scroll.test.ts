@@ -4,6 +4,7 @@ import {
   AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
   isScrollContainerNearBottom,
   resolveAutoScrollOnScroll,
+  shouldPreserveInteractionAnchorOnClick,
   scrollContainerToBottom,
 } from "./chat-scroll";
 
@@ -169,5 +170,15 @@ describe("resolveAutoScrollOnScroll", () => {
       cancelPendingStickToBottom: false,
       scheduleStickToBottom: false,
     });
+  });
+});
+
+describe("shouldPreserveInteractionAnchorOnClick", () => {
+  it("keeps anchor preservation for keyboard-triggered clicks", () => {
+    expect(shouldPreserveInteractionAnchorOnClick(0)).toBe(true);
+  });
+
+  it("skips anchor preservation for pointer clicks", () => {
+    expect(shouldPreserveInteractionAnchorOnClick(1)).toBe(false);
   });
 });

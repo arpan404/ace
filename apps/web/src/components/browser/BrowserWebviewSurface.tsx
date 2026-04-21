@@ -87,9 +87,20 @@ interface AnnotationBounds {
   height: number;
 }
 
+interface OverlayViewportSize {
+  width: number;
+  height: number;
+}
+
+interface DesignRequestPanelPosition {
+  left: number;
+  top: number;
+}
+
 const MIN_CAPTURE_SIZE_PX = 24;
 const DESIGN_REQUEST_PANEL_WIDTH_PX = 272;
 const DESIGN_REQUEST_PANEL_HEIGHT_PX = 166;
+const DESIGN_REQUEST_PANEL_MARGIN_PX = 8;
 const DRAW_COLOR_SWATCHES: readonly string[] = [
   "#4F8CFF",
   "#FF6B57",
@@ -102,6 +113,65 @@ const DEFAULT_ANNOTATION_COLOR = DRAW_COLOR_SWATCHES[0] ?? "#4F8CFF";
 
 function clampPoint(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function clampDesignRequestPanelPosition(
+  position: DesignRequestPanelPosition,
+  viewport: OverlayViewportSize,
+): DesignRequestPanelPosition {
+  return {
+    left: clampPoint(
+      position.left,
+      DESIGN_REQUEST_PANEL_MARGIN_PX,
+      Math.max(
+        DESIGN_REQUEST_PANEL_MARGIN_PX,
+        viewport.width - DESIGN_REQUEST_PANEL_WIDTH_PX - DESIGN_REQUEST_PANEL_MARGIN_PX,
+      ),
+    ),
+    top: clampPoint(
+      position.top,
+      DESIGN_REQUEST_PANEL_MARGIN_PX,
+      Math.max(
+        DESIGN_REQUEST_PANEL_MARGIN_PX,
+        viewport.height - DESIGN_REQUEST_PANEL_HEIGHT_PX - DESIGN_REQUEST_PANEL_MARGIN_PX,
+      ),
+    ),
+  };
+}
+
+function resolveDefaultDesignRequestPanelPosition(
+  draft: BrowserDesignCaptureDraft,
+  viewport: OverlayViewportSize,
+): DesignRequestPanelPosition {
+  if (draft.tool === "draw-comment") {
+    return clampDesignRequestPanelPosition(
+      {
+        left: 16,
+        top: Math.max(16, viewport.height - DESIGN_REQUEST_PANEL_HEIGHT_PX - 16),
+      },
+      viewport,
+    );
+  }
+  const selection = draft.capture.selection;
+  const desiredX = selection.x + selection.width + 12;
+  const desiredY = selection.y;
+  const fallbackY = selection.y + selection.height + 10;
+  if (desiredX <= viewport.width - DESIGN_REQUEST_PANEL_WIDTH_PX - DESIGN_REQUEST_PANEL_MARGIN_PX) {
+    return clampDesignRequestPanelPosition(
+      {
+        left: desiredX,
+        top: desiredY,
+      },
+      viewport,
+    );
+  }
+  return clampDesignRequestPanelPosition(
+    {
+      left: selection.x,
+      top: fallbackY,
+    },
+    viewport,
+  );
 }
 
 function resolveAnnotationBounds(
@@ -117,6 +187,21 @@ function resolveAnnotationBounds(
     };
   }
   return draft.capture.selection;
+}
+
+function isPointInsideSelectionRect(
+  point: { x: number; y: number },
+  rect: BrowserDesignSelectionRect | null,
+): boolean {
+  if (!rect) {
+    return false;
+  }
+  return (
+    point.x >= rect.x &&
+    point.x <= rect.x + rect.width &&
+    point.y >= rect.y &&
+    point.y <= rect.y + rect.height
+  );
 }
 
 function normalizeSelectionRect(input: {
@@ -141,18 +226,6 @@ function normalizeSelectionRect(input: {
     width: Math.round(right - left),
     height: Math.round(bottom - top),
   };
-}
-
-function isPointInsideSelectionRect(
-  point: { x: number; y: number },
-  selection: BrowserDesignSelectionRect,
-): boolean {
-  return (
-    point.x >= selection.x &&
-    point.y >= selection.y &&
-    point.x <= selection.x + selection.width &&
-    point.y <= selection.y + selection.height
-  );
 }
 
 function resolveDataUrlMimeType(dataUrl: string): string {
@@ -213,13 +286,26 @@ function normalizeCapturedSelectionRect(value: unknown): BrowserDesignSelectionR
   };
 }
 
-function buildBrowserElementCaptureScript(point: { x: number; y: number }): string {
-  const serializedPoint = JSON.stringify({
-    x: Math.max(0, Math.floor(point.x)),
-    y: Math.max(0, Math.floor(point.y)),
+export function buildBrowserElementCaptureScript(
+  point: { x: number; y: number },
+  overlayViewport?: { width: number; height: number },
+): string {
+  const serializedPayload = JSON.stringify({
+    overlayViewport: overlayViewport
+      ? {
+          width: Math.max(1, Math.round(overlayViewport.width)),
+          height: Math.max(1, Math.round(overlayViewport.height)),
+        }
+      : null,
+    point: {
+      x: Math.max(0, Math.floor(point.x)),
+      y: Math.max(0, Math.floor(point.y)),
+    },
   });
   return `(() => {
-  const point = ${serializedPoint};
+  const payload = ${serializedPayload};
+  const rawPoint = payload.point;
+  const overlayViewport = payload.overlayViewport;
   const toSnippet = (value, maxLength) => {
     if (typeof value !== "string") return null;
     const collapsed = value.replace(/\\s+/g, " ").trim();
@@ -237,6 +323,8 @@ function buildBrowserElementCaptureScript(point: { x: number; y: number }): stri
     const alpha = Number(parts[3]);
     return Number.isFinite(alpha) ? alpha : 1;
   };
+  const isElementNode = (value) => Boolean(value) && value.nodeType === 1 && typeof value.tagName === "string";
+  const clampNumber = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
   const escapeCss = (value) => {
     if (typeof value !== "string") return "";
     if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
@@ -244,12 +332,75 @@ function buildBrowserElementCaptureScript(point: { x: number; y: number }): stri
     }
     return value.replace(/[^a-zA-Z0-9_-]/g, "_");
   };
+  const resolveViewportMetrics = () => {
+    const visualViewport = typeof window.visualViewport === "object" ? window.visualViewport : null;
+    const guestWidth = Math.max(
+      1,
+      Math.round(
+        window.innerWidth || visualViewport?.width || document.documentElement?.clientWidth || 1,
+      ),
+    );
+    const guestHeight = Math.max(
+      1,
+      Math.round(
+        window.innerHeight || visualViewport?.height || document.documentElement?.clientHeight || 1,
+      ),
+    );
+    const hostWidth = Math.max(1, Math.round(overlayViewport?.width || guestWidth));
+    const hostHeight = Math.max(1, Math.round(overlayViewport?.height || guestHeight));
+    const offsetLeft = Number.isFinite(visualViewport?.offsetLeft) ? visualViewport.offsetLeft : 0;
+    const offsetTop = Number.isFinite(visualViewport?.offsetTop) ? visualViewport.offsetTop : 0;
+    return {
+      guestHeight,
+      guestWidth,
+      hostHeight,
+      hostWidth,
+      offsetLeft,
+      offsetTop,
+      scaleX: guestWidth / hostWidth,
+      scaleY: guestHeight / hostHeight,
+    };
+  };
+  const viewport = resolveViewportMetrics();
+  const point = {
+    x: Math.round(
+      clampNumber(
+        viewport.offsetLeft + rawPoint.x * viewport.scaleX,
+        viewport.offsetLeft,
+        viewport.offsetLeft + viewport.guestWidth - 1,
+      ),
+    ),
+    y: Math.round(
+      clampNumber(
+        viewport.offsetTop + rawPoint.y * viewport.scaleY,
+        viewport.offsetTop,
+        viewport.offsetTop + viewport.guestHeight - 1,
+      ),
+    ),
+  };
+  const mapGuestRectToHost = (rect) => {
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    const left = Math.max(0, (rect.left - viewport.offsetLeft) / viewport.scaleX);
+    const top = Math.max(0, (rect.top - viewport.offsetTop) / viewport.scaleY);
+    const right = Math.max(left + 1, (rect.right - viewport.offsetLeft) / viewport.scaleX);
+    const bottom = Math.max(top + 1, (rect.bottom - viewport.offsetTop) / viewport.scaleY);
+    const width = Math.max(1, right - left);
+    const height = Math.max(1, bottom - top);
+    return {
+      x: Math.round(left),
+      y: Math.round(top),
+      width: Math.round(width),
+      height: Math.round(height),
+    };
+  };
   const selectorFromElement = (element) => {
-    if (!(element instanceof Element)) return null;
+    if (!isElementNode(element)) return null;
     if (element.id) return "#" + escapeCss(element.id);
     const segments = [];
     let current = element;
-    for (let depth = 0; depth < 4 && current && current instanceof Element; depth += 1) {
+    for (let depth = 0; depth < 4 && current && isElementNode(current); depth += 1) {
       let segment = current.tagName.toLowerCase();
       const classList = Array.from(current.classList).slice(0, 2);
       if (classList.length > 0) {
@@ -274,7 +425,7 @@ function buildBrowserElementCaptureScript(point: { x: number; y: number }): stri
     return segments.join(" > ");
   };
   const describe = (element) => {
-    if (!(element instanceof Element)) return null;
+    if (!isElementNode(element)) return null;
     return {
       tagName: element.tagName.toLowerCase(),
       id: element.id || null,
@@ -285,14 +436,14 @@ function buildBrowserElementCaptureScript(point: { x: number; y: number }): stri
     };
   };
   const toRect = (element) => {
-    if (!(element instanceof Element)) return null;
-    const rect = element.getBoundingClientRect();
-    return {
-      x: Math.round(rect.left),
-      y: Math.round(rect.top),
-      width: Math.round(rect.width),
-      height: Math.round(rect.height),
-    };
+    if (!isElementNode(element)) return null;
+    return mapGuestRectToHost(element.getBoundingClientRect());
+  };
+  const toRoundedRect = (rect) => {
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    return mapGuestRectToHost(rect);
   };
   const pointWithinRect = (rect) =>
     rect &&
@@ -300,7 +451,7 @@ function buildBrowserElementCaptureScript(point: { x: number; y: number }): stri
     point.x <= rect.right &&
     point.y >= rect.top &&
     point.y <= rect.bottom;
-  const preferredRoles = new Set([
+  const strongPreferredRoles = new Set([
     "article",
     "button",
     "cell",
@@ -315,27 +466,69 @@ function buildBrowserElementCaptureScript(point: { x: number; y: number }): stri
     "switch",
     "tab",
   ]);
-  const preferredTags = new Set([
+  const strongPreferredTags = new Set([
     "a",
     "article",
-    "aside",
     "button",
     "figure",
-    "header",
     "img",
     "input",
     "label",
     "li",
-    "nav",
-    "section",
     "summary",
   ]);
+  const weakPreferredTags = new Set(["aside", "header", "nav", "section"]);
+  const ignoredLeafTags = new Set(["b", "em", "i", "path", "small", "span", "strong", "svg"]);
+  const mediaTags = new Set(["canvas", "figure", "img", "svg", "video"]);
+  const textLikeTags = new Set([
+    "blockquote",
+    "button",
+    "figcaption",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "label",
+    "legend",
+    "li",
+    "p",
+    "span",
+    "summary",
+    "yt-formatted-string",
+  ]);
+  const blockDisplays = new Set([
+    "block",
+    "flex",
+    "grid",
+    "inline-block",
+    "inline-flex",
+    "inline-grid",
+    "list-item",
+  ]);
   const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
-  const scoreCandidate = (element, depth) => {
-    if (!(element instanceof Element)) return Number.NEGATIVE_INFINITY;
+  const measureTextRect = (element) => {
+    if (!isElementNode(element)) return null;
+    const textContent = (element.textContent || "").replace(/\\s+/g, " ").trim();
+    if (!textContent) return null;
+    const range = document.createRange();
+    try {
+      range.selectNodeContents(element);
+      const rect = range.getBoundingClientRect();
+      if (!pointWithinRect(rect) || rect.width < 6 || rect.height < 6) {
+        return null;
+      }
+      return rect;
+    } finally {
+      range.detach?.();
+    }
+  };
+  const getMetrics = (element) => {
+    if (!isElementNode(element)) return null;
     const rect = element.getBoundingClientRect();
     if (!pointWithinRect(rect) || rect.width < 8 || rect.height < 8) {
-      return Number.NEGATIVE_INFINITY;
+      return null;
     }
     const style = window.getComputedStyle(element);
     const tagName = element.tagName.toLowerCase();
@@ -356,66 +549,294 @@ function buildBrowserElementCaptureScript(point: { x: number; y: number }): stri
       style.boxShadow !== "none" ||
       parseFloat(style.borderRadius || "0") > 0;
     const isInteractive =
-      preferredTags.has(tagName) ||
-      preferredRoles.has(role) ||
+      strongPreferredTags.has(tagName) ||
+      strongPreferredRoles.has(role) ||
       element.hasAttribute("tabindex") ||
       element.hasAttribute("aria-current") ||
       element.hasAttribute("aria-pressed");
     const textLength = (element.textContent || "").replace(/\\s+/g, " ").trim().length;
+    const textRect = measureTextRect(element);
     const childCount = element.childElementCount;
     const isCustomElement = tagName.includes("-");
     const isHuge =
-      area > viewportArea * 0.58 ||
-      rect.width > window.innerWidth * 0.94 ||
-      rect.height > window.innerHeight * 0.76;
-    let score = 0;
-    if (isInteractive) score += 10;
-    if (preferredTags.has(tagName)) score += 5;
-    if (preferredRoles.has(role)) score += 4;
-    if (isCustomElement) score += 4;
-    if (hasVisualBox) score += 5;
-    if (["block", "flex", "grid", "inline-block", "inline-flex", "inline-grid", "list-item"].includes(style.display)) {
-      score += 3;
+      area > viewportArea * 0.72 ||
+      (rect.width > window.innerWidth * 0.97 && rect.height > window.innerHeight * 0.52) ||
+      rect.height > window.innerHeight * 0.88;
+    return {
+      area,
+      areaRatio: area / viewportArea,
+      childCount,
+      display: style.display,
+      hasVisualBox,
+      isCustomElement,
+      isHuge,
+      isInline,
+      isInteractive,
+      rect,
+      role,
+      tagName,
+      textRect,
+      textLength,
+    };
+  };
+  const isTextSelectable = (metrics) => {
+    if (!metrics || metrics.isHuge || metrics.textLength < 14) {
+      return false;
     }
-    if (childCount > 0) score += 2;
-    if (textLength > 0) score += Math.min(4, Math.ceil(textLength / 28));
-    if (isInline) score -= 7;
-    if (["svg", "path", "span", "strong", "small", "em", "b", "i"].includes(tagName)) score -= 3;
-    if (area < 420) score -= 5;
-    if (isHuge) score -= 10;
+    const selectionRect = metrics.textRect ?? metrics.rect;
+    const textArea = selectionRect.width * selectionRect.height;
+    if (textArea < 120 || selectionRect.height > window.innerHeight * 0.28) {
+      return false;
+    }
+    if (
+      selectionRect.width > window.innerWidth * 0.96 &&
+      selectionRect.height > window.innerHeight * 0.18
+    ) {
+      return false;
+    }
+    return (
+      textLikeTags.has(metrics.tagName) ||
+      (!metrics.hasVisualBox && (metrics.childCount <= 3 || blockDisplays.has(metrics.display))) ||
+      (!metrics.hasVisualBox &&
+        metrics.isCustomElement &&
+        metrics.textLength >= 18 &&
+        selectionRect.height <= 120)
+    );
+  };
+  const isSurfaceSelectable = (metrics, childMetrics) => {
+    if (!metrics || metrics.isHuge) {
+      return false;
+    }
+    const hasOwnSurface =
+      metrics.hasVisualBox ||
+      mediaTags.has(metrics.tagName) ||
+      strongPreferredTags.has(metrics.tagName);
+    if (!hasOwnSurface || metrics.area < 900 || metrics.rect.width < 32 || metrics.rect.height < 24) {
+      return false;
+    }
+    if (
+      !metrics.isInteractive &&
+      metrics.rect.width > window.innerWidth * 0.86 &&
+      metrics.rect.height > window.innerHeight * 0.2
+    ) {
+      return false;
+    }
+    if (childMetrics?.hasVisualBox && !metrics.isInteractive) {
+      const widthGrowth = metrics.rect.width / Math.max(1, childMetrics.rect.width);
+      const heightGrowth = metrics.rect.height / Math.max(1, childMetrics.rect.height);
+      const centeredAlongX =
+        Math.abs(
+          (metrics.rect.left + metrics.rect.right) / 2 -
+            (childMetrics.rect.left + childMetrics.rect.right) / 2,
+        ) <= Math.min(48, metrics.rect.width * 0.08);
+      if (centeredAlongX && widthGrowth > 1.1 && heightGrowth < 1.4) {
+        return false;
+      }
+    }
+    if (isTextSelectable(childMetrics) && !metrics.isInteractive) {
+      const widthGrowth = metrics.rect.width / Math.max(1, childMetrics.rect.width);
+      const heightGrowth = metrics.rect.height / Math.max(1, childMetrics.rect.height);
+      if (metrics.hasVisualBox && (widthGrowth > 1.14 || heightGrowth > 1.14)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  const isMeaningfulChild = (metrics) => {
+    if (!metrics) return false;
+    return (
+      metrics.hasVisualBox ||
+      metrics.isInteractive ||
+      isTextSelectable(metrics) ||
+      strongPreferredTags.has(metrics.tagName) ||
+      strongPreferredRoles.has(metrics.role) ||
+      metrics.area > 2600 ||
+      metrics.rect.width >= 120 ||
+      metrics.rect.height >= 56 ||
+      metrics.textLength >= 40
+    );
+  };
+  const isWeakLeafCandidate = (metrics) => {
+    if (!metrics) return false;
+    if (
+      metrics.isInteractive ||
+      metrics.hasVisualBox ||
+      strongPreferredTags.has(metrics.tagName) ||
+      strongPreferredRoles.has(metrics.role)
+    ) {
+      return false;
+    }
+    return (
+      ignoredLeafTags.has(metrics.tagName) ||
+      (metrics.isInline && metrics.area < 24000) ||
+      (metrics.childCount === 0 &&
+        metrics.rect.height < 48 &&
+        metrics.rect.width < window.innerWidth * 0.55)
+    );
+  };
+  const resolveSelectableCandidate = (element, depth, pathChild) => {
+    const metrics = getMetrics(element);
+    if (!metrics) return null;
+    const childMetrics = getMetrics(pathChild);
+    const isTextCandidate = isTextSelectable(metrics);
+    const isSurfaceCandidate = isSurfaceSelectable(metrics, childMetrics);
+    const isControlCandidate = metrics.isInteractive;
+    if (!isControlCandidate && !isTextCandidate && !isSurfaceCandidate) {
+      return null;
+    }
+    const selectionRect =
+      isTextCandidate && !metrics.hasVisualBox ? (metrics.textRect ?? metrics.rect) : metrics.rect;
+    if (!selectionRect) {
+      return null;
+    }
+    let score = 0;
+    if (isControlCandidate) score += 12;
+    if (isTextCandidate) score += 10;
+    if (isSurfaceCandidate) score += 8;
+    if (strongPreferredTags.has(metrics.tagName)) score += 5;
+    if (strongPreferredRoles.has(metrics.role)) score += 4;
+    if (!isTextCandidate && weakPreferredTags.has(metrics.tagName)) score += 1.5;
+    if (metrics.isCustomElement) score += 4;
+    if (metrics.hasVisualBox) score += 5;
+    if (blockDisplays.has(metrics.display)) score += 3;
+    if (metrics.childCount > 0) score += Math.min(2, metrics.childCount * 0.35);
+    if (metrics.textLength > 0) score += Math.min(3, Math.ceil(metrics.textLength / 42));
+    if (isTextCandidate && metrics.textRect) {
+      score += Math.min(6, metrics.textLength / 18);
+    }
+    if (metrics.isInline) score -= 7;
+    if (!isTextCandidate && ignoredLeafTags.has(metrics.tagName)) score -= 4;
+    if (metrics.area < 420) score -= 5;
+    if (metrics.isHuge) score -= 12;
+    if (!metrics.isInteractive && metrics.rect.width > window.innerWidth * 0.8) score -= 3.5;
+    if (
+      !metrics.isInteractive &&
+      metrics.rect.height < window.innerHeight * 0.34 &&
+      metrics.rect.width / Math.max(1, metrics.rect.height) > 5.6
+    ) {
+      score -= 3;
+    }
+    if (isMeaningfulChild(childMetrics)) {
+      const areaGrowth = metrics.area / Math.max(1, childMetrics.area);
+      const widthGrowth = metrics.rect.width / Math.max(1, childMetrics.rect.width);
+      const heightGrowth = metrics.rect.height / Math.max(1, childMetrics.rect.height);
+      const centeredAlongX =
+        Math.abs(
+          (metrics.rect.left + metrics.rect.right) / 2 -
+            (childMetrics.rect.left + childMetrics.rect.right) / 2,
+        ) <= Math.min(48, metrics.rect.width * 0.1);
+      const similarHeight = heightGrowth <= 1.45;
+      if (areaGrowth > 1.45) {
+        score -= Math.min(10, (areaGrowth - 1.45) * 4.5);
+      }
+      if (widthGrowth > 1.16 && similarHeight) {
+        score -= Math.min(8, (widthGrowth - 1.16) * 18);
+      }
+      if (centeredAlongX && widthGrowth > 1.12 && similarHeight) {
+        score -= 4;
+      }
+      if (childMetrics.hasVisualBox && metrics.hasVisualBox && widthGrowth > 1.08) {
+        score -= 3;
+      }
+      if (isTextSelectable(childMetrics) && !isTextCandidate && !metrics.isInteractive) {
+        score -= 8;
+      }
+    }
     score -= depth * 0.45;
-    score -= (area / viewportArea) * 8;
-    return score;
+    score -= metrics.areaRatio * 8;
+    const roundedRect = toRoundedRect(selectionRect);
+    if (!roundedRect) {
+      return null;
+    }
+    return {
+      depth,
+      element,
+      rect: roundedRect,
+      score,
+    };
   };
   const resolveTargetElement = (initialTarget) => {
-    if (!(initialTarget instanceof Element)) return null;
+    if (!isElementNode(initialTarget)) return null;
     const candidates = [];
-    let current = initialTarget;
-    for (let depth = 0; current && depth < 8; depth += 1) {
-      if (current instanceof Element) {
-        const score = scoreCandidate(current, depth);
-        if (Number.isFinite(score)) {
-          candidates.push({ element: current, score, depth });
+    const bestCandidateByElement = new Map();
+    const resolvePreferredTextCandidate = (elements) => {
+      for (const hit of elements.slice(0, 4)) {
+        let current = hit;
+        for (let depth = 0; current && depth < 4; depth += 1) {
+          const metrics = getMetrics(current);
+          if (!metrics) {
+            break;
+          }
+          if (isTextSelectable(metrics) && !metrics.hasVisualBox) {
+            const rect = toRoundedRect(metrics.textRect ?? metrics.rect);
+            if (rect) {
+              return {
+                depth,
+                element: current,
+                rect,
+                score: Number.POSITIVE_INFINITY,
+              };
+            }
+          }
+          if (metrics.hasVisualBox || metrics.isInteractive) {
+            break;
+          }
+          current = current.parentElement;
         }
       }
-      current = current.parentElement;
+      return null;
+    };
+    const considerChain = (start) => {
+      let current = start;
+      let pathChild = null;
+      for (let depth = 0; current && depth < 8; depth += 1) {
+        if (isElementNode(current)) {
+          const candidate = resolveSelectableCandidate(current, depth, pathChild);
+          if (candidate) {
+            const existing = bestCandidateByElement.get(current);
+            if (!existing || candidate.score > existing.score) {
+              bestCandidateByElement.set(current, candidate);
+            }
+          }
+        }
+        pathChild = current;
+        current = current.parentElement;
+      }
+    };
+    const hitElements =
+      typeof document.elementsFromPoint === "function"
+        ? document.elementsFromPoint(point.x, point.y)
+        : [initialTarget];
+    const filteredHitElements = hitElements.filter((element) => {
+      return !isWeakLeafCandidate(getMetrics(element));
+    });
+    const preferredTextCandidate = resolvePreferredTextCandidate(
+      filteredHitElements.length > 0 ? filteredHitElements : hitElements,
+    );
+    if (preferredTextCandidate) {
+      return preferredTextCandidate;
     }
+    for (const hit of (filteredHitElements.length > 0 ? filteredHitElements : hitElements).slice(0, 6)) {
+      considerChain(hit);
+    }
+    candidates.push(...bestCandidateByElement.values());
     if (candidates.length === 0) {
-      return initialTarget;
+      return { element: initialTarget, rect: toRect(initialTarget), score: 0, depth: 0 };
     }
     candidates.sort((left, right) => right.score - left.score || left.depth - right.depth);
-    return candidates[0]?.element || initialTarget;
+    return candidates[0] ?? { element: initialTarget, rect: toRect(initialTarget), score: 0, depth: 0 };
   };
   const x = Math.max(0, Math.floor(point.x));
   const y = Math.max(0, Math.floor(point.y));
   const rawTarget = document.elementFromPoint(x, y);
-  const target = resolveTargetElement(rawTarget);
+  const resolvedTarget = resolveTargetElement(rawTarget);
+  const target = resolvedTarget?.element ?? null;
   const mainContainer =
-     target instanceof Element
+     isElementNode(target)
        ? target.closest("main, [role='main'], article, section, [data-testid], [class*='container'], [class*='content']") ?? target.parentElement
        : null;
   return {
-    targetRect: toRect(target),
+    targetRect: resolvedTarget?.rect ?? toRect(target),
     target: describe(target),
     mainContainer: describe(mainContainer),
   };
@@ -580,9 +1001,21 @@ export function BrowserTabWebview(props: {
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const annotationCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const dragSelectionRef = useRef<ActiveDragSelection | null>(null);
+  const designRequestPanelDragStateRef = useRef<{
+    originLeft: number;
+    originTop: number;
+    pointerId: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const designRequestPanelRequestIdRef = useRef<string | null>(null);
   const elementHoverFrameRef = useRef<number | null>(null);
   const pendingElementHoverPointRef = useRef<{ x: number; y: number } | null>(null);
   const elementHoverRequestInFlightRef = useRef(false);
+  const hoveredElementCaptureRef = useRef<BrowserPageElementCapture | null>(null);
+  const hoveredElementPointRef = useRef<{ x: number; y: number } | null>(null);
+  const latestElementHoverPointRef = useRef<{ x: number; y: number } | null>(null);
+  const elementHoverRequestTokenRef = useRef(0);
   const annotationPointerRef = useRef<{
     color: string;
     pointerId: number;
@@ -603,6 +1036,9 @@ export function BrowserTabWebview(props: {
   const [annotationTool, setAnnotationTool] = useState<AnnotationTool>("pencil");
   const [hasAnnotationStrokes, setHasAnnotationStrokes] = useState(false);
   const [isSubmittingDesignRequest, setIsSubmittingDesignRequest] = useState(false);
+  const [overlayViewportSize, setOverlayViewportSize] = useState<OverlayViewportSize | null>(null);
+  const [designRequestPanelPosition, setDesignRequestPanelPosition] =
+    useState<DesignRequestPanelPosition | null>(null);
   const emitTabSnapshotChange = useEffectEvent((snapshot: BrowserTabSnapshot) => {
     onSnapshotChange(tab.id, snapshot);
   });
@@ -611,6 +1047,35 @@ export function BrowserTabWebview(props: {
       onContextMenuFallbackRequest(tab.id, position, requestedAt);
     },
   );
+  const commitHoveredElementCapture = useCallback(
+    (capture: BrowserPageElementCapture | null, point: { x: number; y: number } | null) => {
+      hoveredElementCaptureRef.current = capture;
+      hoveredElementPointRef.current = point;
+      setHoveredElementCapture((current) => {
+        const currentRect = current?.targetRect;
+        const nextRect = capture?.targetRect;
+        const currentSelector = current?.target?.selector ?? null;
+        const nextSelector = capture?.target?.selector ?? null;
+        if (
+          currentSelector === nextSelector &&
+          currentRect?.x === nextRect?.x &&
+          currentRect?.y === nextRect?.y &&
+          currentRect?.width === nextRect?.width &&
+          currentRect?.height === nextRect?.height
+        ) {
+          return current;
+        }
+        return capture;
+      });
+    },
+    [],
+  );
+  const clearHoveredElementCapture = useCallback(() => {
+    elementHoverRequestTokenRef.current += 1;
+    latestElementHoverPointRef.current = null;
+    pendingElementHoverPointRef.current = null;
+    commitHoveredElementCapture(null, null);
+  }, [commitHoveredElementCapture]);
 
   const resolveSnapshotUrl = useCallback((currentUrl: string) => {
     return normalizeBrowserHttpUrl(currentUrl) ?? requestedUrlRef.current;
@@ -657,8 +1122,17 @@ export function BrowserTabWebview(props: {
       if (!webview || !readyRef.current || !webview.executeJavaScript) {
         return null;
       }
+      const overlayHost = overlayRef.current ?? hostRef.current;
       const capture = await webview.executeJavaScript<BrowserPageElementCapture | null>(
-        buildBrowserElementCaptureScript(point),
+        buildBrowserElementCaptureScript(
+          point,
+          overlayHost
+            ? {
+                width: overlayHost.clientWidth,
+                height: overlayHost.clientHeight,
+              }
+            : undefined,
+        ),
         true,
       );
       return capture
@@ -860,9 +1334,12 @@ export function BrowserTabWebview(props: {
     setSelectionRect(null);
     setHoveredElementCapture(null);
     dragSelectionRef.current = null;
+    designRequestPanelDragStateRef.current = null;
+    designRequestPanelRequestIdRef.current = null;
     pendingElementHoverPointRef.current = null;
     setDesignDraft(null);
     setDesignInstructions("");
+    setDesignRequestPanelPosition(null);
     clearAnnotationCanvas();
     setIsSubmittingDesignRequest(false);
     onDesignCaptureCancel?.();
@@ -874,20 +1351,19 @@ export function BrowserTabWebview(props: {
     }
     if (!designDraft) {
       setSelectionRect(null);
-      setHoveredElementCapture(null);
+      clearHoveredElementCapture();
       dragSelectionRef.current = null;
       return;
     }
     cancelDesignCapture();
-  }, [cancelDesignCapture, designDraft, designerModeActive]);
+  }, [cancelDesignCapture, clearHoveredElementCapture, designDraft, designerModeActive]);
 
   useEffect(() => {
     if (designerTool === "element-comment") {
       return;
     }
-    pendingElementHoverPointRef.current = null;
-    setHoveredElementCapture(null);
-  }, [designerTool]);
+    clearHoveredElementCapture();
+  }, [clearHoveredElementCapture, designerTool]);
 
   useEffect(() => {
     if (!designDraft || designDraft.tool === designerTool) {
@@ -898,6 +1374,7 @@ export function BrowserTabWebview(props: {
 
   useEffect(() => {
     return () => {
+      elementHoverRequestTokenRef.current += 1;
       if (elementHoverFrameRef.current !== null) {
         window.cancelAnimationFrame(elementHoverFrameRef.current);
       }
@@ -910,6 +1387,7 @@ export function BrowserTabWebview(props: {
       inspectedPoint?: BrowserPageElementCapture | null,
       failureMessage = "Could not capture the selected browser area.",
     ) => {
+      elementHoverRequestTokenRef.current += 1;
       setSelectionRect(selection);
       const requestId = generateDesignRequestId();
       const host = overlayRef.current;
@@ -980,9 +1458,17 @@ export function BrowserTabWebview(props: {
     }
     pendingElementHoverPointRef.current = null;
     elementHoverRequestInFlightRef.current = true;
+    const requestToken = ++elementHoverRequestTokenRef.current;
     void inspectBrowserPoint(point)
       .then((capture) => {
-        setHoveredElementCapture(capture);
+        const latestPoint = latestElementHoverPointRef.current;
+        const hasNewerHoverPoint =
+          latestPoint !== null &&
+          (Math.abs(latestPoint.x - point.x) > 6 || Math.abs(latestPoint.y - point.y) > 6);
+        if (elementHoverRequestTokenRef.current !== requestToken || hasNewerHoverPoint) {
+          return;
+        }
+        commitHoveredElementCapture(capture, point);
       })
       .finally(() => {
         elementHoverRequestInFlightRef.current = false;
@@ -992,7 +1478,13 @@ export function BrowserTabWebview(props: {
           );
         }
       });
-  }, [designDraft, designerModeActive, designerTool, inspectBrowserPoint]);
+  }, [
+    commitHoveredElementCapture,
+    designDraft,
+    designerModeActive,
+    designerTool,
+    inspectBrowserPoint,
+  ]);
 
   const onCaptureOverlayPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1013,6 +1505,7 @@ export function BrowserTabWebview(props: {
         return;
       }
       if (designerTool === "element-comment") {
+        latestElementHoverPointRef.current = { x: startX, y: startY };
         pendingElementHoverPointRef.current = { x: startX, y: startY };
         flushHoveredElementInspection();
         event.preventDefault();
@@ -1079,10 +1572,12 @@ export function BrowserTabWebview(props: {
         return;
       }
       const bounds = host.getBoundingClientRect();
-      pendingElementHoverPointRef.current = {
+      const point = {
         x: event.clientX - bounds.left,
         y: event.clientY - bounds.top,
       };
+      latestElementHoverPointRef.current = point;
+      pendingElementHoverPointRef.current = point;
       if (elementHoverFrameRef.current === null) {
         elementHoverFrameRef.current = window.requestAnimationFrame(flushHoveredElementInspection);
       }
@@ -1132,9 +1627,18 @@ export function BrowserTabWebview(props: {
         x: event.clientX - bounds.left,
         y: event.clientY - bounds.top,
       };
+      latestElementHoverPointRef.current = point;
       event.preventDefault();
       event.stopPropagation();
-      void inspectBrowserPoint(point)
+      const hoveredCapture = hoveredElementCaptureRef.current;
+      const stableCapture =
+        hoveredCapture && isPointInsideSelectionRect(point, hoveredCapture.targetRect)
+          ? hoveredCapture
+          : null;
+      const capturePromise = stableCapture
+        ? Promise.resolve(stableCapture)
+        : inspectBrowserPoint(point);
+      void capturePromise
         .then((capture) => {
           const selection = capture?.targetRect ?? null;
           if (
@@ -1144,7 +1648,7 @@ export function BrowserTabWebview(props: {
           ) {
             throw new Error("Click a visible page element to leave a comment.");
           }
-          setHoveredElementCapture(capture);
+          commitHoveredElementCapture(capture, point);
           startCapturedDraft(selection, capture, "Could not capture the selected page element.");
         })
         .catch((error: unknown) => {
@@ -1161,6 +1665,7 @@ export function BrowserTabWebview(props: {
       onDesignCaptureError,
       selectionRect,
       startCapturedDraft,
+      commitHoveredElementCapture,
     ],
   );
 
@@ -1299,6 +1804,39 @@ export function BrowserTabWebview(props: {
       observer?.disconnect();
     };
   }, [clearAnnotationCanvas, designDraft]);
+  useEffect(() => {
+    if (!designDraft) {
+      setOverlayViewportSize(null);
+      return;
+    }
+    const overlay = overlayRef.current;
+    if (!overlay) {
+      return;
+    }
+    const syncOverlayViewportSize = () => {
+      const nextSize = {
+        width: Math.max(1, Math.round(overlay.clientWidth)),
+        height: Math.max(1, Math.round(overlay.clientHeight)),
+      };
+      setOverlayViewportSize((current) => {
+        if (current?.width === nextSize.width && current?.height === nextSize.height) {
+          return current;
+        }
+        return nextSize;
+      });
+    };
+    syncOverlayViewportSize();
+    const observer =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            syncOverlayViewportSize();
+          })
+        : null;
+    observer?.observe(overlay);
+    return () => {
+      observer?.disconnect();
+    };
+  }, [designDraft]);
 
   const drawAnnotationStroke = useCallback(
     (
@@ -1510,48 +2048,118 @@ export function BrowserTabWebview(props: {
     [drawAnnotationShape],
   );
 
-  const designRequestPanelStyle = useMemo<CSSProperties | undefined>(() => {
+  const designRequestPanelViewport = useMemo<OverlayViewportSize | null>(() => {
     if (!designDraft) {
+      return null;
+    }
+    return (
+      overlayViewportSize ?? {
+        width: designDraft.viewportWidth,
+        height: designDraft.viewportHeight,
+      }
+    );
+  }, [designDraft, overlayViewportSize]);
+  const defaultDesignRequestPanelPosition = useMemo<DesignRequestPanelPosition | null>(() => {
+    if (!designDraft) {
+      return null;
+    }
+    const viewport = designRequestPanelViewport;
+    if (!viewport) {
+      return null;
+    }
+    return resolveDefaultDesignRequestPanelPosition(designDraft, viewport);
+  }, [designDraft, designRequestPanelViewport]);
+  useEffect(() => {
+    if (!designDraft || !defaultDesignRequestPanelPosition) {
+      setDesignRequestPanelPosition(null);
+      return;
+    }
+    if (designRequestPanelRequestIdRef.current === designDraft.capture.requestId) {
+      return;
+    }
+    designRequestPanelRequestIdRef.current = designDraft.capture.requestId;
+    setDesignRequestPanelPosition(defaultDesignRequestPanelPosition);
+  }, [defaultDesignRequestPanelPosition, designDraft]);
+  useEffect(() => {
+    if (!designRequestPanelPosition || !designRequestPanelViewport) {
+      return;
+    }
+    const clampedPosition = clampDesignRequestPanelPosition(
+      designRequestPanelPosition,
+      designRequestPanelViewport,
+    );
+    if (
+      clampedPosition.left === designRequestPanelPosition.left &&
+      clampedPosition.top === designRequestPanelPosition.top
+    ) {
+      return;
+    }
+    setDesignRequestPanelPosition(clampedPosition);
+  }, [designRequestPanelPosition, designRequestPanelViewport]);
+  const handleDesignRequestPanelPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) {
+        return;
+      }
+      const currentPosition = designRequestPanelPosition ?? defaultDesignRequestPanelPosition;
+      if (!currentPosition) {
+        return;
+      }
+      designRequestPanelDragStateRef.current = {
+        originLeft: currentPosition.left,
+        originTop: currentPosition.top,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+      };
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [defaultDesignRequestPanelPosition, designRequestPanelPosition],
+  );
+  const handleDesignRequestPanelPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const dragState = designRequestPanelDragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId || !designRequestPanelViewport) {
+        return;
+      }
+      setDesignRequestPanelPosition(
+        clampDesignRequestPanelPosition(
+          {
+            left: dragState.originLeft + (event.clientX - dragState.startX),
+            top: dragState.originTop + (event.clientY - dragState.startY),
+          },
+          designRequestPanelViewport,
+        ),
+      );
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    [designRequestPanelViewport],
+  );
+  const handleDesignRequestPanelPointerEnd = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const dragState = designRequestPanelDragStateRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) {
+        return;
+      }
+      designRequestPanelDragStateRef.current = null;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    [],
+  );
+  const designRequestPanelStyle = useMemo<CSSProperties | undefined>(() => {
+    const position = designRequestPanelPosition ?? defaultDesignRequestPanelPosition;
+    if (!position) {
       return undefined;
     }
-    if (designDraft.tool === "draw-comment") {
-      return {
-        left: 16,
-        top: Math.max(16, designDraft.viewportHeight - DESIGN_REQUEST_PANEL_HEIGHT_PX - 16),
-      };
-    }
-    const selection = designDraft.capture.selection;
-    const viewportWidth = designDraft.viewportWidth;
-    const viewportHeight = designDraft.viewportHeight;
-    const desiredX = selection.x + selection.width + 12;
-    const desiredY = selection.y;
-    const fallbackY = selection.y + selection.height + 10;
-    const left = clampPoint(
-      desiredX,
-      8,
-      Math.max(8, viewportWidth - DESIGN_REQUEST_PANEL_WIDTH_PX - 8),
-    );
-    const top = clampPoint(
-      desiredY,
-      8,
-      Math.max(8, viewportHeight - DESIGN_REQUEST_PANEL_HEIGHT_PX - 8),
-    );
-    if (desiredX <= viewportWidth - DESIGN_REQUEST_PANEL_WIDTH_PX - 8) {
-      return { left, top };
-    }
-    return {
-      left: clampPoint(
-        selection.x,
-        8,
-        Math.max(8, viewportWidth - DESIGN_REQUEST_PANEL_WIDTH_PX - 8),
-      ),
-      top: clampPoint(
-        fallbackY,
-        8,
-        Math.max(8, viewportHeight - DESIGN_REQUEST_PANEL_HEIGHT_PX - 8),
-      ),
-    };
-  }, [designDraft]);
+    return position;
+  }, [defaultDesignRequestPanelPosition, designRequestPanelPosition]);
   const activeOverlaySelection =
     designerTool === "draw-comment" || designDraft?.tool === "draw-comment"
       ? null
@@ -1599,7 +2207,7 @@ export function BrowserTabWebview(props: {
           ) : null}
           {activeOverlaySelection && (
             <div
-              className="pointer-events-none absolute rounded-[24px] border border-primary/65 bg-linear-to-br from-primary/[0.14] via-primary/[0.05] to-transparent shadow-[0_28px_90px_-42px_rgba(91,106,255,0.85)]"
+              className="pointer-events-none absolute"
               style={{
                 left: `${activeOverlaySelection.x}px`,
                 top: `${activeOverlaySelection.y}px`,
@@ -1607,25 +2215,34 @@ export function BrowserTabWebview(props: {
                 height: `${activeOverlaySelection.height}px`,
               }}
             >
-              <div className="absolute inset-[1px] rounded-[22px] border border-white/55" />
-              <div className="absolute -top-1.5 -left-1.5 size-3 rounded-full border border-white/70 bg-primary shadow-sm" />
-              <div className="absolute -top-1.5 -right-1.5 size-3 rounded-full border border-white/70 bg-primary shadow-sm" />
-              <div className="absolute -bottom-1.5 -left-1.5 size-3 rounded-full border border-white/70 bg-primary shadow-sm" />
-              <div className="absolute -right-1.5 -bottom-1.5 size-3 rounded-full border border-white/70 bg-primary shadow-sm" />
+              <div className="absolute inset-0 border border-primary/75 bg-primary/[0.06] shadow-[0_28px_90px_-42px_rgba(91,106,255,0.85)]" />
+              <div className="absolute top-1.5 left-1.5 h-3.5 w-3.5 border-t border-l border-white/90" />
+              <div className="absolute top-1.5 right-1.5 h-3.5 w-3.5 border-t border-r border-white/90" />
+              <div className="absolute bottom-1.5 left-1.5 h-3.5 w-3.5 border-b border-l border-white/90" />
+              <div className="absolute right-1.5 bottom-1.5 h-3.5 w-3.5 border-r border-b border-white/90" />
             </div>
           )}
           {designDraft && designRequestPanelStyle && (
             <form
-              className="absolute z-30 w-[272px] rounded-[20px] border border-border/60 bg-background/95 p-2.5 shadow-[0_28px_80px_-52px_rgba(0,0,0,0.88)] backdrop-blur-xl"
+              className="absolute z-30 w-[272px] rounded-2xl border border-border/60 bg-background/95 p-2.5 shadow-[0_28px_80px_-52px_rgba(0,0,0,0.88)] backdrop-blur-xl"
               style={designRequestPanelStyle}
               onSubmit={(event) => {
                 event.preventDefault();
                 void submitDesignDraft();
               }}
             >
+              <div
+                className="mb-2 flex h-5 cursor-grab touch-none items-center justify-center active:cursor-grabbing"
+                onPointerDown={handleDesignRequestPanelPointerDown}
+                onPointerMove={handleDesignRequestPanelPointerMove}
+                onPointerUp={handleDesignRequestPanelPointerEnd}
+                onPointerCancel={handleDesignRequestPanelPointerEnd}
+              >
+                <div className="h-1 w-10 rounded-full bg-border/70" />
+              </div>
               {designDraft.tool === "draw-comment" ? (
                 <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                  <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/88 p-1">
+                  <div className="flex items-center gap-1 rounded-xl border border-border/60 bg-background/88 p-1">
                     {DRAW_TOOL_OPTIONS.map(({ label, tool }) => (
                       <button
                         key={tool}
@@ -1634,7 +2251,7 @@ export function BrowserTabWebview(props: {
                           setAnnotationTool(tool);
                         }}
                         className={cn(
-                          "inline-flex size-7 items-center justify-center rounded-full transition-colors",
+                          "inline-flex size-7 items-center justify-center rounded-lg transition-colors",
                           annotationTool === tool
                             ? "bg-primary/14 text-primary"
                             : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
@@ -1646,7 +2263,7 @@ export function BrowserTabWebview(props: {
                       </button>
                     ))}
                   </div>
-                  <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/88 p-1">
+                  <div className="flex items-center gap-1 rounded-xl border border-border/60 bg-background/88 p-1">
                     {DRAW_COLOR_SWATCHES.map((color) => (
                       <button
                         key={color}
@@ -1676,7 +2293,7 @@ export function BrowserTabWebview(props: {
                 value={designInstructions}
                 onChange={(event) => setDesignInstructions(event.target.value)}
                 placeholder="Comment for the agent"
-                className="h-[78px] w-full resize-none rounded-[16px] border border-border/60 bg-background/92 px-3 py-2.5 text-[13px] outline-none transition-colors placeholder:text-muted-foreground/55 focus:border-primary/45"
+                className="h-[78px] w-full resize-none rounded-xl border border-border/60 bg-background/92 px-3 py-2.5 text-[13px] outline-none transition-colors placeholder:text-muted-foreground/55 focus:border-primary/45"
                 autoFocus
               />
               <div className="mt-2.5 flex items-center justify-between gap-2">
@@ -1684,7 +2301,7 @@ export function BrowserTabWebview(props: {
                   <button
                     type="button"
                     onClick={clearAnnotationCanvas}
-                    className="inline-flex size-8 items-center justify-center rounded-full border border-border/60 bg-background/80 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                    className="inline-flex size-8 items-center justify-center rounded-xl border border-border/60 bg-background/80 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
                     disabled={!hasAnnotationStrokes}
                     aria-label="Clear drawing"
                     title="Clear drawing"
@@ -1694,7 +2311,7 @@ export function BrowserTabWebview(props: {
                   <button
                     type="button"
                     onClick={cancelDesignCapture}
-                    className="inline-flex size-8 items-center justify-center rounded-full border border-border/60 bg-background/80 text-muted-foreground transition-colors hover:text-foreground"
+                    className="inline-flex size-8 items-center justify-center rounded-xl border border-border/60 bg-background/80 text-muted-foreground transition-colors hover:text-foreground"
                     disabled={isSubmittingDesignRequest}
                     aria-label="Cancel comment"
                     title="Cancel comment"
@@ -1704,7 +2321,7 @@ export function BrowserTabWebview(props: {
                 </div>
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-[13px] font-medium text-primary-foreground transition-opacity disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-[13px] font-medium text-primary-foreground transition-opacity disabled:opacity-50"
                   disabled={isSubmittingDesignRequest || !canSubmitDesignDraft}
                 >
                   <CheckIcon className="size-3.5" />
