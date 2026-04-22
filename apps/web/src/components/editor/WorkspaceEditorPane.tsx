@@ -380,6 +380,17 @@ function clearModelMarkers(monacoInstance: MonacoApi, model: MonacoEditor.ITextM
   }
 }
 
+function runEditorAction(
+  editor: MonacoEditor.IStandaloneCodeEditor,
+  actionId: string,
+): void | Promise<void> {
+  const action = editor.getAction(actionId);
+  if (!action) {
+    return;
+  }
+  return action.run();
+}
+
 export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const api = readNativeApi();
   const pane = props.pane;
@@ -716,17 +727,49 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         saveActionRef.current();
       });
       editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.Space, () => {
-        const action = editor.getAction("editor.action.triggerSuggest");
-        if (action) {
-          void action.run();
-        }
+        void runEditorAction(editor, "editor.action.triggerSuggest");
       });
       editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyI, () => {
-        const action = editor.getAction("editor.action.triggerParameterHints");
-        if (action) {
-          void action.run();
-        }
+        void runEditorAction(editor, "editor.action.triggerParameterHints");
       });
+      editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyF, () => {
+        void runEditorAction(editor, "actions.find");
+      });
+      editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyH, () => {
+        void runEditorAction(editor, "editor.action.startFindReplaceAction");
+      });
+      editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyG, () => {
+        void runEditorAction(editor, "editor.action.gotoLine");
+      });
+      editor.addCommand(
+        monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyO,
+        () => {
+          void runEditorAction(editor, "workbench.action.gotoSymbol");
+        },
+      );
+      editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyD, () => {
+        void runEditorAction(editor, "editor.action.addSelectionToNextFindMatch");
+      });
+      editor.addCommand(
+        monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyL,
+        () => {
+          void runEditorAction(editor, "editor.action.selectHighlights");
+        },
+      );
+      editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.BracketRight, () => {
+        void runEditorAction(editor, "editor.action.indentLines");
+      });
+      editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.BracketLeft, () => {
+        void runEditorAction(editor, "editor.action.outdentLines");
+      });
+      editor.addCommand(
+        monacoInstance.KeyMod.CtrlCmd |
+          monacoInstance.KeyMod.Shift |
+          monacoInstance.KeyCode.Backslash,
+        () => {
+          void runEditorAction(editor, "editor.action.jumpToBracket");
+        },
+      );
       editor.addCommand(monacoInstance.KeyCode.F12, () => {
         const position = editor.getPosition();
         if (!position) {
