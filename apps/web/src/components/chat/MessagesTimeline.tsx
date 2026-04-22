@@ -162,8 +162,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   const latestAssistantTurnSummary = useMemo(
     () =>
-      resolveLatestAssistantTurnDiffSummary(timelineEntries, turnDiffSummaryByAssistantMessageId),
-    [timelineEntries, turnDiffSummaryByAssistantMessageId],
+      activeTurnInProgress
+        ? null
+        : resolveLatestAssistantTurnDiffSummary(
+            timelineEntries,
+            turnDiffSummaryByAssistantMessageId,
+          ),
+    [activeTurnInProgress, timelineEntries, turnDiffSummaryByAssistantMessageId],
   );
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
     Record<string, boolean>

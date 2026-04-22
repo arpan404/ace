@@ -1582,6 +1582,84 @@ describe("MessagesTimeline", () => {
     );
   });
 
+  it("hides changed-files summaries while the latest turn is still active", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const assistantMessageId = MessageId.makeUnsafe("assistant-with-active-diff");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:30.000Z"
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "tool-before-active-diff",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            entry: {
+              id: "tool-before-active-diff",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              label: "Run command",
+              toolTitle: "Run command",
+              detail: "bun run test",
+              tone: "tool",
+            },
+          },
+          {
+            id: "assistant-with-active-diff",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: assistantMessageId,
+              role: "assistant",
+              text: "I am still verifying this change.",
+              turnId: TurnId.makeUnsafe("turn-active-diff"),
+              createdAt: "2026-03-17T19:12:32.000Z",
+              completedAt: "2026-03-17T19:12:33.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={
+          new Map([
+            [
+              assistantMessageId,
+              {
+                turnId: TurnId.makeUnsafe("turn-active-diff"),
+                completedAt: "2026-03-17T19:12:33.500Z",
+                files: [
+                  {
+                    path: "apps/web/src/components/chat/MessagesTimeline.tsx",
+                    additions: 10,
+                    deletions: 2,
+                  },
+                ],
+              },
+            ],
+          ])
+        }
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Working");
+    expect(markup).not.toContain('data-turn-diff-summary="true"');
+    expect(markup).not.toContain("Changed files (1)");
+  });
+
   it("shows completed intent and tool activity after completion", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
