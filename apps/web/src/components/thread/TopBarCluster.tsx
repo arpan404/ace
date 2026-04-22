@@ -16,7 +16,7 @@ export const HEADER_PILL_ICON_CONTROL_CLASS_NAME = cn(
 
 export const HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME = cn(
   HEADER_PILL_ICON_CONTROL_CLASS_NAME,
-  "data-[pressed]:!border-pill-border data-[pressed]:!bg-foreground/[0.08] data-[pressed]:!text-pill-foreground",
+  "data-[pressed]:!border-pill-border data-[pressed]:!bg-foreground/[0.08] data-[pressed]:!text-pill-foreground data-[pressed]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--foreground)_8%,transparent)] data-[pressed]:[&_svg]:scale-110 [&_svg]:transition-transform [&_svg]:duration-200",
 );
 
 export const HEADER_PILL_TRIGGER_CLASS_NAME = cn(

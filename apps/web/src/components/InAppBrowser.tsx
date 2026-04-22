@@ -42,6 +42,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { motion, type MotionStyle } from "motion/react";
 import {
   useInAppBrowserState,
   type ActiveBrowserRuntimeState,
@@ -252,6 +253,10 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 const DESIGNER_PILL_WIDTH_PX = 60;
 const DESIGNER_PILL_HEIGHT_PX = 238;
 const DESIGNER_PILL_MARGIN_PX = 14;
+const BROWSER_SHELL_TRANSITION = {
+  duration: 0.18,
+  ease: [0.16, 1, 0.3, 1],
+} as const;
 
 const DESIGNER_TOOL_BUTTONS: ReadonlyArray<{
   tool: BrowserDesignerTool;
@@ -862,8 +867,18 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   }
 
   return (
-    <div
+    <motion.div
       aria-hidden={!visible}
+      initial={mode === "full" ? { opacity: 0, scale: 0.99 } : { opacity: 0, x: 16 }}
+      animate={
+        visible
+          ? { opacity: 1, scale: 1, x: 0 }
+          : mode === "full"
+            ? { opacity: 0, scale: 0.99 }
+            : { opacity: 0, x: 16 }
+      }
+      exit={mode === "full" ? { opacity: 0, scale: 0.99 } : { opacity: 0, x: 16 }}
+      transition={BROWSER_SHELL_TRANSITION}
       className={cn(
         mode === "split"
           ? visible
@@ -874,7 +889,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
               visible ? "z-30" : "pointer-events-none invisible z-0",
             ),
       )}
-      style={browserShellStyle}
+      {...(browserShellStyle ? { style: browserShellStyle as MotionStyle } : {})}
     >
       <section
         onKeyDownCapture={handleBrowserSectionKeyDownCapture}
@@ -1318,6 +1333,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
           ) : null}
         </div>
       </section>
-    </div>
+    </motion.div>
   );
 });
