@@ -1573,7 +1573,7 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
 
-  it("restarts restart-session providers before a follow-up turn on an idle thread", async () => {
+  it("reuses restart-session providers for follow-up turns on idle threads", async () => {
     const harness = await createHarness({
       threadModelSelection: { provider: "githubCopilot", model: "gpt-4.1" },
       sessionModelSwitch: "restart-session",
@@ -1625,20 +1625,10 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.startSession.mock.calls.length === 2);
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
 
     expect(harness.stopSession.mock.calls.length).toBe(0);
-    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
-      threadId: ThreadId.makeUnsafe("thread-1"),
-      provider: "githubCopilot",
-      resumeCursor: { opaque: "resume-1" },
-      modelSelection: {
-        provider: "githubCopilot",
-        model: "gpt-4.1",
-      },
-      runtimeMode: "approval-required",
-    });
+    expect(harness.startSession.mock.calls.length).toBe(1);
   });
 
   it("rebuilds failed Copilot chats from prior transcript without replaying the new retry message", async () => {
