@@ -5,7 +5,22 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { TurnId } from "@ace/contracts";
 
 vi.mock("../ChatMarkdown", () => ({
-  default: ({ text }: { text?: string }) => <div>{text}</div>,
+  default: ({
+    isStreaming,
+    renderPlainText,
+    text,
+  }: {
+    isStreaming?: boolean;
+    renderPlainText?: boolean;
+    text?: string;
+  }) => (
+    <div
+      data-chat-markdown-is-streaming={String(Boolean(isStreaming))}
+      data-chat-markdown-render-plain-text={String(Boolean(renderPlainText))}
+    >
+      {text}
+    </div>
+  ),
 }));
 
 function matchMedia() {
@@ -49,6 +64,108 @@ beforeAll(() => {
 });
 
 describe("MessagesTimeline", () => {
+  it("renders terminal assistant output through markdown instead of forcing plain text", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "user-markdown",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-markdown"),
+              role: "user",
+              text: "Return markdown",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-markdown",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-markdown"),
+              role: "assistant",
+              text: "**Done**\n\n```text\nhello\n```",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              completedAt: "2026-03-17T19:12:35.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-chat-markdown-render-plain-text="false"');
+    expect(markup).toContain("**Done**");
+  });
+
+  it("keeps reasoning work as plain timeline text", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "reasoning-markdown",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            entry: {
+              id: "reasoning-markdown",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              label: "Reasoning",
+              detail: "**thinking** about ```text```",
+              tone: "thinking",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{ "work-group:reasoning-markdown": true }}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("**thinking** about ```text```");
+    expect(markup).not.toContain("<strong>thinking</strong>");
+    expect(markup).not.toContain("data-chat-markdown-render-plain-text");
+  });
+
   it("falls back to a small unvirtualized tail once work is no longer actively running", async () => {
     const { deriveFirstUnvirtualizedTimelineRowIndex } = await import("./MessagesTimeline");
     const rows = [

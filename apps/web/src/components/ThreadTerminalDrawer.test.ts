@@ -4,7 +4,6 @@ import {
   buildTerminalColorMenuItems,
   buildTerminalContextMenuItems,
   buildTerminalIconMenuItems,
-  buildSessionTerminalMenuItems,
   buildTerminalSectionMenuItems,
   buildTerminalSidebarDensityItems,
   resolveTerminalSelectionActionPosition,
@@ -100,23 +99,6 @@ describe("buildTerminalSectionMenuItems", () => {
       { id: "new-terminal", label: "New Terminal" },
       { id: "clear-all", label: "Clear All Terminals" },
       { id: "close-all", label: "Kill All Terminals", destructive: true },
-    ]);
-  });
-});
-
-describe("buildSessionTerminalMenuItems", () => {
-  it("focuses the current thread terminal from the session list", () => {
-    expect(buildSessionTerminalMenuItems({ isCurrentThread: true })).toEqual([
-      { id: "open", label: "Focus Terminal" },
-      { id: "clear", label: "Clear Terminal" },
-      { id: "close", label: "Close Terminal", destructive: true },
-    ]);
-  });
-
-  it("does not offer thread switching from the live session list", () => {
-    expect(buildSessionTerminalMenuItems({ isCurrentThread: false })).toEqual([
-      { id: "clear", label: "Clear Terminal" },
-      { id: "close", label: "Close Terminal", destructive: true },
     ]);
   });
 });

@@ -124,7 +124,6 @@ import {
   type ChatMessage,
   type QueuedComposerImageAttachment,
   type Thread,
-  type ThreadTerminalGroup,
   type TurnDiffSummary,
 } from "../types";
 import { isMemoryPressureAtLeast, subscribeToMemoryPressure } from "../lib/memoryPressure";
@@ -203,10 +202,7 @@ import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
-import ThreadTerminalDrawer, {
-  type TerminalSessionOverview,
-  type TerminalSessionOverviewItem,
-} from "./ThreadTerminalDrawer";
+import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NewThreadLanding } from "./chat/NewThreadLanding";
 import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
@@ -271,12 +267,6 @@ import {
 } from "~/lib/browser/launcher";
 import { resolveScopedBrowserStorageKey } from "~/lib/browser/storage";
 import { type BrowserDesignRequestSubmission } from "~/lib/browser/types";
-import {
-  decodeScopedTerminalGroupId,
-  encodeScopedTerminalGroupId,
-  encodeScopedTerminalUiId,
-  type TerminalScopeKind,
-} from "~/lib/terminalScopes";
 import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -313,12 +303,6 @@ const SCRIPT_TERMINAL_ROWS = 30;
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
-interface CombinedTerminalDescriptor {
-  scope: TerminalScopeKind;
-  runtimeThreadId: ThreadId;
-  runtimeTerminalId: string;
-}
-
 interface ChatViewProps {
   threadId: ThreadId;
 }
@@ -341,7 +325,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const trackActiveThread = useUiStateStore((store) => store.trackActiveThread);
   const trackedActiveThreadId = useUiStateStore((store) => store.activeThreadId);
   const previousActiveThreadId = useUiStateStore((store) => store.previousActiveThreadId);
-  const threadLastVisitedAtById = useUiStateStore((store) => store.threadLastVisitedAtById);
   const activeThreadLastVisitedAt = useUiStateStore(
     (store) => store.threadLastVisitedAtById[threadId],
   );
@@ -540,7 +523,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const threadTerminalState = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadId, threadId),
   );
-  const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
   const storeSetTerminalOpen = useTerminalStateStore((s) => s.setTerminalOpen);
   const storeSetTerminalHeight = useTerminalStateStore((s) => s.setTerminalHeight);
   const storeSetTerminalSidebarWidth = useTerminalStateStore((s) => s.setTerminalSidebarWidth);
@@ -1025,241 +1007,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           color: activeRemoteHost.iconColor ?? "slate",
         }
       : null;
-  const workspaceTerminalScopeId = useMemo<ThreadId | null>(() => null, []);
-  const workspaceTerminalState = useMemo<ReturnType<typeof selectThreadTerminalState> | null>(
-    () => null,
-    [],
-  );
-  const [activeTerminalScope, setActiveTerminalScope] = useState<TerminalScopeKind>("thread");
-  const resolvedActiveTerminalScope: TerminalScopeKind =
-    activeTerminalScope === "workspace" && workspaceTerminalState ? "workspace" : "thread";
-  const activeScopeTerminalState =
-    resolvedActiveTerminalScope === "workspace" && workspaceTerminalState
-      ? workspaceTerminalState
-      : threadTerminalState;
-  const terminalDescriptorById = useMemo<Record<string, CombinedTerminalDescriptor>>(() => {
-    const entries: Array<[string, CombinedTerminalDescriptor]> = [];
-    if (workspaceTerminalState && workspaceTerminalScopeId) {
-      for (const terminalId of workspaceTerminalState.terminalIds) {
-        const scopedId = encodeScopedTerminalUiId("workspace", terminalId);
-        entries.push([
-          scopedId,
-          {
-            scope: "workspace",
-            runtimeThreadId: workspaceTerminalScopeId,
-            runtimeTerminalId: terminalId,
-          },
-        ]);
-      }
-    }
-    for (const terminalId of threadTerminalState.terminalIds) {
-      const scopedId = encodeScopedTerminalUiId("thread", terminalId);
-      entries.push([
-        scopedId,
-        {
-          scope: "thread",
-          runtimeThreadId: threadId,
-          runtimeTerminalId: terminalId,
-        },
-      ]);
-    }
-    return Object.fromEntries(entries);
-  }, [threadId, threadTerminalState.terminalIds, workspaceTerminalScopeId, workspaceTerminalState]);
-  const terminalRuntimeThreadIdById = useMemo<Record<string, ThreadId>>(
-    () =>
-      Object.fromEntries(
-        Object.entries(terminalDescriptorById).map(([terminalId, descriptor]) => [
-          terminalId,
-          descriptor.runtimeThreadId,
-        ]),
-      ),
-    [terminalDescriptorById],
-  );
-  const terminalRuntimeIdById = useMemo<Record<string, string>>(
-    () =>
-      Object.fromEntries(
-        Object.entries(terminalDescriptorById).map(([terminalId, descriptor]) => [
-          terminalId,
-          descriptor.runtimeTerminalId,
-        ]),
-      ),
-    [terminalDescriptorById],
-  );
-  const terminalState = useMemo(() => {
-    const workspaceTerminalIds =
-      workspaceTerminalState?.terminalIds.map((terminalId) =>
-        encodeScopedTerminalUiId("workspace", terminalId),
-      ) ?? [];
-    const threadTerminalIds = threadTerminalState.terminalIds.map((terminalId) =>
-      encodeScopedTerminalUiId("thread", terminalId),
-    );
-    const terminalIds = [...workspaceTerminalIds, ...threadTerminalIds];
-    const runningTerminalIds = [
-      ...(workspaceTerminalState?.runningTerminalIds.map((terminalId) =>
-        encodeScopedTerminalUiId("workspace", terminalId),
-      ) ?? []),
-      ...threadTerminalState.runningTerminalIds.map((terminalId) =>
-        encodeScopedTerminalUiId("thread", terminalId),
-      ),
-    ];
-    const terminalGroups: ThreadTerminalGroup[] = [
-      ...(workspaceTerminalState?.terminalGroups.map((group) => ({
-        id: encodeScopedTerminalGroupId("workspace", group.id),
-        terminalIds: group.terminalIds.map((terminalId) =>
-          encodeScopedTerminalUiId("workspace", terminalId),
-        ),
-      })) ?? []),
-      ...threadTerminalState.terminalGroups.map((group) => ({
-        id: encodeScopedTerminalGroupId("thread", group.id),
-        terminalIds: group.terminalIds.map((terminalId) =>
-          encodeScopedTerminalUiId("thread", terminalId),
-        ),
-      })),
-    ];
-    const customTerminalTitlesById = {
-      ...(workspaceTerminalState
-        ? Object.fromEntries(
-            Object.entries(workspaceTerminalState.customTerminalTitlesById).map(
-              ([terminalId, title]) => [encodeScopedTerminalUiId("workspace", terminalId), title],
-            ),
-          )
-        : {}),
-      ...Object.fromEntries(
-        Object.entries(threadTerminalState.customTerminalTitlesById).map(([terminalId, title]) => [
-          encodeScopedTerminalUiId("thread", terminalId),
-          title,
-        ]),
-      ),
-    };
-    const autoTerminalTitlesById = {
-      ...(workspaceTerminalState
-        ? Object.fromEntries(
-            Object.entries(workspaceTerminalState.autoTerminalTitlesById).map(
-              ([terminalId, title]) => [encodeScopedTerminalUiId("workspace", terminalId), title],
-            ),
-          )
-        : {}),
-      ...Object.fromEntries(
-        Object.entries(threadTerminalState.autoTerminalTitlesById).map(([terminalId, title]) => [
-          encodeScopedTerminalUiId("thread", terminalId),
-          title,
-        ]),
-      ),
-    };
-    const terminalIconsById = {
-      ...(workspaceTerminalState
-        ? Object.fromEntries(
-            Object.entries(workspaceTerminalState.terminalIconsById).map(([terminalId, icon]) => [
-              encodeScopedTerminalUiId("workspace", terminalId),
-              icon,
-            ]),
-          )
-        : {}),
-      ...Object.fromEntries(
-        Object.entries(threadTerminalState.terminalIconsById).map(([terminalId, icon]) => [
-          encodeScopedTerminalUiId("thread", terminalId),
-          icon,
-        ]),
-      ),
-    };
-    const terminalColorsById = {
-      ...(workspaceTerminalState
-        ? Object.fromEntries(
-            Object.entries(workspaceTerminalState.terminalColorsById).map(([terminalId, color]) => [
-              encodeScopedTerminalUiId("workspace", terminalId),
-              color,
-            ]),
-          )
-        : {}),
-      ...Object.fromEntries(
-        Object.entries(threadTerminalState.terminalColorsById).map(([terminalId, color]) => [
-          encodeScopedTerminalUiId("thread", terminalId),
-          color,
-        ]),
-      ),
-    };
-    const splitRatiosByGroupId = {
-      ...(workspaceTerminalState
-        ? Object.fromEntries(
-            Object.entries(workspaceTerminalState.splitRatiosByGroupId).map(([groupId, ratios]) => [
-              encodeScopedTerminalGroupId("workspace", groupId),
-              ratios,
-            ]),
-          )
-        : {}),
-      ...Object.fromEntries(
-        Object.entries(threadTerminalState.splitRatiosByGroupId).map(([groupId, ratios]) => [
-          encodeScopedTerminalGroupId("thread", groupId),
-          ratios,
-        ]),
-      ),
-    };
-    return {
-      terminalOpen: Boolean(
-        threadTerminalState.terminalOpen || workspaceTerminalState?.terminalOpen,
-      ),
-      terminalHeight: threadTerminalState.terminalHeight,
-      terminalSidebarWidth: threadTerminalState.terminalSidebarWidth,
-      terminalSidebarDensity: threadTerminalState.terminalSidebarDensity,
-      terminalIds,
-      runningTerminalIds,
-      activeTerminalId: encodeScopedTerminalUiId(
-        resolvedActiveTerminalScope,
-        activeScopeTerminalState.activeTerminalId,
-      ),
-      terminalGroups,
-      activeTerminalGroupId: encodeScopedTerminalGroupId(
-        resolvedActiveTerminalScope,
-        activeScopeTerminalState.activeTerminalGroupId,
-      ),
-      customTerminalTitlesById,
-      autoTerminalTitlesById,
-      terminalIconsById,
-      terminalColorsById,
-      splitRatiosByGroupId,
-    };
-  }, [
-    activeScopeTerminalState.activeTerminalGroupId,
-    activeScopeTerminalState.activeTerminalId,
-    resolvedActiveTerminalScope,
-    threadTerminalState,
-    workspaceTerminalState,
-  ]);
-  const resolveTerminalDescriptor = useCallback(
-    (terminalId: string): CombinedTerminalDescriptor | null => {
-      return terminalDescriptorById[terminalId] ?? null;
-    },
-    [terminalDescriptorById],
-  );
-  const resolveScopeThreadId = useCallback(
-    (scope: TerminalScopeKind): ThreadId => {
-      if (scope === "workspace" && workspaceTerminalScopeId) {
-        return workspaceTerminalScopeId;
-      }
-      return threadId;
-    },
-    [threadId, workspaceTerminalScopeId],
-  );
-  const resolveScopeState = useCallback(
-    (scope: TerminalScopeKind) => {
-      if (scope === "workspace" && workspaceTerminalState) {
-        return workspaceTerminalState;
-      }
-      return threadTerminalState;
-    },
-    [threadTerminalState, workspaceTerminalState],
-  );
-  const resolveScopeFromTerminalId = useCallback(
-    (terminalId: string): TerminalScopeKind => {
-      return resolveTerminalDescriptor(terminalId)?.scope ?? "thread";
-    },
-    [resolveTerminalDescriptor],
-  );
-  useEffect(() => {
-    if (activeTerminalScope === "workspace" && !workspaceTerminalState) {
-      setActiveTerminalScope("thread");
-    }
-  }, [activeTerminalScope, workspaceTerminalState]);
+  const terminalState = threadTerminalState;
   const handleActiveProjectChange = useCallback(
     (projectId: ProjectId) => {
       void handleNewThread(
@@ -3028,11 +2776,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     (open: boolean) => {
       if (!activeThreadId) return;
       storeSetTerminalOpen(activeThreadId, open);
-      if (workspaceTerminalScopeId) {
-        storeSetTerminalOpen(workspaceTerminalScopeId, open);
-      }
     },
-    [activeThreadId, storeSetTerminalOpen, workspaceTerminalScopeId],
+    [activeThreadId, storeSetTerminalOpen],
   );
   const setTerminalHeight = useCallback(
     (height: number) => {
@@ -3454,128 +3199,78 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   const splitTerminal = useCallback(() => {
     if (!activeThreadId || hasReachedSplitLimit) return;
-    const scope = resolveScopeFromTerminalId(terminalState.activeTerminalId);
-    const scopeThreadId = resolveScopeThreadId(scope);
     const terminalId = `terminal-${randomUUID()}`;
-    storeSplitTerminal(scopeThreadId, terminalId);
-    setActiveTerminalScope(scope);
+    storeSplitTerminal(activeThreadId, terminalId);
     setTerminalFocusRequestId((value) => value + 1);
-  }, [
-    activeThreadId,
-    hasReachedSplitLimit,
-    resolveScopeFromTerminalId,
-    resolveScopeThreadId,
-    storeSplitTerminal,
-    terminalState.activeTerminalId,
-  ]);
-  const createNewTerminalForScope = useCallback(
-    (scope: TerminalScopeKind) => {
-      if (!activeThreadId) return;
-      if (scope === "workspace" && !workspaceTerminalScopeId) {
-        return;
-      }
-      const scopeThreadId = resolveScopeThreadId(scope);
-      const terminalId = `terminal-${randomUUID()}`;
-      storeNewTerminal(scopeThreadId, terminalId);
-      setActiveTerminalScope(scope);
-      setTerminalFocusRequestId((value) => value + 1);
-    },
-    [activeThreadId, resolveScopeThreadId, storeNewTerminal, workspaceTerminalScopeId],
-  );
+  }, [activeThreadId, hasReachedSplitLimit, storeSplitTerminal]);
   const createNewTerminal = useCallback(() => {
-    const scope = resolveScopeFromTerminalId(terminalState.activeTerminalId);
-    createNewTerminalForScope(scope);
-  }, [createNewTerminalForScope, resolveScopeFromTerminalId, terminalState.activeTerminalId]);
+    if (!activeThreadId) return;
+    const terminalId = `terminal-${randomUUID()}`;
+    storeNewTerminal(activeThreadId, terminalId);
+    setTerminalFocusRequestId((value) => value + 1);
+  }, [activeThreadId, storeNewTerminal]);
   const activateTerminal = useCallback(
     (terminalId: string) => {
-      const descriptor = resolveTerminalDescriptor(terminalId);
-      if (!descriptor) return;
-      storeSetActiveTerminal(descriptor.runtimeThreadId, descriptor.runtimeTerminalId);
-      setActiveTerminalScope(descriptor.scope);
+      if (!activeThreadId) return;
+      storeSetActiveTerminal(activeThreadId, terminalId);
       setTerminalFocusRequestId((value) => value + 1);
     },
-    [resolveTerminalDescriptor, storeSetActiveTerminal],
+    [activeThreadId, storeSetActiveTerminal],
   );
   const moveTerminal = useCallback(
     (terminalId: string, targetGroupId: string, targetIndex: number) => {
-      const descriptor = resolveTerminalDescriptor(terminalId);
-      const targetGroup = decodeScopedTerminalGroupId(targetGroupId);
-      if (!descriptor || !targetGroup || descriptor.scope !== targetGroup.scope) return;
-      storeMoveTerminal(
-        resolveScopeThreadId(descriptor.scope),
-        descriptor.runtimeTerminalId,
-        targetGroup.groupId,
-        targetIndex,
-      );
+      if (!activeThreadId) return;
+      storeMoveTerminal(activeThreadId, terminalId, targetGroupId, targetIndex);
     },
-    [resolveScopeThreadId, resolveTerminalDescriptor, storeMoveTerminal],
+    [activeThreadId, storeMoveTerminal],
   );
   const unsplitTerminal = useCallback(
     (terminalId: string) => {
-      const descriptor = resolveTerminalDescriptor(terminalId);
-      if (!descriptor) return;
-      const scopeState = resolveScopeState(descriptor.scope);
-      const sourceGroupIndex = scopeState.terminalGroups.findIndex((group) =>
-        group.terminalIds.includes(descriptor.runtimeTerminalId),
+      if (!activeThreadId) return;
+      const sourceGroupIndex = terminalState.terminalGroups.findIndex((group) =>
+        group.terminalIds.includes(terminalId),
       );
       const sourceGroup =
-        sourceGroupIndex >= 0 ? scopeState.terminalGroups[sourceGroupIndex] : null;
+        sourceGroupIndex >= 0 ? terminalState.terminalGroups[sourceGroupIndex] : null;
       if (!sourceGroup || sourceGroup.terminalIds.length <= 1) {
         return;
       }
-      storeMoveTerminalToNewGroup(
-        resolveScopeThreadId(descriptor.scope),
-        descriptor.runtimeTerminalId,
-        sourceGroupIndex + 1,
-      );
-      setActiveTerminalScope(descriptor.scope);
+      storeMoveTerminalToNewGroup(activeThreadId, terminalId, sourceGroupIndex + 1);
       setTerminalFocusRequestId((value) => value + 1);
     },
-    [
-      resolveScopeState,
-      resolveScopeThreadId,
-      resolveTerminalDescriptor,
-      storeMoveTerminalToNewGroup,
-    ],
+    [activeThreadId, storeMoveTerminalToNewGroup, terminalState.terminalGroups],
   );
   const renameTerminal = useCallback(
     (terminalId: string, title: string) => {
-      const descriptor = resolveTerminalDescriptor(terminalId);
-      if (!descriptor) return;
-      storeRenameTerminal(descriptor.runtimeThreadId, descriptor.runtimeTerminalId, title);
+      if (!activeThreadId) return;
+      storeRenameTerminal(activeThreadId, terminalId, title);
     },
-    [resolveTerminalDescriptor, storeRenameTerminal],
+    [activeThreadId, storeRenameTerminal],
   );
   const clearTerminal = useCallback(
     (terminalId: string) => {
-      const descriptor = resolveTerminalDescriptor(terminalId);
-      if (!descriptor) return;
       const api = readNativeApi();
-      if (!api) return;
-      storeSetTerminalAutoTitle(descriptor.runtimeThreadId, descriptor.runtimeTerminalId, null);
+      if (!api || !activeThreadId) return;
+      storeSetTerminalAutoTitle(activeThreadId, terminalId, null);
       runAsyncTask(
         api.terminal.clear({
-          threadId: descriptor.runtimeThreadId,
-          terminalId: descriptor.runtimeTerminalId,
+          threadId: activeThreadId,
+          terminalId,
         }),
         "Failed to clear the terminal from ChatView.",
       );
     },
-    [resolveTerminalDescriptor, storeSetTerminalAutoTitle],
+    [activeThreadId, storeSetTerminalAutoTitle],
   );
   const closeTerminalTarget = useCallback(
-    (targetThreadId: ThreadId, targetTerminalId: string) => {
+    (targetTerminalId: string) => {
       const api = readNativeApi();
-      if (!api) return;
-      const targetTerminalState = selectThreadTerminalState(
-        terminalStateByThreadId,
-        targetThreadId,
-      );
-      const isFinalTerminal = targetTerminalState.terminalIds.length <= 1;
+      if (!api || !activeThreadId) return;
+      const isFinalTerminal = terminalState.terminalIds.length <= 1;
       const fallbackExitWrite = () =>
         api.terminal
           .write({
-            threadId: targetThreadId,
+            threadId: activeThreadId,
             terminalId: targetTerminalId,
             data: "exit\n",
           })
@@ -3590,7 +3285,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           if (isFinalTerminal) {
             await api.terminal
               .clear({
-                threadId: targetThreadId,
+                threadId: activeThreadId,
                 terminalId: targetTerminalId,
               })
               .catch((error) => {
@@ -3601,7 +3296,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               });
           }
           await api.terminal.close({
-            threadId: targetThreadId,
+            threadId: activeThreadId,
             terminalId: targetTerminalId,
             deleteHistory: true,
           });
@@ -3609,20 +3304,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
       } else {
         void fallbackExitWrite();
       }
-      storeCloseTerminal(targetThreadId, targetTerminalId);
+      storeCloseTerminal(activeThreadId, targetTerminalId);
       setTerminalFocusRequestId((value) => value + 1);
     },
-    [storeCloseTerminal, terminalStateByThreadId],
+    [activeThreadId, storeCloseTerminal, terminalState.terminalIds.length],
   );
   const restartTerminal = useCallback(
     (terminalId: string) => {
       const api = readNativeApi();
-      const descriptor = resolveTerminalDescriptor(terminalId);
-      if (!descriptor || !api || !activeProject) return;
+      if (!activeThreadId || !api || !activeProject) return;
       void api.terminal
         .restart({
-          threadId: descriptor.runtimeThreadId,
-          terminalId: descriptor.runtimeTerminalId,
+          threadId: activeThreadId,
+          terminalId,
           cwd: gitCwd ?? activeProject.cwd,
           env: threadTerminalRuntimeEnv,
           cols: SCRIPT_TERMINAL_COLS,
@@ -3635,226 +3329,105 @@ export default function ChatView({ threadId }: ChatViewProps) {
           reportBackgroundError("Failed to restart the terminal from ChatView.", err);
         });
     },
-    [activeProject, gitCwd, resolveTerminalDescriptor, threadTerminalRuntimeEnv],
+    [activeProject, activeThreadId, gitCwd, threadTerminalRuntimeEnv],
   );
   const setTerminalAutoTitle = useCallback(
     (terminalId: string, title: string | null) => {
-      const descriptor = resolveTerminalDescriptor(terminalId);
-      if (!descriptor) return;
-      storeSetTerminalAutoTitle(descriptor.runtimeThreadId, descriptor.runtimeTerminalId, title);
+      if (!activeThreadId) return;
+      storeSetTerminalAutoTitle(activeThreadId, terminalId, title);
     },
-    [resolveTerminalDescriptor, storeSetTerminalAutoTitle],
+    [activeThreadId, storeSetTerminalAutoTitle],
   );
   const setTerminalIcon = useCallback(
     (terminalId: string, icon: Parameters<typeof storeSetTerminalIcon>[2]) => {
-      const descriptor = resolveTerminalDescriptor(terminalId);
-      if (!descriptor) return;
-      storeSetTerminalIcon(descriptor.runtimeThreadId, descriptor.runtimeTerminalId, icon);
+      if (!activeThreadId) return;
+      storeSetTerminalIcon(activeThreadId, terminalId, icon);
     },
-    [resolveTerminalDescriptor, storeSetTerminalIcon],
+    [activeThreadId, storeSetTerminalIcon],
   );
   const setTerminalColor = useCallback(
     (terminalId: string, color: Parameters<typeof storeSetTerminalColor>[2]) => {
-      const descriptor = resolveTerminalDescriptor(terminalId);
-      if (!descriptor) return;
-      storeSetTerminalColor(descriptor.runtimeThreadId, descriptor.runtimeTerminalId, color);
+      if (!activeThreadId) return;
+      storeSetTerminalColor(activeThreadId, terminalId, color);
     },
-    [resolveTerminalDescriptor, storeSetTerminalColor],
+    [activeThreadId, storeSetTerminalColor],
   );
   const setTerminalGroupSplitRatios = useCallback(
     (groupId: string, ratios: number[]) => {
-      const parsedGroup = decodeScopedTerminalGroupId(groupId);
-      if (!parsedGroup) return;
-      storeSetTerminalGroupSplitRatios(
-        resolveScopeThreadId(parsedGroup.scope),
-        parsedGroup.groupId,
-        ratios,
-      );
+      if (!activeThreadId) return;
+      storeSetTerminalGroupSplitRatios(activeThreadId, groupId, ratios);
     },
-    [resolveScopeThreadId, storeSetTerminalGroupSplitRatios],
+    [activeThreadId, storeSetTerminalGroupSplitRatios],
   );
   const duplicateTerminal = useCallback(
     (terminalId: string) => {
-      const descriptor = resolveTerminalDescriptor(terminalId);
-      if (!descriptor) return;
-      const scopeThreadId = resolveScopeThreadId(descriptor.scope);
-      const scopeState = resolveScopeState(descriptor.scope);
-      const sourceGroup = scopeState.terminalGroups.find((group) =>
-        group.terminalIds.includes(descriptor.runtimeTerminalId),
+      if (!activeThreadId) return;
+      const sourceGroup = terminalState.terminalGroups.find((group) =>
+        group.terminalIds.includes(terminalId),
       );
-      const sourceIndex = sourceGroup?.terminalIds.indexOf(descriptor.runtimeTerminalId) ?? -1;
+      const sourceIndex = sourceGroup?.terminalIds.indexOf(terminalId) ?? -1;
       const nextTerminalId = `terminal-${randomUUID()}`;
 
       if (sourceGroup && sourceGroup.terminalIds.length < MAX_TERMINALS_PER_GROUP) {
-        storeNewTerminal(scopeThreadId, nextTerminalId);
+        storeNewTerminal(activeThreadId, nextTerminalId);
         storeMoveTerminal(
-          scopeThreadId,
+          activeThreadId,
           nextTerminalId,
           sourceGroup.id,
           Math.max(sourceIndex + 1, 0),
         );
       } else {
-        storeNewTerminal(scopeThreadId, nextTerminalId);
+        storeNewTerminal(activeThreadId, nextTerminalId);
       }
 
-      const icon = scopeState.terminalIconsById[descriptor.runtimeTerminalId] ?? null;
-      const color = scopeState.terminalColorsById[descriptor.runtimeTerminalId] ?? null;
+      const icon = terminalState.terminalIconsById[terminalId] ?? null;
+      const color = terminalState.terminalColorsById[terminalId] ?? null;
       if (icon) {
-        storeSetTerminalIcon(scopeThreadId, nextTerminalId, icon);
+        storeSetTerminalIcon(activeThreadId, nextTerminalId, icon);
       }
       if (color) {
-        storeSetTerminalColor(scopeThreadId, nextTerminalId, color);
+        storeSetTerminalColor(activeThreadId, nextTerminalId, color);
       }
-      setActiveTerminalScope(descriptor.scope);
       setTerminalFocusRequestId((value) => value + 1);
     },
     [
-      resolveScopeState,
-      resolveScopeThreadId,
-      resolveTerminalDescriptor,
+      activeThreadId,
       storeMoveTerminal,
       storeNewTerminal,
       storeSetTerminalColor,
       storeSetTerminalIcon,
+      terminalState.terminalColorsById,
+      terminalState.terminalGroups,
+      terminalState.terminalIconsById,
     ],
   );
   const clearAllTerminals = useCallback(() => {
     const api = readNativeApi();
     if (!activeThreadId || !api) return;
-    const scopeThreadId = resolveScopeThreadId(resolvedActiveTerminalScope);
-    const scopeState = resolveScopeState(resolvedActiveTerminalScope);
-    for (const terminalId of scopeState.terminalIds) {
-      storeSetTerminalAutoTitle(scopeThreadId, terminalId, null);
+    for (const terminalId of terminalState.terminalIds) {
+      storeSetTerminalAutoTitle(activeThreadId, terminalId, null);
       runAsyncTask(
-        api.terminal.clear({ threadId: scopeThreadId, terminalId }),
+        api.terminal.clear({ threadId: activeThreadId, terminalId }),
         "Failed to clear a terminal while clearing all terminals from ChatView.",
       );
     }
-  }, [
-    activeThreadId,
-    resolveScopeState,
-    resolveScopeThreadId,
-    resolvedActiveTerminalScope,
-    storeSetTerminalAutoTitle,
-  ]);
+  }, [activeThreadId, storeSetTerminalAutoTitle, terminalState.terminalIds]);
   const closeAllTerminals = useCallback(() => {
     const api = readNativeApi();
     if (!activeThreadId || !api) return;
-    const scopeThreadId = resolveScopeThreadId(resolvedActiveTerminalScope);
     runAsyncTask(
-      api.terminal.close({ threadId: scopeThreadId, deleteHistory: true }),
+      api.terminal.close({ threadId: activeThreadId, deleteHistory: true }),
       "Failed to close all terminals from ChatView.",
     );
-    storeClearTerminalState(scopeThreadId);
+    storeClearTerminalState(activeThreadId);
     setTerminalFocusRequestId((value) => value + 1);
-  }, [activeThreadId, resolveScopeThreadId, resolvedActiveTerminalScope, storeClearTerminalState]);
+  }, [activeThreadId, storeClearTerminalState]);
   const closeTerminal = useCallback(
     (terminalId: string) => {
-      const descriptor = resolveTerminalDescriptor(terminalId);
-      if (!descriptor || !activeThreadId) return;
-      closeTerminalTarget(descriptor.runtimeThreadId, descriptor.runtimeTerminalId);
+      if (!activeThreadId) return;
+      closeTerminalTarget(terminalId);
     },
-    [activeThreadId, closeTerminalTarget, resolveTerminalDescriptor],
-  );
-  const sessionTerminalOverview = useMemo<TerminalSessionOverview>(() => {
-    const overviewEntries: Array<TerminalSessionOverviewItem & { lastVisitedAtMs: number }> = [];
-    for (const threadWithTerminalsId of Object.keys(terminalStateByThreadId) as ThreadId[]) {
-      const terminalStateForThread = selectThreadTerminalState(
-        terminalStateByThreadId,
-        threadWithTerminalsId,
-      );
-      const threadWithTerminals = getThreadById(threads, threadWithTerminalsId);
-      if (!threadWithTerminals || threadWithTerminals.archivedAt) {
-        continue;
-      }
-      const lastVisitedAtMs = Date.parse(
-        threadLastVisitedAtById[threadWithTerminalsId] ??
-          threadWithTerminals.updatedAt ??
-          threadWithTerminals.createdAt,
-      );
-      for (const runtimeTerminalId of terminalStateForThread.terminalIds) {
-        overviewEntries.push({
-          id: `${threadWithTerminalsId}:${runtimeTerminalId}`,
-          threadId: threadWithTerminalsId,
-          runtimeTerminalId,
-          terminalLabel:
-            terminalStateForThread.customTerminalTitlesById[runtimeTerminalId] ??
-            terminalStateForThread.autoTerminalTitlesById[runtimeTerminalId] ??
-            "Terminal",
-          threadTitle: threadWithTerminals.title,
-          isRunning: terminalStateForThread.runningTerminalIds.includes(runtimeTerminalId),
-          isCurrentThread: threadWithTerminalsId === activeThreadId,
-          isActive:
-            threadWithTerminalsId === activeThreadId &&
-            terminalStateForThread.activeTerminalId === runtimeTerminalId,
-          icon: terminalStateForThread.terminalIconsById[runtimeTerminalId] ?? null,
-          color: terminalStateForThread.terminalColorsById[runtimeTerminalId] ?? null,
-          lastVisitedAtMs: Number.isFinite(lastVisitedAtMs) ? lastVisitedAtMs : 0,
-        });
-      }
-    }
-    const sortOverviewEntries = (
-      left: TerminalSessionOverviewItem & { lastVisitedAtMs: number },
-      right: TerminalSessionOverviewItem & { lastVisitedAtMs: number },
-    ) => {
-      if (left.isCurrentThread !== right.isCurrentThread) {
-        return left.isCurrentThread ? -1 : 1;
-      }
-      if (left.lastVisitedAtMs !== right.lastVisitedAtMs) {
-        return right.lastVisitedAtMs - left.lastVisitedAtMs;
-      }
-      return left.terminalLabel.localeCompare(right.terminalLabel);
-    };
-    return {
-      live: overviewEntries
-        .filter((entry) => entry.isRunning)
-        .toSorted(sortOverviewEntries)
-        .map(({ lastVisitedAtMs: _lastVisitedAtMs, ...entry }) => entry),
-      recent: overviewEntries
-        .filter((entry) => !entry.isRunning)
-        .toSorted(sortOverviewEntries)
-        .slice(0, 5)
-        .map(({ lastVisitedAtMs: _lastVisitedAtMs, ...entry }) => entry),
-    };
-  }, [activeThreadId, terminalStateByThreadId, threadLastVisitedAtById, threads]);
-  const activateSessionTerminal = useCallback(
-    (item: TerminalSessionOverviewItem) => {
-      storeSetTerminalOpen(item.threadId, true);
-      storeSetActiveTerminal(item.threadId, item.runtimeTerminalId);
-      if (item.threadId === activeThreadId) {
-        setActiveTerminalScope("thread");
-        setTerminalFocusRequestId((value) => value + 1);
-        return;
-      }
-      void navigate({
-        to: "/$threadId",
-        params: { threadId: item.threadId },
-      });
-    },
-    [activeThreadId, navigate, storeSetActiveTerminal, storeSetTerminalOpen],
-  );
-  const handleSessionTerminalAction = useCallback(
-    (item: TerminalSessionOverviewItem, action: "open" | "clear" | "close") => {
-      if (action === "open") {
-        activateSessionTerminal(item);
-        return;
-      }
-      const api = readNativeApi();
-      if (!api) return;
-      if (action === "clear") {
-        storeSetTerminalAutoTitle(item.threadId, item.runtimeTerminalId, null);
-        runAsyncTask(
-          api.terminal.clear({
-            threadId: item.threadId,
-            terminalId: item.runtimeTerminalId,
-          }),
-          "Failed to clear a session terminal from ChatView.",
-        );
-        return;
-      }
-      closeTerminalTarget(item.threadId, item.runtimeTerminalId);
-    },
-    [activateSessionTerminal, closeTerminalTarget, storeSetTerminalAutoTitle],
+    [activeThreadId, closeTerminalTarget],
   );
   const runProjectScript = useCallback(
     async (
@@ -3875,15 +3448,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
           return { ...current, [activeProject.id]: script.id };
         });
       }
-      const scriptScope: TerminalScopeKind = workspaceTerminalScopeId ? "workspace" : "thread";
-      const scriptScopeThreadId = resolveScopeThreadId(scriptScope);
-      const scriptScopeState = resolveScopeState(scriptScope);
       const targetCwd = options?.cwd ?? gitCwd ?? activeProject.cwd;
       const baseTerminalId =
-        scriptScopeState.activeTerminalId ||
-        scriptScopeState.terminalIds[0] ||
+        terminalState.activeTerminalId ||
+        terminalState.terminalIds[0] ||
         DEFAULT_THREAD_TERMINAL_ID;
-      const isBaseTerminalBusy = scriptScopeState.runningTerminalIds.includes(baseTerminalId);
+      const isBaseTerminalBusy = terminalState.runningTerminalIds.includes(baseTerminalId);
       const wantsNewTerminal = Boolean(options?.preferNewTerminal) || isBaseTerminalBusy;
       const shouldCreateNewTerminal = wantsNewTerminal;
       const targetTerminalId = shouldCreateNewTerminal
@@ -3891,14 +3461,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
         : baseTerminalId;
 
       setTerminalOpen(true);
-      setActiveTerminalScope(scriptScope);
       if (shouldCreateNewTerminal) {
-        storeNewTerminal(scriptScopeThreadId, targetTerminalId);
+        storeNewTerminal(activeThreadId, targetTerminalId);
       } else {
-        storeSetActiveTerminal(scriptScopeThreadId, targetTerminalId);
+        storeSetActiveTerminal(activeThreadId, targetTerminalId);
       }
       storeSetTerminalAutoTitle(
-        scriptScopeThreadId,
+        activeThreadId,
         targetTerminalId,
         deriveTerminalTitleFromCommand(script.command) ?? script.name,
       );
@@ -3913,7 +3482,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       });
       const openTerminalInput: TerminalOpenInput = shouldCreateNewTerminal
         ? {
-            threadId: scriptScopeThreadId,
+            threadId: activeThreadId,
             terminalId: targetTerminalId,
             cwd: targetCwd,
             env: runtimeEnv,
@@ -3921,7 +3490,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             rows: SCRIPT_TERMINAL_ROWS,
           }
         : {
-            threadId: scriptScopeThreadId,
+            threadId: activeThreadId,
             terminalId: targetTerminalId,
             cwd: targetCwd,
             env: runtimeEnv,
@@ -3930,7 +3499,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       try {
         await api.terminal.open(openTerminalInput);
         await api.terminal.write({
-          threadId: scriptScopeThreadId,
+          threadId: activeThreadId,
           terminalId: targetTerminalId,
           data: `${script.command}\r`,
         });
@@ -3946,15 +3515,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
       activeThread,
       activeThreadId,
       gitCwd,
-      resolveScopeState,
-      resolveScopeThreadId,
       setTerminalOpen,
       setThreadError,
       storeNewTerminal,
       storeSetTerminalAutoTitle,
       storeSetActiveTerminal,
       setLastInvokedScriptByProjectId,
-      workspaceTerminalScopeId,
+      terminalState.activeTerminalId,
+      terminalState.runningTerminalIds,
+      terminalState.terminalIds,
     ],
   );
 
@@ -7022,7 +6591,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const terminalDrawerProps =
     terminalState.terminalOpen && activeProject
       ? {
-          threadId: workspaceTerminalScopeId ?? activeThread.id,
+          threadId: activeThread.id,
           cwd: gitCwd ?? activeProject.cwd,
           runtimeEnv: threadTerminalRuntimeEnv,
           height: terminalState.terminalHeight,
@@ -7038,8 +6607,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
           terminalIconsById: terminalState.terminalIconsById,
           terminalColorsById: terminalState.terminalColorsById,
           splitRatiosByGroupId: terminalState.splitRatiosByGroupId,
-          terminalRuntimeThreadIdById,
-          terminalRuntimeIdById,
           focusRequestId: terminalFocusRequestId,
           onSplitTerminal: splitTerminal,
           onUnsplitTerminal: unsplitTerminal,
@@ -7064,9 +6631,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
           onSidebarWidthChange: setTerminalSidebarWidth,
           onSidebarDensityChange: setTerminalSidebarDensity,
           onAddTerminalContext: addTerminalContextToDraft,
-          sessionOverview: sessionTerminalOverview,
-          onSessionTerminalSelect: activateSessionTerminal,
-          onSessionTerminalAction: handleSessionTerminalAction,
         }
       : null;
   const expandedImageOverlay =
