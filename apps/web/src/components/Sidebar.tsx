@@ -190,8 +190,12 @@ import {
 } from "../lib/connectionRouting";
 import { useChatThreadBoardStore } from "../chatThreadBoardStore";
 const THREAD_REVEAL_STEP = 5;
-const REMOTE_HOST_REFRESH_INTERVAL_MS = 6_000;
+const REMOTE_HOST_REFRESH_INTERVAL_MS = 20_000;
+const REMOTE_HOST_HIDDEN_REFRESH_INTERVAL_MS = 90_000;
 const REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS = 1_500;
+const REMOTE_SIDEBAR_SNAPSHOT_FETCH_CONCURRENCY = 2;
+const REMOTE_SNAPSHOT_BACKGROUND_MERGE_TIMEOUT_MS = 600;
+const REMOTE_SNAPSHOT_BACKGROUND_MERGE_DELAY_MS = 120;
 const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
 const sortedSidebarThreadsCache = new WeakMap<
   ReadonlyArray<SidebarThreadSummary>,
@@ -259,6 +263,33 @@ function sortByUpdatedAtDescending<T extends { readonly updatedAt: string }>(
   return [...entries].toSorted((left, right) => {
     return resolveIsoTimestamp(right.updatedAt) - resolveIsoTimestamp(left.updatedAt);
   });
+}
+
+async function mapWithConcurrencyLimit<TInput, TResult>(
+  entries: ReadonlyArray<TInput>,
+  concurrency: number,
+  mapper: (entry: TInput, index: number) => Promise<TResult>,
+): Promise<TResult[]> {
+  if (entries.length === 0) {
+    return [];
+  }
+  const limitedConcurrency = Math.max(1, Math.min(entries.length, Math.floor(concurrency)));
+  const results: TResult[] = [];
+  results.length = entries.length;
+  let nextIndex = 0;
+  const workers = Array.from({ length: limitedConcurrency }, async () => {
+    while (nextIndex < entries.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const entry = entries[index];
+      if (entry === undefined) {
+        continue;
+      }
+      results[index] = await mapper(entry, index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function remoteProjectKey(connectionUrl: string, projectId: ProjectId): string {
@@ -907,6 +938,14 @@ export default function Sidebar() {
     remoteSidebarHostSnapshotCache,
   );
   const registeredRemoteRouteConnectionUrlsRef = useRef<Set<string>>(new Set());
+  const remoteSnapshotSequenceByConnectionRef = useRef<Map<string, number>>(new Map());
+  const pendingRemoteSnapshotMergeByConnectionRef = useRef<Map<string, OrchestrationReadModel>>(
+    new Map(),
+  );
+  const remoteSnapshotMergeScheduledRef = useRef(false);
+  const remoteSnapshotMergeHandleRef = useRef<{ kind: "idle" | "timeout"; id: number } | null>(
+    null,
+  );
   const remoteSidebarRefreshVersionRef = useRef(0);
   const remoteSidebarRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const [remoteProjectExpandedById, setRemoteProjectExpandedById] = useState<
@@ -1036,6 +1075,68 @@ export default function Sidebar() {
     );
     clearPromotedDraftThreads(threads.map((thread) => thread.id));
   }, []);
+  const clearRemoteSnapshotMergeHandle = useCallback(() => {
+    remoteSnapshotMergeScheduledRef.current = false;
+    const handle = remoteSnapshotMergeHandleRef.current;
+    if (!handle) {
+      return;
+    }
+    remoteSnapshotMergeHandleRef.current = null;
+    if (handle.kind === "idle") {
+      const idleWindow = window as Window & {
+        readonly cancelIdleCallback?: (handleId: number) => void;
+      };
+      idleWindow.cancelIdleCallback?.(handle.id);
+      return;
+    }
+    window.clearTimeout(handle.id);
+  }, []);
+  const flushRemoteSnapshotMergeQueue = useCallback(() => {
+    remoteSnapshotMergeScheduledRef.current = false;
+    remoteSnapshotMergeHandleRef.current = null;
+    const pending = pendingRemoteSnapshotMergeByConnectionRef.current;
+    if (pending.size === 0) {
+      return;
+    }
+
+    const merges = [...pending.entries()];
+    pending.clear();
+    const store = useStore.getState();
+    for (const [connectionUrl, snapshot] of merges) {
+      store.mergeServerReadModel(snapshot, {
+        ...LEAN_SNAPSHOT_RECOVERY_INPUT,
+        connectionUrl,
+      });
+    }
+    reconcileThreadDerivedState();
+  }, [reconcileThreadDerivedState]);
+  const scheduleRemoteSnapshotMergeFlush = useCallback(() => {
+    if (remoteSnapshotMergeScheduledRef.current) {
+      return;
+    }
+    remoteSnapshotMergeScheduledRef.current = true;
+    const runFlush = () => {
+      flushRemoteSnapshotMergeQueue();
+    };
+    const idleWindow = window as Window & {
+      readonly requestIdleCallback?: (
+        callback: (deadline: IdleDeadline) => void,
+        options?: { timeout?: number },
+      ) => number;
+    };
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      const handleId = idleWindow.requestIdleCallback(
+        () => {
+          runFlush();
+        },
+        { timeout: REMOTE_SNAPSHOT_BACKGROUND_MERGE_TIMEOUT_MS },
+      );
+      remoteSnapshotMergeHandleRef.current = { kind: "idle", id: handleId };
+      return;
+    }
+    const handleId = window.setTimeout(runFlush, REMOTE_SNAPSHOT_BACKGROUND_MERGE_DELAY_MS);
+    remoteSnapshotMergeHandleRef.current = { kind: "timeout", id: handleId };
+  }, [flushRemoteSnapshotMergeQueue]);
   const refreshRemoteSidebarHosts = useCallback(async () => {
     const existingRefresh = remoteSidebarRefreshInFlightRef.current;
     if (existingRefresh) {
@@ -1060,6 +1161,8 @@ export default function Sidebar() {
       for (const connectionUrl of previousConnectionUrls) {
         if (!nextConnectionUrls.has(connectionUrl)) {
           unregisterRemoteRoute(connectionUrl);
+          remoteSnapshotSequenceByConnectionRef.current.delete(connectionUrl);
+          pendingRemoteSnapshotMergeByConnectionRef.current.delete(connectionUrl);
           const ownership = useHostConnectionStore.getState().getOwnership(connectionUrl);
           if (ownership) {
             useStore.getState().removeReadModelEntities(ownership);
@@ -1073,6 +1176,9 @@ export default function Sidebar() {
       remoteSidebarRefreshVersionRef.current = requestVersion;
 
       if (hosts.length === 0) {
+        remoteSnapshotSequenceByConnectionRef.current.clear();
+        pendingRemoteSnapshotMergeByConnectionRef.current.clear();
+        clearRemoteSnapshotMergeHandle();
         reconcileThreadDerivedState();
         setRemoteSidebarHosts((current) => (current.length === 0 ? current : []));
         return;
@@ -1081,8 +1187,10 @@ export default function Sidebar() {
       const previousEntriesByConnectionUrl = new Map(
         remoteSidebarHostsRef.current.map((entry) => [entry.connectionUrl, entry] as const),
       );
-      const hostEntries = await Promise.all(
-        hosts.map(async (host): Promise<RemoteSidebarHostEntry> => {
+      const hostEntries = await mapWithConcurrencyLimit(
+        hosts,
+        REMOTE_SIDEBAR_SNAPSHOT_FETCH_CONCURRENCY,
+        async (host): Promise<RemoteSidebarHostEntry> => {
           const connectionUrl = resolveHostConnectionWsUrl(host);
           const previousEntry = previousEntriesByConnectionUrl.get(connectionUrl);
           try {
@@ -1090,11 +1198,19 @@ export default function Sidebar() {
               connectionUrl,
               LEAN_SNAPSHOT_RECOVERY_INPUT,
             )) as OrchestrationReadModel;
-            useHostConnectionStore.getState().upsertSnapshotOwnership(connectionUrl, snapshot);
-            useStore.getState().mergeServerReadModel(snapshot, {
-              ...LEAN_SNAPSHOT_RECOVERY_INPUT,
-              connectionUrl,
-            });
+            const previousSequence =
+              remoteSnapshotSequenceByConnectionRef.current.get(connectionUrl);
+            const hasNewSnapshot = previousSequence !== snapshot.snapshotSequence;
+            if (hasNewSnapshot) {
+              useHostConnectionStore.getState().upsertSnapshotOwnership(connectionUrl, snapshot);
+              pendingRemoteSnapshotMergeByConnectionRef.current.set(connectionUrl, snapshot);
+              remoteSnapshotSequenceByConnectionRef.current.set(
+                connectionUrl,
+                snapshot.snapshotSequence,
+              );
+            } else if (previousEntry) {
+              return previousEntry;
+            }
             const mappedProjects = mapRemoteProjectsFromSnapshot(
               snapshot,
               appSettings.sidebarProjectSortOrder,
@@ -1132,9 +1248,11 @@ export default function Sidebar() {
               ? previousEntry
               : unavailableEntry;
           }
-        }),
+        },
       );
-      reconcileThreadDerivedState();
+      if (pendingRemoteSnapshotMergeByConnectionRef.current.size > 0) {
+        scheduleRemoteSnapshotMergeFlush();
+      }
 
       if (remoteSidebarRefreshVersionRef.current !== requestVersion) {
         return;
@@ -1152,15 +1270,27 @@ export default function Sidebar() {
         remoteSidebarRefreshInFlightRef.current = null;
       }
     }
-  }, [appSettings.sidebarProjectSortOrder, localDeviceConnectionUrl, reconcileThreadDerivedState]);
+  }, [
+    appSettings.sidebarProjectSortOrder,
+    clearRemoteSnapshotMergeHandle,
+    localDeviceConnectionUrl,
+    reconcileThreadDerivedState,
+    scheduleRemoteSnapshotMergeFlush,
+  ]);
   useEffect(() => {
     if (!bootstrapComplete) {
       return;
     }
+    const pendingRemoteSnapshotMergeByConnection =
+      pendingRemoteSnapshotMergeByConnectionRef.current;
     let cancelled = false;
     let timeoutHandle: number | null = null;
+    const resolveRefreshDelay = () =>
+      typeof document !== "undefined" && document.visibilityState === "hidden"
+        ? REMOTE_HOST_HIDDEN_REFRESH_INTERVAL_MS
+        : REMOTE_HOST_REFRESH_INTERVAL_MS;
 
-    const schedule = (delayMs = REMOTE_HOST_REFRESH_INTERVAL_MS) => {
+    const schedule = (delayMs = resolveRefreshDelay()) => {
       if (cancelled) {
         return;
       }
@@ -1176,22 +1306,37 @@ export default function Sidebar() {
       try {
         await refreshRemoteSidebarHosts();
       } finally {
-        schedule();
+        schedule(resolveRefreshDelay());
       }
     };
 
+    const onVisibilityChange = () => {
+      if (cancelled || document.visibilityState !== "visible") {
+        return;
+      }
+      if (timeoutHandle !== null) {
+        window.clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
+      void tick();
+    };
+
     schedule(REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
       if (timeoutHandle !== null) {
         window.clearTimeout(timeoutHandle);
       }
+      clearRemoteSnapshotMergeHandle();
+      pendingRemoteSnapshotMergeByConnection.clear();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       for (const connectionUrl of registeredRemoteRouteConnectionUrlsRef.current) {
         unregisterRemoteRoute(connectionUrl);
       }
       registeredRemoteRouteConnectionUrlsRef.current.clear();
     };
-  }, [bootstrapComplete, refreshRemoteSidebarHosts]);
+  }, [bootstrapComplete, clearRemoteSnapshotMergeHandle, refreshRemoteSidebarHosts]);
   const addProjectBaseDirectory = useMemo(() => {
     const configuredBaseDirectory = appSettings.addProjectBaseDirectory.trim();
     return configuredBaseDirectory.length > 0 ? configuredBaseDirectory : "~";

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import type { OrchestrationEvent } from "@ace/contracts";
 
 import { APP_DISPLAY_NAME } from "../branding";
 import { LEAN_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
@@ -50,6 +51,20 @@ type ScopedAgentAttentionRequest = ReturnType<typeof deriveAgentAttentionRequest
 };
 
 const REMOTE_NOTIFICATION_WARMUP_DELAY_MS = 1_500;
+const REMOTE_ATTENTION_REFRESH_DEBOUNCE_MS = 450;
+const REMOTE_ATTENTION_REFRESH_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
+  "thread.activity-appended",
+  "thread.archived",
+  "thread.created",
+  "thread.deleted",
+  "thread.meta-updated",
+  "thread.session-set",
+  "thread.unarchived",
+]);
+
+function shouldRefreshRemoteAttentionFromEvent(event: OrchestrationEvent): boolean {
+  return REMOTE_ATTENTION_REFRESH_EVENT_TYPES.has(event.type);
+}
 
 export function AgentAttentionNotificationBridge() {
   const navigate = useNavigate();
@@ -208,7 +223,7 @@ export function AgentAttentionNotificationBridge() {
           refreshInFlightByConnectionUrlRef.current.set(normalizedConnectionUrl, refreshRequest);
         };
         runRefresh();
-      }, 125);
+      }, REMOTE_ATTENTION_REFRESH_DEBOUNCE_MS);
       refreshTimerByConnectionUrlRef.current.set(normalizedConnectionUrl, timer);
     },
     [refreshConnectionAttentionRequests],
@@ -252,9 +267,14 @@ export function AgentAttentionNotificationBridge() {
         if (connectionUnsubscribeByUrl.has(connectionUrl)) {
           continue;
         }
-        const unsubscribe = getRouteRpcClient(connectionUrl).orchestration.onDomainEvent(() => {
-          queueConnectionAttentionRefresh(connectionUrl);
-        });
+        const unsubscribe = getRouteRpcClient(connectionUrl).orchestration.onDomainEvent(
+          (event) => {
+            if (!shouldRefreshRemoteAttentionFromEvent(event)) {
+              return;
+            }
+            queueConnectionAttentionRefresh(connectionUrl);
+          },
+        );
         connectionUnsubscribeByUrl.set(connectionUrl, unsubscribe);
         queueConnectionAttentionRefresh(connectionUrl);
       }

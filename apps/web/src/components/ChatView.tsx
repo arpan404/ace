@@ -1008,6 +1008,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
       ) ?? null,
     [activeServerConnectionUrl],
   );
+  useEffect(() => {
+    if (!activeThread?.id) {
+      return;
+    }
+    const store = useHostConnectionStore.getState();
+    store.upsertThreadOwnership(activeServerConnectionUrl, activeThread.id);
+    if (activeProjectId) {
+      store.upsertProjectOwnership(activeServerConnectionUrl, activeProjectId);
+    }
+  }, [activeProjectId, activeServerConnectionUrl, activeThread?.id]);
   const activeEnvironmentIcon =
     activeRemoteHost && (activeRemoteHost.iconGlyph || activeRemoteHost.iconColor)
       ? {
