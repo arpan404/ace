@@ -64,6 +64,7 @@ interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
   isStreaming?: boolean;
+  renderPlainText?: boolean;
   streamingTextState?: ChatMessageStreamingTextState;
   onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
@@ -283,40 +284,12 @@ function StreamingMarkdownText({ text }: { text: string }) {
   );
 }
 
-function scheduleDeferredMarkdownUpgrade(callback: () => void): () => void {
-  if (typeof window === "undefined") {
-    return () => undefined;
-  }
-
-  if (typeof window.requestIdleCallback === "function") {
-    const idleHandle = window.requestIdleCallback(
-      () => {
-        callback();
-      },
-      { timeout: 120 },
-    );
-    return () => {
-      if (typeof window.cancelIdleCallback === "function") {
-        window.cancelIdleCallback(idleHandle);
-      }
-    };
-  }
-
-  const timeoutHandle = window.setTimeout(() => {
-    callback();
-  }, 0);
-  return () => window.clearTimeout(timeoutHandle);
-}
-
 function PreviewTextPanel({
   text,
   dataAttribute,
 }: {
   text: string;
-  dataAttribute?:
-    | "data-streaming-markdown"
-    | "data-large-markdown-preview"
-    | "data-deferred-markdown";
+  dataAttribute?: "data-streaming-markdown" | "data-large-markdown-preview";
 }) {
   return (
     <div
@@ -401,14 +374,11 @@ function LargeMarkdownPreview({
   );
 }
 
-function CompletedMarkdownPreview({ text }: { text: string }) {
-  return <PreviewTextPanel text={text} dataAttribute="data-deferred-markdown" />;
-}
-
 function ChatMarkdown({
   text,
   cwd,
   isStreaming = false,
+  renderPlainText = false,
   streamingTextState,
   onLayoutChange,
   onOpenBrowserUrl = null,
@@ -416,8 +386,6 @@ function ChatMarkdown({
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const [renderPreference, setRenderPreference] = useState<"auto" | "markdown">("auto");
-  const [deferredMarkdownReady, setDeferredMarkdownReady] = useState(() => !isStreaming);
-  const previousStreamingRef = useRef(isStreaming);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isMarkdownTransitionPending, startMarkdownTransition] = useTransition();
   const useLargePreview =
@@ -510,36 +478,14 @@ function ChatMarkdown({
   );
 
   useEffect(() => {
-    const wasStreaming = previousStreamingRef.current;
-    previousStreamingRef.current = isStreaming;
-
     if (isStreaming) {
       setRenderPreference("auto");
-      setDeferredMarkdownReady(false);
-      return;
     }
-
-    if (useLargePreview) {
-      setDeferredMarkdownReady(false);
-      return;
-    }
-
-    if (!wasStreaming) {
-      setDeferredMarkdownReady(true);
-      return;
-    }
-
-    setDeferredMarkdownReady(false);
-    return scheduleDeferredMarkdownUpgrade(() => {
-      startMarkdownTransition(() => {
-        setDeferredMarkdownReady(true);
-      });
-    });
-  }, [isStreaming, startMarkdownTransition, useLargePreview]);
+  }, [isStreaming]);
 
   useEffect(() => {
     onLayoutChange?.();
-  }, [deferredMarkdownReady, isStreaming, onLayoutChange, renderPreference, text, useLargePreview]);
+  }, [isStreaming, onLayoutChange, renderPreference, text, useLargePreview]);
 
   useEffect(() => {
     if (!onLayoutChange || typeof ResizeObserver === "undefined") {
@@ -579,7 +525,9 @@ function ChatMarkdown({
   }, [onLayoutChange]);
 
   let content: ReactNode;
-  if (isStreaming) {
+  if (renderPlainText) {
+    content = <PreviewTextPanel text={text} />;
+  } else if (isStreaming) {
     content = <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
   } else if (useLargePreview) {
     content = (
@@ -593,8 +541,6 @@ function ChatMarkdown({
         }}
       />
     );
-  } else if (!deferredMarkdownReady) {
-    content = <CompletedMarkdownPreview text={text} />;
   } else {
     content = (
       <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80">

@@ -1644,6 +1644,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         text={messageText}
         cwd={props.markdownCwd}
         isStreaming={Boolean(props.message.streaming)}
+        renderPlainText={Boolean(props.isAssistantTurnTerminal)}
         onOpenBrowserUrl={onOpenBrowserUrl}
         {...(props.message.streamingTextState
           ? { streamingTextState: props.message.streamingTextState }

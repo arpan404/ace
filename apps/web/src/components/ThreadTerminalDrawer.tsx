@@ -1197,7 +1197,7 @@ function SessionTerminalOverviewRow({
   onActivate,
   onOpenMenu,
 }: SessionTerminalRowProps) {
-  const canActivate = item.isCurrentThread && typeof onActivate === "function";
+  const canActivate = typeof onActivate === "function";
   const rowBody = (
     <>
       <span

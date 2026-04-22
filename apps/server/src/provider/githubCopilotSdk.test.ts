@@ -21,6 +21,9 @@ vi.mock("@github/copilot-sdk", () => {
 
   return {
     CopilotClient: MockCopilotClient,
+    default: {
+      CopilotClient: MockCopilotClient,
+    },
   };
 });
 
