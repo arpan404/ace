@@ -7,9 +7,11 @@ import {
   useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 
 import { cn, randomUUID } from "~/lib/utils";
+import { runAsyncTask } from "~/lib/async";
 import type { BrowserDesignerTool } from "~/lib/browser/designer";
 import { type BrowserTabState, resolveBrowserTabTitle } from "~/lib/browser/session";
 import {
@@ -1081,7 +1083,9 @@ export function BrowserTabWebview(props: {
     viewport: OverlayViewportSize;
   } | null>(null);
   const elementHoverFrameRef = useRef<number | null>(null);
+  const elementScrollFrameRef = useRef<number | null>(null);
   const pendingElementHoverPointRef = useRef<{ x: number; y: number } | null>(null);
+  const pendingElementScrollDeltaRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const elementHoverRequestInFlightRef = useRef(false);
   const hoveredElementCaptureRef = useRef<BrowserPageElementCapture | null>(null);
   const hoveredElementPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -1461,8 +1465,78 @@ export function BrowserTabWebview(props: {
       if (elementHoverFrameRef.current !== null) {
         window.cancelAnimationFrame(elementHoverFrameRef.current);
       }
+      if (elementScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(elementScrollFrameRef.current);
+      }
     };
   }, []);
+
+  const flushElementCommentScroll = useCallback(() => {
+    elementScrollFrameRef.current = null;
+    const pendingDelta = pendingElementScrollDeltaRef.current;
+    const scrollLeft = Math.trunc(pendingDelta.x);
+    const scrollTop = Math.trunc(pendingDelta.y);
+    pendingElementScrollDeltaRef.current = {
+      x: pendingDelta.x - scrollLeft,
+      y: pendingDelta.y - scrollTop,
+    };
+    if (scrollLeft === 0 && scrollTop === 0) {
+      return;
+    }
+    const webview = webviewRef.current;
+    if (!webview || !readyRef.current || !webview.executeJavaScript) {
+      return;
+    }
+    const serializedPayload = JSON.stringify({ left: scrollLeft, top: scrollTop });
+    runAsyncTask(
+      webview.executeJavaScript(
+        `(() => {
+          const delta = ${serializedPayload};
+          window.scrollBy({
+            left: delta.left,
+            top: delta.top,
+            behavior: "auto",
+          });
+        })();`,
+        true,
+      ),
+      "Failed to forward element-comment scroll to the browser webview.",
+    );
+  }, []);
+
+  const onCaptureOverlayWheel = useCallback(
+    (event: ReactWheelEvent<HTMLDivElement>) => {
+      if (!designerModeActive || designerTool !== "element-comment" || designDraft) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const deltaMultiplier =
+        event.deltaMode === 1
+          ? 16
+          : event.deltaMode === 2
+            ? (overlayRef.current?.clientHeight ?? 1)
+            : 1;
+      pendingElementScrollDeltaRef.current = {
+        x: pendingElementScrollDeltaRef.current.x + event.deltaX * deltaMultiplier,
+        y: pendingElementScrollDeltaRef.current.y + event.deltaY * deltaMultiplier,
+      };
+      if (elementScrollFrameRef.current === null) {
+        elementScrollFrameRef.current = window.requestAnimationFrame(flushElementCommentScroll);
+      }
+    },
+    [designDraft, designerModeActive, designerTool, flushElementCommentScroll],
+  );
+  useEffect(() => {
+    if (designerModeActive && designerTool === "element-comment" && !designDraft) {
+      return;
+    }
+    pendingElementScrollDeltaRef.current = { x: 0, y: 0 };
+    if (elementScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(elementScrollFrameRef.current);
+      elementScrollFrameRef.current = null;
+    }
+  }, [designDraft, designerModeActive, designerTool]);
 
   const startCapturedDraft = useCallback(
     (
@@ -2348,6 +2422,7 @@ export function BrowserTabWebview(props: {
           onPointerMove={onCaptureOverlayPointerMove}
           onPointerUp={onCaptureOverlayPointerEnd}
           onPointerCancel={onCaptureOverlayPointerEnd}
+          onWheel={onCaptureOverlayWheel}
         >
           {designDraft ? (
             <canvas

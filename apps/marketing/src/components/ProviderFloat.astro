@@ -1,0 +1,103 @@
+---
+import ProviderIcon from "./ProviderIcon.astro";
+
+type ProviderKind =
+  | "codex"
+  | "claude"
+  | "gemini"
+  | "cursor"
+  | "githubCopilot"
+  | "opencode";
+
+type ProviderCard = {
+  label: string;
+  kind: ProviderKind;
+};
+
+const providers = [
+  { label: "Codex", kind: "codex" },
+  { label: "Claude", kind: "claude" },
+  { label: "Gemini", kind: "gemini" },
+  { label: "Cursor", kind: "cursor" },
+  { label: "GitHub Copilot", kind: "githubCopilot" },
+  { label: "OpenCode", kind: "opencode" },
+] satisfies ReadonlyArray<ProviderCard>;
+---
+
+<div class="provider-float-container">
+  <div class="provider-track" aria-hidden="true">
+    <div class="provider-row">
+      {[...providers, ...providers].map((provider) => (
+        <div class="provider-card">
+          <ProviderIcon kind={provider.kind} />
+          <span>{provider.label}</span>
+        </div>
+      ))}
+    </div>
+  </div>
+</div>
+
+<style>
+  .provider-float-container {
+    width: 100%;
+    overflow: hidden;
+    padding: 2rem 0;
+    mask-image: linear-gradient(to right, transparent, black 20%, black 80%, transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, black 20%, black 80%, transparent);
+  }
+
+  .provider-track {
+    display: flex;
+  }
+
+  .provider-row {
+    display: flex;
+    gap: 1rem;
+    animation: scroll 28s linear infinite;
+    width: max-content;
+  }
+
+  .provider-card {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1.1rem 0.75rem 0.9rem;
+    background: oklch(1 0 0 / 0.05);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    backdrop-filter: blur(8px);
+    transition:
+      transform 0.3s ease,
+      background 0.3s ease,
+      border-color 0.3s ease;
+    cursor: default;
+  }
+
+  .provider-card:hover {
+    background: oklch(1 0 0 / 0.1);
+    border-color: var(--border-bright);
+    transform: translateY(-2px);
+  }
+
+  .provider-card span {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+
+  @keyframes scroll {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+
+  @media (max-width: 768px) {
+    .provider-row {
+      animation-duration: 18s;
+    }
+  }
+</style>
