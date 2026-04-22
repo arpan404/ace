@@ -54,10 +54,7 @@ import { reportBackgroundError } from "../lib/async";
 import { cn } from "../lib/utils";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
-import {
-  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-  MAC_TITLEBAR_LEFT_INSET_STYLE,
-} from "../lib/desktopChrome";
+import { DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME } from "../lib/desktopChrome";
 import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
@@ -757,20 +754,6 @@ function prioritizePinnedItems<T>(items: readonly T[], isPinned: (item: T) => bo
     }
   }
   return pinned.length === 0 ? [...items] : [...pinned, ...unpinned];
-}
-
-function orderProjectThreadsWithPinnedPriority<T extends { readonly id: ThreadId }>(input: {
-  sortedThreads: readonly T[];
-  pinnedThreadIds: ReadonlySet<ThreadId>;
-  preferredThreadIds: readonly ThreadId[];
-}): T[] {
-  const { pinnedThreadIds, preferredThreadIds, sortedThreads } = input;
-  const manuallyOrderedThreads = orderItemsByPreferredIds({
-    items: sortedThreads,
-    preferredIds: preferredThreadIds,
-    getId: (thread) => thread.id,
-  });
-  return prioritizePinnedItems(manuallyOrderedThreads, (thread) => pinnedThreadIds.has(thread.id));
 }
 
 function sortProjectsByTimestamp(
@@ -1480,14 +1463,12 @@ export default function Sidebar() {
       );
       const latestThread =
         appSettings.sidebarThreadSortOrder === "manual"
-          ? orderProjectThreadsWithPinnedPriority({
-              sortedThreads,
-              pinnedThreadIds: new Set(pinnedThreadIds),
-              preferredThreadIds: threadOrderByProjectId[projectId] ?? [],
+          ? orderItemsByPreferredIds({
+              items: sortedThreads,
+              preferredIds: threadOrderByProjectId[projectId] ?? [],
+              getId: (thread) => thread.id,
             })[0]
-          : prioritizePinnedItems(sortedThreads, (thread) =>
-              pinnedThreadIds.includes(thread.id),
-            )[0];
+          : sortedThreads[0];
       if (!latestThread) return;
 
       void navigate({
@@ -1498,7 +1479,6 @@ export default function Sidebar() {
     [
       appSettings.sidebarThreadSortOrder,
       navigate,
-      pinnedThreadIds,
       sidebarThreadsById,
       threadIdsByProjectId,
       threadOrderByProjectId,
@@ -2875,6 +2855,21 @@ export default function Sidebar() {
   const activeThreadId = routeThreadId ?? undefined;
   const pinnedProjectIdSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds]);
   const pinnedThreadIdSet = useMemo(() => new Set(pinnedThreadIds), [pinnedThreadIds]);
+  const pinnedSidebarThreads = useMemo(
+    () =>
+      pinnedThreadIds.flatMap((threadId) => {
+        const thread = sidebarThreadsById[threadId];
+        if (!thread || thread.archivedAt !== null || !projectById.has(thread.projectId)) {
+          return [];
+        }
+        return [thread];
+      }),
+    [pinnedThreadIds, projectById, sidebarThreadsById],
+  );
+  const renderedPinnedThreadIds = useMemo(
+    () => pinnedSidebarThreads.map((thread) => thread.id),
+    [pinnedSidebarThreads],
+  );
   const visibleProjectThreadsByProjectId = useMemo(() => {
     const next = new Map<ProjectId, SidebarThreadSummary[]>();
     for (const project of activeProjects) {
@@ -2891,6 +2886,17 @@ export default function Sidebar() {
     }
     return next;
   }, [activeProjects, sidebarThreadsById, threadIdsByProjectId]);
+  const projectListThreadsByProjectId = useMemo(() => {
+    const next = new Map<ProjectId, SidebarThreadSummary[]>();
+    for (const [projectId, projectThreads] of visibleProjectThreadsByProjectId) {
+      const unpinnedThreads = projectThreads.filter((thread) => !pinnedThreadIdSet.has(thread.id));
+      next.set(
+        projectId,
+        unpinnedThreads.length === projectThreads.length ? projectThreads : unpinnedThreads,
+      );
+    }
+    return next;
+  }, [pinnedThreadIdSet, visibleProjectThreadsByProjectId]);
   const sortedProjects = useMemo(() => {
     const sortOrder = appSettings.sidebarProjectSortOrder;
     const baseProjects =
@@ -2919,6 +2925,8 @@ export default function Sidebar() {
       sortedProjects.map((project) => {
         const unsortedProjectThreads =
           visibleProjectThreadsByProjectId.get(project.id) ?? EMPTY_SIDEBAR_THREADS;
+        const projectListThreads =
+          projectListThreadsByProjectId.get(project.id) ?? EMPTY_SIDEBAR_THREADS;
         const projectExpanded = projectExpandedById[project.id] ?? true;
         const projectStatus = getCachedProjectStatus(
           unsortedProjectThreads,
@@ -2926,28 +2934,21 @@ export default function Sidebar() {
         );
         const visibleThreadCount = threadRevealCountByProject[project.id] ?? THREAD_REVEAL_STEP;
         const sortedProjectThreads = getCachedSortedSidebarThreads(
-          unsortedProjectThreads,
+          projectListThreads,
           appSettings.sidebarThreadSortOrder,
         );
         const projectThreads =
           appSettings.sidebarThreadSortOrder === "manual"
-            ? orderProjectThreadsWithPinnedPriority({
-                sortedThreads: getCachedSortedSidebarThreads(
-                  unsortedProjectThreads,
-                  "last_user_message",
-                ),
-                pinnedThreadIds: pinnedThreadIdSet,
-                preferredThreadIds: threadOrderByProjectId[project.id] ?? [],
+            ? orderItemsByPreferredIds({
+                items: getCachedSortedSidebarThreads(projectListThreads, "last_user_message"),
+                preferredIds: threadOrderByProjectId[project.id] ?? [],
+                getId: (thread) => thread.id,
               })
-            : prioritizePinnedItems(sortedProjectThreads, (thread) =>
-                pinnedThreadIdSet.has(thread.id),
-              );
+            : sortedProjectThreads;
         const collapsedPreviewThread = !projectExpanded
           ? ((activeThreadId
               ? (projectThreads.find((thread) => thread.id === activeThreadId) ?? null)
-              : null) ??
-            projectThreads.find((thread) => pinnedThreadIdSet.has(thread.id)) ??
-            null)
+              : null) ?? null)
           : null;
         const shouldShowThreadPanel = projectExpanded || collapsedPreviewThread !== null;
         const {
@@ -2978,7 +2979,7 @@ export default function Sidebar() {
         const renderedThreadIds = collapsedPreviewThread
           ? [collapsedPreviewThread.id]
           : visibleProjectThreads.map((thread) => thread.id);
-        const showEmptyThreadState = projectExpanded && projectThreads.length === 0;
+        const showEmptyThreadState = projectExpanded && unsortedProjectThreads.length === 0;
 
         return {
           hasHiddenThreads,
@@ -3004,7 +3005,7 @@ export default function Sidebar() {
       sortedProjects,
       activeThreadId,
       pinnedProjectIdSet,
-      pinnedThreadIdSet,
+      projectListThreadsByProjectId,
       threadOrderByProjectId,
       threadLastVisitedAtById,
       visibleProjectThreadsByProjectId,
@@ -3301,8 +3302,17 @@ export default function Sidebar() {
     onNavigateToThreadOnConnection: navigateToThreadOnConnection,
   });
 
+  const renderedSidebarThreadGroups = useMemo(
+    () => [
+      ...(renderedPinnedThreadIds.length > 0
+        ? [{ renderedThreadIds: renderedPinnedThreadIds }]
+        : []),
+      ...filteredRenderedProjects,
+    ],
+    [filteredRenderedProjects, renderedPinnedThreadIds],
+  );
   const { visibleSidebarThreadIds, prByThreadId } = useSidebarThreadPrStatus({
-    renderedProjects: filteredRenderedProjects,
+    renderedProjects: renderedSidebarThreadGroups,
     sidebarThreadsById,
     projectCwdById,
   });
@@ -3473,6 +3483,44 @@ export default function Sidebar() {
     threadJumpThreadIds,
     updateThreadJumpHintsVisibility,
   ]);
+
+  function renderPinnedThreadRow(threadId: ThreadId) {
+    return (
+      <SidebarThreadRow
+        key={threadId}
+        threadId={threadId}
+        orderedProjectThreadIds={renderedPinnedThreadIds}
+        routeThreadId={routeThreadId}
+        activeRouteConnectionUrl={activeRouteConnectionUrl}
+        connectionUrl={activeWsUrl}
+        selectedThreadIds={selectedThreadIds}
+        showThreadJumpHints={showThreadJumpHints}
+        jumpLabel={threadJumpLabelById.get(threadId) ?? null}
+        appSettingsConfirmThreadArchive={appSettings.confirmThreadArchive}
+        isPinned
+        renamingThreadId={renamingThreadId}
+        renamingTitle={renamingTitle}
+        setRenamingTitle={setRenamingTitle}
+        renamingInputRef={renamingInputRef}
+        renamingCommittedRef={renamingCommittedRef}
+        confirmingArchiveThreadId={confirmingArchiveThreadId}
+        setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
+        confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+        handleThreadClick={handleThreadClick}
+        navigateToThread={navigateToThread}
+        prefetchThreadHistory={prefetchThreadHistory}
+        handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+        handleThreadContextMenu={handleThreadContextMenu}
+        clearSelection={clearSelection}
+        commitRename={commitRename}
+        cancelRename={cancelRename}
+        attemptArchiveThread={attemptArchiveThread}
+        onTogglePinnedThread={togglePinnedThread}
+        openPrLink={openPrLink}
+        pr={prByThreadId.get(threadId) ?? null}
+      />
+    );
+  }
 
   function renderProjectItem(
     renderedProject: (typeof renderedProjects)[number],
@@ -4845,10 +4893,7 @@ export default function Sidebar() {
       </CommandDialog>
 
       {isElectron ? (
-        <SidebarHeader
-          className="drag-region h-[52px] px-4 py-0"
-          style={MAC_TITLEBAR_LEFT_INSET_STYLE}
-        >
+        <SidebarHeader className="drag-region h-[52px] px-4 py-0">
           <div ref={sidebarHeaderRowRef} className="relative flex h-full min-w-0 items-center">
             {sidebarHeaderWordmark}
             <div className="ml-auto flex shrink-0 items-center">{sidebarHeaderToggle}</div>
@@ -4907,6 +4952,19 @@ export default function Sidebar() {
                 ) : null}
               </button>
             </SidebarGroup>
+            {renderedPinnedThreadIds.length > 0 ? (
+              <SidebarGroup className="px-2.5 pt-2.5 pb-0">
+                <div className="mb-1.5 flex items-center gap-1.5 pl-2 pr-1.5">
+                  <PinIcon className="size-3 text-amber-500/80 dark:text-amber-300/85" />
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                    Pinned Threads
+                  </span>
+                </div>
+                <SidebarMenuSub className="mx-0 my-0 w-full translate-x-0 gap-0.5 border-l-0 px-0 py-0.5">
+                  {renderedPinnedThreadIds.map((threadId) => renderPinnedThreadRow(threadId))}
+                </SidebarMenuSub>
+              </SidebarGroup>
+            ) : null}
             <SidebarGroup className="px-2.5 py-2.5">
               <div className="mb-1.5 flex items-center justify-between pl-2 pr-1.5">
                 <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">

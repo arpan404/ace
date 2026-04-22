@@ -6,17 +6,17 @@ import {
   type ServerConfigStreamEvent,
   type ServerSettings,
 } from "@ace/contracts";
-
-const APPROVAL_COPY_BY_KIND: Record<PendingApproval["requestKind"], string> = {
-  command: "command",
-  "file-change": "file change",
-  "file-read": "file read",
-};
+import {
+  buildAgentAttentionNotificationTitle,
+  buildApprovalNotificationBody,
+  buildCompletionNotificationBody,
+  buildUserInputNotificationBody,
+  normalizeThreadNotificationTitle,
+} from "@ace/shared/notifications";
 
 const THREAD_REFRESH_DEBOUNCE_MS = 120;
 const SNAPSHOT_REFRESH_INTERVAL_MS = 45_000;
 const FOCUS_STATE_POLL_INTERVAL_MS = 1_000;
-const NOTIFICATION_BODY_MAX_CHARS = 160;
 const ATTENTION_ACTIVITY_KINDS = new Set([
   "approval.requested",
   "approval.resolved",
@@ -115,27 +115,6 @@ function asTrimmedString(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function normalizeThreadTitle(title: string): string {
-  const trimmed = title.trim();
-  return trimmed.length > 0 ? trimmed : "Untitled thread";
-}
-
-function normalizeNotificationText(value: string): string {
-  return value
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function truncateNotificationBody(value: string, maxLength = NOTIFICATION_BODY_MAX_CHARS): string {
-  const trimmed = normalizeNotificationText(value);
-  if (trimmed.length <= maxLength) {
-    return trimmed;
-  }
-  return `${trimmed.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }
 
 function buildRequestNotificationKey(threadId: string, requestId: string): string {
@@ -379,7 +358,7 @@ export function applyThreadAttentionState(
   input: ApplyThreadAttentionStateInput,
 ): ApplyThreadAttentionStateResult {
   const threadId = String(input.thread.id);
-  const threadTitle = normalizeThreadTitle(input.thread.title);
+  const threadTitle = normalizeThreadNotificationTitle(input.thread.title);
   const deepLink = `/${threadId}`;
   const previousState = input.previousState;
   const previousApprovalIds = new Set(previousState?.openApprovalRequestIds ?? []);
@@ -422,12 +401,11 @@ export function applyThreadAttentionState(
         }
         notifications.push({
           id: buildRequestNotificationKey(threadId, approval.requestId),
-          title: `Approval needed: ${threadTitle}`,
-          body: truncateNotificationBody(
-            approval.detail && approval.detail.length > 0
-              ? approval.detail
-              : `The agent is waiting for ${APPROVAL_COPY_BY_KIND[approval.requestKind]} approval.`,
-          ),
+          title: buildAgentAttentionNotificationTitle({ kind: "approval", threadTitle }),
+          body: buildApprovalNotificationBody({
+            requestKind: approval.requestKind,
+            detail: approval.detail ?? null,
+          }),
           deepLink,
           kind: "approval",
         });
@@ -442,12 +420,13 @@ export function applyThreadAttentionState(
         if (!isIsoTimestampOnOrAfter(request.createdAt, input.notificationSessionStartedAt)) {
           continue;
         }
-        const suffix =
-          request.questionCount > 1 ? ` (${String(request.questionCount)} questions waiting)` : "";
         notifications.push({
           id: buildRequestNotificationKey(threadId, request.requestId),
-          title: `Input needed: ${threadTitle}`,
-          body: truncateNotificationBody(`${request.firstQuestion}${suffix}`),
+          title: buildAgentAttentionNotificationTitle({ kind: "user-input", threadTitle }),
+          body: buildUserInputNotificationBody({
+            firstQuestion: request.firstQuestion,
+            questionCount: request.questionCount,
+          }),
           deepLink,
           kind: "user-input",
         });
@@ -474,8 +453,8 @@ export function applyThreadAttentionState(
     const assistantPreview = findLatestAssistantCompletionMessage(input.thread);
     notifications.push({
       id: buildCompletionNotificationKey(threadId, completionAt),
-      title: `Agent finished: ${threadTitle}`,
-      body: truncateNotificationBody(assistantPreview ?? "The agent finished working."),
+      title: buildAgentAttentionNotificationTitle({ kind: "completion", threadTitle }),
+      body: buildCompletionNotificationBody({ assistantPreview }),
       deepLink,
       kind: "completion",
     });

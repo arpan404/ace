@@ -56,6 +56,10 @@
       "types": "./src/orchestrationThreadActivities.ts",
       "import": "./src/orchestrationThreadActivities.ts"
     },
+    "./notifications": {
+      "types": "./src/notifications.ts",
+      "import": "./src/notifications.ts"
+    },
     "./wsAuth": {
       "types": "./src/wsAuth.ts",
       "import": "./src/wsAuth.ts"

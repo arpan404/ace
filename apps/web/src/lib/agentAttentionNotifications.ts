@@ -5,12 +5,16 @@ import type {
   ThreadId,
   UserInputQuestion,
 } from "@ace/contracts";
-
 import {
-  derivePendingApprovals,
-  derivePendingUserInputs,
-  type PendingApproval,
-} from "../session-logic";
+  buildAgentAttentionNotificationTitle,
+  buildApprovalNotificationBody,
+  buildCompletionNotificationBody,
+  buildUserInputNotificationBody,
+  normalizeThreadNotificationTitle,
+  truncateNotificationText,
+} from "@ace/shared/notifications";
+
+import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
 import type { ChatMessage, Thread } from "../types";
 
 type AgentAttentionMessageLike = Pick<ChatMessage, "id" | "role" | "text" | "createdAt"> &
@@ -85,11 +89,6 @@ export interface AgentAttentionNotificationSettings {
   notifyOnUserInputRequired: boolean;
 }
 
-const APPROVAL_COPY_BY_KIND: Record<PendingApproval["requestKind"], string> = {
-  command: "command",
-  "file-change": "file change",
-  "file-read": "file read",
-};
 const DEFAULT_HISTORICAL_REQUEST_THRESHOLD_MS = 0;
 
 function buildAgentAttentionRequestKey(threadId: ThreadId, requestId: ApprovalRequestId): string {
@@ -98,28 +97,6 @@ function buildAgentAttentionRequestKey(threadId: ThreadId, requestId: ApprovalRe
 
 function buildCompletionAttentionRequestKey(threadId: ThreadId, completedAt: string): string {
   return `${threadId}:completion:${completedAt}`;
-}
-
-function normalizeThreadTitle(title: string): string {
-  const trimmed = title.trim();
-  return trimmed.length > 0 ? trimmed : "Untitled thread";
-}
-
-function normalizeNotificationText(text: string): string {
-  return text
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function truncateNotificationBody(text: string, maxLength = 160): string {
-  const trimmed = normalizeNotificationText(text);
-  if (trimmed.length <= maxLength) {
-    return trimmed;
-  }
-
-  return `${trimmed.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }
 
 function buildThreadDeepLink(threadId: ThreadId): string {
@@ -150,14 +127,9 @@ function findLatestAssistantCompletionMessage(
   return null;
 }
 
-function buildCompletionNotificationBody(thread: AgentAttentionThreadLike): string {
+function buildCompletionAttentionBody(thread: AgentAttentionThreadLike): string {
   const assistantMessage = findLatestAssistantCompletionMessage(thread);
-  const text = assistantMessage?.text;
-  if (text) {
-    return truncateNotificationBody(text);
-  }
-
-  return "The agent finished working.";
+  return buildCompletionNotificationBody({ assistantPreview: assistantMessage?.text ?? null });
 }
 
 function isCompletionNotificationEligible(thread: AgentAttentionThreadLike): boolean {
@@ -243,11 +215,10 @@ export function deriveAgentAttentionRequests(
   const requests: AgentAttentionRequest[] = [];
 
   for (const thread of threads) {
-    const threadTitle = normalizeThreadTitle(thread.title);
+    const threadTitle = normalizeThreadNotificationTitle(thread.title);
     const deepLink = buildThreadDeepLink(thread.id);
 
     for (const approval of derivePendingApprovals(thread.activities)) {
-      const detail = approval.detail?.trim();
       requests.push({
         key: buildAgentAttentionRequestKey(thread.id, approval.requestId),
         requestId: approval.requestId,
@@ -255,11 +226,10 @@ export function deriveAgentAttentionRequests(
         threadTitle,
         kind: "approval",
         createdAt: approval.createdAt,
-        body: truncateNotificationBody(
-          detail && detail.length > 0
-            ? detail
-            : `The agent is waiting for ${APPROVAL_COPY_BY_KIND[approval.requestKind]} approval.`,
-        ),
+        body: buildApprovalNotificationBody({
+          requestKind: approval.requestKind,
+          detail: approval.detail ?? null,
+        }),
         deepLink,
       });
     }
@@ -270,8 +240,6 @@ export function deriveAgentAttentionRequests(
         continue;
       }
 
-      const questionCount = userInput.questions.length;
-      const suffix = questionCount > 1 ? ` (${questionCount} questions waiting)` : "";
       requests.push({
         key: buildAgentAttentionRequestKey(thread.id, userInput.requestId),
         requestId: userInput.requestId,
@@ -279,7 +247,10 @@ export function deriveAgentAttentionRequests(
         threadTitle,
         kind: "user-input",
         createdAt: userInput.createdAt,
-        body: truncateNotificationBody(`${firstQuestion.question}${suffix}`),
+        body: buildUserInputNotificationBody({
+          firstQuestion: firstQuestion.question,
+          questionCount: userInput.questions.length,
+        }),
         deepLink,
         questions: userInput.questions,
       });
@@ -293,7 +264,7 @@ export function deriveAgentAttentionRequests(
         threadTitle,
         kind: "completion",
         createdAt: completedAt,
-        body: buildCompletionNotificationBody(thread),
+        body: buildCompletionAttentionBody(thread),
         deepLink,
       });
     }
@@ -323,16 +294,12 @@ export function buildAgentAttentionNotificationCopy(request: AgentAttentionReque
   body: string;
   tag: string;
 } {
-  const prefix =
-    request.kind === "approval"
-      ? "Approval needed"
-      : request.kind === "user-input"
-        ? "Input needed"
-        : "Agent finished";
-
   return {
-    title: `${prefix}: ${request.threadTitle}`,
-    body: request.body,
+    title: buildAgentAttentionNotificationTitle({
+      kind: request.kind,
+      threadTitle: request.threadTitle,
+    }),
+    body: truncateNotificationText(request.body),
     tag: `ace-agent-attention:${request.key}`,
   };
 }

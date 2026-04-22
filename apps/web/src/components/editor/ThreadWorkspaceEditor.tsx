@@ -702,6 +702,12 @@ function ThreadWorkspaceEditor(inputProps: {
   const updateDraft = useEditorStateStore((state) => state.updateDraft);
   const [selectedEntryPath, setSelectedEntryPath] = useState<string | null>(null);
   const [inlineEntryState, setInlineEntryState] = useState<ExplorerInlineEntryState | null>(null);
+  const inlineEntryFocusKey =
+    inlineEntryState?.kind === "rename"
+      ? `rename:${inlineEntryState.entry.path}`
+      : inlineEntryState
+        ? `${inlineEntryState.kind}:${inlineEntryState.parentPath ?? "root"}`
+        : null;
   const [dragTargetParentPath, setDragTargetParentPath] = useState<string | null>(null);
   const [saveConflict, setSaveConflict] = useState<SaveConflictState | null>(null);
   const onWorkspaceModeChange = props.onWorkspaceModeChange;
@@ -898,7 +904,7 @@ function ThreadWorkspaceEditor(inputProps: {
   }, [activePane?.activeFilePath, entryByPath, selectedEntryPath]);
 
   useEffect(() => {
-    if (!inlineEntryState) {
+    if (!inlineEntryFocusKey) {
       return;
     }
     const timer = window.setTimeout(() => {
@@ -908,7 +914,7 @@ function ThreadWorkspaceEditor(inputProps: {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [inlineEntryState]);
+  }, [inlineEntryFocusKey]);
 
   const saveMutation = useMutation({
     mutationFn: async (input: {

@@ -284,6 +284,27 @@ function StreamingMarkdownText({ text }: { text: string }) {
   );
 }
 
+function MarkdownBody({
+  children,
+  isStreaming,
+  markdownComponents,
+}: {
+  children: string;
+  isStreaming: boolean;
+  markdownComponents: Components;
+}) {
+  return (
+    <div
+      className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80"
+      data-streaming-markdown={isStreaming ? "true" : undefined}
+    >
+      <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
+        {children}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 function PreviewTextPanel({
   text,
   dataAttribute,
@@ -444,6 +465,13 @@ function ChatMarkdown({
         if (!codeBlock) {
           return <pre {...props}>{children}</pre>;
         }
+        if (isStreaming) {
+          return (
+            <MarkdownCodeBlock code={codeBlock.code}>
+              <pre {...props}>{children}</pre>
+            </MarkdownCodeBlock>
+          );
+        }
         const language = extractFenceLanguage(codeBlock.className);
 
         if (language === "mermaid") {
@@ -527,7 +555,11 @@ function ChatMarkdown({
   let content: ReactNode;
   if (renderPlainText) {
     content = <PreviewTextPanel text={text} />;
-  } else if (isStreaming) {
+  } else if (
+    isStreaming &&
+    streamingTextState &&
+    (streamingTextState.truncatedCharCount > 0 || streamingTextState.truncatedLineCount > 0)
+  ) {
     content = <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
   } else if (useLargePreview) {
     content = (
@@ -543,11 +575,9 @@ function ChatMarkdown({
     );
   } else {
     content = (
-      <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80">
-        <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
-          {text}
-        </ReactMarkdown>
-      </div>
+      <MarkdownBody isStreaming={isStreaming} markdownComponents={markdownComponents}>
+        {text}
+      </MarkdownBody>
     );
   }
 
