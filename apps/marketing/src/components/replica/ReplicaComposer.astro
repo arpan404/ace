@@ -1,0 +1,101 @@
+---
+---
+
+<section class="replica-composer">
+  <div class="composer-shell">
+    <div class="composer-input">Ask anything, @tag files/folders, or use / to show available commands</div>
+    <div class="composer-bottom">
+      <div class="model-pill">
+        <svg class="model-icon" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0Zm0 1.6A6.4 6.4 0 1 1 8 14.4 6.4 6.4 0 0 1 8 1.6Zm0 2a4.4 4.4 0 1 0 0 8.8 4.4 4.4 0 0 0 0-8.8Z"></path>
+        </svg>
+        <span>GPT-5.3-Codex</span>
+      </div>
+      <div class="composer-actions">
+        <button class="build-btn">Build</button>
+        <button class="send-btn">Send</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .replica-composer {
+    padding: 10px 14px 14px;
+  }
+
+  .composer-shell {
+    border-radius: 16px;
+    border: 2px solid #2f71d8;
+    box-shadow:
+      0 0 0 1px rgba(102, 163, 255, 0.12) inset,
+      0 0 0 8px rgba(47, 113, 216, 0.08);
+    background: #090a0d;
+    overflow: hidden;
+  }
+
+  .composer-input {
+    min-height: 120px;
+    padding: 14px;
+    font-size: 13px;
+    color: rgba(236, 236, 236, 0.52);
+    letter-spacing: -0.01em;
+  }
+
+  .composer-bottom {
+    border-top: 1px solid var(--replica-border);
+    padding: 9px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .model-pill {
+    height: 28px;
+    border-radius: 999px;
+    border: 1px solid var(--replica-border);
+    background: rgba(255, 255, 255, 0.03);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
+    font-size: 12px;
+    color: var(--replica-fg-dim);
+  }
+
+  .model-icon {
+    width: 13px;
+    height: 13px;
+    color: #f4f7ff;
+    opacity: 0.92;
+  }
+
+  .composer-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .build-btn,
+  .send-btn {
+    height: 31px;
+    border-radius: 10px;
+    border: 1px solid var(--replica-border);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    padding: 0 14px;
+    color: var(--replica-fg);
+  }
+
+  .build-btn {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .send-btn {
+    background: #67a8ff;
+    border-color: #67a8ff;
+    color: #0f1a2d;
+  }
+</style>

@@ -69,8 +69,31 @@ interface CompactBrowserDesignPromptContext {
   targetElement: {
     tagName: string | null;
     id: string | null;
+    className: string | null;
     selector: string | null;
+    textSnippet: string | null;
   } | null;
+  mainContainer: {
+    tagName: string | null;
+    id: string | null;
+    className: string | null;
+    selector: string | null;
+    textSnippet: string | null;
+  } | null;
+}
+
+function compactBrowserDesignDescriptor(
+  descriptor: BrowserDesignElementDescriptor | null,
+): CompactBrowserDesignPromptContext["targetElement"] {
+  return descriptor
+    ? {
+        tagName: descriptor.tagName,
+        id: descriptor.id,
+        className: descriptor.className,
+        selector: descriptor.selector,
+        textSnippet: descriptor.textSnippet,
+      }
+    : null;
 }
 
 export const INLINE_TERMINAL_CONTEXT_PLACEHOLDER = "\uFFFC";
@@ -272,13 +295,8 @@ export function buildBrowserDesignContextBlock(context: BrowserDesignPromptConte
     requestId: context.requestId,
     pageUrl: context.pageUrl,
     selection: context.selection,
-    targetElement: context.targetElement
-      ? {
-          tagName: context.targetElement.tagName,
-          id: context.targetElement.id,
-          selector: context.targetElement.selector,
-        }
-      : null,
+    targetElement: compactBrowserDesignDescriptor(context.targetElement),
+    mainContainer: compactBrowserDesignDescriptor(context.mainContainer),
   };
   return [
     "<browser_design_context>",

@@ -1,0 +1,65 @@
+---
+import ReplicaComposer from "./replica/ReplicaComposer.astro";
+import ReplicaSidebar from "./replica/ReplicaSidebar.astro";
+import ReplicaTimeline from "./replica/ReplicaTimeline.astro";
+import ReplicaTopBar from "./replica/ReplicaTopBar.astro";
+---
+
+<div class="workspace-demo" aria-label="ace web app preview">
+  <div class="replica-frame">
+    <ReplicaSidebar />
+    <div class="replica-main">
+      <ReplicaTopBar />
+      <ReplicaTimeline />
+      <ReplicaComposer />
+    </div>
+  </div>
+</div>
+
+<style>
+  .workspace-demo {
+    --replica-bg: #0b0c10;
+    --replica-sidebar: #07090c;
+    --replica-border: rgba(255, 255, 255, 0.1);
+    --replica-fg: #eceef3;
+    --replica-fg-dim: rgba(236, 238, 243, 0.72);
+    --replica-fg-muted: rgba(236, 238, 243, 0.45);
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    border-radius: 22px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: radial-gradient(circle at 58% 120%, rgba(43, 104, 204, 0.22), transparent 50%), var(--replica-bg);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 20px 60px rgba(0, 0, 0, 0.52);
+  }
+
+  .replica-frame {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+  }
+
+  .replica-main {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    background:
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.018), transparent 30%),
+      radial-gradient(circle at 70% 100%, rgba(46, 102, 199, 0.2), transparent 56%),
+      var(--replica-bg);
+  }
+
+  @media (max-width: 1080px) {
+    .replica-frame {
+      grid-template-columns: 1fr;
+    }
+
+    .replica-frame :global(.replica-sidebar) {
+      display: none;
+    }
+  }
+</style>

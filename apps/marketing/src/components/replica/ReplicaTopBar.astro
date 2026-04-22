@@ -1,0 +1,102 @@
+---
+---
+
+<header class="replica-topbar">
+  <div class="thread-title-wrap">
+    <span class="thread-label">THREAD</span>
+    <span class="thread-title">Marketing redesign</span>
+  </div>
+
+  <div class="topbar-tools">
+    <button class="icon-tool" aria-label="Open chat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"></path>
+      </svg>
+    </button>
+    <button class="icon-tool" aria-label="Open editor">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M12 20h9"></path>
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+      </svg>
+    </button>
+    <button class="icon-tool" aria-label="Open browser">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path d="M2 12h20"></path>
+      </svg>
+    </button>
+    <button class="icon-tool" aria-label="Collapse">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="m8 12 4-4 4 4"></path>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<style>
+  .replica-topbar {
+    height: 48px;
+    border-bottom: 1px solid var(--replica-border);
+    background: rgba(255, 255, 255, 0.015);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    gap: 10px;
+    color: var(--replica-fg);
+  }
+
+  .thread-title-wrap {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .thread-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--replica-fg-muted);
+    font-weight: 700;
+  }
+
+  .thread-title {
+    font-size: 30px;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--replica-fg);
+  }
+
+  .topbar-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .icon-tool {
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    border: 1px solid var(--replica-border);
+    color: var(--replica-fg-dim);
+    background: rgba(255, 255, 255, 0.03);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .icon-tool svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  @media (max-width: 1200px) {
+    .thread-title {
+      font-size: 22px;
+    }
+  }
+</style>
