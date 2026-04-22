@@ -16,6 +16,7 @@ interface HostConnectionState {
     connectionUrl: string,
     snapshot: OrchestrationReadModel,
   ) => void;
+  readonly upsertProjectOwnership: (connectionUrl: string, projectId: ProjectId) => void;
   readonly upsertThreadOwnership: (connectionUrl: string, threadId: ThreadId) => void;
   readonly removeConnection: (connectionUrl: string) => void;
 }
@@ -97,6 +98,31 @@ export const useHostConnectionStore = create<HostConnectionState>((set, get) => 
         ownershipByConnectionUrl: {
           ...state.ownershipByConnectionUrl,
           [normalizedConnectionUrl]: nextOwnership,
+        },
+      };
+    });
+  },
+  upsertProjectOwnership: (connectionUrl, projectId) => {
+    const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);
+    set((state) => {
+      const existingOwnership = state.ownershipByConnectionUrl[normalizedConnectionUrl] ?? {
+        projectIds: [],
+        threadIds: [],
+      };
+      const projectIds = existingOwnership.projectIds.includes(projectId)
+        ? existingOwnership.projectIds
+        : [...existingOwnership.projectIds, projectId];
+      return {
+        projectConnectionById: {
+          ...state.projectConnectionById,
+          [projectId]: normalizedConnectionUrl,
+        },
+        ownershipByConnectionUrl: {
+          ...state.ownershipByConnectionUrl,
+          [normalizedConnectionUrl]: {
+            ...existingOwnership,
+            projectIds,
+          },
         },
       };
     });

@@ -8,6 +8,7 @@ import { resolveLocalDeviceWsUrl } from "./remoteHosts";
 
 const routeClientsByConnectionUrl = new Map<string, WsRpcClient>();
 const routeAvailabilityByConnectionUrl = new Map<string, RemoteRouteAvailabilitySnapshot>();
+const routeRegistrationCountByConnectionUrl = new Map<string, number>();
 const inFlightAvailabilityByConnectionUrl = new Map<
   string,
   Promise<RemoteRouteAvailabilitySnapshot>
@@ -16,6 +17,7 @@ let disposeHandlersRegistered = false;
 type RemoteDispatchCommand = Parameters<WsRpcClient["orchestration"]["dispatchCommand"]>[0];
 type RemoteSnapshotInput = Parameters<WsRpcClient["orchestration"]["getSnapshot"]>[0];
 type RemoteSnapshotResult = Awaited<ReturnType<WsRpcClient["orchestration"]["getSnapshot"]>>;
+const inFlightSnapshotRequestByKey = new Map<string, Promise<RemoteSnapshotResult>>();
 const DEFAULT_ROUTE_PROBE_TIMEOUT_MS = 2_500;
 const ROUTE_AVAILABILITY_MAX_AGE_MS = 3_000;
 
@@ -65,6 +67,17 @@ function setRouteAvailability(
   const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
   routeAvailabilityByConnectionUrl.set(normalizedConnectionUrl, snapshot);
   return snapshot;
+}
+
+function ensureRouteTracked(connectionUrl: string): string {
+  const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
+  if (!routeAvailabilityByConnectionUrl.has(normalizedConnectionUrl)) {
+    routeAvailabilityByConnectionUrl.set(normalizedConnectionUrl, {
+      status: "unknown",
+      checkedAt: 0,
+    });
+  }
+  return normalizedConnectionUrl;
 }
 
 function isRouteAvailabilityFresh(snapshot: RemoteRouteAvailabilitySnapshot): boolean {
@@ -123,25 +136,52 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
-export function registerRemoteRoute(connectionUrl: string): void {
-  const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
-  if (!routeAvailabilityByConnectionUrl.has(normalizedConnectionUrl)) {
-    routeAvailabilityByConnectionUrl.set(normalizedConnectionUrl, {
-      status: "unknown",
-      checkedAt: 0,
-    });
+function snapshotRequestKey(connectionUrl: string, input: RemoteSnapshotInput): string {
+  let encodedInput = "";
+  if (input !== undefined) {
+    try {
+      encodedInput = JSON.stringify(input);
+    } catch {
+      encodedInput = "__nonserializable__";
+    }
+  }
+  return `${connectionUrl}:${encodedInput}`;
+}
+
+function clearInFlightSnapshotRequestsForConnection(connectionUrl: string): void {
+  const prefix = `${connectionUrl}:`;
+  for (const requestKey of inFlightSnapshotRequestByKey.keys()) {
+    if (!requestKey.startsWith(prefix)) {
+      continue;
+    }
+    inFlightSnapshotRequestByKey.delete(requestKey);
   }
 }
 
+export function registerRemoteRoute(connectionUrl: string): void {
+  const normalizedConnectionUrl = ensureRouteTracked(connectionUrl);
+  routeRegistrationCountByConnectionUrl.set(
+    normalizedConnectionUrl,
+    (routeRegistrationCountByConnectionUrl.get(normalizedConnectionUrl) ?? 0) + 1,
+  );
+}
+
 export function getRouteRpcClient(connectionUrl: string): WsRpcClient {
-  registerRemoteRoute(connectionUrl);
+  ensureRouteTracked(connectionUrl);
   return getOrCreateRouteClient(connectionUrl);
 }
 
 export function unregisterRemoteRoute(connectionUrl: string): void {
   const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
+  const registrationCount = routeRegistrationCountByConnectionUrl.get(normalizedConnectionUrl) ?? 0;
+  if (registrationCount > 1) {
+    routeRegistrationCountByConnectionUrl.set(normalizedConnectionUrl, registrationCount - 1);
+    return;
+  }
+  routeRegistrationCountByConnectionUrl.delete(normalizedConnectionUrl);
   routeAvailabilityByConnectionUrl.delete(normalizedConnectionUrl);
   inFlightAvailabilityByConnectionUrl.delete(normalizedConnectionUrl);
+  clearInFlightSnapshotRequestsForConnection(normalizedConnectionUrl);
   void disposeRouteClientOnly(normalizedConnectionUrl).catch((error) => {
     reportBackgroundError("Failed to dispose an unregistered remote route client.", error);
   });
@@ -224,8 +264,7 @@ export async function routeFilesystemBrowseToRemote(
   connectionUrl: string,
   input: FilesystemBrowseInput,
 ): Promise<FilesystemBrowseResult> {
-  registerRemoteRoute(connectionUrl);
-  const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
+  const normalizedConnectionUrl = ensureRouteTracked(connectionUrl);
   const client = getOrCreateRouteClient(normalizedConnectionUrl);
   try {
     const result = await client.filesystem.browse(input);
@@ -248,8 +287,7 @@ export async function routeOrchestrationDispatchCommandToRemote(
   connectionUrl: string,
   command: RemoteDispatchCommand,
 ): Promise<void> {
-  registerRemoteRoute(connectionUrl);
-  const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
+  const normalizedConnectionUrl = ensureRouteTracked(connectionUrl);
   const client = getOrCreateRouteClient(normalizedConnectionUrl);
   try {
     await client.orchestration.dispatchCommand(command);
@@ -271,35 +309,48 @@ export async function routeOrchestrationGetSnapshotFromRemote(
   connectionUrl: string,
   input?: RemoteSnapshotInput,
 ): Promise<RemoteSnapshotResult> {
-  registerRemoteRoute(connectionUrl);
-  const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
-  const client = getOrCreateRouteClient(normalizedConnectionUrl);
-  try {
-    const snapshot = await client.orchestration.getSnapshot(input);
-    setRouteAvailability(normalizedConnectionUrl, {
-      status: "available",
-      checkedAt: Date.now(),
-    });
-    return snapshot;
-  } catch (error) {
-    setRouteAvailability(normalizedConnectionUrl, {
-      status: "unavailable",
-      checkedAt: Date.now(),
-      error: getErrorMessage(error),
-    });
-    throw error;
+  const normalizedConnectionUrl = ensureRouteTracked(connectionUrl);
+  const requestKey = snapshotRequestKey(normalizedConnectionUrl, input);
+  const inFlightRequest = inFlightSnapshotRequestByKey.get(requestKey);
+  if (inFlightRequest) {
+    return inFlightRequest;
   }
+  const client = getOrCreateRouteClient(normalizedConnectionUrl);
+  const requestPromise = (async () => {
+    try {
+      const snapshot = await client.orchestration.getSnapshot(input);
+      setRouteAvailability(normalizedConnectionUrl, {
+        status: "available",
+        checkedAt: Date.now(),
+      });
+      return snapshot;
+    } catch (error) {
+      setRouteAvailability(normalizedConnectionUrl, {
+        status: "unavailable",
+        checkedAt: Date.now(),
+        error: getErrorMessage(error),
+      });
+      throw error;
+    } finally {
+      inFlightSnapshotRequestByKey.delete(requestKey);
+    }
+  })();
+  inFlightSnapshotRequestByKey.set(requestKey, requestPromise);
+  return requestPromise;
 }
 
 export async function disposeRemoteRouteClient(connectionUrl: string): Promise<void> {
   const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
+  routeRegistrationCountByConnectionUrl.delete(normalizedConnectionUrl);
   unregisterRemoteRoute(normalizedConnectionUrl);
   await disposeRouteClientOnly(normalizedConnectionUrl);
 }
 
 export async function disposeAllRemoteRouteClients(): Promise<void> {
+  routeRegistrationCountByConnectionUrl.clear();
   routeAvailabilityByConnectionUrl.clear();
   inFlightAvailabilityByConnectionUrl.clear();
+  inFlightSnapshotRequestByKey.clear();
   const clients = [...routeClientsByConnectionUrl.values()];
   routeClientsByConnectionUrl.clear();
   await Promise.all(clients.map((client) => client.dispose()));
