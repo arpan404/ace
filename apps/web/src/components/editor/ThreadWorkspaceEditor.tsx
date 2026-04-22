@@ -45,6 +45,15 @@ import { useSettings } from "~/hooks/useSettings";
 import { useUpdateSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { isTerminalFocused } from "~/lib/terminalFocus";
+import {
+  createWorkspaceDiffEditorOptions,
+  createWorkspaceEditorOptions,
+} from "~/lib/editor/workspaceEditorOptions";
+import {
+  mergeWorkspaceSearchEntries,
+  searchWorkspaceEntriesLocally,
+  shouldRunWorkspaceRemoteSearch,
+} from "~/lib/editor/workspaceEntrySearch";
 import { gitStatusQueryOptions } from "~/lib/gitReactQuery";
 import { normalizePaneRatios, resizePaneRatios } from "~/lib/paneRatios";
 import {
@@ -81,6 +90,7 @@ import WorkspaceEditorPane from "./WorkspaceEditorPane";
 
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
 const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 1_500;
+const WORKSPACE_SEARCH_RESULT_LIMIT = 400;
 const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
 
 interface SaveConflictState {
@@ -395,112 +405,6 @@ function buildExplorerRenderRows(
     state: inlineState,
   });
   return baseRows;
-}
-
-function isContentSearchQuery(query: string): boolean {
-  const trimmed = query.trim().toLowerCase();
-  return trimmed.startsWith("in:") || trimmed.startsWith("content:") || trimmed.startsWith("inre:");
-}
-
-function scoreSubsequenceMatch(value: string, query: string): number | null {
-  if (!query) return 0;
-
-  let queryIndex = 0;
-  let firstMatchIndex = -1;
-  let previousMatchIndex = -1;
-  let gapPenalty = 0;
-
-  for (let valueIndex = 0; valueIndex < value.length; valueIndex += 1) {
-    if (value[valueIndex] !== query[queryIndex]) {
-      continue;
-    }
-
-    if (firstMatchIndex === -1) {
-      firstMatchIndex = valueIndex;
-    }
-    if (previousMatchIndex !== -1) {
-      gapPenalty += valueIndex - previousMatchIndex - 1;
-    }
-
-    previousMatchIndex = valueIndex;
-    queryIndex += 1;
-    if (queryIndex === query.length) {
-      const spanPenalty = valueIndex - firstMatchIndex + 1 - query.length;
-      const lengthPenalty = Math.min(64, value.length - query.length);
-      return firstMatchIndex * 2 + gapPenalty * 3 + spanPenalty + lengthPenalty;
-    }
-  }
-
-  return null;
-}
-
-function compileExplorerPathRegex(query: string): RegExp | null {
-  const trimmed = query.trim();
-  if (trimmed.length === 0) {
-    return null;
-  }
-  try {
-    return new RegExp(trimmed, "i");
-  } catch {
-    return null;
-  }
-}
-
-function searchWorkspaceEntriesLocally(
-  entries: readonly ProjectEntry[],
-  query: string,
-): readonly ProjectEntry[] {
-  const trimmed = query.trim();
-  if (trimmed.length === 0) {
-    return entries;
-  }
-
-  const lowerTrimmed = trimmed.toLowerCase();
-  if (lowerTrimmed.startsWith("re:")) {
-    const regex = compileExplorerPathRegex(trimmed.slice(3));
-    if (!regex) {
-      return EMPTY_PROJECT_ENTRIES;
-    }
-    return entries.filter((entry) => regex.test(entry.path));
-  }
-
-  const normalizedQuery = lowerTrimmed.replace(/^[@./]+/, "");
-  if (normalizedQuery.length === 0) {
-    return entries;
-  }
-
-  return entries
-    .map((entry) => {
-      const normalizedPath = entry.path.toLowerCase();
-      const normalizedName = basenameOfPath(entry.path).toLowerCase();
-      let score: number | null = null;
-
-      if (normalizedName === normalizedQuery) score = 0;
-      else if (normalizedPath === normalizedQuery) score = 1;
-      else if (normalizedName.startsWith(normalizedQuery)) score = 2;
-      else if (normalizedPath.startsWith(normalizedQuery)) score = 3;
-      else if (normalizedPath.includes(`/${normalizedQuery}`)) score = 4;
-      else if (normalizedName.includes(normalizedQuery)) score = 5;
-      else if (normalizedPath.includes(normalizedQuery)) score = 6;
-      else {
-        const fuzzyNameScore = scoreSubsequenceMatch(normalizedName, normalizedQuery);
-        if (fuzzyNameScore !== null) {
-          score = 100 + fuzzyNameScore;
-        } else {
-          const fuzzyPathScore = scoreSubsequenceMatch(normalizedPath, normalizedQuery);
-          if (fuzzyPathScore !== null) {
-            score = 200 + fuzzyPathScore;
-          }
-        }
-      }
-
-      return score === null ? null : { entry, score };
-    })
-    .filter((value): value is { entry: ProjectEntry; score: number } => value !== null)
-    .toSorted(
-      (left, right) => left.score - right.score || left.entry.path.localeCompare(right.entry.path),
-    )
-    .map((value) => value.entry);
 }
 
 function gitDecorationClass(status: GitWorkingTreeFileStatus): string {
@@ -859,82 +763,10 @@ function ThreadWorkspaceEditor(inputProps: {
     filePaths: new Set<string>(),
   });
   const editorOptions = useMemo(
-    () => ({
-      acceptSuggestionOnCommitCharacter: editorSettings.suggestions,
-      acceptSuggestionOnEnter: editorSettings.suggestions ? ("smart" as const) : ("off" as const),
-      autoClosingBrackets: "always" as const,
-      autoClosingComments: "always" as const,
-      autoClosingDelete: "always" as const,
-      autoClosingOvertype: "always" as const,
-      autoClosingQuotes: "always" as const,
-      autoIndent: "advanced" as const,
-      automaticLayout: true,
-      bracketPairColorization: { enabled: true },
-      cursorBlinking: "blink" as const,
-      cursorSmoothCaretAnimation: "off" as const,
-      cursorSurroundingLines: 2,
-      fontFamily:
-        '"SF Mono", "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-      fontLigatures: false,
-      fontSize: 13,
-      lineHeight: 22,
-      letterSpacing: 0,
-      formatOnPaste: true,
-      formatOnType: true,
-      guides: {
-        bracketPairs: true,
-        highlightActiveBracketPair: true,
-        indentation: true,
-      },
-      inlineSuggest: { enabled: editorSettings.suggestions },
-      lineNumbers: editorSettings.lineNumbers,
-      matchBrackets: "always" as const,
-      minimap: { enabled: editorSettings.minimap },
-      mouseWheelZoom: true,
-      occurrencesHighlight: "singleFile" as const,
-      padding: { top: 0, bottom: 0 },
-      parameterHints: { enabled: editorSettings.suggestions },
-      quickSuggestions: editorSettings.suggestions
-        ? ({
-            comments: false,
-            other: true,
-            strings: true,
-          } as const)
-        : false,
-      renderLineHighlightOnlyWhenFocus: false,
-      renderWhitespace: editorSettings.renderWhitespace ? ("all" as const) : ("none" as const),
-      roundedSelection: false,
-      scrollbar: {
-        horizontalScrollbarSize: 14,
-        useShadows: false,
-        verticalScrollbarSize: 14,
-      },
-      scrollBeyondLastLine: false,
-      smoothScrolling: false,
-      snippetSuggestions: editorSettings.suggestions ? ("top" as const) : ("none" as const),
-      stickyScroll: { enabled: editorSettings.stickyScroll },
-      suggest: {
-        localityBonus: true,
-        preview: true,
-        previewMode: "subwordSmart" as const,
-        selectionMode: "whenTriggerCharacter" as const,
-        showInlineDetails: true,
-        showStatusBar: true,
-        snippetsPreventQuickSuggestions: false,
-      },
-      suggestSelection: editorSettings.suggestions
-        ? ("recentlyUsedByPrefix" as const)
-        : ("first" as const),
-      suggestOnTriggerCharacters: editorSettings.suggestions,
-      tabCompletion: editorSettings.suggestions ? ("on" as const) : ("off" as const),
-      tabSize: 2,
-      wordBasedSuggestions: editorSettings.suggestions
-        ? ("matchingDocuments" as const)
-        : ("off" as const),
-      wordWrap: editorSettings.wordWrap ? ("on" as const) : ("off" as const),
-    }),
+    () => createWorkspaceEditorOptions(editorSettings),
     [editorSettings],
   );
+  const diffEditorOptions = useMemo(() => createWorkspaceDiffEditorOptions(), []);
 
   useEffect(() => {
     const previous = previousWorkspaceBufferStateRef.current;
@@ -1001,26 +833,37 @@ function ThreadWorkspaceEditor(inputProps: {
     }),
   );
   const gitStatusQuery = useQuery(gitStatusQueryOptions(props.gitCwd));
-  const remoteSearchEnabled = isContentSearchQuery(deferredTreeSearch);
+  const searchMode = deferredTreeSearch.length > 0;
+  const remoteSearchEnabled = shouldRunWorkspaceRemoteSearch(deferredTreeSearch);
   const workspaceSearchQuery = useQuery(
     projectSearchEntriesQueryOptions({
       cwd: props.gitCwd,
       enabled: remoteSearchEnabled,
-      limit: 400,
+      limit: WORKSPACE_SEARCH_RESULT_LIMIT,
       query: deferredTreeSearch,
     }),
   );
   const treeEntries = workspaceTreeQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
   const localSearchEntries = useMemo(
     () =>
-      deferredTreeSearch.length > 0 && !remoteSearchEnabled
+      searchMode
         ? searchWorkspaceEntriesLocally(treeEntries, deferredTreeSearch)
         : EMPTY_PROJECT_ENTRIES,
-    [deferredTreeSearch, remoteSearchEnabled, treeEntries],
+    [deferredTreeSearch, searchMode, treeEntries],
   );
-  const searchEntries = remoteSearchEnabled
-    ? (workspaceSearchQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES)
-    : localSearchEntries;
+  const remoteSearchEntries =
+    remoteSearchEnabled && !workspaceSearchQuery.isPlaceholderData
+      ? (workspaceSearchQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES)
+      : EMPTY_PROJECT_ENTRIES;
+  const searchEntries = useMemo(
+    () =>
+      mergeWorkspaceSearchEntries(
+        localSearchEntries,
+        remoteSearchEntries,
+        WORKSPACE_SEARCH_RESULT_LIMIT,
+      ),
+    [localSearchEntries, remoteSearchEntries],
+  );
   const entryByPath = useMemo(
     () => new Map(treeEntries.map((entry) => [entry.path, entry] as const)),
     [treeEntries],
@@ -1255,10 +1098,12 @@ function ThreadWorkspaceEditor(inputProps: {
     () => buildExplorerRenderRows(visibleRows, inlineEntryState),
     [inlineEntryState, visibleRows],
   );
-  const searchMode = deferredTreeSearch.length > 0;
   const explorerPending =
     workspaceTreeQuery.isPending ||
-    (searchMode && remoteSearchEnabled && workspaceSearchQuery.isPending);
+    (searchMode &&
+      remoteSearchEnabled &&
+      workspaceSearchQuery.isPending &&
+      localSearchEntries.length === 0);
 
   const rowVirtualizer = useVirtualizer({
     count: explorerRows.length,
@@ -2302,7 +2147,7 @@ function ThreadWorkspaceEditor(inputProps: {
                     nativeInput
                     value={treeSearch}
                     onChange={(event) => setTreeSearch(event.target.value)}
-                    placeholder="Search"
+                    placeholder="Search files or content"
                     className="h-7 border-border/60 bg-background/88 pl-7 text-[12px] shadow-none focus-within:bg-background"
                     size="sm"
                     type="search"
@@ -2638,13 +2483,7 @@ function ThreadWorkspaceEditor(inputProps: {
                   original={saveConflict.currentContents}
                   modified={saveConflict.localContents}
                   theme={resolvedTheme === "dark" ? "ace-carbon" : "ace-paper"}
-                  options={{
-                    automaticLayout: true,
-                    minimap: { enabled: false },
-                    originalEditable: false,
-                    readOnly: true,
-                    renderSideBySide: true,
-                  }}
+                  options={diffEditorOptions}
                 />
               </div>
             ) : null}
