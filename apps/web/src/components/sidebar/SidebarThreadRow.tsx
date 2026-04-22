@@ -142,6 +142,7 @@ export interface SidebarThreadRowProps {
   jumpLabel: string | null;
   appSettingsConfirmThreadArchive: boolean;
   isPinned: boolean;
+  showPinnedIndicator?: boolean;
   pinEnabled?: boolean;
   sortableHandleProps?: SortableThreadHandleProps | null;
   renamingThreadId: ThreadId | null;
@@ -203,6 +204,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   const isConfirmingArchive = props.confirmingArchiveThreadId === thread.id && !isThreadRunning;
   const canPin = props.pinEnabled ?? true;
+  const showPinnedIndicator = props.showPinnedIndicator ?? true;
   const threadMetaClassName = isConfirmingArchive
     ? "pointer-events-none opacity-0"
     : !isThreadRunning || canPin
@@ -304,7 +306,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
             </Tooltip>
           )}
           {threadStatus && <ThreadStatusLabel status={threadStatus} />}
-          {canPin && props.isPinned && (
+          {canPin && props.isPinned && showPinnedIndicator && (
             <PinIcon className="size-3 shrink-0 text-amber-500/80 dark:text-amber-300/85" />
           )}
           {props.renamingThreadId === thread.id ? (

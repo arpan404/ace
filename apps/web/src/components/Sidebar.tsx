@@ -2072,6 +2072,16 @@ export default function Sidebar() {
           direction: "right",
           threadId,
         });
+        startTransition(() => {
+          void navigate({
+            to: "/$threadId",
+            params: { threadId },
+            search:
+              connectionUrl && !connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl)
+                ? { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: connectionUrl }
+                : {},
+          });
+        });
         return;
       }
 
@@ -2126,7 +2136,9 @@ export default function Sidebar() {
       copyPathToClipboard,
       copyThreadIdToClipboard,
       deleteThread,
+      localDeviceConnectionUrl,
       markThreadUnread,
+      navigate,
       pinnedThreadIds,
       projectCwdById,
       sidebarThreadsById,
@@ -2164,6 +2176,20 @@ export default function Sidebar() {
           }
         }
         useChatThreadBoardStore.getState().openThreadsInBoard(boardInputs);
+        const targetInput = boardInputs.at(-1);
+        if (targetInput) {
+          startTransition(() => {
+            void navigate({
+              to: "/$threadId",
+              params: { threadId: targetInput.threadId },
+              search:
+                targetInput.connectionUrl &&
+                !connectionUrlsEqual(targetInput.connectionUrl, localDeviceConnectionUrl)
+                  ? { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: targetInput.connectionUrl }
+                  : {},
+            });
+          });
+        }
         clearSelection();
         return;
       }
@@ -2199,7 +2225,9 @@ export default function Sidebar() {
       appSettings.confirmThreadDelete,
       clearSelection,
       deleteThread,
+      localDeviceConnectionUrl,
       markThreadUnread,
+      navigate,
       removeFromSelection,
       selectedThreadIds,
       sidebarThreadsById,
@@ -2582,6 +2610,15 @@ export default function Sidebar() {
           direction: "right",
           threadId: remoteThreadId,
         });
+        startTransition(() => {
+          void navigate({
+            to: "/$threadId",
+            params: { threadId: remoteThreadId },
+            search: {
+              [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: input.connectionUrl,
+            },
+          });
+        });
         return;
       }
 
@@ -2658,6 +2695,7 @@ export default function Sidebar() {
       appSettings.confirmThreadDelete,
       copyPathToClipboard,
       copyThreadIdToClipboard,
+      navigate,
       removeRemoteThreadFromSidebarById,
       refreshRemoteSidebarHosts,
     ],
@@ -3498,6 +3536,7 @@ export default function Sidebar() {
         jumpLabel={threadJumpLabelById.get(threadId) ?? null}
         appSettingsConfirmThreadArchive={appSettings.confirmThreadArchive}
         isPinned
+        showPinnedIndicator={false}
         renamingThreadId={renamingThreadId}
         renamingTitle={renamingTitle}
         setRenamingTitle={setRenamingTitle}
@@ -4954,8 +4993,7 @@ export default function Sidebar() {
             </SidebarGroup>
             {renderedPinnedThreadIds.length > 0 ? (
               <SidebarGroup className="px-2.5 pt-2.5 pb-0">
-                <div className="mb-1.5 flex items-center gap-1.5 pl-2 pr-1.5">
-                  <PinIcon className="size-3 text-amber-500/80 dark:text-amber-300/85" />
+                <div className="mb-1.5 flex items-center pl-2 pr-1.5">
                   <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
                     Pinned Threads
                   </span>

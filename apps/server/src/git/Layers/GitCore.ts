@@ -383,6 +383,10 @@ interface Trace2Monitor {
   readonly flush: Effect.Effect<void, never>;
 }
 
+interface SshAskPassConfig {
+  readonly env: NodeJS.ProcessEnv;
+}
+
 interface TraceTailReader {
   readonly readTraceDelta: Effect.Effect<void, never>;
   readonly finalizeTrace2Monitor: Effect.Effect<void, never>;
@@ -566,6 +570,133 @@ const createTrace2Monitor = Effect.fn("createTrace2Monitor")(function* (
   };
 });
 
+function buildSshAskPassScript(): string {
+  if (process.platform === "win32") {
+    return [
+      "@echo off",
+      'if exist "%ACE_GIT_SSH_ASKPASS_STATE%" exit /b 1',
+      'type nul > "%ACE_GIT_SSH_ASKPASS_STATE%"',
+      'if not exist "%ACE_GIT_SSH_PASSPHRASE_FILE%" exit /b 1',
+      'set /p passphrase=<"%ACE_GIT_SSH_PASSPHRASE_FILE%"',
+      '<nul set /p passphrase="%passphrase%"',
+      "exit /b 0",
+      "",
+    ].join("\r\n");
+  }
+
+  return [
+    "#!/bin/sh",
+    'if [ -e "$ACE_GIT_SSH_ASKPASS_STATE" ]; then',
+    "  exit 1",
+    "fi",
+    ': > "$ACE_GIT_SSH_ASKPASS_STATE" || exit 1',
+    '[ -f "$ACE_GIT_SSH_PASSPHRASE_FILE" ] || exit 1',
+    'IFS= read -r passphrase < "$ACE_GIT_SSH_PASSPHRASE_FILE" || exit 1',
+    'printf "%s\\n" "$passphrase"',
+    "",
+  ].join("\n");
+}
+
+const createSshAskPassConfig = Effect.fn("createSshAskPassConfig")(function* (
+  passphrase: string | null,
+): Effect.fn.Return<
+  SshAskPassConfig,
+  GitCommandError,
+  Scope.Scope | FileSystem.FileSystem | Path.Path
+> {
+  const normalizedPassphrase = passphrase ?? "";
+  if (normalizedPassphrase.length === 0) {
+    return {
+      env: {},
+    };
+  }
+
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const tempDir = yield* fs
+    .makeTempDirectoryScoped({ prefix: `ace-git-ssh-${process.pid}-` })
+    .pipe(
+      Effect.mapError((cause) =>
+        createGitCommandError(
+          "GitCore.createSshAskPassConfig",
+          process.cwd(),
+          ["ssh-askpass"],
+          "Failed to create SSH askpass helper directory.",
+          cause,
+        ),
+      ),
+    );
+  const scriptPath = path.join(
+    tempDir,
+    process.platform === "win32" ? "askpass.cmd" : "askpass.sh",
+  );
+  const statePath = path.join(tempDir, "used");
+  const passphrasePath = path.join(tempDir, "passphrase");
+
+  yield* fs
+    .writeFileString(scriptPath, buildSshAskPassScript())
+    .pipe(
+      Effect.mapError((cause) =>
+        createGitCommandError(
+          "GitCore.createSshAskPassConfig",
+          process.cwd(),
+          ["ssh-askpass"],
+          "Failed to create SSH askpass helper.",
+          cause,
+        ),
+      ),
+    );
+  yield* fs
+    .writeFileString(passphrasePath, `${normalizedPassphrase}\n`)
+    .pipe(
+      Effect.mapError((cause) =>
+        createGitCommandError(
+          "GitCore.createSshAskPassConfig",
+          process.cwd(),
+          ["ssh-askpass"],
+          "Failed to create SSH passphrase file.",
+          cause,
+        ),
+      ),
+    );
+  yield* fs
+    .chmod(scriptPath, 0o700)
+    .pipe(
+      Effect.mapError((cause) =>
+        createGitCommandError(
+          "GitCore.createSshAskPassConfig",
+          process.cwd(),
+          ["ssh-askpass"],
+          "Failed to make SSH askpass helper executable.",
+          cause,
+        ),
+      ),
+    );
+  yield* fs
+    .chmod(passphrasePath, 0o600)
+    .pipe(
+      Effect.mapError((cause) =>
+        createGitCommandError(
+          "GitCore.createSshAskPassConfig",
+          process.cwd(),
+          ["ssh-askpass"],
+          "Failed to secure SSH passphrase file.",
+          cause,
+        ),
+      ),
+    );
+
+  return {
+    env: {
+      ACE_GIT_SSH_ASKPASS_STATE: statePath,
+      ACE_GIT_SSH_PASSPHRASE_FILE: passphrasePath,
+      DISPLAY: process.env.DISPLAY || "ace",
+      SSH_ASKPASS: scriptPath,
+      SSH_ASKPASS_REQUIRE: "force",
+    },
+  };
+});
+
 const collectOutput = Effect.fn("collectOutput")(function* <E>(
   input: Pick<ExecuteGitInput, "operation" | "cwd" | "args">,
   stream: Stream.Stream<Uint8Array, E>,
@@ -642,10 +773,32 @@ const collectOutput = Effect.fn("collectOutput")(function* <E>(
 
 export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
   executeOverride?: GitCoreShape["execute"];
+  readGitSshKeyPassphrase?: () => Effect.Effect<string | null>;
 }) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const { worktreesDir } = yield* ServerConfig;
+  const { settingsPath, worktreesDir } = yield* ServerConfig;
+
+  const readPersistedGitSshKeyPassphrase = Effect.fn("readGitSshKeyPassphrase")(function* () {
+    return yield* fileSystem.readFileString(settingsPath).pipe(
+      Effect.flatMap((raw) =>
+        Effect.try({
+          try: () => JSON.parse(raw) as Record<string, unknown>,
+          catch: () => null,
+        }),
+      ),
+      Effect.map((settings) => {
+        const passphrase =
+          settings && typeof settings.gitSshKeyPassphrase === "string"
+            ? settings.gitSshKeyPassphrase.trim()
+            : "";
+        return passphrase.length > 0 ? passphrase : null;
+      }),
+      Effect.catch(() => Effect.succeed(null)),
+    );
+  });
+  const readGitSshKeyPassphrase =
+    options?.readGitSshKeyPassphrase ?? readPersistedGitSshKeyPassphrase;
 
   let execute: GitCoreShape["execute"];
 
@@ -668,6 +821,13 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
           Effect.provideService(FileSystem.FileSystem, fileSystem),
           Effect.mapError(toGitCommandError(commandInput, "failed to create trace2 monitor.")),
         );
+        const sshAskPassConfig = yield* createSshAskPassConfig(
+          yield* readGitSshKeyPassphrase(),
+        ).pipe(
+          Effect.provideService(Path.Path, path),
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.mapError(toGitCommandError(commandInput, "failed to create SSH askpass helper.")),
+        );
         const child = yield* commandSpawner
           .spawn(
             ChildProcess.make("git", commandInput.args, {
@@ -675,6 +835,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
               env: {
                 ...process.env,
                 ...input.env,
+                ...sshAskPassConfig.env,
                 ...trace2Monitor.env,
               },
             }),

@@ -600,6 +600,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
+      ...(settings.gitSshKeyPassphrase !== DEFAULT_UNIFIED_SETTINGS.gitSshKeyPassphrase
+        ? ["Git SSH key passphrase"]
+        : []),
       ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
@@ -630,6 +633,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.defaultThreadEnvMode,
+      settings.gitSshKeyPassphrase,
       settings.addProjectBaseDirectory,
       settings.providerCliIdleTtlSeconds,
       settings.providerCliMaxOpen,
@@ -2652,6 +2656,39 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
       {isAdvancedPage ? (
         <>
+          <SettingsSection title="Git credentials">
+            <SettingsRow
+              title="SSH key passphrase"
+              description="Use this passphrase once when automated git SSH fetch or push needs to unlock a private key."
+              resetAction={
+                settings.gitSshKeyPassphrase !== DEFAULT_UNIFIED_SETTINGS.gitSshKeyPassphrase ? (
+                  <SettingResetButton
+                    label="Git SSH key passphrase"
+                    onClick={() =>
+                      updateSettings({
+                        gitSshKeyPassphrase: DEFAULT_UNIFIED_SETTINGS.gitSshKeyPassphrase,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              status={settings.gitSshKeyPassphrase.trim().length > 0 ? "Configured" : "Not set"}
+              control={
+                <Input
+                  type="password"
+                  className="w-full sm:w-72"
+                  value={settings.gitSshKeyPassphrase}
+                  onChange={(event) => {
+                    updateSettings({ gitSshKeyPassphrase: event.target.value });
+                  }}
+                  placeholder="Optional private key passphrase"
+                  aria-label="Git SSH key passphrase"
+                  autoComplete="off"
+                />
+              }
+            />
+          </SettingsSection>
+
           <SettingsSection title="Performance">
             <SettingsRow
               title="Thread cache budget"

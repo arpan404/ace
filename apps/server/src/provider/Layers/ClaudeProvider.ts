@@ -633,7 +633,7 @@ export const ClaudeProviderLive = Layer.effect(
           ? probeClaudeCapabilities(binaryPath, () =>
               loadClaudeAgentSdkModule(serverConfigOption.value.stateDir),
             ).pipe(Effect.map((r) => r?.subscriptionType))
-          : Effect.succeed(undefined),
+          : Effect.sync((): string | undefined => undefined),
     });
 
     const checkProvider = checkClaudeProviderStatus((binaryPath) =>
