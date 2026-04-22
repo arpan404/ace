@@ -2148,13 +2148,30 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
 
   const focusComposer = useCallback(() => {
-    composerEditorRef.current?.focusAtEnd();
+    return composerEditorRef.current?.focusAtEnd() ?? false;
   }, []);
-  const scheduleComposerFocus = useCallback(() => {
-    window.requestAnimationFrame(() => {
-      focusComposer();
-    });
-  }, [focusComposer]);
+  const scheduleComposerFocus = useCallback(
+    (attempts = 4) => {
+      let frameId: number | null = null;
+      const requestFocus = (remainingAttempts: number) => {
+        frameId = window.requestAnimationFrame(() => {
+          frameId = null;
+          if (focusComposer() || remainingAttempts <= 1) {
+            return;
+          }
+          requestFocus(remainingAttempts - 1);
+        });
+      };
+
+      requestFocus(Math.max(1, attempts));
+      return () => {
+        if (frameId !== null) {
+          window.cancelAnimationFrame(frameId);
+        }
+      };
+    },
+    [focusComposer],
+  );
   const persistQueuedComposerStateByThreadId = useCallback(
     async (
       targetThreadId: ThreadId,
@@ -4148,13 +4165,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   useEffect(() => {
     if (!activeThread?.id || terminalState.terminalOpen) return;
-    const frame = window.requestAnimationFrame(() => {
-      focusComposer();
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [activeThread?.id, focusComposer, terminalState.terminalOpen]);
+    return scheduleComposerFocus();
+  }, [activeThread?.id, scheduleComposerFocus, terminalState.terminalOpen]);
 
   useEffect(() => {
     composerImagesRef.current = composerImages;
@@ -4347,16 +4359,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     } else if (previous && !current) {
       terminalOpenByThreadRef.current[activeThreadId] = current;
-      const frame = window.requestAnimationFrame(() => {
-        focusComposer();
-      });
-      return () => {
-        window.cancelAnimationFrame(frame);
-      };
+      return scheduleComposerFocus();
     }
 
     terminalOpenByThreadRef.current[activeThreadId] = current;
-  }, [activeThreadId, focusComposer, terminalState.terminalOpen]);
+  }, [activeThreadId, scheduleComposerFocus, terminalState.terminalOpen]);
 
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
@@ -4664,7 +4671,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     setIsDragOverComposer(false);
     const files = Array.from(event.dataTransfer.files);
     addComposerImages(files);
-    focusComposer();
+    scheduleComposerFocus();
   };
 
   const onRevertToTurnCount = useCallback(

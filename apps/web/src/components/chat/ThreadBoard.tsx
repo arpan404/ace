@@ -3,6 +3,7 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,6 +20,7 @@ import { useTheme } from "../../hooks/useTheme";
 import { useTurnDiffSummaries } from "../../hooks/useTurnDiffSummaries";
 import { hydrateThreadFromCache, readCachedHydratedThread } from "../../lib/threadHydrationCache";
 import { resizePaneRatios, normalizePaneRatios } from "../../lib/paneRatios";
+import { isScrollContainerNearBottom, scrollContainerToBottom } from "../../chat-scroll";
 import {
   THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
   resolveLocalConnectionUrl,
@@ -57,6 +59,17 @@ function buildThreadRouteSearch(connectionUrl: string | null): Record<string, st
   return { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: connectionUrl };
 }
 
+function isThreadBoardInteractiveTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return (
+    target.closest(
+      "button, a, input, textarea, select, summary, [role='button'], [data-scroll-anchor-target]",
+    ) !== null
+  );
+}
+
 function ThreadMonitorPane(props: {
   activePaneId: string | null;
   currentRouteConnectionUrl: string;
@@ -75,6 +88,7 @@ function ThreadMonitorPane(props: {
   const project = useProjectById(thread?.projectId);
   const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const shouldAutoScrollRef = useRef(true);
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
   const threadUpdatedAt = thread?.updatedAt ?? null;
   const threadHistoryLoaded = thread?.historyLoaded ?? null;
@@ -171,6 +185,46 @@ function ThreadMonitorPane(props: {
   const monitorTitle = sidebarThread?.title ?? thread?.title ?? "Thread";
   const isRouteConnectionMatch =
     (pane.connectionUrl ?? resolveLocalConnectionUrl()) === props.currentRouteConnectionUrl;
+  const lastTimelineEntry = timelineEntries.at(-1);
+  const timelineScrollKey = `${pane.threadId}:${String(lastTimelineEntry?.id ?? "")}:${String(
+    timelineEntries.length,
+  )}:${String(isWorking)}`;
+
+  const scrollMonitorToBottom = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+    scrollContainerToBottom(scrollContainer);
+  }, []);
+
+  useLayoutEffect(() => {
+    shouldAutoScrollRef.current = true;
+    scrollMonitorToBottom();
+  }, [pane.threadId, scrollMonitorToBottom]);
+
+  useLayoutEffect(() => {
+    if (!shouldAutoScrollRef.current) {
+      return;
+    }
+    scrollMonitorToBottom();
+    const frame = window.requestAnimationFrame(() => {
+      if (shouldAutoScrollRef.current) {
+        scrollMonitorToBottom();
+      }
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [scrollMonitorToBottom, timelineScrollKey]);
+
+  const handleMonitorScroll = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+    shouldAutoScrollRef.current = isScrollContainerNearBottom(scrollContainer);
+  }, []);
 
   return (
     <div
@@ -180,7 +234,9 @@ function ThreadMonitorPane(props: {
       )}
       onPointerDown={() => {
         props.setActivePane(pane.id);
-        if (!props.isPrimary) {
+      }}
+      onClick={(event) => {
+        if (!props.isPrimary && !isThreadBoardInteractiveTarget(event.target)) {
           props.onPromote();
         }
       }}
@@ -258,7 +314,11 @@ function ThreadMonitorPane(props: {
         ) : null}
       </div>
 
-      <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={scrollContainerRef}
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+        onScroll={handleMonitorScroll}
+      >
         {thread || sidebarThread ? (
           <MessagesTimeline
             hasMessages={timelineEntries.length > 0}
@@ -516,7 +576,7 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
                 rowGroupRefs.current.delete(row.id);
               }
             }}
-            className="flex min-h-0 min-w-0 flex-1"
+            className="flex min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-x-contain"
           >
             {row.paneIds.map((paneId, paneIndex) => {
               const pane = paneById.get(paneId);
@@ -533,6 +593,7 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
                   style={{
                     flexBasis: 0,
                     flexGrow: row.paneRatios[paneIndex] ?? 1,
+                    minWidth: `${BOARD_MIN_COLUMN_WIDTH_PX}px`,
                   }}
                 >
                   {isPrimary ? (

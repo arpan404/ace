@@ -765,9 +765,9 @@ function collectTerminalContextIds(node: LexicalNode): string[] {
 }
 
 export interface ComposerPromptEditorHandle {
-  focus: () => void;
-  focusAt: (cursor: number) => void;
-  focusAtEnd: () => void;
+  focus: () => boolean;
+  focusAt: (cursor: number) => boolean;
+  focusAtEnd: () => boolean;
   readSnapshot: () => {
     value: string;
     cursor: number;
@@ -1151,7 +1151,7 @@ function ComposerPromptEditorInner({
   const focusAt = useCallback(
     (nextCursor: number) => {
       const rootElement = editor.getRootElement();
-      if (!rootElement) return;
+      if (!rootElement) return false;
       const boundedCursor = clampCollapsedComposerCursor(snapshotRef.current.value, nextCursor);
       rootElement.focus();
       editor.update(() => {
@@ -1170,6 +1170,7 @@ function ComposerPromptEditorInner({
         false,
         snapshotRef.current.terminalContextIds,
       );
+      return true;
     },
     [editor],
   );
@@ -1211,18 +1212,15 @@ function ComposerPromptEditorInner({
   useImperativeHandle(
     editorRef,
     () => ({
-      focus: () => {
-        focusAt(snapshotRef.current.cursor);
-      },
+      focus: () => focusAt(snapshotRef.current.cursor),
       focusAt,
-      focusAtEnd: () => {
+      focusAtEnd: () =>
         focusAt(
           collapseExpandedComposerCursor(
             snapshotRef.current.value,
             snapshotRef.current.value.length,
           ),
-        );
-      },
+        ),
       readSnapshot,
     }),
     [focusAt, readSnapshot],

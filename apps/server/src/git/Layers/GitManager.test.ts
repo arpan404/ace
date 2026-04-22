@@ -2241,7 +2241,51 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.worktreePath).toBeNull();
       const branch = (yield* runGit(repoDir, ["branch", "--show-current"])).stdout.trim();
       expect(branch).toBe("feature/pr-local");
-      expect(ghCalls).toContain("pr checkout 64 --force");
+      expect(ghCalls).not.toContain("pr checkout 64 --force");
+    }),
+  );
+
+  it.effect("prepares local PR threads through git fetch without gh checkout", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("ace-git-manager-");
+      yield* initRepo(repoDir);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/pr-local-git"]);
+      fs.writeFileSync(path.join(repoDir, "local-git.txt"), "local via git\n");
+      yield* runGit(repoDir, ["add", "local-git.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Local PR branch via git"]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "feature/pr-local-git"]);
+      yield* runGit(repoDir, ["push", "origin", "HEAD:refs/pull/65/head"]);
+      yield* runGit(repoDir, ["checkout", "main"]);
+      yield* runGit(repoDir, ["branch", "-D", "feature/pr-local-git"]);
+
+      const { manager, ghCalls } = yield* makeManager({
+        ghScenario: {
+          pullRequest: {
+            number: 65,
+            title: "Local PR via git",
+            url: "https://github.com/pingdotgg/codething-mvp/pull/65",
+            baseRefName: "main",
+            headRefName: "feature/pr-local-git",
+            state: "open",
+          },
+        },
+      });
+
+      const result = yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference: "65",
+        mode: "local",
+      });
+
+      expect(result.branch).toBe("feature/pr-local-git");
+      expect(result.worktreePath).toBeNull();
+      expect((yield* runGit(repoDir, ["branch", "--show-current"])).stdout.trim()).toBe(
+        "feature/pr-local-git",
+      );
+      expect(ghCalls.some((call) => call.startsWith("pr checkout "))).toBe(false);
     }),
   );
 
@@ -2342,6 +2386,74 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       ])).stdout.trim();
       expect(upstreamRef).toBe("fork-seed/feature/pr-fork");
       expect(upstreamRef.startsWith("origin/")).toBe(false);
+      expect(
+        (yield* runGit(result.worktreePath as string, [
+          "config",
+          "--get",
+          "remote.fork-seed.url",
+        ])).stdout.trim(),
+      ).toBe(forkDir);
+    }),
+  );
+
+  it.effect("prefers SSH clone URLs for fork PR worktrees when origin uses SSH", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("ace-git-manager-");
+      yield* initRepo(repoDir);
+      const originDir = yield* createBareRemote();
+      const forkDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", originDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+      yield* runGit(repoDir, [
+        "config",
+        "remote.origin.url",
+        "git@github.com:pingdotgg/codething-mvp.git",
+      ]);
+      yield* runGit(repoDir, ["config", "remote.origin.pushurl", originDir]);
+      yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
+      yield* runGit(repoDir, ["checkout", "-b", "feature/pr-fork-ssh"]);
+      fs.writeFileSync(path.join(repoDir, "fork-ssh.txt"), "fork ssh\n");
+      yield* runGit(repoDir, ["add", "fork-ssh.txt"]);
+      yield* runGit(repoDir, ["commit", "-m", "Fork SSH PR branch"]);
+      yield* runGit(repoDir, ["push", "-u", "fork-seed", "feature/pr-fork-ssh"]);
+      yield* runGit(repoDir, ["checkout", "main"]);
+
+      const { manager } = yield* makeManager({
+        ghScenario: {
+          pullRequest: {
+            number: 84,
+            title: "Fork SSH PR",
+            url: "https://github.com/pingdotgg/codething-mvp/pull/84",
+            baseRefName: "main",
+            headRefName: "feature/pr-fork-ssh",
+            state: "open",
+            isCrossRepository: true,
+            headRepositoryNameWithOwner: "octocat/codething-mvp",
+            headRepositoryOwnerLogin: "octocat",
+          },
+          repositoryCloneUrls: {
+            "octocat/codething-mvp": {
+              url: path.join(repoDir, "missing-https-clone-url"),
+              sshUrl: forkDir,
+            },
+          },
+        },
+      });
+
+      const result = yield* preparePullRequestThread(manager, {
+        cwd: repoDir,
+        reference: "84",
+        mode: "worktree",
+      });
+
+      expect(result.worktreePath).not.toBeNull();
+      expect(
+        (yield* runGit(result.worktreePath as string, [
+          "rev-parse",
+          "--abbrev-ref",
+          "@{upstream}",
+        ])).stdout.trim(),
+      ).toBe("fork-seed/feature/pr-fork-ssh");
       expect(
         (yield* runGit(result.worktreePath as string, [
           "config",
