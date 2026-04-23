@@ -182,6 +182,21 @@ function threadCanDispatchQueuedMessage(thread: OrchestrationThread): boolean {
   return true;
 }
 
+function threadMayHaveStaleQueueDispatchBlock(thread: OrchestrationThread): boolean {
+  if (thread.queuedComposerMessages.length === 0) {
+    return false;
+  }
+  return (
+    thread.latestTurn?.state === "running" ||
+    thread.session?.status === "running" ||
+    (thread.session?.activeTurnId ?? null) !== null
+  );
+}
+
+function liveProviderSessionBlocksQueueDispatch(session: ProviderSession | undefined): boolean {
+  return session?.status === "running" || session?.activeTurnId !== undefined;
+}
+
 function buildQueuedMessageText(message: OrchestrationThread["queuedComposerMessages"][number]) {
   const prompt = stripIssueReferenceMarkers(message.prompt);
   const promptWithTerminalContexts = appendTerminalContextsToPrompt(
@@ -432,7 +447,24 @@ const make = Effect.gen(function* () {
   });
 
   const dispatchNextQueuedComposerMessage = Effect.fnUntraced(function* (threadId: ThreadId) {
-    const thread = yield* resolveThread(threadId);
+    let thread = yield* resolveThread(threadId);
+    if (
+      thread &&
+      !threadCanDispatchQueuedMessage(thread) &&
+      threadMayHaveStaleQueueDispatchBlock(thread)
+    ) {
+      const liveSession = yield* findLiveSession(threadId);
+      if (!liveProviderSessionBlocksQueueDispatch(liveSession)) {
+        const createdAt = new Date().toISOString();
+        yield* reconcileThreadSessionFromLiveRuntime({
+          thread,
+          liveSession,
+          createdAt,
+        });
+        thread = yield* resolveThread(threadId);
+      }
+    }
+
     if (!thread || !threadCanDispatchQueuedMessage(thread)) {
       return;
     }
