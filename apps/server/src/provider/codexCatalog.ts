@@ -1,4 +1,5 @@
 import type { ModelCapabilities, ServerProviderModel } from "@ace/contracts";
+import { formatProviderModelDisplayName } from "@ace/shared/model";
 
 const EMPTY_CODEX_MODEL_CAPABILITIES: ModelCapabilities = {
   reasoningEffortLevels: [],
@@ -93,10 +94,9 @@ export function parseCodexDebugModelsOutput(output: string): ReadonlyArray<Serve
       continue;
     }
 
-    const displayName = asString(entry?.display_name)?.trim();
     result.push({
       slug,
-      name: displayName && displayName.length > 0 ? displayName : slug,
+      name: formatProviderModelDisplayName("codex", slug, asString(entry?.display_name)),
       isCustom: false,
       capabilities: buildCodexModelCapabilities(entry ?? {}),
     });
