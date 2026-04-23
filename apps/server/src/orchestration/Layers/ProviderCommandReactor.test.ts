@@ -416,6 +416,103 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("reconciles stale running session state when steer is clicked after work has finished", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const activeTurnId = asTurnId("turn-finished-before-steer");
+
+    harness.runtimeSessions.push({
+      provider: "codex",
+      status: "running",
+      runtimeMode: "approval-required",
+      threadId,
+      activeTurnId,
+      resumeCursor: { opaque: "resume-stale-running-session" },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-stale-running-session"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    const liveSession = harness.runtimeSessions[0];
+    expect(liveSession).toBeDefined();
+    if (!liveSession) {
+      return;
+    }
+    harness.runtimeSessions[0] = {
+      provider: liveSession.provider,
+      status: "ready",
+      runtimeMode: liveSession.runtimeMode,
+      ...(liveSession.cwd !== undefined ? { cwd: liveSession.cwd } : {}),
+      ...(liveSession.model !== undefined ? { model: liveSession.model } : {}),
+      threadId: liveSession.threadId,
+      ...(liveSession.resumeCursor !== undefined ? { resumeCursor: liveSession.resumeCursor } : {}),
+      createdAt: liveSession.createdAt,
+      updatedAt: now,
+      ...(liveSession.lastError !== undefined ? { lastError: liveSession.lastError } : {}),
+    };
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-steer-queued-after-finished-work"),
+        threadId,
+        queuedComposerMessages: [
+          {
+            id: asMessageId("queued-steer-after-finished-work"),
+            prompt: "Start this queued steer now",
+            images: [],
+            terminalContexts: [],
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "approval-required",
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          },
+        ],
+        queuedSteerRequest: {
+          messageId: asMessageId("queued-steer-after-finished-work"),
+          baselineWorkLogEntryCount: 1,
+          interruptRequested: false,
+        },
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    const sendTurnInput = harness.sendTurn.mock.calls[0]?.[0] as
+      | {
+          input?: string;
+        }
+      | undefined;
+    expect(sendTurnInput?.input).toBe("Start this queued steer now");
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === threadId);
+    expect(thread?.queuedComposerMessages).toEqual([]);
+    expect(thread?.queuedSteerRequest).toBeNull();
+    expect(thread?.session?.status).toBe("ready");
+    expect(thread?.session?.activeTurnId).toBeNull();
+  });
+
   it("passes handoff replay turns when starting the destination thread session", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

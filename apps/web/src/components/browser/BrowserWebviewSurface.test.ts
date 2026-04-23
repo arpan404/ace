@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   hasMinimumSelectionSize,
   mapSelectionRectToCapturedImageCrop,
+  resolveElementCommentWheelForwardingMode,
   shouldRunElementHoverInspection,
   shouldSubmitDesignDraftFromTextareaKey,
 } from "./BrowserWebviewSurface";
@@ -128,5 +129,40 @@ describe("shouldRunElementHoverInspection", () => {
   it("skips hover inspection while a draft or request is active", () => {
     expect(shouldRunElementHoverInspection({ ...baseInput, hasDesignDraft: true })).toBe(false);
     expect(shouldRunElementHoverInspection({ ...baseInput, requestInFlight: true })).toBe(false);
+  });
+});
+
+describe("resolveElementCommentWheelForwardingMode", () => {
+  it("uses DOM scroll forwarding on macOS so wheel deltas match normal browser scrolling", () => {
+    expect(
+      resolveElementCommentWheelForwardingMode({
+        hasSendInputEvent: true,
+        platform: "MacIntel",
+      }),
+    ).toBe("dom-scroll");
+  });
+
+  it("keeps Electron input forwarding on non-macOS webviews", () => {
+    expect(
+      resolveElementCommentWheelForwardingMode({
+        hasSendInputEvent: true,
+        platform: "Win32",
+      }),
+    ).toBe("electron-input");
+    expect(
+      resolveElementCommentWheelForwardingMode({
+        hasSendInputEvent: true,
+        platform: "Linux x86_64",
+      }),
+    ).toBe("electron-input");
+  });
+
+  it("falls back to DOM scroll forwarding when native input replay is unavailable", () => {
+    expect(
+      resolveElementCommentWheelForwardingMode({
+        hasSendInputEvent: false,
+        platform: "Win32",
+      }),
+    ).toBe("dom-scroll");
   });
 });

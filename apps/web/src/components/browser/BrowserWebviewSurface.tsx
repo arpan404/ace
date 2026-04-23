@@ -11,7 +11,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 
-import { cn, randomUUID } from "~/lib/utils";
+import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { runAsyncTask } from "~/lib/async";
 import type { BrowserDesignerTool } from "~/lib/browser/designer";
 import { type BrowserTabState, resolveBrowserTabTitle } from "~/lib/browser/session";
@@ -367,6 +367,16 @@ export function shouldRunElementHoverInspection(input: {
     !input.hasDesignDraft &&
     !input.requestInFlight
   );
+}
+
+export function resolveElementCommentWheelForwardingMode(input: {
+  hasSendInputEvent: boolean;
+  platform: string;
+}): "dom-scroll" | "electron-input" {
+  if (!input.hasSendInputEvent || isMacPlatform(input.platform)) {
+    return "dom-scroll";
+  }
+  return "electron-input";
 }
 
 function resolveDataUrlMimeType(dataUrl: string): string {
@@ -1024,6 +1034,104 @@ export function buildBrowserElementCaptureScript(
     target: describe(target),
     mainContainer: describe(mainContainer),
   };
+})();`;
+}
+
+function buildElementCommentScrollScript(input: {
+  deltaX: number;
+  deltaY: number;
+  overlayViewport?: { width: number; height: number };
+  point: { x: number; y: number };
+}): string {
+  const serializedPayload = JSON.stringify({
+    delta: {
+      left: input.deltaX,
+      top: input.deltaY,
+    },
+    overlayViewport: input.overlayViewport
+      ? {
+          width: Math.max(1, Math.round(input.overlayViewport.width)),
+          height: Math.max(1, Math.round(input.overlayViewport.height)),
+        }
+      : null,
+    point: {
+      x: Math.max(0, Math.floor(input.point.x)),
+      y: Math.max(0, Math.floor(input.point.y)),
+    },
+  });
+  return `(() => {
+  const payload = ${serializedPayload};
+  const delta = payload.delta;
+  const rawPoint = payload.point;
+  const overlayViewport = payload.overlayViewport;
+  const visualViewport = typeof window.visualViewport === "object" ? window.visualViewport : null;
+  const guestWidth = Math.max(
+    1,
+    Math.round(
+      window.innerWidth || visualViewport?.width || document.documentElement?.clientWidth || 1,
+    ),
+  );
+  const guestHeight = Math.max(
+    1,
+    Math.round(
+      window.innerHeight || visualViewport?.height || document.documentElement?.clientHeight || 1,
+    ),
+  );
+  const hostWidth = Math.max(1, Math.round(overlayViewport?.width || guestWidth));
+  const hostHeight = Math.max(1, Math.round(overlayViewport?.height || guestHeight));
+  const offsetLeft = Number.isFinite(visualViewport?.offsetLeft) ? visualViewport.offsetLeft : 0;
+  const offsetTop = Number.isFinite(visualViewport?.offsetTop) ? visualViewport.offsetTop : 0;
+  const clampNumber = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+  const point = {
+    x: Math.round(
+      clampNumber(
+        offsetLeft + rawPoint.x * (guestWidth / hostWidth),
+        offsetLeft,
+        offsetLeft + guestWidth - 1,
+      ),
+    ),
+    y: Math.round(
+      clampNumber(
+        offsetTop + rawPoint.y * (guestHeight / hostHeight),
+        offsetTop,
+        offsetTop + guestHeight - 1,
+      ),
+    ),
+  };
+  const isScrollableOverflow = (value) =>
+    value === "auto" || value === "scroll" || value === "overlay";
+  const canScrollAxis = (element, axis, amount) => {
+    if (!element || amount === 0) return false;
+    const style = window.getComputedStyle(element);
+    const overflow = axis === "x" ? style.overflowX : style.overflowY;
+    if (!isScrollableOverflow(overflow)) return false;
+    const scrollPosition = axis === "x" ? element.scrollLeft : element.scrollTop;
+    const scrollSize = axis === "x" ? element.scrollWidth : element.scrollHeight;
+    const clientSize = axis === "x" ? element.clientWidth : element.clientHeight;
+    const maxScroll = Math.max(0, scrollSize - clientSize);
+    if (maxScroll <= 0) return false;
+    return amount > 0 ? scrollPosition < maxScroll : scrollPosition > 0;
+  };
+  const canScroll = (element, axis) => {
+    if (axis === "x") {
+      return canScrollAxis(element, "x", delta.left) || canScrollAxis(element, "y", delta.top);
+    }
+    return canScrollAxis(element, "y", delta.top) || canScrollAxis(element, "x", delta.left);
+  };
+  const dominantAxis = Math.abs(delta.left) > Math.abs(delta.top) ? "x" : "y";
+  let target = document.elementFromPoint(point.x, point.y);
+  while (target && target !== document.body && target !== document.documentElement) {
+    if (canScroll(target, dominantAxis)) {
+      target.scrollBy({ left: delta.left, top: delta.top, behavior: "auto" });
+      return;
+    }
+    target = target.parentElement;
+  }
+  window.scrollBy({
+    left: delta.left,
+    top: delta.top,
+    behavior: "auto",
+  });
 })();`;
 }
 
@@ -1730,7 +1838,11 @@ export function BrowserTabWebview(props: {
             clampPoint(input.clientY - overlayBounds.top, 0, Math.max(0, overlayBounds.height - 1)),
           )
         : 0;
-      if (webview.sendInputEvent) {
+      const forwardingMode = resolveElementCommentWheelForwardingMode({
+        hasSendInputEvent: typeof webview.sendInputEvent === "function",
+        platform: typeof navigator === "undefined" ? "" : navigator.platform,
+      });
+      if (forwardingMode === "electron-input" && webview.sendInputEvent) {
         webview.sendInputEvent({
           type: "mouseWheel",
           x,
@@ -1744,17 +1856,16 @@ export function BrowserTabWebview(props: {
       if (!webview.executeJavaScript) {
         return;
       }
-      const serializedPayload = JSON.stringify({ left: input.deltaX, top: input.deltaY });
       runAsyncTask(
         webview.executeJavaScript(
-          `(() => {
-          const delta = ${serializedPayload};
-          window.scrollBy({
-            left: delta.left,
-            top: delta.top,
-            behavior: "auto",
-          });
-        })();`,
+          buildElementCommentScrollScript({
+            deltaX: input.deltaX,
+            deltaY: input.deltaY,
+            point: { x, y },
+            ...(overlayBounds
+              ? { overlayViewport: { width: overlayBounds.width, height: overlayBounds.height } }
+              : {}),
+          }),
           true,
         ),
         "Failed to forward element-comment scroll to the browser webview.",
