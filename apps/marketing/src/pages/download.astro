@@ -199,6 +199,7 @@ import Layout from "../layouts/Layout.astro";
     justify-content: space-between;
     gap: 1rem;
     margin-bottom: clamp(4rem, 10vw, 7rem);
+    animation: soft-rise 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   .download-brand,
@@ -224,11 +225,24 @@ import Layout from "../layouts/Layout.astro";
     gap: 0.35rem;
     color: var(--fg-muted);
     font-size: 0.94rem;
+    transition:
+      color 220ms ease,
+      transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .home-link svg {
     width: 0.9rem;
     height: 0.9rem;
+    transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .home-link:hover {
+    color: var(--fg);
+    transform: translateY(-1px);
+  }
+
+  .home-link:hover svg {
+    transform: translate(2px, -2px);
   }
 
   .download-hero {
@@ -236,6 +250,7 @@ import Layout from "../layouts/Layout.astro";
     max-width: 46rem;
     gap: 1rem;
     margin-bottom: clamp(2rem, 5vw, 3.5rem);
+    animation: soft-rise 620ms 80ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   .small-line {
@@ -274,6 +289,17 @@ import Layout from "../layouts/Layout.astro";
       radial-gradient(circle at 80% 24%, oklch(0.68 0.18 255 / 0.16), transparent 18rem),
       rgba(246, 240, 230, 0.055);
     padding: clamp(1.2rem, 3vw, 1.7rem);
+    animation: soft-scale 680ms 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    transition:
+      border-color 260ms ease,
+      box-shadow 420ms ease,
+      transform 420ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .recommended-download:hover {
+    border-color: rgba(246, 240, 230, 0.22);
+    box-shadow: 0 24px 72px rgba(0, 0, 0, 0.24);
+    transform: translateY(-3px);
   }
 
   #version-label {
@@ -307,6 +333,18 @@ import Layout from "../layouts/Layout.astro";
     padding: 0.84rem 1.25rem;
     font-weight: 800;
     white-space: nowrap;
+    transition:
+      transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 240ms ease;
+  }
+
+  .download-button:not(.is-disabled):hover {
+    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.22);
+    transform: translateY(-2px) scale(1.01);
+  }
+
+  .download-button:not(.is-disabled):active {
+    transform: translateY(1px) scale(0.99);
   }
 
   .platform-grid {
@@ -325,6 +363,31 @@ import Layout from "../layouts/Layout.astro";
     border-radius: var(--radius);
     background: rgba(246, 240, 230, 0.04);
     padding: 1rem;
+    animation: soft-rise 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    transition:
+      border-color 260ms ease,
+      background 260ms ease,
+      transform 360ms cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 360ms ease;
+  }
+
+  .platform-card:nth-child(1) {
+    animation-delay: 220ms;
+  }
+
+  .platform-card:nth-child(2) {
+    animation-delay: 290ms;
+  }
+
+  .platform-card:nth-child(3) {
+    animation-delay: 360ms;
+  }
+
+  .platform-card:hover {
+    border-color: rgba(246, 240, 230, 0.22);
+    background: rgba(246, 240, 230, 0.055);
+    box-shadow: 0 22px 56px rgba(0, 0, 0, 0.18);
+    transform: translateY(-3px);
   }
 
   .platform-heading {
@@ -363,9 +426,9 @@ import Layout from "../layouts/Layout.astro";
     background: rgba(6, 7, 6, 0.36);
     padding: 0.85rem;
     transition:
-      border-color 180ms ease,
-      background 180ms ease,
-      transform 180ms ease;
+      border-color 220ms ease,
+      background 220ms ease,
+      transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .asset-card:hover {
@@ -393,6 +456,7 @@ import Layout from "../layouts/Layout.astro";
     margin-top: 1.35rem;
     color: var(--fg-dim);
     font-size: 0.92rem;
+    animation: soft-rise 520ms 430ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   .release-note a {

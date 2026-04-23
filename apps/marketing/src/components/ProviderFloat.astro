@@ -55,6 +55,11 @@ const providers = [
     gap: 1rem;
     animation: scroll 28s linear infinite;
     width: max-content;
+    will-change: transform;
+  }
+
+  .provider-float-container:hover .provider-row {
+    animation-play-state: paused;
   }
 
   .provider-card {
@@ -67,16 +72,18 @@ const providers = [
     border-radius: 999px;
     backdrop-filter: blur(8px);
     transition:
-      transform 0.3s ease,
-      background 0.3s ease,
-      border-color 0.3s ease;
+      transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
+      background 280ms ease,
+      border-color 280ms ease,
+      box-shadow 280ms ease;
     cursor: default;
   }
 
   .provider-card:hover {
     background: oklch(1 0 0 / 0.1);
     border-color: var(--border-bright);
-    transform: translateY(-2px);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
+    transform: translateY(-3px);
   }
 
   .provider-card span {
