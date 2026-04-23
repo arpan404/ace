@@ -3,7 +3,7 @@ const REPO = "arpan404/ace";
 export const RELEASES_URL = `https://github.com/${REPO}/releases`;
 
 const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
-const CACHE_KEY = "ace-latest-release";
+const CACHE_KEY = "ace-latest-release-v2";
 
 export interface ReleaseAsset {
   name: string;
@@ -13,6 +13,9 @@ export interface ReleaseAsset {
 export interface Release {
   tag_name: string;
   html_url: string;
+  name: string | null;
+  body: string | null;
+  published_at: string | null;
   assets: ReleaseAsset[];
 }
 
@@ -46,6 +49,9 @@ function parseRelease(value: unknown): Release | null {
     ? {
         tag_name: value.tag_name,
         html_url: value.html_url,
+        name: typeof value.name === "string" ? value.name : null,
+        body: typeof value.body === "string" ? value.body : null,
+        published_at: typeof value.published_at === "string" ? value.published_at : null,
         assets,
       }
     : null;
