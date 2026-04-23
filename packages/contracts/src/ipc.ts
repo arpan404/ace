@@ -130,6 +130,7 @@ export type BrowserShortcutAction =
   | "next-tab"
   | "previous-tab"
   | "reload"
+  | "toggle-designer-mode"
   | "select-tab-1"
   | "select-tab-2"
   | "select-tab-3"

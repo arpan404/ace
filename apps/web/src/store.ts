@@ -42,6 +42,7 @@ export interface AppState {
   threads: Thread[];
   sidebarThreadsById: Record<string, SidebarThreadSummary>;
   threadIdsByProjectId: Record<string, ThreadId[]>;
+  dismissedThreadErrorKeysById: Record<string, string>;
   bootstrapComplete: boolean;
 }
 
@@ -50,6 +51,7 @@ const initialState: AppState = {
   threads: [],
   sidebarThreadsById: {},
   threadIdsByProjectId: {},
+  dismissedThreadErrorKeysById: {},
   bootstrapComplete: false,
 };
 
@@ -59,6 +61,7 @@ function createInitialState(): AppState {
     threads: [],
     sidebarThreadsById: {},
     threadIdsByProjectId: {},
+    dismissedThreadErrorKeysById: {},
     bootstrapComplete: false,
   };
 }
@@ -176,6 +179,47 @@ function mapSession(session: OrchestrationSession): Thread["session"] {
     createdAt: session.updatedAt,
     updatedAt: session.updatedAt,
     ...(session.lastError ? { lastError: session.lastError } : {}),
+  };
+}
+
+function resolveSessionVisibleError(
+  session: OrchestrationSession | null | undefined,
+): string | null {
+  if (session?.status !== "error") {
+    return null;
+  }
+  return session.lastError ?? null;
+}
+
+function resolveThreadErrorDismissalKey(thread: Pick<Thread, "error" | "session">): string | null {
+  if (thread.session?.status === "error" && thread.session.lastError) {
+    return `${thread.session.lastError}\u0000${thread.session.updatedAt}`;
+  }
+  if (!thread.error) {
+    return null;
+  }
+  return thread.error;
+}
+
+function isThreadErrorDismissed(
+  dismissedThreadErrorKeysById: Readonly<Record<string, string>>,
+  threadId: ThreadId,
+  thread: Pick<Thread, "error" | "session">,
+): boolean {
+  const dismissalKey = resolveThreadErrorDismissalKey(thread);
+  return dismissalKey !== null && dismissedThreadErrorKeysById[threadId] === dismissalKey;
+}
+
+function suppressDismissedThreadError(
+  thread: Thread,
+  dismissedThreadErrorKeysById: Readonly<Record<string, string>>,
+): Thread {
+  if (!isThreadErrorDismissed(dismissedThreadErrorKeysById, thread.id, thread)) {
+    return thread;
+  }
+  return {
+    ...thread,
+    error: null,
   };
 }
 
@@ -338,7 +382,7 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
     messages: thread.messages.map((message) => mapMessage(message, threadConnectionUrl)),
     proposedPlans: thread.proposedPlans.map(mapProposedPlan),
     latestProposedPlanSummary: mapLatestProposedPlanSummary(thread.latestProposedPlanSummary),
-    error: thread.session?.lastError ?? null,
+    error: resolveSessionVisibleError(thread.session),
     createdAt: thread.createdAt,
     archivedAt: thread.archivedAt,
     updatedAt: thread.updatedAt,
@@ -388,7 +432,10 @@ function getLatestUserMessageAt(
   return latestUserMessageAt;
 }
 
-function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
+function buildSidebarThreadSummary(
+  thread: Thread,
+  dismissedThreadErrorKeysById: Readonly<Record<string, string>>,
+): SidebarThreadSummary {
   return {
     id: thread.id,
     projectId: thread.projectId,
@@ -405,6 +452,7 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     latestUserMessageAt: getLatestUserMessageAt(thread.messages),
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
+    isErrorDismissed: isThreadErrorDismissed(dismissedThreadErrorKeysById, thread.id, thread),
     hasActionableProposedPlan: hasActionableProposedPlan(
       thread.latestProposedPlanSummary ??
         findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
@@ -437,6 +485,7 @@ function sidebarThreadSummariesEqual(
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
+    left.isErrorDismissed === right.isErrorDismissed &&
     left.hasActionableProposedPlan === right.hasActionableProposedPlan
   );
 }
@@ -493,9 +542,13 @@ function buildThreadIdsByProjectId(threads: ReadonlyArray<Thread>): Record<strin
 
 function buildSidebarThreadsById(
   threads: ReadonlyArray<Thread>,
+  dismissedThreadErrorKeysById: Readonly<Record<string, string>>,
 ): Record<string, SidebarThreadSummary> {
   return Object.fromEntries(
-    threads.map((thread) => [thread.id, buildSidebarThreadSummary(thread)]),
+    threads.map((thread) => [
+      thread.id,
+      buildSidebarThreadSummary(thread, dismissedThreadErrorKeysById),
+    ]),
   );
 }
 
@@ -568,7 +621,7 @@ export function pruneHydratedThreadHistories(
   return {
     ...state,
     threads,
-    sidebarThreadsById: buildSidebarThreadsById(threads),
+    sidebarThreadsById: buildSidebarThreadsById(threads, state.dismissedThreadErrorKeysById),
   };
 }
 
@@ -848,7 +901,7 @@ function updateThreadState(
     return state;
   }
 
-  const nextSummary = buildSidebarThreadSummary(updatedThread);
+  const nextSummary = buildSidebarThreadSummary(updatedThread, state.dismissedThreadErrorKeysById);
   const previousSummary = state.sidebarThreadsById[threadId];
   const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
     ? state.sidebarThreadsById
@@ -962,7 +1015,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
       const threads = existing
         ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
         : [...state.threads, nextThread];
-      const nextSummary = buildSidebarThreadSummary(nextThread);
+      const nextSummary = buildSidebarThreadSummary(nextThread, state.dismissedThreadErrorKeysById);
       const previousSummary = state.sidebarThreadsById[nextThread.id];
       const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
         ? state.sidebarThreadsById
@@ -1223,13 +1276,17 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.session-set": {
-      return updateThreadState(state, event.payload.threadId, (thread) => ({
-        ...thread,
-        session: mapSession(event.payload.session),
-        error: event.payload.session.lastError ?? null,
-        latestTurn: latestTurnFromSessionLifecycleEvent(thread, event.payload.session),
-        updatedAt: event.occurredAt,
-      }));
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        const session = mapSession(event.payload.session);
+        const nextThread = {
+          ...thread,
+          session,
+          error: resolveSessionVisibleError(event.payload.session),
+          latestTurn: latestTurnFromSessionLifecycleEvent(thread, event.payload.session),
+          updatedAt: event.occurredAt,
+        };
+        return suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById);
+      });
     }
 
     case "thread.session-stop-requested": {
@@ -1430,9 +1487,9 @@ export function syncServerReadModel(
       if (options !== undefined && nextThread.historyLoaded !== false) {
         primeHydratedThreadCache(thread);
       }
-      return nextThread;
+      return suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById);
     });
-  const sidebarThreadsById = buildSidebarThreadsById(threads);
+  const sidebarThreadsById = buildSidebarThreadsById(threads, state.dismissedThreadErrorKeysById);
   const threadIdsByProjectId = buildThreadIdsByProjectId(threads);
   return {
     ...state,
@@ -1455,7 +1512,10 @@ export function mergeServerReadModel(
   const incomingThreads = readModel.threads
     .filter((thread) => thread.deletedAt === null)
     .map((thread) => {
-      const nextThread = mapThread(thread, options);
+      const nextThread = suppressDismissedThreadError(
+        mapThread(thread, options),
+        state.dismissedThreadErrorKeysById,
+      );
       if (options !== undefined && nextThread.historyLoaded !== false) {
         primeHydratedThreadCache(thread);
       }
@@ -1481,7 +1541,7 @@ export function mergeServerReadModel(
     ...state,
     projects,
     threads,
-    sidebarThreadsById: buildSidebarThreadsById(threads),
+    sidebarThreadsById: buildSidebarThreadsById(threads, state.dismissedThreadErrorKeysById),
     threadIdsByProjectId: buildThreadIdsByProjectId(threads),
     bootstrapComplete: true,
   };
@@ -1505,7 +1565,7 @@ export function removeReadModelEntities(
     ...state,
     projects,
     threads,
-    sidebarThreadsById: buildSidebarThreadsById(threads),
+    sidebarThreadsById: buildSidebarThreadsById(threads, state.dismissedThreadErrorKeysById),
     threadIdsByProjectId: buildThreadIdsByProjectId(threads),
   };
 }
@@ -1525,7 +1585,7 @@ export function hydrateThreadFromReadModel(
   const threads = existingThread
     ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
     : [...state.threads, nextThread];
-  const nextSummary = buildSidebarThreadSummary(nextThread);
+  const nextSummary = buildSidebarThreadSummary(nextThread, state.dismissedThreadErrorKeysById);
   const previousSummary = state.sidebarThreadsById[nextThread.id];
   const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
     ? state.sidebarThreadsById
@@ -1602,6 +1662,34 @@ export function setError(state: AppState, threadId: ThreadId, error: string | nu
   });
 }
 
+export function dismissThreadError(state: AppState, threadId: ThreadId): AppState {
+  const thread = getThreadById(state.threads, threadId);
+  if (!thread?.error) {
+    return state;
+  }
+
+  const dismissalKey = resolveThreadErrorDismissalKey(thread);
+  if (dismissalKey === null) {
+    return state;
+  }
+
+  const dismissedThreadErrorKeysById =
+    state.dismissedThreadErrorKeysById[threadId] === dismissalKey
+      ? state.dismissedThreadErrorKeysById
+      : {
+          ...state.dismissedThreadErrorKeysById,
+          [threadId]: dismissalKey,
+        };
+  const nextState =
+    dismissedThreadErrorKeysById === state.dismissedThreadErrorKeysById
+      ? state
+      : {
+          ...state,
+          dismissedThreadErrorKeysById,
+        };
+  return setError(nextState, threadId, null);
+}
+
 export function setThreadBranch(
   state: AppState,
   threadId: ThreadId,
@@ -1659,6 +1747,7 @@ interface AppStore extends AppState {
   applyOrchestrationEvent: (event: OrchestrationEvent) => void;
   applyOrchestrationEvents: (events: ReadonlyArray<OrchestrationEvent>) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
+  dismissThreadError: (threadId: ThreadId) => void;
   setThreadBranch: (threadId: ThreadId, branch: string | null, worktreePath: string | null) => void;
   setThreadQueueState: (
     threadId: ThreadId,
@@ -1682,6 +1771,7 @@ export const useStore = create<AppStore>((set) => ({
   applyOrchestrationEvent: (event) => set((state) => applyOrchestrationEvent(state, event)),
   applyOrchestrationEvents: (events) => set((state) => applyOrchestrationEvents(state, events)),
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),
+  dismissThreadError: (threadId) => set((state) => dismissThreadError(state, threadId)),
   setThreadBranch: (threadId, branch, worktreePath) =>
     set((state) => setThreadBranch(state, threadId, branch, worktreePath)),
   setThreadQueueState: (threadId, queuedComposerMessages, queuedSteerRequest) =>

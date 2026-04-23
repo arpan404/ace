@@ -653,6 +653,34 @@ export function togglePinnedThread(state: UiState, threadId: ThreadId): UiState 
   };
 }
 
+export function reorderPinnedThreads(
+  state: UiState,
+  draggedThreadId: ThreadId,
+  targetThreadId: ThreadId,
+): UiState {
+  if (draggedThreadId === targetThreadId) {
+    return state;
+  }
+  const draggedIndex = state.pinnedThreadIds.findIndex((threadId) => threadId === draggedThreadId);
+  const targetIndex = state.pinnedThreadIds.findIndex((threadId) => threadId === targetThreadId);
+  if (draggedIndex < 0 || targetIndex < 0) {
+    return state;
+  }
+  const pinnedThreadIds = [...state.pinnedThreadIds];
+  const [draggedThread] = pinnedThreadIds.splice(draggedIndex, 1);
+  if (!draggedThread) {
+    return state;
+  }
+  pinnedThreadIds.splice(targetIndex, 0, draggedThread);
+  if (threadOrdersEqual(state.pinnedThreadIds, pinnedThreadIds)) {
+    return state;
+  }
+  return {
+    ...state,
+    pinnedThreadIds,
+  };
+}
+
 export function toggleProject(state: UiState, projectId: ProjectId): UiState {
   const expanded = state.projectExpandedById[projectId] ?? true;
   return {
@@ -718,6 +746,7 @@ interface UiStateStore extends UiState {
     draggedThreadId: ThreadId,
     targetThreadId: ThreadId,
   ) => void;
+  reorderPinnedThreads: (draggedThreadId: ThreadId, targetThreadId: ThreadId) => void;
   togglePinnedProject: (projectId: ProjectId) => void;
   togglePinnedThread: (threadId: ThreadId) => void;
   toggleProject: (projectId: ProjectId) => void;
@@ -737,6 +766,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   clearThreadUi: (threadId) => set((state) => clearThreadUi(state, threadId)),
   reorderThreadsInProject: (projectId, draggedThreadId, targetThreadId) =>
     set((state) => reorderThreadsInProject(state, projectId, draggedThreadId, targetThreadId)),
+  reorderPinnedThreads: (draggedThreadId, targetThreadId) =>
+    set((state) => reorderPinnedThreads(state, draggedThreadId, targetThreadId)),
   togglePinnedProject: (projectId) => set((state) => togglePinnedProject(state, projectId)),
   togglePinnedThread: (threadId) => set((state) => togglePinnedThread(state, threadId)),
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),

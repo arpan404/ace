@@ -810,6 +810,7 @@ export default function Sidebar() {
   const toggleProject = useUiStateStore((store) => store.toggleProject);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const reorderThreadsInProject = useUiStateStore((store) => store.reorderThreadsInProject);
+  const reorderPinnedThreads = useUiStateStore((store) => store.reorderPinnedThreads);
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearDraftThread);
   const getDraftThreadByProjectId = useComposerDraftStore(
     (store) => store.getDraftThreadByProjectId,
@@ -2870,6 +2871,19 @@ export default function Sidebar() {
     },
     [appSettings.sidebarThreadSortOrder, reorderThreadsInProject, updateSettings],
   );
+  const handlePinnedThreadDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) {
+        return;
+      }
+      reorderPinnedThreads(
+        ThreadId.makeUnsafe(String(active.id)),
+        ThreadId.makeUnsafe(String(over.id)),
+      );
+    },
+    [reorderPinnedThreads],
+  );
 
   const handleProjectTitlePointerDownCapture = useCallback(
     (event: PointerEvent<HTMLButtonElement>) => {
@@ -3522,7 +3536,10 @@ export default function Sidebar() {
     updateThreadJumpHintsVisibility,
   ]);
 
-  function renderPinnedThreadRow(threadId: ThreadId) {
+  function renderPinnedThreadRow(
+    threadId: ThreadId,
+    sortableHandleProps?: SortableThreadHandleProps,
+  ) {
     return (
       <SidebarThreadRow
         key={threadId}
@@ -3536,6 +3553,7 @@ export default function Sidebar() {
         jumpLabel={threadJumpLabelById.get(threadId) ?? null}
         appSettingsConfirmThreadArchive={appSettings.confirmThreadArchive}
         isPinned
+        sortableHandleProps={sortableHandleProps ?? null}
         showPinnedIndicator={false}
         renamingThreadId={renamingThreadId}
         renamingTitle={renamingTitle}
@@ -3560,6 +3578,8 @@ export default function Sidebar() {
       />
     );
   }
+  const canDragPinnedThreads =
+    normalizedProjectSearchQuery.length === 0 && renderedPinnedThreadIds.length > 1;
 
   function renderProjectItem(
     renderedProject: (typeof renderedProjects)[number],
@@ -4999,7 +5019,29 @@ export default function Sidebar() {
                   </span>
                 </div>
                 <SidebarMenuSub className="mx-0 my-0 w-full translate-x-0 gap-0.5 border-l-0 px-0 py-0.5">
-                  {renderedPinnedThreadIds.map((threadId) => renderPinnedThreadRow(threadId))}
+                  {canDragPinnedThreads ? (
+                    <DndContext
+                      sensors={threadDnDSensors}
+                      collisionDetection={projectCollisionDetection}
+                      modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+                      onDragEnd={handlePinnedThreadDragEnd}
+                    >
+                      <SortableContext
+                        items={renderedPinnedThreadIds}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {renderedPinnedThreadIds.map((threadId) => (
+                          <SortableThreadItem key={threadId} threadId={threadId}>
+                            {(sortableHandleProps) =>
+                              renderPinnedThreadRow(threadId, sortableHandleProps)
+                            }
+                          </SortableThreadItem>
+                        ))}
+                      </SortableContext>
+                    </DndContext>
+                  ) : (
+                    renderedPinnedThreadIds.map((threadId) => renderPinnedThreadRow(threadId))
+                  )}
                 </SidebarMenuSub>
               </SidebarGroup>
             ) : null}

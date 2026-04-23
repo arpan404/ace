@@ -2,6 +2,7 @@ import { basename, delimiter, dirname, extname, join, relative } from "node:path
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { Effect, Layer, Ref } from "effect";
 import * as Semaphore from "effect/Semaphore";
 
@@ -35,6 +36,8 @@ interface LspServerDefinition {
   readonly id: LspServerId;
   readonly languageIds: ReadonlySet<string>;
   readonly fileExtensions: ReadonlySet<string>;
+  readonly fileNames: ReadonlySet<string>;
+  readonly languageIdByExtension: ReadonlyMap<string, string>;
 }
 
 interface LspPendingRequest {
@@ -77,45 +80,6 @@ const PATH_ENV_KEYS = ["PATH", "Path", "path"] as const;
 const COMMON_NODE_MODULES_BIN_ANCESTOR_LIMIT = 8;
 const DIAGNOSTIC_SOURCE_FALLBACK = "lsp";
 
-const LSP_SERVERS = [
-  {
-    id: "typescript",
-    command: "typescript-language-server",
-    args: ["--stdio"],
-    languageIds: new Set(["typescript", "typescriptreact", "javascript", "javascriptreact"]),
-    fileExtensions: new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]),
-    envBinKey: "ACE_LSP_TYPESCRIPT_SERVER_BIN",
-    envArgsJsonKey: "ACE_LSP_TYPESCRIPT_SERVER_ARGS_JSON",
-  },
-  {
-    id: "json",
-    command: "vscode-json-language-server",
-    args: ["--stdio"],
-    languageIds: new Set(["json"]),
-    fileExtensions: new Set([".json"]),
-    envBinKey: "ACE_LSP_JSON_SERVER_BIN",
-    envArgsJsonKey: "ACE_LSP_JSON_SERVER_ARGS_JSON",
-  },
-  {
-    id: "css",
-    command: "vscode-css-language-server",
-    args: ["--stdio"],
-    languageIds: new Set(["css", "scss", "less"]),
-    fileExtensions: new Set([".css", ".scss", ".less"]),
-    envBinKey: "ACE_LSP_CSS_SERVER_BIN",
-    envArgsJsonKey: "ACE_LSP_CSS_SERVER_ARGS_JSON",
-  },
-  {
-    id: "html",
-    command: "vscode-html-language-server",
-    args: ["--stdio"],
-    languageIds: new Set(["html"]),
-    fileExtensions: new Set([".html", ".htm"]),
-    envBinKey: "ACE_LSP_HTML_SERVER_BIN",
-    envArgsJsonKey: "ACE_LSP_HTML_SERVER_ARGS_JSON",
-  },
-] as const satisfies readonly LspServerDefinition[];
-
 const TYPESCRIPT_INFERRED_PROJECT_COMPILER_OPTIONS = {
   allowArbitraryExtensions: true,
   allowImportingTsExtensions: true,
@@ -147,74 +111,22 @@ function toWorkspaceDiagnosticSeverity(severity: unknown): WorkspaceEditorDiagno
   return "error";
 }
 
-function resolveLanguageIdFromPath(relativePath: string): string | null {
-  const extension = extname(relativePath).toLowerCase();
-  switch (extension) {
-    case ".ts":
-    case ".mts":
-    case ".cts":
-      return "typescript";
-    case ".tsx":
-      return "typescriptreact";
-    case ".js":
-    case ".mjs":
-    case ".cjs":
-      return "javascript";
-    case ".jsx":
-      return "javascriptreact";
-    case ".json":
-      return "json";
-    case ".css":
-      return "css";
-    case ".scss":
-      return "scss";
-    case ".less":
-      return "less";
-    case ".html":
-    case ".htm":
-      return "html";
-    default:
-      return null;
-  }
-}
-
-function resolveServerForLanguageId(languageId: string): LspServerDefinition | null {
-  for (const server of LSP_SERVERS) {
-    if (server.languageIds.has(languageId)) {
-      return server;
-    }
-  }
-  return null;
-}
-
 async function resolveServerForPath(
   stateDir: string,
   relativePath: string,
 ): Promise<{ readonly languageId: string; readonly server: LspServerDefinition } | null> {
-  const builtInLanguageId = resolveLanguageIdFromPath(relativePath);
-  if (builtInLanguageId) {
-    const builtInServer = resolveServerForLanguageId(builtInLanguageId);
-    if (builtInServer) {
-      return { languageId: builtInLanguageId, server: builtInServer };
-    }
-  }
-  return resolveCustomServerForPath(stateDir, relativePath);
-}
-
-async function resolveCustomServerForPath(
-  stateDir: string,
-  relativePath: string,
-): Promise<{ readonly languageId: string; readonly server: LspServerDefinition } | null> {
   const extension = extname(relativePath).toLowerCase();
-  if (extension.length === 0) {
-    return null;
-  }
+  const fileName = basename(relativePath).toLowerCase();
   const servers = await getLspServerRegistry(stateDir);
   for (const server of servers) {
-    if (server.builtin || !server.fileExtensions.has(extension)) {
+    const matchesExtension = extension.length > 0 && server.fileExtensions.has(extension);
+    const matchesFileName = server.fileNames.has(fileName);
+    if (!matchesExtension && !matchesFileName) {
       continue;
     }
-    const languageId = server.languageIds.values().next().value;
+    const languageId =
+      (matchesExtension ? server.languageIdByExtension.get(extension) : null) ??
+      server.languageIds.values().next().value;
     if (typeof languageId !== "string" || languageId.length === 0) {
       continue;
     }
@@ -226,6 +138,10 @@ async function resolveCustomServerForPath(
         args: server.args,
         languageIds: server.languageIds,
         fileExtensions: server.fileExtensions,
+        fileNames: server.fileNames,
+        languageIdByExtension: server.languageIdByExtension,
+        ...(server.envBinKey ? { envBinKey: server.envBinKey } : {}),
+        ...(server.envArgsJsonKey ? { envArgsJsonKey: server.envArgsJsonKey } : {}),
       },
     };
   }
@@ -289,7 +205,13 @@ function buildLspEnvironment(stateDir: string): NodeJS.ProcessEnv {
     import.meta.dirname,
     join(stateDir, "lsp-tools"),
   ]);
-  const nextPathEntries = [...localBins, ...currentPath.split(delimiter).filter(Boolean)];
+  const nextPathEntries = [
+    join(stateDir, "lsp-tools", "uv", "bin"),
+    join(stateDir, "lsp-tools", "go", "bin"),
+    join(homedir(), ".cargo", "bin"),
+    ...localBins,
+    ...currentPath.split(delimiter).filter(Boolean),
+  ];
   if (nextPathEntries.length > 0) {
     nextEnv.PATH = Array.from(new Set(nextPathEntries)).join(delimiter);
   }

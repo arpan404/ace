@@ -18,6 +18,26 @@ function createInstallEnvironment(installDir: string): NodeJS.ProcessEnv {
   return env;
 }
 
+function createUvToolEnvironment(input: {
+  readonly dataHome: string;
+  readonly binHome: string;
+}): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  const currentPath = normalizePathVariable(env);
+  env.XDG_DATA_HOME = input.dataHome;
+  env.XDG_BIN_HOME = input.binHome;
+  env.PATH = [input.binHome, ...currentPath.split(delimiter).filter(Boolean)].join(delimiter);
+  return env;
+}
+
+function createGoInstallEnvironment(input: { readonly binDir: string }): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  const currentPath = normalizePathVariable(env);
+  env.GOBIN = input.binDir;
+  env.PATH = [input.binDir, ...currentPath.split(delimiter).filter(Boolean)].join(delimiter);
+  return env;
+}
+
 export function assertNpmAvailable(message: string): void {
   if (!isCommandAvailable("npm")) {
     throw new Error(message);
@@ -30,6 +50,12 @@ export async function ensurePackageInstallRoot(
 ): Promise<void> {
   await mkdir(installDir, { recursive: true });
   const packageJsonPath = join(installDir, "package.json");
+  try {
+    await readFile(packageJsonPath, "utf8");
+    return;
+  } catch {
+    // Fall through and create a fresh manifest.
+  }
   const packageJson = {
     name: packageJsonName,
     private: true,
@@ -78,6 +104,62 @@ export async function installPackagesWithNpm(input: {
       outputMode: "truncate",
     },
   );
+}
+
+export async function installPackagesWithUvTool(input: {
+  readonly dataHome: string;
+  readonly binHome: string;
+  readonly packageSpec: string;
+  readonly withPackages?: readonly string[];
+  readonly reinstall?: boolean;
+  readonly python?: string;
+  readonly timeoutMs?: number;
+}): Promise<void> {
+  const {
+    dataHome,
+    binHome,
+    packageSpec,
+    withPackages = [],
+    reinstall = false,
+    python = "python3",
+    timeoutMs = 240_000,
+  } = input;
+  await mkdir(dataHome, { recursive: true });
+  await mkdir(binHome, { recursive: true });
+
+  const args = [
+    "tool",
+    "install",
+    ...(reinstall ? ["--force"] : []),
+    "--python",
+    python,
+    packageSpec,
+    ...withPackages.flatMap((pkg) => ["--with", pkg]),
+  ];
+
+  await runProcess("uv", args, {
+    timeoutMs,
+    env: createUvToolEnvironment({ dataHome, binHome }),
+    maxBufferBytes: 2 * 1024 * 1024,
+    outputMode: "truncate",
+  });
+}
+
+export async function installPackagesWithGoInstall(input: {
+  readonly binDir: string;
+  readonly packages: readonly string[];
+  readonly timeoutMs?: number;
+}): Promise<void> {
+  const { binDir, packages, timeoutMs = 240_000 } = input;
+  await mkdir(binDir, { recursive: true });
+  for (const packageSpec of packages) {
+    await runProcess("go", ["install", packageSpec], {
+      timeoutMs,
+      env: createGoInstallEnvironment({ binDir }),
+      maxBufferBytes: 2 * 1024 * 1024,
+      outputMode: "truncate",
+    });
+  }
 }
 
 export async function loadInstalledModule<T>(installDir: string, specifier: string): Promise<T> {

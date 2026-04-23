@@ -28,10 +28,6 @@ import {
 import {
   deriveActiveWorkStartedAt,
   deriveCompletionDividerBeforeEntryId,
-  deriveTimelineEntries,
-  deriveVisibleTurnDiffSummaryByAssistantMessageId,
-  deriveWorkLogEntries,
-  filterVisibleWorkLogActivities,
   formatElapsed,
   hasLiveTurn,
   isLatestTurnSettled,
@@ -41,6 +37,10 @@ import { useProjectById, useSidebarThreadSummaryById, useThreadById } from "../.
 import { projectScriptCwd } from "../../projectScripts";
 import type { Thread } from "../../types";
 import { cn } from "~/lib/utils";
+import {
+  deriveThreadActivityRenderState,
+  deriveThreadTimelineRenderState,
+} from "~/lib/chat/threadRenderState";
 import { Button } from "../ui/button";
 import { MessagesTimeline } from "./MessagesTimeline";
 
@@ -144,24 +144,22 @@ function ThreadMonitorPane(props: {
     [settings.enableThinkingStreaming, settings.enableToolStreaming],
   );
   const threadActivities = thread?.activities ?? EMPTY_THREAD_ACTIVITIES;
-  const visibleThreadActivities = useMemo(
-    () => filterVisibleWorkLogActivities(threadActivities, activityVisibilitySettings),
+  const { workLogEntries } = useMemo(
+    () => deriveThreadActivityRenderState(threadActivities, activityVisibilitySettings),
     [activityVisibilitySettings, threadActivities],
-  );
-  const workLogEntries = useMemo(
-    () => deriveWorkLogEntries(visibleThreadActivities),
-    [visibleThreadActivities],
   );
   const timelineMessages = thread?.messages ?? EMPTY_THREAD_MESSAGES;
   const proposedPlans = thread?.proposedPlans ?? EMPTY_PROPOSED_PLANS;
-  const timelineEntries = useMemo(
-    () => deriveTimelineEntries(timelineMessages, proposedPlans, workLogEntries),
-    [proposedPlans, timelineMessages, workLogEntries],
-  );
   const { turnDiffSummaries } = useTurnDiffSummaries(thread);
-  const visibleTurnDiffSummaryByAssistantMessageId = useMemo(
-    () => deriveVisibleTurnDiffSummaryByAssistantMessageId(timelineMessages, turnDiffSummaries),
-    [timelineMessages, turnDiffSummaries],
+  const { timelineEntries, visibleTurnDiffSummaryByAssistantMessageId } = useMemo(
+    () =>
+      deriveThreadTimelineRenderState({
+        messages: timelineMessages,
+        proposedPlans,
+        workLogEntries,
+        turnDiffSummaries,
+      }),
+    [proposedPlans, timelineMessages, turnDiffSummaries, workLogEntries],
   );
   const completionSummary = useMemo(() => {
     if (!latestTurnSettled || !activeLatestTurn?.startedAt || !activeLatestTurn.completedAt) {

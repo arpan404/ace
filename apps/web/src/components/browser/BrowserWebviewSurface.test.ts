@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   hasMinimumSelectionSize,
+  isAbortedWebviewLoad,
   mapSelectionRectToCapturedImageCrop,
   resolveElementCommentWheelForwardingMode,
   shouldRunElementHoverInspection,
@@ -17,6 +18,18 @@ describe("hasMinimumSelectionSize", () => {
   it("allows smaller element-comment targets with the element minimum", () => {
     expect(hasMinimumSelectionSize({ x: 0, y: 0, width: 120, height: 18 }, 8)).toBe(true);
     expect(hasMinimumSelectionSize({ x: 0, y: 0, width: 7, height: 18 }, 8)).toBe(false);
+  });
+});
+
+describe("isAbortedWebviewLoad", () => {
+  it("ignores Electron wrapped aborted webview navigations", () => {
+    expect(
+      isAbortedWebviewLoad(
+        new Error(
+          "Error invoking remote method 'GUEST_VIEW_MANAGER_CALL': Error: ERR_ABORTED (-3) loading 'https://youtube.com/'",
+        ),
+      ),
+    ).toBe(true);
   });
 });
 

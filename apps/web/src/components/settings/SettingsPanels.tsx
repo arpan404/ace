@@ -4,8 +4,9 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   type DesktopCliInstallState,
   type ProviderKind,
-  type ServerLspMarketplaceSearchResult,
   type ServerInstallLspToolInput,
+  type ServerLspToolInstaller,
+  type ServerLspToolStatus,
   type ServerLspToolsStatus,
   ThreadId,
 } from "@ace/contracts";
@@ -64,6 +65,7 @@ import {
   type AgentAttentionNotificationPermission,
 } from "../../lib/agentAttentionNotifications";
 import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
 import { Collapsible, CollapsibleContent } from "../ui/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
@@ -147,6 +149,46 @@ function parseDelimitedValues(input: string): string[] {
         .filter((value) => value.length > 0),
     ),
   );
+}
+
+const LSP_CATEGORY_LABELS: Record<ServerLspToolStatus["category"], string> = {
+  core: "Core",
+  config: "Config",
+  markup: "Markup",
+  framework: "Frameworks",
+  data: "Data",
+  shell: "Shell",
+  infra: "Infra",
+  custom: "Custom",
+};
+
+const LSP_INSTALLER_LABELS: Record<ServerLspToolInstaller, string> = {
+  npm: "npm",
+  "uv-tool": "uv",
+  "go-install": "go",
+  rustup: "rustup",
+};
+
+const EMPTY_LSP_TOOL_LIST: readonly ServerLspToolStatus[] = [];
+
+function getLspToolSearchText(tool: ServerLspToolStatus): string {
+  return [
+    tool.label,
+    tool.description,
+    tool.installer,
+    tool.packageName,
+    tool.command,
+    ...tool.tags,
+    ...tool.languageIds,
+    ...tool.fileExtensions,
+    ...tool.fileNames,
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+function getLspToolStatusBadgeVariant(tool: ServerLspToolStatus): "success" | "warning" {
+  return tool.installed ? "success" : "warning";
 }
 
 function resolveNotificationSettingsUrl(): string | null {
@@ -754,25 +796,31 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const [lspToolsStatus, setLspToolsStatus] = useState<ServerLspToolsStatus | null>(null);
   const [lspToolsError, setLspToolsError] = useState<string | null>(null);
   const [isInstallingLspTools, setIsInstallingLspTools] = useState(false);
-  const [lspMarketplaceQuery, setLspMarketplaceQuery] = useState("");
-  const [lspMarketplaceResult, setLspMarketplaceResult] =
-    useState<ServerLspMarketplaceSearchResult | null>(null);
-  const [isSearchingLspMarketplace, setIsSearchingLspMarketplace] = useState(false);
+  const [lspCatalogQuery, setLspCatalogQuery] = useState("");
+  const [lspCatalogCategory, setLspCatalogCategory] = useState<
+    "all" | ServerLspToolStatus["category"]
+  >("all");
   const [isInstallingCustomLsp, setIsInstallingCustomLsp] = useState(false);
+  const [lspInstallTargetId, setLspInstallTargetId] = useState<string | null>(null);
+  const [isLspCustomFormOpen, setIsLspCustomFormOpen] = useState(false);
   const [lspCustomForm, setLspCustomForm] = useState<{
+    installer: ServerLspToolInstaller;
     packageName: string;
     command: string;
     label: string;
     args: string;
     languageIds: string;
     fileExtensions: string;
+    fileNames: string;
   }>({
+    installer: "npm",
     packageName: "",
     command: "",
     label: "",
     args: "",
     languageIds: "",
     fileExtensions: "",
+    fileNames: "",
   });
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
@@ -1187,7 +1235,39 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     mode: "full",
     open: false,
   });
-  const lspToolsInstalled = lspToolsStatus?.tools.every((tool) => tool.installed) ?? false;
+  const lspTools = lspToolsStatus?.tools ?? EMPTY_LSP_TOOL_LIST;
+  const lspCoreTools = useMemo(() => lspTools.filter((tool) => tool.builtin), [lspTools]);
+  const lspCatalogTools = useMemo(
+    () => lspTools.filter((tool) => tool.source !== "custom"),
+    [lspTools],
+  );
+  const lspCustomTools = useMemo(
+    () => lspTools.filter((tool) => tool.source === "custom"),
+    [lspTools],
+  );
+  const lspCoreToolsInstalled =
+    lspCoreTools.length > 0 && lspCoreTools.every((tool) => tool.installed);
+  const filteredLspCatalogTools = useMemo(() => {
+    const normalizedQuery = lspCatalogQuery.trim().toLowerCase();
+    return lspCatalogTools.filter((tool) => {
+      if (lspCatalogCategory !== "all" && tool.category !== lspCatalogCategory) {
+        return false;
+      }
+      if (normalizedQuery.length === 0) {
+        return true;
+      }
+      return getLspToolSearchText(tool).includes(normalizedQuery);
+    });
+  }, [lspCatalogCategory, lspCatalogQuery, lspCatalogTools]);
+  const lspCatalogCategories = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          lspCatalogTools.map((tool) => tool.category).filter((category) => category !== "custom"),
+        ),
+      ),
+    [lspCatalogTools],
+  );
 
   const refreshLspToolsStatus = useCallback(() => {
     void ensureNativeApi()
@@ -1221,60 +1301,73 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       .finally(() => setIsInstallingLspTools(false));
   }, []);
 
-  const searchLspMarketplace = useCallback(() => {
-    const query = lspMarketplaceQuery.trim();
-    if (query.length === 0) {
-      setLspMarketplaceResult(null);
-      return;
-    }
-    setIsSearchingLspMarketplace(true);
-    setLspToolsError(null);
-    void ensureNativeApi()
-      .server.searchLspMarketplace({ query, limit: 12 })
-      .then((result) => {
-        setLspMarketplaceResult(result);
-      })
-      .catch((error: unknown) => {
-        setLspToolsError(
-          error instanceof Error ? error.message : "Unable to search LSP marketplace.",
-        );
-      })
-      .finally(() => setIsSearchingLspMarketplace(false));
-  }, [lspMarketplaceQuery]);
-
-  const installCustomLspTool = useCallback((input: ServerInstallLspToolInput) => {
-    setIsInstallingCustomLsp(true);
-    setLspToolsError(null);
-    void ensureNativeApi()
-      .server.installLspTool(input)
-      .then((status) => {
-        setLspToolsStatus(status);
-        toastManager.add({
-          type: "success",
-          title: `Installed ${input.label}.`,
+  const installCustomLspTool = useCallback(
+    (input: ServerInstallLspToolInput, installTargetId: string | null = null) => {
+      setIsInstallingCustomLsp(true);
+      setLspInstallTargetId(installTargetId);
+      setLspToolsError(null);
+      void ensureNativeApi()
+        .server.installLspTool(input)
+        .then((status) => {
+          setLspToolsStatus(status);
+          toastManager.add({
+            type: "success",
+            title: `Installed ${input.label}.`,
+          });
+        })
+        .catch((error: unknown) => {
+          setLspToolsError(
+            error instanceof Error ? error.message : "Unable to install custom language server.",
+          );
+        })
+        .finally(() => {
+          setIsInstallingCustomLsp(false);
+          setLspInstallTargetId(null);
         });
-      })
-      .catch((error: unknown) => {
-        setLspToolsError(
-          error instanceof Error ? error.message : "Unable to install custom language server.",
-        );
-      })
-      .finally(() => setIsInstallingCustomLsp(false));
-  }, []);
+    },
+    [],
+  );
 
-  const installMarketplacePackage = useCallback((packageName: string) => {
-    const packageBasename = packageName.split("/").at(-1) ?? packageName;
-    const normalized = packageBasename.replace(/[^a-zA-Z0-9]+/g, " ").trim();
-    const fallbackLabel = normalized.length > 0 ? normalized : packageName;
-    setLspCustomForm((current) => ({
-      ...current,
-      packageName,
-      command: current.command || packageBasename,
-      label: current.label || fallbackLabel,
-    }));
+  const installCatalogTool = useCallback(
+    (tool: ServerLspToolStatus) => {
+      installCustomLspTool(
+        {
+          packageName: tool.packageName,
+          command: tool.command,
+          label: tool.label,
+          installer: tool.installer,
+          description: tool.description,
+          args: tool.args,
+          installPackages: tool.installPackages,
+          languageIds: tool.languageIds,
+          fileExtensions: tool.fileExtensions,
+          fileNames: tool.fileNames,
+          ...(tool.installed ? { reinstall: true } : {}),
+        },
+        tool.id,
+      );
+    },
+    [installCustomLspTool],
+  );
+
+  const seedCustomLspForm = useCallback((tool?: ServerLspToolStatus) => {
+    if (tool) {
+      setLspCustomForm({
+        installer: tool.installer,
+        packageName: tool.packageName,
+        command: tool.command,
+        label: tool.label,
+        args: tool.args.join(", "),
+        languageIds: tool.languageIds.join(", "),
+        fileExtensions: tool.fileExtensions.join(", "),
+        fileNames: tool.fileNames.join(", "),
+      });
+    }
+    setIsLspCustomFormOpen(true);
   }, []);
 
   const submitCustomLspInstall = useCallback(() => {
+    const installer = lspCustomForm.installer;
     const packageName = lspCustomForm.packageName.trim();
     const command = lspCustomForm.command.trim();
     const label = lspCustomForm.label.trim();
@@ -1282,25 +1375,33 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     const fileExtensions = parseDelimitedValues(lspCustomForm.fileExtensions).map((value) =>
       value.startsWith(".") ? value.toLowerCase() : `.${value.toLowerCase()}`,
     );
+    const fileNames = parseDelimitedValues(lspCustomForm.fileNames);
     const args = parseDelimitedValues(lspCustomForm.args);
     if (
       !packageName ||
       !command ||
       !label ||
       languageIds.length === 0 ||
-      fileExtensions.length === 0
+      (fileExtensions.length === 0 && fileNames.length === 0)
     ) {
-      setLspToolsError("Package, command, label, language IDs, and file extensions are required.");
+      setLspToolsError(
+        "Package, command, label, language IDs, and at least one file extension or file name are required.",
+      );
       return;
     }
-    installCustomLspTool({
-      packageName,
-      command,
-      label,
-      languageIds,
-      fileExtensions,
-      ...(args.length > 0 ? { args } : {}),
-    });
+    installCustomLspTool(
+      {
+        installer,
+        packageName,
+        command,
+        label,
+        languageIds,
+        fileExtensions,
+        ...(fileNames.length > 0 ? { fileNames } : {}),
+        ...(args.length > 0 ? { args } : {}),
+      },
+      "custom-form",
+    );
   }, [installCustomLspTool, lspCustomForm]);
 
   useEffect(() => {
@@ -2195,19 +2296,20 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
             <SettingsRow
               title="Language server tools"
-              description="Manage built-in and custom language servers for diagnostics and autocomplete."
+              description="Install the core bundle, browse a curated LSP catalog, and keep custom servers inside ace."
               status={
-                <div className="space-y-1 text-[11px] text-muted-foreground">
-                  {lspToolsStatus?.tools.map((tool) => (
-                    <div key={tool.id} className="flex items-center gap-2">
-                      <span>{tool.label}</span>
-                      <span className={tool.installed ? "text-emerald-500" : "text-amber-500"}>
-                        {tool.installed
-                          ? `Installed${tool.version ? ` (${tool.version})` : ""}`
-                          : "Missing"}
-                      </span>
-                    </div>
-                  ))}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" size="sm">
+                    {lspCoreTools.filter((tool) => tool.installed).length}/{lspCoreTools.length}{" "}
+                    core
+                  </Badge>
+                  <Badge variant="outline" size="sm">
+                    {lspCatalogTools.filter((tool) => tool.installed).length}/
+                    {lspCatalogTools.length} curated
+                  </Badge>
+                  <Badge variant="outline" size="sm">
+                    {lspCustomTools.length} custom
+                  </Badge>
                   {lspToolsError ? <div className="text-destructive">{lspToolsError}</div> : null}
                 </div>
               }
@@ -2223,121 +2325,332 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   </Button>
                   <Button
                     size="sm"
-                    onClick={() => installLspToolsFromSettings(lspToolsInstalled)}
+                    onClick={() => installLspToolsFromSettings(lspCoreToolsInstalled)}
                     disabled={isInstallingLspTools}
                   >
                     {isInstallingLspTools
                       ? "Installing..."
-                      : lspToolsInstalled
-                        ? "Reinstall"
-                        : "Install"}
+                      : lspCoreToolsInstalled
+                        ? "Reinstall core"
+                        : "Install core"}
                   </Button>
                 </div>
               }
             >
-              <div className="mt-4 space-y-3">
-                <div className="flex gap-2">
-                  <Input
-                    value={lspMarketplaceQuery}
-                    onChange={(event) => setLspMarketplaceQuery(event.target.value)}
-                    placeholder="Search npm for language servers"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={searchLspMarketplace}
-                    disabled={isSearchingLspMarketplace}
-                  >
-                    {isSearchingLspMarketplace ? "Searching..." : "Search"}
-                  </Button>
-                </div>
-                {lspMarketplaceResult && lspMarketplaceResult.packages.length > 0 ? (
-                  <div className="max-h-40 space-y-1 overflow-auto rounded-md bg-secondary/30 p-2">
-                    {lspMarketplaceResult.packages.map((pkg) => (
-                      <div
-                        key={pkg.packageName}
-                        className="flex items-center justify-between gap-2 rounded px-2 py-1"
-                      >
-                        <div className="min-w-0">
-                          <div className="truncate text-xs font-medium">{pkg.packageName}</div>
-                          {pkg.description ? (
-                            <div className="truncate text-[11px] text-muted-foreground">
-                              {pkg.description}
-                            </div>
-                          ) : null}
+              <div className="mt-4 space-y-4">
+                <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,rgba(59,130,246,0.08),transparent_55%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))] p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium text-foreground">
+                        Curated marketplace for ace’s editor runtime
+                      </div>
+                      <div className="max-w-2xl text-[12px] leading-relaxed text-muted-foreground">
+                        Built-ins cover the common web stack. The catalog below adds popular config,
+                        schema, shell, infra, and component-file servers without leaving the app.
+                      </div>
+                    </div>
+                    {lspToolsStatus?.installDir ? (
+                      <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-[11px] text-muted-foreground">
+                        Install root
+                        <div className="mt-1 font-mono text-[10px] text-foreground">
+                          {lspToolsStatus.installDir}
                         </div>
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          onClick={() => installMarketplacePackage(pkg.packageName)}
-                        >
-                          Use
-                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="space-y-3 rounded-2xl border border-border/70 bg-background/40 p-3">
+                  <Input
+                    value={lspCatalogQuery}
+                    onChange={(event) => setLspCatalogQuery(event.target.value)}
+                    placeholder="Search languages, frameworks, commands, or packages"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant={lspCatalogCategory === "all" ? "default" : "outline"}
+                      onClick={() => setLspCatalogCategory("all")}
+                    >
+                      All
+                    </Button>
+                    {lspCatalogCategories.map((category) => (
+                      <Button
+                        key={category}
+                        size="sm"
+                        variant={lspCatalogCategory === category ? "default" : "outline"}
+                        onClick={() => setLspCatalogCategory(category)}
+                      >
+                        {LSP_CATEGORY_LABELS[category]}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {filteredLspCatalogTools.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
+                    No curated language servers match this filter.
+                  </div>
+                ) : (
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {filteredLspCatalogTools.map((tool) => (
+                      <div
+                        key={tool.id}
+                        className={cn(
+                          "rounded-2xl border p-4 transition-colors",
+                          tool.installed
+                            ? "border-emerald-500/25 bg-emerald-500/[0.05]"
+                            : "border-border/70 bg-background/50",
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-medium text-foreground">
+                                {tool.label}
+                              </div>
+                              <Badge variant={getLspToolStatusBadgeVariant(tool)} size="sm">
+                                {tool.installed
+                                  ? tool.version
+                                    ? `Installed · ${tool.version}`
+                                    : "Installed"
+                                  : "Not installed"}
+                              </Badge>
+                              <Badge variant="outline" size="sm">
+                                {tool.builtin ? "Core" : LSP_CATEGORY_LABELS[tool.category]}
+                              </Badge>
+                              <Badge variant="outline" size="sm">
+                                {LSP_INSTALLER_LABELS[tool.installer]}
+                              </Badge>
+                            </div>
+                            <p className="text-[12px] leading-relaxed text-muted-foreground">
+                              {tool.description}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant={tool.installed ? "outline" : "default"}
+                            onClick={() => installCatalogTool(tool)}
+                            disabled={isInstallingCustomLsp}
+                          >
+                            {isInstallingCustomLsp && lspInstallTargetId === tool.id
+                              ? "Installing..."
+                              : tool.installed
+                                ? "Reinstall"
+                                : "Install"}
+                          </Button>
+                        </div>
+
+                        <div className="mt-4 space-y-3 text-[11px] text-muted-foreground">
+                          <div className="space-y-1">
+                            <div className="uppercase tracking-[0.14em] text-muted-foreground/70">
+                              Package
+                            </div>
+                            <div className="font-mono text-foreground">{tool.packageName}</div>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="uppercase tracking-[0.14em] text-muted-foreground/70">
+                              Command
+                            </div>
+                            <div className="font-mono text-foreground">
+                              {tool.command}
+                              {tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {tool.languageIds.map((languageId) => (
+                              <Badge key={`${tool.id}-${languageId}`} variant="secondary" size="sm">
+                                {languageId}
+                              </Badge>
+                            ))}
+                            {tool.fileExtensions.map((extension) => (
+                              <Badge key={`${tool.id}-${extension}`} variant="outline" size="sm">
+                                {extension}
+                              </Badge>
+                            ))}
+                            {tool.fileNames.map((fileName) => (
+                              <Badge key={`${tool.id}-${fileName}`} variant="outline" size="sm">
+                                {fileName}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
+                )}
+
+                {lspCustomTools.length > 0 ? (
+                  <div className="space-y-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      Custom servers
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {lspCustomTools.map((tool) => (
+                        <div
+                          key={tool.id}
+                          className="rounded-2xl border border-border/70 bg-background/40 p-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-sm font-medium text-foreground">
+                                  {tool.label}
+                                </div>
+                                <Badge variant={getLspToolStatusBadgeVariant(tool)} size="sm">
+                                  {tool.installed ? "Installed" : "Missing"}
+                                </Badge>
+                                <Badge variant="outline" size="sm">
+                                  {LSP_INSTALLER_LABELS[tool.installer]}
+                                </Badge>
+                              </div>
+                              <p className="text-[12px] leading-relaxed text-muted-foreground">
+                                {tool.description}
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => seedCustomLspForm(tool)}
+                            >
+                              Edit copy
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 ) : null}
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <Input
-                    value={lspCustomForm.packageName}
-                    onChange={(event) =>
-                      setLspCustomForm((current) => ({
-                        ...current,
-                        packageName: event.target.value,
-                      }))
-                    }
-                    placeholder="Package name (e.g. @tailwindcss/language-server)"
-                  />
-                  <Input
-                    value={lspCustomForm.command}
-                    onChange={(event) =>
-                      setLspCustomForm((current) => ({ ...current, command: event.target.value }))
-                    }
-                    placeholder="Command (e.g. tailwindcss-language-server)"
-                  />
-                  <Input
-                    value={lspCustomForm.label}
-                    onChange={(event) =>
-                      setLspCustomForm((current) => ({ ...current, label: event.target.value }))
-                    }
-                    placeholder="Display label"
-                  />
-                  <Input
-                    value={lspCustomForm.args}
-                    onChange={(event) =>
-                      setLspCustomForm((current) => ({ ...current, args: event.target.value }))
-                    }
-                    placeholder="Args (comma-separated, optional)"
-                  />
-                  <Input
-                    value={lspCustomForm.languageIds}
-                    onChange={(event) =>
-                      setLspCustomForm((current) => ({
-                        ...current,
-                        languageIds: event.target.value,
-                      }))
-                    }
-                    placeholder="Language IDs (comma-separated)"
-                  />
-                  <Input
-                    value={lspCustomForm.fileExtensions}
-                    onChange={(event) =>
-                      setLspCustomForm((current) => ({
-                        ...current,
-                        fileExtensions: event.target.value,
-                      }))
-                    }
-                    placeholder="File extensions (comma-separated)"
-                  />
-                </div>
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    onClick={submitCustomLspInstall}
-                    disabled={isInstallingCustomLsp}
-                  >
-                    {isInstallingCustomLsp ? "Installing..." : "Install custom LSP"}
-                  </Button>
+
+                <div className="rounded-2xl border border-border/70 bg-background/40 p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-sm font-medium text-foreground">Custom package</div>
+                      <div className="text-[12px] text-muted-foreground">
+                        Register npm or uv-backed language servers with explicit file associations.
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setIsLspCustomFormOpen((open) => !open)}
+                    >
+                      {isLspCustomFormOpen ? "Hide form" : "Install custom LSP"}
+                    </Button>
+                  </div>
+
+                  {isLspCustomFormOpen ? (
+                    <div className="mt-3 space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        {(["npm", "uv-tool", "go-install", "rustup"] as const).map((installer) => (
+                          <Button
+                            key={installer}
+                            size="sm"
+                            variant={lspCustomForm.installer === installer ? "default" : "outline"}
+                            onClick={() =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                installer,
+                              }))
+                            }
+                          >
+                            {LSP_INSTALLER_LABELS[installer]}
+                          </Button>
+                        ))}
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Input
+                          value={lspCustomForm.packageName}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              packageName: event.target.value,
+                            }))
+                          }
+                          placeholder={
+                            lspCustomForm.installer === "uv-tool"
+                              ? "Package name (e.g. basedpyright)"
+                              : lspCustomForm.installer === "go-install"
+                                ? "Package name (e.g. golang.org/x/tools/gopls)"
+                                : lspCustomForm.installer === "rustup"
+                                  ? "Package name (e.g. rust-analyzer)"
+                                  : "Package name (e.g. @tailwindcss/language-server)"
+                          }
+                        />
+                        <Input
+                          value={lspCustomForm.command}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              command: event.target.value,
+                            }))
+                          }
+                          placeholder="Command"
+                        />
+                        <Input
+                          value={lspCustomForm.label}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              label: event.target.value,
+                            }))
+                          }
+                          placeholder="Display label"
+                        />
+                        <Input
+                          value={lspCustomForm.args}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              args: event.target.value,
+                            }))
+                          }
+                          placeholder="Args (comma-separated, optional)"
+                        />
+                        <Input
+                          value={lspCustomForm.languageIds}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              languageIds: event.target.value,
+                            }))
+                          }
+                          placeholder="Language IDs (comma-separated)"
+                        />
+                        <Input
+                          value={lspCustomForm.fileExtensions}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              fileExtensions: event.target.value,
+                            }))
+                          }
+                          placeholder="File extensions (comma-separated)"
+                        />
+                        <Input
+                          value={lspCustomForm.fileNames}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              fileNames: event.target.value,
+                            }))
+                          }
+                          placeholder="File names (comma-separated, optional)"
+                        />
+                      </div>
+                      <div className="flex justify-end">
+                        <Button
+                          size="sm"
+                          onClick={submitCustomLspInstall}
+                          disabled={isInstallingCustomLsp}
+                        >
+                          {isInstallingCustomLsp && lspInstallTargetId === "custom-form"
+                            ? "Installing..."
+                            : "Install custom LSP"}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </SettingsRow>

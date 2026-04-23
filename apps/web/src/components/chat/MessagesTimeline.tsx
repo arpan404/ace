@@ -1,6 +1,15 @@
 import { type MessageId, type TurnId } from "@ace/contracts";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Fragment, memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { estimateTimelineMessageHeight } from "../../lib/chat/timelineHeight";
 import {
   getChatMessageRenderableText,
@@ -227,24 +236,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     (index: number) => virtualizedRows[index]?.id ?? index,
     [virtualizedRows],
   );
+  const measuredRowElementByIdRef = useRef(new Map<string, HTMLDivElement>());
   const estimateVirtualizedRowSize = useCallback(
     (index: number) =>
       estimateTimelineRowHeight(virtualizedRows[index], {
         timelineWidthPx,
         expandedWorkGroups,
       }),
-    [expandedWorkGroups, timelineWidthPx, virtualizedRows],
-  );
-  const virtualizedRowsMeasurementKey = useMemo(
-    () =>
-      virtualizedRows
-        .map((row) =>
-          getTimelineRowHeightCacheKey(row, {
-            timelineWidthPx,
-            expandedWorkGroups,
-          }),
-        )
-        .join("|"),
     [expandedWorkGroups, timelineWidthPx, virtualizedRows],
   );
   const rowVirtualizer = useVirtualizer({
@@ -254,17 +252,35 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     getScrollElement: () => scrollContainer,
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
   });
-
-  useEffect(() => {
-    if (virtualizedRows.length === 0) {
-      return;
-    }
-    rowVirtualizer.measure();
-  }, [rowVirtualizer, virtualizedRows.length, virtualizedRowsMeasurementKey]);
   const shouldUseVirtualizedBuffer =
     scrollContainer !== null && virtualizedRows.length > 0 && !activeTurnInProgress;
+  const registerMeasuredRowElement = useCallback(
+    (rowId: string, element: HTMLDivElement | null) => {
+      if (element) {
+        measuredRowElementByIdRef.current.set(rowId, element);
+        rowVirtualizer.measureElement(element);
+        return;
+      }
+      measuredRowElementByIdRef.current.delete(rowId);
+    },
+    [rowVirtualizer],
+  );
+  const handleMeasuredRowLayoutChange = useCallback(
+    (rowId: string) => {
+      const element = measuredRowElementByIdRef.current.get(rowId);
+      if (element) {
+        rowVirtualizer.measureElement(element);
+      }
+    },
+    [rowVirtualizer],
+  );
 
   const renderRowContent = (row: TimelineRow, _rowIndex: number) => {
+    const onMeasuredLayoutChange = shouldUseVirtualizedBuffer
+      ? () => {
+          handleMeasuredRowLayoutChange(row.id);
+        }
+      : undefined;
     return (
       <div
         className="group/timeline relative pb-3"
@@ -424,6 +440,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               message={row.message}
               onOpenBrowserUrl={onOpenBrowserUrl}
               timestampFormat={timestampFormat}
+              {...(onMeasuredLayoutChange ? { onLayoutChange: onMeasuredLayoutChange } : {})}
             />
           ))()}
 
@@ -433,6 +450,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             onOpenBrowserUrl={onOpenBrowserUrl}
             proposedPlan={row.proposedPlan}
             workspaceRoot={workspaceRoot}
+            {...(onMeasuredLayoutChange ? { onLayoutChange: onMeasuredLayoutChange } : {})}
           />
         )}
 
@@ -534,7 +552,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             return (
               <div
                 key={`row:${row.id}`}
-                ref={rowVirtualizer.measureElement}
+                ref={(element) => {
+                  registerMeasuredRowElement(row.id, element);
+                }}
                 data-index={virtualRow.index}
                 className="absolute top-0 left-0 w-full"
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
@@ -1620,6 +1640,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   showAssistantSummaryByDefault?: boolean;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
+  onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   timestampFormat: TimestampFormat;
 }) {
@@ -1653,6 +1674,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         {...(props.message.streamingTextState
           ? { streamingTextState: props.message.streamingTextState }
           : {})}
+        {...(props.onLayoutChange ? { onLayoutChange: props.onLayoutChange } : {})}
       />
       {completedAtLabel && elapsedLabel && (
         <div className="mt-2 flex min-h-4 flex-wrap items-center gap-x-2 gap-y-1">
@@ -1735,6 +1757,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
 
 const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
   cwd: string | undefined;
+  onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   proposedPlan: TimelineProposedPlan;
   workspaceRoot: string | undefined;
@@ -1747,6 +1770,7 @@ const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
         cwd={props.cwd}
         onOpenBrowserUrl={onOpenBrowserUrl}
         workspaceRoot={props.workspaceRoot}
+        {...(props.onLayoutChange ? { onLayoutChange: props.onLayoutChange } : {})}
       />
     </div>
   );

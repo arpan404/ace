@@ -28,6 +28,7 @@ import {
   hasCustomModelProvider,
   readCodexConfigModelProvider,
 } from "./CodexProvider";
+import { parseCodexDebugModelsOutput } from "../codexCatalog";
 import { checkClaudeProviderStatus, parseClaudeAuthStatusFromOutput } from "./ClaudeProvider";
 import {
   checkCursorProviderStatus,
@@ -195,6 +196,54 @@ gpt-5.4-mini-high - GPT-5.4 Mini High
 gpt-5.4-mini-high-fast - GPT-5.4 Mini High Fast
 `;
 
+const CODEX_MODELS_OUTPUT = JSON.stringify({
+  models: [
+    {
+      slug: "gpt-5.4",
+      display_name: "GPT-5.4",
+      default_reasoning_level: "medium",
+      supported_reasoning_levels: [
+        { effort: "low" },
+        { effort: "medium" },
+        { effort: "high" },
+        { effort: "xhigh" },
+      ],
+      additional_speed_tiers: ["fast"],
+      visibility: "list",
+    },
+    {
+      slug: "gpt-5.5",
+      display_name: "GPT-5.5",
+      default_reasoning_level: "medium",
+      supported_reasoning_levels: [
+        { effort: "low" },
+        { effort: "medium" },
+        { effort: "high" },
+        { effort: "xhigh" },
+      ],
+      additional_speed_tiers: ["fast"],
+      visibility: "list",
+    },
+    {
+      slug: "codex-auto-review",
+      display_name: "Codex Auto Review",
+      visibility: "hide",
+    },
+    {
+      slug: "gpt-5.3-codex-spark",
+      display_name: "GPT-5.3 Codex Spark",
+      default_reasoning_level: "high",
+      supported_reasoning_levels: [
+        { effort: "low" },
+        { effort: "medium" },
+        { effort: "high" },
+        { effort: "xhigh" },
+      ],
+      visibility: "list",
+    },
+  ],
+});
+
 it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
   "ProviderRegistry",
   (it) => {
@@ -205,6 +254,43 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
     // path being tested.
 
     describe("checkCodexProviderStatus", () => {
+      it("parses the Codex model catalog into provider models", () => {
+        const models = parseCodexDebugModelsOutput(CODEX_MODELS_OUTPUT);
+        assert.deepStrictEqual(
+          models.map(({ slug, name, isCustom, capabilities }) => ({
+            slug,
+            name,
+            isCustom,
+            supportsFastMode: capabilities?.supportsFastMode ?? false,
+            defaultEffort:
+              capabilities?.reasoningEffortLevels.find((entry) => entry.isDefault)?.value ?? null,
+          })),
+          [
+            {
+              slug: "gpt-5.4",
+              name: "GPT-5.4",
+              isCustom: false,
+              supportsFastMode: true,
+              defaultEffort: "medium",
+            },
+            {
+              slug: "gpt-5.5",
+              name: "GPT-5.5",
+              isCustom: false,
+              supportsFastMode: true,
+              defaultEffort: "medium",
+            },
+            {
+              slug: "gpt-5.3-codex-spark",
+              name: "GPT-5.3 Codex Spark",
+              isCustom: false,
+              supportsFastMode: false,
+              defaultEffort: "high",
+            },
+          ],
+        );
+      });
+
       it.effect("returns ready when codex is installed", () =>
         Effect.gen(function* () {
           yield* withTempCodexHome();
@@ -213,11 +299,18 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           assert.strictEqual(status.status, "ready");
           assert.strictEqual(status.installed, true);
           assert.strictEqual(status.auth.status, "unknown");
+          assert.deepStrictEqual(
+            status.models.map((model) => model.slug),
+            ["gpt-5.4", "gpt-5.5", "gpt-5.3-codex-spark"],
+          );
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
               const joined = args.join(" ");
               if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
+              if (joined === "debug models") {
+                return { stdout: CODEX_MODELS_OUTPUT, stderr: "", code: 0 };
+              }
               throw new Error(`Unexpected args: ${joined}`);
             }),
           ),
@@ -240,6 +333,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
                 "#!/bin/sh",
                 'if [ "$1" = "--version" ]; then',
                 '  echo "codex-cli 1.0.0"',
+                "  exit 0",
+                "fi",
+                'if [ "$1" = "debug" ] && [ "$2" = "models" ]; then',
+                `  printf '%s\n' '${CODEX_MODELS_OUTPUT}'`,
                 "  exit 0",
                 "fi",
                 'echo "unexpected args: $*" >&2',
@@ -270,6 +367,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               assert.strictEqual(status.installed, true);
               assert.strictEqual(status.status, "ready");
               assert.strictEqual(status.auth.status, "unknown");
+              assert.ok(status.models.some((model) => model.slug === "gpt-5.4"));
             } finally {
               process.env.PATH = previousPath;
             }
@@ -327,6 +425,47 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             mockSpawnerLayer((args) => {
               const joined = args.join(" ");
               if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
+              if (joined === "debug models") {
+                return { stdout: CODEX_MODELS_OUTPUT, stderr: "", code: 0 };
+              }
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
+        ),
+      );
+
+      it.effect("falls back to custom models when the Codex catalog refresh fails", () =>
+        Effect.gen(function* () {
+          yield* withTempCodexHome();
+          const status = yield* checkCodexProviderStatus().pipe(
+            Effect.provide(
+              ServerSettingsService.layerTest({
+                providers: {
+                  codex: {
+                    customModels: ["custom-codex-model"],
+                  },
+                },
+              }),
+            ),
+          );
+
+          assert.strictEqual(status.provider, "codex");
+          assert.strictEqual(status.status, "warning");
+          assert.strictEqual(status.installed, true);
+          assert.deepStrictEqual(
+            status.models.map(({ slug, isCustom }) => ({ slug, isCustom })),
+            [{ slug: "custom-codex-model", isCustom: true }],
+          );
+          assert.strictEqual(
+            status.message,
+            "Codex is usable, but Failed to refresh available models. boom",
+          );
+        }).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
+              if (joined === "debug models") return { stdout: "", stderr: "boom", code: 1 };
               throw new Error(`Unexpected args: ${joined}`);
             }),
           ),
@@ -411,6 +550,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
                     return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
                   }
                   return { stdout: "", stderr: "spawn ENOENT", code: 1 };
+                }
+                if (joined === "debug models" && command === "codex") {
+                  return { stdout: CODEX_MODELS_OUTPUT, stderr: "", code: 0 };
                 }
                 if (command === "cursor-agent") {
                   return { stdout: "", stderr: "spawn ENOENT", code: 1 };
@@ -506,6 +648,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             mockSpawnerLayer((args) => {
               const joined = args.join(" ");
               if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
+              if (joined === "debug models") {
+                return { stdout: CODEX_MODELS_OUTPUT, stderr: "", code: 0 };
+              }
               throw new Error(`Unexpected args: ${joined}`);
             }),
           ),
@@ -542,6 +687,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             mockSpawnerLayer((args) => {
               const joined = args.join(" ");
               if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
+              if (joined === "debug models") {
+                return { stdout: CODEX_MODELS_OUTPUT, stderr: "", code: 0 };
+              }
               throw new Error(`Unexpected args: ${joined}`);
             }),
           ),

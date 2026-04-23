@@ -560,6 +560,7 @@ function resolveBrowserShortcutAction(input: Electron.Input): BrowserShortcutAct
 
   if (input.shift === true) {
     if (key === "d") return "duplicate-tab";
+    if (key === "e") return "toggle-designer-mode";
     if (key === "i") return "devtools";
     if (key === "[") return "previous-tab";
     if (key === "]") return "next-tab";
