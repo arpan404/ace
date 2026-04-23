@@ -52,6 +52,10 @@
       "types": "./src/terminalTitles.ts",
       "import": "./src/terminalTitles.ts"
     },
+    "./terminalContext": {
+      "types": "./src/terminalContext.ts",
+      "import": "./src/terminalContext.ts"
+    },
     "./orchestrationThreadActivities": {
       "types": "./src/orchestrationThreadActivities.ts",
       "import": "./src/orchestrationThreadActivities.ts"

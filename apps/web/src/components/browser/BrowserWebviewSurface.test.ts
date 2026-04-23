@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   hasMinimumSelectionSize,
+  mapSelectionRectToCapturedImageCrop,
+  shouldRunElementHoverInspection,
   shouldSubmitDesignDraftFromTextareaKey,
 } from "./BrowserWebviewSurface";
 
@@ -14,6 +16,44 @@ describe("hasMinimumSelectionSize", () => {
   it("allows smaller element-comment targets with the element minimum", () => {
     expect(hasMinimumSelectionSize({ x: 0, y: 0, width: 120, height: 18 }, 8)).toBe(true);
     expect(hasMinimumSelectionSize({ x: 0, y: 0, width: 7, height: 18 }, 8)).toBe(false);
+  });
+});
+
+describe("mapSelectionRectToCapturedImageCrop", () => {
+  it("scales overlay selections into the captured bitmap coordinate space", () => {
+    expect(
+      mapSelectionRectToCapturedImageCrop({
+        imageHeight: 1600,
+        imageWidth: 2000,
+        selection: { x: 250, y: 100, width: 200, height: 160 },
+        viewportHeight: 800,
+        viewportWidth: 1000,
+      }),
+    ).toEqual({ x: 500, y: 200, width: 400, height: 320 });
+  });
+
+  it("scales down when a zoomed webview reports a smaller captured bitmap", () => {
+    expect(
+      mapSelectionRectToCapturedImageCrop({
+        imageHeight: 400,
+        imageWidth: 500,
+        selection: { x: 250, y: 100, width: 200, height: 160 },
+        viewportHeight: 800,
+        viewportWidth: 1000,
+      }),
+    ).toEqual({ x: 125, y: 50, width: 100, height: 80 });
+  });
+
+  it("clamps selections to the captured bitmap", () => {
+    expect(
+      mapSelectionRectToCapturedImageCrop({
+        imageHeight: 400,
+        imageWidth: 500,
+        selection: { x: 990, y: 790, width: 40, height: 40 },
+        viewportHeight: 800,
+        viewportWidth: 1000,
+      }),
+    ).toEqual({ x: 495, y: 395, width: 5, height: 5 });
   });
 });
 
@@ -62,5 +102,31 @@ describe("shouldSubmitDesignDraftFromTextareaKey", () => {
         shiftKey: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("shouldRunElementHoverInspection", () => {
+  const baseInput = {
+    active: true,
+    designerModeActive: true,
+    designerTool: "element-comment" as const,
+    hasDesignDraft: false,
+    requestInFlight: false,
+  };
+
+  it("allows hover inspection only for the active element-comment tab", () => {
+    expect(shouldRunElementHoverInspection(baseInput)).toBe(true);
+    expect(shouldRunElementHoverInspection({ ...baseInput, active: false })).toBe(false);
+    expect(
+      shouldRunElementHoverInspection({
+        ...baseInput,
+        designerTool: "area-comment",
+      }),
+    ).toBe(false);
+  });
+
+  it("skips hover inspection while a draft or request is active", () => {
+    expect(shouldRunElementHoverInspection({ ...baseInput, hasDesignDraft: true })).toBe(false);
+    expect(shouldRunElementHoverInspection({ ...baseInput, requestInFlight: true })).toBe(false);
   });
 });

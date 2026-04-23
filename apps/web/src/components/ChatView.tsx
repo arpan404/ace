@@ -517,8 +517,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
   const sendInFlightRef = useRef(false);
-  const queueDispatchInFlightRef = useRef(false);
-  const queueAutoResumeAfterPauseRef = useRef(false);
   const queuedDesignMessageEditRef = useRef<QueuedComposerMessage | null>(null);
   const [handoffInFlight, setHandoffInFlight] = useState(false);
   const dragDepthRef = useRef(0);
@@ -1058,9 +1056,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const queuedComposerMessages =
     serverThread?.queuedComposerMessages ?? EMPTY_QUEUED_COMPOSER_MESSAGES;
   const queuedSteerRequest = serverThread?.queuedSteerRequest ?? null;
-  const isQueueAutoDispatchPaused =
-    activeThread?.session?.orchestrationStatus === "stopped" ||
-    (activeThread?.latestTurn?.state === "interrupted" && queuedSteerRequest === null);
   const queuedComposerMessagesRef = useRef(queuedComposerMessages);
   queuedComposerMessagesRef.current = queuedComposerMessages;
   const queuedSteerRequestRef = useRef(queuedSteerRequest);
@@ -5084,85 +5079,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setThreadError,
     ],
   );
-  const dispatchNextQueuedComposerMessage = useCallback(async () => {
-    if (!activeThread || queuedComposerMessages.length === 0) {
-      return false;
-    }
-    if (sendInFlightRef.current || queueDispatchInFlightRef.current) {
-      return false;
-    }
-
-    const nextQueuedMessage = queuedComposerMessages[0];
-    if (!nextQueuedMessage) {
-      return false;
-    }
-
-    const previousMessages = queuedComposerMessages;
-    const previousSteerRequest = queuedSteerRequest;
-    const nextMessages = queuedComposerMessages.slice(1);
-    const nextSteerRequest =
-      queuedSteerRequest?.messageId === nextQueuedMessage.id ? null : queuedSteerRequest;
-
-    queueDispatchInFlightRef.current = true;
-    let restored = false;
-    const restoreQueue = () => {
-      if (restored) {
-        return;
-      }
-      restored = true;
-      void persistQueuedComposerState(
-        [nextQueuedMessage, ...nextMessages],
-        previousSteerRequest,
-        nextMessages,
-        nextSteerRequest,
-      );
-    };
-
-    try {
-      if (
-        !(await persistQueuedComposerState(
-          nextMessages,
-          nextSteerRequest,
-          previousMessages,
-          previousSteerRequest,
-        ))
-      ) {
-        return false;
-      }
-
-      const sent = await dispatchComposerMessage(
-        {
-          prompt: nextQueuedMessage.prompt,
-          images: [...nextQueuedMessage.images],
-          terminalContexts: nextQueuedMessage.terminalContexts.map((context) => ({
-            ...context,
-            threadId,
-          })),
-          modelSelection: nextQueuedMessage.modelSelection,
-          runtimeMode: nextQueuedMessage.runtimeMode,
-          interactionMode: nextQueuedMessage.interactionMode,
-        },
-        {
-          onFailure: restoreQueue,
-        },
-      );
-
-      if (!sent) {
-        restoreQueue();
-      }
-      return sent;
-    } finally {
-      queueDispatchInFlightRef.current = false;
-    }
-  }, [
-    activeThread,
-    dispatchComposerMessage,
-    persistQueuedComposerState,
-    queuedComposerMessages,
-    queuedSteerRequest,
-    threadId,
-  ]);
-
   const onSend = async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     const api = readNativeApi();
@@ -5275,13 +5191,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
     if (!hasSendableContent) {
-      if (queuedComposerMessages.length > 0) {
-        if (isQueueAutoDispatchPaused) {
-          queueAutoResumeAfterPauseRef.current = true;
-        }
-        await dispatchNextQueuedComposerMessage();
-        return;
-      }
       if (expiredTerminalContextCount > 0) {
         const toastCopy = buildExpiredTerminalContextToastCopy(
           expiredTerminalContextCount,
@@ -5394,51 +5303,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   };
 
   useEffect(() => {
-    if (isQueueAutoDispatchPaused) {
-      queueAutoResumeAfterPauseRef.current = false;
-    }
-  }, [isQueueAutoDispatchPaused]);
-
-  useEffect(() => {
-    if (queuedComposerMessages.length === 0) {
-      queueAutoResumeAfterPauseRef.current = false;
-    }
-  }, [queuedComposerMessages.length]);
-
-  useEffect(() => {
-    if (!activeThread || queuedComposerMessages.length === 0) {
-      return;
-    }
-    if (
-      liveTurnInProgress ||
-      isSendBusy ||
-      isConnecting ||
-      sendInFlightRef.current ||
-      activePendingProgress ||
-      activePendingApproval
-    ) {
-      return;
-    }
-    if (isQueueAutoDispatchPaused && !queueAutoResumeAfterPauseRef.current) {
-      return;
-    }
-    if (queueDispatchInFlightRef.current) {
-      return;
-    }
-    void dispatchNextQueuedComposerMessage();
-  }, [
-    activePendingApproval,
-    activePendingProgress,
-    activeThread,
-    dispatchNextQueuedComposerMessage,
-    isQueueAutoDispatchPaused,
-    isConnecting,
-    isSendBusy,
-    liveTurnInProgress,
-    queuedComposerMessages,
-  ]);
-
-  useEffect(() => {
     if (!queuedSteerRequest) {
       return;
     }
@@ -5498,7 +5362,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const onInterrupt = async () => {
     const api = readNativeApi();
     if (!api || !activeThread) return;
-    queueAutoResumeAfterPauseRef.current = false;
     await api.orchestration.dispatchCommand({
       type: "thread.session.stop",
       commandId: newCommandId(),
