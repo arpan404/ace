@@ -39,12 +39,17 @@ function isAbortedWebviewLoad(error: unknown): boolean {
   );
 }
 
-function loadWebviewUrl(webview: BrowserWebview, url: string): void {
+function loadWebviewUrl(
+  webview: BrowserWebview,
+  url: string,
+  onError?: (message: string) => void,
+): void {
   void webview.loadURL(url).catch((error: unknown) => {
     if (isAbortedWebviewLoad(error)) {
       return;
     }
-    throw error;
+    const message = error instanceof Error ? error.message : "Could not load the requested page.";
+    onError?.(message);
   });
 }
 
@@ -292,6 +297,39 @@ function normalizeSelectionRect(input: {
   };
 }
 
+export function mapSelectionRectToCapturedImageCrop(input: {
+  selection: BrowserDesignSelectionRect;
+  viewportWidth: number;
+  viewportHeight: number;
+  imageWidth: number;
+  imageHeight: number;
+}): BrowserDesignSelectionRect {
+  const viewportWidth = Math.max(1, input.viewportWidth);
+  const viewportHeight = Math.max(1, input.viewportHeight);
+  const imageWidth = Math.max(1, input.imageWidth);
+  const imageHeight = Math.max(1, input.imageHeight);
+  const scaleX = imageWidth / viewportWidth;
+  const scaleY = imageHeight / viewportHeight;
+  const left = clampPoint(Math.floor(input.selection.x * scaleX), 0, Math.max(0, imageWidth - 1));
+  const top = clampPoint(Math.floor(input.selection.y * scaleY), 0, Math.max(0, imageHeight - 1));
+  const right = clampPoint(
+    Math.ceil((input.selection.x + input.selection.width) * scaleX),
+    left + 1,
+    imageWidth,
+  );
+  const bottom = clampPoint(
+    Math.ceil((input.selection.y + input.selection.height) * scaleY),
+    top + 1,
+    imageHeight,
+  );
+  return {
+    x: left,
+    y: top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+  };
+}
+
 export function hasMinimumSelectionSize(
   rect: BrowserDesignSelectionRect | null | undefined,
   minimumSizePx = MIN_CAPTURE_SIZE_PX,
@@ -315,6 +353,22 @@ export function shouldSubmitDesignDraftFromTextareaKey(
   );
 }
 
+export function shouldRunElementHoverInspection(input: {
+  active: boolean;
+  designerModeActive: boolean;
+  designerTool: BrowserDesignerTool;
+  hasDesignDraft: boolean;
+  requestInFlight: boolean;
+}): boolean {
+  return (
+    input.active &&
+    input.designerModeActive &&
+    input.designerTool === "element-comment" &&
+    !input.hasDesignDraft &&
+    !input.requestInFlight
+  );
+}
+
 function resolveDataUrlMimeType(dataUrl: string): string {
   const match = /^data:([^;,]+)[;,]/i.exec(dataUrl);
   return match?.[1] ?? "image/png";
@@ -328,6 +382,49 @@ function estimateDataUrlBytes(dataUrl: string): number {
   const base64Payload = dataUrl.slice(commaIndex + 1).replace(/\s+/g, "");
   const padding = base64Payload.endsWith("==") ? 2 : base64Payload.endsWith("=") ? 1 : 0;
   return Math.max(0, Math.floor((base64Payload.length * 3) / 4) - padding);
+}
+
+function loadImageDataUrl(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener("load", () => resolve(image), { once: true });
+    image.addEventListener(
+      "error",
+      () => reject(new Error("Failed to load captured browser image.")),
+      { once: true },
+    );
+    image.src = dataUrl;
+  });
+}
+
+async function cropCapturedImageDataUrl(input: {
+  dataUrl: string;
+  selection: BrowserDesignSelectionRect;
+  viewportWidth: number;
+  viewportHeight: number;
+}): Promise<string> {
+  const image = await loadImageDataUrl(input.dataUrl);
+  const imageWidth = image.naturalWidth || image.width;
+  const imageHeight = image.naturalHeight || image.height;
+  if (imageWidth <= 0 || imageHeight <= 0) {
+    throw new Error("Captured browser image is empty.");
+  }
+  const crop = mapSelectionRectToCapturedImageCrop({
+    imageHeight,
+    imageWidth,
+    selection: input.selection,
+    viewportHeight: input.viewportHeight,
+    viewportWidth: input.viewportWidth,
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = crop.width;
+  canvas.height = crop.height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Could not prepare selected browser image.");
+  }
+  context.drawImage(image, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
+  return canvas.toDataURL(resolveDataUrlMimeType(input.dataUrl));
 }
 
 function normalizeCapturedDescriptor(value: unknown): BrowserDesignElementDescriptor | null {
@@ -934,6 +1031,22 @@ function generateDesignRequestId(): string {
   return `DR-${randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`;
 }
 
+function stopWebviewBeforeRemoval(webview: BrowserWebview): void {
+  try {
+    if (webview.isDevToolsOpened()) {
+      webview.closeDevTools();
+    }
+  } catch {
+    // The guest may already be torn down by Chromium.
+  }
+
+  try {
+    webview.stop();
+  } catch {
+    // The guest may already be torn down by Chromium.
+  }
+}
+
 function DrawingToolIcon(props: { tool: AnnotationTool; className?: string }) {
   const { className, tool } = props;
   switch (tool) {
@@ -1088,6 +1201,7 @@ export function BrowserTabWebview(props: {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const webviewRef = useRef<BrowserWebview | null>(null);
   const readyRef = useRef(false);
+  const mountedRef = useRef(false);
   const pendingUrlRef = useRef<string | null>(null);
   const pendingSnapshotOptionsRef = useRef<BrowserTabSnapshotOptions | null>(null);
   const snapshotFlushTimerRef = useRef<number | null>(null);
@@ -1134,6 +1248,8 @@ export function BrowserTabWebview(props: {
     designerTool,
   });
   const requestedUrlRef = useRef(tab.url);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const [selectionRect, setSelectionRect] = useState<BrowserDesignSelectionRect | null>(null);
   const [hoveredElementCapture, setHoveredElementCapture] =
     useState<BrowserPageElementCapture | null>(null);
@@ -1186,6 +1302,10 @@ export function BrowserTabWebview(props: {
     elementHoverRequestTokenRef.current += 1;
     latestElementHoverPointRef.current = null;
     pendingElementHoverPointRef.current = null;
+    if (elementHoverFrameRef.current !== null) {
+      window.cancelAnimationFrame(elementHoverFrameRef.current);
+      elementHoverFrameRef.current = null;
+    }
     commitHoveredElementCapture(null, null);
   }, [commitHoveredElementCapture]);
 
@@ -1262,15 +1382,15 @@ export function BrowserTabWebview(props: {
         return;
       }
 
-      loadWebviewUrl(webview, url);
+      loadWebviewUrl(webview, url, onDesignCaptureError);
     },
-    [scheduleEmitSnapshot],
+    [onDesignCaptureError, scheduleEmitSnapshot],
   );
 
   const inspectBrowserPoint = useCallback(
     async (point: { x: number; y: number }): Promise<BrowserPageElementCapture | null> => {
       const webview = webviewRef.current;
-      if (!webview || !readyRef.current || !webview.executeJavaScript) {
+      if (!activeRef.current || !webview || !readyRef.current || !webview.executeJavaScript) {
         return null;
       }
       const overlayHost = overlayRef.current ?? hostRef.current;
@@ -1311,8 +1431,16 @@ export function BrowserTabWebview(props: {
         throw new Error("Design capture is unavailable for this browser tab.");
       }
 
-      const capturedImage = await webview.capturePage(selection);
-      const imageDataUrl = capturedImage.toDataURL();
+      const overlayHost = overlayRef.current ?? hostRef.current;
+      const viewportWidth = Math.max(1, Math.round(overlayHost?.clientWidth ?? selection.width));
+      const viewportHeight = Math.max(1, Math.round(overlayHost?.clientHeight ?? selection.height));
+      const capturedImage = await webview.capturePage();
+      const imageDataUrl = await cropCapturedImageDataUrl({
+        dataUrl: capturedImage.toDataURL(),
+        selection,
+        viewportHeight,
+        viewportWidth,
+      });
       const centerPoint = {
         x: selection.x + Math.floor(selection.width / 2),
         y: selection.y + Math.floor(selection.height / 2),
@@ -1373,6 +1501,13 @@ export function BrowserTabWebview(props: {
   }, [navigate, onHandleChange, tab.id]);
 
   useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const host = hostRef.current;
     if (!host || webviewRef.current) return;
 
@@ -1389,7 +1524,7 @@ export function BrowserTabWebview(props: {
         pendingUrl &&
         normalizeBrowserHttpUrl(pendingUrl) !== normalizeBrowserHttpUrl(webview.getURL())
       ) {
-        loadWebviewUrl(webview, pendingUrl);
+        loadWebviewUrl(webview, pendingUrl, onDesignCaptureError);
         return;
       }
       scheduleEmitSnapshot({ persistTab: true });
@@ -1442,6 +1577,23 @@ export function BrowserTabWebview(props: {
         performance.now(),
       );
     };
+    const handleRenderProcessGone = (event: Event) => {
+      readyRef.current = false;
+      cancelScheduledSnapshot();
+      const detail = event as Event & { reason?: string };
+      const reason = typeof detail.reason === "string" ? detail.reason : "unknown";
+      onDesignCaptureError?.(`Browser tab renderer stopped (${reason}).`);
+      setSelectionRect(null);
+      setHoveredElementCapture(null);
+      hoveredElementCaptureRef.current = null;
+      dragSelectionRef.current = null;
+      annotationPointerRef.current = null;
+      setDesignDraft(null);
+      setDesignInstructions("");
+      setHasAnnotationStrokes(false);
+      setIsSubmittingDesignRequest(false);
+      onDesignCaptureCancel?.();
+    };
 
     webview.addEventListener("dom-ready", handleDomReady);
     webview.addEventListener("did-start-loading", handleLoadStart);
@@ -1453,6 +1605,7 @@ export function BrowserTabWebview(props: {
     webview.addEventListener("page-title-updated", handleNavigation);
     webview.addEventListener("did-fail-load", handleFailLoad);
     webview.addEventListener("contextmenu", handleContextMenu);
+    webview.addEventListener("render-process-gone", handleRenderProcessGone);
 
     host.replaceChildren(webview);
     webviewRef.current = webview;
@@ -1468,12 +1621,20 @@ export function BrowserTabWebview(props: {
       webview.removeEventListener("page-title-updated", handleNavigation);
       webview.removeEventListener("did-fail-load", handleFailLoad);
       webview.removeEventListener("contextmenu", handleContextMenu);
+      webview.removeEventListener("render-process-gone", handleRenderProcessGone);
+      stopWebviewBeforeRemoval(webview);
       host.replaceChildren();
       webviewRef.current = null;
       readyRef.current = false;
       cancelScheduledSnapshot();
     };
-  }, [cancelScheduledSnapshot, resolveSnapshotUrl, scheduleEmitSnapshot]);
+  }, [
+    cancelScheduledSnapshot,
+    onDesignCaptureCancel,
+    onDesignCaptureError,
+    resolveSnapshotUrl,
+    scheduleEmitSnapshot,
+  ]);
 
   useEffect(() => {
     navigate(tab.url);
@@ -1509,6 +1670,12 @@ export function BrowserTabWebview(props: {
     setIsSubmittingDesignRequest(false);
     onDesignCaptureCancel?.();
   }, [clearAnnotationCanvas, onDesignCaptureCancel]);
+
+  useEffect(() => {
+    if (!active) {
+      clearHoveredElementCapture();
+    }
+  }, [active, clearHoveredElementCapture]);
 
   useEffect(() => {
     if (designerModeActive) {
@@ -1598,7 +1765,7 @@ export function BrowserTabWebview(props: {
 
   const onCaptureOverlayWheel = useCallback(
     (event: ReactWheelEvent<HTMLDivElement>) => {
-      if (!designerModeActive || designerTool !== "element-comment" || designDraft) {
+      if (!active || !designerModeActive || designerTool !== "element-comment" || designDraft) {
         return;
       }
       event.preventDefault();
@@ -1616,7 +1783,7 @@ export function BrowserTabWebview(props: {
         deltaY: event.deltaY * deltaMultiplier,
       });
     },
-    [designDraft, designerModeActive, designerTool, forwardElementCommentWheelToWebview],
+    [active, designDraft, designerModeActive, designerTool, forwardElementCommentWheelToWebview],
   );
 
   const startCapturedDraft = useCallback(
@@ -1633,6 +1800,9 @@ export function BrowserTabWebview(props: {
       const viewportHeight = host?.clientHeight ?? 0;
       void captureDesignSelection(selection, requestId, inspectedPoint)
         .then((capture) => {
+          if (!mountedRef.current) {
+            return;
+          }
           setDesignInstructions("");
           clearAnnotationCanvas();
           setDesignDraft({
@@ -1643,6 +1813,9 @@ export function BrowserTabWebview(props: {
           });
         })
         .catch((error: unknown) => {
+          if (!mountedRef.current) {
+            return;
+          }
           const message = error instanceof Error ? error.message : failureMessage;
           onDesignCaptureError?.(message);
           cancelDesignCapture();
@@ -1702,10 +1875,13 @@ export function BrowserTabWebview(props: {
       elementHoverFrameRef.current = null;
     }
     if (
-      elementHoverRequestInFlightRef.current ||
-      !designerModeActive ||
-      designerTool !== "element-comment" ||
-      designDraft
+      !shouldRunElementHoverInspection({
+        active: activeRef.current,
+        designerModeActive,
+        designerTool,
+        hasDesignDraft: designDraft !== null,
+        requestInFlight: elementHoverRequestInFlightRef.current,
+      })
     ) {
       return;
     }
@@ -1722,14 +1898,18 @@ export function BrowserTabWebview(props: {
         const hasNewerHoverPoint =
           latestPoint !== null &&
           (Math.abs(latestPoint.x - point.x) > 6 || Math.abs(latestPoint.y - point.y) > 6);
-        if (elementHoverRequestTokenRef.current !== requestToken || hasNewerHoverPoint) {
+        if (
+          !activeRef.current ||
+          elementHoverRequestTokenRef.current !== requestToken ||
+          hasNewerHoverPoint
+        ) {
           return;
         }
         commitHoveredElementCapture(capture, point);
       })
       .finally(() => {
         elementHoverRequestInFlightRef.current = false;
-        if (pendingElementHoverPointRef.current) {
+        if (activeRef.current && pendingElementHoverPointRef.current) {
           elementHoverFrameRef.current = window.requestAnimationFrame(
             flushHoveredElementInspection,
           );
@@ -1745,7 +1925,7 @@ export function BrowserTabWebview(props: {
 
   const onCaptureOverlayPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (!designerModeActive || designDraft || event.button !== 0) {
+      if (!active || !designerModeActive || designDraft || event.button !== 0) {
         return;
       }
       const host = overlayRef.current;
@@ -1790,6 +1970,7 @@ export function BrowserTabWebview(props: {
       event.currentTarget.setPointerCapture(event.pointerId);
     },
     [
+      active,
       designDraft,
       designerModeActive,
       designerTool,
@@ -1821,7 +2002,7 @@ export function BrowserTabWebview(props: {
         event.stopPropagation();
         return;
       }
-      if (!designerModeActive || designerTool !== "element-comment" || designDraft) {
+      if (!active || !designerModeActive || designerTool !== "element-comment" || designDraft) {
         return;
       }
       const host = overlayRef.current;
@@ -1841,7 +2022,7 @@ export function BrowserTabWebview(props: {
       event.preventDefault();
       event.stopPropagation();
     },
-    [designDraft, designerModeActive, designerTool, flushHoveredElementInspection],
+    [active, designDraft, designerModeActive, designerTool, flushHoveredElementInspection],
   );
 
   const onCaptureOverlayPointerEnd = useCallback(
@@ -1864,6 +2045,7 @@ export function BrowserTabWebview(props: {
       }
 
       if (
+        !active ||
         !designerModeActive ||
         designerTool !== "element-comment" ||
         designDraft ||
@@ -1893,6 +2075,9 @@ export function BrowserTabWebview(props: {
         : inspectBrowserPoint(point);
       void capturePromise
         .then((capture) => {
+          if (!activeRef.current) {
+            return;
+          }
           const selection = capture?.targetRect ?? null;
           if (!hasMinimumSelectionSize(selection, MIN_ELEMENT_CAPTURE_SIZE_PX)) {
             throw new Error("Click a visible page element to leave a comment.");
@@ -1907,6 +2092,7 @@ export function BrowserTabWebview(props: {
         });
     },
     [
+      active,
       designDraft,
       designerModeActive,
       designerTool,

@@ -672,6 +672,16 @@ if (process.platform === "linux") {
   app.commandLine.appendSwitch("class", LINUX_WM_CLASS);
 }
 
+app.on("child-process-gone", (_event, details) => {
+  const parts = [
+    `type=${sanitizeLogValue(details.type ?? "unknown")}`,
+    `reason=${sanitizeLogValue(details.reason ?? "unknown")}`,
+    `exitCode=${String(details.exitCode ?? "unknown")}`,
+    `serviceName=${sanitizeLogValue(details.serviceName ?? "unknown")}`,
+  ];
+  writeDesktopLogHeader(`child-process-gone ${parts.join(" ")}`);
+});
+
 function getDestructiveMenuIcon(): Electron.NativeImage | undefined {
   if (process.platform !== "darwin") return undefined;
   if (destructiveMenuIconCache !== undefined) {
@@ -2392,10 +2402,70 @@ function attachWebContentsContextMenu(input: {
   });
 }
 
+function formatWebContentsGoneDetails(details: {
+  readonly reason?: string;
+  readonly exitCode?: number;
+}): string {
+  return `reason=${sanitizeLogValue(details.reason ?? "unknown")} exitCode=${String(details.exitCode ?? "unknown")}`;
+}
+
+function safelySendToWindow(window: BrowserWindow, channel: string, ...args: unknown[]): void {
+  if (window.isDestroyed() || window.webContents.isDestroyed()) {
+    return;
+  }
+  window.webContents.send(channel, ...args);
+}
+
+function stopWebContentsForTeardown(contents: Electron.WebContents, label: string): void {
+  if (contents.isDestroyed()) {
+    return;
+  }
+
+  try {
+    if (contents.isDevToolsOpened()) {
+      contents.closeDevTools();
+    }
+  } catch (error) {
+    writeDesktopLogHeader(
+      `${label} close-devtools failed error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
+  }
+
+  try {
+    contents.stop();
+  } catch (error) {
+    writeDesktopLogHeader(
+      `${label} stop-loading failed error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
+  }
+}
+
 function setupWebViewEventHandlers(window: BrowserWindow): void {
+  const browserGuestContents = new Set<Electron.WebContents>();
+
   attachWebContentsContextMenu({
     targetContents: window.webContents,
     window,
+  });
+
+  window.on("close", () => {
+    writeDesktopLogHeader(`main-window close guestCount=${String(browserGuestContents.size)}`);
+    stopWebContentsForTeardown(window.webContents, "main-window");
+    for (const guestContents of browserGuestContents) {
+      stopWebContentsForTeardown(guestContents, `browser-webview id=${String(guestContents.id)}`);
+    }
+  });
+
+  window.webContents.on("render-process-gone", (_event, details) => {
+    writeDesktopLogHeader(
+      `main-window render-process-gone ${formatWebContentsGoneDetails(details)}`,
+    );
+  });
+  window.webContents.on("unresponsive", () => {
+    writeDesktopLogHeader("main-window unresponsive");
+  });
+  window.webContents.on("responsive", () => {
+    writeDesktopLogHeader("main-window responsive");
   });
 
   window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
@@ -2414,10 +2484,27 @@ function setupWebViewEventHandlers(window: BrowserWindow): void {
   });
 
   window.webContents.on("did-attach-webview", (_event, guestContents) => {
+    browserGuestContents.add(guestContents);
+    writeDesktopLogHeader(`browser-webview attached id=${String(guestContents.id)}`);
+    guestContents.on("destroyed", () => {
+      browserGuestContents.delete(guestContents);
+      writeDesktopLogHeader(`browser-webview destroyed id=${String(guestContents.id)}`);
+    });
+    guestContents.on("render-process-gone", (_renderEvent, details) => {
+      writeDesktopLogHeader(
+        `browser-webview render-process-gone id=${String(guestContents.id)} ${formatWebContentsGoneDetails(details)}`,
+      );
+    });
+    guestContents.on("unresponsive", () => {
+      writeDesktopLogHeader(`browser-webview unresponsive id=${String(guestContents.id)}`);
+    });
+    guestContents.on("responsive", () => {
+      writeDesktopLogHeader(`browser-webview responsive id=${String(guestContents.id)}`);
+    });
     guestContents.setWindowOpenHandler(({ url }) => {
       const externalUrl = getSafeExternalUrl(url);
       if (externalUrl) {
-        window.webContents.send(BROWSER_OPEN_URL_CHANNEL, externalUrl);
+        safelySendToWindow(window, BROWSER_OPEN_URL_CHANNEL, externalUrl);
       }
       return { action: "deny" };
     });
@@ -2427,13 +2514,13 @@ function setupWebViewEventHandlers(window: BrowserWindow): void {
         return;
       }
       event.preventDefault();
-      window.webContents.send(BROWSER_SHORTCUT_ACTION_CHANNEL, action);
+      safelySendToWindow(window, BROWSER_SHORTCUT_ACTION_CHANNEL, action);
     });
     attachWebContentsContextMenu({
       targetContents: guestContents,
       window,
       onMenuShown: () => {
-        window.webContents.send(BROWSER_CONTEXT_MENU_SHOWN_CHANNEL);
+        safelySendToWindow(window, BROWSER_CONTEXT_MENU_SHOWN_CHANNEL);
       },
     });
   });

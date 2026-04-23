@@ -12,9 +12,11 @@ import {
   type ProviderSession,
   type RuntimeMode,
   type TurnId,
+  type MessageId,
 } from "@ace/contracts";
 import { Cache, Cause, Duration, Effect, Equal, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@ace/shared/DrainableWorker";
+import { appendTerminalContextsToPrompt } from "@ace/shared/terminalContext";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
@@ -28,6 +30,7 @@ import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { resolveTextGenerationModelSelection } from "../../git/textGenerationModelSelection.ts";
+import { normalizeUploadChatAttachments } from "../attachmentNormalization.ts";
 import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
@@ -46,7 +49,6 @@ type ProviderIntentEvent = Extract<
       | "thread.session-stop-requested";
   }
 >;
-
 function toNonEmptyProviderInput(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized && normalized.length > 0 ? normalized : undefined;
@@ -82,6 +84,9 @@ const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const WORKTREE_BRANCH_PREFIX = "ace";
 const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
 const DEFAULT_THREAD_TITLE = "New thread";
+const COMPOSER_ISSUE_REFERENCE_MARKER = "\u2063";
+const IMAGE_ONLY_BOOTSTRAP_PROMPT =
+  "Please review the attached image and follow any visible instructions or context.";
 
 function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolean {
   const trimmedCurrentTitle = currentTitle.trim();
@@ -152,6 +157,60 @@ function isStaleTurnStartReplay(input: {
 
 function isTemporaryWorktreeBranch(branch: string): boolean {
   return TEMP_WORKTREE_BRANCH_PATTERN.test(branch.trim().toLowerCase());
+}
+
+function stripIssueReferenceMarkers(text: string): string {
+  return text.replaceAll(COMPOSER_ISSUE_REFERENCE_MARKER, "");
+}
+
+function threadCanDispatchQueuedMessage(thread: OrchestrationThread): boolean {
+  if (thread.deletedAt !== null || thread.archivedAt !== null) {
+    return false;
+  }
+  if (thread.queuedComposerMessages.length === 0) {
+    return false;
+  }
+  if (thread.latestTurn?.state === "running") {
+    return false;
+  }
+  if (thread.latestTurn?.state === "interrupted" && thread.queuedSteerRequest === null) {
+    return false;
+  }
+  if (thread.session?.status === "running" || (thread.session?.activeTurnId ?? null) !== null) {
+    return false;
+  }
+  return true;
+}
+
+function buildQueuedMessageText(message: OrchestrationThread["queuedComposerMessages"][number]) {
+  const prompt = stripIssueReferenceMarkers(message.prompt);
+  const promptWithTerminalContexts = appendTerminalContextsToPrompt(
+    prompt,
+    message.terminalContexts,
+  );
+  return promptWithTerminalContexts.length > 0
+    ? promptWithTerminalContexts
+    : message.images.length > 0
+      ? IMAGE_ONLY_BOOTSTRAP_PROMPT
+      : "";
+}
+
+function buildQueuedMessageTitleSeed(
+  message: OrchestrationThread["queuedComposerMessages"][number],
+): string | undefined {
+  const prompt = stripIssueReferenceMarkers(message.prompt).trim().replace(/\s+/gu, " ");
+  if (prompt.length > 0) {
+    return prompt.slice(0, 80);
+  }
+  const firstImage = message.images[0];
+  if (firstImage) {
+    return `Image: ${firstImage.name}`;
+  }
+  const firstTerminalContext = message.terminalContexts[0];
+  if (firstTerminalContext) {
+    return firstTerminalContext.terminalLabel;
+  }
+  return undefined;
 }
 
 function buildGeneratedWorktreeBranchName(raw: string): string {
@@ -296,6 +355,31 @@ const make = Effect.gen(function* () {
       createdAt: input.createdAt,
     });
 
+  const appendQueueFailureActivity = (input: {
+    readonly threadId: ThreadId;
+    readonly detail: string;
+    readonly createdAt: string;
+    readonly messageId?: MessageId;
+  }) =>
+    orchestrationEngine.dispatch({
+      type: "thread.activity.append",
+      commandId: serverCommandId("queue-dispatch-failure"),
+      threadId: input.threadId,
+      activity: {
+        id: EventId.makeUnsafe(crypto.randomUUID()),
+        tone: "error",
+        kind: "thread.queue.dispatch.failed",
+        summary: "Queued message dispatch failed",
+        payload: {
+          detail: input.detail,
+          ...(input.messageId ? { messageId: input.messageId } : {}),
+        },
+        turnId: null,
+        createdAt: input.createdAt,
+      },
+      createdAt: input.createdAt,
+    });
+
   const setThreadSession = (input: {
     readonly threadId: ThreadId;
     readonly session: OrchestrationSession;
@@ -345,6 +429,114 @@ const make = Effect.gen(function* () {
   const resolveThread = Effect.fnUntraced(function* (threadId: ThreadId) {
     const readModel = yield* orchestrationEngine.getReadModel();
     return readModel.threads.find((entry) => entry.id === threadId);
+  });
+
+  const dispatchNextQueuedComposerMessage = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const thread = yield* resolveThread(threadId);
+    if (!thread || !threadCanDispatchQueuedMessage(thread)) {
+      return;
+    }
+
+    const nextQueuedMessage = thread.queuedComposerMessages[0];
+    if (!nextQueuedMessage) {
+      return;
+    }
+
+    const createdAt = new Date().toISOString();
+    const messageText = buildQueuedMessageText(nextQueuedMessage);
+    if (messageText.length === 0 && nextQueuedMessage.images.length === 0) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.meta.update",
+        commandId: serverCommandId("queue-drop-empty"),
+        threadId,
+        queuedComposerMessages: thread.queuedComposerMessages.slice(1),
+        queuedSteerRequest:
+          thread.queuedSteerRequest?.messageId === nextQueuedMessage.id
+            ? null
+            : thread.queuedSteerRequest,
+      });
+      return;
+    }
+
+    const attachments = yield* normalizeUploadChatAttachments({
+      threadId,
+      attachments: nextQueuedMessage.images.map((image) => ({
+        type: "image" as const,
+        name: image.name,
+        mimeType: image.mimeType,
+        sizeBytes: image.sizeBytes,
+        dataUrl: image.dataUrl,
+      })),
+    }).pipe(
+      Effect.catch((error) =>
+        appendQueueFailureActivity({
+          threadId,
+          messageId: nextQueuedMessage.id,
+          detail: error instanceof Error ? error.message : "Failed to prepare queued attachments.",
+          createdAt,
+        }).pipe(Effect.as([] as ChatAttachment[])),
+      ),
+    );
+    if (attachments.length !== nextQueuedMessage.images.length) {
+      return;
+    }
+
+    const previousMessages = thread.queuedComposerMessages;
+    const previousSteerRequest = thread.queuedSteerRequest;
+    const nextMessages = previousMessages.slice(1);
+    const nextSteerRequest =
+      previousSteerRequest?.messageId === nextQueuedMessage.id ? null : previousSteerRequest;
+
+    yield* orchestrationEngine.dispatch({
+      type: "thread.meta.update",
+      commandId: serverCommandId("queue-pop"),
+      threadId,
+      queuedComposerMessages: nextMessages,
+      queuedSteerRequest: nextSteerRequest,
+    });
+
+    const titleSeed = buildQueuedMessageTitleSeed(nextQueuedMessage);
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.turn.start",
+        commandId: serverCommandId("queue-turn-start"),
+        threadId,
+        message: {
+          messageId: nextQueuedMessage.id,
+          role: "user",
+          text: messageText,
+          attachments,
+        },
+        modelSelection: nextQueuedMessage.modelSelection,
+        ...(titleSeed !== undefined ? { titleSeed } : {}),
+        runtimeMode: nextQueuedMessage.runtimeMode,
+        interactionMode: nextQueuedMessage.interactionMode,
+        createdAt,
+      })
+      .pipe(
+        Effect.catch((error) =>
+          orchestrationEngine
+            .dispatch({
+              type: "thread.meta.update",
+              commandId: serverCommandId("queue-restore"),
+              threadId,
+              queuedComposerMessages: previousMessages,
+              queuedSteerRequest: previousSteerRequest,
+            })
+            .pipe(
+              Effect.flatMap(() =>
+                appendQueueFailureActivity({
+                  threadId,
+                  messageId: nextQueuedMessage.id,
+                  detail:
+                    error instanceof Error ? error.message : "Failed to start queued message turn.",
+                  createdAt,
+                }),
+              ),
+              Effect.asVoid,
+            ),
+        ),
+      );
   });
 
   const ensureSessionForThread = Effect.fnUntraced(function* (
@@ -1036,6 +1228,19 @@ const make = Effect.gen(function* () {
     );
 
   const worker = yield* makeDrainableWorker(processDomainEventSafely);
+  const queueWorker = yield* makeDrainableWorker((threadId: ThreadId) =>
+    dispatchNextQueuedComposerMessage(threadId).pipe(
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) {
+          return Effect.failCause(cause);
+        }
+        return Effect.logWarning("provider command reactor failed to dispatch queued message", {
+          threadId,
+          cause: Cause.pretty(cause),
+        });
+      }),
+    ),
+  );
 
   const start: ProviderCommandReactorShape["start"] = Effect.fn("start")(function* () {
     const processEvent = Effect.fn("processEvent")(function* (event: OrchestrationEvent) {
@@ -1049,16 +1254,30 @@ const make = Effect.gen(function* () {
       ) {
         return yield* worker.enqueue(event);
       }
+      if (
+        event.type === "thread.meta-updated" ||
+        event.type === "thread.session-set" ||
+        event.type === "thread.turn-diff-completed"
+      ) {
+        return yield* queueWorker.enqueue(event.payload.threadId);
+      }
     });
 
     yield* Effect.forkScoped(
       Stream.runForEach(orchestrationEngine.streamDomainEvents, processEvent),
     );
+
+    const readModel = yield* orchestrationEngine.getReadModel();
+    for (const thread of readModel.threads) {
+      if (thread.queuedComposerMessages.length > 0) {
+        yield* queueWorker.enqueue(thread.id);
+      }
+    }
   });
 
   return {
     start,
-    drain: worker.drain,
+    drain: queueWorker.drain.pipe(Effect.flatMap(() => worker.drain)),
   } satisfies ProviderCommandReactorShape;
 });
 

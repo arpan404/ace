@@ -21,6 +21,7 @@ import {
 } from "@ace/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "@ace/shared/terminalContext";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "@ace/contracts";
@@ -332,6 +333,87 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("dispatches queued composer messages from the backend with images and terminal context", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-queue-message-with-context"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        queuedComposerMessages: [
+          {
+            id: asMessageId("queued-message-1"),
+            prompt: `Check this output ${INLINE_TERMINAL_CONTEXT_PLACEHOLDER}`,
+            images: [
+              {
+                type: "image",
+                id: "queued-image-1",
+                name: "comment.png",
+                mimeType: "image/png",
+                sizeBytes: 8,
+                dataUrl: "data:image/png;base64,iVBORw0KGgo=",
+              },
+            ],
+            terminalContexts: [
+              {
+                id: "queued-terminal-1",
+                createdAt: new Date().toISOString(),
+                terminalId: "terminal-1",
+                terminalLabel: "Terminal 1",
+                lineStart: 4,
+                lineEnd: 5,
+                text: "alpha\nbeta",
+              },
+            ],
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "approval-required",
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          },
+        ],
+        queuedSteerRequest: null,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    const sendTurnInput = harness.sendTurn.mock.calls[0]?.[0] as
+      | {
+          input?: string;
+          attachments?: Array<{
+            type: "image";
+            id: string;
+            name: string;
+            mimeType: string;
+            sizeBytes: number;
+          }>;
+        }
+      | undefined;
+    expect(sendTurnInput?.input).toContain("Check this output @terminal-1:4-5");
+    expect(sendTurnInput?.input).toContain("<terminal_context>");
+    expect(sendTurnInput?.input).toContain("  4 | alpha");
+    expect(sendTurnInput?.attachments).toEqual([
+      expect.objectContaining({
+        type: "image",
+        name: "comment.png",
+        mimeType: "image/png",
+        sizeBytes: 8,
+      }),
+    ]);
+    expect(sendTurnInput?.attachments?.[0]?.id).toMatch(/^thread-1-/);
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.queuedComposerMessages).toEqual([]);
+    expect(thread?.messages.at(-1)).toMatchObject({
+      id: asMessageId("queued-message-1"),
+      role: "user",
+    });
   });
 
   it("passes handoff replay turns when starting the destination thread session", async () => {
