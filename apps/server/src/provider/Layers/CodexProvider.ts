@@ -4,6 +4,8 @@ import type {
   CodexSettings,
   ServerProvider,
   ServerProviderModel,
+  ServerProviderAuth,
+  ServerProviderState,
 } from "@ace/contracts";
 import { Effect, Equal, FileSystem, Layer, Option, Path, Result, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
@@ -35,6 +37,96 @@ type CodexCatalogParseError = {
   readonly _tag: "CodexCatalogParseError";
   readonly message: string;
 };
+
+function toTitleCaseWords(value: string): string {
+  return value
+    .split(/[\s_-]+/g)
+    .filter(Boolean)
+    .map((part) => part[0]!.toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function normalizeCodexAuthLabel(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const normalized = trimmed.toLowerCase().replace(/[\s_-]+/g, "");
+  switch (normalized) {
+    case "chatgpt":
+      return "ChatGPT";
+    case "apikey":
+      return "API Key";
+    default:
+      return toTitleCaseWords(trimmed);
+  }
+}
+
+export function parseCodexAuthStatusFromOutput(result: {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly code: number;
+}): {
+  readonly status: Exclude<ServerProviderState, "disabled">;
+  readonly auth: Pick<ServerProviderAuth, "status" | "label">;
+  readonly message?: string;
+} {
+  const combinedOutput = `${result.stdout}\n${result.stderr}`.trim();
+  const lowerOutput = combinedOutput.toLowerCase();
+
+  if (
+    lowerOutput.includes("unknown command") ||
+    lowerOutput.includes("unrecognized command") ||
+    lowerOutput.includes("unexpected argument")
+  ) {
+    return {
+      status: "warning",
+      auth: { status: "unknown" },
+      message: "Codex login status command is unavailable in this version of Codex.",
+    };
+  }
+
+  if (
+    lowerOutput.includes("not logged in") ||
+    lowerOutput.includes("login required") ||
+    lowerOutput.includes("authentication required") ||
+    lowerOutput.includes("run `codex login`") ||
+    lowerOutput.includes("run codex login")
+  ) {
+    return {
+      status: "error",
+      auth: { status: "unauthenticated" },
+      message: "Codex is not authenticated. Run `codex login` and try again.",
+    };
+  }
+
+  const usingMatch = combinedOutput.match(/logged in using\s+(.+)$/im);
+  if (result.code === 0 && usingMatch) {
+    return {
+      status: "ready",
+      auth: {
+        status: "authenticated",
+        ...(normalizeCodexAuthLabel(usingMatch[1])
+          ? { label: normalizeCodexAuthLabel(usingMatch[1]) }
+          : {}),
+      },
+    };
+  }
+
+  if (result.code === 0) {
+    return { status: "ready", auth: { status: "authenticated" } };
+  }
+
+  const detail = detailFromResult(result);
+  return {
+    status: "warning",
+    auth: { status: "unknown" },
+    message: detail
+      ? `Could not verify Codex authentication status. ${detail}`
+      : "Could not verify Codex authentication status.",
+  };
+}
 
 export function getCodexModelCapabilities(model: string | null | undefined): ModelCapabilities {
   return getFallbackCodexModelCapabilities(model);
@@ -208,6 +300,8 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
       });
     }
 
+    const usesCustomModelProvider = yield* hasCustomModelProvider;
+
     let discoveredModels: ReadonlyArray<ServerProviderModel> = [];
     let modelsIssueMessage: string | undefined;
     const modelsProbe = yield* runCodexCommand(["debug", "models"]).pipe(
@@ -256,7 +350,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
       codexSettings.customModels,
     );
 
-    if (yield* hasCustomModelProvider) {
+    if (usesCustomModelProvider) {
       return buildServerProvider({
         provider: PROVIDER,
         enabled: codexSettings.enabled,
@@ -274,6 +368,62 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
       });
     }
 
+    const authProbe = yield* runCodexCommand(["login", "status"]).pipe(
+      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+      Effect.result,
+    );
+
+    if (Result.isFailure(authProbe)) {
+      const error = authProbe.failure;
+      return buildServerProvider({
+        provider: PROVIDER,
+        enabled: codexSettings.enabled,
+        checkedAt,
+        models,
+        probe: {
+          installed: true,
+          version: parsedVersion,
+          status: "warning",
+          auth: { status: "unknown" },
+          message: modelsIssueMessage
+            ? `Could not verify Codex authentication status: ${error instanceof Error ? error.message : String(error)}. ${modelsIssueMessage}`
+            : error instanceof Error
+              ? `Could not verify Codex authentication status: ${error.message}.`
+              : "Could not verify Codex authentication status.",
+        },
+      });
+    }
+
+    if (Option.isNone(authProbe.success)) {
+      return buildServerProvider({
+        provider: PROVIDER,
+        enabled: codexSettings.enabled,
+        checkedAt,
+        models,
+        probe: {
+          installed: true,
+          version: parsedVersion,
+          status: "warning",
+          auth: { status: "unknown" },
+          message: modelsIssueMessage
+            ? `Could not verify Codex authentication status. Timed out while running command. ${modelsIssueMessage}`
+            : "Could not verify Codex authentication status. Timed out while running command.",
+        },
+      });
+    }
+
+    const parsedAuth = parseCodexAuthStatusFromOutput(authProbe.success.value);
+    const resolvedStatus =
+      parsedAuth.status === "error" ? "error" : modelsIssueMessage ? "warning" : parsedAuth.status;
+    const resolvedMessage =
+      parsedAuth.message && modelsIssueMessage
+        ? `${parsedAuth.message} ${modelsIssueMessage}`
+        : parsedAuth.message
+          ? parsedAuth.message
+          : modelsIssueMessage
+            ? `Codex is usable, but ${modelsIssueMessage}`
+            : undefined;
+
     return buildServerProvider({
       provider: PROVIDER,
       enabled: codexSettings.enabled,
@@ -282,9 +432,9 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
       probe: {
         installed: true,
         version: parsedVersion,
-        status: modelsIssueMessage ? "warning" : "ready",
-        auth: { status: "unknown" },
-        ...(modelsIssueMessage ? { message: `Codex is usable, but ${modelsIssueMessage}` } : {}),
+        status: resolvedStatus,
+        auth: parsedAuth.auth,
+        ...(resolvedMessage ? { message: resolvedMessage } : {}),
       },
     });
   },
