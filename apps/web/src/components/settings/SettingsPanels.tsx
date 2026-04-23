@@ -1,4 +1,4 @@
-import { ArchiveIcon, ArchiveX, LoaderCircleIcon } from "lucide-react";
+import { ArchiveIcon, ArchiveX, ChevronDownIcon, LoaderCircleIcon } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -64,6 +64,7 @@ import {
   type AgentAttentionNotificationPermission,
 } from "../../lib/agentAttentionNotifications";
 import { Button } from "../ui/button";
+import { Collapsible, CollapsibleContent } from "../ui/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -71,7 +72,7 @@ import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectAvatar } from "../ProjectAvatar";
-import type { Project } from "../../types";
+import type { Project, Thread } from "../../types";
 import { ProviderSettingsSection, type ProviderCard } from "./ProviderSettingsSection";
 import { KeybindingsSettingsEditor } from "./KeybindingsSettingsEditor";
 import {
@@ -2796,21 +2797,27 @@ export function AboutSettingsPanel() {
   return <SettingsPanel page="about" />;
 }
 
+type ArchivedProjectGroup = {
+  readonly project: Project;
+  readonly threads: Thread[];
+  readonly totalThreadCount: number;
+  readonly sortKey: string;
+};
+
+function getArchiveSortKey(project: Project, threads: readonly Thread[]) {
+  const projectKey = project.archivedAt ?? project.updatedAt ?? project.createdAt ?? "";
+  const threadKey = threads[0]?.archivedAt ?? threads[0]?.updatedAt ?? threads[0]?.createdAt ?? "";
+  return projectKey > threadKey ? projectKey : threadKey;
+}
+
+function formatCountLabel(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 export function ArchivedThreadsPanel() {
   const projects = useStore((store) => store.projects);
   const threads = useStore((store) => store.threads);
   const { unarchiveThread, confirmAndDeleteThread } = useThreadActions();
-  const archivedProjects = useMemo(
-    () =>
-      projects
-        .filter((project) => project.archivedAt !== null)
-        .toSorted((left, right) => {
-          const leftKey = left.archivedAt ?? left.updatedAt ?? left.createdAt ?? "";
-          const rightKey = right.archivedAt ?? right.updatedAt ?? right.createdAt ?? "";
-          return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
-        }),
-    [projects],
-  );
   const threadCountByProjectId = useMemo(() => {
     const counts = new Map<string, number>();
     for (const thread of threads) {
@@ -2821,18 +2828,40 @@ export function ArchivedThreadsPanel() {
   const archivedGroups = useMemo(() => {
     const projectById = new Map(projects.map((project) => [project.id, project] as const));
     return [...projectById.values()]
-      .map((project) => ({
-        project,
-        threads: threads
+      .map<ArchivedProjectGroup>((project) => {
+        const archivedThreads = threads
           .filter((thread) => thread.projectId === project.id && thread.archivedAt !== null)
           .toSorted((left, right) => {
-            const leftKey = left.archivedAt ?? left.createdAt;
-            const rightKey = right.archivedAt ?? right.createdAt;
+            const leftKey = left.archivedAt ?? left.updatedAt ?? left.createdAt;
+            const rightKey = right.archivedAt ?? right.updatedAt ?? right.createdAt;
             return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
-          }),
-      }))
-      .filter((group) => group.threads.length > 0);
-  }, [projects, threads]);
+          });
+
+        return {
+          project,
+          threads: archivedThreads,
+          totalThreadCount: threadCountByProjectId.get(project.id) ?? 0,
+          sortKey: getArchiveSortKey(project, archivedThreads),
+        };
+      })
+      .filter((group) => group.project.archivedAt !== null || group.threads.length > 0)
+      .toSorted(
+        (left, right) =>
+          right.sortKey.localeCompare(left.sortKey) ||
+          left.project.name.localeCompare(right.project.name) ||
+          right.project.id.localeCompare(left.project.id),
+      );
+  }, [projects, threadCountByProjectId, threads]);
+  const [openGroupIds, setOpenGroupIds] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    setOpenGroupIds((current) => {
+      const next: Record<string, boolean> = {};
+      for (const group of archivedGroups) {
+        next[group.project.id] = current[group.project.id] ?? true;
+      }
+      return next;
+    });
+  }, [archivedGroups]);
 
   const handleArchivedThreadContextMenu = useCallback(
     async (threadId: ThreadId, position: { x: number; y: number }) => {
@@ -2877,12 +2906,28 @@ export function ArchivedThreadsPanel() {
       archivedAt: null,
     });
   }, []);
-  const hasArchivedItems = archivedProjects.length > 0 || archivedGroups.length > 0;
+  const hasArchivedItems = archivedGroups.length > 0;
+  const allGroupsExpanded = archivedGroups.every(
+    (group) => openGroupIds[group.project.id] !== false,
+  );
+  const setAllGroupsOpen = useCallback(
+    (open: boolean) => {
+      const next: Record<string, boolean> = {};
+      for (const group of archivedGroups) {
+        next[group.project.id] = open;
+      }
+      setOpenGroupIds(next);
+    },
+    [archivedGroups],
+  );
+  const setGroupOpen = useCallback((projectId: Project["id"], open: boolean) => {
+    setOpenGroupIds((current) => ({ ...current, [projectId]: open }));
+  }, []);
 
   return (
     <SettingsPageContainer>
       {!hasArchivedItems ? (
-        <SettingsSection title="Archived threads">
+        <SettingsSection title="Archived">
           <Empty className="min-h-88">
             <EmptyMedia variant="icon">
               <ArchiveIcon />
@@ -2894,105 +2939,164 @@ export function ArchivedThreadsPanel() {
           </Empty>
         </SettingsSection>
       ) : (
-        <>
-          {archivedProjects.length > 0 ? (
-            <SettingsSection title="Archived projects" icon={<ArchiveIcon />}>
-              {archivedProjects.map((project) => (
-                <div
-                  key={project.id}
-                  className="flex items-center justify-between gap-3 border-t border-border px-4 py-3 first:border-t-0 sm:px-5"
+        <SettingsSection
+          title="By project"
+          icon={<ArchiveIcon />}
+          headerAction={
+            archivedGroups.length > 1 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => setAllGroupsOpen(!allGroupsExpanded)}
+              >
+                {allGroupsExpanded ? "Collapse all" : "Expand all"}
+              </Button>
+            ) : null
+          }
+        >
+          {archivedGroups.map((group) => {
+            const project = group.project;
+            const isOpen = openGroupIds[project.id] !== false;
+            const archivedItemCount = group.threads.length + (project.archivedAt === null ? 0 : 1);
+
+            return (
+              <div key={project.id} className="border-t border-border first:border-t-0">
+                <button
+                  type="button"
+                  className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-muted/35 sm:px-5"
+                  aria-expanded={isOpen}
+                  onClick={() => setGroupOpen(project.id, !isOpen)}
                 >
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <ProjectAvatar project={project} className="size-8 rounded-lg" />
-                    <div className="min-w-0 flex-1">
+                  <ChevronDownIcon
+                    className={cn(
+                      "size-4 shrink-0 text-muted-foreground/55 transition-transform duration-200",
+                      !isOpen && "-rotate-90",
+                    )}
+                    aria-hidden="true"
+                  />
+                  <ProjectAvatar project={project} className="size-8 rounded-lg" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2">
                       <h3 className="truncate text-sm font-medium text-foreground">
                         {project.name}
                       </h3>
-                      <p className="truncate text-xs text-muted-foreground">
-                        Archived{" "}
-                        {formatRelativeTimeLabel(
-                          project.archivedAt ?? project.updatedAt ?? project.createdAt ?? "",
-                        )}
-                        {" \u00b7 "}
-                        {threadCountByProjectId.get(project.id) ?? 0}{" "}
-                        {(threadCountByProjectId.get(project.id) ?? 0) === 1 ? "thread" : "threads"}
-                      </p>
+                      {project.archivedAt !== null ? (
+                        <span className="shrink-0 rounded-md border border-border bg-muted/35 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          Project
+                        </span>
+                      ) : null}
                     </div>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
-                    onClick={() =>
-                      void restoreProject(project.id).catch((error) => {
-                        toastManager.add({
-                          type: "error",
-                          title: "Failed to restore project",
-                          description:
-                            error instanceof Error ? error.message : "An error occurred.",
-                        });
-                      })
-                    }
-                  >
-                    <ArchiveX className="size-3.5" />
-                    <span>Restore</span>
-                  </Button>
-                </div>
-              ))}
-            </SettingsSection>
-          ) : null}
-
-          {archivedGroups.map(({ project, threads: projectThreads }) => (
-            <SettingsSection
-              key={project.id}
-              title={project.name}
-              icon={<ProjectAvatar project={project} />}
-            >
-              {projectThreads.map((thread) => (
-                <div
-                  key={thread.id}
-                  className="flex items-center justify-between gap-3 border-t border-border px-4 py-3 first:border-t-0 sm:px-5"
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    void handleArchivedThreadContextMenu(thread.id, {
-                      x: event.clientX,
-                      y: event.clientY,
-                    });
-                  }}
-                >
-                  <div className="min-w-0 flex-1">
-                    <h3 className="truncate text-sm font-medium text-foreground">{thread.title}</h3>
-                    <p className="text-xs text-muted-foreground">
-                      Archived {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)}
-                      {" \u00b7 Created "}
-                      {formatRelativeTimeLabel(thread.createdAt)}
+                    <p className="truncate text-xs text-muted-foreground">
+                      {formatCountLabel(archivedItemCount, "archived item")} {"\u00b7 "}
+                      {formatCountLabel(group.threads.length, "thread")}
                     </p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
-                    onClick={() =>
-                      void unarchiveThread(thread.id).catch((error) => {
-                        toastManager.add({
-                          type: "error",
-                          title: "Failed to unarchive thread",
-                          description:
-                            error instanceof Error ? error.message : "An error occurred.",
-                        });
-                      })
-                    }
-                  >
-                    <ArchiveX className="size-3.5" />
-                    <span>Unarchive</span>
-                  </Button>
-                </div>
-              ))}
-            </SettingsSection>
-          ))}
-        </>
+                </button>
+
+                <Collapsible open={isOpen} onOpenChange={(open) => setGroupOpen(project.id, open)}>
+                  <CollapsibleContent>
+                    <div className="border-t border-border/70 bg-background/35">
+                      {project.archivedAt !== null ? (
+                        <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5">
+                          <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
+                              <ArchiveIcon className="size-4" />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <h4 className="truncate text-sm font-medium text-foreground">
+                                Project archive
+                              </h4>
+                              <p className="truncate text-xs text-muted-foreground">
+                                Archived{" "}
+                                {formatRelativeTimeLabel(
+                                  project.archivedAt ??
+                                    project.updatedAt ??
+                                    project.createdAt ??
+                                    "",
+                                )}
+                                {" \u00b7 "}
+                                {formatCountLabel(group.totalThreadCount, "total thread")}
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
+                            onClick={() =>
+                              void restoreProject(project.id).catch((error) => {
+                                toastManager.add({
+                                  type: "error",
+                                  title: "Failed to restore project",
+                                  description:
+                                    error instanceof Error ? error.message : "An error occurred.",
+                                });
+                              })
+                            }
+                          >
+                            <ArchiveX className="size-3.5" />
+                            <span>Restore</span>
+                          </Button>
+                        </div>
+                      ) : null}
+
+                      {group.threads.map((thread) => (
+                        <div
+                          key={thread.id}
+                          className={cn(
+                            "flex items-center justify-between gap-3 border-t border-border/70 px-4 py-3 sm:px-5",
+                            project.archivedAt === null && "first:border-t-0",
+                          )}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            void handleArchivedThreadContextMenu(thread.id, {
+                              x: event.clientX,
+                              y: event.clientY,
+                            });
+                          }}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <h4 className="truncate text-sm font-medium text-foreground">
+                              {thread.title}
+                            </h4>
+                            <p className="text-xs text-muted-foreground">
+                              Archived{" "}
+                              {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)}
+                              {" \u00b7 Created "}
+                              {formatRelativeTimeLabel(thread.createdAt)}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
+                            onClick={() =>
+                              void unarchiveThread(thread.id).catch((error) => {
+                                toastManager.add({
+                                  type: "error",
+                                  title: "Failed to unarchive thread",
+                                  description:
+                                    error instanceof Error ? error.message : "An error occurred.",
+                                });
+                              })
+                            }
+                          >
+                            <ArchiveX className="size-3.5" />
+                            <span>Unarchive</span>
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            );
+          })}
+        </SettingsSection>
       )}
     </SettingsPageContainer>
   );

@@ -30,7 +30,13 @@ export function AppPageTopBar({ children, className, contentClassName }: AppPage
       )}
       style={isElectron && sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined}
     >
-      <div className={cn("flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2", contentClassName)}>
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-1.5 transition-[padding] duration-200 ease-out sm:gap-2",
+          showHeaderSidebarTrigger ? "pl-2 sm:pl-2.5" : "pl-0",
+          contentClassName,
+        )}
+      >
         {showHeaderSidebarTrigger ? (
           <SidebarTrigger
             className={cn(

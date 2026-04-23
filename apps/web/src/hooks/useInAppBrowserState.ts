@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 
+import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import {
@@ -58,6 +59,7 @@ import {
   type BrowserTabContextMenuAction,
   type BrowserTabRuntimeState,
   type BrowserTabSnapshot,
+  type BrowserTabSnapshotOptions,
   type BrowserWebviewContextMenuAction,
   DEFAULT_BROWSER_TAB_RUNTIME_STATE,
 } from "~/lib/browser/types";
@@ -146,6 +148,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const browserContextMenuFallbackTimerRef = useRef<number | null>(null);
   const lastNativeBrowserContextMenuAtRef = useRef<number>(-Infinity);
   const webviewHandlesRef = useRef(new Map<string, BrowserTabHandle>());
+  const lastRecordedBrowserHistoryUrlByTabRef = useRef(new Map<string, string>());
   const [browserSession, setBrowserSession] = useLocalStorage(
     browserSessionStorageKey,
     createBrowserSessionState(),
@@ -756,6 +759,89 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     handle.openDevTools();
   }, [activeTab]);
 
+  const selectDesignerTool = useCallback(
+    (tool: BrowserDesignerTool) => {
+      setDesignerState((current) =>
+        current.tool === tool && current.active === (tool !== "cursor")
+          ? current
+          : {
+              ...current,
+              active: tool !== "cursor",
+              tool,
+            },
+      );
+    },
+    [setDesignerState],
+  );
+  const setDesignerModeActive = useCallback(
+    (active: boolean) => {
+      setDesignerState((current) =>
+        current.active === active &&
+        (active || current.tool === "cursor") &&
+        (!active || current.tool !== "cursor")
+          ? current
+          : {
+              ...current,
+              active,
+              tool: active ? (current.tool === "cursor" ? "area-comment" : current.tool) : "cursor",
+            },
+      );
+    },
+    [setDesignerState],
+  );
+  const setDesignerPillPosition = useCallback(
+    (pillPosition: BrowserDesignerPillPosition | null) => {
+      setDesignerState((current) => {
+        const currentPosition = current.pillPosition;
+        if (currentPosition?.x === pillPosition?.x && currentPosition?.y === pillPosition?.y) {
+          return current;
+        }
+        return {
+          ...current,
+          pillPosition,
+        };
+      });
+    },
+    [setDesignerState],
+  );
+
+  const closeActiveTabEvent = useEffectEvent(closeActiveTab);
+  const closeDevToolsEvent = useEffectEvent(closeDevTools);
+  const duplicateActiveTabEvent = useEffectEvent(duplicateActiveTab);
+  const focusAddressBarEvent = useEffectEvent(focusAddressBar);
+  const goBackEvent = useEffectEvent(goBack);
+  const goForwardEvent = useEffectEvent(goForward);
+  const moveActiveTabLeftEvent = useEffectEvent(moveActiveTabLeft);
+  const moveActiveTabRightEvent = useEffectEvent(moveActiveTabRight);
+  const moveTabSelectionEvent = useEffectEvent(moveTabSelection);
+  const openDevToolsEvent = useEffectEvent(openDevTools);
+  const openNewTabEvent = useEffectEvent(openNewTab);
+  const openUrlEvent = useEffectEvent(openUrl);
+  const reloadEvent = useEffectEvent(reload);
+  const setActiveTabByIndexEvent = useEffectEvent(setActiveTabByIndex);
+  const toggleDevToolsEvent = useEffectEvent(toggleDevTools);
+  const browserController = useMemo<InAppBrowserController>(
+    () => ({
+      closeActiveTab: () => closeActiveTabEvent(),
+      closeDevTools: () => closeDevToolsEvent(),
+      duplicateActiveTab: () => duplicateActiveTabEvent(),
+      focusAddressBar: () => focusAddressBarEvent(),
+      goBack: () => goBackEvent(),
+      goForward: () => goForwardEvent(),
+      moveActiveTabLeft: () => moveActiveTabLeftEvent(),
+      moveActiveTabRight: () => moveActiveTabRightEvent(),
+      goToNextTab: () => moveTabSelectionEvent(1),
+      goToPreviousTab: () => moveTabSelectionEvent(-1),
+      openDevTools: () => openDevToolsEvent(),
+      openNewTab: () => openNewTabEvent(),
+      openUrl: (rawUrl, options) => openUrlEvent(rawUrl, options),
+      reload: () => reloadEvent(),
+      setActiveTabByIndex: (index) => setActiveTabByIndexEvent(index),
+      toggleDevTools: () => toggleDevToolsEvent(),
+    }),
+    [],
+  );
+
   const repairBrowserStorage = useCallback(async () => {
     if (!api) {
       toastManager.add({
@@ -785,6 +871,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       }
 
       webviewHandlesRef.current.clear();
+      lastRecordedBrowserHistoryUrlByTabRef.current.clear();
       setTabRuntimeById({});
       setBrowserResetKey((current) => current + 1);
       toastManager.add({
@@ -951,10 +1038,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       return;
     }
     webviewHandlesRef.current.delete(tabId);
+    lastRecordedBrowserHistoryUrlByTabRef.current.delete(tabId);
   }, []);
 
   const handleTabSnapshotChange = useCallback(
-    (tabId: string, snapshot: BrowserTabSnapshot) => {
+    (tabId: string, snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
+      const persistTab = options?.persistTab ?? true;
+      const recordHistoryEntry = options?.recordHistory === true;
       setTabRuntimeById((current) => {
         const previous = current[tabId];
         if (
@@ -975,8 +1065,16 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           },
         };
       });
-      updateBrowserSession((current) => updateBrowserTab(current, tabId, snapshot));
-      if (!isBrowserInternalTabUrl(snapshot.url)) {
+      if (persistTab) {
+        updateBrowserSession((current) => updateBrowserTab(current, tabId, snapshot));
+      }
+      if (isBrowserInternalTabUrl(snapshot.url)) {
+        lastRecordedBrowserHistoryUrlByTabRef.current.delete(tabId);
+      } else if (
+        recordHistoryEntry &&
+        lastRecordedBrowserHistoryUrlByTabRef.current.get(tabId) !== snapshot.url
+      ) {
+        lastRecordedBrowserHistoryUrlByTabRef.current.set(tabId, snapshot.url);
         setBrowserHistory((current) =>
           recordBrowserHistory(current, {
             title: snapshot.title,
@@ -1162,46 +1260,11 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   }, [activeTabIsInternal, designerState.active, setDesignerState]);
 
   useEffect(() => {
-    const controller: InAppBrowserController = {
-      closeActiveTab,
-      closeDevTools,
-      duplicateActiveTab,
-      focusAddressBar,
-      goBack,
-      goForward,
-      moveActiveTabLeft,
-      moveActiveTabRight,
-      goToNextTab: () => moveTabSelection(1),
-      goToPreviousTab: () => moveTabSelection(-1),
-      openNewTab,
-      openDevTools,
-      openUrl,
-      reload,
-      setActiveTabByIndex,
-      toggleDevTools,
-    };
-    onControllerChange?.(controller);
+    onControllerChange?.(browserController);
     return () => {
       onControllerChange?.(null);
     };
-  }, [
-    closeActiveTab,
-    closeDevTools,
-    duplicateActiveTab,
-    focusAddressBar,
-    goBack,
-    goForward,
-    moveActiveTabLeft,
-    moveActiveTabRight,
-    moveTabSelection,
-    onControllerChange,
-    openNewTab,
-    openDevTools,
-    openUrl,
-    reload,
-    setActiveTabByIndex,
-    toggleDevTools,
-  ]);
+  }, [browserController, onControllerChange]);
 
   return {
     activateTab,
@@ -1252,45 +1315,12 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     reload,
     removePinnedPage,
     repairBrowserStorage,
-    selectDesignerTool: (tool: BrowserDesignerTool) => {
-      setDesignerState((current) =>
-        current.tool === tool && current.active === (tool !== "cursor")
-          ? current
-          : {
-              ...current,
-              active: tool !== "cursor",
-              tool,
-            },
-      );
-    },
+    selectDesignerTool,
     selectSearchEngine: (engine: typeof browserSearchEngine) => {
       updateSettings({ browserSearchEngine: engine });
     },
-    setDesignerModeActive: (active: boolean) => {
-      setDesignerState((current) =>
-        current.active === active &&
-        (active || current.tool === "cursor") &&
-        (!active || current.tool !== "cursor")
-          ? current
-          : {
-              ...current,
-              active,
-              tool: active ? (current.tool === "cursor" ? "area-comment" : current.tool) : "cursor",
-            },
-      );
-    },
-    setDesignerPillPosition: (pillPosition: BrowserDesignerPillPosition | null) => {
-      setDesignerState((current) => {
-        const currentPosition = current.pillPosition;
-        if (currentPosition?.x === pillPosition?.x && currentPosition?.y === pillPosition?.y) {
-          return current;
-        }
-        return {
-          ...current,
-          pillPosition,
-        };
-      });
-    },
+    setDesignerModeActive,
+    setDesignerPillPosition,
     selectedSuggestionIndex,
     setDraftUrl,
     setIsAddressBarFocused,

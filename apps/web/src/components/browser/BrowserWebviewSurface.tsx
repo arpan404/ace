@@ -20,6 +20,7 @@ import {
   type BrowserDesignElementDescriptor,
   type BrowserDesignSelectionRect,
   type BrowserTabHandle,
+  type BrowserTabSnapshotOptions,
   type BrowserTabSnapshot,
   type BrowserWebview,
   IN_APP_BROWSER_PARTITION,
@@ -109,6 +110,7 @@ const MIN_ELEMENT_CAPTURE_SIZE_PX = 8;
 const DESIGN_REQUEST_PANEL_WIDTH_PX = 272;
 const DESIGN_REQUEST_PANEL_HEIGHT_PX = 166;
 const DESIGN_REQUEST_PANEL_MARGIN_PX = 8;
+const BROWSER_SNAPSHOT_COALESCE_MS = 150;
 const DEFAULT_DESIGN_REQUEST_PANEL_SIZE: FloatingOverlaySize = {
   width: DESIGN_REQUEST_PANEL_WIDTH_PX,
   height: DESIGN_REQUEST_PANEL_HEIGHT_PX,
@@ -1048,7 +1050,11 @@ export function BrowserTabWebview(props: {
   ) => void;
   tab: BrowserTabState;
   onHandleChange: (tabId: string, handle: BrowserTabHandle | null) => void;
-  onSnapshotChange: (tabId: string, snapshot: BrowserTabSnapshot) => void;
+  onSnapshotChange: (
+    tabId: string,
+    snapshot: BrowserTabSnapshot,
+    options?: BrowserTabSnapshotOptions,
+  ) => void;
 }) {
   const {
     active,
@@ -1066,6 +1072,8 @@ export function BrowserTabWebview(props: {
   const webviewRef = useRef<BrowserWebview | null>(null);
   const readyRef = useRef(false);
   const pendingUrlRef = useRef<string | null>(null);
+  const pendingSnapshotOptionsRef = useRef<BrowserTabSnapshotOptions | null>(null);
+  const snapshotFlushTimerRef = useRef<number | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const annotationCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const designRequestPanelRef = useRef<HTMLFormElement | null>(null);
@@ -1124,9 +1132,11 @@ export function BrowserTabWebview(props: {
   );
   const [designRequestPanelPosition, setDesignRequestPanelPosition] =
     useState<DesignRequestPanelPosition | null>(null);
-  const emitTabSnapshotChange = useEffectEvent((snapshot: BrowserTabSnapshot) => {
-    onSnapshotChange(tab.id, snapshot);
-  });
+  const emitTabSnapshotChange = useEffectEvent(
+    (snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
+      onSnapshotChange(tab.id, snapshot, options);
+    },
+  );
   const requestContextMenuFallback = useEffectEvent(
     (position: { x: number; y: number }, requestedAt: number) => {
       onContextMenuFallbackRequest(tab.id, position, requestedAt);
@@ -1166,21 +1176,60 @@ export function BrowserTabWebview(props: {
     return normalizeBrowserHttpUrl(currentUrl) ?? requestedUrlRef.current;
   }, []);
 
-  const emitSnapshot = useCallback(() => {
-    const webview = webviewRef.current;
-    if (!webview || !readyRef.current) {
-      return;
+  const emitSnapshotNow = useCallback(
+    (options?: BrowserTabSnapshotOptions) => {
+      const webview = webviewRef.current;
+      if (!webview || !readyRef.current) {
+        return;
+      }
+      const resolvedUrl = resolveSnapshotUrl(webview.getURL());
+      emitTabSnapshotChange(
+        {
+          canGoBack: webview.canGoBack(),
+          canGoForward: webview.canGoForward(),
+          devToolsOpen: webview.isDevToolsOpened(),
+          loading: webview.isLoading(),
+          title: resolveBrowserTabTitle(resolvedUrl, webview.getTitle()),
+          url: resolvedUrl,
+        },
+        options,
+      );
+    },
+    [resolveSnapshotUrl],
+  );
+
+  const flushScheduledSnapshot = useCallback(() => {
+    snapshotFlushTimerRef.current = null;
+    const options = pendingSnapshotOptionsRef.current ?? undefined;
+    pendingSnapshotOptionsRef.current = null;
+    emitSnapshotNow(options);
+  }, [emitSnapshotNow]);
+
+  const scheduleEmitSnapshot = useCallback(
+    (options: BrowserTabSnapshotOptions = {}) => {
+      const pending = pendingSnapshotOptionsRef.current;
+      pendingSnapshotOptionsRef.current = {
+        persistTab: pending?.persistTab === true || options.persistTab === true,
+        recordHistory: pending?.recordHistory === true || options.recordHistory === true,
+      };
+      if (snapshotFlushTimerRef.current !== null) {
+        return;
+      }
+      snapshotFlushTimerRef.current = window.setTimeout(
+        flushScheduledSnapshot,
+        BROWSER_SNAPSHOT_COALESCE_MS,
+      );
+    },
+    [flushScheduledSnapshot],
+  );
+
+  const cancelScheduledSnapshot = useCallback(() => {
+    if (snapshotFlushTimerRef.current !== null) {
+      window.clearTimeout(snapshotFlushTimerRef.current);
+      snapshotFlushTimerRef.current = null;
     }
-    const resolvedUrl = resolveSnapshotUrl(webview.getURL());
-    emitTabSnapshotChange({
-      canGoBack: webview.canGoBack(),
-      canGoForward: webview.canGoForward(),
-      devToolsOpen: webview.isDevToolsOpened(),
-      loading: webview.isLoading(),
-      title: resolveBrowserTabTitle(resolvedUrl, webview.getTitle()),
-      url: resolvedUrl,
-    });
-  }, [resolveSnapshotUrl]);
+    pendingSnapshotOptionsRef.current = null;
+  }, []);
 
   const navigate = useCallback(
     (url: string) => {
@@ -1192,13 +1241,13 @@ export function BrowserTabWebview(props: {
       }
       const currentUrl = normalizeBrowserHttpUrl(webview.getURL());
       if (currentUrl === normalizeBrowserHttpUrl(url)) {
-        emitSnapshot();
+        scheduleEmitSnapshot({ persistTab: true });
         return;
       }
 
       loadWebviewUrl(webview, url);
     },
-    [emitSnapshot],
+    [scheduleEmitSnapshot],
   );
 
   const inspectBrowserPoint = useCallback(
@@ -1326,35 +1375,48 @@ export function BrowserTabWebview(props: {
         loadWebviewUrl(webview, pendingUrl);
         return;
       }
-      emitSnapshot();
+      scheduleEmitSnapshot({ persistTab: true });
     };
     const handleLoadStart = () => {
-      emitTabSnapshotChange({
-        canGoBack: readyRef.current ? webview.canGoBack() : false,
-        canGoForward: readyRef.current ? webview.canGoForward() : false,
-        devToolsOpen: readyRef.current ? webview.isDevToolsOpened() : false,
-        loading: true,
-        title: resolveBrowserTabTitle(requestedUrlRef.current),
-        url: requestedUrlRef.current,
-      });
+      emitTabSnapshotChange(
+        {
+          canGoBack: readyRef.current ? webview.canGoBack() : false,
+          canGoForward: readyRef.current ? webview.canGoForward() : false,
+          devToolsOpen: readyRef.current ? webview.isDevToolsOpened() : false,
+          loading: true,
+          title: resolveBrowserTabTitle(requestedUrlRef.current),
+          url: requestedUrlRef.current,
+        },
+        { persistTab: false },
+      );
     };
     const handleNavigation = () => {
-      emitSnapshot();
+      scheduleEmitSnapshot({ persistTab: true });
+    };
+    const handleLoadStop = () => {
+      scheduleEmitSnapshot({ persistTab: true, recordHistory: true });
+    };
+    const handleInPageNavigation = () => {
+      scheduleEmitSnapshot({ persistTab: true, recordHistory: true });
     };
     const handleFailLoad = (event: Event) => {
       const detail = event as Event & { errorCode?: number };
       if (detail.errorCode === -3) {
         return;
       }
+      cancelScheduledSnapshot();
       const resolvedUrl = resolveSnapshotUrl(webview.getURL());
-      emitTabSnapshotChange({
-        canGoBack: readyRef.current ? webview.canGoBack() : false,
-        canGoForward: readyRef.current ? webview.canGoForward() : false,
-        devToolsOpen: readyRef.current ? webview.isDevToolsOpened() : false,
-        loading: false,
-        title: resolveBrowserTabTitle(resolvedUrl, webview.getTitle()),
-        url: resolvedUrl,
-      });
+      emitTabSnapshotChange(
+        {
+          canGoBack: readyRef.current ? webview.canGoBack() : false,
+          canGoForward: readyRef.current ? webview.canGoForward() : false,
+          devToolsOpen: readyRef.current ? webview.isDevToolsOpened() : false,
+          loading: false,
+          title: resolveBrowserTabTitle(resolvedUrl, webview.getTitle()),
+          url: resolvedUrl,
+        },
+        { persistTab: true },
+      );
     };
     const handleContextMenu = (event: Event) => {
       const mouseEvent = event as MouseEvent;
@@ -1366,9 +1428,9 @@ export function BrowserTabWebview(props: {
 
     webview.addEventListener("dom-ready", handleDomReady);
     webview.addEventListener("did-start-loading", handleLoadStart);
-    webview.addEventListener("did-stop-loading", handleNavigation);
+    webview.addEventListener("did-stop-loading", handleLoadStop);
     webview.addEventListener("did-navigate", handleNavigation);
-    webview.addEventListener("did-navigate-in-page", handleNavigation);
+    webview.addEventListener("did-navigate-in-page", handleInPageNavigation);
     webview.addEventListener("devtools-closed", handleNavigation);
     webview.addEventListener("devtools-opened", handleNavigation);
     webview.addEventListener("page-title-updated", handleNavigation);
@@ -1381,9 +1443,9 @@ export function BrowserTabWebview(props: {
     return () => {
       webview.removeEventListener("dom-ready", handleDomReady);
       webview.removeEventListener("did-start-loading", handleLoadStart);
-      webview.removeEventListener("did-stop-loading", handleNavigation);
+      webview.removeEventListener("did-stop-loading", handleLoadStop);
       webview.removeEventListener("did-navigate", handleNavigation);
-      webview.removeEventListener("did-navigate-in-page", handleNavigation);
+      webview.removeEventListener("did-navigate-in-page", handleInPageNavigation);
       webview.removeEventListener("devtools-closed", handleNavigation);
       webview.removeEventListener("devtools-opened", handleNavigation);
       webview.removeEventListener("page-title-updated", handleNavigation);
@@ -1392,8 +1454,9 @@ export function BrowserTabWebview(props: {
       host.replaceChildren();
       webviewRef.current = null;
       readyRef.current = false;
+      cancelScheduledSnapshot();
     };
-  }, [emitSnapshot, resolveSnapshotUrl]);
+  }, [cancelScheduledSnapshot, resolveSnapshotUrl, scheduleEmitSnapshot]);
 
   useEffect(() => {
     navigate(tab.url);
