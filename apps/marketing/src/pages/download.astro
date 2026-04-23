@@ -85,7 +85,7 @@ import Layout from "../layouts/Layout.astro";
 
     <p class="release-note">
       Need release notes?
-      <a id="release-link" href="https://github.com/arpan404/ace/releases" target="_blank" rel="noopener noreferrer">
+      <a href="/changelog">
         View the changelog<span aria-hidden="true"> -></span>
       </a>
     </p>
@@ -140,7 +140,6 @@ import Layout from "../layouts/Layout.astro";
     const recommendedButton = document.getElementById("recommended-download") as HTMLAnchorElement | null;
     const recommendedCopy = document.getElementById("recommended-copy");
     const versionLabel = document.getElementById("version-label");
-    const releaseLink = document.getElementById("release-link") as HTMLAnchorElement | null;
     const cards = Array.from(document.querySelectorAll<HTMLAnchorElement>("[data-download-card]"));
 
     if (recommendedCopy) {
@@ -154,10 +153,6 @@ import Layout from "../layouts/Layout.astro";
       if (versionLabel) {
         versionLabel.textContent = release.tag_name ? `Latest release ${release.tag_name}` : "Latest release";
       }
-      if (releaseLink && release.html_url) {
-        releaseLink.href = release.html_url;
-      }
-
       cards.forEach((card) => {
         const patterns = (card.dataset.patterns ?? "").split(",").filter(Boolean);
         const match = findAsset(assets, patterns);

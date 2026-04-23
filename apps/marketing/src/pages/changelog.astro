@@ -1,0 +1,249 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout title="Changelog — ace" description="Release notes and updates for ace.">
+  <section class="changelog-page" aria-labelledby="changelog-heading">
+    <nav class="changelog-nav" aria-label="Changelog navigation">
+      <a href="/" class="changelog-brand" aria-label="ace home">
+        <img src="/logo.png" alt="" />
+        <span>ace</span>
+      </a>
+      <a href="/download" class="nav-link">
+        <span>Download</span>
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path
+            d="M11 4 5 10M5 4h6v6"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.7"
+          />
+        </svg>
+      </a>
+    </nav>
+
+    <div class="changelog-hero">
+      <p class="small-line">Changelog</p>
+      <h1 id="changelog-heading">Release notes.</h1>
+      <p>Follow desktop releases, fixes, and installer updates for ace.</p>
+    </div>
+
+    <section class="release-panel" aria-labelledby="release-heading">
+      <div>
+        <span id="release-kicker">Latest release</span>
+        <h2 id="release-heading">Loading release notes.</h2>
+        <p id="release-summary">Fetching the newest GitHub release from arpan404/ace.</p>
+        <pre id="release-notes" hidden></pre>
+      </div>
+      <a
+        href="https://github.com/arpan404/ace/releases"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="release-button"
+      >
+        Open releases
+      </a>
+    </section>
+  </section>
+</Layout>
+
+<script>
+  import { fetchLatestRelease } from "../lib/releases";
+
+  function formatReleaseDate(value: string | null) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+    }).format(date);
+  }
+
+  async function initChangelog() {
+    const kicker = document.getElementById("release-kicker");
+    const heading = document.getElementById("release-heading");
+    const summary = document.getElementById("release-summary");
+    const notes = document.getElementById("release-notes") as HTMLPreElement | null;
+    const button = document.querySelector<HTMLAnchorElement>(".release-button");
+
+    try {
+      const release = await fetchLatestRelease();
+      const date = formatReleaseDate(release.published_at);
+
+      if (kicker) {
+        kicker.textContent = date ? `${release.tag_name} / ${date}` : release.tag_name;
+      }
+      if (heading) {
+        heading.textContent = release.name || release.tag_name || "Latest release";
+      }
+      if (summary) {
+        summary.textContent = release.body
+          ? "Release notes from the latest GitHub release."
+          : "This release does not include notes yet.";
+      }
+      if (notes && release.body) {
+        notes.textContent = release.body.trim();
+        notes.hidden = false;
+      }
+      if (button && release.html_url) {
+        button.href = release.html_url;
+        button.textContent = "Open this release";
+      }
+    } catch {
+      if (heading) {
+        heading.textContent = "Release notes are unavailable.";
+      }
+      if (summary) {
+        summary.textContent = "GitHub did not return the latest release. Try opening releases directly.";
+      }
+    }
+  }
+
+  initChangelog();
+</script>
+
+<style>
+  .changelog-page {
+    width: min(100% - 2rem, 1180px);
+    margin: 0 auto;
+    padding: clamp(1.15rem, 2.5vw, 1.8rem) 0 clamp(5rem, 10vw, 8rem);
+  }
+
+  .changelog-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: clamp(4rem, 10vw, 7rem);
+  }
+
+  .changelog-brand,
+  .nav-link {
+    display: inline-flex;
+    align-items: center;
+    color: var(--fg);
+    font-weight: 800;
+  }
+
+  .changelog-brand {
+    gap: 0.65rem;
+  }
+
+  .changelog-brand img {
+    width: 34px;
+    height: 34px;
+    border-radius: 7px;
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
+  }
+
+  .nav-link {
+    gap: 0.35rem;
+    color: var(--fg-muted);
+    font-size: 0.94rem;
+  }
+
+  .nav-link svg {
+    width: 0.9rem;
+    height: 0.9rem;
+  }
+
+  .changelog-hero {
+    display: grid;
+    max-width: 46rem;
+    gap: 1rem;
+    margin-bottom: clamp(2rem, 5vw, 3.5rem);
+  }
+
+  .small-line,
+  .release-panel span {
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .changelog-hero h1 {
+    color: var(--fg);
+    font-size: clamp(3.5rem, 8vw, 7rem);
+    font-weight: 800;
+    letter-spacing: 0;
+    line-height: 0.9;
+    text-wrap: balance;
+  }
+
+  .changelog-hero p,
+  .release-panel p {
+    max-width: 40rem;
+    color: var(--fg-muted);
+    font-size: clamp(1.05rem, 2vw, 1.25rem);
+    line-height: 1.6;
+  }
+
+  .release-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 2rem;
+    border: 1px solid rgba(246, 240, 230, 0.13);
+    border-radius: var(--radius);
+    background:
+      radial-gradient(circle at 80% 24%, oklch(0.68 0.18 255 / 0.16), transparent 18rem),
+      rgba(246, 240, 230, 0.055);
+    padding: clamp(1.2rem, 3vw, 1.7rem);
+  }
+
+  .release-panel h2 {
+    max-width: 36rem;
+    margin: 0.7rem 0 0.65rem;
+    color: var(--fg);
+    font-size: clamp(1.55rem, 3vw, 2.45rem);
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  #release-notes {
+    max-width: 54rem;
+    max-height: 22rem;
+    margin-top: 1rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    border: 1px solid rgba(246, 240, 230, 0.12);
+    border-radius: 7px;
+    background: rgba(6, 7, 6, 0.38);
+    color: var(--fg-muted);
+    padding: 1rem;
+    font: 0.9rem/1.55 var(--font-mono);
+  }
+
+  .release-button {
+    display: inline-flex;
+    min-height: 3.1rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: var(--surface-strong);
+    color: var(--ink);
+    padding: 0.84rem 1.25rem;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 760px) {
+    .changelog-page {
+      width: min(100% - 1rem, 1180px);
+    }
+
+    .release-panel {
+      align-items: flex-start;
+      grid-template-columns: 1fr;
+    }
+
+    .release-button {
+      width: 100%;
+    }
+  }
+</style>
