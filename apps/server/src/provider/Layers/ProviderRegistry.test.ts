@@ -28,6 +28,7 @@ import {
   hasCustomModelProvider,
   readCodexConfigModelProvider,
 } from "./CodexProvider";
+import { toClaudeServerProviderModel } from "../claudeCatalog";
 import { parseCodexDebugModelsOutput } from "../codexCatalog";
 import { checkClaudeProviderStatus, parseClaudeAuthStatusFromOutput } from "./ClaudeProvider";
 import {
@@ -200,7 +201,7 @@ const CODEX_MODELS_OUTPUT = JSON.stringify({
   models: [
     {
       slug: "gpt-5.4",
-      display_name: "GPT-5.4",
+      display_name: "gpt-5.4",
       default_reasoning_level: "medium",
       supported_reasoning_levels: [
         { effort: "low" },
@@ -213,7 +214,7 @@ const CODEX_MODELS_OUTPUT = JSON.stringify({
     },
     {
       slug: "gpt-5.5",
-      display_name: "GPT-5.5",
+      display_name: "gpt-5.5",
       default_reasoning_level: "medium",
       supported_reasoning_levels: [
         { effort: "low" },
@@ -231,7 +232,7 @@ const CODEX_MODELS_OUTPUT = JSON.stringify({
     },
     {
       slug: "gpt-5.3-codex-spark",
-      display_name: "GPT-5.3 Codex Spark",
+      display_name: "gpt-5.3-codex-spark",
       default_reasoning_level: "high",
       supported_reasoning_levels: [
         { effort: "low" },
@@ -824,6 +825,32 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
     // ── checkClaudeProviderStatus tests ──────────────────────────
 
     describe("checkClaudeProviderStatus", () => {
+      it("maps discovered claude effort labels for extended levels", () => {
+        const model = toClaudeServerProviderModel({
+          value: "opus[1m]",
+          displayName: "Opus 4.7 (1M context)",
+          supportsEffort: true,
+          supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+          supportsAdaptiveThinking: true,
+          supportsFastMode: false,
+        });
+        assert.ok(model.capabilities);
+
+        assert.deepStrictEqual(
+          model.capabilities.reasoningEffortLevels.map((entry) => ({
+            value: entry.value,
+            label: entry.label,
+          })),
+          [
+            { value: "low", label: "Low" },
+            { value: "medium", label: "Medium" },
+            { value: "high", label: "High" },
+            { value: "xhigh", label: "Extra High" },
+            { value: "max", label: "Max" },
+          ],
+        );
+      });
+
       it.effect("returns ready when claude is installed and authenticated", () =>
         Effect.gen(function* () {
           const status = yield* checkClaudeProviderStatus();
@@ -850,12 +877,66 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
 
       it.effect("returns a display label for claude subscription types", () =>
         Effect.gen(function* () {
-          const status = yield* checkClaudeProviderStatus(() => Effect.succeed("maxplan"));
+          const status = yield* checkClaudeProviderStatus(() =>
+            Effect.succeed({
+              subscriptionType: "maxplan",
+              models: [],
+            }),
+          );
           assert.strictEqual(status.provider, "claudeAgent");
           assert.strictEqual(status.status, "ready");
           assert.strictEqual(status.auth.status, "authenticated");
           assert.strictEqual(status.auth.type, "maxplan");
           assert.strictEqual(status.auth.label, "Claude Max Subscription");
+        }).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
+              if (joined === "auth status")
+                return {
+                  stdout: '{"loggedIn":true,"authMethod":"claude.ai"}\n',
+                  stderr: "",
+                  code: 0,
+                };
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
+        ),
+      );
+
+      it.effect("uses provider-discovered claude models when available", () =>
+        Effect.gen(function* () {
+          const status = yield* checkClaudeProviderStatus(() =>
+            Effect.succeed({
+              subscriptionType: undefined,
+              models: [
+                {
+                  slug: "claude-sonnet-5-0",
+                  name: "Claude Sonnet 5.0",
+                  isCustom: false,
+                  capabilities: {
+                    reasoningEffortLevels: [
+                      { value: "low", label: "Low" },
+                      { value: "medium", label: "Medium" },
+                      { value: "high", label: "High", isDefault: true },
+                      { value: "xhigh", label: "Extra High" },
+                    ],
+                    supportsFastMode: true,
+                    supportsThinkingToggle: false,
+                    contextWindowOptions: [],
+                    promptInjectedEffortLevels: [],
+                  },
+                },
+              ],
+            }),
+          );
+          assert.strictEqual(status.provider, "claudeAgent");
+          assert.deepStrictEqual(
+            status.models.map((model) => model.slug),
+            ["claude-sonnet-5-0"],
+          );
+          assert.strictEqual(status.models[0]?.name, "Claude Sonnet 5.0");
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {

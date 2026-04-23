@@ -111,6 +111,7 @@ import {
   proposedPlanTitle,
   resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
+import { getDefaultServerModel } from "../providerModels";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -637,6 +638,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   const fallbackDraftProject = useProjectById(draftThread?.projectId);
   const localDraftError = serverThread ? null : (localDraftErrorsByThreadId[threadId] ?? null);
+  const serverConfig = useServerConfig();
+  const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
   const localDraftThread = useMemo(
     () =>
       draftThread
@@ -645,12 +648,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
             draftThread,
             fallbackDraftProject?.defaultModelSelection ?? {
               provider: "codex",
-              model: DEFAULT_MODEL_BY_PROVIDER.codex,
+              model: getDefaultServerModel(providerStatuses, "codex"),
             },
             localDraftError,
           )
         : undefined,
-    [draftThread, fallbackDraftProject?.defaultModelSelection, localDraftError, threadId],
+    [
+      draftThread,
+      fallbackDraftProject?.defaultModelSelection,
+      localDraftError,
+      providerStatuses,
+      threadId,
+    ],
   );
   const activeThread = serverThread ?? localDraftThread;
   const runtimeMode =
@@ -1205,8 +1214,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const lockedProvider: ProviderKind | null = hasThreadStarted
     ? (sessionProvider ?? threadProvider ?? selectedProviderByThreadId ?? null)
     : null;
-  const serverConfig = useServerConfig();
-  const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
   const unlockedSelectedProvider = resolveSelectableProvider(
     providerStatuses,
     selectedProviderByThreadId ?? threadProvider ?? "codex",

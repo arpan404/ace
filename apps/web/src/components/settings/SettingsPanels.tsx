@@ -21,7 +21,11 @@ import {
   type UiLetterSpacing,
   type UiMonoFontFamily,
 } from "@ace/contracts/settings";
-import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/model";
+import {
+  buildProviderModelSelection,
+  formatProviderModelDisplayName,
+  normalizeModelSlug,
+} from "@ace/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
 import {
@@ -1172,7 +1176,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     const summary = getProviderSummary(liveProvider);
     const selectedModels = providerConfig.customModels.map((slug) => ({
       slug,
-      name: slug,
+      name: formatProviderModelDisplayName(providerSettings.provider, slug),
       isCustom: true,
       capabilities: null,
     }));

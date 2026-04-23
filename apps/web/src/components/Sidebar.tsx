@@ -39,7 +39,6 @@ import {
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import {
-  DEFAULT_MODEL_BY_PROVIDER,
   type DesktopUpdateState,
   type FilesystemBrowseResult,
   type OrchestrationReadModel,
@@ -69,6 +68,7 @@ import {
 import { ensureNativeApi, readNativeApi } from "../nativeApi";
 import { clearPromotedDraftThreads, useComposerDraftStore } from "../composerDraftStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { getDefaultServerModel } from "../providerModels";
 
 import { useThreadActions } from "../hooks/useThreadActions";
 import {
@@ -178,7 +178,7 @@ import {
 import { LEAN_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
-import { useServerKeybindings } from "../rpc/serverState";
+import { useServerKeybindings, useServerProviders } from "../rpc/serverState";
 import type { Project, SidebarThreadSummary } from "../types";
 import { useHostConnectionStore } from "../hostConnectionStore";
 import {
@@ -825,6 +825,7 @@ export default function Sidebar() {
   const isOnSettings = pathname.startsWith("/settings");
   const appSettings = useSettings();
   const { updateSettings } = useUpdateSettings();
+  const providerStatuses = useServerProviders();
   const { activeDraftThread, activeThread, handleNewThread } = useHandleNewThread();
   const { archiveThread, deleteThread } = useThreadActions();
   const routeThreadId = useParams({
@@ -1608,7 +1609,7 @@ export default function Sidebar() {
           createWorkspaceRootIfMissing: true,
           defaultModelSelection: {
             provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+            model: getDefaultServerModel(providerStatuses, "codex"),
           },
           createdAt,
         });
@@ -1649,6 +1650,7 @@ export default function Sidebar() {
       handleNewThread,
       isAddingProject,
       localDeviceConnectionUrl,
+      providerStatuses,
       projects,
       refreshRemoteSidebarHosts,
       selectedProjectPickerEnvironment,
