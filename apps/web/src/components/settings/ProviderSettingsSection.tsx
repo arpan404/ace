@@ -31,7 +31,7 @@ interface ProviderStatusStyle {
 }
 
 interface ProviderSummary {
-  headline: string;
+  headline: ReactNode;
   detail: string | null;
 }
 

@@ -26,6 +26,7 @@ import { deepMerge } from "@ace/shared/Struct";
 import {
   checkCodexProviderStatus,
   hasCustomModelProvider,
+  parseCodexAuthStatusFromOutput,
   readCodexConfigModelProvider,
 } from "./CodexProvider";
 import { toClaudeServerProviderModel } from "../claudeCatalog";
@@ -299,7 +300,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           assert.strictEqual(status.provider, "codex");
           assert.strictEqual(status.status, "ready");
           assert.strictEqual(status.installed, true);
-          assert.strictEqual(status.auth.status, "unknown");
+          assert.strictEqual(status.auth.status, "authenticated");
+          assert.strictEqual(status.auth.label, "ChatGPT");
           assert.deepStrictEqual(
             status.models.map((model) => model.slug),
             ["gpt-5.4", "gpt-5.5", "gpt-5.3-codex-spark"],
@@ -311,6 +313,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
               if (joined === "debug models") {
                 return { stdout: CODEX_MODELS_OUTPUT, stderr: "", code: 0 };
+              }
+              if (joined === "login status") {
+                return { stdout: "Logged in using ChatGPT\n", stderr: "", code: 0 };
               }
               throw new Error(`Unexpected args: ${joined}`);
             }),
@@ -340,6 +345,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
                 `  printf '%s\n' '${CODEX_MODELS_OUTPUT}'`,
                 "  exit 0",
                 "fi",
+                'if [ "$1" = "login" ] && [ "$2" = "status" ]; then',
+                '  echo "Logged in using ChatGPT"',
+                "  exit 0",
+                "fi",
                 'echo "unexpected args: $*" >&2',
                 "exit 1",
                 "",
@@ -367,7 +376,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               assert.strictEqual(status.provider, "codex");
               assert.strictEqual(status.installed, true);
               assert.strictEqual(status.status, "ready");
-              assert.strictEqual(status.auth.status, "unknown");
+              assert.strictEqual(status.auth.status, "authenticated");
+              assert.strictEqual(status.auth.label, "ChatGPT");
               assert.ok(status.models.some((model) => model.slug === "gpt-5.4"));
             } finally {
               process.env.PATH = previousPath;
@@ -413,14 +423,18 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
         ),
       );
 
-      it.effect("does not run login status during the startup probe", () =>
+      it.effect("returns unauthenticated when codex login status reports no active session", () =>
         Effect.gen(function* () {
           yield* withTempCodexHome();
           const status = yield* checkCodexProviderStatus();
           assert.strictEqual(status.provider, "codex");
-          assert.strictEqual(status.status, "ready");
+          assert.strictEqual(status.status, "error");
           assert.strictEqual(status.installed, true);
-          assert.strictEqual(status.auth.status, "unknown");
+          assert.strictEqual(status.auth.status, "unauthenticated");
+          assert.strictEqual(
+            status.message,
+            "Codex is not authenticated. Run `codex login` and try again.",
+          );
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
@@ -428,6 +442,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
               if (joined === "debug models") {
                 return { stdout: CODEX_MODELS_OUTPUT, stderr: "", code: 0 };
+              }
+              if (joined === "login status") {
+                return { stdout: "Not logged in\n", stderr: "", code: 1 };
               }
               throw new Error(`Unexpected args: ${joined}`);
             }),
@@ -467,6 +484,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               const joined = args.join(" ");
               if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
               if (joined === "debug models") return { stdout: "", stderr: "boom", code: 1 };
+              if (joined === "login status") {
+                return { stdout: "Logged in using ChatGPT\n", stderr: "", code: 0 };
+              }
               throw new Error(`Unexpected args: ${joined}`);
             }),
           ),
@@ -554,6 +574,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
                 }
                 if (joined === "debug models" && command === "codex") {
                   return { stdout: CODEX_MODELS_OUTPUT, stderr: "", code: 0 };
+                }
+                if (joined === "login status" && command === "codex") {
+                  return { stdout: "Logged in using ChatGPT\n", stderr: "", code: 0 };
                 }
                 if (command === "cursor-agent") {
                   return { stdout: "", stderr: "spawn ENOENT", code: 1 };
@@ -677,12 +700,13 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
     });
 
     describe("checkCodexProviderStatus with openai model provider", () => {
-      it.effect("does not run auth probe when model_provider is openai", () =>
+      it.effect("runs the auth probe when model_provider is openai", () =>
         Effect.gen(function* () {
           yield* withTempCodexHome('model_provider = "openai"\n');
           const status = yield* checkCodexProviderStatus();
           assert.strictEqual(status.status, "ready");
-          assert.strictEqual(status.auth.status, "unknown");
+          assert.strictEqual(status.auth.status, "authenticated");
+          assert.strictEqual(status.auth.label, "ChatGPT");
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
@@ -690,6 +714,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
               if (joined === "debug models") {
                 return { stdout: CODEX_MODELS_OUTPUT, stderr: "", code: 0 };
+              }
+              if (joined === "login status") {
+                return { stdout: "Logged in using ChatGPT\n", stderr: "", code: 0 };
               }
               throw new Error(`Unexpected args: ${joined}`);
             }),
@@ -701,6 +728,19 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
     // ── readCodexConfigModelProvider tests ─────────────────────────────
 
     describe("readCodexConfigModelProvider", () => {
+      it("parses Codex login status labels from plain-text output", () => {
+        const parsed = parseCodexAuthStatusFromOutput({
+          stdout: "Logged in using ChatGPT\n",
+          stderr: "",
+          code: 0,
+        });
+
+        assert.deepStrictEqual(parsed, {
+          status: "ready",
+          auth: { status: "authenticated", label: "ChatGPT" },
+        });
+      });
+
       it.effect("returns undefined when config file does not exist", () =>
         Effect.gen(function* () {
           yield* withTempCodexHome();

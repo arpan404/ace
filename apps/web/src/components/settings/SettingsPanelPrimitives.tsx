@@ -6,6 +6,52 @@ import { formatRelativeTime } from "../../timestampFormat";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
+function maskEmailAddress(value: string): string {
+  const [localPart, domainPart] = value.split("@");
+  if (!localPart || !domainPart) {
+    return value;
+  }
+
+  const maskedLocal =
+    localPart.length <= 2
+      ? `${localPart[0] ?? ""}*`
+      : `${localPart.slice(0, 2)}${"*".repeat(Math.max(3, localPart.length - 3))}${
+          localPart.slice(-1) || ""
+        }`;
+
+  const domainSegments = domainPart.split(".");
+  const domainName = domainSegments[0] ?? "";
+  const domainSuffix = domainSegments.slice(1).join(".");
+  const maskedDomainName =
+    domainName.length <= 1
+      ? "*"
+      : `${domainName[0]}${"*".repeat(Math.max(2, domainName.length - 1))}`;
+
+  return domainSuffix.length > 0
+    ? `${maskedLocal}@${maskedDomainName}.${domainSuffix}`
+    : `${maskedLocal}@${maskedDomainName}`;
+}
+
+function renderAuthLabel(provider: ServerProvider): ReactNode {
+  const authLabel = provider.auth.label ?? provider.auth.type;
+  if (!authLabel) {
+    return null;
+  }
+
+  if (provider.provider === "cursor" && authLabel.includes("@")) {
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={<span className="cursor-help">{maskEmailAddress(authLabel)}</span>}
+        />
+        <TooltipPopup side="top">{authLabel}</TooltipPopup>
+      </Tooltip>
+    );
+  }
+
+  return authLabel;
+}
+
 export function getProviderSummary(provider: ServerProvider | undefined) {
   if (!provider) {
     return {
@@ -27,9 +73,9 @@ export function getProviderSummary(provider: ServerProvider | undefined) {
     };
   }
   if (provider.auth.status === "authenticated") {
-    const authLabel = provider.auth.label ?? provider.auth.type;
+    const authLabel = renderAuthLabel(provider);
     return {
-      headline: authLabel ? `Authenticated · ${authLabel}` : "Authenticated",
+      headline: authLabel ? <>Authenticated · {authLabel}</> : "Authenticated",
       detail: provider.message ?? null,
     };
   }
