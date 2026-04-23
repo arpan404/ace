@@ -98,6 +98,11 @@ export type BrowserTabSnapshot = BrowserTabRuntimeState & {
   url: string;
 };
 
+export type BrowserTabSnapshotOptions = {
+  persistTab?: boolean;
+  recordHistory?: boolean;
+};
+
 export type BrowserTabHandle = {
   closeDevTools: () => void;
   goBack: () => void;

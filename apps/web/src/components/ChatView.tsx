@@ -207,7 +207,11 @@ import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NewThreadLanding } from "./chat/NewThreadLanding";
 import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
-import { type InAppBrowserController, type InAppBrowserMode } from "./InAppBrowser";
+import {
+  type ActiveBrowserRuntimeState,
+  type InAppBrowserController,
+  type InAppBrowserMode,
+} from "./InAppBrowser";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./chat/CompactComposerControlsMenu";
@@ -1993,6 +1997,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const browserControllerRef = useRef<InAppBrowserController | null>(null);
   const browserControllerByThreadRef = useRef(new Map<ThreadId, InAppBrowserController>());
   const browserRuntimeStateByThreadRef = useRef(new Map<ThreadId, { devToolsOpen: boolean }>());
+  const browserControllerChangeHandlerByThreadRef = useRef(
+    new Map<ThreadId, (controller: InAppBrowserController | null) => void>(),
+  );
+  const browserRuntimeStateChangeHandlerByThreadRef = useRef(
+    new Map<ThreadId, (state: ActiveBrowserRuntimeState) => void>(),
+  );
   const activeBrowserThreadIdRef = useRef<ThreadId | null>(activeThreadId);
   const pendingBrowserOpenUrlRef = useRef<string | null>(null);
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
@@ -2039,6 +2049,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (!isElectron || !browserOpen || !activeThreadId) {
       browserControllerByThreadRef.current.clear();
       browserRuntimeStateByThreadRef.current.clear();
+      browserControllerChangeHandlerByThreadRef.current.clear();
+      browserRuntimeStateChangeHandlerByThreadRef.current.clear();
       browserControllerRef.current = null;
       setMountedBrowserThreadIds([]);
       return;
@@ -2888,6 +2900,36 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setBrowserDevToolsOpen(state.devToolsOpen);
     },
     [],
+  );
+  const getBrowserControllerChangeHandler = useCallback(
+    (browserThreadId: ThreadId) => {
+      const existingHandler =
+        browserControllerChangeHandlerByThreadRef.current.get(browserThreadId);
+      if (existingHandler) {
+        return existingHandler;
+      }
+      const handler = (controller: InAppBrowserController | null) => {
+        setBrowserController(browserThreadId, controller);
+      };
+      browserControllerChangeHandlerByThreadRef.current.set(browserThreadId, handler);
+      return handler;
+    },
+    [setBrowserController],
+  );
+  const getBrowserRuntimeStateChangeHandler = useCallback(
+    (browserThreadId: ThreadId) => {
+      const existingHandler =
+        browserRuntimeStateChangeHandlerByThreadRef.current.get(browserThreadId);
+      if (existingHandler) {
+        return existingHandler;
+      }
+      const handler = (state: ActiveBrowserRuntimeState) => {
+        handleBrowserRuntimeStateChange(browserThreadId, state);
+      };
+      browserRuntimeStateChangeHandlerByThreadRef.current.set(browserThreadId, handler);
+      return handler;
+    },
+    [handleBrowserRuntimeStateChange],
   );
   const openBrowserUrl = useCallback(
     (url: string, options?: { newTab?: boolean }) => {
@@ -6590,12 +6632,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 onSplit: openSplitBrowser,
                 ...(isActiveBrowserThread
                   ? {
-                      onControllerChange: (controller: InAppBrowserController | null) => {
-                        setBrowserController(browserThreadId, controller);
-                      },
-                      onActiveRuntimeStateChange: (state: { devToolsOpen: boolean }) => {
-                        handleBrowserRuntimeStateChange(browserThreadId, state);
-                      },
+                      onControllerChange: getBrowserControllerChangeHandler(browserThreadId),
+                      onActiveRuntimeStateChange:
+                        getBrowserRuntimeStateChangeHandler(browserThreadId),
                     }
                   : {}),
                 backShortcutLabel: browserBackShortcutLabel,

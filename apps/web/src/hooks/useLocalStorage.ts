@@ -43,7 +43,10 @@ const LOCAL_STORAGE_CHANGE_EVENT = "ace:local_storage_change";
 
 interface LocalStorageChangeDetail {
   key: string;
+  sourceId?: number;
 }
+
+let nextLocalStorageSourceId = 1;
 
 function toLocalStorageError(key: string, operation: string, error: unknown): Error {
   const detail = error instanceof Error ? error.message : String(error);
@@ -56,11 +59,11 @@ function reportLocalStorageError(key: string, operation: string, error: unknown)
   return normalized;
 }
 
-function dispatchLocalStorageChange(key: string) {
+function dispatchLocalStorageChange(key: string, sourceId: number) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent<LocalStorageChangeDetail>(LOCAL_STORAGE_CHANGE_EVENT, {
-      detail: { key },
+      detail: { key, sourceId },
     }),
   );
 }
@@ -83,6 +86,10 @@ export function useLocalStorage<T, E>(
 
   const [storageError, setStorageError] = useState<Error | null>(initialStorageError);
   const [storedValue, setStoredValue] = useState<T>(initialStoredValue);
+  const sourceIdRef = useRef<number | null>(null);
+  if (sourceIdRef.current === null) {
+    sourceIdRef.current = nextLocalStorageSourceId++;
+  }
 
   // Return a wrapped version of useState's setter function that persists the new value to localStorage
   const setValue = useCallback(
@@ -90,13 +97,17 @@ export function useLocalStorage<T, E>(
       try {
         setStoredValue((prev) => {
           const valueToStore = typeof value === "function" ? (value as (val: T) => T)(prev) : value;
+          if (Object.is(valueToStore, prev)) {
+            setStorageError(null);
+            return prev;
+          }
           if (valueToStore === null) {
             removeLocalStorageItem(key);
           } else {
             setLocalStorageItem(key, valueToStore, schema);
           }
           // Dispatch event after state update completes to avoid nested state updates
-          queueMicrotask(() => dispatchLocalStorageChange(key));
+          queueMicrotask(() => dispatchLocalStorageChange(key, sourceIdRef.current ?? 0));
           setStorageError(null);
           return valueToStore;
         });
@@ -142,7 +153,7 @@ export function useLocalStorage<T, E>(
     };
 
     const handleLocalChange = (event: CustomEvent<LocalStorageChangeDetail>) => {
-      if (event.detail.key === key) {
+      if (event.detail.key === key && event.detail.sourceId !== sourceIdRef.current) {
         syncFromStorage();
       }
     };
