@@ -76,6 +76,22 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+d", command: "browser.duplicateTab", when: "browserOpen && !terminalFocus" },
   { key: "mod+alt+[", command: "browser.moveTabLeft", when: "browserOpen && !terminalFocus" },
   { key: "mod+alt+]", command: "browser.moveTabRight", when: "browserOpen && !terminalFocus" },
+  { key: "mod+alt+1", command: "browser.designer.cursor", when: "browserOpen && !terminalFocus" },
+  {
+    key: "mod+alt+2",
+    command: "browser.designer.areaComment",
+    when: "browserOpen && !terminalFocus",
+  },
+  {
+    key: "mod+alt+3",
+    command: "browser.designer.drawComment",
+    when: "browserOpen && !terminalFocus",
+  },
+  {
+    key: "mod+alt+4",
+    command: "browser.designer.elementComment",
+    when: "browserOpen && !terminalFocus",
+  },
   { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },

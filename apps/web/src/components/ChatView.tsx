@@ -77,18 +77,12 @@ import {
 } from "../composer-editor-mentions";
 import {
   deriveCompletionDividerBeforeEntryId,
-  derivePendingApprovals,
-  derivePendingUserInputs,
   derivePhase,
-  deriveTimelineEntries,
   deriveActiveWorkStartedAt,
   deriveVisibleWorkTurnId,
   deriveActivePlanState,
-  deriveVisibleTurnDiffSummaryByAssistantMessageId,
   findSidebarProposedPlan,
   findLatestProposedPlan,
-  deriveWorkLogEntries,
-  filterVisibleWorkLogActivities,
   hasLiveTurn,
   hasActionableProposedPlan,
   isLatestTurnSettled,
@@ -125,7 +119,6 @@ import {
   type ChatMessage,
   type QueuedComposerImageAttachment,
   type Thread,
-  type TurnDiffSummary,
 } from "../types";
 import { isMemoryPressureAtLeast, subscribeToMemoryPressure } from "../lib/memoryPressure";
 import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
@@ -184,6 +177,10 @@ import {
 } from "../lib/terminalContext";
 import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
 import { buildGitHubIssueSelectionPayload } from "~/lib/chat/githubIssueSelection";
+import {
+  deriveThreadActivityRenderState,
+  deriveThreadTimelineRenderState,
+} from "~/lib/chat/threadRenderState";
 import {
   resolveComposerFooterContentWidth,
   shouldForceCompactComposerFooterForFit,
@@ -335,6 +332,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const serverThread = useThreadById(threadId);
   const threads = useStore((store) => store.threads);
   const setStoreThreadError = useStore((store) => store.setError);
+  const dismissStoreThreadError = useStore((store) => store.dismissThreadError);
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
   const setStoreThreadQueueState = useStore((store) => store.setThreadQueueState);
   const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
@@ -1254,8 +1252,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }),
     [settings.enableThinkingStreaming, settings.enableToolStreaming],
   );
-  const visibleThreadActivities = useMemo(
-    () => filterVisibleWorkLogActivities(threadActivities, activityVisibilitySettings),
+  const { visibleThreadActivities, workLogEntries, pendingApprovals, pendingUserInputs } = useMemo(
+    () => deriveThreadActivityRenderState(threadActivities, activityVisibilitySettings),
     [activityVisibilitySettings, threadActivities],
   );
   const activeWorkTurnId = useMemo(
@@ -1266,18 +1264,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
         visibleThreadActivities,
       ),
     [activeLatestTurn, activeThread?.session, visibleThreadActivities],
-  );
-  const workLogEntries = useMemo(
-    () => deriveWorkLogEntries(visibleThreadActivities),
-    [visibleThreadActivities],
-  );
-  const pendingApprovals = useMemo(
-    () => derivePendingApprovals(threadActivities),
-    [threadActivities],
-  );
-  const pendingUserInputs = useMemo(
-    () => derivePendingUserInputs(threadActivities),
-    [threadActivities],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingDraftAnswers = useMemo(
@@ -1587,23 +1573,21 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () => new Set(activeThreadMessages.map((message) => message.id)),
     [activeThreadMessages],
   );
-  const timelineEntries = useMemo(
-    () => deriveTimelineEntries(timelineMessages, timelineProposedPlans, timelineWorkEntries),
-    [timelineMessages, timelineProposedPlans, timelineWorkEntries],
-  );
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
-  const turnDiffSummaryByAssistantMessageId = useMemo(() => {
-    const byMessageId = new Map<MessageId, TurnDiffSummary>();
-    for (const summary of turnDiffSummaries) {
-      if (!summary.assistantMessageId) continue;
-      byMessageId.set(summary.assistantMessageId, summary);
-    }
-    return byMessageId;
-  }, [turnDiffSummaries]);
-  const visibleTurnDiffSummaryByAssistantMessageId = useMemo(
-    () => deriveVisibleTurnDiffSummaryByAssistantMessageId(timelineMessages, turnDiffSummaries),
-    [timelineMessages, turnDiffSummaries],
+  const {
+    timelineEntries,
+    turnDiffSummaryByAssistantMessageId,
+    visibleTurnDiffSummaryByAssistantMessageId,
+  } = useMemo(
+    () =>
+      deriveThreadTimelineRenderState({
+        messages: timelineMessages,
+        proposedPlans: timelineProposedPlans,
+        workLogEntries: timelineWorkEntries,
+        turnDiffSummaries,
+      }),
+    [timelineMessages, timelineProposedPlans, timelineWorkEntries, turnDiffSummaries],
   );
   const revertTurnCountByUserMessageId = useMemo(() => {
     const byUserMessageId = new Map<MessageId, number>();
@@ -1953,6 +1937,42 @@ export default function ChatView({ threadId }: ChatViewProps) {
       shortcutLabelForCommand(keybindings, "browser.devtools", browserActionShortcutLabelOptions),
     [browserActionShortcutLabelOptions, keybindings],
   );
+  const browserDesignerCursorShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        keybindings,
+        "browser.designer.cursor",
+        browserActionShortcutLabelOptions,
+      ),
+    [browserActionShortcutLabelOptions, keybindings],
+  );
+  const browserDesignerAreaCommentShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        keybindings,
+        "browser.designer.areaComment",
+        browserActionShortcutLabelOptions,
+      ),
+    [browserActionShortcutLabelOptions, keybindings],
+  );
+  const browserDesignerDrawCommentShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        keybindings,
+        "browser.designer.drawComment",
+        browserActionShortcutLabelOptions,
+      ),
+    [browserActionShortcutLabelOptions, keybindings],
+  );
+  const browserDesignerElementCommentShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        keybindings,
+        "browser.designer.elementComment",
+        browserActionShortcutLabelOptions,
+      ),
+    [browserActionShortcutLabelOptions, keybindings],
+  );
   const browserModeStorageKey = useMemo(
     () => resolveScopedBrowserStorageKey(BROWSER_PANEL_MODE_STORAGE_KEY, threadId),
     [threadId],
@@ -2166,6 +2186,24 @@ export default function ChatView({ threadId }: ChatViewProps) {
       });
     },
     [setStoreThreadError],
+  );
+  const dismissThreadError = useCallback(
+    (targetThreadId: ThreadId | null) => {
+      if (!targetThreadId) return;
+      if (getThreadById(useStore.getState().threads, targetThreadId)) {
+        dismissStoreThreadError(targetThreadId);
+        return;
+      }
+      setLocalDraftErrorsByThreadId((existing) => {
+        if ((existing[targetThreadId] ?? null) === null) {
+          return existing;
+        }
+        const next = { ...existing };
+        delete next[targetThreadId];
+        return next;
+      });
+    },
+    [dismissStoreThreadError],
   );
 
   const focusComposer = useCallback(() => {
@@ -4415,6 +4453,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
       if (!activeThreadId || event.defaultPrevented) return;
+      if (
+        event.key === "Escape" &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        browserOpen
+      ) {
+        browserControllerRef.current?.toggleDesignerTool("cursor");
+      }
       const shortcutContext = {
         terminalFocus: isTerminalFocused(),
         terminalOpen: Boolean(terminalState.terminalOpen),
@@ -4556,6 +4604,34 @@ export default function ChatView({ threadId }: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         browserControllerRef.current?.moveActiveTabRight();
+        return;
+      }
+
+      if (command === "browser.designer.cursor") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.toggleDesignerTool("cursor");
+        return;
+      }
+
+      if (command === "browser.designer.areaComment") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.toggleDesignerTool("area-comment");
+        return;
+      }
+
+      if (command === "browser.designer.drawComment") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.toggleDesignerTool("draw-comment");
+        return;
+      }
+
+      if (command === "browser.designer.elementComment") {
+        event.preventDefault();
+        event.stopPropagation();
+        browserControllerRef.current?.toggleDesignerTool("element-comment");
         return;
       }
 
@@ -6309,13 +6385,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [navigate, threadId],
   );
-  const onRevertUserMessage = (messageId: MessageId) => {
-    const targetTurnCount = revertTurnCountByUserMessageId.get(messageId);
-    if (typeof targetTurnCount !== "number") {
-      return;
-    }
-    void onRevertToTurnCount(targetTurnCount);
-  };
+  const onRevertUserMessage = useCallback(
+    (messageId: MessageId) => {
+      const targetTurnCount = revertTurnCountByUserMessageId.get(messageId);
+      if (typeof targetTurnCount !== "number") {
+        return;
+      }
+      void onRevertToTurnCount(targetTurnCount);
+    },
+    [onRevertToTurnCount, revertTurnCountByUserMessageId],
+  );
   const onFixGitHubIssue = useCallback(
     async (payload: { prompt: string; images: ComposerImageAttachment[] }) => {
       if (!activeThread) {
@@ -6369,42 +6448,114 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   const isHandoffThread =
     serverThread?.handoff !== undefined || activeThread?.handoff !== undefined;
-  const messagesTimelineProps = {
-    hasMessages:
-      timelineEntries.length > 0 ||
-      (isThreadHistoryLoading && activeThread.messages.length > 0) ||
+  const messagesTimelineProps = useMemo(
+    () => ({
+      hasMessages:
+        timelineEntries.length > 0 ||
+        (isThreadHistoryLoading && activeThread.messages.length > 0) ||
+        isHandoffThread,
+      isWorking,
+      onStartConversationFromMessage: scheduleComposerFocus,
+      onContinueWithGitHubIssues: openGitHubIssueDialog,
+      isContinueWithGitHubIssuesDisabled: !gitCwd || !isGitRepo,
+      ...(!gitCwd || !isGitRepo
+        ? {
+            continueWithGitHubIssuesDisabledReason:
+              "GitHub issues are available only for Git repositories.",
+          }
+        : {}),
+      activeTurnInProgress: isWorking || !latestTurnSettled,
+      activeTurnStartedAt: activeWorkStartedAt,
+      scrollContainer: messagesScrollElement,
+      timelineEntries,
+      completionDividerBeforeEntryId,
+      completionSummary,
+      turnDiffSummaryByAssistantMessageId: visibleTurnDiffSummaryByAssistantMessageId,
+      expandedWorkGroups,
+      onToggleWorkGroup,
+      onOpenTurnDiff,
+      revertTurnCountByUserMessageId,
+      onRevertUserMessage,
+      revertActionTitle: checkpointRestoreActionTitle(activeThread.session?.provider),
+      isRevertingCheckpoint,
+      onImageExpand: onExpandTimelineImage,
+      markdownCwd: gitCwd ?? undefined,
+      onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
+      resolvedTheme,
+      timestampFormat,
+      workspaceRoot: activeProject?.cwd ?? undefined,
+    }),
+    [
+      activeProject?.cwd,
+      activeThread.messages.length,
+      activeThread.session?.provider,
+      activeWorkStartedAt,
+      completionDividerBeforeEntryId,
+      completionSummary,
+      expandedWorkGroups,
+      gitCwd,
+      isGitRepo,
       isHandoffThread,
-    isWorking,
-    onStartConversationFromMessage: scheduleComposerFocus,
-    onContinueWithGitHubIssues: openGitHubIssueDialog,
-    isContinueWithGitHubIssuesDisabled: !gitCwd || !isGitRepo,
-    ...(!gitCwd || !isGitRepo
-      ? {
-          continueWithGitHubIssuesDisabledReason:
-            "GitHub issues are available only for Git repositories.",
-        }
-      : {}),
-    activeTurnInProgress: isWorking || !latestTurnSettled,
-    activeTurnStartedAt: activeWorkStartedAt,
-    scrollContainer: messagesScrollElement,
-    timelineEntries,
-    completionDividerBeforeEntryId,
-    completionSummary,
-    turnDiffSummaryByAssistantMessageId: visibleTurnDiffSummaryByAssistantMessageId,
-    expandedWorkGroups,
-    onToggleWorkGroup,
-    onOpenTurnDiff,
-    revertTurnCountByUserMessageId,
-    onRevertUserMessage,
-    revertActionTitle: checkpointRestoreActionTitle(activeThread.session?.provider),
-    isRevertingCheckpoint,
-    onImageExpand: onExpandTimelineImage,
-    markdownCwd: gitCwd ?? undefined,
-    onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
-    resolvedTheme,
-    timestampFormat,
-    workspaceRoot: activeProject?.cwd ?? undefined,
-  };
+      isRevertingCheckpoint,
+      isThreadHistoryLoading,
+      isWorking,
+      latestTurnSettled,
+      messagesScrollElement,
+      onExpandTimelineImage,
+      onOpenTurnDiff,
+      onRevertUserMessage,
+      onToggleWorkGroup,
+      openGitHubIssueDialog,
+      openBrowserUrlInNewTab,
+      resolvedTheme,
+      revertTurnCountByUserMessageId,
+      scheduleComposerFocus,
+      timelineEntries,
+      timestampFormat,
+      visibleTurnDiffSummaryByAssistantMessageId,
+    ],
+  );
+  const loadingNotice = useMemo(
+    () => (isThreadHistoryLoading ? <ThreadHistoryLoadingNotice /> : null),
+    [isThreadHistoryLoading],
+  );
+  const chatMessagesPaneProps = useMemo(
+    () => ({
+      loadingNotice,
+      messagesContainerRef: setMessagesScrollContainerRef,
+      messagesTimelineProps,
+      onMessagesClickCapture,
+      onMessagesPointerCancel,
+      onMessagesPointerDown,
+      onMessagesPointerUp,
+      onMessagesScroll,
+      onMessagesTouchEnd,
+      onMessagesTouchMove,
+      onMessagesTouchStart,
+      onMessagesWheel,
+      scrollMessagesToBottom,
+      showScrollToBottom,
+      timelineKey: `${activeThread.id}:${activeThread.historyLoaded === false ? "lean" : "hydrated"}`,
+    }),
+    [
+      activeThread.historyLoaded,
+      activeThread.id,
+      loadingNotice,
+      messagesTimelineProps,
+      onMessagesClickCapture,
+      onMessagesPointerCancel,
+      onMessagesPointerDown,
+      onMessagesPointerUp,
+      onMessagesScroll,
+      onMessagesTouchEnd,
+      onMessagesTouchMove,
+      onMessagesTouchStart,
+      onMessagesWheel,
+      scrollMessagesToBottom,
+      setMessagesScrollContainerRef,
+      showScrollToBottom,
+    ],
+  );
   const branchToolbarProps = isGitRepo
     ? {
         threadId: activeThread.id,
@@ -6497,6 +6648,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     }
                   : {}),
                 backShortcutLabel: browserBackShortcutLabel,
+                designerAreaCommentShortcutLabel: browserDesignerAreaCommentShortcutLabel,
+                designerCursorShortcutLabel: browserDesignerCursorShortcutLabel,
+                designerDrawCommentShortcutLabel: browserDesignerDrawCommentShortcutLabel,
+                designerElementCommentShortcutLabel: browserDesignerElementCommentShortcutLabel,
                 devToolsShortcutLabel: browserDevToolsShortcutLabel,
                 forwardShortcutLabel: browserForwardShortcutLabel,
                 reloadShortcutLabel: browserReloadShortcutLabel,
@@ -6617,7 +6772,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       <ProviderStatusBanner status={activeProviderStatus} />
       <ThreadErrorBanner
         error={activeThread.error}
-        onDismiss={() => setThreadError(activeThread.id, null)}
+        onDismiss={() => dismissThreadError(activeThread.id)}
       />
       {/* Main content area with optional plan sidebar */}
       <div ref={chatViewportRef} className="relative flex min-h-0 min-w-0 flex-1">
@@ -6694,23 +6849,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     </div>
                   ) : null}
                   {/* Messages Wrapper */}
-                  <ChatMessagesPane
-                    messagesContainerRef={setMessagesScrollContainerRef}
-                    messagesTimelineProps={messagesTimelineProps}
-                    loadingNotice={isThreadHistoryLoading ? <ThreadHistoryLoadingNotice /> : null}
-                    onMessagesClickCapture={onMessagesClickCapture}
-                    onMessagesPointerCancel={onMessagesPointerCancel}
-                    onMessagesPointerDown={onMessagesPointerDown}
-                    onMessagesPointerUp={onMessagesPointerUp}
-                    onMessagesScroll={onMessagesScroll}
-                    onMessagesTouchEnd={onMessagesTouchEnd}
-                    onMessagesTouchMove={onMessagesTouchMove}
-                    onMessagesTouchStart={onMessagesTouchStart}
-                    onMessagesWheel={onMessagesWheel}
-                    scrollMessagesToBottom={scrollMessagesToBottom}
-                    showScrollToBottom={showScrollToBottom}
-                    timelineKey={`${activeThread.id}:${activeThread.historyLoaded === false ? "lean" : "hydrated"}`}
-                  />
+                  <ChatMessagesPane {...chatMessagesPaneProps} />
 
                   {/* Input bar */}
                   <div

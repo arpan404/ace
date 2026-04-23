@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   applyOrchestrationEvent,
   applyOrchestrationEvents,
+  dismissThreadError,
   hydrateThreadFromReadModel,
   pruneHydratedThreadHistories,
   syncServerReadModel,
@@ -82,6 +83,7 @@ function makeState(thread: Thread): AppState {
     threads: [thread],
     sidebarThreadsById: {},
     threadIdsByProjectId,
+    dismissedThreadErrorKeysById: {},
     bootstrapComplete: true,
   };
 }
@@ -721,6 +723,7 @@ describe("store read model sync", () => {
       threadIdsByProjectId: {
         [sharedProjectId]: [activeThreadId, completedThreadId, runningThreadId],
       },
+      dismissedThreadErrorKeysById: {},
       bootstrapComplete: true,
     };
 
@@ -810,6 +813,7 @@ describe("store read model sync", () => {
       threads: [],
       sidebarThreadsById: {},
       threadIdsByProjectId: {},
+      dismissedThreadErrorKeysById: {},
       bootstrapComplete: true,
     };
     const readModel: OrchestrationReadModel = {
@@ -904,6 +908,7 @@ describe("incremental orchestration updates", () => {
       threads: [],
       sidebarThreadsById: {},
       threadIdsByProjectId: {},
+      dismissedThreadErrorKeysById: {},
       bootstrapComplete: true,
     };
 
@@ -969,6 +974,7 @@ describe("incremental orchestration updates", () => {
       threadIdsByProjectId: {
         [originalProjectId]: [threadId],
       },
+      dismissedThreadErrorKeysById: {},
       bootstrapComplete: true,
     };
 
@@ -1019,6 +1025,7 @@ describe("incremental orchestration updates", () => {
       threads: [],
       sidebarThreadsById: {},
       threadIdsByProjectId: {},
+      dismissedThreadErrorKeysById: {},
       bootstrapComplete: true,
     };
 
@@ -1420,6 +1427,109 @@ describe("incremental orchestration updates", () => {
     expect(next.threads[0]?.session?.status).toBe("ready");
     expect(next.threads[0]?.latestTurn?.state).toBe("completed");
     expect(next.threads[0]?.latestTurn?.completedAt).toBe("2026-02-27T00:00:03.000Z");
+  });
+
+  it("does not expose a stale session error while a retry is running", () => {
+    const thread = makeThread();
+    const state = makeState(thread);
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.session-set", {
+        threadId: thread.id,
+        session: {
+          threadId: thread.id,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: TurnId.makeUnsafe("turn-retry"),
+          lastError: "Selected model is at capacity.",
+          updatedAt: "2026-02-27T00:00:03.000Z",
+        },
+      }),
+    );
+
+    expect(next.threads[0]?.session?.status).toBe("running");
+    expect(next.threads[0]?.session?.lastError).toBe("Selected model is at capacity.");
+    expect(next.threads[0]?.error).toBeNull();
+  });
+
+  it("keeps a dismissed session error hidden across repeated snapshots", () => {
+    const thread = makeThread();
+    const stateWithError = applyOrchestrationEvent(
+      makeState(thread),
+      makeEvent("thread.session-set", {
+        threadId: thread.id,
+        session: {
+          threadId: thread.id,
+          status: "error",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: "Selected model is at capacity.",
+          updatedAt: "2026-02-27T00:00:03.000Z",
+        },
+      }),
+    );
+
+    const dismissed = dismissThreadError(stateWithError, thread.id);
+    const snapshot = makeReadModel(
+      makeReadModelThread({
+        session: {
+          threadId: thread.id,
+          status: "error",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: "Selected model is at capacity.",
+          updatedAt: "2026-02-27T00:00:03.000Z",
+        },
+      }),
+    );
+    const synced = syncServerReadModel(dismissed, snapshot);
+
+    expect(dismissed.threads[0]?.error).toBeNull();
+    expect(dismissed.sidebarThreadsById[thread.id]?.isErrorDismissed).toBe(true);
+    expect(synced.threads[0]?.error).toBeNull();
+    expect(synced.sidebarThreadsById[thread.id]?.isErrorDismissed).toBe(true);
+  });
+
+  it("shows the same session error text again when it belongs to a newer failure", () => {
+    const thread = makeThread();
+    const stateWithError = applyOrchestrationEvent(
+      makeState(thread),
+      makeEvent("thread.session-set", {
+        threadId: thread.id,
+        session: {
+          threadId: thread.id,
+          status: "error",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: "Selected model is at capacity.",
+          updatedAt: "2026-02-27T00:00:03.000Z",
+        },
+      }),
+    );
+    const dismissed = dismissThreadError(stateWithError, thread.id);
+
+    const next = applyOrchestrationEvent(
+      dismissed,
+      makeEvent("thread.session-set", {
+        threadId: thread.id,
+        session: {
+          threadId: thread.id,
+          status: "error",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: "Selected model is at capacity.",
+          updatedAt: "2026-02-27T00:05:00.000Z",
+        },
+      }),
+    );
+
+    expect(next.threads[0]?.error).toBe("Selected model is at capacity.");
   });
 
   it("does not regress latestTurn when an older turn diff completes late", () => {

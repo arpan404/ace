@@ -54,6 +54,7 @@ type ThreadStatusInput = Pick<
   | "latestTurn"
   | "session"
 > & {
+  isErrorDismissed?: boolean | undefined;
   lastVisitedAt?: string | undefined;
 };
 
@@ -331,7 +332,15 @@ export function resolveThreadStatusPill(input: {
 }): ThreadStatusPill | null {
   const { thread } = input;
 
-  if (thread.session?.status === "error" || thread.session?.lastError) {
+  const sessionStatus = thread.session?.status;
+  const hasCurrentError =
+    !thread.isErrorDismissed &&
+    (sessionStatus === "error" ||
+      (Boolean(thread.session?.lastError) &&
+        sessionStatus !== "running" &&
+        sessionStatus !== "connecting"));
+
+  if (hasCurrentError) {
     return {
       label: "Error",
       colorClass: "text-rose-600 dark:text-rose-300/90",

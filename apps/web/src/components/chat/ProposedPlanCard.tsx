@@ -28,11 +28,13 @@ import { readNativeApi } from "~/nativeApi";
 export const ProposedPlanCard = memo(function ProposedPlanCard({
   planMarkdown,
   cwd,
+  onLayoutChange,
   onOpenBrowserUrl = null,
   workspaceRoot,
 }: {
   planMarkdown: string;
   cwd: string | undefined;
+  onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   workspaceRoot: string | undefined;
 }) {
@@ -157,6 +159,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
               cwd={cwd}
               isStreaming={false}
               onOpenBrowserUrl={onOpenBrowserUrl}
+              {...(onLayoutChange ? { onLayoutChange } : {})}
             />
           ) : (
             <ChatMarkdown
@@ -164,6 +167,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
               cwd={cwd}
               isStreaming={false}
               onOpenBrowserUrl={onOpenBrowserUrl}
+              {...(onLayoutChange ? { onLayoutChange } : {})}
             />
           )}
           {canCollapse && !expanded ? (

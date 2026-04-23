@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   clearThreadUi,
   markThreadUnread,
+  reorderPinnedThreads,
   reorderProjects,
   reorderThreadsInProject,
   setProjectExpanded,
@@ -280,6 +281,19 @@ describe("uiStateStore pure functions", () => {
 
     expect(first.pinnedThreadIds).toEqual([thread1]);
     expect(second.pinnedThreadIds).toEqual([]);
+  });
+
+  it("reorderPinnedThreads reorders pinned threads", () => {
+    const thread1 = ThreadId.makeUnsafe("thread-1");
+    const thread2 = ThreadId.makeUnsafe("thread-2");
+    const thread3 = ThreadId.makeUnsafe("thread-3");
+    const initialState = makeUiState({
+      pinnedThreadIds: [thread1, thread2, thread3],
+    });
+
+    const next = reorderPinnedThreads(initialState, thread1, thread3);
+
+    expect(next.pinnedThreadIds).toEqual([thread2, thread3, thread1]);
   });
 
   it("does not re-pin a thread on sync after user unpins it", async () => {

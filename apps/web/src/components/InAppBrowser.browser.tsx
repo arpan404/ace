@@ -2,10 +2,14 @@ import "../index.css";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { useState } from "react";
 
 import type { BrowserTabState } from "~/lib/browser/session";
 import { BROWSER_NEW_TAB_URL } from "~/lib/browser/session";
-import { buildBrowserElementCaptureScript } from "./browser/BrowserWebviewSurface";
+import {
+  BrowserTabWebview,
+  buildBrowserElementCaptureScript,
+} from "./browser/BrowserWebviewSurface";
 import { InAppBrowser } from "./InAppBrowser";
 
 const { useInAppBrowserStateMock } = vi.hoisted(() => ({
@@ -105,6 +109,7 @@ const originalElementFromPoint = document.elementFromPoint.bind(document);
 const originalElementsFromPoint = document.elementsFromPoint.bind(document);
 const originalInnerWidth = window.innerWidth;
 const originalInnerHeight = window.innerHeight;
+const originalCreateElement = document.createElement.bind(document);
 
 function evaluateDesignerCapture(
   point: { x: number; y: number },
@@ -264,6 +269,100 @@ describe("InAppBrowser tab strip", () => {
     betaTab?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "End" }));
 
     expect(hookState.activateTab).toHaveBeenCalledWith("tab-3");
+  });
+});
+
+describe("BrowserTabWebview lifecycle", () => {
+  afterEach(() => {
+    Object.defineProperty(document, "createElement", {
+      configurable: true,
+      value: originalCreateElement,
+    });
+    document.body.innerHTML = "";
+  });
+
+  it("does not recreate the native webview when design callback props change", async () => {
+    const createdWebviews: Array<HTMLElement & { stop: ReturnType<typeof vi.fn> }> = [];
+    Object.defineProperty(document, "createElement", {
+      configurable: true,
+      value: ((tagName: string, options?: ElementCreationOptions) => {
+        if (tagName.toLowerCase() !== "webview") {
+          return originalCreateElement(tagName, options);
+        }
+        const webview = originalCreateElement("webview") as HTMLElement & {
+          canGoBack: () => boolean;
+          canGoForward: () => boolean;
+          closeDevTools: () => void;
+          getTitle: () => string;
+          getURL: () => string;
+          isDevToolsOpened: () => boolean;
+          isLoading: () => boolean;
+          loadURL: (url: string) => Promise<void>;
+          openDevTools: () => void;
+          reload: () => void;
+          stop: ReturnType<typeof vi.fn>;
+        };
+        let currentUrl = "https://example.com/";
+        webview.canGoBack = () => false;
+        webview.canGoForward = () => false;
+        webview.closeDevTools = () => undefined;
+        webview.getTitle = () => "Example";
+        webview.getURL = () => currentUrl;
+        webview.isDevToolsOpened = () => false;
+        webview.isLoading = () => false;
+        webview.loadURL = async (url: string) => {
+          currentUrl = url;
+        };
+        webview.openDevTools = () => undefined;
+        webview.reload = () => undefined;
+        webview.stop = vi.fn();
+        createdWebviews.push(webview);
+        return webview;
+      }) as typeof document.createElement,
+    });
+
+    const tab: BrowserTabState = {
+      id: "tab-1",
+      title: "Example",
+      url: "https://example.com/",
+    };
+    function WebviewHarness() {
+      const [renderCount, setRenderCount] = useState(0);
+      return (
+        <div style={{ height: "320px", width: "480px" }}>
+          <button type="button" onClick={() => setRenderCount((current) => current + 1)}>
+            Rerender {renderCount}
+          </button>
+          <BrowserTabWebview
+            active
+            designerModeActive={false}
+            designerTool="area-comment"
+            onContextMenuFallbackRequest={() => undefined}
+            onDesignCaptureCancel={() => undefined}
+            onDesignCaptureError={() => undefined}
+            onHandleChange={() => undefined}
+            onSnapshotChange={() => undefined}
+            tab={tab}
+          />
+        </div>
+      );
+    }
+
+    const screen = await render(<WebviewHarness />);
+    await vi.waitFor(() => {
+      expect(createdWebviews).toHaveLength(1);
+    });
+
+    const rerenderButton = document.querySelector("button") as HTMLButtonElement | null;
+    expect(rerenderButton).toBeTruthy();
+    rerenderButton?.click();
+
+    await vi.waitFor(() => {
+      expect(createdWebviews).toHaveLength(1);
+    });
+    expect(createdWebviews[0]?.stop).not.toHaveBeenCalled();
+
+    await screen.unmount();
   });
 });
 

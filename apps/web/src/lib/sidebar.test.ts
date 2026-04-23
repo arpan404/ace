@@ -21,7 +21,7 @@ import {
   sortThreadsForSidebar,
   THREAD_JUMP_HINT_SHOW_DELAY_MS,
 } from "./sidebar";
-import { OrchestrationLatestTurn, ProjectId, ThreadId } from "@ace/contracts";
+import { OrchestrationLatestTurn, ProjectId, ThreadId, TurnId } from "@ace/contracts";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -51,6 +51,7 @@ describe("hasUnseenCompletion", () => {
         hasPendingApprovals: false,
         hasPendingUserInput: false,
         interactionMode: "default",
+        isErrorDismissed: false,
         latestTurn: makeLatestTurn(),
         lastVisitedAt: "2026-03-09T10:04:00.000Z",
         session: null,
@@ -438,6 +439,7 @@ describe("resolveThreadStatusPill", () => {
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     interactionMode: "plan" as const,
+    isErrorDismissed: false,
     latestTurn: null,
     lastVisitedAt: undefined,
     session: {
@@ -478,6 +480,23 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Error", pulse: false });
   });
 
+  it("does not show the error pill after that error is dismissed", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          isErrorDismissed: true,
+          session: {
+            ...baseThread.session,
+            status: "error",
+            orchestrationStatus: "error",
+            lastError: "Command exited with code 1",
+          },
+        },
+      }),
+    ).toBeNull();
+  });
+
   it("shows awaiting input when plan mode is blocked on user answers", () => {
     expect(
       resolveThreadStatusPill({
@@ -493,6 +512,23 @@ describe("resolveThreadStatusPill", () => {
     expect(
       resolveThreadStatusPill({
         thread: baseThread,
+      }),
+    ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it("prioritizes an active retry over a stale session lastError", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          session: {
+            ...baseThread.session,
+            status: "running",
+            orchestrationStatus: "running",
+            activeTurnId: TurnId.makeUnsafe("turn-retry"),
+            lastError: "Selected model is at capacity.",
+          },
+        },
       }),
     ).toMatchObject({ label: "Working", pulse: true });
   });

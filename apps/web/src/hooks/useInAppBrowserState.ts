@@ -83,6 +83,7 @@ export interface InAppBrowserController {
   openUrl: (rawUrl: string, options?: { newTab?: boolean }) => void;
   reload: () => void;
   setActiveTabByIndex: (index: number) => void;
+  toggleDesignerTool: (tool: BrowserDesignerTool) => void;
   toggleDevTools: () => void;
 }
 
@@ -98,6 +99,7 @@ function resolveViewportHeight(): number {
 export type InAppBrowserMode = "full" | "split";
 
 interface UseInAppBrowserStateOptions {
+  designerModeEnabled?: boolean;
   mode: InAppBrowserMode;
   open: boolean;
   scopeId?: string;
@@ -136,7 +138,14 @@ export function resolveBrowserSuggestionDraftValue(suggestion: BrowserSuggestion
 }
 
 export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
-  const { mode, onActiveRuntimeStateChange, onControllerChange, open, scopeId } = options;
+  const {
+    designerModeEnabled = true,
+    mode,
+    onActiveRuntimeStateChange,
+    onControllerChange,
+    open,
+    scopeId,
+  } = options;
   const api = readNativeApi();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
@@ -789,6 +798,32 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     },
     [setDesignerState],
   );
+  const toggleDesignerTool = useCallback(
+    (tool: BrowserDesignerTool) => {
+      if (activeTabIsInternal) {
+        return;
+      }
+      setDesignerState((current) => {
+        const shouldDeactivate = tool === "cursor" || (current.active && current.tool === tool);
+        if (shouldDeactivate) {
+          if (!current.active && current.tool === "cursor") {
+            return current;
+          }
+          return {
+            ...current,
+            active: false,
+            tool: "cursor",
+          };
+        }
+        return {
+          ...current,
+          active: true,
+          tool,
+        };
+      });
+    },
+    [activeTabIsInternal, setDesignerState],
+  );
   const setDesignerPillPosition = useCallback(
     (pillPosition: BrowserDesignerPillPosition | null) => {
       setDesignerState((current) => {
@@ -819,6 +854,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const openUrlEvent = useEffectEvent(openUrl);
   const reloadEvent = useEffectEvent(reload);
   const setActiveTabByIndexEvent = useEffectEvent(setActiveTabByIndex);
+  const toggleDesignerToolEvent = useEffectEvent(toggleDesignerTool);
   const toggleDevToolsEvent = useEffectEvent(toggleDevTools);
   const browserController = useMemo<InAppBrowserController>(
     () => ({
@@ -837,6 +873,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       openUrl: (rawUrl, options) => openUrlEvent(rawUrl, options),
       reload: () => reloadEvent(),
       setActiveTabByIndex: (index) => setActiveTabByIndexEvent(index),
+      toggleDesignerTool: (tool) => toggleDesignerToolEvent(tool),
       toggleDevTools: () => toggleDevToolsEvent(),
     }),
     [],
@@ -1190,6 +1227,12 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         case "reload":
           reload();
           return;
+        case "toggle-designer-mode":
+          if (!designerModeEnabled || activeTabIsInternal) {
+            return;
+          }
+          setDesignerModeActive(!designerState.active);
+          return;
         default:
           if (action.startsWith("select-tab-")) {
             const index = Number.parseInt(action.slice("select-tab-".length), 10);
@@ -1200,7 +1243,10 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       }
     });
   }, [
+    activeTabIsInternal,
     closeActiveTab,
+    designerModeEnabled,
+    designerState.active,
     duplicateActiveTab,
     focusAddressBar,
     goBack,
@@ -1212,6 +1258,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     openNewTab,
     reload,
     setActiveTabByIndex,
+    setDesignerModeActive,
     toggleDevTools,
   ]);
 

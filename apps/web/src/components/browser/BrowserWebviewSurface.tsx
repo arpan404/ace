@@ -29,13 +29,15 @@ import {
 import { normalizeBrowserHttpUrl } from "~/lib/browser/url";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 
-function isAbortedWebviewLoad(error: unknown): boolean {
+export function isAbortedWebviewLoad(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
 
   return (
-    ("code" in error && error.code === "ERR_ABORTED") || ("errno" in error && error.errno === -3)
+    ("code" in error && error.code === "ERR_ABORTED") ||
+    ("errno" in error && error.errno === -3) ||
+    /\bERR_ABORTED\b|\(-3\)\s+loading\b/u.test(error.message)
   );
 }
 
@@ -1278,6 +1280,7 @@ export function BrowserTabWebview(props: {
   active: boolean;
   designerModeActive?: boolean;
   designerTool?: BrowserDesignerTool;
+  onBrowserLoadError?: (message: string) => void;
   onDesignCaptureCancel?: () => void;
   onDesignCaptureError?: (message: string) => void;
   onDesignCaptureSubmit?: (submission: BrowserDesignCaptureSubmission) => Promise<void>;
@@ -1298,6 +1301,7 @@ export function BrowserTabWebview(props: {
     active,
     designerModeActive = false,
     designerTool = "area-comment",
+    onBrowserLoadError,
     onDesignCaptureCancel,
     onDesignCaptureError,
     onDesignCaptureSubmit,
@@ -1346,15 +1350,6 @@ export function BrowserTabWebview(props: {
     startY: number;
     tool: AnnotationTool;
   } | null>(null);
-  const previousDrawModeStateRef = useRef<{
-    active: boolean;
-    designerModeActive: boolean;
-    designerTool: BrowserDesignerTool;
-  }>({
-    active,
-    designerModeActive,
-    designerTool,
-  });
   const requestedUrlRef = useRef(tab.url);
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -1378,6 +1373,15 @@ export function BrowserTabWebview(props: {
       onSnapshotChange(tab.id, snapshot, options);
     },
   );
+  const cancelDesignCaptureEvent = useEffectEvent(() => {
+    onDesignCaptureCancel?.();
+  });
+  const reportBrowserLoadError = useEffectEvent((message: string) => {
+    onBrowserLoadError?.(message);
+  });
+  const reportDesignCaptureError = useEffectEvent((message: string) => {
+    onDesignCaptureError?.(message);
+  });
   const requestContextMenuFallback = useEffectEvent(
     (position: { x: number; y: number }, requestedAt: number) => {
       onContextMenuFallbackRequest(tab.id, position, requestedAt);
@@ -1490,9 +1494,9 @@ export function BrowserTabWebview(props: {
         return;
       }
 
-      loadWebviewUrl(webview, url, onDesignCaptureError);
+      loadWebviewUrl(webview, url, reportBrowserLoadError);
     },
-    [onDesignCaptureError, scheduleEmitSnapshot],
+    [scheduleEmitSnapshot],
   );
 
   const inspectBrowserPoint = useCallback(
@@ -1632,7 +1636,7 @@ export function BrowserTabWebview(props: {
         pendingUrl &&
         normalizeBrowserHttpUrl(pendingUrl) !== normalizeBrowserHttpUrl(webview.getURL())
       ) {
-        loadWebviewUrl(webview, pendingUrl, onDesignCaptureError);
+        loadWebviewUrl(webview, pendingUrl, reportBrowserLoadError);
         return;
       }
       scheduleEmitSnapshot({ persistTab: true });
@@ -1690,7 +1694,7 @@ export function BrowserTabWebview(props: {
       cancelScheduledSnapshot();
       const detail = event as Event & { reason?: string };
       const reason = typeof detail.reason === "string" ? detail.reason : "unknown";
-      onDesignCaptureError?.(`Browser tab renderer stopped (${reason}).`);
+      reportBrowserLoadError(`Browser tab renderer stopped (${reason}).`);
       setSelectionRect(null);
       setHoveredElementCapture(null);
       hoveredElementCaptureRef.current = null;
@@ -1700,7 +1704,7 @@ export function BrowserTabWebview(props: {
       setDesignInstructions("");
       setHasAnnotationStrokes(false);
       setIsSubmittingDesignRequest(false);
-      onDesignCaptureCancel?.();
+      cancelDesignCaptureEvent();
     };
 
     webview.addEventListener("dom-ready", handleDomReady);
@@ -1736,13 +1740,7 @@ export function BrowserTabWebview(props: {
       readyRef.current = false;
       cancelScheduledSnapshot();
     };
-  }, [
-    cancelScheduledSnapshot,
-    onDesignCaptureCancel,
-    onDesignCaptureError,
-    resolveSnapshotUrl,
-    scheduleEmitSnapshot,
-  ]);
+  }, [cancelScheduledSnapshot, resolveSnapshotUrl, scheduleEmitSnapshot]);
 
   useEffect(() => {
     navigate(tab.url);
@@ -1776,14 +1774,35 @@ export function BrowserTabWebview(props: {
     setDesignRequestPanelPosition(null);
     clearAnnotationCanvas();
     setIsSubmittingDesignRequest(false);
-    onDesignCaptureCancel?.();
-  }, [clearAnnotationCanvas, onDesignCaptureCancel]);
+    cancelDesignCaptureEvent();
+  }, [clearAnnotationCanvas]);
 
   useEffect(() => {
     if (!active) {
       clearHoveredElementCapture();
     }
   }, [active, clearHoveredElementCapture]);
+
+  useEffect(() => {
+    if (!active || !designDraft) {
+      return;
+    }
+
+    const onWindowKeyDownCapture = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      cancelDesignCapture();
+    };
+
+    window.addEventListener("keydown", onWindowKeyDownCapture, true);
+    return () => {
+      window.removeEventListener("keydown", onWindowKeyDownCapture, true);
+    };
+  }, [active, cancelDesignCapture, designDraft]);
 
   useEffect(() => {
     if (designerModeActive) {
@@ -1928,17 +1947,11 @@ export function BrowserTabWebview(props: {
             return;
           }
           const message = error instanceof Error ? error.message : failureMessage;
-          onDesignCaptureError?.(message);
+          reportDesignCaptureError(message);
           cancelDesignCapture();
         });
     },
-    [
-      cancelDesignCapture,
-      captureDesignSelection,
-      clearAnnotationCanvas,
-      designerTool,
-      onDesignCaptureError,
-    ],
+    [cancelDesignCapture, captureDesignSelection, clearAnnotationCanvas, designerTool],
   );
 
   const startViewportDraft = useCallback(
@@ -1960,26 +1973,6 @@ export function BrowserTabWebview(props: {
     },
     [startCapturedDraft],
   );
-  useEffect(() => {
-    const previousState = previousDrawModeStateRef.current;
-    previousDrawModeStateRef.current = {
-      active,
-      designerModeActive,
-      designerTool,
-    };
-    const enteredDrawMode =
-      active &&
-      designerModeActive &&
-      designerTool === "draw-comment" &&
-      (!previousState.active ||
-        !previousState.designerModeActive ||
-        previousState.designerTool !== "draw-comment");
-    if (!enteredDrawMode || designDraft || !readyRef.current) {
-      return;
-    }
-    startViewportDraft();
-  }, [active, designDraft, designerModeActive, designerTool, startViewportDraft]);
-
   const flushHoveredElementInspection = useCallback(() => {
     if (elementHoverFrameRef.current !== null) {
       window.cancelAnimationFrame(elementHoverFrameRef.current);
@@ -2199,7 +2192,7 @@ export function BrowserTabWebview(props: {
         .catch((error: unknown) => {
           const message =
             error instanceof Error ? error.message : "Could not capture the selected page element.";
-          onDesignCaptureError?.(message);
+          reportDesignCaptureError(message);
         });
     },
     [
@@ -2208,7 +2201,6 @@ export function BrowserTabWebview(props: {
       designerModeActive,
       designerTool,
       inspectBrowserPoint,
-      onDesignCaptureError,
       selectionRect,
       startCapturedDraft,
       commitHoveredElementCapture,
@@ -2300,7 +2292,7 @@ export function BrowserTabWebview(props: {
       cancelDesignCapture();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not add the comment.";
-      onDesignCaptureError?.(message);
+      reportDesignCaptureError(message);
     } finally {
       setIsSubmittingDesignRequest(false);
     }
@@ -2311,7 +2303,6 @@ export function BrowserTabWebview(props: {
     designInstructions,
     hasAnnotationStrokes,
     isSubmittingDesignRequest,
-    onDesignCaptureError,
     onDesignCaptureSubmit,
   ]);
 

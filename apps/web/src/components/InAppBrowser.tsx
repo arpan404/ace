@@ -49,7 +49,7 @@ import {
   type InAppBrowserController,
   type InAppBrowserMode,
 } from "~/hooks/useInAppBrowserState";
-import { isContextMenuPointerDown } from "~/lib/sidebar";
+import { isContextMenuPointerDown, useThreadJumpHintVisibility } from "~/lib/sidebar";
 import { cn } from "~/lib/utils";
 import type { BrowserTabState } from "~/lib/browser/session";
 import { Button } from "./ui/button";
@@ -231,6 +231,10 @@ interface InAppBrowserProps {
   onControllerChange?: (controller: InAppBrowserController | null) => void;
   onActiveRuntimeStateChange?: (state: ActiveBrowserRuntimeState) => void;
   backShortcutLabel?: string | null;
+  designerCursorShortcutLabel?: string | null;
+  designerAreaCommentShortcutLabel?: string | null;
+  designerDrawCommentShortcutLabel?: string | null;
+  designerElementCommentShortcutLabel?: string | null;
   devToolsShortcutLabel?: string | null;
   forwardShortcutLabel?: string | null;
   reloadShortcutLabel?: string | null;
@@ -248,6 +252,23 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
     tagName === "textarea" ||
     tagName === "select"
   );
+}
+
+function shouldShowDesignerShortcutHints(
+  event: Pick<KeyboardEvent, "metaKey" | "ctrlKey">,
+): boolean {
+  const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+  return isMac ? event.metaKey : event.ctrlKey;
+}
+
+function resolveDesignerShortcutHintLabel(shortcutLabel: string): string {
+  if (shortcutLabel.includes("+")) {
+    const parts = shortcutLabel.split("+");
+    const keyPart = parts[parts.length - 1];
+    return keyPart?.trim() || shortcutLabel;
+  }
+  const stripped = shortcutLabel.replace(/[⌘⌃⌥⇧]/g, "").trim();
+  return stripped.length > 0 ? stripped : shortcutLabel;
 }
 
 const DESIGNER_PILL_WIDTH_PX = 60;
@@ -342,6 +363,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     onControllerChange,
     onActiveRuntimeStateChange,
     backShortcutLabel,
+    designerCursorShortcutLabel,
+    designerAreaCommentShortcutLabel,
+    designerDrawCommentShortcutLabel,
+    designerElementCommentShortcutLabel,
     devToolsShortcutLabel,
     forwardShortcutLabel,
     reloadShortcutLabel,
@@ -390,6 +415,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     toggleDevTools,
     togglePinnedActivePage,
   } = useInAppBrowserState({
+    designerModeEnabled: Boolean(onQueueDesignRequest),
     mode,
     open: open && activeInstance,
     ...(scopeId ? { scopeId } : {}),
@@ -436,6 +462,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     width: number;
   } | null>(null);
   const [browserViewportSize, setBrowserViewportSize] = useState<DesignerViewportSize | null>(null);
+  const {
+    showThreadJumpHints: showDesignerToolShortcutHints,
+    updateThreadJumpHintsVisibility: updateDesignerToolShortcutHintsVisibility,
+  } = useThreadJumpHintVisibility();
   const [canScrollTabsLeft, setCanScrollTabsLeft] = useState(false);
   const [canScrollTabsRight, setCanScrollTabsRight] = useState(false);
   const handleTabDragStart = useCallback((_event: DragStartEvent) => {
@@ -587,6 +617,32 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     setDesignerModeActive(!designerState.active);
   }, [designerModeAvailable, designerState.active, setDesignerModeActive]);
   useEffect(() => {
+    if (!visible || !designerModeAvailable) {
+      updateDesignerToolShortcutHintsVisibility(false);
+      return;
+    }
+
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      updateDesignerToolShortcutHintsVisibility(shouldShowDesignerShortcutHints(event));
+    };
+    const onWindowKeyUp = (event: KeyboardEvent) => {
+      updateDesignerToolShortcutHintsVisibility(shouldShowDesignerShortcutHints(event));
+    };
+    const onWindowBlur = () => {
+      updateDesignerToolShortcutHintsVisibility(false);
+    };
+
+    window.addEventListener("keydown", onWindowKeyDown);
+    window.addEventListener("keyup", onWindowKeyUp);
+    window.addEventListener("blur", onWindowBlur);
+
+    return () => {
+      window.removeEventListener("keydown", onWindowKeyDown);
+      window.removeEventListener("keyup", onWindowKeyUp);
+      window.removeEventListener("blur", onWindowBlur);
+    };
+  }, [designerModeAvailable, updateDesignerToolShortcutHintsVisibility, visible]);
+  useEffect(() => {
     const viewport = browserViewportRef.current;
     if (!viewport) {
       return;
@@ -634,6 +690,20 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   const designerPillPosition = useMemo(() => {
     return clampDesignerPillPosition(designerState.pillPosition, designerViewport);
   }, [designerState.pillPosition, designerViewport]);
+  const designerShortcutLabelByTool = useMemo<Record<BrowserDesignerTool, string | null>>(
+    () => ({
+      cursor: designerCursorShortcutLabel ?? null,
+      "area-comment": designerAreaCommentShortcutLabel ?? null,
+      "draw-comment": designerDrawCommentShortcutLabel ?? null,
+      "element-comment": designerElementCommentShortcutLabel ?? null,
+    }),
+    [
+      designerAreaCommentShortcutLabel,
+      designerCursorShortcutLabel,
+      designerDrawCommentShortcutLabel,
+      designerElementCommentShortcutLabel,
+    ],
+  );
   const setDesignerToolButtonRef = useCallback(
     (tool: BrowserDesignerTool, node: HTMLButtonElement | null) => {
       const nodeMap = designerToolButtonRefs.current;
@@ -1243,6 +1313,13 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   activeTab?.id === tab.id
                 }
                 designerTool={designerState.tool}
+                onBrowserLoadError={(message) => {
+                  toastManager.add({
+                    type: "error",
+                    title: "Browser load failed.",
+                    description: message,
+                  });
+                }}
                 onDesignCaptureCancel={() => {
                   return;
                 }}
@@ -1321,10 +1398,24 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                             data-designer-pill-control
                           >
                             <Icon className="size-4" />
+                            {showDesignerToolShortcutHints && designerShortcutLabelByTool[tool] ? (
+                              <span
+                                className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full border border-border/70 bg-background px-1 font-mono text-[9px] font-medium leading-none text-foreground shadow-sm"
+                                title={designerShortcutLabelByTool[tool] ?? undefined}
+                              >
+                                {resolveDesignerShortcutHintLabel(
+                                  designerShortcutLabelByTool[tool] ?? "",
+                                )}
+                              </span>
+                            ) : null}
                           </button>
                         }
                       />
-                      <TooltipPopup side="right">{label}</TooltipPopup>
+                      <TooltipPopup side="right">
+                        {designerShortcutLabelByTool[tool]
+                          ? `${label} (${designerShortcutLabelByTool[tool]})`
+                          : label}
+                      </TooltipPopup>
                     </Tooltip>
                   ))}
                 </div>

@@ -24,128 +24,20 @@ import {
   isCodexCliVersionSupported,
   parseCodexCliVersion,
 } from "../codexCliVersion";
+import { getFallbackCodexModelCapabilities, parseCodexDebugModelsOutput } from "../codexCatalog";
 import { CodexProvider } from "../Services/CodexProvider";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@ace/contracts";
 
 const PROVIDER = "codex" as const;
 const OPENAI_AUTH_PROVIDERS = new Set(["openai"]);
-const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
-  {
-    slug: "gpt-5.4",
-    name: "GPT-5.4",
-    isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "xhigh", label: "Extra High" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "medium", label: "Medium" },
-        { value: "low", label: "Low" },
-      ],
-      supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    },
-  },
-  {
-    slug: "gpt-5.4-mini",
-    name: "GPT-5.4 Mini",
-    isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "xhigh", label: "Extra High" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "medium", label: "Medium" },
-        { value: "low", label: "Low" },
-      ],
-      supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    },
-  },
-  {
-    slug: "gpt-5.3-codex",
-    name: "GPT-5.3 Codex",
-    isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "xhigh", label: "Extra High" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "medium", label: "Medium" },
-        { value: "low", label: "Low" },
-      ],
-      supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    },
-  },
-  {
-    slug: "gpt-5.3-codex-spark",
-    name: "GPT-5.3 Codex Spark",
-    isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "xhigh", label: "Extra High" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "medium", label: "Medium" },
-        { value: "low", label: "Low" },
-      ],
-      supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    },
-  },
-  {
-    slug: "gpt-5.2-codex",
-    name: "GPT-5.2 Codex",
-    isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "xhigh", label: "Extra High" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "medium", label: "Medium" },
-        { value: "low", label: "Low" },
-      ],
-      supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    },
-  },
-  {
-    slug: "gpt-5.2",
-    name: "GPT-5.2",
-    isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "xhigh", label: "Extra High" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "medium", label: "Medium" },
-        { value: "low", label: "Low" },
-      ],
-      supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    },
-  },
-];
+type CodexCatalogParseError = {
+  readonly _tag: "CodexCatalogParseError";
+  readonly message: string;
+};
 
 export function getCodexModelCapabilities(model: string | null | undefined): ModelCapabilities {
-  const slug = model?.trim();
-  return (
-    BUILT_IN_MODELS.find((candidate) => candidate.slug === slug)?.capabilities ?? {
-      reasoningEffortLevels: [],
-      supportsFastMode: false,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    }
-  );
+  return getFallbackCodexModelCapabilities(model);
 }
 
 export const readCodexConfigModelProvider = Effect.fn("readCodexConfigModelProvider")(function* () {
@@ -219,18 +111,14 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
       Effect.map((settings) => settings.providers.codex),
     );
     const checkedAt = new Date().toISOString();
-    const models = providerModelsFromSettings(
-      BUILT_IN_MODELS,
-      PROVIDER,
-      codexSettings.customModels,
-    );
+    const emptyModels = providerModelsFromSettings([], PROVIDER, codexSettings.customModels);
 
     if (!codexSettings.enabled) {
       return buildServerProvider({
         provider: PROVIDER,
         enabled: false,
         checkedAt,
-        models,
+        models: emptyModels,
         probe: {
           installed: false,
           version: null,
@@ -252,7 +140,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
         provider: PROVIDER,
         enabled: codexSettings.enabled,
         checkedAt,
-        models,
+        models: emptyModels,
         probe: {
           installed: !isCommandMissingCause(error),
           version: null,
@@ -270,7 +158,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
         provider: PROVIDER,
         enabled: codexSettings.enabled,
         checkedAt,
-        models,
+        models: emptyModels,
         probe: {
           installed: true,
           version: null,
@@ -291,7 +179,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
         provider: PROVIDER,
         enabled: codexSettings.enabled,
         checkedAt,
-        models,
+        models: emptyModels,
         probe: {
           installed: true,
           version: parsedVersion,
@@ -309,7 +197,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
         provider: PROVIDER,
         enabled: codexSettings.enabled,
         checkedAt,
-        models,
+        models: emptyModels,
         probe: {
           installed: true,
           version: parsedVersion,
@@ -320,6 +208,54 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
       });
     }
 
+    let discoveredModels: ReadonlyArray<ServerProviderModel> = [];
+    let modelsIssueMessage: string | undefined;
+    const modelsProbe = yield* runCodexCommand(["debug", "models"]).pipe(
+      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+      Effect.result,
+    );
+
+    if (Result.isFailure(modelsProbe)) {
+      const error = modelsProbe.failure;
+      modelsIssueMessage =
+        error instanceof Error
+          ? `Failed to refresh available models: ${error.message}.`
+          : `Failed to refresh available models: ${String(error)}.`;
+    } else if (Option.isNone(modelsProbe.success)) {
+      modelsIssueMessage = "Timed out while refreshing available models.";
+    } else {
+      const modelsResult = modelsProbe.success.value;
+      if (modelsResult.code !== 0) {
+        const detail = detailFromResult(modelsResult);
+        modelsIssueMessage = detail
+          ? `Failed to refresh available models. ${detail}`
+          : "Failed to refresh available models.";
+      } else {
+        const catalogOutput = modelsResult.stdout.trim();
+        const parsedModels = yield* Effect.try({
+          try: () => parseCodexDebugModelsOutput(catalogOutput),
+          catch: (error): CodexCatalogParseError => ({
+            _tag: "CodexCatalogParseError",
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        }).pipe(Effect.result);
+        if (Result.isFailure(parsedModels)) {
+          modelsIssueMessage = `Failed to parse available models: ${parsedModels.failure.message}.`;
+        } else {
+          discoveredModels = parsedModels.success;
+          if (discoveredModels.length === 0) {
+            modelsIssueMessage = "No selectable models were returned by Codex.";
+          }
+        }
+      }
+    }
+
+    const models = providerModelsFromSettings(
+      discoveredModels,
+      PROVIDER,
+      codexSettings.customModels,
+    );
+
     if (yield* hasCustomModelProvider) {
       return buildServerProvider({
         provider: PROVIDER,
@@ -329,9 +265,11 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
         probe: {
           installed: true,
           version: parsedVersion,
-          status: "ready",
+          status: modelsIssueMessage ? "warning" : "ready",
           auth: { status: "unknown" },
-          message: "Using a custom Codex model provider.",
+          message: modelsIssueMessage
+            ? `Using a custom Codex model provider. ${modelsIssueMessage}`
+            : "Using a custom Codex model provider.",
         },
       });
     }
@@ -344,8 +282,9 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(
       probe: {
         installed: true,
         version: parsedVersion,
-        status: "ready",
+        status: modelsIssueMessage ? "warning" : "ready",
         auth: { status: "unknown" },
+        ...(modelsIssueMessage ? { message: `Codex is usable, but ${modelsIssueMessage}` } : {}),
       },
     });
   },
@@ -372,7 +311,7 @@ export const CodexProviderLive = Layer.effect(
         buildPendingServerProvider({
           provider: PROVIDER,
           enabled: settings.enabled,
-          models: providerModelsFromSettings(BUILT_IN_MODELS, PROVIDER, settings.customModels),
+          models: providerModelsFromSettings([], PROVIDER, settings.customModels),
           message: settings.enabled
             ? "Checking Codex availability..."
             : "Codex is disabled in ace settings.",
