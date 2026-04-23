@@ -2722,10 +2722,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (!persisted) {
         throw new Error("Failed to add the comment.");
       }
-      toastManager.add({
-        type: "success",
-        title: "Comment added.",
-      });
     },
   );
   const onSteerQueuedComposerMessage = useCallback(

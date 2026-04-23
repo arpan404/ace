@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
@@ -296,6 +297,22 @@ export function hasMinimumSelectionSize(
   minimumSizePx = MIN_CAPTURE_SIZE_PX,
 ): rect is BrowserDesignSelectionRect {
   return Boolean(rect && rect.width >= minimumSizePx && rect.height >= minimumSizePx);
+}
+
+export function shouldSubmitDesignDraftFromTextareaKey(
+  event: Pick<
+    ReactKeyboardEvent<HTMLTextAreaElement>,
+    "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey"
+  > & { isComposing?: boolean },
+): boolean {
+  return (
+    event.key === "Enter" &&
+    !event.shiftKey &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    event.isComposing !== true
+  );
 }
 
 function resolveDataUrlMimeType(dataUrl: string): string {
@@ -2582,8 +2599,25 @@ export function BrowserTabWebview(props: {
               <textarea
                 value={designInstructions}
                 onChange={(event) => setDesignInstructions(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    !shouldSubmitDesignDraftFromTextareaKey({
+                      altKey: event.altKey,
+                      ctrlKey: event.ctrlKey,
+                      isComposing: event.nativeEvent.isComposing,
+                      key: event.key,
+                      metaKey: event.metaKey,
+                      shiftKey: event.shiftKey,
+                    })
+                  ) {
+                    return;
+                  }
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void submitDesignDraft();
+                }}
                 placeholder="Comment for the agent"
-                className="h-[78px] w-full resize-none rounded-xl border border-border/60 bg-background/92 px-3 py-2.5 text-[13px] outline-none transition-colors placeholder:text-muted-foreground/55 focus:border-primary/45"
+                className="h-[78px] w-full resize-none rounded-[var(--control-radius)] border border-border/60 bg-background/92 px-3 py-2.5 text-[13px] outline-none transition-colors placeholder:text-muted-foreground/55 focus:border-primary/45"
                 autoFocus
               />
               <div className="mt-2.5 flex items-center justify-between gap-2">
@@ -2611,7 +2645,7 @@ export function BrowserTabWebview(props: {
                 </div>
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-[13px] font-medium text-primary-foreground transition-opacity disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-1.5 text-[13px] font-medium text-primary-foreground transition-opacity disabled:opacity-50"
                   disabled={isSubmittingDesignRequest || !canSubmitDesignDraft}
                 >
                   <CheckIcon className="size-3.5" />
