@@ -277,6 +277,9 @@ import ProviderFloat from "../components/ProviderFloat.astro";
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     gsap.registerPlugin(ScrollTrigger);
+    ScrollTrigger.defaults({
+      toggleActions: "play none none reverse",
+    });
 
     gsap.fromTo(
       gsap.utils.toArray<HTMLElement>(".hero-nav, .hero-copy > *, .hero-product"),
@@ -290,64 +293,147 @@ import ProviderFloat from "../components/ProviderFloat.astro";
       },
     );
 
-    gsap.utils
-      .toArray<HTMLElement>(
-        ".section-lede, .product-point, .accordion-panel, .stack-heading, .feedback-copy, .feedback-panel, .final-cta",
-      )
-      .forEach((element) => {
-        gsap.fromTo(
-          element,
-          { y: 34, opacity: 0 },
-          {
-            y: 0,
-            opacity: 1,
-            duration: 0.78,
-            ease: "power3.out",
-            scrollTrigger: {
-              trigger: element,
-              start: "top 86%",
-              once: true,
-            },
-          },
-        );
-      });
+    gsap.to(".hero-copy", {
+      y: () => (window.innerWidth < 740 ? -22 : -44),
+      opacity: 0.72,
+      ease: "none",
+      scrollTrigger: {
+        trigger: ".hero",
+        start: "top top",
+        end: "bottom top",
+        scrub: true,
+      },
+    });
 
-    gsap.utils.toArray<HTMLElement>("[data-motion-image]").forEach((element) => {
+    gsap.to(".hero-product", {
+      y: () => (window.innerWidth < 740 ? -30 : -76),
+      rotate: 0.35,
+      ease: "none",
+      scrollTrigger: {
+        trigger: ".hero",
+        start: "top top",
+        end: "bottom top",
+        scrub: true,
+      },
+    });
+
+    const sectionReveals = [
+      ".providers .section-lede > *",
+      ".product-proof .section-lede > *",
+      ".workflow .section-lede > *",
+      ".stack-heading > *",
+      ".feedback-copy > *",
+    ];
+
+    sectionReveals.forEach((selector) => {
+      const items = gsap.utils.toArray<HTMLElement>(selector);
+      if (items.length === 0) return;
+
       gsap.fromTo(
-        element,
-        { scale: 0.88, opacity: 0.58 },
+        items,
+        { y: 36, opacity: 0 },
         {
-          scale: 1,
+          y: 0,
           opacity: 1,
-          ease: "none",
+          duration: 0.76,
+          ease: "power3.out",
+          stagger: 0.07,
           scrollTrigger: {
-            trigger: element,
-            start: "top 88%",
-            end: "bottom 30%",
-            scrub: true,
+            trigger: items[0].closest("section") ?? items[0],
+            start: "top 78%",
           },
         },
       );
     });
 
-    gsap.utils.toArray<HTMLElement>("[data-stack-card]").forEach((card) => {
+    gsap
+      .timeline({
+        scrollTrigger: {
+          trigger: ".product-showcase",
+          start: "top 82%",
+          end: "bottom 38%",
+          scrub: 0.7,
+        },
+      })
+      .fromTo(
+        ".product-screenshot",
+        { y: 62, scale: 0.94, opacity: 0.64 },
+        { y: 0, scale: 1, opacity: 1, ease: "none" },
+        0,
+      )
+      .fromTo(
+        ".product-point",
+        { x: 42, opacity: 0.35 },
+        { x: 0, opacity: 1, stagger: 0.08, ease: "none" },
+        0.12,
+      );
+
+    gsap
+      .timeline({
+        scrollTrigger: {
+          trigger: ".accordion-strip",
+          start: "top 82%",
+          end: "bottom 52%",
+          scrub: 0.55,
+        },
+      })
+      .fromTo(
+        ".accordion-panel",
+        { y: 72, opacity: 0.48, rotateX: -7 },
+        { y: 0, opacity: 1, rotateX: 0, stagger: 0.1, ease: "none" },
+      );
+
+    gsap.utils.toArray<HTMLElement>("[data-stack-card]").forEach((card, index) => {
       gsap.fromTo(
         card,
-        { y: 74, opacity: 0.58, scale: 0.96 },
+        { y: 90, opacity: 0.5, scale: 0.94, rotate: index % 2 === 0 ? -1.1 : 1.1 },
         {
           y: 0,
           opacity: 1,
           scale: 1,
+          rotate: 0,
           ease: "none",
           scrollTrigger: {
             trigger: card,
             start: "top 92%",
-            end: "top 44%",
+            end: "top 38%",
             scrub: true,
           },
         },
       );
     });
+
+    gsap.fromTo(
+      ".feedback-panel",
+      { y: 58, opacity: 0.42, scale: 0.97 },
+      {
+        y: 0,
+        opacity: 1,
+        scale: 1,
+        ease: "power3.out",
+        duration: 0.84,
+        scrollTrigger: {
+          trigger: ".feedback",
+          start: "top 74%",
+        },
+      },
+    );
+
+    gsap.fromTo(
+      ".final-cta",
+      { y: 70, opacity: 0.5, scale: 0.98 },
+      {
+        y: 0,
+        opacity: 1,
+        scale: 1,
+        ease: "power3.out",
+        duration: 0.82,
+        scrollTrigger: {
+          trigger: ".final-cta",
+          start: "top 82%",
+        },
+      },
+    );
   }
 
   function initFeedback() {
@@ -739,6 +825,7 @@ import ProviderFloat from "../components/ProviderFloat.astro";
     border: 1px solid rgba(246, 240, 230, 0.12);
     border-radius: var(--radius);
     background: rgba(246, 240, 230, 0.04);
+    perspective: 1100px;
   }
 
   .accordion-panel {
@@ -755,6 +842,7 @@ import ProviderFloat from "../components/ProviderFloat.astro";
       flex 520ms cubic-bezier(0.16, 1, 0.3, 1),
       background 260ms ease,
       transform 360ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: center bottom;
     will-change: flex, transform;
   }
 
@@ -992,6 +1080,8 @@ import ProviderFloat from "../components/ProviderFloat.astro";
     color: var(--ink);
     padding: clamp(1.3rem, 4vw, 2.2rem);
     box-shadow: 0 24px 52px rgba(0, 0, 0, 0.24);
+    transform-origin: center bottom;
+    will-change: transform, opacity;
   }
 
   .stack-card::before {
