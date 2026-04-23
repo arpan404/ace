@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import type { OrchestrationEvent } from "@ace/contracts";
 
 import { APP_DISPLAY_NAME } from "../branding";
@@ -46,6 +46,20 @@ function describeNotificationError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function readThreadIdFromDeepLink(deepLink: string | undefined): string | null {
+  if (!deepLink) {
+    return null;
+  }
+  try {
+    const url = new URL(deepLink, "ace://notification");
+    const threadId = url.pathname.replace(/^\/+/, "").split("/")[0]?.trim();
+    return threadId ? threadId : null;
+  } catch {
+    const threadId = deepLink.replace(/^\/+/, "").split(/[/?#]/)[0]?.trim();
+    return threadId ? threadId : null;
+  }
+}
+
 type ScopedAgentAttentionRequest = ReturnType<typeof deriveAgentAttentionRequests>[number] & {
   connectionUrl: string;
 };
@@ -70,6 +84,27 @@ export function AgentAttentionNotificationBridge() {
   const navigate = useNavigate();
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
+  const activeRouteThreadId = useParams({
+    strict: false,
+    select: (params) => (typeof params.threadId === "string" ? params.threadId : null),
+  });
+  const activeRouteConnectionSearch = useSearch({
+    strict: false,
+    select: (search) => {
+      const value = search[THREAD_ROUTE_CONNECTION_SEARCH_PARAM];
+      return typeof value === "string" ? value : null;
+    },
+  });
+  const activeRouteConnectionUrl = useMemo(() => {
+    if (!activeRouteConnectionSearch) {
+      return localConnectionUrl;
+    }
+    try {
+      return normalizeWsUrl(activeRouteConnectionSearch);
+    } catch {
+      return localConnectionUrl;
+    }
+  }, [activeRouteConnectionSearch, localConnectionUrl]);
   const [remoteConnectionsReady, setRemoteConnectionsReady] = useState(false);
   const notificationSettings = useSettings((settings) => ({
     notifyOnAgentCompletion: settings.notifyOnAgentCompletion,
@@ -332,9 +367,48 @@ export function AgentAttentionNotificationBridge() {
     [localConnectionUrl, navigate],
   );
 
+  const closeNotificationsForOpenThread = useMemo(
+    () => (threadId: string, connectionUrl: string) => {
+      for (const [requestKey, notification] of activeBrowserNotificationsRef.current) {
+        const request = attentionRequestByKeyRef.current.get(requestKey);
+        if (request?.threadId !== threadId || request.connectionUrl !== connectionUrl) {
+          continue;
+        }
+        closeNotification(notification);
+        activeBrowserNotificationsRef.current.delete(requestKey);
+      }
+
+      if (!desktopNotificationBridge) {
+        return;
+      }
+
+      for (const notificationId of activeDesktopNotificationIdsRef.current) {
+        const request = attentionRequestByKeyRef.current.get(notificationId);
+        if (request?.threadId !== threadId || request.connectionUrl !== connectionUrl) {
+          continue;
+        }
+        activeDesktopNotificationIdsRef.current.delete(notificationId);
+        void desktopNotificationBridge.closeNotification(notificationId);
+      }
+    },
+    [desktopNotificationBridge],
+  );
+
   useEffect(() => {
     attentionRequestByKeyRef.current = attentionRequestByKey;
   }, [attentionRequestByKey]);
+
+  useEffect(() => {
+    if (!activeRouteThreadId) {
+      return;
+    }
+    closeNotificationsForOpenThread(activeRouteThreadId, activeRouteConnectionUrl);
+  }, [
+    activeRouteConnectionUrl,
+    activeRouteThreadId,
+    attentionRequestByKey,
+    closeNotificationsForOpenThread,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") {
@@ -414,26 +488,6 @@ export function AgentAttentionNotificationBridge() {
   }, [attentionRequests, desktopNotificationBridge]);
 
   useEffect(() => {
-    if (!isAppFocused) {
-      return;
-    }
-
-    for (const notification of activeBrowserNotificationsRef.current.values()) {
-      closeNotification(notification);
-    }
-    activeBrowserNotificationsRef.current.clear();
-
-    if (!desktopNotificationBridge) {
-      return;
-    }
-
-    for (const notificationId of activeDesktopNotificationIdsRef.current) {
-      void desktopNotificationBridge.closeNotification(notificationId);
-    }
-    activeDesktopNotificationIdsRef.current.clear();
-  }, [desktopNotificationBridge, isAppFocused]);
-
-  useEffect(() => {
     if (!desktopNotificationBridge) {
       return;
     }
@@ -444,12 +498,16 @@ export function AgentAttentionNotificationBridge() {
 
       const request = attentionRequestByKeyRef.current.get(event.id);
       if (!request) {
+        const threadId = readThreadIdFromDeepLink(event.deepLink);
+        if (threadId) {
+          navigateToRequestThread(threadId, localConnectionUrl);
+        }
         return;
       }
 
       navigateToRequestThread(request.threadId, request.connectionUrl);
     });
-  }, [desktopNotificationBridge, navigateToRequestThread]);
+  }, [desktopNotificationBridge, localConnectionUrl, navigateToRequestThread]);
 
   useEffect(() => {
     if (!desktopNotificationBridge) {
