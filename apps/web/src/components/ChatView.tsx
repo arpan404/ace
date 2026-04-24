@@ -203,6 +203,8 @@ import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
+import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
+import { DiffPanelHeaderSkeleton, DiffPanelLoadingState, DiffPanelShell } from "./DiffPanelShell";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NewThreadLanding } from "./chat/NewThreadLanding";
@@ -318,11 +320,22 @@ const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
+const SPLIT_PANE_DIFF_PANEL_WIDTH = "min(32rem,72%)";
+
+const DiffPanel = lazy(() => import("./DiffPanel"));
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
 interface ChatViewProps {
+  showSidebarTrigger?: boolean;
+  splitPane?: boolean;
   threadId: ThreadId;
+}
+
+interface LocalDiffState {
+  filePath: string | null;
+  open: boolean;
+  turnId: TurnId | null;
 }
 
 interface PendingPullRequestSetupRequest {
@@ -331,7 +344,45 @@ interface PendingPullRequestSetupRequest {
   scriptId: string;
 }
 
-export default function ChatView({ threadId }: ChatViewProps) {
+function LocalDiffLoadingFallback() {
+  return (
+    <DiffPanelShell mode="sidebar" header={<DiffPanelHeaderSkeleton />}>
+      <DiffPanelLoadingState label="Loading diff viewer..." />
+    </DiffPanelShell>
+  );
+}
+
+function LocalDiffPanel(props: {
+  diffState: LocalDiffState;
+  threadId: ThreadId;
+  onDiffStateChange: (state: LocalDiffState) => void;
+}) {
+  return (
+    <DiffWorkerPoolProvider>
+      <Suspense fallback={<LocalDiffLoadingFallback />}>
+        <DiffPanel
+          mode="sidebar"
+          threadId={props.threadId}
+          diffOpen={props.diffState.open}
+          selectedTurnId={props.diffState.turnId}
+          selectedFilePath={props.diffState.filePath}
+          onSelectTurn={(turnId) => {
+            props.onDiffStateChange({ open: true, turnId, filePath: null });
+          }}
+          onSelectWholeConversation={() => {
+            props.onDiffStateChange({ open: true, turnId: null, filePath: null });
+          }}
+        />
+      </Suspense>
+    </DiffWorkerPoolProvider>
+  );
+}
+
+export default function ChatView({
+  showSidebarTrigger = true,
+  splitPane = false,
+  threadId,
+}: ChatViewProps) {
   const serverThread = useThreadById(threadId);
   const threads = useStore((store) => store.threads);
   const setStoreThreadError = useStore((store) => store.setError);
@@ -362,6 +413,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const rawSearch = useSearch({
     strict: false,
     select: (params) => parseDiffRouteSearch(params),
+  });
+  const [localDiffState, setLocalDiffState] = useState<LocalDiffState>({
+    filePath: null,
+    open: false,
+    turnId: null,
   });
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
@@ -688,8 +744,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const isThreadHistoryLoading = isServerThread && activeThread?.historyLoaded === false;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const routeWorkspaceMode: ThreadWorkspaceMode =
-    rawSearch.mode === "editor" || rawSearch.mode === "split" ? rawSearch.mode : "chat";
-  const diffOpen = rawSearch.diff === "1";
+    !splitPane && (rawSearch.mode === "editor" || rawSearch.mode === "split")
+      ? rawSearch.mode
+      : "chat";
+  const diffOpen = splitPane ? localDiffState.open : rawSearch.diff === "1";
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
@@ -2123,7 +2181,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     );
   }, [activeThreadId, browserOpen]);
   useEffect(() => {
-    if (routeWorkspaceMode === "chat") {
+    if (splitPane || routeWorkspaceMode === "chat") {
       return;
     }
     setWorkspaceModeByThreadId((previous) => {
@@ -2144,7 +2202,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
         [threadId]: routeWorkspaceMode,
       };
     });
-  }, [routeWorkspaceMode, setWorkspaceLayoutByThreadId, setWorkspaceModeByThreadId, threadId]);
+  }, [
+    routeWorkspaceMode,
+    setWorkspaceLayoutByThreadId,
+    setWorkspaceModeByThreadId,
+    splitPane,
+    threadId,
+  ]);
   const onWorkspaceModeChange = useCallback(
     (mode: ThreadWorkspaceMode) => {
       const nextMode =
@@ -2162,6 +2226,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           [threadId]: nextMode,
         }));
       }
+      if (splitPane) {
+        return;
+      }
       void navigate({
         to: "/$threadId",
         params: { threadId },
@@ -2177,6 +2244,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       persistedWorkspaceLayout,
       setWorkspaceLayoutByThreadId,
       setWorkspaceModeByThreadId,
+      splitPane,
       threadId,
       workspaceMode,
     ],
@@ -2188,6 +2256,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
     setIsHeaderHidden((previous) => !previous);
   }, []);
   const onToggleDiff = useCallback(() => {
+    if (splitPane) {
+      setLocalDiffState((previous) => ({
+        ...previous,
+        open: !previous.open,
+      }));
+      return;
+    }
     startTransition(() => {
       void navigate({
         to: "/$threadId",
@@ -2199,7 +2274,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         },
       });
     });
-  }, [diffOpen, navigate, threadId]);
+  }, [diffOpen, navigate, splitPane, threadId]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3834,6 +3909,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
   useEffect(() => {
+    if (splitPane) return;
     if (!isElectron) return;
     return window.desktopBridge?.onMenuAction((action) => {
       if (!activeThreadId) {
@@ -3854,7 +3930,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         toggleInteractionMode();
       }
     });
-  }, [activeThreadId, onToggleDiff, toggleInteractionMode, toggleTerminalVisibility]);
+  }, [activeThreadId, onToggleDiff, splitPane, toggleInteractionMode, toggleTerminalVisibility]);
   const togglePlanSidebar = useCallback(() => {
     setPlanSidebarOpen((open) => {
       if (open) {
@@ -4448,6 +4524,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [activeThreadId, scheduleComposerFocus, terminalState.terminalOpen]);
 
   useEffect(() => {
+    if (splitPane) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (!activeThreadId || event.defaultPrevented) return;
       if (
@@ -4677,6 +4754,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     splitTerminal,
     keybindings,
     onToggleDiff,
+    splitPane,
     toggleInteractionMode,
     toggleWorkspaceMode,
     toggleHeaderVisibility,
@@ -6312,6 +6390,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const expandedImageItem = expandedImage ? expandedImage.images[expandedImage.index] : null;
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
+      if (splitPane) {
+        setLocalDiffState({ open: true, turnId, filePath: filePath ?? null });
+        return;
+      }
       void navigate({
         to: "/$threadId",
         params: { threadId },
@@ -6323,7 +6405,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         },
       });
     },
-    [navigate, threadId],
+    [navigate, splitPane, threadId],
   );
   const onRevertUserMessage = useCallback(
     (messageId: MessageId) => {
@@ -6666,7 +6748,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
         )}
       >
-        <AppPageTopBar>
+        <AppPageTopBar showSidebarTrigger={showSidebarTrigger}>
           <ChatHeader
             activeThreadId={activeThread.id}
             activeThreadBranch={activeThreadBranchName}
@@ -7258,6 +7340,25 @@ export default function ChatView({ threadId }: ChatViewProps) {
           </AnimatePresence>
         </div>
         {/* end chat column */}
+
+        <AnimatePresence initial={false}>
+          {splitPane && localDiffState.open ? (
+            <motion.div
+              key="split-pane-diff-panel"
+              className="flex h-full min-h-0 shrink-0 overflow-hidden border-l border-border/70 bg-background shadow-[-20px_0_44px_-36px_rgba(0,0,0,0.45)]"
+              initial={{ width: 0, opacity: 0, x: 18 }}
+              animate={{ width: SPLIT_PANE_DIFF_PANEL_WIDTH, opacity: 1, x: 0 }}
+              exit={{ width: 0, opacity: 0, x: 18 }}
+              transition={WORKSPACE_SIDE_PANEL_TRANSITION}
+            >
+              <LocalDiffPanel
+                threadId={activeThread.id}
+                diffState={localDiffState}
+                onDiffStateChange={setLocalDiffState}
+              />
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         <ChatViewPanels
           browserPanel={browserPanel}

@@ -169,12 +169,26 @@ function isCheckpointSummaryQueryable(
 }
 
 interface DiffPanelProps {
+  diffOpen?: boolean;
+  onSelectTurn?: (turnId: TurnId) => void;
+  onSelectWholeConversation?: () => void;
   mode?: DiffPanelMode;
+  selectedFilePath?: string | null;
+  selectedTurnId?: TurnId | null;
+  threadId?: ThreadId | null;
 }
 
 export { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 
-export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
+export default function DiffPanel({
+  diffOpen: diffOpenOverride,
+  mode = "inline",
+  onSelectTurn,
+  onSelectWholeConversation,
+  selectedFilePath: selectedFilePathOverride,
+  selectedTurnId: selectedTurnIdOverride,
+  threadId,
+}: DiffPanelProps) {
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
   const settings = useSettings();
@@ -190,8 +204,8 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
   const diffSearch = useSearch({ strict: false, select: (search) => parseDiffRouteSearch(search) });
-  const diffOpen = diffSearch.diff === "1";
-  const activeThreadId = routeThreadId;
+  const diffOpen = diffOpenOverride ?? diffSearch.diff === "1";
+  const activeThreadId = threadId ?? routeThreadId;
   const activeThread = useStore((store) =>
     activeThreadId ? store.threads.find((thread) => thread.id === activeThreadId) : undefined,
   );
@@ -240,8 +254,14 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     [inferredCheckpointTurnCountByTurnId, orderedTurnDiffSummaries],
   );
 
-  const selectedTurnId = diffSearch.diffTurnId ?? null;
-  const selectedFilePath = selectedTurnId !== null ? (diffSearch.diffFilePath ?? null) : null;
+  const selectedTurnId =
+    selectedTurnIdOverride !== undefined ? selectedTurnIdOverride : (diffSearch.diffTurnId ?? null);
+  const selectedFilePath =
+    selectedTurnId !== null
+      ? selectedFilePathOverride !== undefined
+        ? selectedFilePathOverride
+        : (diffSearch.diffFilePath ?? null)
+      : null;
   const selectedTurn =
     selectedTurnId === null
       ? undefined
@@ -402,6 +422,10 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   );
 
   const selectTurn = (turnId: TurnId) => {
+    if (onSelectTurn) {
+      onSelectTurn(turnId);
+      return;
+    }
     if (!activeThread) return;
     void navigate({
       to: "/$threadId",
@@ -413,6 +437,10 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     });
   };
   const selectWholeConversation = () => {
+    if (onSelectWholeConversation) {
+      onSelectWholeConversation();
+      return;
+    }
     if (!activeThread) return;
     void navigate({
       to: "/$threadId",

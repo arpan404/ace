@@ -13,11 +13,17 @@ interface AppPageTopBarProps {
   readonly children: ReactNode;
   readonly className?: string;
   readonly contentClassName?: string;
+  readonly showSidebarTrigger?: boolean;
 }
 
-export function AppPageTopBar({ children, className, contentClassName }: AppPageTopBarProps) {
+export function AppPageTopBar({
+  children,
+  className,
+  contentClassName,
+  showSidebarTrigger = true,
+}: AppPageTopBarProps) {
   const { isMobile, state: sidebarState } = useSidebar();
-  const showHeaderSidebarTrigger = isMobile || sidebarState === "collapsed";
+  const showHeaderSidebarTrigger = showSidebarTrigger && (isMobile || sidebarState === "collapsed");
 
   return (
     <header
