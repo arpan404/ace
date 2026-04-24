@@ -495,17 +495,17 @@ function getDesktopNotificationPermission(): DesktopNotificationPermission {
       const resolveState = (rawState: string | null): DesktopNotificationPermission | null =>
         rawState ? mapDesktopNotificationPermissionState(rawState) : null;
       try {
-        const globalState = resolveState(readNotificationState());
-        if (globalState) {
-          return globalState;
-        }
-      } catch {
-        // Fall through and try app-scoped state.
-      }
-      try {
         const appScopedState = resolveState(readNotificationState(APP_USER_MODEL_ID));
         if (appScopedState) {
           return appScopedState;
+        }
+      } catch {
+        // Fall through and try global state.
+      }
+      try {
+        const globalState = resolveState(readNotificationState());
+        if (globalState) {
+          return globalState;
         }
       } catch {
         // Fall through to platform defaults when OS-level state cannot be read.
@@ -535,7 +535,7 @@ async function requestDesktopNotificationPermission(): Promise<DesktopNotificati
   });
 
   await new Promise<void>((resolve) => {
-    setTimeout(resolve, 300);
+    setTimeout(resolve, 1_000);
   });
   closeDesktopNotification(probeNotificationId);
   return getDesktopNotificationPermission();
