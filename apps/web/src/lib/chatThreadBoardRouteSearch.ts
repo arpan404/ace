@@ -5,6 +5,7 @@ import { normalizeWsUrl, resolveLocalDeviceWsUrl } from "./remoteHosts";
 
 export const THREAD_BOARD_THREADS_SEARCH_PARAM = "threads";
 export const THREAD_BOARD_ACTIVE_SEARCH_PARAM = "active";
+export const THREAD_BOARD_SPLIT_SEARCH_PARAM = "split";
 
 const THREAD_BOARD_PANE_SEPARATOR = "___";
 const THREAD_BOARD_CONNECTION_SEPARATOR = "|";
@@ -89,11 +90,15 @@ export function serializeThreadBoardRoutePanes(
 export function buildThreadBoardRouteSearch(
   panes: readonly ChatThreadBoardRoutePane[],
   activePane: ChatThreadBoardRoutePane,
+  input?: { splitId?: string | null },
 ): Record<string, string | undefined> {
   const serializedThreads = serializeThreadBoardRoutePanes(panes);
   return {
     [THREAD_BOARD_ACTIVE_SEARCH_PARAM]: serializedThreads
       ? encodeThreadBoardRoutePane(activePane)
+      : undefined,
+    [THREAD_BOARD_SPLIT_SEARCH_PARAM]: serializedThreads
+      ? (input?.splitId ?? undefined)
       : undefined,
     [THREAD_BOARD_THREADS_SEARCH_PARAM]: serializedThreads,
     [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: normalizeRouteConnectionUrl(activePane.connectionUrl)
@@ -108,6 +113,7 @@ export function buildSingleThreadRouteSearch(
   const connectionUrl = normalizeRouteConnectionUrl(input?.connectionUrl);
   return {
     [THREAD_BOARD_ACTIVE_SEARCH_PARAM]: undefined,
+    [THREAD_BOARD_SPLIT_SEARCH_PARAM]: undefined,
     [THREAD_BOARD_THREADS_SEARCH_PARAM]: undefined,
     [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: connectionUrl ?? undefined,
   };
