@@ -24,10 +24,22 @@ import {
   ProviderStopSessionInput,
   type ProviderRuntimeEvent,
   type ProviderSession,
+  type ProviderTurnStartResult,
 } from "@ace/contracts";
-import { Effect, Layer, Option, PubSub, Queue, Schema, SchemaIssue, Stream } from "effect";
+import {
+  Deferred,
+  Effect,
+  Exit,
+  Layer,
+  Option,
+  PubSub,
+  Queue,
+  Schema,
+  SchemaIssue,
+  Stream,
+} from "effect";
 
-import { ProviderValidationError } from "../Errors.ts";
+import { ProviderValidationError, type ProviderServiceError } from "../Errors.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderService, type ProviderServiceShape } from "../Services/ProviderService.ts";
 import {
@@ -70,6 +82,11 @@ type SessionActivityState = {
   turnInProgress: boolean;
   pendingRequestCount: number;
   pendingUserInputCount: number;
+};
+
+type QueuedProviderTurn = {
+  readonly input: ProviderSendTurnInput;
+  readonly result: Deferred.Deferred<ProviderTurnStartResult, ProviderServiceError>;
 };
 
 function usesLocalTranscriptAuthority(provider: ProviderKind): boolean {
@@ -177,6 +194,25 @@ function isSessionBusy(session: ProviderSession, state: SessionActivityState | u
   );
 }
 
+function isRuntimeSessionTurnActive(session: ProviderSession): boolean {
+  return (
+    session.status === "running" ||
+    session.status === "connecting" ||
+    session.activeTurnId !== undefined
+  );
+}
+
+function isTurnIdleEvent(event: ProviderRuntimeEvent): boolean {
+  return (
+    event.type === "turn.completed" ||
+    event.type === "turn.aborted" ||
+    event.type === "session.exited"
+  );
+}
+
+const sleepRealMs = (ms: number) =>
+  Effect.promise<void>(() => new Promise((resolve) => setTimeout(resolve, ms)));
+
 const makeProviderService = Effect.fn("makeProviderService")(function* (
   options?: ProviderServiceLiveOptions,
 ) {
@@ -273,6 +309,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
   const sessionActivityByThreadId = new Map<ThreadId, SessionActivityState>();
+  const turnQueueByThreadId = new Map<ThreadId, Queue.Queue<QueuedProviderTurn>>();
+  const activeTurnIdleByThreadId = new Map<ThreadId, Deferred.Deferred<void>>();
 
   const listActiveSessions = Effect.forEach(adapters, (adapter) => adapter.listSessions()).pipe(
     Effect.map((sessionsByProvider) => sessionsByProvider.flatMap((sessions) => sessions)),
@@ -537,10 +575,25 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     });
   });
 
+  const completeActiveTurn = (threadId: ThreadId): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const idle = activeTurnIdleByThreadId.get(threadId);
+      if (!idle) {
+        return;
+      }
+      activeTurnIdleByThreadId.delete(threadId);
+      yield* Deferred.succeed(idle, undefined).pipe(Effect.orDie);
+    });
+
   const processRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
     Effect.sync(() => {
       recordRuntimeEventActivity(event);
-    }).pipe(Effect.flatMap(() => publishRuntimeEvent(event)));
+    }).pipe(
+      Effect.flatMap(() =>
+        isTurnIdleEvent(event) ? completeActiveTurn(event.threadId) : Effect.void,
+      ),
+      Effect.flatMap(() => publishRuntimeEvent(event)),
+    );
 
   const worker = Effect.forever(
     Queue.take(runtimeEventQueue).pipe(Effect.flatMap(processRuntimeEvent)),
@@ -568,7 +621,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       enforceCliPoolPolicySafely.pipe(
         Effect.flatMap(() =>
           Effect.forever(
-            Effect.sleep(PROVIDER_CLI_POLICY_SWEEP_INTERVAL_MS).pipe(
+            sleepRealMs(PROVIDER_CLI_POLICY_SWEEP_INTERVAL_MS).pipe(
               Effect.flatMap(() => enforceCliPoolPolicySafely),
             ),
           ),
@@ -774,23 +827,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
-  const sendTurn: ProviderServiceShape["sendTurn"] = Effect.fn("sendTurn")(function* (rawInput) {
-    const parsed = yield* decodeInputOrValidationError({
-      operation: "ProviderService.sendTurn",
-      schema: ProviderSendTurnInput,
-      payload: rawInput,
-    });
-
-    const input = {
-      ...parsed,
-      attachments: parsed.attachments ?? [],
-    };
-    if (!input.input && input.attachments.length === 0) {
-      return yield* toValidationError(
-        "ProviderService.sendTurn",
-        "Either input text or at least one attachment is required",
-      );
-    }
+  const sendTurnDirect = Effect.fn("sendTurnDirect")(function* (input: ProviderSendTurnInput) {
     const routed = yield* resolveRoutableSession({
       threadId: input.threadId,
       operation: "ProviderService.sendTurn",
@@ -814,10 +851,98 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       provider: routed.adapter.provider,
       model: input.modelSelection?.model,
       interactionMode: input.interactionMode,
-      attachmentCount: input.attachments.length,
+      attachmentCount: input.attachments?.length ?? 0,
       hasInput: typeof input.input === "string" && input.input.trim().length > 0,
     });
-    return turn;
+    return { provider: routed.adapter.provider, turn } as const;
+  });
+
+  const waitForTurnIdle = Effect.fn("waitForTurnIdle")(function* (input: {
+    readonly threadId: ThreadId;
+    readonly provider: ProviderKind;
+    readonly idle: Deferred.Deferred<void>;
+  }) {
+    while (true) {
+      if (yield* Deferred.isDone(input.idle)) {
+        return;
+      }
+
+      yield* sleepRealMs(250);
+      if (yield* Deferred.isDone(input.idle)) {
+        return;
+      }
+
+      const adapter = yield* registry.getByProvider(input.provider);
+      const sessions = yield* adapter.listSessions().pipe(Effect.orElseSucceed(() => []));
+      const session = sessions.find((candidate) => candidate.threadId === input.threadId);
+      if (!session || !isRuntimeSessionTurnActive(session)) {
+        yield* completeActiveTurn(input.threadId);
+        return;
+      }
+    }
+  });
+
+  const processQueuedTurn = Effect.fn("processQueuedTurn")(function* (
+    queuedTurn: QueuedProviderTurn,
+  ) {
+    const idle = yield* Deferred.make<void>();
+    activeTurnIdleByThreadId.set(queuedTurn.input.threadId, idle);
+
+    const exit = yield* sendTurnDirect(queuedTurn.input).pipe(Effect.exit);
+    if (Exit.isFailure(exit)) {
+      if (activeTurnIdleByThreadId.get(queuedTurn.input.threadId) === idle) {
+        activeTurnIdleByThreadId.delete(queuedTurn.input.threadId);
+      }
+      yield* Deferred.failCause(queuedTurn.result, exit.cause).pipe(Effect.orDie);
+      return;
+    }
+
+    yield* Deferred.succeed(queuedTurn.result, exit.value.turn).pipe(Effect.orDie);
+    yield* waitForTurnIdle({
+      threadId: queuedTurn.input.threadId,
+      provider: exit.value.provider,
+      idle,
+    });
+  });
+
+  const getTurnQueue = Effect.fn("getTurnQueue")(function* (threadId: ThreadId) {
+    const existing = turnQueueByThreadId.get(threadId);
+    if (existing) {
+      return existing;
+    }
+
+    const queue = yield* Queue.unbounded<QueuedProviderTurn>();
+    turnQueueByThreadId.set(threadId, queue);
+    yield* Queue.take(queue).pipe(
+      Effect.flatMap(processQueuedTurn),
+      Effect.forever,
+      Effect.forkDetach,
+    );
+    return queue;
+  });
+
+  const sendTurn: ProviderServiceShape["sendTurn"] = Effect.fn("sendTurn")(function* (rawInput) {
+    const parsed = yield* decodeInputOrValidationError({
+      operation: "ProviderService.sendTurn",
+      schema: ProviderSendTurnInput,
+      payload: rawInput,
+    });
+
+    const input = {
+      ...parsed,
+      attachments: parsed.attachments ?? [],
+    };
+    if (!input.input && input.attachments.length === 0) {
+      return yield* toValidationError(
+        "ProviderService.sendTurn",
+        "Either input text or at least one attachment is required",
+      );
+    }
+
+    const result = yield* Deferred.make<ProviderTurnStartResult, ProviderServiceError>();
+    const queue = yield* getTurnQueue(input.threadId);
+    yield* Queue.offer(queue, { input, result }).pipe(Effect.asVoid);
+    return yield* Deferred.await(result);
   });
 
   const interruptTurn: ProviderServiceShape["interruptTurn"] = Effect.fn("interruptTurn")(
@@ -837,6 +962,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       if (state) {
         state.turnInProgress = false;
       }
+      yield* completeActiveTurn(input.threadId);
       yield* analytics.record("provider.turn.interrupted", {
         provider: routed.adapter.provider,
       });
@@ -896,6 +1022,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       }
       yield* directory.remove(input.threadId);
       sessionActivityByThreadId.delete(input.threadId);
+      yield* completeActiveTurn(input.threadId);
       yield* analytics.record("provider.session.stopped", {
         provider: routed.adapter.provider,
       });

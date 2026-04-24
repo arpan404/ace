@@ -1708,27 +1708,6 @@ export function setThreadBranch(
   });
 }
 
-export function setThreadQueueState(
-  state: AppState,
-  threadId: ThreadId,
-  queuedComposerMessages: Thread["queuedComposerMessages"],
-  queuedSteerRequest: Thread["queuedSteerRequest"],
-): AppState {
-  return updateThreadState(state, threadId, (thread) => {
-    if (
-      thread.queuedComposerMessages === queuedComposerMessages &&
-      thread.queuedSteerRequest === queuedSteerRequest
-    ) {
-      return thread;
-    }
-    return {
-      ...thread,
-      queuedComposerMessages,
-      queuedSteerRequest,
-    };
-  });
-}
-
 // ── Zustand store ────────────────────────────────────────────────────
 
 interface AppStore extends AppState {
@@ -1749,11 +1728,6 @@ interface AppStore extends AppState {
   setError: (threadId: ThreadId, error: string | null) => void;
   dismissThreadError: (threadId: ThreadId) => void;
   setThreadBranch: (threadId: ThreadId, branch: string | null, worktreePath: string | null) => void;
-  setThreadQueueState: (
-    threadId: ThreadId,
-    queuedComposerMessages: Thread["queuedComposerMessages"],
-    queuedSteerRequest: Thread["queuedSteerRequest"],
-  ) => void;
 }
 
 export const useStore = create<AppStore>((set) => ({
@@ -1774,8 +1748,4 @@ export const useStore = create<AppStore>((set) => ({
   dismissThreadError: (threadId) => set((state) => dismissThreadError(state, threadId)),
   setThreadBranch: (threadId, branch, worktreePath) =>
     set((state) => setThreadBranch(state, threadId, branch, worktreePath)),
-  setThreadQueueState: (threadId, queuedComposerMessages, queuedSteerRequest) =>
-    set((state) =>
-      setThreadQueueState(state, threadId, queuedComposerMessages, queuedSteerRequest),
-    ),
 }));
