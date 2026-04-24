@@ -24,6 +24,10 @@ import {
 import { resolveLocalConnectionUrl } from "../lib/connectionRouting";
 import { buildSingleThreadRouteSearch } from "../lib/chatThreadBoardRouteSearch";
 import {
+  closeBrowserNotificationsByTag,
+  showBrowserNotification,
+} from "../lib/browserNotifications";
+import {
   CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT,
   loadConnectedRemoteHostIds,
   loadRemoteHostInstances,
@@ -564,11 +568,11 @@ export function AgentAttentionNotificationBridge() {
       return;
     }
 
-    const notificationConstructor = getAgentAttentionNotificationConstructor();
-    if (!notificationConstructor) {
+    if (!getAgentAttentionNotificationConstructor()) {
       return;
     }
 
+    let canceled = false;
     for (const request of collectAgentAttentionRequestsToNotify({
       requests: attentionRequests,
       notifiedRequestKeys: notifiedRequestKeysRef.current,
@@ -581,43 +585,51 @@ export function AgentAttentionNotificationBridge() {
         closeNotification(existingNotification);
         activeBrowserNotificationsRef.current.delete(request.key);
       }
+      void closeBrowserNotificationsByTag(tag);
 
-      try {
-        const notification = new notificationConstructor(title, {
-          body,
-          tag,
-          requireInteraction: true,
-        });
-
-        const handleClick = () => {
+      void showBrowserNotification({
+        title,
+        body,
+        tag,
+        requireInteraction: true,
+        data: { deepLink: request.deepLink },
+        onClick: () => {
           window.focus();
-          notification.close();
-          activeBrowserNotificationsRef.current.delete(request.key);
           navigateToRequestThread(request.threadId, request.connectionUrl);
-        };
-
-        const handleClose = () => {
-          if (activeBrowserNotificationsRef.current.get(request.key) === notification) {
-            activeBrowserNotificationsRef.current.delete(request.key);
+        },
+      })
+        .then((shown) => {
+          if (canceled) {
+            return;
           }
-        };
-
-        notification.addEventListener("click", handleClick);
-        notification.addEventListener("close", handleClose);
-        activeBrowserNotificationsRef.current.set(request.key, notification);
-        notifiedRequestKeysRef.current.add(request.key);
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Unable to send agent notification",
-          description: describeNotificationError(
-            error,
-            "Unknown error creating a browser notification.",
-          ),
+          if (shown) {
+            notifiedRequestKeysRef.current.add(request.key);
+            return;
+          }
+          toastManager.add({
+            type: "warning",
+            title: "Unable to send browser notification",
+            description:
+              "Browser notifications may be blocked by site settings or unavailable for this page.",
+          });
+        })
+        .catch((error) => {
+          if (canceled) {
+            return;
+          }
+          toastManager.add({
+            type: "error",
+            title: "Unable to send agent notification",
+            description: describeNotificationError(
+              error,
+              "Unknown error creating a browser notification.",
+            ),
+          });
         });
-        break;
-      }
     }
+    return () => {
+      canceled = true;
+    };
   }, [
     attentionRequests,
     desktopNotificationBridge,
