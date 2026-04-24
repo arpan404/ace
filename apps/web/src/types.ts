@@ -122,6 +122,7 @@ export interface TurnDiffSummary {
   turnId: TurnId;
   completedAt: string;
   status?: string | undefined;
+  source?: "git-checkpoint" | "provider-native" | "provider-reconstructed" | undefined;
   files: TurnDiffFileChange[];
   diff?: string | undefined;
   checkpointRef?: CheckpointRef | undefined;

@@ -221,6 +221,7 @@ function toOrchestrationCheckpointSummary(
     checkpointTurnCount: row.checkpointTurnCount,
     checkpointRef: row.checkpointRef,
     status: row.status,
+    source: "git-checkpoint",
     files: row.files,
     assistantMessageId: row.assistantMessageId,
     completedAt: row.completedAt,

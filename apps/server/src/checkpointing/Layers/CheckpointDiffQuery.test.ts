@@ -30,6 +30,7 @@ function makeThreadCheckpointContext(input: {
         checkpointTurnCount: input.checkpointTurnCount,
         checkpointRef: input.checkpointRef,
         status: "ready",
+        source: "git-checkpoint",
         files: [],
         assistantMessageId: null,
         completedAt: "2026-01-01T00:00:00.000Z",

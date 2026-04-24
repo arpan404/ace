@@ -277,6 +277,7 @@ const make = Effect.gen(function* () {
       completedAt: input.createdAt,
       checkpointRef: targetCheckpointRef,
       status: input.status,
+      source: "git-checkpoint",
       files,
       assistantMessageId,
       checkpointTurnCount: input.turnCount,

@@ -2233,6 +2233,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   checkpointTurnCount: 1,
                   checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
                   status: "ready",
+                  source: "git-checkpoint",
                   files: [],
                   assistantMessageId: MessageId.makeUnsafe("message-assistant"),
                   completedAt: now,

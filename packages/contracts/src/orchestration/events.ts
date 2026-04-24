@@ -29,6 +29,7 @@ import {
 } from "./provider";
 import {
   OrchestrationCheckpointFile,
+  OrchestrationCheckpointDiffSource,
   OrchestrationCheckpointStatus,
   SourceProposedPlanReference,
   OrchestrationProposedPlan,
@@ -237,6 +238,9 @@ export const ThreadTurnDiffCompletedPayload = Schema.Struct({
   checkpointTurnCount: NonNegativeInt,
   checkpointRef: CheckpointRef,
   status: OrchestrationCheckpointStatus,
+  source: OrchestrationCheckpointDiffSource.pipe(
+    Schema.withDecodingDefault(() => "git-checkpoint" as const),
+  ),
   files: Schema.Array(OrchestrationCheckpointFile),
   diff: Schema.optional(Schema.String),
   assistantMessageId: Schema.NullOr(MessageId),

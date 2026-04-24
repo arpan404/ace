@@ -1602,6 +1602,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
               checkpointTurnCount: 1,
               checkpointRef: "provider-diff:turn-live-diff" as CheckpointRef,
               status: "missing",
+              source: "provider-native",
               files: [{ path: "README.md", kind: "modified", additions: 9, deletions: 5 }],
               diff: [
                 "diff --git a/README.md b/README.md",
