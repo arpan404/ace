@@ -188,11 +188,8 @@ describe("readOpenCodeEventRequestId", () => {
 });
 
 describe("openCodePermissionRulesForRuntimeMode", () => {
-  it("enables a wildcard allow rule for full-access modes", () => {
+  it("enables a wildcard allow rule for full-access mode", () => {
     expect(openCodePermissionRulesForRuntimeMode("full-access")).toEqual([
-      { permission: "*", pattern: "*", action: "allow" },
-    ]);
-    expect(openCodePermissionRulesForRuntimeMode("andy")).toEqual([
       { permission: "*", pattern: "*", action: "allow" },
     ]);
   });
