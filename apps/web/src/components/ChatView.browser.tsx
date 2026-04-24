@@ -1602,7 +1602,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
               checkpointTurnCount: 1,
               checkpointRef: "provider-diff:turn-live-diff" as CheckpointRef,
               status: "missing",
-              files: [],
+              files: [{ path: "README.md", kind: "modified", additions: 9, deletions: 5 }],
+              diff: [
+                "diff --git a/README.md b/README.md",
+                "index 1111111..2222222 100644",
+                "--- a/README.md",
+                "+++ b/README.md",
+                "@@ -1 +1,2 @@",
+                "-old heading",
+                "+new heading",
+                "+another line",
+              ].join("\n"),
               assistantMessageId: null,
               completedAt: isoAt(2_001),
             },
@@ -1614,38 +1624,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot,
-      resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.gitStatus) {
-          return {
-            branch: "main",
-            hasWorkingTreeChanges: true,
-            workingTree: {
-              files: [{ path: "README.md", status: "M", insertions: 9, deletions: 5 }],
-              insertions: 9,
-              deletions: 5,
-            },
-            hasUpstream: true,
-            aheadCount: 0,
-            behindCount: 0,
-            pr: null,
-          };
-        }
-        if (body._tag === WS_METHODS.gitReadWorkingTreeDiff) {
-          return {
-            diff: [
-              "diff --git a/README.md b/README.md",
-              "index 1111111..2222222 100644",
-              "--- a/README.md",
-              "+++ b/README.md",
-              "@@ -1 +1,2 @@",
-              "-old heading",
-              "+new heading",
-              "+another line",
-            ].join("\n"),
-          };
-        }
-        return undefined;
-      },
     });
 
     try {

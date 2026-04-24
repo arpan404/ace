@@ -21,6 +21,7 @@ import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
+import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -2137,20 +2138,26 @@ const make = Effect.fn("make")(function* () {
       if (event.type === "turn.diff.updated") {
         const turnId = toTurnId(event.turnId);
         if (turnId && (yield* isGitRepoForThread(thread.id))) {
-          // Skip if a checkpoint already exists for this turn. A real
-          // (non-placeholder) capture from CheckpointReactor should not
-          // be clobbered, and dispatching a duplicate placeholder for the
-          // same turnId would produce an unstable checkpointTurnCount.
-          if (thread.checkpoints.some((c) => c.turnId === turnId)) {
-            // Already tracked; no-op.
+          const existingCheckpoint = thread.checkpoints.find(
+            (checkpoint) => checkpoint.turnId === turnId,
+          );
+          // Once a real checkpoint exists, keep the authoritative git-captured diff.
+          if (existingCheckpoint?.status !== "missing") {
+            // no-op
           } else {
-            const assistantMessageId = MessageId.makeUnsafe(
-              `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
-            );
-            const maxTurnCount = thread.checkpoints.reduce(
-              (max, c) => Math.max(max, c.checkpointTurnCount),
-              0,
-            );
+            const assistantMessageId =
+              existingCheckpoint?.assistantMessageId ??
+              MessageId.makeUnsafe(`assistant:${event.itemId ?? event.turnId ?? event.eventId}`);
+            const checkpointTurnCount =
+              existingCheckpoint?.checkpointTurnCount ??
+              thread.checkpoints.reduce((max, c) => Math.max(max, c.checkpointTurnCount), 0) + 1;
+            const unifiedDiff = event.payload.unifiedDiff.trim();
+            const files = parseTurnDiffFilesFromUnifiedDiff(unifiedDiff).map((file) => ({
+              path: file.path,
+              kind: "modified" as const,
+              additions: file.additions,
+              deletions: file.deletions,
+            }));
             yield* orchestrationEngine.dispatch({
               type: "thread.turn.diff.complete",
               commandId: providerCommandId(event, "thread-turn-diff-complete"),
@@ -2159,9 +2166,10 @@ const make = Effect.fn("make")(function* () {
               completedAt: now,
               checkpointRef: CheckpointRef.makeUnsafe(`provider-diff:${event.eventId}`),
               status: "missing",
-              files: [],
+              files,
+              ...(unifiedDiff.length > 0 ? { diff: unifiedDiff } : {}),
               assistantMessageId,
-              checkpointTurnCount: maxTurnCount + 1,
+              checkpointTurnCount,
               createdAt: now,
             });
           }
