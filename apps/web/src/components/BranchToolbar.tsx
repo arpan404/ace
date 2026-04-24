@@ -1,5 +1,5 @@
 import { type RuntimeMode, type ThreadId } from "@ace/contracts";
-import { FolderIcon, GitForkIcon, LockIcon, LockOpenIcon, SparklesIcon } from "lucide-react";
+import { FolderIcon, GitForkIcon, LockIcon, LockOpenIcon } from "lucide-react";
 import { useCallback } from "react";
 
 import { runAsyncTask } from "../lib/async";
@@ -23,8 +23,6 @@ function nextAccessMode(mode: RuntimeMode): RuntimeMode {
     case "approval-required":
       return "full-access";
     case "full-access":
-      return "andy";
-    case "andy":
     default:
       return "approval-required";
   }
@@ -38,21 +36,15 @@ const ACCESS_MODE_META: Record<
     label: "Supervised",
     title: "Supervised — click to switch to Full access",
     textClassName:
-      "text-amber-600 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300",
-    iconClassName: "text-amber-600 dark:text-amber-400",
-  },
-  "full-access": {
-    label: "Full access",
-    title: "Full access — click to switch to Andy",
-    textClassName:
       "text-emerald-600 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-300",
     iconClassName: "text-emerald-600 dark:text-emerald-400",
   },
-  andy: {
-    label: "Andy",
-    title: "Andy — full access with automation profile (click for Supervised)",
-    textClassName: "text-sky-600 hover:text-sky-600 dark:text-sky-400 dark:hover:text-sky-300",
-    iconClassName: "text-sky-600 dark:text-sky-400",
+  "full-access": {
+    label: "Full access",
+    title: "Full access — click to switch to Supervised",
+    textClassName:
+      "text-amber-600 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300",
+    iconClassName: "text-amber-600 dark:text-amber-400",
   },
 };
 
@@ -230,11 +222,7 @@ export default function BranchToolbar({
               title={runtimeModeMeta?.title}
               data-chat-branch-runtime-mode={runtimeMode}
             >
-              {runtimeMode === "andy" ? (
-                <SparklesIcon
-                  className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
-                />
-              ) : runtimeMode === "full-access" ? (
+              {runtimeMode === "full-access" ? (
                 <LockOpenIcon
                   className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
                 />

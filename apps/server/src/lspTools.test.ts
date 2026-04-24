@@ -57,7 +57,7 @@ describe("lspTools", () => {
       expect(tool.binaryPath).toBeNull();
     }
     expect(status.tools.find((tool) => tool.id === "docker-langserver")?.fileNames).toEqual([
-      "dockerfile",
+      "Dockerfile",
     ]);
   });
 
@@ -178,6 +178,36 @@ describe("lspTools", () => {
     });
   });
 
+  it("returns tool status even when a runtime probe fails", async () => {
+    mockedIsCommandAvailable.mockImplementation((command) => command === "rustup");
+    mockedRunProcess.mockImplementation(async (command) => {
+      if (command === "rustup") {
+        throw new Error("rustup probe failed");
+      }
+      return {
+        stdout: "",
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      };
+    });
+
+    const status = await getLspToolsStatus(stateDir);
+
+    expect(status.tools).toHaveLength(18);
+    expect(status.tools.find((tool) => tool.id === "rust-analyzer")).toMatchObject({
+      installed: false,
+      binaryPath: null,
+      version: null,
+    });
+    expect(status.tools.find((tool) => tool.id === "typescript-language-server")).toMatchObject({
+      installed: false,
+      binaryPath: null,
+      version: null,
+    });
+  });
+
   it("rejects installation when npm is unavailable", async () => {
     mockedIsCommandAvailable.mockReturnValue(false);
 
@@ -188,7 +218,7 @@ describe("lspTools", () => {
   });
 
   it("installs tools with npm and returns installed status", async () => {
-    mockedIsCommandAvailable.mockReturnValue(true);
+    mockedIsCommandAvailable.mockImplementation((command) => command === "npm");
     mockedRunProcess.mockImplementation(async (_command, args) => {
       const prefixIndex = args.indexOf("--prefix");
       const installDir = String(args[prefixIndex + 1]);

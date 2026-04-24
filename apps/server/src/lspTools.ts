@@ -747,6 +747,25 @@ async function resolveInstalledBinaryPath(
   return null;
 }
 
+function formatToolProbeLabel(tool: Pick<LspToolDefinition, "id" | "command">): string {
+  return tool.id.trim().length > 0 ? tool.id : tool.command;
+}
+
+async function safeResolveInstalledBinaryPath(
+  stateDir: string,
+  tool: Pick<LspToolDefinition, "id" | "installer" | "command">,
+): Promise<string | null> {
+  try {
+    return await resolveInstalledBinaryPath(stateDir, tool);
+  } catch (error) {
+    console.warn(
+      `Failed to resolve installed language server binary for ${formatToolProbeLabel(tool)}.`,
+      error,
+    );
+    return null;
+  }
+}
+
 async function readToolVersion(
   stateDir: string,
   tool: Pick<LspToolDefinition, "installer" | "packageName" | "installPackages">,
@@ -774,6 +793,21 @@ async function readToolVersion(
     }
   }
   return null;
+}
+
+async function safeReadToolVersion(
+  stateDir: string,
+  tool: Pick<LspToolDefinition, "id" | "command" | "installer" | "packageName" | "installPackages">,
+): Promise<string | null> {
+  try {
+    return await readToolVersion(stateDir, tool);
+  } catch (error) {
+    console.warn(
+      `Failed to read language server version for ${formatToolProbeLabel(tool)}.`,
+      error,
+    );
+    return null;
+  }
 }
 
 function resolveRegistryPath(stateDir: string): string {
@@ -913,7 +947,8 @@ export async function getLspServerRegistry(
   const tools = await getLspToolDefinitions(stateDir);
   return Promise.all(
     tools.map(async (tool) => {
-      const resolvedCommand = (await resolveInstalledBinaryPath(stateDir, tool)) ?? tool.command;
+      const resolvedCommand =
+        (await safeResolveInstalledBinaryPath(stateDir, tool)) ?? tool.command;
       return toRuntimeServerDefinition(tool, resolvedCommand);
     }),
   );
@@ -925,9 +960,9 @@ export async function getLspToolsStatus(stateDir: string): Promise<ServerLspTool
 
   const tools: ServerLspToolStatus[] = await Promise.all(
     definitions.map(async (tool) => {
-      const binaryPath = await resolveInstalledBinaryPath(stateDir, tool);
+      const binaryPath = await safeResolveInstalledBinaryPath(stateDir, tool);
       const installed = binaryPath !== null;
-      const version = installed ? await readToolVersion(stateDir, tool) : null;
+      const version = installed ? await safeReadToolVersion(stateDir, tool) : null;
       return {
         id: tool.id,
         label: tool.label,

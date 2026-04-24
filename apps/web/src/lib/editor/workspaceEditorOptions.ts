@@ -25,6 +25,7 @@ export function createWorkspaceEditorOptions(
   return {
     acceptSuggestionOnCommitCharacter: editorSettings.suggestions,
     acceptSuggestionOnEnter: editorSettings.suggestions ? ("smart" as const) : ("off" as const),
+    allowOverflow: false,
     autoClosingBrackets: "always" as const,
     autoClosingComments: "always" as const,
     autoClosingDelete: "always" as const,
@@ -36,6 +37,7 @@ export function createWorkspaceEditorOptions(
     cursorBlinking: "blink" as const,
     cursorSmoothCaretAnimation: "off" as const,
     cursorSurroundingLines: 2,
+    fixedOverflowWidgets: false,
     fontFamily: WORKSPACE_EDITOR_FONT_FAMILY,
     fontLigatures: false,
     fontSize: 13,
@@ -54,6 +56,7 @@ export function createWorkspaceEditorOptions(
     minimap: { enabled: editorSettings.minimap },
     mouseWheelZoom: true,
     occurrencesHighlight: "singleFile" as const,
+    occurrencesHighlightDelay: 150,
     padding: { bottom: 0, top: 0 },
     parameterHints: { enabled: editorSettings.suggestions },
     quickSuggestions: editorSettings.suggestions
@@ -68,6 +71,9 @@ export function createWorkspaceEditorOptions(
     roundedSelection: false,
     scrollbar: WORKSPACE_EDITOR_SCROLLBAR,
     scrollBeyondLastLine: false,
+    selectionHighlight: true,
+    selectionHighlightMaxLength: 200,
+    selectionHighlightMultiline: true,
     smoothScrolling: false,
     snippetSuggestions: editorSettings.suggestions ? ("top" as const) : ("none" as const),
     stickyScroll: { enabled: editorSettings.stickyScroll },

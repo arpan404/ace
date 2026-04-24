@@ -23,6 +23,7 @@ import {
 
 import { openInPreferredEditor } from "~/editorPreferences";
 import type { ThreadEditorPaneState } from "~/editorStateStore";
+import { resolveMonacoLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
 import { projectReadFileQueryOptions } from "~/lib/projectReactQuery";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
@@ -103,52 +104,6 @@ const COMPLETION_TRIGGER_CHARACTERS = [".", "/", '"', "'", ":", "<", "@"] as con
 const WORKSPACE_MODEL_URI_SCHEME = "ace-workspace";
 
 type MonacoApi = typeof import("monaco-editor");
-
-function resolveMonacoLanguageFromFilePath(filePath: string | null): string | undefined {
-  if (!filePath) {
-    return undefined;
-  }
-  const normalizedPath = filePath.toLowerCase();
-  if (
-    normalizedPath.endsWith(".ts") ||
-    normalizedPath.endsWith(".tsx") ||
-    normalizedPath.endsWith(".mts") ||
-    normalizedPath.endsWith(".cts")
-  ) {
-    return "typescript";
-  }
-  if (
-    normalizedPath.endsWith(".js") ||
-    normalizedPath.endsWith(".jsx") ||
-    normalizedPath.endsWith(".mjs") ||
-    normalizedPath.endsWith(".cjs")
-  ) {
-    return "javascript";
-  }
-  if (normalizedPath.endsWith(".json")) {
-    return "json";
-  }
-  if (normalizedPath.endsWith(".css")) {
-    return "css";
-  }
-  if (normalizedPath.endsWith(".scss")) {
-    return "scss";
-  }
-  if (normalizedPath.endsWith(".less")) {
-    return "less";
-  }
-  if (normalizedPath.endsWith(".html") || normalizedPath.endsWith(".htm")) {
-    return "html";
-  }
-  if (normalizedPath.endsWith(".md")) {
-    return "markdown";
-  }
-  const extensionIndex = normalizedPath.lastIndexOf(".");
-  if (extensionIndex >= 0 && extensionIndex < normalizedPath.length - 1) {
-    return normalizedPath.slice(extensionIndex + 1);
-  }
-  return undefined;
-}
 
 function normalizeWorkspaceRelativePath(filePath: string): string {
   return filePath
@@ -1562,7 +1517,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
             </div>
           </div>
         ) : (
-          <div className="h-full min-h-0 min-w-0">
+          <div className="h-full min-h-0 min-w-0 overflow-hidden">
             <Editor
               key={`${props.pane.id}:${props.pane.activeFilePath ?? "empty"}:${props.resolvedTheme}`}
               height="100%"

@@ -1200,6 +1200,18 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         case "devtools":
           toggleDevTools();
           return;
+        case "designer-area-comment":
+          toggleDesignerTool("area-comment");
+          return;
+        case "designer-cursor":
+          toggleDesignerTool("cursor");
+          return;
+        case "designer-draw-comment":
+          toggleDesignerTool("draw-comment");
+          return;
+        case "designer-element-comment":
+          toggleDesignerTool("element-comment");
+          return;
         case "duplicate-tab":
           duplicateActiveTab();
           return;
@@ -1259,6 +1271,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     reload,
     setActiveTabByIndex,
     setDesignerModeActive,
+    toggleDesignerTool,
     toggleDevTools,
   ]);
 

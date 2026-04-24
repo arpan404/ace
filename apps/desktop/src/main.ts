@@ -22,7 +22,6 @@ import {
 import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
 import type {
-  BrowserShortcutAction,
   DesktopCliInstallActionResult,
   DesktopCliInstallState,
   DesktopMenuAction,
@@ -71,6 +70,7 @@ import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runti
 import { appendDesktopBootstrapWsUrl } from "./rendererBootstrapUrl";
 import { buildWebContentsContextMenuTemplate } from "./webContentsContextMenu";
 import { buildApplicationMenuTemplate } from "./applicationMenu";
+import { resolveBrowserShortcutAction } from "./browserShortcuts";
 import {
   startDesktopBackgroundNotificationService,
   type DesktopBackgroundNotificationService,
@@ -539,45 +539,6 @@ async function requestDesktopNotificationPermission(): Promise<DesktopNotificati
   });
   closeDesktopNotification(probeNotificationId);
   return getDesktopNotificationPermission();
-}
-
-function resolveBrowserShortcutAction(input: Electron.Input): BrowserShortcutAction | null {
-  if (input.type !== "keyDown") {
-    return null;
-  }
-
-  const usesMod = process.platform === "darwin" ? input.meta === true : input.control === true;
-  if (!usesMod) {
-    return null;
-  }
-
-  const key = input.key.toLowerCase();
-  if (input.alt === true) {
-    if (key === "[") return "move-tab-left";
-    if (key === "]") return "move-tab-right";
-    return null;
-  }
-
-  if (input.shift === true) {
-    if (key === "d") return "duplicate-tab";
-    if (key === "e") return "toggle-designer-mode";
-    if (key === "i") return "devtools";
-    if (key === "[") return "previous-tab";
-    if (key === "]") return "next-tab";
-    return null;
-  }
-
-  if (key === "[") return "back";
-  if (key === "]") return "forward";
-  if (key === "l") return "focus-address-bar";
-  if (key === "n") return "new-tab";
-  if (key === "r") return "reload";
-  if (key === "w") return "close-tab";
-  if (key >= "1" && key <= "9") {
-    return `select-tab-${key}` as BrowserShortcutAction;
-  }
-
-  return null;
 }
 
 function writeDesktopStreamChunk(

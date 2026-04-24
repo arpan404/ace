@@ -267,6 +267,22 @@ const PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
   },
 ] as const;
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string" &&
+    error.message.trim().length > 0
+  ) {
+    return error.message;
+  }
+  return fallback;
+}
+
 const PROVIDER_STATUS_STYLES = {
   disabled: {
     dot: "bg-amber-400",
@@ -1281,9 +1297,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         setLspToolsError(null);
       })
       .catch((error: unknown) => {
-        setLspToolsError(
-          error instanceof Error ? error.message : "Unable to load LSP tool status.",
-        );
+        setLspToolsError(getErrorMessage(error, "Unable to load LSP tool status."));
       });
   }, []);
 
@@ -1300,7 +1314,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         });
       })
       .catch((error: unknown) => {
-        setLspToolsError(error instanceof Error ? error.message : "Unable to install LSP tools.");
+        setLspToolsError(getErrorMessage(error, "Unable to install LSP tools."));
       })
       .finally(() => setIsInstallingLspTools(false));
   }, []);
@@ -1320,9 +1334,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
           });
         })
         .catch((error: unknown) => {
-          setLspToolsError(
-            error instanceof Error ? error.message : "Unable to install custom language server.",
-          );
+          setLspToolsError(getErrorMessage(error, "Unable to install custom language server."));
         })
         .finally(() => {
           setIsInstallingCustomLsp(false);
