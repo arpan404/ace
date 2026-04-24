@@ -3209,6 +3209,10 @@ describe("ProviderRuntimeIngestion", () => {
     expect(checkpoint?.status).toBe("missing");
     expect(checkpoint?.assistantMessageId).toBe("assistant:item-p1-assistant");
     expect(checkpoint?.checkpointRef).toBe("provider-diff:evt-turn-diff-updated");
+    expect(checkpoint?.files).toEqual([
+      { path: "file.txt", kind: "modified", additions: 1, deletions: 0 },
+    ]);
+    expect(checkpoint?.diff).toBe("diff --git a/file.txt b/file.txt\n+hello\n");
   });
 
   it("projects context window updates into normalized thread activities", async () => {

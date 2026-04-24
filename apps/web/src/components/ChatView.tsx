@@ -48,7 +48,6 @@ import {
   gitBranchesQueryOptions,
   gitCreateWorktreeMutationOptions,
   gitGitHubIssuesQueryOptions,
-  gitStatusQueryOptions,
 } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
@@ -1753,26 +1752,33 @@ export default function ChatView({
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
-  const liveTurnGitStatusQuery = useQuery({
-    ...gitStatusQueryOptions(gitCwd),
-    enabled: gitCwd !== null,
-    staleTime: liveTurnInProgress ? 0 : 5_000,
-    refetchInterval: liveTurnInProgress ? 1_000 : 15_000,
-  });
-  const liveTurnDiffStat = useMemo(() => {
+  const liveTurnDiffSummary = useMemo(() => {
     if (!liveTurnInProgress || !activeLatestTurn?.turnId) {
       return null;
     }
-    const status = liveTurnGitStatusQuery.data;
-    if (!status?.hasWorkingTreeChanges) {
+    return turnDiffSummaries.find((summary) => summary.turnId === activeLatestTurn.turnId) ?? null;
+  }, [activeLatestTurn?.turnId, liveTurnInProgress, turnDiffSummaries]);
+  const liveTurnDiffStat = useMemo(() => {
+    if (!liveTurnInProgress || !activeLatestTurn?.turnId || !liveTurnDiffSummary) {
+      return null;
+    }
+    const totals = liveTurnDiffSummary.files.reduce(
+      (acc, file) => ({
+        additions: acc.additions + (typeof file.additions === "number" ? file.additions : 0),
+        deletions: acc.deletions + (typeof file.deletions === "number" ? file.deletions : 0),
+      }),
+      { additions: 0, deletions: 0 },
+    );
+    if (totals.additions === 0 && totals.deletions === 0) {
       return null;
     }
     return {
       turnId: activeLatestTurn.turnId,
-      additions: status.workingTree.insertions,
-      deletions: status.workingTree.deletions,
+      additions: totals.additions,
+      deletions: totals.deletions,
+      fileCount: liveTurnDiffSummary.files.length,
     };
-  }, [activeLatestTurn?.turnId, liveTurnGitStatusQuery.data, liveTurnInProgress]);
+  }, [activeLatestTurn?.turnId, liveTurnDiffSummary, liveTurnInProgress]);
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
   const issueTriggerQuery = composerTrigger?.kind === "issue" ? composerTrigger.query : "";
@@ -6912,6 +6918,7 @@ export default function ChatView({
                         <ComposerLiveTurnDiffBanner
                           additions={liveTurnDiffStat.additions}
                           deletions={liveTurnDiffStat.deletions}
+                          fileCount={liveTurnDiffStat.fileCount}
                           onReviewChanges={() => onOpenTurnDiff(liveTurnDiffStat.turnId)}
                         />
                       ) : null}

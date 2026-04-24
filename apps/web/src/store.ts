@@ -327,6 +327,7 @@ function mapTurnDiffSummary(
     assistantMessageId: checkpoint.assistantMessageId ?? undefined,
     checkpointTurnCount: checkpoint.checkpointTurnCount,
     checkpointRef: checkpoint.checkpointRef,
+    diff: checkpoint.diff,
     files: checkpoint.files.map((file) => ({ ...file })),
   };
 }
@@ -1339,6 +1340,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           checkpointTurnCount: event.payload.checkpointTurnCount,
           checkpointRef: event.payload.checkpointRef,
           status: event.payload.status,
+          ...(event.payload.diff !== undefined ? { diff: event.payload.diff } : {}),
           files: event.payload.files,
           assistantMessageId: event.payload.assistantMessageId,
           completedAt: event.payload.completedAt,

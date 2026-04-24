@@ -609,6 +609,7 @@ export function projectEvent(
             checkpointRef: payload.checkpointRef,
             status: payload.status,
             files: payload.files,
+            ...(payload.diff !== undefined ? { diff: payload.diff } : {}),
             assistantMessageId: payload.assistantMessageId,
             completedAt: payload.completedAt,
           },
