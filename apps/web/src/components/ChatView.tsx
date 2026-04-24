@@ -48,6 +48,7 @@ import {
   gitBranchesQueryOptions,
   gitCreateWorktreeMutationOptions,
   gitGitHubIssuesQueryOptions,
+  gitStatusQueryOptions,
 } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
@@ -1779,6 +1780,46 @@ export default function ChatView({
       fileCount: liveTurnDiffSummary.files.length,
     };
   }, [activeLatestTurn?.turnId, liveTurnDiffSummary, liveTurnInProgress]);
+  const liveWorkspaceStatusQuery = useQuery({
+    ...gitStatusQueryOptions(gitCwd),
+    enabled: liveTurnInProgress && gitCwd !== null,
+    staleTime: 0,
+    refetchInterval: 1_000,
+  });
+  const composerDiffBanner = useMemo(() => {
+    if (liveTurnDiffStat) {
+      return {
+        turnId: liveTurnDiffStat.turnId,
+        additions: liveTurnDiffStat.additions,
+        deletions: liveTurnDiffStat.deletions,
+        fileCount: liveTurnDiffStat.fileCount,
+        prefixLabel: undefined,
+      };
+    }
+    if (!liveTurnInProgress || !activeLatestTurn?.turnId) {
+      return null;
+    }
+    const workingTree = liveWorkspaceStatusQuery.data?.workingTree;
+    if (
+      !workingTree ||
+      (workingTree.insertions === 0 && workingTree.deletions === 0) ||
+      workingTree.files.length === 0
+    ) {
+      return null;
+    }
+    return {
+      turnId: activeLatestTurn.turnId,
+      additions: workingTree.insertions,
+      deletions: workingTree.deletions,
+      fileCount: workingTree.files.length,
+      prefixLabel: "Workspace changes:",
+    };
+  }, [
+    activeLatestTurn?.turnId,
+    liveTurnDiffStat,
+    liveTurnInProgress,
+    liveWorkspaceStatusQuery.data,
+  ]);
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
   const issueTriggerQuery = composerTrigger?.kind === "issue" ? composerTrigger.query : "";
@@ -6914,12 +6955,15 @@ export default function ChatView({
                       className="mx-auto w-full min-w-0 max-w-208"
                       data-chat-composer-form="true"
                     >
-                      {liveTurnDiffStat ? (
+                      {composerDiffBanner ? (
                         <ComposerLiveTurnDiffBanner
-                          additions={liveTurnDiffStat.additions}
-                          deletions={liveTurnDiffStat.deletions}
-                          fileCount={liveTurnDiffStat.fileCount}
-                          onReviewChanges={() => onOpenTurnDiff(liveTurnDiffStat.turnId)}
+                          additions={composerDiffBanner.additions}
+                          deletions={composerDiffBanner.deletions}
+                          fileCount={composerDiffBanner.fileCount}
+                          {...(composerDiffBanner.prefixLabel
+                            ? { prefixLabel: composerDiffBanner.prefixLabel }
+                            : {})}
+                          onReviewChanges={() => onOpenTurnDiff(composerDiffBanner.turnId)}
                         />
                       ) : null}
                       <div

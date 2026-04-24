@@ -172,11 +172,21 @@ export type OrchestrationCheckpointFile = typeof OrchestrationCheckpointFile.Typ
 export const OrchestrationCheckpointStatus = Schema.Literals(["ready", "missing", "error"]);
 export type OrchestrationCheckpointStatus = typeof OrchestrationCheckpointStatus.Type;
 
+export const OrchestrationCheckpointDiffSource = Schema.Literals([
+  "git-checkpoint",
+  "provider-native",
+  "provider-reconstructed",
+]);
+export type OrchestrationCheckpointDiffSource = typeof OrchestrationCheckpointDiffSource.Type;
+
 export const OrchestrationCheckpointSummary = Schema.Struct({
   turnId: TurnId,
   checkpointTurnCount: NonNegativeInt,
   checkpointRef: CheckpointRef,
   status: OrchestrationCheckpointStatus,
+  source: OrchestrationCheckpointDiffSource.pipe(
+    Schema.withDecodingDefault(() => "git-checkpoint" as const),
+  ),
   files: Schema.Array(OrchestrationCheckpointFile),
   diff: Schema.optional(Schema.String),
   assistantMessageId: Schema.NullOr(MessageId),

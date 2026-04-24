@@ -13,6 +13,7 @@ export function ComposerLiveTurnDiffBanner(props: {
   additions: number;
   deletions: number;
   fileCount: number;
+  prefixLabel?: string;
   onReviewChanges: () => void;
 }) {
   if (!hasNonZeroStat({ additions: props.additions, deletions: props.deletions })) {
@@ -25,6 +26,7 @@ export function ComposerLiveTurnDiffBanner(props: {
       data-testid="composer-live-turn-diff-banner"
     >
       <div className="flex min-w-0 items-center gap-2 text-sm font-medium tabular-nums">
+        {props.prefixLabel ? <span className="text-foreground/55">{props.prefixLabel}</span> : null}
         <span className="text-success">+{formatDiffCount(props.additions)}</span>
         <span className="text-destructive">-{formatDiffCount(props.deletions)}</span>
         <span className="text-foreground/55">

@@ -324,6 +324,7 @@ function mapTurnDiffSummary(
     turnId: checkpoint.turnId,
     completedAt: checkpoint.completedAt,
     status: checkpoint.status,
+    source: checkpoint.source,
     assistantMessageId: checkpoint.assistantMessageId ?? undefined,
     checkpointTurnCount: checkpoint.checkpointTurnCount,
     checkpointRef: checkpoint.checkpointRef,
@@ -1340,6 +1341,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           checkpointTurnCount: event.payload.checkpointTurnCount,
           checkpointRef: event.payload.checkpointRef,
           status: event.payload.status,
+          source: event.payload.source,
           ...(event.payload.diff !== undefined ? { diff: event.payload.diff } : {}),
           files: event.payload.files,
           assistantMessageId: event.payload.assistantMessageId,
@@ -1349,6 +1351,13 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           (entry) => entry.turnId === checkpoint.turnId,
         );
         if (existing && existing.status !== "missing" && checkpoint.status === "missing") {
+          return thread;
+        }
+        if (
+          existing &&
+          existing.source === "provider-native" &&
+          checkpoint.source === "provider-reconstructed"
+        ) {
           return thread;
         }
         const turnDiffSummaries =
