@@ -109,6 +109,7 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarHeader,
+  SidebarMenuBadge,
   SidebarMenuAction,
   SidebarMenu,
   SidebarMenuButton,
@@ -185,8 +186,18 @@ import {
   resolveConnectionForThreadId,
   THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
 } from "../lib/connectionRouting";
-import { buildThreadBoardRouteSearch } from "../lib/chatThreadBoardRouteSearch";
-import { useChatThreadBoardStore } from "../chatThreadBoardStore";
+import {
+  buildSingleThreadRouteSearch,
+  buildThreadBoardRouteSearch,
+  THREAD_BOARD_SPLIT_SEARCH_PARAM,
+  THREAD_BOARD_THREADS_SEARCH_PARAM,
+} from "../lib/chatThreadBoardRouteSearch";
+import {
+  type ChatThreadBoardPaneState,
+  type ChatThreadBoardRowState,
+  type ChatThreadBoardSplitState,
+  useChatThreadBoardStore,
+} from "../chatThreadBoardStore";
 const THREAD_REVEAL_STEP = 5;
 const REMOTE_HOST_REFRESH_INTERVAL_MS = 20_000;
 const REMOTE_HOST_HIDDEN_REFRESH_INTERVAL_MS = 90_000;
@@ -255,28 +266,32 @@ function connectionUrlsEqual(left: string, right: string): boolean {
   return normalizeWsUrl(left) === normalizeWsUrl(right);
 }
 
-function buildSplitBoardRouteSearchForActive(input: {
-  connectionUrl: string | null;
-  threadId: ThreadId;
-}): Record<string, string | undefined> {
-  const normalizedActiveConnectionUrl = input.connectionUrl?.trim() || null;
-  const routePanes = useChatThreadBoardStore
-    .getState()
-    .panes.map((pane) => ({ connectionUrl: pane.connectionUrl, threadId: pane.threadId }));
-  const activePane = routePanes.find(
-    (pane) =>
-      pane.threadId === input.threadId && pane.connectionUrl === normalizedActiveConnectionUrl,
-  ) ?? {
-    connectionUrl: normalizedActiveConnectionUrl,
-    threadId: input.threadId,
-  };
-  const panes = routePanes.some(
-    (pane) =>
-      pane.threadId === activePane.threadId && pane.connectionUrl === activePane.connectionUrl,
-  )
-    ? routePanes
-    : [...routePanes, activePane];
-  return buildThreadBoardRouteSearch(panes, activePane);
+function orderSplitBoardPanes(
+  panes: readonly ChatThreadBoardPaneState[],
+  rows: readonly ChatThreadBoardRowState[],
+): ChatThreadBoardPaneState[] {
+  const paneById = new Map(panes.map((pane) => [pane.id, pane]));
+  const orderedPanes: ChatThreadBoardPaneState[] = [];
+  const orderedPaneIds = new Set<string>();
+
+  for (const row of rows) {
+    for (const paneId of row.paneIds) {
+      const pane = paneById.get(paneId);
+      if (!pane || orderedPaneIds.has(pane.id)) {
+        continue;
+      }
+      orderedPaneIds.add(pane.id);
+      orderedPanes.push(pane);
+    }
+  }
+
+  for (const pane of panes) {
+    if (!orderedPaneIds.has(pane.id)) {
+      orderedPanes.push(pane);
+    }
+  }
+
+  return orderedPanes;
 }
 
 function sortByUpdatedAtDescending<T extends { readonly updatedAt: string }>(
@@ -811,6 +826,15 @@ export default function Sidebar() {
   const projects = useStore((store) => store.projects);
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const sidebarThreadsById = useStore((store) => store.sidebarThreadsById);
+  const savedSplitBoard = useChatThreadBoardStore(
+    useShallow((store) => ({
+      activePaneId: store.activePaneId,
+      activeSplitId: store.activeSplitId,
+      panes: store.panes,
+      rows: store.rows,
+      splits: store.splits,
+    })),
+  );
   const threadIdsByProjectId = useStore((store) => store.threadIdsByProjectId);
   const {
     pinnedProjectIds,
@@ -903,6 +927,9 @@ export default function Sidebar() {
     thread: RemoteSidebarThreadEntry;
   } | null>(null);
   const [remoteThreadRenameTitle, setRemoteThreadRenameTitle] = useState("");
+  const [savedSplitFolderOpen, setSavedSplitFolderOpen] = useState(true);
+  const [renamingSplitId, setRenamingSplitId] = useState<string | null>(null);
+  const [renamingSplitTitle, setRenamingSplitTitle] = useState("");
   const { showThreadJumpHints, updateThreadJumpHintsVisibility } = useThreadJumpHintVisibility();
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
@@ -941,6 +968,273 @@ export default function Sidebar() {
     }
     return localDeviceConnectionUrl;
   }, [localDeviceConnectionUrl, locationSearch, routeThreadConnectionUrl]);
+  const activeRouteSplitId = useMemo(() => {
+    const params = new URLSearchParams(locationSearch);
+    const splitId = params.get(THREAD_BOARD_SPLIT_SEARCH_PARAM)?.trim();
+    return splitId ? splitId : null;
+  }, [locationSearch]);
+  const routeHasSplitThreads = useMemo(() => {
+    const params = new URLSearchParams(locationSearch);
+    return Boolean(params.get(THREAD_BOARD_THREADS_SEARCH_PARAM)?.trim());
+  }, [locationSearch]);
+  const savedSplits = useMemo(
+    () =>
+      savedSplitBoard.splits
+        .filter((split) => split.archivedAt === null)
+        .toSorted(
+          (left, right) =>
+            resolveIsoTimestamp(right.updatedAt) - resolveIsoTimestamp(left.updatedAt),
+        ),
+    [savedSplitBoard.splits],
+  );
+  const buildSplitTitle = useCallback(
+    (threads: ReadonlyArray<{ threadId: ThreadId }>) => {
+      const titles = threads
+        .map((thread) => sidebarThreadsById[thread.threadId]?.title?.trim())
+        .filter((title): title is string => Boolean(title));
+      if (titles.length === 0) {
+        return `Split ${savedSplitBoard.splits.length + 1}`;
+      }
+      if (titles.length === 1) {
+        return titles[0]!;
+      }
+      return `${titles[0]} + ${titles.length - 1}`;
+    },
+    [savedSplitBoard.splits.length, sidebarThreadsById],
+  );
+  const restoreSavedSplit = useCallback(
+    (split: ChatThreadBoardSplitState, targetPane?: ChatThreadBoardPaneState | null) => {
+      const orderedPanes = orderSplitBoardPanes(split.panes, split.rows);
+      const activePane =
+        targetPane ??
+        orderedPanes.find((pane) => pane.id === split.activePaneId) ??
+        orderedPanes[0] ??
+        null;
+      if (!activePane || orderedPanes.length <= 1) {
+        return;
+      }
+
+      for (const pane of orderedPanes) {
+        if (pane.connectionUrl) {
+          useHostConnectionStore
+            .getState()
+            .upsertThreadOwnership(pane.connectionUrl, pane.threadId);
+        }
+      }
+      useChatThreadBoardStore.getState().restoreSplit(split.id, activePane.id);
+
+      startTransition(() => {
+        void navigate({
+          to: "/$threadId",
+          params: { threadId: activePane.threadId },
+          search: buildThreadBoardRouteSearch(orderedPanes, activePane, { splitId: split.id }),
+        });
+      });
+    },
+    [navigate],
+  );
+  const navigateToCurrentSplit = useCallback(
+    (activePane: { connectionUrl: string | null; threadId: ThreadId }) => {
+      const boardState = useChatThreadBoardStore.getState();
+      const routePanes = orderSplitBoardPanes(boardState.panes, boardState.rows);
+      if (routePanes.length <= 1 || !boardState.activeSplitId) {
+        return;
+      }
+      startTransition(() => {
+        void navigate({
+          to: "/$threadId",
+          params: { threadId: activePane.threadId },
+          search: buildThreadBoardRouteSearch(routePanes, activePane, {
+            splitId: boardState.activeSplitId,
+          }),
+        });
+      });
+    },
+    [navigate],
+  );
+  const openThreadInSplit = useCallback(
+    (target: { connectionUrl: string | null; threadId: ThreadId }) => {
+      if (target.connectionUrl) {
+        useHostConnectionStore
+          .getState()
+          .upsertThreadOwnership(target.connectionUrl, target.threadId);
+      }
+
+      const shouldUpdateActiveSplit =
+        routeHasSplitThreads &&
+        activeRouteSplitId !== null &&
+        savedSplitBoard.activeSplitId === activeRouteSplitId;
+
+      if (shouldUpdateActiveSplit) {
+        useChatThreadBoardStore.getState().openThreadInBoard({
+          connectionUrl: target.connectionUrl,
+          direction: "right",
+          threadId: target.threadId,
+        });
+        navigateToCurrentSplit(target);
+        return;
+      }
+
+      const threads = routeThreadId
+        ? [
+            {
+              connectionUrl: resolveConnectionForThreadId(routeThreadId) ?? null,
+              threadId: routeThreadId,
+            },
+            target,
+          ]
+        : [target];
+      const splitId = useChatThreadBoardStore.getState().createSplit({
+        activeThread: target,
+        threads,
+        title: buildSplitTitle(threads),
+      });
+      if (!splitId) {
+        return;
+      }
+      navigateToCurrentSplit(target);
+    },
+    [
+      activeRouteSplitId,
+      buildSplitTitle,
+      navigateToCurrentSplit,
+      routeHasSplitThreads,
+      routeThreadId,
+      savedSplitBoard.activeSplitId,
+    ],
+  );
+  const openThreadsInSplit = useCallback(
+    (targets: ReadonlyArray<{ connectionUrl: string | null; threadId: ThreadId }>) => {
+      if (targets.length === 0) {
+        return;
+      }
+      for (const target of targets) {
+        if (target.connectionUrl) {
+          useHostConnectionStore
+            .getState()
+            .upsertThreadOwnership(target.connectionUrl, target.threadId);
+        }
+      }
+      const activeTarget = targets[targets.length - 1]!;
+      const shouldUpdateActiveSplit =
+        routeHasSplitThreads &&
+        activeRouteSplitId !== null &&
+        savedSplitBoard.activeSplitId === activeRouteSplitId;
+
+      if (shouldUpdateActiveSplit) {
+        useChatThreadBoardStore.getState().openThreadsInBoard(targets);
+        navigateToCurrentSplit(activeTarget);
+        return;
+      }
+
+      const threads =
+        routeThreadId === null
+          ? targets
+          : [
+              {
+                connectionUrl: resolveConnectionForThreadId(routeThreadId) ?? null,
+                threadId: routeThreadId,
+              },
+              ...targets,
+            ];
+      const splitId = useChatThreadBoardStore.getState().createSplit({
+        activeThread: activeTarget,
+        threads,
+        title: buildSplitTitle(threads),
+      });
+      if (!splitId) {
+        return;
+      }
+      navigateToCurrentSplit(activeTarget);
+    },
+    [
+      activeRouteSplitId,
+      buildSplitTitle,
+      navigateToCurrentSplit,
+      routeHasSplitThreads,
+      routeThreadId,
+      savedSplitBoard.activeSplitId,
+    ],
+  );
+  const closeActiveSplitRoute = useCallback(() => {
+    if (!routeThreadId) {
+      return;
+    }
+    startTransition(() => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: routeThreadId },
+        search: buildSingleThreadRouteSearch({
+          connectionUrl: resolveConnectionForThreadId(routeThreadId) ?? null,
+        }),
+      });
+    });
+  }, [navigate, routeThreadId]);
+  const cancelSplitRename = useCallback(() => {
+    setRenamingSplitId(null);
+    setRenamingSplitTitle("");
+  }, []);
+  const commitSplitRename = useCallback(
+    (split: ChatThreadBoardSplitState) => {
+      const title = renamingSplitTitle.trim();
+      if (!title) {
+        toastManager.add({
+          type: "warning",
+          title: "Split name cannot be empty",
+        });
+        cancelSplitRename();
+        return;
+      }
+      useChatThreadBoardStore.getState().renameSplit(split.id, title);
+      cancelSplitRename();
+    },
+    [cancelSplitRename, renamingSplitTitle],
+  );
+  const handleSplitContextMenu = useCallback(
+    async (split: ChatThreadBoardSplitState, position: { x: number; y: number }) => {
+      const api = readNativeApi();
+      if (!api) return;
+      const clicked = await api.contextMenu.show(
+        [
+          { id: "open", label: "Open split" },
+          { id: "rename", label: "Rename split" },
+          { id: "archive", label: "Archive split" },
+          { id: "delete", label: "Delete split", destructive: true },
+        ],
+        position,
+      );
+      if (clicked === "open") {
+        restoreSavedSplit(split);
+        return;
+      }
+      if (clicked === "rename") {
+        setRenamingSplitId(split.id);
+        setRenamingSplitTitle(split.title);
+        return;
+      }
+      if (clicked === "archive") {
+        useChatThreadBoardStore.getState().archiveSplit(split.id);
+        if (activeRouteSplitId === split.id) {
+          closeActiveSplitRoute();
+        }
+        return;
+      }
+      if (clicked !== "delete") {
+        return;
+      }
+      const confirmed = await api.dialogs.confirm(
+        [`Delete split "${split.title}"?`, "The threads are not deleted."].join("\n"),
+      );
+      if (!confirmed) {
+        return;
+      }
+      useChatThreadBoardStore.getState().deleteSplit(split.id);
+      if (activeRouteSplitId === split.id) {
+        closeActiveSplitRoute();
+      }
+    },
+    [activeRouteSplitId, closeActiveSplitRoute, restoreSavedSplit],
+  );
   const [remoteSidebarHosts, setRemoteSidebarHosts] = useState<
     ReadonlyArray<RemoteSidebarHostEntry>
   >(() => remoteSidebarHostSnapshotCache);
@@ -2092,20 +2386,9 @@ export default function Sidebar() {
 
       if (clicked === "open-in-board") {
         const connectionUrl = resolveConnectionForThreadId(threadId) ?? null;
-        if (connectionUrl) {
-          useHostConnectionStore.getState().upsertThreadOwnership(connectionUrl, threadId);
-        }
-        useChatThreadBoardStore.getState().openThreadInBoard({
+        openThreadInSplit({
           connectionUrl,
-          direction: "right",
           threadId,
-        });
-        startTransition(() => {
-          void navigate({
-            to: "/$threadId",
-            params: { threadId },
-            search: buildSplitBoardRouteSearchForActive({ connectionUrl, threadId }),
-          });
         });
         return;
       }
@@ -2162,7 +2445,7 @@ export default function Sidebar() {
       copyThreadIdToClipboard,
       deleteThread,
       markThreadUnread,
-      navigate,
+      openThreadInSplit,
       pinnedThreadIds,
       projectCwdById,
       sidebarThreadsById,
@@ -2192,24 +2475,7 @@ export default function Sidebar() {
           connectionUrl: resolveConnectionForThreadId(id) ?? null,
           threadId: id,
         }));
-        for (const input of boardInputs) {
-          if (input.connectionUrl) {
-            useHostConnectionStore
-              .getState()
-              .upsertThreadOwnership(input.connectionUrl, input.threadId);
-          }
-        }
-        useChatThreadBoardStore.getState().openThreadsInBoard(boardInputs);
-        const targetInput = boardInputs.at(-1);
-        if (targetInput) {
-          startTransition(() => {
-            void navigate({
-              to: "/$threadId",
-              params: { threadId: targetInput.threadId },
-              search: buildSplitBoardRouteSearchForActive(targetInput),
-            });
-          });
-        }
+        openThreadsInSplit(boardInputs);
         clearSelection();
         return;
       }
@@ -2246,7 +2512,7 @@ export default function Sidebar() {
       clearSelection,
       deleteThread,
       markThreadUnread,
-      navigate,
+      openThreadsInSplit,
       removeFromSelection,
       selectedThreadIds,
       sidebarThreadsById,
@@ -2294,13 +2560,14 @@ export default function Sidebar() {
         });
       }
       startTransition(() => {
-        const threadRouteSearch = connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl)
-          ? {}
-          : { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: connectionUrl };
         void navigate({
           to: "/$threadId",
           params: { threadId },
-          search: threadRouteSearch,
+          search: buildSingleThreadRouteSearch({
+            connectionUrl: connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl)
+              ? null
+              : connectionUrl,
+          }),
         });
       });
     },
@@ -2355,7 +2622,7 @@ export default function Sidebar() {
         void navigate({
           to: "/$threadId",
           params: { threadId },
-          search: {},
+          search: buildSingleThreadRouteSearch(),
         });
       });
     },
@@ -2388,9 +2655,7 @@ export default function Sidebar() {
         void navigate({
           to: "/$threadId",
           params: { threadId },
-          search: {
-            [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: connectionUrl,
-          },
+          search: buildSingleThreadRouteSearch({ connectionUrl }),
         });
       });
     },
@@ -2621,23 +2886,9 @@ export default function Sidebar() {
 
       if (clicked === "open-in-board") {
         const remoteThreadId = ThreadId.makeUnsafe(input.thread.id);
-        useHostConnectionStore
-          .getState()
-          .upsertThreadOwnership(input.connectionUrl, remoteThreadId);
-        useChatThreadBoardStore.getState().openThreadInBoard({
+        openThreadInSplit({
           connectionUrl: input.connectionUrl,
-          direction: "right",
           threadId: remoteThreadId,
-        });
-        startTransition(() => {
-          void navigate({
-            to: "/$threadId",
-            params: { threadId: remoteThreadId },
-            search: buildSplitBoardRouteSearchForActive({
-              connectionUrl: input.connectionUrl,
-              threadId: remoteThreadId,
-            }),
-          });
         });
         return;
       }
@@ -2715,7 +2966,7 @@ export default function Sidebar() {
       appSettings.confirmThreadDelete,
       copyPathToClipboard,
       copyThreadIdToClipboard,
-      navigate,
+      openThreadInSplit,
       removeRemoteThreadFromSidebarById,
       refreshRemoteSidebarHosts,
     ],
@@ -5173,6 +5424,95 @@ export default function Sidebar() {
 
           <SidebarFooter className="p-2.5">
             <SidebarUpdatePill />
+            {savedSplits.length > 0 ? (
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    size="sm"
+                    className="gap-2.5 px-2.5 py-2 text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+                    aria-expanded={savedSplitFolderOpen}
+                    onClick={() => {
+                      setSavedSplitFolderOpen((open) => !open);
+                    }}
+                    tooltip="Splits"
+                  >
+                    <ChevronRightIcon
+                      className={cn(
+                        "size-3.5 transition-transform duration-150",
+                        savedSplitFolderOpen && "rotate-90",
+                      )}
+                    />
+                    <FolderIcon className="size-3.5" />
+                    <span className="truncate text-xs">Splits</span>
+                  </SidebarMenuButton>
+                  <SidebarMenuBadge className="text-[10px]">{savedSplits.length}</SidebarMenuBadge>
+                </SidebarMenuItem>
+                {savedSplitFolderOpen ? (
+                  <SidebarMenuSub className="mt-1">
+                    {savedSplits.map((split) => {
+                      const paneCount = split.panes.length;
+                      const isActiveSplit = activeRouteSplitId === split.id;
+                      return (
+                        <SidebarMenuSubItem
+                          key={split.id}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            void handleSplitContextMenu(split, {
+                              x: event.clientX,
+                              y: event.clientY,
+                            });
+                          }}
+                        >
+                          {renamingSplitId === split.id ? (
+                            <form
+                              className="flex h-6 min-w-0 items-center"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                commitSplitRename(split);
+                              }}
+                            >
+                              <Input
+                                value={renamingSplitTitle}
+                                onChange={(event) => {
+                                  setRenamingSplitTitle(event.target.value);
+                                }}
+                                onBlur={() => {
+                                  commitSplitRename(split);
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Escape") {
+                                    event.preventDefault();
+                                    cancelSplitRename();
+                                  }
+                                }}
+                                className="h-6 px-2 text-[10px]"
+                                autoFocus
+                              />
+                            </form>
+                          ) : (
+                            <SidebarMenuSubButton
+                              render={<button type="button" />}
+                              size="sm"
+                              isActive={isActiveSplit}
+                              className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px]"
+                              title={split.title}
+                              onClick={() => {
+                                restoreSavedSplit(split);
+                              }}
+                            >
+                              <span className="min-w-0 flex-1 truncate">{split.title}</span>
+                              <span className="ml-auto shrink-0 text-[9px] text-muted-foreground/60">
+                                {paneCount}
+                              </span>
+                            </SidebarMenuSubButton>
+                          )}
+                        </SidebarMenuSubItem>
+                      );
+                    })}
+                  </SidebarMenuSub>
+                ) : null}
+              </SidebarMenu>
+            ) : null}
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
