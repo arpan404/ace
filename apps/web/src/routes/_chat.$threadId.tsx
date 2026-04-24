@@ -37,6 +37,7 @@ import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import {
   THREAD_BOARD_THREADS_SEARCH_PARAM,
   THREAD_BOARD_ACTIVE_SEARCH_PARAM,
+  THREAD_BOARD_SPLIT_SEARCH_PARAM,
   decodeThreadBoardRoutePane,
   parseThreadBoardRoutePanes,
 } from "../lib/chatThreadBoardRouteSearch";
@@ -54,6 +55,7 @@ const MAX_THREAD_HYDRATION_RETRY_DELAY_MS = 10_000;
 export interface ChatThreadRouteSearch extends DiffRouteSearch {
   readonly active?: string;
   readonly connection?: string;
+  readonly split?: string;
   readonly threads?: string;
 }
 
@@ -67,6 +69,10 @@ function parseChatThreadRouteSearch(search: Record<string, unknown>): ChatThread
     typeof search[THREAD_BOARD_THREADS_SEARCH_PARAM] === "string"
       ? search[THREAD_BOARD_THREADS_SEARCH_PARAM].trim()
       : "";
+  const split =
+    typeof search[THREAD_BOARD_SPLIT_SEARCH_PARAM] === "string"
+      ? search[THREAD_BOARD_SPLIT_SEARCH_PARAM].trim()
+      : "";
   const connectionRaw =
     typeof search[THREAD_ROUTE_CONNECTION_SEARCH_PARAM] === "string"
       ? search[THREAD_ROUTE_CONNECTION_SEARCH_PARAM].trim()
@@ -74,6 +80,7 @@ function parseChatThreadRouteSearch(search: Record<string, unknown>): ChatThread
   const boardSearch = {
     ...diffSearch,
     ...(active.length > 0 ? { active } : {}),
+    ...(split.length > 0 ? { split } : {}),
     ...(threads.length > 0 ? { threads } : {}),
   };
   if (connectionRaw.length === 0) {
@@ -477,6 +484,7 @@ function ChatThreadRouteView() {
             threadId={threadId}
             connectionUrl={routeConnectionUrl ?? null}
             routeActiveThread={routeActiveBoardPane ?? routePathBoardPane}
+            routeSplitId={search.split ?? null}
             routeThreads={routeBoardPanes}
           />
         </SidebarInset>
@@ -497,6 +505,7 @@ function ChatThreadRouteView() {
           threadId={threadId}
           connectionUrl={routeConnectionUrl ?? null}
           routeActiveThread={routeActiveBoardPane ?? routePathBoardPane}
+          routeSplitId={search.split ?? null}
           routeThreads={routeBoardPanes}
         />
       </SidebarInset>
@@ -511,7 +520,13 @@ export const Route = createFileRoute("/_chat/$threadId")({
   validateSearch: (search) => parseChatThreadRouteSearch(search),
   search: {
     middlewares: [
-      retainSearchParams<ChatThreadRouteSearch>(["diff", "connection", "threads", "active"]),
+      retainSearchParams<ChatThreadRouteSearch>([
+        "diff",
+        "connection",
+        "threads",
+        "active",
+        "split",
+      ]),
     ],
   },
   component: ChatThreadRouteView,

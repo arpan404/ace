@@ -19,6 +19,7 @@ import {
 } from "../../lib/connectionRouting";
 import {
   THREAD_BOARD_ACTIVE_SEARCH_PARAM,
+  THREAD_BOARD_SPLIT_SEARCH_PARAM,
   THREAD_BOARD_THREADS_SEARCH_PARAM,
   buildThreadBoardRouteSearch,
   type ChatThreadBoardRoutePane,
@@ -92,6 +93,7 @@ function ThreadBoardPane(props: {
   activePaneId: string | null;
   isPrimary: boolean;
   pane: ChatThreadBoardPaneState;
+  showSidebarTrigger: boolean;
   onClose: () => void;
   onPromote: () => void;
   setActivePane: (paneId: string) => void;
@@ -115,7 +117,7 @@ function ThreadBoardPane(props: {
         }
       }}
     >
-      <ChatView threadId={pane.threadId} splitPane />
+      <ChatView threadId={pane.threadId} showSidebarTrigger={props.showSidebarTrigger} splitPane />
 
       {!props.isPrimary ? (
         <>
@@ -150,6 +152,7 @@ function ThreadBoardPane(props: {
 export function ThreadBoard(props: {
   connectionUrl?: string | null;
   routeActiveThread?: ChatThreadBoardRoutePane | null;
+  routeSplitId?: string | null;
   routeThreads?: readonly ChatThreadBoardRoutePane[];
   threadId: ThreadId;
 }) {
@@ -162,6 +165,7 @@ export function ThreadBoard(props: {
   const rows = useChatThreadBoardStore((state) => state.rows);
   const closePane = useChatThreadBoardStore((state) => state.closePane);
   const setActivePane = useChatThreadBoardStore((state) => state.setActivePane);
+  const setActiveSplit = useChatThreadBoardStore((state) => state.setActiveSplit);
   const setGridLayout = useChatThreadBoardStore((state) => state.setGridLayout);
   const setPaneRatios = useChatThreadBoardStore((state) => state.setPaneRatios);
   const setRowRatios = useChatThreadBoardStore((state) => state.setRowRatios);
@@ -189,17 +193,20 @@ export function ThreadBoard(props: {
     if (splitRouteThreads.length <= 1) {
       return;
     }
+    setActiveSplit(props.routeSplitId ?? null);
     syncRouteThreads({
       activeThread: activeRouteThread,
       threads: splitRouteThreads,
     });
-  }, [activeRouteThread, splitRouteThreads, syncRouteThreads]);
+  }, [activeRouteThread, props.routeSplitId, setActiveSplit, splitRouteThreads, syncRouteThreads]);
 
   useEffect(() => {
     if (splitRouteThreads.length <= 1) {
       return;
     }
-    const nextSearch = buildThreadBoardRouteSearch(splitRouteThreads, activeRouteThread);
+    const nextSearch = buildThreadBoardRouteSearch(splitRouteThreads, activeRouteThread, {
+      splitId: props.routeSplitId ?? null,
+    });
     startTransition(() => {
       void navigate({
         to: "/$threadId",
@@ -211,6 +218,8 @@ export function ThreadBoard(props: {
               nextSearch[THREAD_BOARD_ACTIVE_SEARCH_PARAM] &&
             previous[THREAD_BOARD_THREADS_SEARCH_PARAM] ===
               nextSearch[THREAD_BOARD_THREADS_SEARCH_PARAM] &&
+            previous[THREAD_BOARD_SPLIT_SEARCH_PARAM] ===
+              nextSearch[THREAD_BOARD_SPLIT_SEARCH_PARAM] &&
             previous[THREAD_ROUTE_CONNECTION_SEARCH_PARAM] ===
               nextSearch[THREAD_ROUTE_CONNECTION_SEARCH_PARAM]
           ) {
@@ -223,7 +232,7 @@ export function ThreadBoard(props: {
         },
       });
     });
-  }, [activeRouteThread, navigate, props.threadId, splitRouteThreads]);
+  }, [activeRouteThread, navigate, props.routeSplitId, props.threadId, splitRouteThreads]);
 
   const primaryPane = useMemo(
     () =>
@@ -251,11 +260,11 @@ export function ThreadBoard(props: {
         void navigate({
           to: "/$threadId",
           params: { threadId: pane.threadId },
-          search: buildThreadBoardRouteSearch(panes, pane),
+          search: buildThreadBoardRouteSearch(panes, pane, { splitId: props.routeSplitId ?? null }),
         });
       });
     },
-    [navigate, panes, setActivePane],
+    [navigate, panes, props.routeSplitId, setActivePane],
   );
 
   const handleClosePane = useCallback(
@@ -277,12 +286,14 @@ export function ThreadBoard(props: {
           replace: true,
           search: (previous) => ({
             ...previous,
-            ...buildThreadBoardRouteSearch(nextPanes, nextActivePane),
+            ...buildThreadBoardRouteSearch(nextPanes, nextActivePane, {
+              splitId: props.routeSplitId ?? null,
+            }),
           }),
         });
       });
     },
-    [closePane, navigate, panes, primaryPane],
+    [closePane, navigate, panes, primaryPane, props.routeSplitId],
   );
 
   const paneResizeStateRef = useRef<{
@@ -470,6 +481,7 @@ export function ThreadBoard(props: {
                 return null;
               }
               const isPrimary = pane.id === primaryPane.id;
+              const showSidebarTrigger = rowIndex === 0 && paneIndex === 0;
               return (
                 <div
                   key={pane.id}
@@ -484,6 +496,7 @@ export function ThreadBoard(props: {
                     activePaneId={activePaneId}
                     isPrimary={isPrimary}
                     pane={pane}
+                    showSidebarTrigger={showSidebarTrigger}
                     onClose={() => {
                       handleClosePane(pane);
                     }}

@@ -327,6 +327,7 @@ const DiffPanel = lazy(() => import("./DiffPanel"));
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
 interface ChatViewProps {
+  showSidebarTrigger?: boolean;
   splitPane?: boolean;
   threadId: ThreadId;
 }
@@ -377,7 +378,11 @@ function LocalDiffPanel(props: {
   );
 }
 
-export default function ChatView({ splitPane = false, threadId }: ChatViewProps) {
+export default function ChatView({
+  showSidebarTrigger = true,
+  splitPane = false,
+  threadId,
+}: ChatViewProps) {
   const serverThread = useThreadById(threadId);
   const threads = useStore((store) => store.threads);
   const setStoreThreadError = useStore((store) => store.setError);
@@ -6743,7 +6748,7 @@ export default function ChatView({ splitPane = false, threadId }: ChatViewProps)
           isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
         )}
       >
-        <AppPageTopBar>
+        <AppPageTopBar showSidebarTrigger={showSidebarTrigger}>
           <ChatHeader
             activeThreadId={activeThread.id}
             activeThreadBranch={activeThreadBranchName}
