@@ -29,6 +29,10 @@ import { extractBranchNameFromRemoteRef } from "../remoteRefs.ts";
 import { resolveTextGenerationModelSelection } from "../textGenerationModelSelection.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { GitManagerServiceError } from "@ace/contracts";
+import {
+  parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
+  selectPreferredGitHubCloneUrl,
+} from "../githubRemote.ts";
 
 const COMMIT_TIMEOUT_MS = 10 * 60_000;
 const MAX_PROGRESS_TEXT_LENGTH = 500;
@@ -116,20 +120,6 @@ function resolvePullRequestWorktreeLocalBranchName(
   const sanitizedHeadBranch = sanitizeBranchFragment(pullRequest.headBranch).trim();
   const suffix = sanitizedHeadBranch.length > 0 ? sanitizedHeadBranch : "head";
   return `ace/pr-${pullRequest.number}/${suffix}`;
-}
-
-function parseGitHubRepositoryNameWithOwnerFromRemoteUrl(url: string | null): string | null {
-  const trimmed = url?.trim() ?? "";
-  if (trimmed.length === 0) {
-    return null;
-  }
-
-  const match =
-    /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/github\.com\/|git:\/\/github\.com\/)([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i.exec(
-      trimmed,
-    );
-  const repositoryNameWithOwner = match?.[1]?.trim() ?? "";
-  return repositoryNameWithOwner.length > 0 ? repositoryNameWithOwner : null;
 }
 
 function parseRepositoryOwnerLogin(nameWithOwner: string | null): string | null {
@@ -521,12 +511,6 @@ function toResolvedPullRequest(pr: {
   };
 }
 
-function shouldPreferSshRemote(url: string | null): boolean {
-  if (!url) return false;
-  const trimmed = url.trim();
-  return trimmed.startsWith("git@") || trimmed.startsWith("ssh://");
-}
-
 function toPullRequestHeadRemoteInfo(pr: {
   isCrossRepository?: boolean;
   headRepositoryNameWithOwner?: string | null;
@@ -588,7 +572,10 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         repository: repositoryNameWithOwner,
       });
       const originRemoteUrl = yield* gitCore.readConfigValue(cwd, "remote.origin.url");
-      const remoteUrl = shouldPreferSshRemote(originRemoteUrl) ? cloneUrls.sshUrl : cloneUrls.url;
+      const remoteUrl = selectPreferredGitHubCloneUrl({
+        currentRemoteUrl: originRemoteUrl,
+        cloneUrls,
+      });
       const preferredRemoteName =
         pullRequest.headRepositoryOwnerLogin?.trim() ||
         repositoryNameWithOwner.split("/")[0]?.trim() ||
@@ -643,7 +630,10 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         repository: repositoryNameWithOwner,
       });
       const originRemoteUrl = yield* gitCore.readConfigValue(cwd, "remote.origin.url");
-      const remoteUrl = shouldPreferSshRemote(originRemoteUrl) ? cloneUrls.sshUrl : cloneUrls.url;
+      const remoteUrl = selectPreferredGitHubCloneUrl({
+        currentRemoteUrl: originRemoteUrl,
+        cloneUrls,
+      });
       const preferredRemoteName =
         pullRequest.headRepositoryOwnerLogin?.trim() ||
         repositoryNameWithOwner.split("/")[0]?.trim() ||
@@ -683,6 +673,63 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         }),
       ),
     );
+  const localBranchExists = Effect.fn("localBranchExists")(function* (cwd: string, branch: string) {
+    const branches = yield* gitCore.listBranches({ cwd });
+    return branches.branches.some((candidate) => !candidate.isRemote && candidate.name === branch);
+  });
+
+  const resolvePullRequestLocalCheckoutBranch = Effect.fn("resolvePullRequestLocalCheckoutBranch")(
+    function* (cwd: string, pullRequest: ResolvedPullRequest & PullRequestHeadRemoteInfo) {
+      if (!pullRequest.isCrossRepository) {
+        return pullRequest.headBranch;
+      }
+
+      const headBranchAlreadyExists = yield* localBranchExists(cwd, pullRequest.headBranch).pipe(
+        Effect.catch(() => Effect.succeed(false)),
+      );
+      return headBranchAlreadyExists
+        ? resolvePullRequestWorktreeLocalBranchName(pullRequest)
+        : pullRequest.headBranch;
+    },
+  );
+
+  const checkoutPullRequestHeadWithGit = Effect.fn("checkoutPullRequestHeadWithGit")(function* (
+    cwd: string,
+    pullRequest: ResolvedPullRequest & PullRequestHeadRemoteInfo,
+  ) {
+    const localBranch = yield* resolvePullRequestLocalCheckoutBranch(cwd, pullRequest);
+    const branchExists = yield* localBranchExists(cwd, localBranch);
+
+    if (!branchExists) {
+      yield* materializePullRequestHeadBranch(cwd, pullRequest, localBranch);
+    }
+
+    yield* Effect.scoped(gitCore.checkoutBranch({ cwd, branch: localBranch }));
+    const details = yield* gitCore.statusDetails(cwd);
+    yield* configurePullRequestHeadUpstream(cwd, pullRequest, details.branch ?? localBranch);
+    return details.branch ?? localBranch;
+  });
+
+  const checkoutPullRequestHeadWithGitHubCli = Effect.fn("checkoutPullRequestHeadWithGitHubCli")(
+    function* (
+      cwd: string,
+      reference: string,
+      pullRequest: ResolvedPullRequest & PullRequestHeadRemoteInfo,
+    ) {
+      yield* gitHubCli.checkoutPullRequest({
+        cwd,
+        reference,
+        force: true,
+      });
+      const details = yield* gitCore.statusDetails(cwd);
+      yield* configurePullRequestHeadUpstream(
+        cwd,
+        pullRequest,
+        details.branch ?? pullRequest.headBranch,
+      );
+      return details.branch ?? pullRequest.headBranch;
+    },
+  );
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
@@ -1336,25 +1383,27 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         reference: normalizedReference,
       });
       const pullRequest = toResolvedPullRequest(pullRequestSummary);
+      const pullRequestWithRemoteInfo = {
+        ...pullRequest,
+        ...toPullRequestHeadRemoteInfo(pullRequestSummary),
+      } as const;
 
       if (input.mode === "local") {
-        yield* gitHubCli.checkoutPullRequest({
-          cwd: input.cwd,
-          reference: normalizedReference,
-          force: true,
-        });
-        const details = yield* gitCore.statusDetails(input.cwd);
-        yield* configurePullRequestHeadUpstream(
+        const branch = yield* checkoutPullRequestHeadWithGit(
           input.cwd,
-          {
-            ...pullRequest,
-            ...toPullRequestHeadRemoteInfo(pullRequestSummary),
-          },
-          details.branch ?? pullRequest.headBranch,
+          pullRequestWithRemoteInfo,
+        ).pipe(
+          Effect.catch(() =>
+            checkoutPullRequestHeadWithGitHubCli(
+              input.cwd,
+              normalizedReference,
+              pullRequestWithRemoteInfo,
+            ),
+          ),
         );
         return {
           pullRequest,
-          branch: details.branch ?? pullRequest.headBranch,
+          branch,
           worktreePath: null,
         };
       }
@@ -1373,10 +1422,6 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         );
       });
 
-      const pullRequestWithRemoteInfo = {
-        ...pullRequest,
-        ...toPullRequestHeadRemoteInfo(pullRequestSummary),
-      } as const;
       const localPullRequestBranch =
         resolvePullRequestWorktreeLocalBranchName(pullRequestWithRemoteInfo);
 

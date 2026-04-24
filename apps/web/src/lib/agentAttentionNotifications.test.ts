@@ -158,7 +158,7 @@ describe("deriveAgentAttentionRequests", () => {
     expect(requests[1]).toMatchObject({
       threadTitle: "Build fixes",
       kind: "approval",
-      body: "bun run lint",
+      body: "Command approval: bun run lint",
     });
   });
 
@@ -182,7 +182,7 @@ describe("deriveAgentAttentionRequests", () => {
       }),
     ]);
 
-    expect(request?.body).toBe("The agent is waiting for file read approval.");
+    expect(request?.body).toBe("Review the file read approval request.");
   });
 
   it("includes completed turns with a stable key and assistant preview", () => {
@@ -279,7 +279,7 @@ describe("deriveAgentAttentionRequests", () => {
       }),
     ]);
 
-    expect(request?.body).toBe("Run lint then bun run typecheck");
+    expect(request?.body).toBe("Command approval: Run lint then bun run typecheck");
   });
 });
 
@@ -306,8 +306,8 @@ describe("buildAgentAttentionNotificationCopy", () => {
     ]);
 
     expect(buildAgentAttentionNotificationCopy(request!)).toEqual({
-      title: "Approval needed: Build fixes",
-      body: "bun run lint",
+      title: "Build fixes needs approval",
+      body: "Command approval: bun run lint",
       tag: "ace-agent-attention:thread-approval:req-approval",
     });
   });
@@ -335,8 +335,8 @@ describe("buildAgentAttentionNotificationCopy", () => {
 
     expect(buildAgentAttentionDesktopNotificationInput(request!)).toEqual({
       id: "thread-approval:req-approval",
-      title: "Approval needed: Build fixes",
-      body: "bun run lint",
+      title: "Build fixes needs approval",
+      body: "Command approval: bun run lint",
       deepLink: "/thread-approval",
     });
   });
@@ -379,7 +379,7 @@ describe("buildAgentAttentionNotificationCopy", () => {
 
     expect(buildAgentAttentionDesktopNotificationInput(request!)).toEqual({
       id: "thread-input:req-input",
-      title: "Input needed: Build fixes",
+      title: "Build fixes needs input",
       body: "Which scope should the agent handle first?",
       deepLink: "/thread-input",
       reply: {

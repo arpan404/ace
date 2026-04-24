@@ -1,4 +1,9 @@
-import { ProjectId, ThreadId } from "@ace/contracts";
+import {
+  ProjectId,
+  ThreadId,
+  type SidebarProjectSortOrder,
+  type SidebarThreadSortOrder,
+} from "@ace/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import type { Project, SidebarThreadSummary } from "../../types";
@@ -40,6 +45,8 @@ interface UseSidebarCommandPaletteInput {
   readonly activeWsUrl: string;
   readonly localDeviceConnectionUrl: string;
   readonly threadIdsByProjectId: Readonly<Record<ProjectId, readonly ThreadId[] | undefined>>;
+  readonly projectSortOrder: SidebarProjectSortOrder;
+  readonly threadSortOrder: SidebarThreadSortOrder;
   readonly onStartAddProject: () => void;
   readonly onStartNewThreadForProject: (projectId: ProjectId) => void;
   readonly onStartNewThreadForRemoteProject: (input: {
@@ -91,13 +98,19 @@ export function useSidebarCommandPalette(
             id: thread.id,
             title: thread.title,
             updatedAt: thread.updatedAt ?? thread.createdAt,
+            lastUserMessageAt:
+              thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt ?? "",
           })),
         );
+        const lastUserMessageAt = threads.some((t) => t.lastUserMessageAt)
+          ? (threads.find((t) => t.lastUserMessageAt)?.lastUserMessageAt ?? "")
+          : "";
         return {
           id: project.id,
           name: project.name,
           cwd: project.cwd,
           updatedAt: project.updatedAt ?? threads[0]?.updatedAt ?? project.createdAt ?? "",
+          lastUserMessageAt: lastUserMessageAt,
           icon: project.icon,
           defaultModelSelection: project.defaultModelSelection,
           connectionUrl: input.activeWsUrl,
@@ -105,6 +118,32 @@ export function useSidebarCommandPalette(
         };
       },
     );
+    const resolveProjectSortTimestamp = (
+      project: CombinedSidebarSnapshotProject,
+      sortOrder: SidebarProjectSortOrder,
+    ): number => {
+      if (sortOrder === "created_at") {
+        return resolveIsoTimestamp(project.updatedAt);
+      }
+      if (sortOrder === "last_user_message") {
+        return resolveIsoTimestamp(project.lastUserMessageAt);
+      }
+      return resolveIsoTimestamp(project.updatedAt);
+    };
+
+    const resolveThreadSortTimestamp = (
+      thread: CombinedSidebarSnapshotThread,
+      sortOrder: SidebarThreadSortOrder,
+    ): number => {
+      if (sortOrder === "created_at") {
+        return resolveIsoTimestamp(thread.updatedAt);
+      }
+      if (sortOrder === "last_user_message") {
+        return resolveIsoTimestamp(thread.lastUserMessageAt);
+      }
+      return resolveIsoTimestamp(thread.updatedAt);
+    };
+
     const remoteProjectSnapshots: CombinedSidebarSnapshotProject[] = input.remoteSidebarHosts
       .filter((entry) => entry.status === "available")
       .flatMap((entry) =>
@@ -113,6 +152,7 @@ export function useSidebarCommandPalette(
           name: project.name,
           cwd: project.cwd,
           updatedAt: project.updatedAt,
+          lastUserMessageAt: project.lastUserMessageAt,
           icon: project.icon,
           defaultModelSelection: project.defaultModelSelection,
           connectionUrl: entry.connectionUrl,
@@ -121,10 +161,10 @@ export function useSidebarCommandPalette(
       );
     const projects = [...localProjectSnapshots, ...remoteProjectSnapshots].toSorted(
       (left, right) => {
-        const byUpdatedAt =
-          resolveIsoTimestamp(right.updatedAt) - resolveIsoTimestamp(left.updatedAt);
-        if (byUpdatedAt !== 0) {
-          return byUpdatedAt;
+        const leftTs = resolveProjectSortTimestamp(left, input.projectSortOrder);
+        const rightTs = resolveProjectSortTimestamp(right, input.projectSortOrder);
+        if (rightTs !== leftTs) {
+          return rightTs - leftTs;
         }
         const byName = left.name.localeCompare(right.name);
         if (byName !== 0) {
@@ -138,12 +178,14 @@ export function useSidebarCommandPalette(
     const localThreads: CombinedSidebarSnapshotThread[] = input.sortedActiveThreads.map(
       (thread) => {
         const parentProject = input.projectById.get(thread.projectId);
-        const updatedAt = thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt;
+        const lastUserMessageAt =
+          thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt;
         return {
           id: thread.id,
           title: thread.title,
           description: parentProject?.name ?? thread.worktreePath ?? thread.branch ?? "Thread",
-          updatedAt,
+          updatedAt: thread.updatedAt ?? thread.createdAt ?? "",
+          lastUserMessageAt,
           connectionUrl: input.activeWsUrl,
         };
       },
@@ -155,12 +197,15 @@ export function useSidebarCommandPalette(
           title: thread.title,
           description: project.name,
           updatedAt: thread.updatedAt,
+          lastUserMessageAt: thread.lastUserMessageAt,
           connectionUrl: project.connectionUrl,
         })),
     );
-    const threads = [...localThreads, ...remoteThreads].toSorted(
-      (left, right) => resolveIsoTimestamp(right.updatedAt) - resolveIsoTimestamp(left.updatedAt),
-    );
+    const threads = [...localThreads, ...remoteThreads].toSorted((left, right) => {
+      const leftTs = resolveThreadSortTimestamp(left, input.threadSortOrder);
+      const rightTs = resolveThreadSortTimestamp(right, input.threadSortOrder);
+      return rightTs - leftTs;
+    });
     return {
       projects,
       threads,
@@ -168,9 +213,11 @@ export function useSidebarCommandPalette(
   }, [
     input.activeWsUrl,
     input.projectById,
+    input.projectSortOrder,
     input.remoteSidebarHosts,
     input.sortedActiveThreads,
     input.sortedProjects,
+    input.threadSortOrder,
     input.visibleProjectThreadsByProjectId,
   ]);
 

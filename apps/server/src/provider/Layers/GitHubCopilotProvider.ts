@@ -1,5 +1,5 @@
 import type { GitHubCopilotSettings, ServerProvider } from "@ace/contracts";
-import { Cache, Duration, Effect, Equal, Layer, Result, Stream } from "effect";
+import { Cache, Duration, Effect, Equal, Layer, Option, Result, Stream } from "effect";
 
 import {
   buildPendingServerProvider,
@@ -8,14 +8,27 @@ import {
 } from "../providerSnapshot";
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import { GitHubCopilotProvider } from "../Services/GitHubCopilotProvider";
-import { isGitHubCopilotCliMissingError, probeGitHubCopilotSdk } from "../githubCopilotSdk";
+import {
+  type GitHubCopilotClientConfig,
+  type GitHubCopilotSdkProbe,
+  isGitHubCopilotCliMissingError,
+  probeGitHubCopilotSdk,
+} from "../githubCopilotSdk";
 import { ServerSettingsService } from "../../serverSettings";
+import { ServerConfig } from "../../config";
 import { ServerSettingsError } from "@ace/contracts";
+import { loadGitHubCopilotSdkModule } from "../providerSdkRuntime";
 
 const PROVIDER = "githubCopilot" as const;
+type GitHubCopilotProbe = (
+  binaryPath: string,
+  config?: GitHubCopilotClientConfig,
+) => Promise<GitHubCopilotSdkProbe>;
 
 export const checkGitHubCopilotProviderStatus = Effect.fn("checkGitHubCopilotProviderStatus")(
-  function* (): Effect.fn.Return<ServerProvider, ServerSettingsError, ServerSettingsService> {
+  function* (
+    probeSdk: GitHubCopilotProbe = probeGitHubCopilotSdk,
+  ): Effect.fn.Return<ServerProvider, ServerSettingsError, ServerSettingsService> {
     const settings = yield* Effect.service(ServerSettingsService).pipe(
       Effect.flatMap((service) => service.getSettings),
       Effect.map((value) => value.providers.githubCopilot),
@@ -41,7 +54,7 @@ export const checkGitHubCopilotProviderStatus = Effect.fn("checkGitHubCopilotPro
 
     const trimmedCliUrl = settings.cliUrl.trim();
     const probeResult = yield* Effect.tryPromise(() =>
-      probeGitHubCopilotSdk(
+      probeSdk(
         settings.binaryPath,
         trimmedCliUrl.length > 0 ? { cliUrl: trimmedCliUrl } : undefined,
       ),
@@ -125,6 +138,7 @@ export const checkGitHubCopilotProviderStatus = Effect.fn("checkGitHubCopilotPro
 export const GitHubCopilotProviderLive = Layer.effect(
   GitHubCopilotProvider,
   Effect.gen(function* () {
+    const serverConfigOption = yield* Effect.serviceOption(ServerConfig);
     const settingsService = yield* ServerSettingsService;
     const settingsCache = yield* Cache.make({
       capacity: 1,
@@ -135,9 +149,14 @@ export const GitHubCopilotProviderLive = Layer.effect(
         ),
     });
 
-    const checkProvider = checkGitHubCopilotProviderStatus().pipe(
-      Effect.provideService(ServerSettingsService, settingsService),
-    );
+    const checkProvider = checkGitHubCopilotProviderStatus(
+      Option.isSome(serverConfigOption)
+        ? (binaryPath, config) =>
+            probeGitHubCopilotSdk(binaryPath, config, () =>
+              loadGitHubCopilotSdkModule(serverConfigOption.value.stateDir),
+            )
+        : probeGitHubCopilotSdk,
+    ).pipe(Effect.provideService(ServerSettingsService, settingsService));
 
     return yield* makeManagedServerProvider<GitHubCopilotSettings>({
       label: "GitHub Copilot",

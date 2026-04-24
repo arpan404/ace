@@ -9,6 +9,15 @@ export const MIN_PIP_HEIGHT_PX = 216;
 export const DEFAULT_PIP_WIDTH_PX = 440;
 export const DEFAULT_PIP_HEIGHT_PX = 280;
 
+export type BrowserWebviewMouseWheelInputEvent = {
+  type: "mouseWheel";
+  x: number;
+  y: number;
+  deltaX: number;
+  deltaY: number;
+  canScroll?: boolean;
+};
+
 export const BROWSER_SEARCH_ENGINE_OPTIONS: Array<{
   label: string;
   value: BrowserSearchEngine;
@@ -34,6 +43,7 @@ export type BrowserWebview = HTMLElement & {
   loadURL: (url: string) => Promise<void>;
   openDevTools: (options?: { mode?: "detach" | "left" | "right" | "bottom" | "undocked" }) => void;
   reload: () => void;
+  sendInputEvent?: (event: BrowserWebviewMouseWheelInputEvent) => void;
   stop: () => void;
 };
 
@@ -86,6 +96,11 @@ export type BrowserTabRuntimeState = {
 export type BrowserTabSnapshot = BrowserTabRuntimeState & {
   title: string;
   url: string;
+};
+
+export type BrowserTabSnapshotOptions = {
+  persistTab?: boolean;
+  recordHistory?: boolean;
 };
 
 export type BrowserTabHandle = {

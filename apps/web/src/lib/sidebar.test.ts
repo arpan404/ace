@@ -21,7 +21,7 @@ import {
   sortThreadsForSidebar,
   THREAD_JUMP_HINT_SHOW_DELAY_MS,
 } from "./sidebar";
-import { OrchestrationLatestTurn, ProjectId, ThreadId } from "@ace/contracts";
+import { OrchestrationLatestTurn, ProjectId, ThreadId, TurnId } from "@ace/contracts";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -51,6 +51,7 @@ describe("hasUnseenCompletion", () => {
         hasPendingApprovals: false,
         hasPendingUserInput: false,
         interactionMode: "default",
+        isErrorDismissed: false,
         latestTurn: makeLatestTurn(),
         lastVisitedAt: "2026-03-09T10:04:00.000Z",
         session: null,
@@ -438,6 +439,7 @@ describe("resolveThreadStatusPill", () => {
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     interactionMode: "plan" as const,
+    isErrorDismissed: false,
     latestTurn: null,
     lastVisitedAt: undefined,
     session: {
@@ -461,6 +463,40 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Pending Approval", pulse: false });
   });
 
+  it("shows error before other states when the session fails", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          hasPendingApprovals: true,
+          session: {
+            ...baseThread.session,
+            status: "error",
+            orchestrationStatus: "error",
+            lastError: "Command exited with code 1",
+          },
+        },
+      }),
+    ).toMatchObject({ label: "Error", pulse: false });
+  });
+
+  it("does not show the error pill after that error is dismissed", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          isErrorDismissed: true,
+          session: {
+            ...baseThread.session,
+            status: "error",
+            orchestrationStatus: "error",
+            lastError: "Command exited with code 1",
+          },
+        },
+      }),
+    ).toBeNull();
+  });
+
   it("shows awaiting input when plan mode is blocked on user answers", () => {
     expect(
       resolveThreadStatusPill({
@@ -476,6 +512,23 @@ describe("resolveThreadStatusPill", () => {
     expect(
       resolveThreadStatusPill({
         thread: baseThread,
+      }),
+    ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it("prioritizes an active retry over a stale session lastError", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          session: {
+            ...baseThread.session,
+            status: "running",
+            orchestrationStatus: "running",
+            activeTurnId: TurnId.makeUnsafe("turn-retry"),
+            lastError: "Selected model is at capacity.",
+          },
+        },
       }),
     ).toMatchObject({ label: "Working", pulse: true });
   });
@@ -565,15 +618,15 @@ describe("resolveProjectStatusIndicator", () => {
     expect(
       resolveProjectStatusIndicator([
         {
-          label: "Completed",
-          colorClass: "text-emerald-600",
-          dotClass: "bg-emerald-500",
+          label: "Error",
+          colorClass: "text-rose-600",
+          dotClass: "bg-rose-500",
           pulse: false,
         },
         {
-          label: "Pending Approval",
-          colorClass: "text-amber-600",
-          dotClass: "bg-amber-500",
+          label: "Completed",
+          colorClass: "text-emerald-600",
+          dotClass: "bg-emerald-500",
           pulse: false,
         },
         {
@@ -583,7 +636,7 @@ describe("resolveProjectStatusIndicator", () => {
           pulse: true,
         },
       ]),
-    ).toMatchObject({ label: "Pending Approval", dotClass: "bg-amber-500" });
+    ).toMatchObject({ label: "Error", dotClass: "bg-rose-500" });
   });
 
   it("prefers plan-ready over completed when no stronger action is needed", () => {
@@ -834,6 +887,29 @@ describe("sortThreadsForSidebar", () => {
       ThreadId.makeUnsafe("thread-2"),
     ]);
   });
+
+  it("preserves input order when manual thread sort is selected", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-2"),
+          createdAt: "2026-03-09T10:00:00.000Z",
+          updatedAt: "2026-03-09T10:10:00.000Z",
+        }),
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-1"),
+          createdAt: "2026-03-09T10:05:00.000Z",
+          updatedAt: "2026-03-09T10:05:00.000Z",
+        }),
+      ],
+      "manual",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      ThreadId.makeUnsafe("thread-2"),
+      ThreadId.makeUnsafe("thread-1"),
+    ]);
+  });
 });
 
 describe("getFallbackThreadIdAfterDelete", () => {
@@ -944,7 +1020,7 @@ describe("sortProjectsForSidebar", () => {
       }),
     ];
 
-    const sorted = sortProjectsForSidebar(projects, threads, "updated_at");
+    const sorted = sortProjectsForSidebar(projects, threads, "last_user_message");
 
     expect(sorted.map((project) => project.id)).toEqual([
       ProjectId.makeUnsafe("project-2"),

@@ -70,5 +70,21 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         expect(resolved).toBeNull();
       }),
     );
+
+    it.effect("re-evaluates the project after an initial miss", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver;
+        const cwd = yield* makeTempDir;
+
+        const initialResolved = yield* resolver.resolvePath(cwd);
+        expect(initialResolved).toBeNull();
+
+        yield* writeTextFile(cwd, "favicon.svg", "<svg>late-favicon</svg>");
+
+        const resolvedAfterWrite = yield* resolver.resolvePath(cwd);
+        expect(resolvedAfterWrite).not.toBeNull();
+        expect(resolvedAfterWrite).toContain("favicon.svg");
+      }),
+    );
   });
 });

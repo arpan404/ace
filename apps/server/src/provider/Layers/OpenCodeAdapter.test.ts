@@ -4,11 +4,13 @@ import {
   appendOnlyDelta,
   buildOpenCodeThreadUsageSnapshot,
   classifyOpenCodeDeltaStreamKind,
+  isOpenCodeRetryStatusError,
   classifyOpenCodeToolItemType,
   isMissingOpenCodeSessionError,
   mapOpenCodeTodoStatus,
   mapOpenCodePermissionReplyDecision,
   mapOpenCodeQuestionAnswers,
+  openCodePermissionRulesForRuntimeMode,
   openCodeTimestampToIso,
   openCodeTimestampToEpochMs,
   rankOpenCodeToolStateStatus,
@@ -40,6 +42,41 @@ describe("appendOnlyDelta", () => {
 
   it("falls back to the full next value when the stream resets", () => {
     expect(appendOnlyDelta("hello world", "world")).toBe("world");
+  });
+});
+
+describe("isOpenCodeRetryStatusError", () => {
+  it("treats rate-limit retry warnings as provider errors", () => {
+    expect(
+      isOpenCodeRetryStatusError({
+        type: "retry",
+        attempt: 1,
+        message: "Free usage exceeded, subscribe to Go https://opencode.ai/go",
+      }),
+    ).toBe(true);
+    expect(
+      isOpenCodeRetryStatusError({
+        type: "retry",
+        code: 429,
+        message: "Please retry later",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps transient retry warnings non-fatal", () => {
+    expect(
+      isOpenCodeRetryStatusError({
+        type: "retry",
+        attempt: 2,
+        message: "Connection dropped, retrying shortly",
+      }),
+    ).toBe(false);
+    expect(
+      isOpenCodeRetryStatusError({
+        type: "ready",
+        message: "Free usage exceeded",
+      }),
+    ).toBe(false);
   });
 });
 
@@ -136,14 +173,29 @@ describe("mapOpenCodeTodoStatus", () => {
 });
 
 describe("readOpenCodeEventRequestId", () => {
-  it("prefers id but falls back to requestID", () => {
-    expect(readOpenCodeEventRequestId({ id: "req-1", requestID: "req-2" })).toBe("req-1");
+  it("prefers id but falls back to requestID and requestId", () => {
+    expect(
+      readOpenCodeEventRequestId({ id: "req-1", requestID: "req-2", requestId: "req-3" }),
+    ).toBe("req-1");
     expect(readOpenCodeEventRequestId({ requestID: "req-2" })).toBe("req-2");
+    expect(readOpenCodeEventRequestId({ requestId: "req-3" })).toBe("req-3");
   });
 
   it("returns undefined for missing ids", () => {
     expect(readOpenCodeEventRequestId({})).toBeUndefined();
     expect(readOpenCodeEventRequestId({ id: 123 })).toBeUndefined();
+  });
+});
+
+describe("openCodePermissionRulesForRuntimeMode", () => {
+  it("enables a wildcard allow rule for full-access mode", () => {
+    expect(openCodePermissionRulesForRuntimeMode("full-access")).toEqual([
+      { permission: "*", pattern: "*", action: "allow" },
+    ]);
+  });
+
+  it("keeps approval-required mode on OpenCode defaults", () => {
+    expect(openCodePermissionRulesForRuntimeMode("approval-required")).toBeUndefined();
   });
 });
 

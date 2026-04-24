@@ -125,6 +125,21 @@ const DEFAULT_BINDINGS = compile([
     whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
   },
   {
+    shortcut: modShortcut("t"),
+    command: "browser.newTab",
+    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
+  {
+    shortcut: modShortcut("w"),
+    command: "browser.closeTab",
+    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
+  {
+    shortcut: modShortcut("l"),
+    command: "browser.focusAddressBar",
+    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
+  {
     shortcut: modShortcut("r"),
     command: "browser.reload",
     whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
@@ -132,6 +147,16 @@ const DEFAULT_BINDINGS = compile([
   {
     shortcut: modShortcut("i", { shiftKey: true }),
     command: "browser.devtools",
+    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
+  {
+    shortcut: modShortcut("[", { shiftKey: true }),
+    command: "browser.previousTab",
+    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
+  },
+  {
+    shortcut: modShortcut("]", { shiftKey: true }),
+    command: "browser.nextTab",
     whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
   },
   {
@@ -251,8 +276,16 @@ const DEFAULT_BINDINGS = compile([
     command: "editor.moveTabRight",
     whenAst: whenIdentifier("editorFocus"),
   },
-  { shortcut: modShortcut("[", { shiftKey: true }), command: "thread.previous" },
-  { shortcut: modShortcut("]", { shiftKey: true }), command: "thread.next" },
+  {
+    shortcut: modShortcut("[", { shiftKey: true }),
+    command: "thread.previous",
+    whenAst: whenNot(whenIdentifier("browserOpen")),
+  },
+  {
+    shortcut: modShortcut("]", { shiftKey: true }),
+    command: "thread.next",
+    whenAst: whenNot(whenIdentifier("browserOpen")),
+  },
   { shortcut: modShortcut("1"), command: "thread.jump.1" },
   { shortcut: modShortcut("2"), command: "thread.jump.2" },
   { shortcut: modShortcut("3"), command: "thread.jump.3" },
@@ -458,6 +491,27 @@ describe("shortcutLabelForCommand", () => {
       "Ctrl+B",
     );
     assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.newTab", {
+        platform: "MacIntel",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "⌘T",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.closeTab", {
+        platform: "MacIntel",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "⌘W",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.focusAddressBar", {
+        platform: "MacIntel",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "⌘L",
+    );
+    assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.toggle", "Linux"),
       "Ctrl+Shift+B",
     );
@@ -474,6 +528,20 @@ describe("shortcutLabelForCommand", () => {
         context: { browserOpen: true, terminalFocus: false },
       }),
       "⇧⌘I",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.previousTab", {
+        platform: "MacIntel",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "⇧⌘[",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.nextTab", {
+        platform: "MacIntel",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "⇧⌘]",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.duplicateTab", {
@@ -727,6 +795,27 @@ describe("chat/editor shortcuts", () => {
       "browser.forward",
     );
     assert.strictEqual(
+      resolveShortcutCommand(event({ key: "t", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "browser.newTab",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "w", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "browser.closeTab",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "l", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "browser.focusAddressBar",
+    );
+    assert.strictEqual(
       resolveShortcutCommand(event({ key: "r", ctrlKey: true }), DEFAULT_BINDINGS, {
         platform: "Linux",
         context: { browserOpen: true, terminalFocus: false },
@@ -739,6 +828,20 @@ describe("chat/editor shortcuts", () => {
         context: { browserOpen: true, terminalFocus: false },
       }),
       "browser.devtools",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "[", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "browser.previousTab",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "]", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { browserOpen: true, terminalFocus: false },
+      }),
+      "browser.nextTab",
     );
     assert.strictEqual(
       resolveShortcutCommand(event({ key: "d", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {

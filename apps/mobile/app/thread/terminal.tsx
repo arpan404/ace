@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   ScrollView,
@@ -32,6 +32,17 @@ export default function TerminalScreen() {
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const outputEntries = useMemo(() => {
+    const lineOccurrences = new Map<string, number>();
+    return output.map((line) => {
+      const nextOccurrence = (lineOccurrences.get(line) ?? 0) + 1;
+      lineOccurrences.set(line, nextOccurrence);
+      return {
+        key: `${line}-${nextOccurrence}`,
+        line,
+      };
+    });
+  }, [output]);
 
   useEffect(() => {
     const conns = connectionManager.getConnections();
@@ -128,8 +139,8 @@ export default function TerminalScreen() {
               Terminal session. Type a command below.
             </Text>
           ) : (
-            output.map((line, i) => (
-              <Text key={i} style={[styles.outputLine, { color: termFg }]}>
+            outputEntries.map(({ key, line }) => (
+              <Text key={key} style={[styles.outputLine, { color: termFg }]}>
                 {line}
               </Text>
             ))

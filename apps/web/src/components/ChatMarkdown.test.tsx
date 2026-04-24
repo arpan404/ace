@@ -18,14 +18,14 @@ vi.mock("../nativeApi", () => ({
 import ChatMarkdown from "./ChatMarkdown";
 
 describe("ChatMarkdown", () => {
-  it("renders lightweight preserved text while streaming", () => {
+  it("renders assistant markdown while streaming", () => {
     const markup = renderToStaticMarkup(
       <ChatMarkdown text={"**bold**\n\n- item"} cwd={undefined} isStreaming />,
     );
 
     expect(markup).toContain('data-streaming-markdown="true"');
-    expect(markup).toContain("**bold**");
-    expect(markup).not.toContain("<strong>");
+    expect(markup).toContain("<strong>bold</strong>");
+    expect(markup).toContain("<li>item</li>");
   });
 
   it("renders markdown after streaming completes", () => {
@@ -33,6 +33,17 @@ describe("ChatMarkdown", () => {
 
     expect(markup).toContain("<strong>bold</strong>");
     expect(markup).not.toContain('data-streaming-markdown="true"');
+  });
+
+  it("renders streaming code fences as markdown code blocks", () => {
+    const markup = renderToStaticMarkup(
+      <ChatMarkdown text={"```text\nUse this exact prompt\n```"} cwd={undefined} isStreaming />,
+    );
+
+    expect(markup).toContain('data-streaming-markdown="true"');
+    expect(markup).toContain("chat-markdown-codeblock");
+    expect(markup).toContain("Use this exact prompt");
+    expect(markup).not.toContain("```text");
   });
 
   it("renders mermaid code fences with the diagram renderer", () => {

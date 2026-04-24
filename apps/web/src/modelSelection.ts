@@ -6,6 +6,7 @@ import {
 } from "@ace/contracts";
 import {
   buildProviderModelSelection,
+  formatProviderModelDisplayName,
   normalizeModelSlug,
   resolveSelectableModel,
 } from "@ace/shared/model";
@@ -120,7 +121,7 @@ export function getAppModelOptions(
   const serverModels = getProviderModels(providers, provider);
   const options: AppModelOption[] = serverModels.map(({ slug, name, isCustom }) => ({
     slug,
-    name,
+    name: formatProviderModelDisplayName(provider, slug, name),
     isCustom,
   }));
   const seen = new Set(options.map((option) => option.slug));
@@ -138,7 +139,7 @@ export function getAppModelOptions(
     seen.add(slug);
     options.push({
       slug,
-      name: slug,
+      name: formatProviderModelDisplayName(provider, slug),
       isCustom: true,
     });
   }
@@ -154,7 +155,7 @@ export function getAppModelOptions(
   ) {
     options.push({
       slug: normalizedSelectedModel,
-      name: normalizedSelectedModel,
+      name: formatProviderModelDisplayName(provider, normalizedSelectedModel),
       isCustom: true,
     });
   }

@@ -238,12 +238,12 @@ export function GitHubIssueDialog({
     >
       <DialogPopup
         showCloseButton={false}
-        className="flex h-[min(42rem,90vh)] min-h-[24rem] max-w-[min(72rem,96vw)] gap-0 overflow-hidden p-0"
+        className="flex h-[min(42rem,92vh)] min-h-[24rem] max-w-[min(72rem,calc(100vw-1rem))] gap-0 overflow-hidden p-0"
       >
-        <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(15rem,28%)_minmax(0,1fr)] overflow-hidden">
+        <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[minmax(15rem,40%)_minmax(0,1fr)] overflow-hidden md:grid-cols-[minmax(15rem,28%)_minmax(0,1fr)] md:grid-rows-none">
           {/* ── Left sidebar: issue list ── */}
-          <div className="flex min-h-0 flex-col border-e border-border/60 bg-muted/10 dark:bg-muted/5">
-            <div className="shrink-0 border-b border-border/60 px-4 py-3">
+          <div className="flex min-h-0 flex-col border-b border-border/60 bg-muted/10 dark:bg-muted/5 md:border-e md:border-b-0">
+            <div className="shrink-0 border-b border-border/60 px-3.5 py-3 sm:px-4">
               <DialogHeader className="gap-0.5 p-0 text-start">
                 <DialogTitle className="flex items-center gap-2 text-sm font-semibold tracking-tight">
                   <GitHubIcon className="size-4 opacity-80" />
@@ -252,7 +252,7 @@ export function GitHubIssueDialog({
               </DialogHeader>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col gap-1.5 px-3 pb-2 pt-2">
+            <div className="flex min-h-0 flex-1 flex-col gap-1.5 px-3 pb-2 pt-2 sm:px-3.5">
               {/* Search */}
               <label className="relative block shrink-0">
                 <SearchIcon
@@ -265,9 +265,9 @@ export function GitHubIssueDialog({
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   className={cn(
-                    "h-7 rounded-md border-border/50 bg-background/80 ps-8 text-xs shadow-none",
+                    "h-8 rounded-[var(--control-radius)] border-border/55 bg-card/72 ps-8 text-xs shadow-none",
                     "placeholder:text-muted-foreground/50",
-                    "focus-visible:border-ring/50 focus-visible:ring-1 focus-visible:ring-ring/15",
+                    "focus-visible:border-ring/50 focus-visible:ring-2 focus-visible:ring-ring/15",
                   )}
                   onKeyDown={(event) => {
                     if (event.key === "Escape") event.stopPropagation();
@@ -276,8 +276,8 @@ export function GitHubIssueDialog({
               </label>
 
               {/* Filters row */}
-              <div className="flex shrink-0 items-center gap-1">
-                <div className="inline-flex items-center overflow-hidden rounded-md border border-border/50 bg-background/60">
+              <div className="flex shrink-0 flex-wrap items-center gap-1">
+                <div className="inline-flex items-center overflow-hidden rounded-[var(--control-radius)] border border-border/50 bg-background/60">
                   {ISSUE_STATE_FILTERS.map((value) => (
                     <button
                       key={value}
@@ -294,7 +294,7 @@ export function GitHubIssueDialog({
                     </button>
                   ))}
                 </div>
-                <div className="inline-flex items-center overflow-hidden rounded-md border border-border/50 bg-background/60">
+                <div className="inline-flex items-center overflow-hidden rounded-[var(--control-radius)] border border-border/50 bg-background/60">
                   {ISSUE_LIMIT_OPTIONS.map((limit) => (
                     <button
                       key={limit}
@@ -315,7 +315,7 @@ export function GitHubIssueDialog({
                 <div className="ms-auto flex items-center gap-0.5">
                   <button
                     type="button"
-                    className="rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    className="rounded-[var(--chip-radius)] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
                     onClick={() => {
                       if (allVisibleSelected) {
                         setSelectedIssueNumbers((existing) =>
@@ -335,7 +335,7 @@ export function GitHubIssueDialog({
                   {selectedIssueNumberSet.size > 0 ? (
                     <button
                       type="button"
-                      className="rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                      className="rounded-[var(--chip-radius)] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
                       onClick={() => setSelectedIssueNumbers([])}
                     >
                       Clear
@@ -388,7 +388,7 @@ export function GitHubIssueDialog({
                             key={label}
                             type="button"
                             className={cn(
-                              "rounded-full border px-1.5 py-px text-[9px] font-medium transition-colors",
+                              "rounded-[var(--chip-radius)] border px-1.5 py-px text-[9px] font-medium transition-colors",
                               active
                                 ? "border-primary/30 bg-primary/10 text-foreground"
                                 : "border-border/40 bg-background/50 text-muted-foreground hover:text-foreground",
@@ -406,7 +406,7 @@ export function GitHubIssueDialog({
               ) : null}
 
               {errorMessage ? (
-                <div className="shrink-0 rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5 text-[11px] text-destructive">
+                <div className="shrink-0 rounded-[var(--control-radius)] border border-destructive/20 bg-destructive/5 px-2.5 py-1.5 text-[11px] text-destructive">
                   {errorMessage}
                 </div>
               ) : null}
@@ -433,7 +433,7 @@ export function GitHubIssueDialog({
                             role="option"
                             aria-selected={active}
                             className={cn(
-                              "group flex items-start gap-2 rounded-md border border-transparent px-2 py-2 transition-colors",
+                              "group flex items-start gap-2 rounded-[var(--control-radius)] border border-transparent px-2 py-2 transition-colors",
                               "hover:border-border/35 hover:bg-muted/30 dark:hover:border-border/25 dark:hover:bg-muted/15",
                               active &&
                                 "border-border/50 bg-muted/34 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.18)] dark:border-border/40 dark:bg-muted/20",
@@ -473,7 +473,7 @@ export function GitHubIssueDialog({
                                   {issue.labels.slice(0, 3).map((label) => (
                                     <span
                                       key={label.name}
-                                      className="max-w-[7rem] truncate rounded-full bg-muted/60 px-1.5 py-px text-[9px] font-medium text-muted-foreground dark:bg-muted/30"
+                                      className="max-w-[7rem] truncate rounded-[var(--chip-radius)] bg-muted/60 px-1.5 py-px text-[9px] font-medium text-muted-foreground dark:bg-muted/30"
                                     >
                                       {label.name}
                                     </span>
@@ -497,11 +497,11 @@ export function GitHubIssueDialog({
           </div>
 
           {/* ── Right panel: issue detail ── */}
-          <div className="flex min-h-0 min-w-0 flex-col bg-popover">
+          <div className="flex min-h-0 min-w-0 flex-col bg-popover md:bg-popover">
             {focusedIssue ? (
               <>
                 {/* Issue header */}
-                <div className="shrink-0 border-b border-border/50 px-6 py-4">
+                <div className="shrink-0 border-b border-border/50 px-4 py-3 sm:px-6 sm:py-4">
                   <div className="flex items-start justify-between gap-3">
                     <h2 className="min-w-0 flex-1 text-base font-semibold leading-snug tracking-tight text-foreground">
                       <span className="font-mono text-sm font-normal text-muted-foreground/70 tabular-nums">
@@ -512,7 +512,7 @@ export function GitHubIssueDialog({
                     <Button
                       variant="outline"
                       size="sm"
-                      className="shrink-0 gap-1.5 rounded-md text-xs"
+                      className="shrink-0 gap-1.5 text-xs"
                       render={<a href={focusedIssue.url} target="_blank" rel="noreferrer" />}
                     >
                       GitHub
@@ -524,7 +524,7 @@ export function GitHubIssueDialog({
                     <Badge
                       variant={focusedIssue.state === "open" ? "success" : "outline"}
                       size="sm"
-                      className="h-[18px] rounded-full px-1.5 text-[10px] font-medium capitalize"
+                      className="h-[18px] rounded-[var(--chip-radius)] px-1.5 text-[10px] font-medium capitalize"
                     >
                       {focusedIssue.state}
                     </Badge>
@@ -544,7 +544,7 @@ export function GitHubIssueDialog({
                             key={label.name}
                             variant="secondary"
                             size="sm"
-                            className="h-[18px] rounded-full px-1.5 text-[10px] font-normal"
+                            className="h-[18px] rounded-[var(--chip-radius)] px-1.5 text-[10px] font-normal"
                           >
                             {label.name}
                           </Badge>
@@ -556,13 +556,13 @@ export function GitHubIssueDialog({
 
                 {/* Issue body + comments */}
                 <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
-                  <div className="px-6 py-5">
+                  <div className="px-4 py-4 sm:px-6 sm:py-5">
                     {threadQuery.isFetching && !thread ? (
                       <GitHubIssueThreadSkeleton className="py-1" />
                     ) : thread ? (
                       <div className="space-y-5">
                         {/* Description */}
-                        <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 dark:bg-muted/5">
+                        <div className="rounded-[var(--control-radius)] border border-border/40 bg-muted/10 px-4 py-3 dark:bg-muted/5">
                           <IssueMarkdown
                             text={
                               thread.body?.trim().length ? thread.body : "No description provided."
@@ -584,7 +584,7 @@ export function GitHubIssueDialog({
                                     comment.url ??
                                     `${comment.createdAt}-${comment.author?.login ?? "unknown"}`
                                   }
-                                  className="rounded-lg border border-border/35 bg-background/50 px-4 py-3 dark:bg-background/20"
+                                  className="rounded-[var(--control-radius)] border border-border/35 bg-background/50 px-4 py-3 dark:bg-background/20"
                                 >
                                   <div className="mb-2 flex items-center gap-2 text-[11px]">
                                     <span className="font-semibold text-foreground/85">
@@ -631,8 +631,8 @@ export function GitHubIssueDialog({
             )}
 
             {/* Footer */}
-            <DialogFooter className="shrink-0 border-t border-border/50 bg-muted/10 px-6 py-2.5 dark:bg-muted/5 sm:py-2.5">
-              <span className="me-auto text-[11px] text-muted-foreground">
+            <DialogFooter className="shrink-0 border-t border-border/50 bg-muted/10 px-4 py-2.5 dark:bg-muted/5 sm:px-6 sm:py-2.5">
+              <span className="w-full text-center text-[11px] text-muted-foreground sm:me-auto sm:w-auto sm:text-left">
                 {selectedIssueNumbersForSolve.length > 1
                   ? `${selectedIssueNumbersForSolve.length} issues selected`
                   : selectedIssueNumbersForSolve.length === 1
@@ -644,7 +644,7 @@ export function GitHubIssueDialog({
                 variant="default"
                 size="sm"
                 disabled={selectedIssueNumbersForSolve.length === 0 || isSolving}
-                className="min-w-[7.5rem] rounded-md text-xs"
+                className="w-full min-w-[7.5rem] text-xs sm:w-auto"
                 onClick={() => void handleSolveSelectedIssues()}
               >
                 {isSolving ? (

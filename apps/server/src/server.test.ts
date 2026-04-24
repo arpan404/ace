@@ -24,6 +24,10 @@ import {
   type WorkspaceEditorCloseBufferResult,
   type WorkspaceEditorCompleteInput,
   type WorkspaceEditorCompleteResult,
+  type WorkspaceEditorDefinitionInput,
+  type WorkspaceEditorDefinitionResult,
+  type WorkspaceEditorReferencesInput,
+  type WorkspaceEditorReferencesResult,
   type WorkspaceEditorSyncBufferInput,
   type WorkspaceEditorSyncBufferResult,
   WS_METHODS,
@@ -303,6 +307,16 @@ const buildAppUnderTest = (options?: {
               relativePath: input.relativePath,
               items: [],
             } satisfies WorkspaceEditorCompleteResult),
+          definition: (input: WorkspaceEditorDefinitionInput) =>
+            Effect.succeed({
+              relativePath: input.relativePath,
+              locations: [],
+            } satisfies WorkspaceEditorDefinitionResult),
+          references: (input: WorkspaceEditorReferencesInput) =>
+            Effect.succeed({
+              relativePath: input.relativePath,
+              locations: [],
+            } satisfies WorkspaceEditorReferencesResult),
           syncBuffer: (input: WorkspaceEditorSyncBufferInput) =>
             Effect.succeed({
               diagnostics: [],
@@ -403,6 +417,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assert.equal(response.status, 200);
+      assert.equal(response.headers["cache-control"], "no-store");
       assert.equal(yield* response.text, "<svg>router-project-favicon</svg>");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
@@ -423,6 +438,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assert.equal(response.status, 200);
+      assert.equal(response.headers["cache-control"], "no-store");
       assert.include(yield* response.text, 'data-fallback="project-favicon"');
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
@@ -1245,10 +1261,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("routes websocket rpc workspaceEditor sync and close operations", () =>
+  it.effect("routes websocket rpc workspaceEditor LSP operations", () =>
     Effect.gen(function* () {
       let syncInput: WorkspaceEditorSyncBufferInput | null = null;
       let closeInput: WorkspaceEditorCloseBufferInput | null = null;
+      let definitionInput: WorkspaceEditorDefinitionInput | null = null;
+      let referencesInput: WorkspaceEditorReferencesInput | null = null;
 
       yield* buildAppUnderTest({
         layers: {
@@ -1286,6 +1304,38 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   items: [],
                 } satisfies WorkspaceEditorCompleteResult;
               }),
+            definition: (input) =>
+              Effect.sync(() => {
+                definitionInput = input;
+                return {
+                  relativePath: input.relativePath,
+                  locations: [
+                    {
+                      relativePath: "types/example.ts",
+                      startLine: 2,
+                      startColumn: 6,
+                      endLine: 2,
+                      endColumn: 17,
+                    },
+                  ],
+                } satisfies WorkspaceEditorDefinitionResult;
+              }),
+            references: (input) =>
+              Effect.sync(() => {
+                referencesInput = input;
+                return {
+                  relativePath: input.relativePath,
+                  locations: [
+                    {
+                      relativePath: "src/example.ts",
+                      startLine: 0,
+                      startColumn: 6,
+                      endLine: 0,
+                      endColumn: 13,
+                    },
+                  ],
+                } satisfies WorkspaceEditorReferencesResult;
+              }),
           },
         },
       });
@@ -1305,6 +1355,28 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           client[WS_METHODS.workspaceEditorCloseBuffer]({
             cwd: "/tmp/project",
             relativePath: "src/example.ts",
+          }),
+        ),
+      );
+      const definitionResponse = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.workspaceEditorDefinition]({
+            cwd: "/tmp/project",
+            relativePath: "src/example.ts",
+            contents: "const value: ExampleType = createValue();\n",
+            line: 0,
+            column: 13,
+          }),
+        ),
+      );
+      const referencesResponse = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.workspaceEditorReferences]({
+            cwd: "/tmp/project",
+            relativePath: "src/example.ts",
+            contents: "const value: ExampleType = createValue();\n",
+            line: 0,
+            column: 13,
           }),
         ),
       );
@@ -1335,6 +1407,44 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       });
       assert.deepEqual(closeResponse, {
         relativePath: "src/example.ts",
+      });
+      assert.deepEqual(definitionInput, {
+        cwd: "/tmp/project",
+        relativePath: "src/example.ts",
+        contents: "const value: ExampleType = createValue();\n",
+        line: 0,
+        column: 13,
+      });
+      assert.deepEqual(definitionResponse, {
+        relativePath: "src/example.ts",
+        locations: [
+          {
+            relativePath: "types/example.ts",
+            startLine: 2,
+            startColumn: 6,
+            endLine: 2,
+            endColumn: 17,
+          },
+        ],
+      });
+      assert.deepEqual(referencesInput, {
+        cwd: "/tmp/project",
+        relativePath: "src/example.ts",
+        contents: "const value: ExampleType = createValue();\n",
+        line: 0,
+        column: 13,
+      });
+      assert.deepEqual(referencesResponse, {
+        relativePath: "src/example.ts",
+        locations: [
+          {
+            relativePath: "src/example.ts",
+            startLine: 0,
+            startColumn: 6,
+            endLine: 0,
+            endColumn: 13,
+          },
+        ],
       });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );

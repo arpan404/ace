@@ -6,6 +6,10 @@ import type {
   WorkspaceEditorCloseBufferResult,
   WorkspaceEditorCompleteInput,
   WorkspaceEditorCompleteResult,
+  WorkspaceEditorDefinitionInput,
+  WorkspaceEditorDefinitionResult,
+  WorkspaceEditorReferencesInput,
+  WorkspaceEditorReferencesResult,
   WorkspaceEditorSyncBufferInput,
   WorkspaceEditorSyncBufferResult,
 } from "@ace/contracts";
@@ -33,6 +37,12 @@ export interface WorkspaceEditorShape {
   readonly complete: (
     input: WorkspaceEditorCompleteInput,
   ) => Effect.Effect<WorkspaceEditorCompleteResult, WorkspaceEditorError | WorkspacePathsError>;
+  readonly definition: (
+    input: WorkspaceEditorDefinitionInput,
+  ) => Effect.Effect<WorkspaceEditorDefinitionResult, WorkspaceEditorError | WorkspacePathsError>;
+  readonly references: (
+    input: WorkspaceEditorReferencesInput,
+  ) => Effect.Effect<WorkspaceEditorReferencesResult, WorkspaceEditorError | WorkspacePathsError>;
 }
 
 export class WorkspaceEditor extends ServiceMap.Service<WorkspaceEditor, WorkspaceEditorShape>()(

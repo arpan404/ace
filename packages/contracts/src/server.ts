@@ -266,14 +266,39 @@ export type ServerSearchOpenCodeModelsResult = typeof ServerSearchOpenCodeModels
 export const ServerLspToolId = TrimmedNonEmptyString;
 export type ServerLspToolId = typeof ServerLspToolId.Type;
 
+export const ServerLspToolSource = Schema.Literals(["builtin", "catalog", "custom"]);
+export type ServerLspToolSource = typeof ServerLspToolSource.Type;
+
+export const ServerLspToolInstaller = Schema.Literals(["npm", "uv-tool", "go-install", "rustup"]);
+export type ServerLspToolInstaller = typeof ServerLspToolInstaller.Type;
+
+export const ServerLspToolCategory = Schema.Literals([
+  "core",
+  "config",
+  "markup",
+  "framework",
+  "data",
+  "shell",
+  "infra",
+  "custom",
+]);
+export type ServerLspToolCategory = typeof ServerLspToolCategory.Type;
+
 export const ServerLspToolStatus = Schema.Struct({
   id: ServerLspToolId,
   label: TrimmedNonEmptyString,
+  description: TrimmedNonEmptyString,
+  source: ServerLspToolSource,
+  category: ServerLspToolCategory,
+  installer: ServerLspToolInstaller,
   command: TrimmedNonEmptyString,
   args: Schema.Array(TrimmedNonEmptyString),
   packageName: TrimmedNonEmptyString,
+  installPackages: Schema.Array(TrimmedNonEmptyString),
+  tags: Schema.Array(TrimmedNonEmptyString),
   languageIds: Schema.Array(TrimmedNonEmptyString),
   fileExtensions: Schema.Array(TrimmedNonEmptyString),
+  fileNames: Schema.Array(TrimmedNonEmptyString),
   builtin: Schema.Boolean,
   installed: Schema.Boolean,
   version: Schema.NullOr(TrimmedNonEmptyString),
@@ -316,9 +341,13 @@ export const ServerInstallLspToolInput = Schema.Struct({
   packageName: TrimmedNonEmptyString,
   command: TrimmedNonEmptyString,
   label: TrimmedNonEmptyString,
+  installer: Schema.optional(ServerLspToolInstaller),
+  description: Schema.optional(TrimmedNonEmptyString),
   args: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  installPackages: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   languageIds: Schema.Array(TrimmedNonEmptyString),
   fileExtensions: Schema.Array(TrimmedNonEmptyString),
+  fileNames: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   reinstall: Schema.optional(Schema.Boolean),
 });
 export type ServerInstallLspToolInput = typeof ServerInstallLspToolInput.Type;

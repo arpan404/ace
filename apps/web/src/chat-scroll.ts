@@ -57,6 +57,10 @@ export interface AutoScrollOnScrollDecision {
   scheduleStickToBottom: boolean;
 }
 
+export function shouldPreserveInteractionAnchorOnClick(clickDetail: number): boolean {
+  return clickDetail === 0;
+}
+
 export function resolveAutoScrollOnScroll(
   input: AutoScrollOnScrollInput,
 ): AutoScrollOnScrollDecision {

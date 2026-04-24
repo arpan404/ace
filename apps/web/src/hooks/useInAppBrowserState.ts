@@ -2,8 +2,6 @@ import type { ContextMenuItem } from "@ace/contracts";
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
-  type RefObject,
   useDeferredValue,
   useCallback,
   useEffect,
@@ -12,6 +10,7 @@ import {
   useState,
 } from "react";
 
+import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import {
@@ -21,6 +20,13 @@ import {
   type BrowserSuggestion,
   recordBrowserHistory,
 } from "~/lib/browser/history";
+import {
+  type BrowserDesignerPillPosition,
+  type BrowserDesignerTool,
+  BrowserDesignerStateSchema,
+  createBrowserDesignerState,
+  resolveBrowserDesignerStateStorageKey,
+} from "~/lib/browser/designer";
 import {
   BROWSER_PINNED_PAGES_STORAGE_KEY,
   BrowserPinnedPagesSchema,
@@ -32,7 +38,6 @@ import {
 } from "~/lib/browser/pinnedPages";
 import {
   BROWSER_NEW_TAB_URL,
-  BROWSER_SESSION_STORAGE_KEY,
   BrowserSessionStorageSchema,
   addBrowserTab,
   closeOtherBrowserTabs,
@@ -45,21 +50,16 @@ import {
   moveBrowserTab,
   normalizeBrowserSessionState,
   reorderBrowserTab,
+  resolveBrowserSessionStorageKey,
   setActiveBrowserTab,
   updateBrowserTab,
 } from "~/lib/browser/session";
-import {
-  type BrowserPipBounds,
-  clampPipBounds,
-  createDefaultPipBounds,
-  resolveViewportHeight,
-  resolveViewportRect,
-} from "~/lib/browser/shell";
 import {
   type BrowserTabHandle,
   type BrowserTabContextMenuAction,
   type BrowserTabRuntimeState,
   type BrowserTabSnapshot,
+  type BrowserTabSnapshotOptions,
   type BrowserWebviewContextMenuAction,
   DEFAULT_BROWSER_TAB_RUNTIME_STATE,
 } from "~/lib/browser/types";
@@ -83,6 +83,7 @@ export interface InAppBrowserController {
   openUrl: (rawUrl: string, options?: { newTab?: boolean }) => void;
   reload: () => void;
   setActiveTabByIndex: (index: number) => void;
+  toggleDesignerTool: (tool: BrowserDesignerTool) => void;
   toggleDevTools: () => void;
 }
 
@@ -91,14 +92,19 @@ export type ActiveBrowserRuntimeState = {
   loading: boolean;
 };
 
-export type InAppBrowserMode = "full" | "pip" | "split";
+function resolveViewportHeight(): number {
+  return typeof window !== "undefined" ? window.innerHeight : 900;
+}
+
+export type InAppBrowserMode = "full" | "split";
 
 interface UseInAppBrowserStateOptions {
+  designerModeEnabled?: boolean;
   mode: InAppBrowserMode;
   open: boolean;
+  scopeId?: string;
   onActiveRuntimeStateChange?: (state: ActiveBrowserRuntimeState) => void;
   onControllerChange?: (controller: InAppBrowserController | null) => void;
-  viewportRef?: RefObject<HTMLDivElement | null>;
 }
 
 const EMPTY_BROWSER_SUGGESTIONS: BrowserSuggestion[] = [];
@@ -132,35 +138,35 @@ export function resolveBrowserSuggestionDraftValue(suggestion: BrowserSuggestion
 }
 
 export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
-  const { mode, onActiveRuntimeStateChange, onControllerChange, open, viewportRef } = options;
+  const {
+    designerModeEnabled = true,
+    mode,
+    onActiveRuntimeStateChange,
+    onControllerChange,
+    open,
+    scopeId,
+  } = options;
   const api = readNativeApi();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
   const browserSearchEngine = settings.browserSearchEngine;
+  const browserSessionStorageKey = resolveBrowserSessionStorageKey(scopeId);
+  const browserDesignerStorageKey = resolveBrowserDesignerStateStorageKey(scopeId);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const initialAddressBarAutoFocusHandledRef = useRef(false);
   const browserContextMenuFallbackTimerRef = useRef<number | null>(null);
   const lastNativeBrowserContextMenuAtRef = useRef<number>(-Infinity);
   const webviewHandlesRef = useRef(new Map<string, BrowserTabHandle>());
-  const pipBoundsRef = useRef<BrowserPipBounds>(
-    createDefaultPipBounds(resolveViewportRect(viewportRef)),
-  );
-  const pipDragStateRef = useRef<{
-    pointerId: number;
-    startBounds: BrowserPipBounds;
-    startX: number;
-    startY: number;
-  } | null>(null);
-  const pipResizeStateRef = useRef<{
-    pointerId: number;
-    startBounds: BrowserPipBounds;
-    startX: number;
-    startY: number;
-  } | null>(null);
+  const lastRecordedBrowserHistoryUrlByTabRef = useRef(new Map<string, string>());
   const [browserSession, setBrowserSession] = useLocalStorage(
-    BROWSER_SESSION_STORAGE_KEY,
+    browserSessionStorageKey,
     createBrowserSessionState(),
     BrowserSessionStorageSchema,
+  );
+  const [designerState, setDesignerState] = useLocalStorage(
+    browserDesignerStorageKey,
+    createBrowserDesignerState(),
+    BrowserDesignerStateSchema,
   );
   const [browserHistory, setBrowserHistory] = useLocalStorage(
     BROWSER_HISTORY_STORAGE_KEY,
@@ -178,10 +184,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const [isAddressBarFocused, setIsAddressBarFocused] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
   const [tabRuntimeById, setTabRuntimeById] = useState<Record<string, BrowserTabRuntimeState>>({});
-  const [pipBounds, setPipBounds] = useState<BrowserPipBounds>(() =>
-    createDefaultPipBounds(resolveViewportRect(viewportRef)),
-  );
-
   const updateBrowserSession = useCallback(
     (updater: (state: typeof browserSession) => typeof browserSession) => {
       setBrowserSession((current) =>
@@ -206,7 +208,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const activeRuntime = activeTab
     ? (tabRuntimeById[activeTab.id] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE)
     : DEFAULT_BROWSER_TAB_RUNTIME_STATE;
-  const showAddressBarSuggestions = mode !== "pip" && isAddressBarFocused;
+  const showAddressBarSuggestions = isAddressBarFocused;
   const suggestionInput = activeTabIsInternal ? draftUrl : draftUrl || activeTabUrl;
   const deferredSuggestionInput = useDeferredValue(suggestionInput);
   const openTabs = useMemo(
@@ -766,6 +768,117 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     handle.openDevTools();
   }, [activeTab]);
 
+  const selectDesignerTool = useCallback(
+    (tool: BrowserDesignerTool) => {
+      setDesignerState((current) =>
+        current.tool === tool && current.active === (tool !== "cursor")
+          ? current
+          : {
+              ...current,
+              active: tool !== "cursor",
+              tool,
+            },
+      );
+    },
+    [setDesignerState],
+  );
+  const setDesignerModeActive = useCallback(
+    (active: boolean) => {
+      setDesignerState((current) =>
+        current.active === active &&
+        (active || current.tool === "cursor") &&
+        (!active || current.tool !== "cursor")
+          ? current
+          : {
+              ...current,
+              active,
+              tool: active ? (current.tool === "cursor" ? "area-comment" : current.tool) : "cursor",
+            },
+      );
+    },
+    [setDesignerState],
+  );
+  const toggleDesignerTool = useCallback(
+    (tool: BrowserDesignerTool) => {
+      if (activeTabIsInternal) {
+        return;
+      }
+      setDesignerState((current) => {
+        const shouldDeactivate = tool === "cursor" || (current.active && current.tool === tool);
+        if (shouldDeactivate) {
+          if (!current.active && current.tool === "cursor") {
+            return current;
+          }
+          return {
+            ...current,
+            active: false,
+            tool: "cursor",
+          };
+        }
+        return {
+          ...current,
+          active: true,
+          tool,
+        };
+      });
+    },
+    [activeTabIsInternal, setDesignerState],
+  );
+  const setDesignerPillPosition = useCallback(
+    (pillPosition: BrowserDesignerPillPosition | null) => {
+      setDesignerState((current) => {
+        const currentPosition = current.pillPosition;
+        if (currentPosition?.x === pillPosition?.x && currentPosition?.y === pillPosition?.y) {
+          return current;
+        }
+        return {
+          ...current,
+          pillPosition,
+        };
+      });
+    },
+    [setDesignerState],
+  );
+
+  const closeActiveTabEvent = useEffectEvent(closeActiveTab);
+  const closeDevToolsEvent = useEffectEvent(closeDevTools);
+  const duplicateActiveTabEvent = useEffectEvent(duplicateActiveTab);
+  const focusAddressBarEvent = useEffectEvent(focusAddressBar);
+  const goBackEvent = useEffectEvent(goBack);
+  const goForwardEvent = useEffectEvent(goForward);
+  const moveActiveTabLeftEvent = useEffectEvent(moveActiveTabLeft);
+  const moveActiveTabRightEvent = useEffectEvent(moveActiveTabRight);
+  const moveTabSelectionEvent = useEffectEvent(moveTabSelection);
+  const openDevToolsEvent = useEffectEvent(openDevTools);
+  const openNewTabEvent = useEffectEvent(openNewTab);
+  const openUrlEvent = useEffectEvent(openUrl);
+  const reloadEvent = useEffectEvent(reload);
+  const setActiveTabByIndexEvent = useEffectEvent(setActiveTabByIndex);
+  const toggleDesignerToolEvent = useEffectEvent(toggleDesignerTool);
+  const toggleDevToolsEvent = useEffectEvent(toggleDevTools);
+  const browserController = useMemo<InAppBrowserController>(
+    () => ({
+      closeActiveTab: () => closeActiveTabEvent(),
+      closeDevTools: () => closeDevToolsEvent(),
+      duplicateActiveTab: () => duplicateActiveTabEvent(),
+      focusAddressBar: () => focusAddressBarEvent(),
+      goBack: () => goBackEvent(),
+      goForward: () => goForwardEvent(),
+      moveActiveTabLeft: () => moveActiveTabLeftEvent(),
+      moveActiveTabRight: () => moveActiveTabRightEvent(),
+      goToNextTab: () => moveTabSelectionEvent(1),
+      goToPreviousTab: () => moveTabSelectionEvent(-1),
+      openDevTools: () => openDevToolsEvent(),
+      openNewTab: () => openNewTabEvent(),
+      openUrl: (rawUrl, options) => openUrlEvent(rawUrl, options),
+      reload: () => reloadEvent(),
+      setActiveTabByIndex: (index) => setActiveTabByIndexEvent(index),
+      toggleDesignerTool: (tool) => toggleDesignerToolEvent(tool),
+      toggleDevTools: () => toggleDevToolsEvent(),
+    }),
+    [],
+  );
+
   const repairBrowserStorage = useCallback(async () => {
     if (!api) {
       toastManager.add({
@@ -795,6 +908,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       }
 
       webviewHandlesRef.current.clear();
+      lastRecordedBrowserHistoryUrlByTabRef.current.clear();
       setTabRuntimeById({});
       setBrowserResetKey((current) => current + 1);
       toastManager.add({
@@ -961,10 +1075,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       return;
     }
     webviewHandlesRef.current.delete(tabId);
+    lastRecordedBrowserHistoryUrlByTabRef.current.delete(tabId);
   }, []);
 
   const handleTabSnapshotChange = useCallback(
-    (tabId: string, snapshot: BrowserTabSnapshot) => {
+    (tabId: string, snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
+      const persistTab = options?.persistTab ?? true;
+      const recordHistoryEntry = options?.recordHistory === true;
       setTabRuntimeById((current) => {
         const previous = current[tabId];
         if (
@@ -985,8 +1102,16 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           },
         };
       });
-      updateBrowserSession((current) => updateBrowserTab(current, tabId, snapshot));
-      if (!isBrowserInternalTabUrl(snapshot.url)) {
+      if (persistTab) {
+        updateBrowserSession((current) => updateBrowserTab(current, tabId, snapshot));
+      }
+      if (isBrowserInternalTabUrl(snapshot.url)) {
+        lastRecordedBrowserHistoryUrlByTabRef.current.delete(tabId);
+      } else if (
+        recordHistoryEntry &&
+        lastRecordedBrowserHistoryUrlByTabRef.current.get(tabId) !== snapshot.url
+      ) {
+        lastRecordedBrowserHistoryUrlByTabRef.current.set(tabId, snapshot.url);
         setBrowserHistory((current) =>
           recordBrowserHistory(current, {
             title: snapshot.title,
@@ -1000,96 +1125,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     [setBrowserHistory, updateBrowserSession],
   );
 
-  const syncPipBounds = useCallback(
-    (nextBounds: BrowserPipBounds) => {
-      const clamped = clampPipBounds(nextBounds, resolveViewportRect(viewportRef));
-      pipBoundsRef.current = clamped;
-      setPipBounds(clamped);
-    },
-    [viewportRef],
-  );
-
-  const handlePipDragPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (mode !== "pip" || event.button !== 0) return;
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest("button, input, form, [data-browser-control]")) {
-        return;
-      }
-      event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      pipDragStateRef.current = {
-        pointerId: event.pointerId,
-        startBounds: pipBoundsRef.current,
-        startX: event.clientX,
-        startY: event.clientY,
-      };
-    },
-    [mode],
-  );
-
-  const handlePipDragPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const dragState = pipDragStateRef.current;
-      if (!dragState || dragState.pointerId !== event.pointerId) return;
-      event.preventDefault();
-      syncPipBounds({
-        ...dragState.startBounds,
-        x: dragState.startBounds.x + (event.clientX - dragState.startX),
-        y: dragState.startBounds.y + (event.clientY - dragState.startY),
-      });
-    },
-    [syncPipBounds],
-  );
-
-  const handlePipDragPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const dragState = pipDragStateRef.current;
-    if (!dragState || dragState.pointerId !== event.pointerId) return;
-    pipDragStateRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
-
-  const handlePipResizePointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (mode !== "pip" || event.button !== 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      pipResizeStateRef.current = {
-        pointerId: event.pointerId,
-        startBounds: pipBoundsRef.current,
-        startX: event.clientX,
-        startY: event.clientY,
-      };
-    },
-    [mode],
-  );
-
-  const handlePipResizePointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const resizeState = pipResizeStateRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) return;
-      event.preventDefault();
-      syncPipBounds({
-        ...resizeState.startBounds,
-        width: resizeState.startBounds.width + (event.clientX - resizeState.startX),
-        height: resizeState.startBounds.height + (event.clientY - resizeState.startY),
-      });
-    },
-    [syncPipBounds],
-  );
-
-  const handlePipResizePointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const resizeState = pipResizeStateRef.current;
-    if (!resizeState || resizeState.pointerId !== event.pointerId) return;
-    pipResizeStateRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
-
   const browserShellStyle = useMemo<CSSProperties | undefined>(() => {
     if (mode === "full") {
       return {
@@ -1102,13 +1137,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     if (mode === "split") {
       return undefined;
     }
-    return {
-      height: `${pipBounds.height}px`,
-      left: `${pipBounds.x}px`,
-      top: `${pipBounds.y}px`,
-      width: `${pipBounds.width}px`,
-    };
-  }, [mode, pipBounds.height, pipBounds.width, pipBounds.x, pipBounds.y]);
+  }, [mode]);
 
   const browserStatusLabel = activeRuntime.devToolsOpen
     ? activeRuntime.loading
@@ -1121,6 +1150,10 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   useEffect(() => {
     setDraftUrl(activeTabIsInternal ? "" : activeTabUrl);
   }, [activeTabIsInternal, activeTabUrl]);
+
+  useEffect(() => {
+    initialAddressBarAutoFocusHandledRef.current = false;
+  }, [browserSessionStorageKey]);
 
   useEffect(() => {
     setSelectedSuggestionIndex(0);
@@ -1167,6 +1200,18 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         case "devtools":
           toggleDevTools();
           return;
+        case "designer-area-comment":
+          toggleDesignerTool("area-comment");
+          return;
+        case "designer-cursor":
+          toggleDesignerTool("cursor");
+          return;
+        case "designer-draw-comment":
+          toggleDesignerTool("draw-comment");
+          return;
+        case "designer-element-comment":
+          toggleDesignerTool("element-comment");
+          return;
         case "duplicate-tab":
           duplicateActiveTab();
           return;
@@ -1194,6 +1239,12 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         case "reload":
           reload();
           return;
+        case "toggle-designer-mode":
+          if (!designerModeEnabled || activeTabIsInternal) {
+            return;
+          }
+          setDesignerModeActive(!designerState.active);
+          return;
         default:
           if (action.startsWith("select-tab-")) {
             const index = Number.parseInt(action.slice("select-tab-".length), 10);
@@ -1204,7 +1255,10 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       }
     });
   }, [
+    activeTabIsInternal,
     closeActiveTab,
+    designerModeEnabled,
+    designerState.active,
     duplicateActiveTab,
     focusAddressBar,
     goBack,
@@ -1216,6 +1270,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     openNewTab,
     reload,
     setActiveTabByIndex,
+    setDesignerModeActive,
+    toggleDesignerTool,
     toggleDevTools,
   ]);
 
@@ -1241,35 +1297,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   }, []);
 
   useEffect(() => {
-    pipBoundsRef.current = pipBounds;
-  }, [pipBounds]);
-
-  useEffect(() => {
-    const syncBounds = () => {
-      const viewportRect = resolveViewportRect(viewportRef);
-      setPipBounds((current) => clampPipBounds(current, viewportRect));
-    };
-
-    syncBounds();
-    window.addEventListener("resize", syncBounds);
-    const viewport = viewportRef?.current;
-    const observer =
-      viewport && typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => {
-            syncBounds();
-          })
-        : null;
-    if (observer && viewport) {
-      observer.observe(viewport);
-    }
-
-    return () => {
-      window.removeEventListener("resize", syncBounds);
-      observer?.disconnect();
-    };
-  }, [viewportRef]);
-
-  useEffect(() => {
     setTabRuntimeById((current) => {
       const validIds = new Set(browserSession.tabs.map((tab) => tab.id));
       const entries = Object.entries(current).filter(([tabId]) => validIds.has(tabId));
@@ -1278,46 +1305,26 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   }, [browserSession.tabs]);
 
   useEffect(() => {
-    const controller: InAppBrowserController = {
-      closeActiveTab,
-      closeDevTools,
-      duplicateActiveTab,
-      focusAddressBar,
-      goBack,
-      goForward,
-      moveActiveTabLeft,
-      moveActiveTabRight,
-      goToNextTab: () => moveTabSelection(1),
-      goToPreviousTab: () => moveTabSelection(-1),
-      openNewTab,
-      openDevTools,
-      openUrl,
-      reload,
-      setActiveTabByIndex,
-      toggleDevTools,
-    };
-    onControllerChange?.(controller);
+    if (!activeTabIsInternal || !designerState.active) {
+      return;
+    }
+    setDesignerState((current) =>
+      current.active
+        ? {
+            ...current,
+            active: false,
+            tool: "cursor",
+          }
+        : current,
+    );
+  }, [activeTabIsInternal, designerState.active, setDesignerState]);
+
+  useEffect(() => {
+    onControllerChange?.(browserController);
     return () => {
       onControllerChange?.(null);
     };
-  }, [
-    closeActiveTab,
-    closeDevTools,
-    duplicateActiveTab,
-    focusAddressBar,
-    goBack,
-    goForward,
-    moveActiveTabLeft,
-    moveActiveTabRight,
-    moveTabSelection,
-    onControllerChange,
-    openNewTab,
-    openDevTools,
-    openUrl,
-    reload,
-    setActiveTabByIndex,
-    toggleDevTools,
-  ]);
+  }, [browserController, onControllerChange]);
 
   return {
     activateTab,
@@ -1343,18 +1350,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     closeTabsRight,
     draftUrl,
     duplicateTab,
+    designerState,
     exportPinnedPages,
     focusAddressBar,
     goBack,
     goForward,
     handleAddressBarKeyDown,
     handleBrowserKeyDownCapture,
-    handlePipDragPointerDown,
-    handlePipDragPointerEnd,
-    handlePipDragPointerMove,
-    handlePipResizePointerDown,
-    handlePipResizePointerEnd,
-    handlePipResizePointerMove,
     handleTabSnapshotChange,
     handleWebviewContextMenuFallbackRequest,
     importPinnedPages,
@@ -1373,9 +1375,12 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     reload,
     removePinnedPage,
     repairBrowserStorage,
+    selectDesignerTool,
     selectSearchEngine: (engine: typeof browserSearchEngine) => {
       updateSettings({ browserSearchEngine: engine });
     },
+    setDesignerModeActive,
+    setDesignerPillPosition,
     selectedSuggestionIndex,
     setDraftUrl,
     setIsAddressBarFocused,

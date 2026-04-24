@@ -1,8 +1,15 @@
 import { type ContextMenuItem, type NativeApi } from "@ace/contracts";
 
+import { showConfirmDialogFallback } from "./confirmDialogFallback";
 import { showContextMenuFallback } from "./contextMenuFallback";
-import { requestAppConfirm } from "./lib/appConfirm";
 import { runAsyncTask } from "./lib/async";
+import {
+  readRouteConnectionUrlFromLocation,
+  resolveConnectionForInput,
+  resolveLocalConnectionUrl,
+} from "./lib/connectionRouting";
+import { useHostConnectionStore } from "./hostConnectionStore";
+import { getRouteRpcClient } from "./lib/remoteWsRouter";
 import { resetServerStateForTests } from "./rpc/serverState";
 import { __resetWsRpcClientForTests, getWsRpcClient } from "./wsRpcClient";
 
@@ -21,7 +28,11 @@ export function createWsNativeApi(): NativeApi {
     return instance.api;
   }
 
-  const rpcClient = getWsRpcClient();
+  const localRpcClient = getWsRpcClient();
+  const resolveRpcClientForInput = (input?: unknown) =>
+    getRouteRpcClient(resolveConnectionForInput(input));
+  const resolveRpcClientForActiveRoute = () =>
+    getRouteRpcClient(readRouteConnectionUrlFromLocation() ?? resolveLocalConnectionUrl());
   if (
     !disposeHandlerRegistered &&
     typeof window !== "undefined" &&
@@ -29,7 +40,7 @@ export function createWsNativeApi(): NativeApi {
   ) {
     const disposeRpcClient = () => {
       runAsyncTask(
-        rpcClient.dispose(),
+        localRpcClient.dispose(),
         "Failed to dispose the WebSocket RPC client during page teardown.",
       );
     };
@@ -46,10 +57,10 @@ export function createWsNativeApi(): NativeApi {
             ? window.desktopBridge.pickFolder()
             : window.desktopBridge.pickFolder(options);
         }
-        return rpcClient.server.pickFolder(options ?? {});
+        return localRpcClient.server.pickFolder(options ?? {});
       },
       confirm: async (message) => {
-        return requestAppConfirm(message);
+        return showConfirmDialogFallback(message);
       },
     },
     browser: {
@@ -61,34 +72,38 @@ export function createWsNativeApi(): NativeApi {
       },
     },
     terminal: {
-      open: (input) => rpcClient.terminal.open(input as never),
-      write: (input) => rpcClient.terminal.write(input as never),
-      resize: (input) => rpcClient.terminal.resize(input as never),
-      clear: (input) => rpcClient.terminal.clear(input as never),
-      restart: (input) => rpcClient.terminal.restart(input as never),
-      close: (input) => rpcClient.terminal.close(input as never),
-      onEvent: (callback) => rpcClient.terminal.onEvent(callback),
+      open: (input) => resolveRpcClientForInput(input).terminal.open(input as never),
+      write: (input) => resolveRpcClientForInput(input).terminal.write(input as never),
+      resize: (input) => resolveRpcClientForInput(input).terminal.resize(input as never),
+      clear: (input) => resolveRpcClientForInput(input).terminal.clear(input as never),
+      restart: (input) => resolveRpcClientForInput(input).terminal.restart(input as never),
+      close: (input) => resolveRpcClientForInput(input).terminal.close(input as never),
+      onEvent: (callback) => resolveRpcClientForActiveRoute().terminal.onEvent(callback),
     },
     projects: {
-      searchEntries: rpcClient.projects.searchEntries,
-      listTree: rpcClient.projects.listTree,
-      createEntry: rpcClient.projects.createEntry,
-      deleteEntry: rpcClient.projects.deleteEntry,
-      readFile: rpcClient.projects.readFile,
-      renameEntry: rpcClient.projects.renameEntry,
-      writeFile: rpcClient.projects.writeFile,
+      searchEntries: (input) => resolveRpcClientForActiveRoute().projects.searchEntries(input),
+      listTree: (input) => resolveRpcClientForActiveRoute().projects.listTree(input),
+      createEntry: (input) => resolveRpcClientForActiveRoute().projects.createEntry(input),
+      deleteEntry: (input) => resolveRpcClientForActiveRoute().projects.deleteEntry(input),
+      readFile: (input) => resolveRpcClientForActiveRoute().projects.readFile(input),
+      renameEntry: (input) => resolveRpcClientForActiveRoute().projects.renameEntry(input),
+      writeFile: (input) => resolveRpcClientForActiveRoute().projects.writeFile(input),
     },
     filesystem: {
-      browse: rpcClient.filesystem.browse,
+      browse: (input) => resolveRpcClientForActiveRoute().filesystem.browse(input),
     },
     workspaceEditor: {
-      syncBuffer: rpcClient.workspaceEditor.syncBuffer,
-      closeBuffer: rpcClient.workspaceEditor.closeBuffer,
-      complete: rpcClient.workspaceEditor.complete,
+      syncBuffer: (input) => resolveRpcClientForActiveRoute().workspaceEditor.syncBuffer(input),
+      closeBuffer: (input) => resolveRpcClientForActiveRoute().workspaceEditor.closeBuffer(input),
+      complete: (input) => resolveRpcClientForActiveRoute().workspaceEditor.complete(input),
+      definition: (input) => resolveRpcClientForActiveRoute().workspaceEditor.definition(input),
+      references: (input) => resolveRpcClientForActiveRoute().workspaceEditor.references(input),
     },
     shell: {
-      openInEditor: (cwd, editor) => rpcClient.shell.openInEditor({ cwd, editor }),
-      revealInFileManager: (path) => rpcClient.shell.revealInFileManager({ path }),
+      openInEditor: (cwd, editor) =>
+        resolveRpcClientForActiveRoute().shell.openInEditor({ cwd, editor }),
+      revealInFileManager: (path) =>
+        resolveRpcClientForActiveRoute().shell.revealInFileManager({ path }),
       openExternal: async (url) => {
         if (window.desktopBridge) {
           const opened = await window.desktopBridge.openExternal(url);
@@ -102,53 +117,62 @@ export function createWsNativeApi(): NativeApi {
       },
     },
     git: {
-      pull: rpcClient.git.pull,
-      status: rpcClient.git.status,
-      listBranches: rpcClient.git.listBranches,
-      listGitHubIssues: rpcClient.git.listGitHubIssues,
-      getGitHubIssueThread: rpcClient.git.getGitHubIssueThread,
-      createWorktree: rpcClient.git.createWorktree,
-      removeWorktree: rpcClient.git.removeWorktree,
-      createBranch: rpcClient.git.createBranch,
-      checkout: rpcClient.git.checkout,
-      init: rpcClient.git.init,
-      resolvePullRequest: rpcClient.git.resolvePullRequest,
-      preparePullRequestThread: rpcClient.git.preparePullRequestThread,
+      pull: (input) => resolveRpcClientForActiveRoute().git.pull(input),
+      status: (input) => resolveRpcClientForActiveRoute().git.status(input),
+      listBranches: (input) => resolveRpcClientForActiveRoute().git.listBranches(input),
+      listGitHubIssues: (input) => resolveRpcClientForActiveRoute().git.listGitHubIssues(input),
+      getGitHubIssueThread: (input) =>
+        resolveRpcClientForActiveRoute().git.getGitHubIssueThread(input),
+      createWorktree: (input) => resolveRpcClientForActiveRoute().git.createWorktree(input),
+      removeWorktree: (input) => resolveRpcClientForActiveRoute().git.removeWorktree(input),
+      createBranch: (input) => resolveRpcClientForActiveRoute().git.createBranch(input),
+      checkout: (input) => resolveRpcClientForActiveRoute().git.checkout(input),
+      init: (input) => resolveRpcClientForActiveRoute().git.init(input),
+      resolvePullRequest: (input) => resolveRpcClientForActiveRoute().git.resolvePullRequest(input),
+      preparePullRequestThread: (input) =>
+        resolveRpcClientForActiveRoute().git.preparePullRequestThread(input),
     },
     contextMenu: {
       show: async <T extends string>(
         items: readonly ContextMenuItem<T>[],
         position?: { x: number; y: number },
       ): Promise<T | null> => {
-        if (window.desktopBridge) {
-          return window.desktopBridge.showContextMenu(items, position) as Promise<T | null>;
-        }
         return showContextMenuFallback(items, position);
       },
     },
     server: {
-      getConfig: rpcClient.server.getConfig,
-      refreshProviders: rpcClient.server.refreshProviders,
-      getLspToolsStatus: rpcClient.server.getLspToolsStatus,
-      installLspTools: (input) => rpcClient.server.installLspTools(input ?? {}),
-      searchLspMarketplace: rpcClient.server.searchLspMarketplace,
-      installLspTool: rpcClient.server.installLspTool,
-      searchOpenCodeModels: rpcClient.server.searchOpenCodeModels,
-      upsertKeybinding: rpcClient.server.upsertKeybinding,
-      getSettings: rpcClient.server.getSettings,
-      updateSettings: rpcClient.server.updateSettings,
+      getConfig: localRpcClient.server.getConfig,
+      refreshProviders: localRpcClient.server.refreshProviders,
+      getLspToolsStatus: localRpcClient.server.getLspToolsStatus,
+      installLspTools: (input) => localRpcClient.server.installLspTools(input ?? {}),
+      searchLspMarketplace: localRpcClient.server.searchLspMarketplace,
+      installLspTool: localRpcClient.server.installLspTool,
+      searchOpenCodeModels: localRpcClient.server.searchOpenCodeModels,
+      upsertKeybinding: localRpcClient.server.upsertKeybinding,
+      getSettings: localRpcClient.server.getSettings,
+      updateSettings: localRpcClient.server.updateSettings,
     },
     orchestration: {
-      getSnapshot: (input) => rpcClient.orchestration.getSnapshot(input),
-      getThread: rpcClient.orchestration.getThread,
-      dispatchCommand: rpcClient.orchestration.dispatchCommand,
-      getTurnDiff: rpcClient.orchestration.getTurnDiff,
-      getFullThreadDiff: rpcClient.orchestration.getFullThreadDiff,
+      getSnapshot: (input) => resolveRpcClientForInput(input).orchestration.getSnapshot(input),
+      getThread: (input) => resolveRpcClientForInput(input).orchestration.getThread(input),
+      dispatchCommand: async (input) => {
+        const connectionUrl = resolveConnectionForInput(input);
+        const response =
+          await getRouteRpcClient(connectionUrl).orchestration.dispatchCommand(input);
+        if (input.type === "thread.create") {
+          useHostConnectionStore.getState().upsertThreadOwnership(connectionUrl, input.threadId);
+        }
+        return response;
+      },
+      getTurnDiff: (input) => resolveRpcClientForInput(input).orchestration.getTurnDiff(input),
+      getFullThreadDiff: (input) =>
+        resolveRpcClientForInput(input).orchestration.getFullThreadDiff(input),
       replayEvents: (fromSequenceExclusive) =>
-        rpcClient.orchestration
-          .replayEvents({ fromSequenceExclusive })
+        resolveRpcClientForActiveRoute()
+          .orchestration.replayEvents({ fromSequenceExclusive })
           .then((events) => [...events]),
-      onDomainEvent: (callback) => rpcClient.orchestration.onDomainEvent(callback),
+      onDomainEvent: (callback) =>
+        resolveRpcClientForActiveRoute().orchestration.onDomainEvent(callback),
     },
   };
 

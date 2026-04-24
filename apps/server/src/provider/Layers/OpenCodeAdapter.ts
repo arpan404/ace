@@ -11,6 +11,7 @@ import type {
   Message as OpenCodeSdkMessage,
   OpencodeClient,
   Part as OpenCodeSdkPart,
+  PermissionRuleset,
   PermissionRequest as OpenCodeSdkPermissionRequest,
   QuestionRequest as OpenCodeSdkQuestionRequest,
   ReasoningPart as OpenCodeSdkReasoningPart,
@@ -20,6 +21,7 @@ import type {
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   EventId,
+  isFullAccessRuntimeMode,
   type ModelSelection,
   type ProviderApprovalDecision,
   type ProviderRuntimeEvent,
@@ -525,6 +527,43 @@ function nonEmptyString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+const OPENCODE_RETRY_ERROR_MESSAGE_FRAGMENTS = [
+  "rate limit",
+  "free usage exceeded",
+  "usage exceeded",
+  "quota exceeded",
+  "too many requests",
+] as const;
+
+export function isOpenCodeRetryStatusError(status: unknown): boolean {
+  const record = asRecord(status);
+  if (!record || record.type !== "retry") {
+    return false;
+  }
+
+  if (asNumber(record.code) === 429 || asNumber(record.status) === 429) {
+    return true;
+  }
+
+  const nestedError = asRecord(record.error);
+  if (asNumber(nestedError?.code) === 429 || asNumber(nestedError?.status) === 429) {
+    return true;
+  }
+
+  const messageCandidates = [
+    nonEmptyString(record.message),
+    nonEmptyString(record.reason),
+    nonEmptyString(nestedError?.message),
+  ];
+  return messageCandidates.some((message) => {
+    if (!message) {
+      return false;
+    }
+    const lower = message.toLowerCase();
+    return OPENCODE_RETRY_ERROR_MESSAGE_FRAGMENTS.some((fragment) => lower.includes(fragment));
+  });
+}
+
 function safeJsonStringify(value: unknown): string | undefined {
   if (value === undefined) {
     return undefined;
@@ -606,6 +645,15 @@ function classifyOpenCodePermission(
     return "file_read_approval";
   }
   return "dynamic_tool_call";
+}
+
+export function openCodePermissionRulesForRuntimeMode(
+  runtimeMode: ProviderSession["runtimeMode"],
+): PermissionRuleset | undefined {
+  if (!isFullAccessRuntimeMode(runtimeMode)) {
+    return undefined;
+  }
+  return [{ permission: "*", pattern: "*", action: "allow" }];
 }
 
 export function classifyOpenCodeToolItemType(toolName: string): OpenCodeToolItemType {
@@ -792,7 +840,9 @@ export function readOpenCodeEventRequestId(
     ? properties.id
     : typeof properties.requestID === "string"
       ? properties.requestID
-      : undefined;
+      : typeof properties.requestId === "string"
+        ? properties.requestId
+        : undefined;
 }
 
 export function mapOpenCodePermissionReplyDecision(
@@ -1554,13 +1604,29 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         if (status.type !== "retry") {
           return;
         }
+        const message = nonEmptyString(status.message) ?? "OpenCode is retrying the request.";
+        const detail = safeJsonStringify(status);
+        if (isOpenCodeRetryStatusError(status)) {
+          emit(
+            sseEvent({
+              type: "runtime.error",
+              ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
+              payload: {
+                message,
+                class: "provider_error",
+                ...(detail ? { detail } : {}),
+              },
+            }),
+          );
+          return;
+        }
         emit(
           sseEvent({
             type: "runtime.warning",
             ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
             payload: {
-              message: nonEmptyString(status.message) ?? "OpenCode is retrying the request.",
-              ...(safeJsonStringify(status) ? { detail: safeJsonStringify(status) } : {}),
+              message,
+              ...(detail ? { detail } : {}),
             },
           }),
         );
@@ -1641,7 +1707,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         return;
       }
       case "permission.replied": {
-        const requestId = event.properties.requestID;
+        const requestId = readOpenCodeEventRequestId(event.properties);
         if (!requestId) {
           return;
         }
@@ -1688,7 +1754,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         return;
       }
       case "question.replied": {
-        const requestId = event.properties.requestID;
+        const requestId = readOpenCodeEventRequestId(event.properties);
         if (!requestId) {
           return;
         }
@@ -1711,7 +1777,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         return;
       }
       case "question.rejected": {
-        const requestId = event.properties.requestID;
+        const requestId = readOpenCodeEventRequestId(event.properties);
         if (!requestId) {
           return;
         }
@@ -1804,9 +1870,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           const defaultModels = body?.default ?? {};
 
           const createSession = async (): Promise<string> => {
+            const permission = openCodePermissionRulesForRuntimeMode(input.runtimeMode);
             const created = await client.session.create({
               directory: cwd,
               ...(input.threadTitle ? { title: input.threadTitle } : {}),
+              ...(permission ? { permission } : {}),
             });
             if (created.error || !created.data) {
               throw new ProviderAdapterRequestError({

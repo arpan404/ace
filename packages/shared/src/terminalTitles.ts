@@ -1,4 +1,29 @@
 const TERMINAL_COMMAND_CONNECTOR = /\s*(?:&&|\|\||[|;])\s*/;
+const GENERIC_TERMINAL_TITLES = new Set([
+  "ace",
+  "bash",
+  "cmd",
+  "cmd.exe",
+  "fish",
+  "oa",
+  "powershell",
+  "pwsh",
+  "sh",
+  "shell",
+  "terminal",
+  "zsh",
+]);
+const WRAPPER_BINARIES = new Set(["ace", "oa"]);
+const SHELL_BINARIES = new Set([
+  "bash",
+  "cmd",
+  "cmd.exe",
+  "fish",
+  "powershell",
+  "pwsh",
+  "sh",
+  "zsh",
+]);
 
 function basename(pathValue: string): string {
   const normalized = pathValue.trim().replace(/[\\/]+$/, "");
@@ -11,6 +36,10 @@ function normalizeTerminalTitle(title: string): string | null {
   const normalized = title.trim().replace(/\s+/g, " ");
   if (normalized.length === 0) return null;
   return normalized.slice(0, 80);
+}
+
+function isGenericTerminalTitle(title: string): boolean {
+  return GENERIC_TERMINAL_TITLES.has(title.trim().toLowerCase());
 }
 
 function stripQuotes(value: string): string {
@@ -47,6 +76,28 @@ export function deriveTerminalTitleFromCommand(command: string): string | null {
   const arg1 = tokens[1]?.trim();
   const arg2 = tokens[2]?.trim();
 
+  if (WRAPPER_BINARIES.has(binary)) {
+    for (let index = 1; index < tokens.length; index += 1) {
+      const token = tokens[index]?.trim();
+      if (!token) {
+        continue;
+      }
+      if (token.startsWith("-")) {
+        const maybeValue = tokens[index + 1]?.trim();
+        if (maybeValue && !maybeValue.startsWith("-")) {
+          index += 1;
+        }
+        continue;
+      }
+      return deriveTerminalTitleFromCommand(tokens.slice(index).join(" "));
+    }
+    return null;
+  }
+
+  if (SHELL_BINARIES.has(binary) && ["-c", "-lc"].includes(arg1 ?? "") && arg2) {
+    return deriveTerminalTitleFromCommand(arg2);
+  }
+
   if (["bun", "npm", "pnpm", "yarn"].includes(binary)) {
     if (arg1 && ["run", "x", "exec"].includes(arg1) && arg2) return `${binary} ${arg2}`;
     if (arg1) return `${binary} ${arg1}`;
@@ -72,7 +123,7 @@ export function deriveTerminalTitleFromCommand(command: string): string | null {
     return `${binary} ${arg1}`;
   }
 
-  return binary || null;
+  return isGenericTerminalTitle(binary) ? null : binary || null;
 }
 
 export function extractTerminalOscTitle(data: string): string | null {
@@ -88,7 +139,11 @@ export function extractTerminalOscTitle(data: string): string | null {
   const endIndexCandidates = [bellIndex, stIndex].filter((index) => index >= 0);
   const endIndex = endIndexCandidates.length > 0 ? Math.min(...endIndexCandidates) : -1;
   if (endIndex < 0) return null;
-  return normalizeTerminalTitle(titlePayload.slice(0, endIndex)) ?? null;
+  const normalized = normalizeTerminalTitle(titlePayload.slice(0, endIndex));
+  if (!normalized || isGenericTerminalTitle(normalized)) {
+    return null;
+  }
+  return normalized;
 }
 
 export function applyTerminalInputToBuffer(

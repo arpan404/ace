@@ -162,6 +162,10 @@ function splitNullSeparatedPaths(input: string): string[] {
     .filter((value) => value.length > 0);
 }
 
+function shQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 // ── Tests ──
 
 it.layer(TestLayer)("git integration", (it) => {
@@ -178,6 +182,55 @@ it.layer(TestLayer)("git integration", (it) => {
         expect(result.code).toBe(0);
         expect(result.stdout.length).toBeLessThanOrEqual(128);
         expect(result.stdoutTruncated || result.stderrTruncated).toBe(true);
+      }),
+    );
+
+    it.effect("provides the configured SSH key passphrase to git SSH prompts only once", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        const fs = yield* FileSystem.FileSystem;
+        const fakeSshPath = path.join(tmp, "fake-ssh.sh");
+        const askPassLogPath = path.join(tmp, "askpass.log");
+
+        yield* fs.writeFileString(
+          fakeSshPath,
+          [
+            "#!/bin/sh",
+            `log_path=${shQuote(askPassLogPath)}`,
+            'first="$("$SSH_ASKPASS" "Enter passphrase")"',
+            "first_code=$?",
+            'second="$("$SSH_ASKPASS" "Enter passphrase again")"',
+            "second_code=$?",
+            "{",
+            '  printf "first=%s\\n" "$first"',
+            '  printf "first_code=%s\\n" "$first_code"',
+            '  printf "second=%s\\n" "$second"',
+            '  printf "second_code=%s\\n" "$second_code"',
+            '} >> "$log_path"',
+            "exit 42",
+            "",
+          ].join("\n"),
+        );
+        yield* fs.chmod(fakeSshPath, 0o700);
+        const core = yield* makeGitCore({
+          readGitSshKeyPassphrase: () => Effect.succeed("correct horse battery staple"),
+        }).pipe(Effect.provide(Layer.provideMerge(ServerConfigLayer, NodeServices.layer)));
+
+        yield* core.execute({
+          operation: "GitCore.test.sshAskPass",
+          cwd: tmp,
+          args: ["ls-remote", "git@github.com:ace/ssh-passphrase-test.git"],
+          env: {
+            GIT_SSH: fakeSshPath,
+          },
+          allowNonZeroExit: true,
+          timeoutMs: 10_000,
+        });
+
+        const askPassLog = yield* fs.readFileString(askPassLogPath);
+        expect(askPassLog).toContain("first=correct horse battery staple");
+        expect(askPassLog).toContain("first_code=0");
+        expect(askPassLog).toContain("second_code=1");
       }),
     );
   });

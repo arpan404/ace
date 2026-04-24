@@ -1,5 +1,5 @@
 import { type RuntimeMode, type ThreadId } from "@ace/contracts";
-import { FolderIcon, GitForkIcon, LockIcon, LockOpenIcon, SparklesIcon } from "lucide-react";
+import { FolderIcon, GitForkIcon, LockIcon, LockOpenIcon } from "lucide-react";
 import { useCallback } from "react";
 
 import { runAsyncTask } from "../lib/async";
@@ -13,16 +13,16 @@ import {
   resolveEffectiveEnvMode,
 } from "../lib/git/branchToolbar";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
+import { ProjectGlyphIcon } from "./ProjectAvatar";
 import { Button } from "./ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
+import type { Project } from "../types";
 
 function nextAccessMode(mode: RuntimeMode): RuntimeMode {
   switch (mode) {
     case "approval-required":
       return "full-access";
     case "full-access":
-      return "andy";
-    case "andy":
     default:
       return "approval-required";
   }
@@ -36,21 +36,15 @@ const ACCESS_MODE_META: Record<
     label: "Supervised",
     title: "Supervised — click to switch to Full access",
     textClassName:
-      "text-amber-600 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300",
-    iconClassName: "text-amber-600 dark:text-amber-400",
-  },
-  "full-access": {
-    label: "Full access",
-    title: "Full access — click to switch to Andy",
-    textClassName:
       "text-emerald-600 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-300",
     iconClassName: "text-emerald-600 dark:text-emerald-400",
   },
-  andy: {
-    label: "Andy",
-    title: "Andy — full access with automation profile (click for Supervised)",
-    textClassName: "text-sky-600 hover:text-sky-600 dark:text-sky-400 dark:hover:text-sky-300",
-    iconClassName: "text-sky-600 dark:text-sky-400",
+  "full-access": {
+    label: "Full access",
+    title: "Full access — click to switch to Supervised",
+    textClassName:
+      "text-amber-600 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300",
+    iconClassName: "text-amber-600 dark:text-amber-400",
   },
 };
 
@@ -59,6 +53,7 @@ interface BranchToolbarProps {
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
   localEnvironmentLabel?: string;
+  localEnvironmentIcon?: Project["icon"];
   runtimeMode?: RuntimeMode;
   onRuntimeModeChange?: (mode: RuntimeMode) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
@@ -70,6 +65,7 @@ export default function BranchToolbar({
   onEnvModeChange,
   envLocked,
   localEnvironmentLabel = "Local",
+  localEnvironmentIcon = null,
   runtimeMode,
   onRuntimeModeChange,
   onCheckoutPullRequestRequest,
@@ -154,6 +150,11 @@ export default function BranchToolbar({
     { value: "local", label: localEnvironmentLabel },
     { value: "worktree", label: "New worktree" },
   ] as const;
+  const localModeIcon = localEnvironmentIcon ? (
+    <ProjectGlyphIcon icon={localEnvironmentIcon} className="size-3 opacity-80" />
+  ) : (
+    <FolderIcon className="size-3 opacity-60" />
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-2 pt-0.5">
@@ -167,7 +168,7 @@ export default function BranchToolbar({
               </>
             ) : (
               <>
-                <FolderIcon className="size-3 opacity-60" />
+                {localModeIcon}
                 {localEnvironmentLabel}
               </>
             )}
@@ -186,14 +187,18 @@ export default function BranchToolbar({
               {effectiveEnvMode === "worktree" ? (
                 <GitForkIcon className="size-3 opacity-60" />
               ) : (
-                <FolderIcon className="size-3 opacity-60" />
+                localModeIcon
               )}
               <SelectValue />
             </SelectTrigger>
             <SelectPopup>
               <SelectItem value="local">
                 <span className="inline-flex items-center gap-1.5">
-                  <FolderIcon className="size-3" />
+                  {localEnvironmentIcon ? (
+                    <ProjectGlyphIcon icon={localEnvironmentIcon} className="size-3 opacity-80" />
+                  ) : (
+                    <FolderIcon className="size-3" />
+                  )}
                   {localEnvironmentLabel}
                 </span>
               </SelectItem>
@@ -217,11 +222,7 @@ export default function BranchToolbar({
               title={runtimeModeMeta?.title}
               data-chat-branch-runtime-mode={runtimeMode}
             >
-              {runtimeMode === "andy" ? (
-                <SparklesIcon
-                  className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
-                />
-              ) : runtimeMode === "full-access" ? (
+              {runtimeMode === "full-access" ? (
                 <LockOpenIcon
                   className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
                 />

@@ -297,12 +297,202 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.branch !== undefined ? { branch: command.branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
-          ...(command.queuedComposerMessages !== undefined
-            ? { queuedComposerMessages: command.queuedComposerMessages }
-            : {}),
-          ...(command.queuedSteerRequest !== undefined
-            ? { queuedSteerRequest: command.queuedSteerRequest }
-            : {}),
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.queue.append": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = nowIso();
+      const withoutDuplicate = thread.queuedComposerMessages.filter(
+        (message) => message.id !== command.message.id,
+      );
+      const queuedComposerMessages =
+        command.position === "front"
+          ? [command.message, ...withoutDuplicate]
+          : [...withoutDuplicate, command.message];
+      const queuedSteerRequest =
+        command.steerRequest !== undefined ? command.steerRequest : thread.queuedSteerRequest;
+      if (queuedSteerRequest !== null) {
+        const hasMessage = queuedComposerMessages.some(
+          (message) => message.id === queuedSteerRequest.messageId,
+        );
+        if (!hasMessage) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Queued steer message '${queuedSteerRequest.messageId}' does not exist.`,
+          });
+        }
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: command.threadId,
+          queuedComposerMessages,
+          queuedSteerRequest,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.queue.update": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const messageExists = thread.queuedComposerMessages.some(
+        (message) => message.id === command.message.id,
+      );
+      if (!messageExists) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queued message '${command.message.id}' does not exist.`,
+        });
+      }
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: command.threadId,
+          queuedComposerMessages: thread.queuedComposerMessages.map((message) =>
+            message.id === command.message.id ? command.message : message,
+          ),
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.queue.delete": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: command.threadId,
+          queuedComposerMessages: thread.queuedComposerMessages.filter(
+            (message) => message.id !== command.messageId,
+          ),
+          queuedSteerRequest:
+            thread.queuedSteerRequest?.messageId === command.messageId
+              ? null
+              : thread.queuedSteerRequest,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.queue.clear": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: command.threadId,
+          queuedComposerMessages: [],
+          queuedSteerRequest: null,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.queue.steer": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const messageIndex = thread.queuedComposerMessages.findIndex(
+        (message) => message.id === command.messageId,
+      );
+      if (messageIndex < 0) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queued message '${command.messageId}' does not exist.`,
+        });
+      }
+      const queuedComposerMessages = [...thread.queuedComposerMessages];
+      const [message] = queuedComposerMessages.splice(messageIndex, 1);
+      if (message) {
+        queuedComposerMessages.unshift(message);
+      }
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: command.threadId,
+          queuedComposerMessages,
+          queuedSteerRequest: {
+            messageId: command.messageId,
+            baselineWorkLogEntryCount: command.baselineWorkLogEntryCount,
+            interruptRequested: command.interruptRequested,
+          },
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.queue.steer.clear": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: command.threadId,
+          queuedSteerRequest: null,
           updatedAt: occurredAt,
         },
       };

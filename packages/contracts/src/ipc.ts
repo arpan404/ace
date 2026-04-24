@@ -43,6 +43,10 @@ import type {
   WorkspaceEditorCloseBufferResult,
   WorkspaceEditorCompleteInput,
   WorkspaceEditorCompleteResult,
+  WorkspaceEditorDefinitionInput,
+  WorkspaceEditorDefinitionResult,
+  WorkspaceEditorReferencesInput,
+  WorkspaceEditorReferencesResult,
   WorkspaceEditorSyncBufferInput,
   WorkspaceEditorSyncBufferResult,
 } from "./workspaceEditor";
@@ -117,6 +121,10 @@ export type BrowserShortcutAction =
   | "back"
   | "close-tab"
   | "devtools"
+  | "designer-area-comment"
+  | "designer-cursor"
+  | "designer-draw-comment"
+  | "designer-element-comment"
   | "duplicate-tab"
   | "focus-address-bar"
   | "forward"
@@ -126,6 +134,7 @@ export type BrowserShortcutAction =
   | "next-tab"
   | "previous-tab"
   | "reload"
+  | "toggle-designer-mode"
   | "select-tab-1"
   | "select-tab-2"
   | "select-tab-3"
@@ -311,6 +320,8 @@ export interface NativeApi {
       input: WorkspaceEditorCloseBufferInput,
     ) => Promise<WorkspaceEditorCloseBufferResult>;
     complete: (input: WorkspaceEditorCompleteInput) => Promise<WorkspaceEditorCompleteResult>;
+    definition: (input: WorkspaceEditorDefinitionInput) => Promise<WorkspaceEditorDefinitionResult>;
+    references: (input: WorkspaceEditorReferencesInput) => Promise<WorkspaceEditorReferencesResult>;
   };
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;

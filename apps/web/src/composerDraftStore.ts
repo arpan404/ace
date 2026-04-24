@@ -940,18 +940,19 @@ function normalizePersistedDraftThreads(
       if (typeof projectId !== "string" || projectId.length === 0) {
         continue;
       }
+      const runtimeMode =
+        candidateDraftThread.runtimeMode === "approval-required"
+          ? "approval-required"
+          : candidateDraftThread.runtimeMode === "full-access"
+            ? "full-access"
+            : DEFAULT_RUNTIME_MODE;
       draftThreadsByThreadId[threadId as ThreadId] = {
         projectId: projectId as ProjectId,
         createdAt:
           typeof createdAt === "string" && createdAt.length > 0
             ? createdAt
             : new Date().toISOString(),
-        runtimeMode:
-          candidateDraftThread.runtimeMode === "approval-required" ||
-          candidateDraftThread.runtimeMode === "andy" ||
-          candidateDraftThread.runtimeMode === "full-access"
-            ? candidateDraftThread.runtimeMode
-            : DEFAULT_RUNTIME_MODE,
+        runtimeMode,
         interactionMode:
           candidateDraftThread.interactionMode === "plan" ||
           candidateDraftThread.interactionMode === "default"
@@ -1034,7 +1035,6 @@ function normalizePersistedDraftsByThreadId(
       : [];
     const runtimeMode =
       draftCandidate.runtimeMode === "approval-required" ||
-      draftCandidate.runtimeMode === "andy" ||
       draftCandidate.runtimeMode === "full-access"
         ? draftCandidate.runtimeMode
         : null;
@@ -1895,11 +1895,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           return;
         }
         const nextRuntimeMode =
-          runtimeMode === "approval-required" ||
-          runtimeMode === "full-access" ||
-          runtimeMode === "andy"
-            ? runtimeMode
-            : null;
+          runtimeMode === "approval-required" || runtimeMode === "full-access" ? runtimeMode : null;
         set((state) => {
           const existing = state.draftsByThreadId[threadId];
           if (!existing && nextRuntimeMode === null) {

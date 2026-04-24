@@ -226,7 +226,7 @@ describe("applyThreadAttentionState", () => {
     expect(result.notify).toEqual([
       {
         id: "thread-1:completion:2026-04-14T03:10:00.000Z",
-        title: "Agent finished: Build fixes",
+        title: "Build fixes finished",
         body: "Done wiring the feature.",
         deepLink: "/thread-1",
         kind: "completion",
@@ -324,8 +324,8 @@ describe("applyThreadAttentionState", () => {
     expect(requestedResult.notify).toEqual([
       {
         id: "thread-1:req-1",
-        title: "Approval needed: Build fixes",
-        body: "bun lint",
+        title: "Build fixes needs approval",
+        body: "Command approval: bun lint",
         deepLink: "/thread-1",
         kind: "approval",
       },
@@ -431,7 +431,7 @@ describe("applyThreadAttentionState", () => {
     expect(result.notify).toEqual([
       {
         id: "thread-1:req-input",
-        title: "Input needed: Build fixes",
+        title: "Build fixes needs input",
         body: "Which scope should I handle first? (2 questions waiting)",
         deepLink: "/thread-1",
         kind: "user-input",
