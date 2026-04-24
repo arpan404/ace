@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import type { OrchestrationEvent } from "@ace/contracts";
 
 import { APP_DISPLAY_NAME } from "../branding";
+import { LEAN_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
+import { useHostConnectionStore } from "../hostConnectionStore";
+import { useStore } from "../store";
 import {
   buildAgentAttentionDesktopNotificationInput,
   buildAgentAttentionNotificationCopy,
@@ -17,9 +21,20 @@ import {
   shouldOfferAgentAttentionNotificationPermission,
   type AgentAttentionNotificationPermission,
 } from "../lib/agentAttentionNotifications";
+import {
+  resolveLocalConnectionUrl,
+  THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
+} from "../lib/connectionRouting";
+import {
+  CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT,
+  loadConnectedRemoteHostIds,
+  loadRemoteHostInstances,
+  normalizeWsUrl,
+  REMOTE_HOSTS_CHANGED_EVENT,
+  resolveHostConnectionWsUrl,
+} from "../lib/remoteHosts";
+import { getRouteRpcClient, routeOrchestrationGetSnapshotFromRemote } from "../lib/remoteWsRouter";
 import { newCommandId } from "../lib/utils";
-import { readNativeApi } from "../nativeApi";
-import { useStore } from "../store";
 import { useSettings } from "../hooks/useSettings";
 import { toastManager } from "./ui/toast";
 
@@ -31,21 +46,46 @@ function describeNotificationError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+type ScopedAgentAttentionRequest = ReturnType<typeof deriveAgentAttentionRequests>[number] & {
+  connectionUrl: string;
+};
+
+const REMOTE_NOTIFICATION_WARMUP_DELAY_MS = 1_500;
+const REMOTE_ATTENTION_REFRESH_DEBOUNCE_MS = 450;
+const REMOTE_ATTENTION_REFRESH_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
+  "thread.activity-appended",
+  "thread.archived",
+  "thread.created",
+  "thread.deleted",
+  "thread.meta-updated",
+  "thread.session-set",
+  "thread.unarchived",
+]);
+
+function shouldRefreshRemoteAttentionFromEvent(event: OrchestrationEvent): boolean {
+  return REMOTE_ATTENTION_REFRESH_EVENT_TYPES.has(event.type);
+}
+
 export function AgentAttentionNotificationBridge() {
-  const threads = useStore((store) => store.threads);
   const navigate = useNavigate();
+  const bootstrapComplete = useStore((store) => store.bootstrapComplete);
+  const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
+  const [remoteConnectionsReady, setRemoteConnectionsReady] = useState(false);
   const notificationSettings = useSettings((settings) => ({
     notifyOnAgentCompletion: settings.notifyOnAgentCompletion,
     notifyOnApprovalRequired: settings.notifyOnApprovalRequired,
     notifyOnUserInputRequired: settings.notifyOnUserInputRequired,
   }));
+  const [attentionRequestsByConnection, setAttentionRequestsByConnection] = useState<
+    Record<string, ReadonlyArray<ScopedAgentAttentionRequest>>
+  >({});
   const attentionRequests = useMemo(
     () =>
       filterAgentAttentionRequestsBySettings(
-        deriveAgentAttentionRequests(threads),
+        Object.values(attentionRequestsByConnection).flat(),
         notificationSettings,
       ),
-    [notificationSettings, threads],
+    [attentionRequestsByConnection, notificationSettings],
   );
   const attentionRequestByKey = useMemo(
     () => new Map(attentionRequests.map((request) => [request.key, request])),
@@ -73,6 +113,224 @@ export function AgentAttentionNotificationBridge() {
   const hasPromptedForPermissionRef = useRef(false);
   const notificationSessionStartedAtRef = useRef(new Date().toISOString());
   const lastKnownFocusStateRef = useRef(isAppFocused);
+  const connectionUnsubscribeByUrlRef = useRef(new Map<string, () => void>());
+  const refreshTimerByConnectionUrlRef = useRef(new Map<string, number>());
+  const refreshInFlightByConnectionUrlRef = useRef(new Map<string, Promise<void>>());
+  const refreshQueuedByConnectionUrlRef = useRef(new Set<string>());
+
+  const resolveTrackedConnectionUrls = useMemo(
+    () => () => {
+      const nextConnectionUrls = new Set<string>([localConnectionUrl]);
+      if (!remoteConnectionsReady) {
+        return nextConnectionUrls;
+      }
+      const connectedHostIds = new Set(loadConnectedRemoteHostIds());
+      for (const host of loadRemoteHostInstances()) {
+        if (!connectedHostIds.has(host.id)) {
+          continue;
+        }
+        const connectionUrl = normalizeWsUrl(resolveHostConnectionWsUrl(host));
+        nextConnectionUrls.add(connectionUrl);
+      }
+      return nextConnectionUrls;
+    },
+    [localConnectionUrl, remoteConnectionsReady],
+  );
+
+  useEffect(() => {
+    if (!bootstrapComplete) {
+      setRemoteConnectionsReady(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setRemoteConnectionsReady(true);
+    }, REMOTE_NOTIFICATION_WARMUP_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [bootstrapComplete]);
+
+  const refreshConnectionAttentionRequests = useMemo(
+    () => async (connectionUrl: string) => {
+      const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);
+      try {
+        const snapshot = await routeOrchestrationGetSnapshotFromRemote(
+          normalizedConnectionUrl,
+          LEAN_SNAPSHOT_RECOVERY_INPUT,
+        );
+        useHostConnectionStore
+          .getState()
+          .upsertSnapshotOwnership(normalizedConnectionUrl, snapshot);
+        const scopedRequests = deriveAgentAttentionRequests(snapshot.threads).map((request) =>
+          Object.assign({}, request, {
+            key: `${normalizedConnectionUrl}:${request.key}`,
+            connectionUrl: normalizedConnectionUrl,
+          }),
+        );
+        setAttentionRequestsByConnection((current) => {
+          const previousRequests = current[normalizedConnectionUrl] ?? [];
+          const nextRequests =
+            previousRequests.length === scopedRequests.length &&
+            previousRequests.every(
+              (request, index) => scopedRequests[index]?.key === request.key,
+            ) &&
+            previousRequests.every(
+              (request, index) =>
+                scopedRequests[index]?.createdAt === request.createdAt &&
+                scopedRequests[index]?.body === request.body,
+            )
+              ? previousRequests
+              : scopedRequests;
+          if (nextRequests === previousRequests) {
+            return current;
+          }
+          return {
+            ...current,
+            [normalizedConnectionUrl]: nextRequests,
+          };
+        });
+      } catch {
+        // Keep the last known attention state for this connection during transient failures.
+      }
+    },
+    [],
+  );
+
+  const queueConnectionAttentionRefresh = useMemo(
+    () => (connectionUrl: string) => {
+      const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);
+      const existingTimer = refreshTimerByConnectionUrlRef.current.get(normalizedConnectionUrl);
+      if (existingTimer !== undefined) {
+        return;
+      }
+      const timer = window.setTimeout(() => {
+        refreshTimerByConnectionUrlRef.current.delete(normalizedConnectionUrl);
+        const runRefresh = () => {
+          const existingRequest =
+            refreshInFlightByConnectionUrlRef.current.get(normalizedConnectionUrl);
+          if (existingRequest) {
+            refreshQueuedByConnectionUrlRef.current.add(normalizedConnectionUrl);
+            return;
+          }
+          const refreshRequest = refreshConnectionAttentionRequests(normalizedConnectionUrl)
+            .catch(() => undefined)
+            .finally(() => {
+              refreshInFlightByConnectionUrlRef.current.delete(normalizedConnectionUrl);
+              if (refreshQueuedByConnectionUrlRef.current.delete(normalizedConnectionUrl)) {
+                runRefresh();
+              }
+            });
+          refreshInFlightByConnectionUrlRef.current.set(normalizedConnectionUrl, refreshRequest);
+        };
+        runRefresh();
+      }, REMOTE_ATTENTION_REFRESH_DEBOUNCE_MS);
+      refreshTimerByConnectionUrlRef.current.set(normalizedConnectionUrl, timer);
+    },
+    [refreshConnectionAttentionRequests],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const connectionUnsubscribeByUrl = connectionUnsubscribeByUrlRef.current;
+    const refreshTimerByConnectionUrl = refreshTimerByConnectionUrlRef.current;
+    const refreshInFlightByConnectionUrl = refreshInFlightByConnectionUrlRef.current;
+    const refreshQueuedByConnectionUrl = refreshQueuedByConnectionUrlRef.current;
+    const reconcileConnections = () => {
+      if (cancelled) {
+        return;
+      }
+      const nextConnectionUrls = resolveTrackedConnectionUrls();
+      for (const [connectionUrl, unsubscribe] of connectionUnsubscribeByUrl) {
+        if (nextConnectionUrls.has(connectionUrl)) {
+          continue;
+        }
+        unsubscribe();
+        connectionUnsubscribeByUrl.delete(connectionUrl);
+        const timer = refreshTimerByConnectionUrl.get(connectionUrl);
+        if (timer !== undefined) {
+          window.clearTimeout(timer);
+          refreshTimerByConnectionUrl.delete(connectionUrl);
+        }
+        refreshQueuedByConnectionUrl.delete(connectionUrl);
+        refreshInFlightByConnectionUrl.delete(connectionUrl);
+        setAttentionRequestsByConnection((current) => {
+          if (!Object.prototype.hasOwnProperty.call(current, connectionUrl)) {
+            return current;
+          }
+          const next = { ...current };
+          delete next[connectionUrl];
+          return next;
+        });
+      }
+
+      for (const connectionUrl of nextConnectionUrls) {
+        if (connectionUnsubscribeByUrl.has(connectionUrl)) {
+          continue;
+        }
+        const unsubscribe = getRouteRpcClient(connectionUrl).orchestration.onDomainEvent(
+          (event) => {
+            if (!shouldRefreshRemoteAttentionFromEvent(event)) {
+              return;
+            }
+            queueConnectionAttentionRefresh(connectionUrl);
+          },
+        );
+        connectionUnsubscribeByUrl.set(connectionUrl, unsubscribe);
+        queueConnectionAttentionRefresh(connectionUrl);
+      }
+    };
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleHostConnectionsChanged = () => {
+      reconcileConnections();
+    };
+    const handleStorage = () => {
+      reconcileConnections();
+    };
+    reconcileConnections();
+    window.addEventListener(REMOTE_HOSTS_CHANGED_EVENT, handleHostConnectionsChanged);
+    window.addEventListener(CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT, handleHostConnectionsChanged);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(REMOTE_HOSTS_CHANGED_EVENT, handleHostConnectionsChanged);
+      window.removeEventListener(
+        CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT,
+        handleHostConnectionsChanged,
+      );
+      window.removeEventListener("storage", handleStorage);
+      for (const [connectionUrl, unsubscribe] of connectionUnsubscribeByUrl) {
+        unsubscribe();
+        const timer = refreshTimerByConnectionUrl.get(connectionUrl);
+        if (timer !== undefined) {
+          window.clearTimeout(timer);
+        }
+      }
+      connectionUnsubscribeByUrl.clear();
+      refreshTimerByConnectionUrl.clear();
+      refreshInFlightByConnectionUrl.clear();
+      refreshQueuedByConnectionUrl.clear();
+    };
+  }, [queueConnectionAttentionRefresh, resolveTrackedConnectionUrls]);
+
+  const navigateToRequestThread = useMemo(
+    () => (threadId: string, connectionUrl: string) => {
+      const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);
+      const search =
+        normalizedConnectionUrl !== localConnectionUrl
+          ? { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: normalizedConnectionUrl }
+          : {};
+      void navigate({
+        to: "/$threadId",
+        params: { threadId },
+        search,
+      });
+    },
+    [localConnectionUrl, navigate],
+  );
 
   useEffect(() => {
     attentionRequestByKeyRef.current = attentionRequestByKey;
@@ -189,12 +447,9 @@ export function AgentAttentionNotificationBridge() {
         return;
       }
 
-      void navigate({
-        to: "/$threadId",
-        params: { threadId: request.threadId },
-      });
+      navigateToRequestThread(request.threadId, request.connectionUrl);
     });
-  }, [desktopNotificationBridge, navigate]);
+  }, [desktopNotificationBridge, navigateToRequestThread]);
 
   useEffect(() => {
     if (!desktopNotificationBridge) {
@@ -209,35 +464,19 @@ export function AgentAttentionNotificationBridge() {
       }
       if (request.kind !== "user-input") {
         window.focus();
-        void navigate({
-          to: "/$threadId",
-          params: { threadId: request.threadId },
-        });
+        navigateToRequestThread(request.threadId, request.connectionUrl);
         return;
       }
 
       const reply = resolveAgentAttentionNotificationReply(request, event.response);
       if (!reply) {
         window.focus();
-        void navigate({
-          to: "/$threadId",
-          params: { threadId: request.threadId },
-        });
+        navigateToRequestThread(request.threadId, request.connectionUrl);
         return;
       }
 
-      const api = readNativeApi();
-      if (!api) {
-        toastManager.add({
-          type: "error",
-          title: "Unable to submit notification reply",
-          description: "The orchestration API is unavailable in the current app session.",
-        });
-        return;
-      }
-
-      void api.orchestration
-        .dispatchCommand({
+      void getRouteRpcClient(request.connectionUrl)
+        .orchestration.dispatchCommand({
           type: "thread.user-input.respond",
           commandId: newCommandId(),
           threadId: request.threadId,
@@ -256,7 +495,7 @@ export function AgentAttentionNotificationBridge() {
           });
         });
     });
-  }, [desktopNotificationBridge, navigate]);
+  }, [desktopNotificationBridge, navigateToRequestThread]);
 
   useEffect(() => {
     if (!desktopNotificationBridge) {
@@ -357,10 +596,7 @@ export function AgentAttentionNotificationBridge() {
           window.focus();
           notification.close();
           activeBrowserNotificationsRef.current.delete(request.key);
-          void navigate({
-            to: "/$threadId",
-            params: { threadId: request.threadId },
-          });
+          navigateToRequestThread(request.threadId, request.connectionUrl);
         };
 
         const handleClose = () => {
@@ -389,7 +625,7 @@ export function AgentAttentionNotificationBridge() {
     attentionRequests,
     desktopNotificationBridge,
     isAppFocused,
-    navigate,
+    navigateToRequestThread,
     notificationPermission,
   ]);
 

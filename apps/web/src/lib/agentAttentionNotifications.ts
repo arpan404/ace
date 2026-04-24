@@ -5,13 +5,39 @@ import type {
   ThreadId,
   UserInputQuestion,
 } from "@ace/contracts";
-
 import {
-  derivePendingApprovals,
-  derivePendingUserInputs,
-  type PendingApproval,
-} from "../session-logic";
+  buildAgentAttentionNotificationTitle,
+  buildApprovalNotificationBody,
+  buildCompletionNotificationBody,
+  buildUserInputNotificationBody,
+  normalizeThreadNotificationTitle,
+  truncateNotificationText,
+} from "@ace/shared/notifications";
+
+import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
 import type { ChatMessage, Thread } from "../types";
+
+type AgentAttentionMessageLike = Pick<ChatMessage, "id" | "role" | "text" | "createdAt"> &
+  Partial<Pick<ChatMessage, "completedAt">> & {
+    updatedAt?: string | undefined;
+    streaming?: boolean | undefined;
+  };
+
+type AgentAttentionThreadLike = {
+  id: ThreadId;
+  title: string;
+  activities: ReadonlyArray<Thread["activities"][number]>;
+  latestTurn: {
+    state: string;
+    completedAt?: string | null;
+    assistantMessageId?: string | null;
+  } | null;
+  session: {
+    orchestrationStatus?: string | null | undefined;
+    activeTurnId?: string | null | undefined;
+  } | null;
+  messages: ReadonlyArray<AgentAttentionMessageLike>;
+};
 
 export type AgentAttentionNotificationPermission = NotificationPermission | "unsupported";
 export type AgentAttentionNotificationConstructor = typeof Notification;
@@ -63,11 +89,6 @@ export interface AgentAttentionNotificationSettings {
   notifyOnUserInputRequired: boolean;
 }
 
-const APPROVAL_COPY_BY_KIND: Record<PendingApproval["requestKind"], string> = {
-  command: "command",
-  "file-change": "file change",
-  "file-read": "file read",
-};
 const DEFAULT_HISTORICAL_REQUEST_THRESHOLD_MS = 0;
 
 function buildAgentAttentionRequestKey(threadId: ThreadId, requestId: ApprovalRequestId): string {
@@ -78,33 +99,13 @@ function buildCompletionAttentionRequestKey(threadId: ThreadId, completedAt: str
   return `${threadId}:completion:${completedAt}`;
 }
 
-function normalizeThreadTitle(title: string): string {
-  const trimmed = title.trim();
-  return trimmed.length > 0 ? trimmed : "Untitled thread";
-}
-
-function normalizeNotificationText(text: string): string {
-  return text
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function truncateNotificationBody(text: string, maxLength = 160): string {
-  const trimmed = normalizeNotificationText(text);
-  if (trimmed.length <= maxLength) {
-    return trimmed;
-  }
-
-  return `${trimmed.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
-}
-
 function buildThreadDeepLink(threadId: ThreadId): string {
   return `/${threadId}`;
 }
 
-function findLatestAssistantCompletionMessage(thread: Thread): ChatMessage | null {
+function findLatestAssistantCompletionMessage(
+  thread: AgentAttentionThreadLike,
+): AgentAttentionMessageLike | null {
   const assistantMessageId = thread.latestTurn?.assistantMessageId;
   if (assistantMessageId) {
     const matchingMessage = thread.messages.find((message) => message.id === assistantMessageId);
@@ -115,7 +116,10 @@ function findLatestAssistantCompletionMessage(thread: Thread): ChatMessage | nul
 
   for (let index = thread.messages.length - 1; index >= 0; index -= 1) {
     const message = thread.messages[index];
-    if (message?.role === "assistant" && message.completedAt) {
+    if (
+      message?.role === "assistant" &&
+      (message.completedAt || (message.updatedAt && message.streaming !== true))
+    ) {
       return message;
     }
   }
@@ -123,17 +127,12 @@ function findLatestAssistantCompletionMessage(thread: Thread): ChatMessage | nul
   return null;
 }
 
-function buildCompletionNotificationBody(thread: Thread): string {
+function buildCompletionAttentionBody(thread: AgentAttentionThreadLike): string {
   const assistantMessage = findLatestAssistantCompletionMessage(thread);
-  const text = assistantMessage?.text;
-  if (text) {
-    return truncateNotificationBody(text);
-  }
-
-  return "The agent finished working.";
+  return buildCompletionNotificationBody({ assistantPreview: assistantMessage?.text ?? null });
 }
 
-function isCompletionNotificationEligible(thread: Thread): boolean {
+function isCompletionNotificationEligible(thread: AgentAttentionThreadLike): boolean {
   const latestTurn = thread.latestTurn;
   if (!latestTurn || latestTurn.state !== "completed" || !latestTurn.completedAt) {
     return false;
@@ -211,16 +210,15 @@ export function resolveAgentAttentionNotificationReply(
 }
 
 export function deriveAgentAttentionRequests(
-  threads: ReadonlyArray<Thread>,
+  threads: ReadonlyArray<AgentAttentionThreadLike>,
 ): AgentAttentionRequest[] {
   const requests: AgentAttentionRequest[] = [];
 
   for (const thread of threads) {
-    const threadTitle = normalizeThreadTitle(thread.title);
+    const threadTitle = normalizeThreadNotificationTitle(thread.title);
     const deepLink = buildThreadDeepLink(thread.id);
 
     for (const approval of derivePendingApprovals(thread.activities)) {
-      const detail = approval.detail?.trim();
       requests.push({
         key: buildAgentAttentionRequestKey(thread.id, approval.requestId),
         requestId: approval.requestId,
@@ -228,11 +226,10 @@ export function deriveAgentAttentionRequests(
         threadTitle,
         kind: "approval",
         createdAt: approval.createdAt,
-        body: truncateNotificationBody(
-          detail && detail.length > 0
-            ? detail
-            : `The agent is waiting for ${APPROVAL_COPY_BY_KIND[approval.requestKind]} approval.`,
-        ),
+        body: buildApprovalNotificationBody({
+          requestKind: approval.requestKind,
+          detail: approval.detail ?? null,
+        }),
         deepLink,
       });
     }
@@ -243,8 +240,6 @@ export function deriveAgentAttentionRequests(
         continue;
       }
 
-      const questionCount = userInput.questions.length;
-      const suffix = questionCount > 1 ? ` (${questionCount} questions waiting)` : "";
       requests.push({
         key: buildAgentAttentionRequestKey(thread.id, userInput.requestId),
         requestId: userInput.requestId,
@@ -252,7 +247,10 @@ export function deriveAgentAttentionRequests(
         threadTitle,
         kind: "user-input",
         createdAt: userInput.createdAt,
-        body: truncateNotificationBody(`${firstQuestion.question}${suffix}`),
+        body: buildUserInputNotificationBody({
+          firstQuestion: firstQuestion.question,
+          questionCount: userInput.questions.length,
+        }),
         deepLink,
         questions: userInput.questions,
       });
@@ -266,7 +264,7 @@ export function deriveAgentAttentionRequests(
         threadTitle,
         kind: "completion",
         createdAt: completedAt,
-        body: buildCompletionNotificationBody(thread),
+        body: buildCompletionAttentionBody(thread),
         deepLink,
       });
     }
@@ -275,10 +273,10 @@ export function deriveAgentAttentionRequests(
   return requests.toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
-export function filterAgentAttentionRequestsBySettings(
-  requests: ReadonlyArray<AgentAttentionRequest>,
+export function filterAgentAttentionRequestsBySettings<T extends AgentAttentionRequest>(
+  requests: ReadonlyArray<T>,
   settings: AgentAttentionNotificationSettings,
-): AgentAttentionRequest[] {
+): T[] {
   return requests.filter((request) => {
     switch (request.kind) {
       case "approval":
@@ -296,16 +294,12 @@ export function buildAgentAttentionNotificationCopy(request: AgentAttentionReque
   body: string;
   tag: string;
 } {
-  const prefix =
-    request.kind === "approval"
-      ? "Approval needed"
-      : request.kind === "user-input"
-        ? "Input needed"
-        : "Agent finished";
-
   return {
-    title: `${prefix}: ${request.threadTitle}`,
-    body: request.body,
+    title: buildAgentAttentionNotificationTitle({
+      kind: request.kind,
+      threadTitle: request.threadTitle,
+    }),
+    body: truncateNotificationText(request.body),
     tag: `ace-agent-attention:${request.key}`,
   };
 }
@@ -363,13 +357,13 @@ export function getAgentAttentionDesktopNotificationBridge(
   };
 }
 
-export function collectAgentAttentionRequestsToNotify(input: {
-  requests: ReadonlyArray<AgentAttentionRequest>;
+export function collectAgentAttentionRequestsToNotify<T extends AgentAttentionRequest>(input: {
+  requests: ReadonlyArray<T>;
   notifiedRequestKeys: ReadonlySet<string>;
   isAppFocused: boolean;
   notificationSessionStartedAt?: string;
   historicalRequestThresholdMs?: number;
-}): AgentAttentionRequest[] {
+}): T[] {
   if (input.isAppFocused) {
     return [];
   }

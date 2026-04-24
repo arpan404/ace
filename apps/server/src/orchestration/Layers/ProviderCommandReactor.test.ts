@@ -21,6 +21,7 @@ import {
 } from "@ace/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "@ace/shared/terminalContext";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "@ace/contracts";
@@ -332,6 +333,258 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("dispatches queued composer messages from the backend with images and terminal context", async () => {
+    const harness = await createHarness();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.queue.append",
+        commandId: CommandId.makeUnsafe("cmd-queue-message-with-context"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        position: "back",
+        message: {
+          id: asMessageId("queued-message-1"),
+          prompt: `Check this output ${INLINE_TERMINAL_CONTEXT_PLACEHOLDER}`,
+          images: [
+            {
+              type: "image",
+              id: "queued-image-1",
+              name: "comment.png",
+              mimeType: "image/png",
+              sizeBytes: 8,
+              dataUrl: "data:image/png;base64,iVBORw0KGgo=",
+            },
+          ],
+          terminalContexts: [
+            {
+              id: "queued-terminal-1",
+              createdAt: new Date().toISOString(),
+              terminalId: "terminal-1",
+              terminalLabel: "Terminal 1",
+              lineStart: 4,
+              lineEnd: 5,
+              text: "alpha\nbeta",
+            },
+          ],
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        },
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    const sendTurnInput = harness.sendTurn.mock.calls[0]?.[0] as
+      | {
+          input?: string;
+          attachments?: Array<{
+            type: "image";
+            id: string;
+            name: string;
+            mimeType: string;
+            sizeBytes: number;
+          }>;
+        }
+      | undefined;
+    expect(sendTurnInput?.input).toContain("Check this output @terminal-1:4-5");
+    expect(sendTurnInput?.input).toContain("<terminal_context>");
+    expect(sendTurnInput?.input).toContain("  4 | alpha");
+    expect(sendTurnInput?.attachments).toEqual([
+      expect.objectContaining({
+        type: "image",
+        name: "comment.png",
+        mimeType: "image/png",
+        sizeBytes: 8,
+      }),
+    ]);
+    expect(sendTurnInput?.attachments?.[0]?.id).toMatch(/^thread-1-/);
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.queuedComposerMessages).toEqual([]);
+    expect(thread?.messages.at(-1)).toMatchObject({
+      id: asMessageId("queued-message-1"),
+      role: "user",
+    });
+  });
+
+  it("does not burst queued messages before the previous queued turn becomes idle", async () => {
+    const harness = await createHarness();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+
+    await Effect.runPromise(
+      Effect.all(
+        [
+          harness.engine.dispatch({
+            type: "thread.queue.append",
+            commandId: CommandId.makeUnsafe("cmd-queue-first-message"),
+            threadId,
+            position: "back",
+            message: {
+              id: asMessageId("queued-message-1"),
+              prompt: "first queued message",
+              images: [],
+              terminalContexts: [],
+              modelSelection: {
+                provider: "codex",
+                model: "gpt-5-codex",
+              },
+              runtimeMode: "approval-required",
+              interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            },
+          }),
+          harness.engine.dispatch({
+            type: "thread.queue.append",
+            commandId: CommandId.makeUnsafe("cmd-queue-second-message"),
+            threadId,
+            position: "back",
+            message: {
+              id: asMessageId("queued-message-2"),
+              prompt: "second queued message",
+              images: [],
+              terminalContexts: [],
+              modelSelection: {
+                provider: "codex",
+                model: "gpt-5-codex",
+              },
+              runtimeMode: "approval-required",
+              interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            },
+          }),
+        ],
+        { concurrency: 1 },
+      ),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(harness.sendTurn.mock.calls).toHaveLength(1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      input: "first queued message",
+    });
+
+    const completedAt = new Date(Date.now() - 1).toISOString();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.makeUnsafe("cmd-queued-turn-complete"),
+        threadId,
+        turnId: asTurnId("turn-1"),
+        completedAt,
+        checkpointRef: CheckpointRef.makeUnsafe("checkpoint-queued-turn"),
+        status: "ready",
+        files: [],
+        checkpointTurnCount: 1,
+        createdAt: completedAt,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    expect(harness.sendTurn.mock.calls[1]?.[0]).toMatchObject({
+      input: "second queued message",
+    });
+  });
+
+  it("reconciles stale running session state when steer is clicked after work has finished", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const activeTurnId = asTurnId("turn-finished-before-steer");
+
+    harness.runtimeSessions.push({
+      provider: "codex",
+      status: "running",
+      runtimeMode: "approval-required",
+      threadId,
+      activeTurnId,
+      resumeCursor: { opaque: "resume-stale-running-session" },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-stale-running-session"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    const liveSession = harness.runtimeSessions[0];
+    expect(liveSession).toBeDefined();
+    if (!liveSession) {
+      return;
+    }
+    harness.runtimeSessions[0] = {
+      provider: liveSession.provider,
+      status: "ready",
+      runtimeMode: liveSession.runtimeMode,
+      ...(liveSession.cwd !== undefined ? { cwd: liveSession.cwd } : {}),
+      ...(liveSession.model !== undefined ? { model: liveSession.model } : {}),
+      threadId: liveSession.threadId,
+      ...(liveSession.resumeCursor !== undefined ? { resumeCursor: liveSession.resumeCursor } : {}),
+      createdAt: liveSession.createdAt,
+      updatedAt: now,
+      ...(liveSession.lastError !== undefined ? { lastError: liveSession.lastError } : {}),
+    };
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.queue.append",
+        commandId: CommandId.makeUnsafe("cmd-steer-queued-after-finished-work"),
+        threadId,
+        position: "front",
+        message: {
+          id: asMessageId("queued-steer-after-finished-work"),
+          prompt: "Start this queued steer now",
+          images: [],
+          terminalContexts: [],
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        },
+        steerRequest: {
+          messageId: asMessageId("queued-steer-after-finished-work"),
+          baselineWorkLogEntryCount: 1,
+          interruptRequested: false,
+        },
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    const sendTurnInput = harness.sendTurn.mock.calls[0]?.[0] as
+      | {
+          input?: string;
+        }
+      | undefined;
+    expect(sendTurnInput?.input).toBe("Start this queued steer now");
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === threadId);
+    expect(thread?.queuedComposerMessages).toEqual([]);
+    expect(thread?.queuedSteerRequest).toBeNull();
+    expect(thread?.session?.status).toBe("ready");
+    expect(thread?.session?.activeTurnId).toBeNull();
   });
 
   it("passes handoff replay turns when starting the destination thread session", async () => {
@@ -1573,7 +1826,7 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("approval-required");
   });
 
-  it("restarts restart-session providers before a follow-up turn on an idle thread", async () => {
+  it("reuses restart-session providers for follow-up turns on idle threads", async () => {
     const harness = await createHarness({
       threadModelSelection: { provider: "githubCopilot", model: "gpt-4.1" },
       sessionModelSwitch: "restart-session",
@@ -1625,20 +1878,10 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.startSession.mock.calls.length === 2);
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
 
     expect(harness.stopSession.mock.calls.length).toBe(0);
-    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
-      threadId: ThreadId.makeUnsafe("thread-1"),
-      provider: "githubCopilot",
-      resumeCursor: { opaque: "resume-1" },
-      modelSelection: {
-        provider: "githubCopilot",
-        model: "gpt-4.1",
-      },
-      runtimeMode: "approval-required",
-    });
+    expect(harness.startSession.mock.calls.length).toBe(1);
   });
 
   it("rebuilds failed Copilot chats from prior transcript without replaying the new retry message", async () => {

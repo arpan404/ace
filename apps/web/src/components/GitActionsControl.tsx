@@ -7,7 +7,13 @@ import type {
 } from "@ace/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  CloudUploadIcon,
+  GitCommitIcon,
+  InfoIcon,
+  KeyRoundIcon,
+} from "lucide-react";
 import { GitHubIcon } from "./Icons";
 import { runAsyncTask } from "../lib/async";
 import { useEffectEvent } from "../hooks/useEffectEvent";
@@ -35,13 +41,19 @@ import {
   DialogPopup,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { Input } from "~/components/ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast";
-import { TopBarCluster, TopBarClusterDivider } from "~/components/thread/TopBarCluster";
+import {
+  HEADER_PILL_CONTROL_CLASS_NAME,
+  HEADER_PILL_ICON_CONTROL_CLASS_NAME,
+  TopBarCluster,
+  TopBarClusterDivider,
+} from "~/components/thread/TopBarCluster";
 import {
   gitBranchesQueryOptions,
   gitInitMutationOptions,
@@ -57,6 +69,8 @@ import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
 import { resolveEditorStateScopeId, useEditorStateStore } from "~/editorStateStore";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
+import { useSettings } from "~/hooks/useSettings";
+import { applySettingsUpdated } from "~/rpc/serverState";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -97,9 +111,6 @@ interface RunGitActionWithToastInput {
   progressToastId?: GitActionToastId;
   filePaths?: string[];
 }
-
-const TOP_BAR_ACTION_BUTTON_CLASS_NAME =
-  "rounded-full border-transparent bg-transparent text-foreground/80 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08]";
 
 function formatElapsedDescription(startedAtMs: number | null): string | undefined {
   if (startedAtMs === null) {
@@ -233,10 +244,63 @@ export default function GitActionsControl({
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
   const [isEditingFiles, setIsEditingFiles] = useState(false);
+  const [isSshPassphraseDialogOpen, setIsSshPassphraseDialogOpen] = useState(false);
+  const [isSshPassphraseSaving, setIsSshPassphraseSaving] = useState(false);
+  const [sshPassphraseDraft, setSshPassphraseDraft] = useState("");
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
   const activeGitActionProgressRef = useRef<ActiveGitActionProgress | null>(null);
   const openFileInWorkspace = useEditorStateStore((state) => state.openFile);
+  const configuredGitSshKeyPassphrase = useSettings((settings) => settings.gitSshKeyPassphrase);
+
+  useEffect(() => {
+    if (!isSshPassphraseDialogOpen) return;
+    setSshPassphraseDraft(configuredGitSshKeyPassphrase);
+  }, [configuredGitSshKeyPassphrase, isSshPassphraseDialogOpen]);
+
+  const persistSshPassphrase = useCallback(
+    (passphrase: string) => {
+      const api = readNativeApi();
+      if (!api) {
+        toastManager.add({
+          type: "error",
+          title: "Settings are unavailable.",
+          data: threadToastData,
+        });
+        return;
+      }
+
+      setIsSshPassphraseSaving(true);
+      runAsyncTask(
+        api.server
+          .updateSettings({ gitSshKeyPassphrase: passphrase })
+          .then((settings) => {
+            applySettingsUpdated(settings);
+            setIsSshPassphraseDialogOpen(false);
+          })
+          .catch((err: unknown) => {
+            toastManager.add({
+              type: "error",
+              title: "Failed to save SSH passphrase",
+              description: err instanceof Error ? err.message : "An error occurred.",
+              data: threadToastData,
+            });
+          })
+          .finally(() => setIsSshPassphraseSaving(false)),
+        "Failed to persist Git SSH key passphrase.",
+      );
+    },
+    [threadToastData],
+  );
+
+  const saveSshPassphrase = useCallback(() => {
+    persistSshPassphrase(sshPassphraseDraft);
+  }, [persistSshPassphrase, sshPassphraseDraft]);
+
+  const clearSshPassphrase = useCallback(() => {
+    setSshPassphraseDraft("");
+    persistSshPassphrase("");
+  }, [persistSshPassphrase]);
 
   const updateActiveProgressToast = useCallback(() => {
     const progress = activeGitActionProgressRef.current;
@@ -810,7 +874,7 @@ export default function GitActionsControl({
                 render={
                   <Button
                     aria-disabled="true"
-                    className={`${TOP_BAR_ACTION_BUTTON_CLASS_NAME} cursor-not-allowed opacity-64`}
+                    className={`${HEADER_PILL_CONTROL_CLASS_NAME} cursor-not-allowed opacity-64`}
                     size="xs"
                     variant="ghost"
                   />
@@ -827,7 +891,7 @@ export default function GitActionsControl({
             <Button
               variant="ghost"
               size="xs"
-              className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
+              className={HEADER_PILL_CONTROL_CLASS_NAME}
               disabled={isGitActionRunning || quickAction.disabled}
               onClick={runQuickAction}
             >
@@ -850,7 +914,7 @@ export default function GitActionsControl({
                         aria-label="More Git actions"
                         size="icon-xs"
                         variant="ghost"
-                        className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
+                        className={HEADER_PILL_ICON_CONTROL_CLASS_NAME}
                       />
                     }
                     disabled={isGitActionRunning}
@@ -904,6 +968,14 @@ export default function GitActionsControl({
                   </MenuItem>
                 );
               })}
+              <MenuItem
+                onClick={() => {
+                  setIsSshPassphraseDialogOpen(true);
+                }}
+              >
+                <KeyRoundIcon />
+                SSH key passphrase
+              </MenuItem>
               {gitStatusForActions?.branch === null && (
                 <p className="px-2 py-1.5 text-xs text-warning">
                   Detached HEAD: create and checkout a branch to enable push and PR actions.
@@ -1093,6 +1165,77 @@ export default function GitActionsControl({
             </Button>
             <Button size="sm" disabled={noneSelected} onClick={runDialogAction}>
               Commit
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      <Dialog
+        open={isSshPassphraseDialogOpen}
+        onOpenChange={(open) => {
+          if (!isSshPassphraseSaving) {
+            setIsSshPassphraseDialogOpen(open);
+          }
+        }}
+      >
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>SSH key passphrase</DialogTitle>
+            <DialogDescription>
+              Saved for git SSH fetch, push, and pull request checkout.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-2">
+            <label className="grid gap-1.5">
+              <span className="text-xs font-medium text-foreground">Passphrase</span>
+              <Input
+                type="password"
+                value={sshPassphraseDraft}
+                onChange={(event) => setSshPassphraseDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") {
+                    return;
+                  }
+                  event.preventDefault();
+                  if (!isSshPassphraseSaving) {
+                    saveSshPassphrase();
+                  }
+                }}
+                autoComplete="off"
+                placeholder="Optional private key passphrase"
+                aria-label="Git SSH key passphrase"
+              />
+            </label>
+            <p className="text-muted-foreground text-xs">
+              {configuredGitSshKeyPassphrase.trim().length > 0 ? "Configured" : "Not set"}
+            </p>
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={isSshPassphraseSaving}
+              onClick={() => setIsSshPassphraseDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isSshPassphraseSaving}
+              onClick={clearSshPassphrase}
+            >
+              Clear
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isSshPassphraseSaving}
+              onClick={saveSshPassphrase}
+            >
+              {isSshPassphraseSaving ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogPopup>

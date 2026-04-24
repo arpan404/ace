@@ -1,15 +1,34 @@
 import { type ThreadId } from "@ace/contracts";
+import {
+  appendTerminalContextsToPrompt,
+  buildTerminalContextBlock,
+  formatInlineTerminalContextLabel,
+  formatTerminalContextLabel,
+  formatTerminalContextRange,
+  hasTerminalContextText,
+  INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
+  materializeInlineTerminalContextPrompt,
+  normalizeTerminalContextSelection,
+  normalizeTerminalContextText,
+  type TerminalContextSelection,
+} from "@ace/shared/terminalContext";
 
 import { LRUCache } from "./lruCache";
 import { registerMemoryPressureHandler, shouldBypassNonEssentialCaching } from "./memoryPressure";
 
-export interface TerminalContextSelection {
-  terminalId: string;
-  terminalLabel: string;
-  lineStart: number;
-  lineEnd: number;
-  text: string;
-}
+export type { TerminalContextSelection } from "@ace/shared/terminalContext";
+export {
+  appendTerminalContextsToPrompt,
+  buildTerminalContextBlock,
+  formatInlineTerminalContextLabel,
+  formatTerminalContextLabel,
+  formatTerminalContextRange,
+  hasTerminalContextText,
+  INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
+  materializeInlineTerminalContextPrompt,
+  normalizeTerminalContextSelection,
+  normalizeTerminalContextText,
+};
 
 export interface TerminalContextDraft extends TerminalContextSelection {
   id: string;
@@ -62,7 +81,39 @@ export interface BrowserDesignPromptContext {
   mainContainer: BrowserDesignElementDescriptor | null;
 }
 
-export const INLINE_TERMINAL_CONTEXT_PLACEHOLDER = "\uFFFC";
+interface CompactBrowserDesignPromptContext {
+  requestId: string;
+  pageUrl: string;
+  selection: BrowserDesignSelectionRect;
+  targetElement: {
+    tagName: string | null;
+    id: string | null;
+    className: string | null;
+    selector: string | null;
+    textSnippet: string | null;
+  } | null;
+  mainContainer: {
+    tagName: string | null;
+    id: string | null;
+    className: string | null;
+    selector: string | null;
+    textSnippet: string | null;
+  } | null;
+}
+
+function compactBrowserDesignDescriptor(
+  descriptor: BrowserDesignElementDescriptor | null,
+): CompactBrowserDesignPromptContext["targetElement"] {
+  return descriptor
+    ? {
+        tagName: descriptor.tagName,
+        id: descriptor.id,
+        className: descriptor.className,
+        selector: descriptor.selector,
+        textSnippet: descriptor.textSnippet,
+      }
+    : null;
+}
 
 const DISPLAYED_USER_MESSAGE_STATE_CACHE_MAX_ENTRIES = 500;
 const DISPLAYED_USER_MESSAGE_STATE_CACHE_MAX_MEMORY_BYTES = 4 * 1024 * 1024;
@@ -85,14 +136,6 @@ const TRAILING_GITHUB_ISSUE_CONTEXT_BLOCK_PATTERN =
   /\n*<github_issue_context>\n([\s\S]*?)\n<\/github_issue_context>\s*$/;
 const TRAILING_BROWSER_DESIGN_CONTEXT_BLOCK_PATTERN =
   /\n*<browser_design_context>\n([\s\S]*?)\n<\/browser_design_context>\s*$/;
-
-export function normalizeTerminalContextText(text: string): string {
-  return text.replace(/\r\n/g, "\n").replace(/^\n+|\n+$/g, "");
-}
-
-export function hasTerminalContextText(context: { text: string }): boolean {
-  return normalizeTerminalContextText(context.text).length > 0;
-}
 
 export function isTerminalContextExpired(context: { text: string }): boolean {
   return !hasTerminalContextText(context);
@@ -118,56 +161,6 @@ function previewTerminalContextText(text: string): string {
   return preview.length > 180 ? `${preview.slice(0, 177)}...` : preview;
 }
 
-export function normalizeTerminalContextSelection(
-  selection: TerminalContextSelection,
-): TerminalContextSelection | null {
-  const text = normalizeTerminalContextText(selection.text);
-  const terminalId = selection.terminalId.trim();
-  const terminalLabel = selection.terminalLabel.trim();
-  if (text.length === 0 || terminalId.length === 0 || terminalLabel.length === 0) {
-    return null;
-  }
-  const lineStart = Math.max(1, Math.floor(selection.lineStart));
-  const lineEnd = Math.max(lineStart, Math.floor(selection.lineEnd));
-  return {
-    terminalId,
-    terminalLabel,
-    lineStart,
-    lineEnd,
-    text,
-  };
-}
-
-export function formatTerminalContextRange(selection: {
-  lineStart: number;
-  lineEnd: number;
-}): string {
-  return selection.lineStart === selection.lineEnd
-    ? `line ${selection.lineStart}`
-    : `lines ${selection.lineStart}-${selection.lineEnd}`;
-}
-
-export function formatTerminalContextLabel(selection: {
-  terminalLabel: string;
-  lineStart: number;
-  lineEnd: number;
-}): string {
-  return `${selection.terminalLabel} ${formatTerminalContextRange(selection)}`;
-}
-
-export function formatInlineTerminalContextLabel(selection: {
-  terminalLabel: string;
-  lineStart: number;
-  lineEnd: number;
-}): string {
-  const terminalLabel = selection.terminalLabel.trim().toLowerCase().replace(/\s+/g, "-");
-  const range =
-    selection.lineStart === selection.lineEnd
-      ? `${selection.lineStart}`
-      : `${selection.lineStart}-${selection.lineEnd}`;
-  return `@${terminalLabel}:${range}`;
-}
-
 export function buildTerminalContextPreviewTitle(
   contexts: ReadonlyArray<TerminalContextSelection>,
 ): string | null {
@@ -190,76 +183,17 @@ export function buildTerminalContextPreviewTitle(
   return previews.length > 0 ? previews : null;
 }
 
-function buildTerminalContextBodyLines(selection: TerminalContextSelection): string[] {
-  return normalizeTerminalContextText(selection.text)
-    .split("\n")
-    .map((line, index) => `  ${selection.lineStart + index} | ${line}`);
-}
-
-export function buildTerminalContextBlock(
-  contexts: ReadonlyArray<TerminalContextSelection>,
-): string {
-  const normalizedContexts = contexts
-    .map((context) => normalizeTerminalContextSelection(context))
-    .filter((context): context is TerminalContextSelection => context !== null);
-  if (normalizedContexts.length === 0) {
-    return "";
-  }
-  const lines: string[] = [];
-  for (let index = 0; index < normalizedContexts.length; index += 1) {
-    const context = normalizedContexts[index]!;
-    lines.push(`- ${formatTerminalContextLabel(context)}:`);
-    lines.push(...buildTerminalContextBodyLines(context));
-    if (index < normalizedContexts.length - 1) {
-      lines.push("");
-    }
-  }
-  return ["<terminal_context>", ...lines, "</terminal_context>"].join("\n");
-}
-
-export function materializeInlineTerminalContextPrompt(
-  prompt: string,
-  contexts: ReadonlyArray<{
-    terminalLabel: string;
-    lineStart: number;
-    lineEnd: number;
-  }>,
-): string {
-  let nextContextIndex = 0;
-  let result = "";
-
-  for (const char of prompt) {
-    if (char !== INLINE_TERMINAL_CONTEXT_PLACEHOLDER) {
-      result += char;
-      continue;
-    }
-    const context = contexts[nextContextIndex] ?? null;
-    nextContextIndex += 1;
-    if (!context) {
-      continue;
-    }
-    result += formatInlineTerminalContextLabel(context);
-  }
-
-  return result;
-}
-
-export function appendTerminalContextsToPrompt(
-  prompt: string,
-  contexts: ReadonlyArray<TerminalContextSelection>,
-): string {
-  const trimmedPrompt = materializeInlineTerminalContextPrompt(prompt, contexts).trim();
-  const contextBlock = buildTerminalContextBlock(contexts);
-  if (contextBlock.length === 0) {
-    return trimmedPrompt;
-  }
-  return trimmedPrompt.length > 0 ? `${trimmedPrompt}\n\n${contextBlock}` : contextBlock;
-}
-
 export function buildBrowserDesignContextBlock(context: BrowserDesignPromptContext): string {
+  const compactContext: CompactBrowserDesignPromptContext = {
+    requestId: context.requestId,
+    pageUrl: context.pageUrl,
+    selection: context.selection,
+    targetElement: compactBrowserDesignDescriptor(context.targetElement),
+    mainContainer: compactBrowserDesignDescriptor(context.mainContainer),
+  };
   return [
     "<browser_design_context>",
-    JSON.stringify(context, null, 2),
+    JSON.stringify(compactContext, null, 2),
     "</browser_design_context>",
   ].join("\n");
 }

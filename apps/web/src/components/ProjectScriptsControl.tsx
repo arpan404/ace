@@ -28,11 +28,11 @@ import {
 } from "~/keybindings";
 import {
   AlertDialog,
-  AlertDialogClose,
+  AlertDialogCancel,
+  AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogPopup,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
 import { Button } from "./ui/button";
@@ -51,7 +51,12 @@ import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu"
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
-import { TopBarCluster, TopBarClusterDivider } from "./thread/TopBarCluster";
+import {
+  HEADER_PILL_CONTROL_CLASS_NAME,
+  HEADER_PILL_ICON_CONTROL_CLASS_NAME,
+  TopBarCluster,
+  TopBarClusterDivider,
+} from "./thread/TopBarCluster";
 
 const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
   { id: "play", label: "Play" },
@@ -61,9 +66,6 @@ const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
   { id: "build", label: "Build" },
   { id: "debug", label: "Debug" },
 ];
-
-const TOP_BAR_ACTION_BUTTON_CLASS_NAME =
-  "rounded-full border-transparent bg-transparent text-foreground/80 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08]";
 
 function ScriptIcon({
   icon,
@@ -224,7 +226,7 @@ export default function ProjectScriptsControl({
           <Button
             size="xs"
             variant="ghost"
-            className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
+            className={HEADER_PILL_CONTROL_CLASS_NAME}
             onClick={() => onRunScript(primaryScript)}
             title={`Run ${primaryScript.name}`}
           >
@@ -238,7 +240,7 @@ export default function ProjectScriptsControl({
                 <Button
                   size="icon-xs"
                   variant="ghost"
-                  className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
+                  className={HEADER_PILL_ICON_CONTROL_CLASS_NAME}
                   aria-label="Script actions"
                 />
               }
@@ -301,7 +303,7 @@ export default function ProjectScriptsControl({
           <Button
             size="xs"
             variant="ghost"
-            className={TOP_BAR_ACTION_BUTTON_CLASS_NAME}
+            className={HEADER_PILL_CONTROL_CLASS_NAME}
             onClick={openAddDialog}
             title="Add action"
           >
@@ -426,7 +428,7 @@ export default function ProjectScriptsControl({
             {isEditing && (
               <Button
                 type="button"
-                variant="destructive-outline"
+                variant="destructive"
                 className="mr-auto"
                 onClick={() => setDeleteConfirmOpen(true)}
               >
@@ -450,18 +452,18 @@ export default function ProjectScriptsControl({
       </Dialog>
 
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <AlertDialogPopup>
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete action "{name}"?</AlertDialogTitle>
             <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <Button variant="destructive" onClick={confirmDeleteScript}>
               Delete action
             </Button>
           </AlertDialogFooter>
-        </AlertDialogPopup>
+        </AlertDialogContent>
       </AlertDialog>
     </>
   );

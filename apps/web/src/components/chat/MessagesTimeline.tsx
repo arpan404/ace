@@ -1,6 +1,15 @@
 import { type MessageId, type TurnId } from "@ace/contracts";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { estimateTimelineMessageHeight } from "../../lib/chat/timelineHeight";
 import {
   getChatMessageRenderableText,
@@ -11,8 +20,8 @@ import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
 import {
-  BotIcon,
   ArrowLeftRightIcon,
+  BrainIcon,
   CheckIcon,
   CircleAlertIcon,
   ChevronDownIcon,
@@ -162,8 +171,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   const latestAssistantTurnSummary = useMemo(
     () =>
-      resolveLatestAssistantTurnDiffSummary(timelineEntries, turnDiffSummaryByAssistantMessageId),
-    [timelineEntries, turnDiffSummaryByAssistantMessageId],
+      activeTurnInProgress
+        ? null
+        : resolveLatestAssistantTurnDiffSummary(
+            timelineEntries,
+            turnDiffSummaryByAssistantMessageId,
+          ),
+    [activeTurnInProgress, timelineEntries, turnDiffSummaryByAssistantMessageId],
   );
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
     Record<string, boolean>
@@ -222,24 +236,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     (index: number) => virtualizedRows[index]?.id ?? index,
     [virtualizedRows],
   );
+  const measuredRowElementByIdRef = useRef(new Map<string, HTMLDivElement>());
   const estimateVirtualizedRowSize = useCallback(
     (index: number) =>
       estimateTimelineRowHeight(virtualizedRows[index], {
         timelineWidthPx,
         expandedWorkGroups,
       }),
-    [expandedWorkGroups, timelineWidthPx, virtualizedRows],
-  );
-  const virtualizedRowsMeasurementKey = useMemo(
-    () =>
-      virtualizedRows
-        .map((row) =>
-          getTimelineRowHeightCacheKey(row, {
-            timelineWidthPx,
-            expandedWorkGroups,
-          }),
-        )
-        .join("|"),
     [expandedWorkGroups, timelineWidthPx, virtualizedRows],
   );
   const rowVirtualizer = useVirtualizer({
@@ -249,17 +252,35 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     getScrollElement: () => scrollContainer,
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
   });
-
-  useEffect(() => {
-    if (virtualizedRows.length === 0) {
-      return;
-    }
-    rowVirtualizer.measure();
-  }, [rowVirtualizer, virtualizedRows.length, virtualizedRowsMeasurementKey]);
   const shouldUseVirtualizedBuffer =
     scrollContainer !== null && virtualizedRows.length > 0 && !activeTurnInProgress;
+  const registerMeasuredRowElement = useCallback(
+    (rowId: string, element: HTMLDivElement | null) => {
+      if (element) {
+        measuredRowElementByIdRef.current.set(rowId, element);
+        rowVirtualizer.measureElement(element);
+        return;
+      }
+      measuredRowElementByIdRef.current.delete(rowId);
+    },
+    [rowVirtualizer],
+  );
+  const handleMeasuredRowLayoutChange = useCallback(
+    (rowId: string) => {
+      const element = measuredRowElementByIdRef.current.get(rowId);
+      if (element) {
+        rowVirtualizer.measureElement(element);
+      }
+    },
+    [rowVirtualizer],
+  );
 
   const renderRowContent = (row: TimelineRow, _rowIndex: number) => {
+    const onMeasuredLayoutChange = shouldUseVirtualizedBuffer
+      ? () => {
+          handleMeasuredRowLayoutChange(row.id);
+        }
+      : undefined;
     return (
       <div
         className="group/timeline relative pb-3"
@@ -268,14 +289,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         data-message-role={row.kind === "message" ? row.message.role : undefined}
       >
         {row.kind === "work" && (
-          <div className="min-w-0 border-border border-l py-0.5 pl-4">
+          <div className="min-w-0 py-0.5">
             <SimpleWorkEntryRow
               workEntry={row.workEntry}
               inlineIntentText={row.workEntry.intentText ?? null}
             />
-            <p className="mt-1.5 pl-5.5 text-[10px] text-muted-foreground/30">
-              {formatTimestamp(row.createdAt, timestampFormat)}
-            </p>
           </div>
         )}
 
@@ -284,8 +302,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const groupId = workGroupId(row.id);
             const isExpanded = expandedWorkGroups[groupId] ?? false;
             const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon;
-            const disclosureLabel = summarizeWorkGroupLabel(row.entries, row.summaryEndAt);
-            const secondaryLabel = summarizeWorkGroupBreakdown(row.entries);
+            const breakdownParts = summarizeWorkGroupBreakdownParts(row.entries);
             const hasThinkingEntries = row.entries.some(
               (entry) => entry.kind === "work" && entry.workEntry.tone === "thinking",
             );
@@ -293,6 +310,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               (entry) => entry.kind === "work" && entry.workEntry.tone === "tool",
             );
             const hasIntentEntries = row.entries.some((entry) => entry.kind === "intent");
+            const surfaceTone = resolveMetaGroupTone(row.entries);
+            const elapsedLabel = summarizeWorkGroupElapsedLabel(row.entries, row.summaryEndAt);
             const threadGroupTone = hasToolEntries
               ? hasThinkingEntries
                 ? "mixed"
@@ -301,20 +320,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 ? "thinking"
                 : hasIntentEntries
                   ? "intent"
-                  : row.entries.some(
-                        (entry) => entry.kind === "work" && entry.workEntry.tone === "error",
-                      )
+                  : surfaceTone === "error"
                     ? "error"
                     : "info";
 
             return (
-              <div
-                className={cn("min-w-0 border-l pl-4", workGroupRailClass(row.entries))}
-                data-thread-group={threadGroupTone}
-              >
+              <div className="min-w-0 py-0.5" data-thread-group={threadGroupTone}>
                 <button
                   type="button"
-                  className="w-full text-left"
+                  className="group/disclosure w-full rounded-md border border-border/35 bg-background/45 px-2.5 py-1.5 text-left transition-[background-color,border-color] duration-100 hover:border-border/55 hover:bg-background/65"
                   onClick={() => onToggleWorkGroup(groupId)}
                   data-meta-disclosure="true"
                   data-meta-disclosure-open={String(isExpanded)}
@@ -325,38 +339,62 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   data-tool-disclosure={hasToolEntries ? "true" : undefined}
                   data-tool-disclosure-open={hasToolEntries ? String(isExpanded) : undefined}
                 >
-                  <div className="flex items-start gap-3 py-1.5 transition-colors duration-100 hover:text-foreground/92">
-                    <span className="mt-1 flex size-4 shrink-0 items-center justify-center text-muted-foreground/40 transition-transform duration-100 group-hover/timeline:text-foreground/55">
-                      <ChevronIcon className="size-3.5" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-baseline justify-between gap-3">
-                        <p className="truncate text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/58">
-                          {disclosureLabel}
-                        </p>
-                        <span className="shrink-0 text-[10px] text-muted-foreground">
-                          {isExpanded ? "Hide log" : "Show log"}
-                        </span>
+                  <div className="flex min-w-0 items-center gap-2.5 text-foreground/60 transition-[color,opacity] duration-100 group-hover/disclosure:text-foreground/94">
+                    <ChevronIcon
+                      strokeWidth={2.5}
+                      className={cn(
+                        "size-3.5 shrink-0 text-muted-foreground/48 transition-[transform,color,opacity] duration-150 group-hover/disclosure:text-muted-foreground/78 group-hover/disclosure:opacity-100",
+                        metaToneTextClass(surfaceTone),
+                      )}
+                    />
+                    <div className="min-w-0 flex-1 overflow-hidden">
+                      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[12px] leading-5 text-foreground/62">
+                        {breakdownParts.map((part, index) => (
+                          <Fragment key={`${row.id}:summary:${part.label}:${part.count}`}>
+                            {index > 0 && (
+                              <span className="shrink-0 text-muted-foreground/46 group-hover/disclosure:text-muted-foreground/68">
+                                ·
+                              </span>
+                            )}
+                            <span
+                              className="min-w-0 truncate font-medium text-foreground/64 decoration-border/0 underline underline-offset-[5px] transition-[color,font-weight,text-decoration-color,opacity] duration-100 group-hover/disclosure:font-semibold group-hover/disclosure:text-foreground/96 group-hover/disclosure:decoration-border/85"
+                              title={`${part.count} ${part.label}`}
+                            >
+                              <span className="inline-flex items-baseline gap-1">
+                                <span>{part.count}</span>
+                                <span>{part.label}</span>
+                              </span>
+                            </span>
+                          </Fragment>
+                        ))}
                       </div>
-                      <p className="wrap-break-word pt-1 text-[13px] leading-6 text-foreground/78">
-                        {secondaryLabel}
-                      </p>
                     </div>
+                    {elapsedLabel && (
+                      <div
+                        className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground/46 transition-[color,opacity] duration-100 group-hover/disclosure:text-muted-foreground/72"
+                        data-meta-disclosure-elapsed={elapsedLabel}
+                      >
+                        <Clock3Icon className="size-3.5 shrink-0" strokeWidth={2.4} />
+                        <span>{elapsedLabel}</span>
+                      </div>
+                    )}
                   </div>
                 </button>
                 {isExpanded && (
-                  <div className="mt-2 space-y-2 border-border/40 border-l pl-4">
+                  <div className="mt-2 space-y-2 border-border/35 border-l pl-4">
                     {row.entries.map((entry) =>
                       entry.kind === "work" ? (
                         <SimpleWorkEntryRow
                           key={`work-group:${row.id}:${entry.id}`}
                           workEntry={entry.workEntry}
                           inlineIntentText={null}
+                          variant="nested"
                         />
                       ) : (
                         <SimpleIntentEntryRow
                           key={`work-group:${row.id}:${entry.id}`}
                           entry={entry}
+                          variant="nested"
                         />
                       ),
                     )}
@@ -367,16 +405,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           })()}
 
         {row.kind === "intent" && (
-          <div
-            className="min-w-0 border-primary/18 border-l py-0.5 pr-1 pl-4"
-            data-intent-message="true"
-          >
-            <p className="px-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/55">
-              Message
-            </p>
-            <p className="wrap-break-word px-0.5 pt-1 text-[13px] leading-6 text-foreground/84">
-              <span>&quot;{row.text}&quot;</span>
-            </p>
+          <div className="min-w-0 py-0.5" data-intent-message="true">
+            <SimpleIntentEntryRow entry={row} variant="standalone" />
           </div>
         )}
 
@@ -402,9 +432,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           (() => (
             <AssistantMessageTimelineRow
               completionSummary={row.completionSummary}
+              durationStart={row.durationStart}
+              isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}
+              showCompletedTiming={row.showAssistantTiming ?? false}
+              showAssistantSummaryByDefault={row.showAssistantSummaryByDefault ?? false}
               markdownCwd={markdownCwd}
               message={row.message}
               onOpenBrowserUrl={onOpenBrowserUrl}
+              timestampFormat={timestampFormat}
+              {...(onMeasuredLayoutChange ? { onLayoutChange: onMeasuredLayoutChange } : {})}
             />
           ))()}
 
@@ -414,24 +450,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             onOpenBrowserUrl={onOpenBrowserUrl}
             proposedPlan={row.proposedPlan}
             workspaceRoot={workspaceRoot}
+            {...(onMeasuredLayoutChange ? { onLayoutChange: onMeasuredLayoutChange } : {})}
           />
         )}
 
         {row.kind === "working" && (
-          <div
-            className={cn(
-              "border-l py-0.5 pl-4",
-              row.mode === "silent-thinking" ? "border-warning/26" : "border-border",
-            )}
-          >
-            <p className="mb-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/55">
-              Live
-            </p>
-            <div className="flex items-center gap-2.5 text-[11px] text-muted-foreground/65">
+          <div className="min-w-0 py-1">
+            <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground/72">
               <span className="inline-flex items-center gap-1">
-                <span className="h-1 w-1 rounded-full bg-muted-foreground/25 animate-pulse" />
-                <span className="h-1 w-1 rounded-full bg-muted-foreground/25 animate-pulse [animation-delay:200ms]" />
-                <span className="h-1 w-1 rounded-full bg-muted-foreground/25 animate-pulse [animation-delay:400ms]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/28 animate-pulse" />
+                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/24 animate-pulse [animation-delay:200ms]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/20 animate-pulse [animation-delay:400ms]" />
               </span>
               <span>
                 {row.createdAt ? (
@@ -448,7 +477,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             </div>
             {row.intentText && (
               <p
-                className="mt-2 pl-0.5 text-[11px] leading-5 text-muted-foreground/68"
+                className="mt-1 pl-5 text-[11px] leading-5 text-muted-foreground/66"
                 data-inline-intent="true"
               >
                 <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
@@ -523,7 +552,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             return (
               <div
                 key={`row:${row.id}`}
-                ref={rowVirtualizer.measureElement}
+                ref={(element) => {
+                  registerMeasuredRowElement(row.id, element);
+                }}
                 data-index={virtualRow.index}
                 className="absolute top-0 left-0 w-full"
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
@@ -546,7 +577,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           className="group/timeline relative pb-3"
           data-timeline-row-kind="assistant-diff-summary"
         >
-          <div className="min-w-0 border-border border-l py-0.5 pr-1 pl-4">
+          <div className="rounded-xl border border-border/45 bg-background/35 px-4 py-3">
             <AssistantMessageTurnDiffSummary
               allDirectoriesExpanded={
                 allDirectoriesExpandedByTurnId[latestAssistantTurnSummary.turnId] ?? false
@@ -610,6 +641,9 @@ type TimelineRow =
       message: TimelineMessage;
       durationStart: string;
       completionSummary: string | null;
+      isAssistantTurnTerminal?: boolean;
+      showAssistantTiming?: boolean;
+      showAssistantSummaryByDefault?: boolean;
     }
   | {
       kind: "proposed-plan";
@@ -683,7 +717,6 @@ function formatElapsedSeconds(elapsedSeconds: number): string {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-/** Self-contained timer that re-renders only itself every second. */
 const WorkingTimer = memo(function WorkingTimer({
   createdAt,
   label,
@@ -720,6 +753,37 @@ function buildTimelineRows(input: {
   isWorking: boolean;
 }): TimelineRow[] {
   const nextRows: TimelineRow[] = [];
+  const terminalAssistantMessageIds = new Set<string>();
+  const assistantMessageIdsWithoutLaterUser = new Set<string>();
+  const lastAssistantMessageIdByTurnId = new Map<string, string>();
+  for (const timelineEntry of input.timelineEntries) {
+    if (timelineEntry?.kind !== "message" || timelineEntry.message.role !== "assistant") {
+      continue;
+    }
+    const turnId = timelineEntry.message.turnId;
+    if (turnId) {
+      lastAssistantMessageIdByTurnId.set(turnId, timelineEntry.id);
+      continue;
+    }
+    terminalAssistantMessageIds.add(timelineEntry.id);
+  }
+  for (const messageId of lastAssistantMessageIdByTurnId.values()) {
+    terminalAssistantMessageIds.add(messageId);
+  }
+  let seenLaterUserMessage = false;
+  for (let index = input.timelineEntries.length - 1; index >= 0; index -= 1) {
+    const timelineEntry = input.timelineEntries[index];
+    if (timelineEntry?.kind !== "message") {
+      continue;
+    }
+    if (timelineEntry.message.role === "user") {
+      seenLaterUserMessage = true;
+      continue;
+    }
+    if (timelineEntry.message.role === "assistant" && !seenLaterUserMessage) {
+      assistantMessageIdsWithoutLaterUser.add(timelineEntry.id);
+    }
+  }
   const activeTurnStartedAtMs =
     typeof input.activeTurnStartedAt === "string"
       ? Date.parse(input.activeTurnStartedAt)
@@ -779,12 +843,17 @@ function buildTimelineRows(input: {
     }
 
     if (shouldCollapseMetaEntries(pendingMetaEntries)) {
+      const shouldHideLiveElapsed =
+        input.activeTurnInProgress &&
+        isEventInActiveTurn(pendingMetaCreatedAt, activeTurnStartedAtMs);
       nextRows.push({
         kind: "work-group",
         id: pendingMetaRowId,
         createdAt: pendingMetaCreatedAt,
         entries: pendingMetaEntries,
-        summaryEndAt: resolveWorkGroupSummaryEndAt(pendingMetaEntries, nextEventCreatedAt),
+        summaryEndAt: shouldHideLiveElapsed
+          ? null
+          : resolveWorkGroupSummaryEndAt(pendingMetaEntries, nextEventCreatedAt),
       });
     } else {
       for (const entry of pendingMetaEntries) {
@@ -915,6 +984,20 @@ function buildTimelineRows(input: {
         input.completionDividerBeforeEntryId === timelineEntry.id
           ? input.completionSummary
           : null,
+      isAssistantTurnTerminal:
+        timelineEntry.message.role === "assistant" &&
+        terminalAssistantMessageIds.has(timelineEntry.id),
+      showAssistantTiming:
+        timelineEntry.message.role === "assistant" &&
+        terminalAssistantMessageIds.has(timelineEntry.id) &&
+        !(
+          input.activeTurnInProgress &&
+          isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
+        ),
+      showAssistantSummaryByDefault:
+        timelineEntry.message.role === "assistant" &&
+        terminalAssistantMessageIds.has(timelineEntry.id) &&
+        assistantMessageIdsWithoutLaterUser.has(timelineEntry.id),
     });
 
     if (timelineEntry.message.role === "assistant" && timelineEntry.message.completedAt) {
@@ -1083,30 +1166,31 @@ function estimateTimelineRowHeight(
         timelineWidthPx: input.timelineWidthPx,
       });
       if (row.message.role !== "assistant") {
-        height = messageHeight + 16;
+        height = messageHeight + 18;
         break;
       }
-      const completionSummaryExtra = row.completionSummary ? 24 : 0;
+      const completionSummaryExtra =
+        row.isAssistantTurnTerminal && row.message.completedAt ? 24 : 0;
       height = messageHeight + completionSummaryExtra + 16;
       break;
     }
     case "work":
-      height = row.workEntry.detail || row.workEntry.command ? 92 : 68;
+      height = row.workEntry.detail || row.workEntry.command ? 84 : 52;
       break;
     case "work-group": {
-      const collapsedHeight = 88;
+      const collapsedHeight = 64;
       const isExpanded = input.expandedWorkGroups[workGroupId(row.id)] ?? false;
       height = isExpanded ? collapsedHeight + row.entries.length * 52 : collapsedHeight;
       break;
     }
     case "intent":
-      height = 72;
+      height = 56;
       break;
     case "proposed-plan":
       height = 160 + Math.min(12, Math.ceil(row.proposedPlan.planMarkdown.length / 120)) * 24;
       break;
     case "working":
-      height = row.intentText ? 112 : 84;
+      height = row.intentText ? 90 : 60;
       break;
   }
 
@@ -1144,6 +1228,8 @@ function getTimelineRowHeightCacheKey(
         row.message.attachments?.length ?? 0,
         row.message.streaming ? 1 : 0,
         row.message.completedAt ?? "incomplete",
+        row.isAssistantTurnTerminal && row.message.completedAt ? 1 : 0,
+        row.showAssistantSummaryByDefault ? 1 : 0,
         row.completionSummary ? 1 : 0,
         widthCacheKey,
       ].join(":");
@@ -1161,7 +1247,17 @@ function getTimelineRowHeightCacheKey(
   }
 }
 
-function workGroupRailClass(entries: ReadonlyArray<TimelineMetaGroupEntry>): string {
+type TimelineMetaTone = "neutral" | "intent" | "thinking" | "tool" | "error" | "success";
+
+function resolveWorkEntryTone(tone: TimelineWorkEntry["tone"]): TimelineMetaTone {
+  if (tone === "thinking") return "thinking";
+  if (tone === "tool") return "tool";
+  if (tone === "error") return "error";
+  if (tone === "info") return "success";
+  return "neutral";
+}
+
+function resolveMetaGroupTone(entries: ReadonlyArray<TimelineMetaGroupEntry>): TimelineMetaTone {
   const hasThinking = entries.some(
     (entry) => entry.kind === "work" && entry.workEntry.tone === "thinking",
   );
@@ -1169,31 +1265,39 @@ function workGroupRailClass(entries: ReadonlyArray<TimelineMetaGroupEntry>): str
   const hasIntent = entries.some((entry) => entry.kind === "intent");
 
   if (entries.some((entry) => entry.kind === "work" && entry.workEntry.tone === "error")) {
-    return "border-rose-500/22";
+    return "error";
   }
   if (hasThinking && !hasTool) {
-    return "border-warning/26";
+    return "thinking";
   }
   if (hasTool) {
-    return "border-border";
+    return "tool";
   }
   if (hasIntent) {
-    return "border-primary/18";
+    return "intent";
   }
-  return "border-emerald-500/18";
+  return "success";
 }
 
-function summarizeWorkGroupLabel(
+function metaToneTextClass(tone: TimelineMetaTone): string {
+  if (tone === "intent") return "text-primary/70";
+  if (tone === "thinking") return "text-warning/80";
+  if (tone === "tool") return "text-muted-foreground/55";
+  if (tone === "error") return "text-destructive/80";
+  if (tone === "success") return "text-emerald-500/75";
+  return "text-muted-foreground/45";
+}
+
+function summarizeWorkGroupElapsedLabel(
   entries: ReadonlyArray<TimelineMetaGroupEntry>,
   summaryEndAt: string | null,
-): string {
+): string | null {
   const firstEntry = entries[0];
   const duration =
     firstEntry && summaryEndAt
       ? formatCompletedWorkTimer(firstEntry.createdAt, summaryEndAt)
       : null;
-
-  return duration ? `Worked for ${duration}` : "Activity log";
+  return duration;
 }
 
 function formatCompletedWorkTimer(startIso: string, endIso: string): string | null {
@@ -1219,7 +1323,18 @@ function formatCompletedWorkTimer(startIso: string, endIso: string): string | nu
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-function summarizeWorkGroupBreakdown(entries: ReadonlyArray<TimelineMetaGroupEntry>): string {
+function normalizeCompletionSummaryElapsed(summary: string | null): string | null {
+  if (!summary) {
+    return null;
+  }
+
+  return summary.replace(/^Worked for\s+/i, "").trim() || null;
+}
+
+function summarizeWorkGroupBreakdownParts(entries: ReadonlyArray<TimelineMetaGroupEntry>): Array<{
+  label: string;
+  count: number;
+}> {
   const intentCount = entries.filter((entry) => entry.kind === "intent").length;
   const toolCount = entries.filter(
     (entry) => entry.kind === "work" && entry.workEntry.tone === "tool",
@@ -1233,29 +1348,33 @@ function summarizeWorkGroupBreakdown(entries: ReadonlyArray<TimelineMetaGroupEnt
   const infoCount = entries.filter(
     (entry) => entry.kind === "work" && entry.workEntry.tone === "info",
   ).length;
-  const parts: string[] = [];
+  const eventCount = infoCount;
+  const parts: Array<{ label: string; count: number }> = [];
 
   if (intentCount > 0) {
-    parts.push(intentCount === 1 ? "1 intent" : `${intentCount} intents`);
+    parts.push({ label: intentCount === 1 ? "intent" : "intents", count: intentCount });
   }
   if (toolCount > 0) {
-    parts.push(toolCount === 1 ? "1 tool call" : `${toolCount} tool calls`);
+    parts.push({ label: toolCount === 1 ? "tool call" : "tool calls", count: toolCount });
   }
   if (thinkingCount > 0) {
-    parts.push(thinkingCount === 1 ? "1 reasoning step" : `${thinkingCount} reasoning steps`);
+    parts.push({
+      label: thinkingCount === 1 ? "reasoning step" : "reasoning steps",
+      count: thinkingCount,
+    });
   }
   if (errorCount > 0) {
-    parts.push(errorCount === 1 ? "1 issue" : `${errorCount} issues`);
+    parts.push({ label: errorCount === 1 ? "issue" : "issues", count: errorCount });
   }
-  if (infoCount > 0) {
-    parts.push(infoCount === 1 ? "1 event" : `${infoCount} events`);
+  if (eventCount > 0) {
+    parts.push({ label: eventCount === 1 ? "event" : "events", count: eventCount });
   }
 
   if (parts.length > 0) {
-    return parts.join(" · ");
+    return parts;
   }
 
-  return entries.length === 1 ? "1 log entry" : `${entries.length} log entries`;
+  return [{ label: entries.length === 1 ? "log entry" : "log entries", count: entries.length }];
 }
 
 function shouldSkipAssistantMessageRow(message: TimelineMessage): boolean {
@@ -1357,7 +1476,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
         }
 
         return (
-          <div className="wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground/90">
+          <div className="m-0 wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground/90">
             {inlineNodes}
           </div>
         );
@@ -1385,7 +1504,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
     }
 
     return (
-      <div className="wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground/90">
+      <div className="m-0 wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground/90">
         {inlineNodes}
       </div>
     );
@@ -1396,7 +1515,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   }
 
   return (
-    <pre className="whitespace-pre-wrap wrap-break-word font-mono text-sm leading-relaxed text-foreground/90">
+    <pre className="m-0 whitespace-pre-wrap wrap-break-word font-mono text-sm leading-relaxed text-foreground/90">
       {props.text}
     </pre>
   );
@@ -1437,14 +1556,17 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
 
   return (
     <div className="flex justify-end">
-      <div className="group relative max-w-[80%] px-0 py-0" data-user-message-bubble="true">
-        <div className="rounded-2xl border border-primary bg-primary/[0.08] px-3 py-2">
+      <div
+        className="group relative max-w-[82%] px-0 py-0 sm:max-w-[72%]"
+        data-user-message-bubble="true"
+      >
+        <div className="relative rounded-2xl rounded-br-lg border border-border/65 bg-chat-bubble px-3.5 py-2.5 shadow-[0_10px_24px_-22px_rgba(0,0,0,0.55)]">
           {userImages.length > 0 && (
-            <div className="mb-2 grid max-w-105 grid-cols-2 gap-1.5">
+            <div className="mb-2.5 grid max-w-105 grid-cols-2 gap-1.5">
               {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
                 <div
                   key={image.id}
-                  className="overflow-hidden rounded-lg border border-border bg-background"
+                  className="overflow-hidden rounded-xl border border-border/55 bg-background/90"
                 >
                   {image.previewUrl ? (
                     <button
@@ -1473,13 +1595,15 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
             </div>
           )}
           {(displayedUserMessage.visibleText.trim().length > 0 || terminalContexts.length > 0) && (
-            <UserMessageBody
-              text={displayedUserMessage.visibleText}
-              terminalContexts={terminalContexts}
-            />
+            <div>
+              <UserMessageBody
+                text={displayedUserMessage.visibleText}
+                terminalContexts={terminalContexts}
+              />
+            </div>
           )}
         </div>
-        <div className="mt-1 flex items-center justify-end gap-2">
+        <div className="mt-1.5 flex items-center justify-end gap-2 pr-1">
           <div className="flex items-center gap-1 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100">
             {displayedUserMessage.copyText && (
               <MessageCopyButton text={displayedUserMessage.copyText} />
@@ -1489,7 +1613,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
                 type="button"
                 size="xs"
                 variant="outline"
-                className="border-border"
+                className="border-border/55 bg-background/55"
                 disabled={props.isRevertingCheckpoint || props.isWorking}
                 onClick={() => props.onRevertUserMessage(props.message.id)}
                 title={props.revertActionTitle}
@@ -1499,7 +1623,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
               </Button>
             )}
           </div>
-          <p className="text-right text-[10px] text-muted-foreground/20">
+          <p className="text-right text-[10px] text-muted-foreground/26">
             {formatTimestamp(props.message.createdAt, props.timestampFormat)}
           </p>
         </div>
@@ -1510,9 +1634,15 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
 
 const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(props: {
   completionSummary: string | null;
+  durationStart: string;
+  isAssistantTurnTerminal?: boolean;
+  showCompletedTiming?: boolean;
+  showAssistantSummaryByDefault?: boolean;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
+  onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
+  timestampFormat: TimestampFormat;
 }) {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   const renderedMessageText = getChatMessageRenderableText(props.message);
@@ -1522,9 +1652,20 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
       : props.message.streaming
         ? ""
         : "(empty response)";
+  const completedAt = props.message.completedAt ?? null;
+  const elapsedLabel =
+    props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt
+      ? (normalizeCompletionSummaryElapsed(props.completionSummary) ??
+        formatCompletedWorkTimer(props.durationStart, completedAt))
+      : null;
+  const completedAtLabel =
+    props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt
+      ? formatTimestamp(completedAt, props.timestampFormat)
+      : null;
+  const persistVisible = Boolean(props.completionSummary || props.showAssistantSummaryByDefault);
 
   return (
-    <div className="min-w-0 border-border border-l py-0.5 pr-1 pl-4">
+    <div className="min-w-0">
       <ChatMarkdown
         text={messageText}
         cwd={props.markdownCwd}
@@ -1533,18 +1674,28 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         {...(props.message.streamingTextState
           ? { streamingTextState: props.message.streamingTextState }
           : {})}
+        {...(props.onLayoutChange ? { onLayoutChange: props.onLayoutChange } : {})}
       />
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 pl-0.5">
-        {props.completionSummary && (
+      {completedAtLabel && elapsedLabel && (
+        <div className="mt-2 flex min-h-4 flex-wrap items-center gap-x-2 gap-y-1">
           <span
-            className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/52"
+            className={cn(
+              "inline-flex items-center gap-1.5 text-[10px] text-muted-foreground/52 transition-opacity duration-150",
+              persistVisible
+                ? "opacity-100"
+                : "opacity-0 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
+            )}
             data-response-summary="true"
+            data-response-summary-time={completedAtLabel}
+            data-response-summary-elapsed={elapsedLabel}
           >
             <Clock3Icon className="size-3 shrink-0" />
-            <span>{props.completionSummary}</span>
+            <span>{completedAtLabel}</span>
+            <span className="text-muted-foreground/34">·</span>
+            <span>{elapsedLabel}</span>
           </span>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 });
@@ -1606,18 +1757,20 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
 
 const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
   cwd: string | undefined;
+  onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   proposedPlan: TimelineProposedPlan;
   workspaceRoot: string | undefined;
 }) {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   return (
-    <div className="min-w-0 border-emerald-500/18 border-l py-0.5 pr-1 pl-4">
+    <div className="rounded-xl border border-border/45 bg-background/35 px-4 py-3">
       <ProposedPlanCard
         planMarkdown={props.proposedPlan.planMarkdown}
         cwd={props.cwd}
         onOpenBrowserUrl={onOpenBrowserUrl}
         workspaceRoot={props.workspaceRoot}
+        {...(props.onLayoutChange ? { onLayoutChange: props.onLayoutChange } : {})}
       />
     </div>
   );
@@ -1635,7 +1788,7 @@ function workToneIcon(tone: TimelineWorkEntry["tone"]): {
   }
   if (tone === "thinking") {
     return {
-      icon: BotIcon,
+      icon: BrainIcon,
       className: "text-foreground/92",
     };
   }
@@ -1649,20 +1802,6 @@ function workToneIcon(tone: TimelineWorkEntry["tone"]): {
     icon: ZapIcon,
     className: "text-foreground/92",
   };
-}
-
-function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
-  if (tone === "error") return "text-rose-300/50 dark:text-rose-300/50";
-  if (tone === "tool") return "text-muted-foreground/70";
-  if (tone === "thinking") return "text-muted-foreground/50";
-  return "text-muted-foreground/40";
-}
-
-function workEntryMarkerClass(tone: TimelineWorkEntry["tone"]): string {
-  if (tone === "thinking") return "bg-amber-500/55";
-  if (tone === "tool") return "bg-border";
-  if (tone === "error") return "bg-rose-500/60";
-  return "bg-emerald-500/60";
 }
 
 function workEntryDetailText(
@@ -1734,22 +1873,20 @@ function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
 
 const SimpleIntentEntryRow = memo(function SimpleIntentEntryRow(props: {
   entry: Extract<TimelineMetaGroupEntry, { kind: "intent" }>;
+  variant?: "nested" | "standalone";
 }) {
+  const variant = props.variant ?? "standalone";
   return (
-    <div className="pl-0.5" data-intent-message="true" data-meta-entry-kind="intent">
+    <div
+      className={cn("min-w-0", variant === "nested" && "pl-2")}
+      data-intent-message="true"
+      data-meta-entry-kind="intent"
+    >
       <div className="flex items-start gap-2.5 transition-[opacity,translate] duration-200">
-        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary/55" />
+        <SquarePenIcon className="mt-1 size-3 shrink-0 text-muted-foreground/42" />
         <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="mb-0.5 flex min-w-0 items-center gap-1.5">
-            <SquarePenIcon className="size-3 shrink-0 text-foreground/88" />
-            <p className="min-w-0 flex-1 truncate text-[12px] leading-5 text-muted-foreground/68">
-              <span className="text-foreground/80">Intent</span>
-            </p>
-            <span className="shrink-0 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
-              Note
-            </span>
-          </div>
-          <p className="pl-5.5 wrap-break-word whitespace-pre-wrap text-[11px] leading-5 text-foreground/72">
+          <p className="wrap-break-word whitespace-pre-wrap text-[12px] leading-5 text-muted-foreground/76">
+            <span className="mr-1 text-foreground/80">Intent:</span>
             {props.entry.text}
           </p>
         </div>
@@ -1761,6 +1898,7 @@ const SimpleIntentEntryRow = memo(function SimpleIntentEntryRow(props: {
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   inlineIntentText?: string | null;
+  variant?: "nested" | "standalone";
 }) {
   const { workEntry } = props;
   const iconConfig = workToneIcon(workEntry.tone);
@@ -1771,47 +1909,34 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const hasChangedFiles = (workEntry.changedFiles?.length ?? 0) > 0;
   const previewIsChangedFiles = hasChangedFiles && !workEntry.command && !workEntry.detail;
   const inlineIntentText = props.inlineIntentText?.trim() || null;
-  const toneLabel =
-    workEntry.tone === "thinking"
-      ? "Thinking"
-      : workEntry.tone === "tool"
-        ? "Tool"
-        : workEntry.tone === "error"
-          ? "Issue"
-          : "Event";
+  const variant = props.variant ?? "standalone";
+  const tone = resolveWorkEntryTone(workEntry.tone);
 
   return (
-    <div className="pl-0.5" data-work-entry-id={workEntry.id} data-work-entry-tone={workEntry.tone}>
-      <div className="flex items-start gap-2.5 transition-[opacity,translate] duration-200">
-        <span
-          className={cn(
-            "mt-1.5 size-1.5 shrink-0 rounded-full",
-            workEntryMarkerClass(workEntry.tone),
-          )}
+    <div
+      className={cn("min-w-0", variant === "nested" && "pl-2")}
+      data-work-entry-id={workEntry.id}
+      data-work-entry-tone={workEntry.tone}
+    >
+      <div className="flex items-start gap-3 transition-[opacity,translate] duration-200">
+        <EntryIcon
+          className={cn("mt-1 size-3 shrink-0", iconConfig.className, metaToneTextClass(tone))}
         />
         <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="mb-0.5 flex min-w-0 items-center gap-1.5">
-            <EntryIcon className={cn("size-3 shrink-0", iconConfig.className)} />
+          <div className="mb-0.5 flex min-w-0 items-center gap-2">
             <p
               className={cn(
-                "min-w-0 flex-1 truncate text-[12px] leading-5",
+                "min-w-0 flex-1 truncate text-[12px] leading-5 text-muted-foreground/78",
                 workEntry.tone === "thinking" && "tracking-[0.01em]",
-                workToneClass(workEntry.tone),
-                detailText ? "text-muted-foreground/70" : "",
               )}
               title={displayText}
             >
-              <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
-                {heading}
-              </span>
+              <span>{heading}</span>
             </p>
-            <span className="shrink-0 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
-              {toneLabel}
-            </span>
           </div>
           {inlineIntentText && (
             <p
-              className="mb-1 pl-5.5 text-[11px] leading-5 text-muted-foreground/68"
+              className="mb-1 text-[11px] leading-5 text-muted-foreground/68"
               data-inline-intent="true"
             >
               <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
@@ -1823,10 +1948,10 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           {detailText && (
             <p
               className={cn(
-                "pl-5.5",
+                "wrap-break-word whitespace-pre-wrap",
                 workEntry.tone === "thinking"
-                  ? "wrap-break-word whitespace-pre-wrap text-[11px] leading-5 text-foreground/72"
-                  : "wrap-break-word whitespace-pre-wrap font-mono text-[10px] leading-5 text-muted-foreground/65",
+                  ? "text-[11px] leading-5 text-foreground/72"
+                  : "font-mono text-[10px] leading-5 text-muted-foreground/65",
               )}
               title={detailText}
             >
@@ -1836,7 +1961,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
         </div>
       </div>
       {hasChangedFiles && !previewIsChangedFiles && (
-        <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-1 pl-5.5">
+        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 pl-5.5">
           {workEntry.changedFiles?.slice(0, 4).map((filePath) => (
             <span
               key={`${workEntry.id}:${filePath}`}

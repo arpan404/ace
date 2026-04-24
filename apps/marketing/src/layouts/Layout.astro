@@ -15,44 +15,49 @@ const {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/screenshot.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content="/screenshot.png" />
+    <link rel="preconnect" href="https://api.fontshare.com" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap"
+      rel="stylesheet"
+      href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@400,500,700,800&display=swap"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="icon" type="image/png" href="/favicon-32x32.png" sizes="32x32" />
     <link rel="icon" type="image/png" href="/favicon-16x16.png" sizes="16x16" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>{title}</title>
   </head>
   <body>
+    <a class="skip-link" href="#content">Skip to content</a>
     <div class="page">
-      <nav class="nav">
-        <a href="/" class="nav-brand">
-          <img src="/icon.png" alt="ace" class="nav-icon" />
-        </a>
-        <a
-          href="https://github.com/arpan404/ace"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="nav-github"
-        >
-          GitHub
-          <span class="nav-github-arrow" aria-hidden="true">&#8599;</span>
-        </a>
-      </nav>
-
-      <main class="main">
+      <main id="content" class="main">
         <slot />
       </main>
 
       <footer class="footer">
-        <span class="footer-copy">&copy; {new Date().getFullYear()} arpan404</span>
+        <div>
+          <a href="/" class="footer-brand">ace</a>
+          <p class="footer-copy">
+            A focused workspace for running coding agents without losing the thread.
+          </p>
+        </div>
         <div class="footer-links">
           <a href="https://github.com/arpan404/ace" target="_blank" rel="noopener noreferrer">GitHub</a>
           <a href="https://discord.gg/jn4EGJjrvv" target="_blank" rel="noopener noreferrer">Discord</a>
+          <a href="/changelog">Changelog</a>
+          <a href="mailto:contact@arpan.sh">Contact</a>
         </div>
       </footer>
     </div>
@@ -61,11 +66,28 @@ const {
 
 <style is:global>
   :root {
-    --bg: #09090b;
-    --fg: #fafafa;
-    --fg-muted: #a1a1aa;
-    --fg-dim: #71717a;
-    --border: rgba(255, 255, 255, 0.08);
+    --bg: #0b0d12;
+    --bg-soft: #12141a;
+    --surface: #efeadf;
+    --surface-strong: #fff9eb;
+    --ink: #10100e;
+    --fg: #f6f0e6;
+    --fg-muted: rgba(246, 240, 230, 0.7);
+    --fg-dim: rgba(246, 240, 230, 0.48);
+    --primary: oklch(0.68 0.18 255);
+    --primary-deep: oklch(0.5 0.15 255);
+    --accent: var(--primary);
+    --accent-deep: var(--primary-deep);
+    --clay: oklch(0.68 0.08 38);
+    --line: rgba(246, 240, 230, 0.13);
+    --line-strong: rgba(246, 240, 230, 0.24);
+    --border: var(--line);
+    --border-bright: var(--line-strong);
+    --accent-glow: oklch(0.68 0.18 255 / 0.16);
+    --shadow: rgba(0, 0, 0, 0.42);
+    --radius: 8px;
+    --font-sans: "Cabinet Grotesk", "Avenir Next", "Helvetica Neue", sans-serif;
+    --font-mono: "JetBrains Mono", "SFMono-Regular", monospace;
   }
 
   * {
@@ -76,28 +98,47 @@ const {
 
   html {
     color-scheme: dark;
+    scroll-behavior: smooth;
+    background: var(--bg);
   }
 
   body {
-    background: var(--bg);
-    color: var(--fg);
-    font-family: "DM Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
     min-height: 100vh;
     overflow-x: hidden;
+    background:
+      radial-gradient(circle at 18% 8%, oklch(0.68 0.18 255 / 0.2), transparent 30rem),
+      radial-gradient(circle at 86% 2%, oklch(0.44 0.12 255 / 0.16), transparent 26rem),
+      linear-gradient(155deg, #0b0d12 0%, #101116 44%, #151515 100%),
+      var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01" 1, "ss03" 1;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(246, 240, 230, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(246, 240, 230, 0.03) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: linear-gradient(to bottom, black, transparent 82%);
   }
 
   body::after {
     content: "";
     position: fixed;
     inset: 0;
+    z-index: 1;
     pointer-events: none;
-    opacity: 0.035;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-repeat: repeat;
-    background-size: 256px 256px;
-    z-index: 9999;
+    opacity: 0.045;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
   }
 
   a {
@@ -105,124 +146,116 @@ const {
     text-decoration: none;
   }
 
-  img {
+  img,
+  svg {
     display: block;
-    max-width: 100%;
   }
 
-  @keyframes fade-in {
-    from {
-      opacity: 0;
-      transform: translateY(8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  a:focus-visible,
+  button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+  }
+
+  .skip-link {
+    position: fixed;
+    left: 1rem;
+    top: 1rem;
+    z-index: 20;
+    transform: translateY(-180%);
+    border-radius: 6px;
+    background: var(--surface-strong);
+    color: var(--ink);
+    padding: 0.7rem 0.9rem;
+    font-weight: 700;
+    transition: transform 180ms ease;
+  }
+
+  .skip-link:focus {
+    transform: translateY(0);
   }
 </style>
 
 <style>
-  /* ── Page ── */
-
   .page {
+    position: relative;
+    z-index: 2;
+    display: flex;
     min-height: 100vh;
-    display: flex;
     flex-direction: column;
-    overflow-x: hidden;
-  }
-
-  /* ── Navbar ── */
-
-  .nav {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1.5rem 2.5rem;
-    opacity: 0.5;
-    transition: opacity 0.4s ease;
-  }
-
-  .nav:hover {
-    opacity: 1;
-  }
-
-  .nav-brand {
-    display: flex;
-    align-items: center;
-  }
-
-  .nav-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-  }
-
-  .nav-github {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    color: var(--fg-muted);
-    font-size: 0.875rem;
-    transition: color 0.3s ease;
-  }
-
-  .nav-github:hover {
-    color: var(--fg);
-  }
-
-  .nav-github-arrow {
-    display: inline-block;
-    transition: transform 0.3s ease;
-  }
-
-  .nav-github:hover .nav-github-arrow {
-    transform: translateX(2px) translateY(-1px);
-  }
-
-  /* ── Main content ── */
-
-  .main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-
-  /* ── Footer ── */
-
-  .footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1.5rem 2.5rem;
-    font-size: 0.8rem;
-    color: var(--fg-dim);
   }
 
   .footer-links {
     display: flex;
-    gap: 1.25rem;
+    align-items: center;
+  }
+
+  .main {
+    display: flex;
+    flex: 1;
+    width: 100%;
+    max-width: 100%;
+    flex-direction: column;
+    overflow-x: hidden;
+  }
+
+  .footer {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 2rem;
+    width: min(100% - 2rem, 1180px);
+    margin: 0 auto;
+    border-top: 1px solid var(--line);
+    padding: 2.4rem 0 3rem;
+  }
+
+  .footer-brand {
+    display: inline-block;
+    margin-bottom: 0.55rem;
+    font-size: 1.1rem;
+    font-weight: 800;
+  }
+
+  .footer-copy {
+    max-width: 30rem;
+    color: var(--fg-dim);
+    font-size: 0.96rem;
+  }
+
+  .footer-links {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.35rem 1rem;
   }
 
   .footer-links a {
-    color: var(--fg-dim);
-    transition: color 0.3s ease;
+    color: var(--fg-muted);
+    font-size: 0.94rem;
+    font-weight: 700;
+    transition: color 180ms ease;
   }
 
   .footer-links a:hover {
     color: var(--fg);
   }
 
-  /* ── Mobile ── */
-
-  @media (max-width: 640px) {
-    .nav {
-      padding: 1.25rem;
+  @media (max-width: 780px) {
+    .footer {
+      align-items: flex-start;
+      flex-direction: column;
+      padding-bottom: 2rem;
     }
 
-    .footer {
-      padding: 1.25rem;
+    .footer-links {
+      justify-content: flex-start;
     }
   }
 </style>

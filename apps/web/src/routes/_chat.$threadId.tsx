@@ -7,11 +7,12 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 
-import ChatView from "../components/ChatView";
+import { ThreadBoard } from "../components/chat/ThreadBoard";
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
 import {
   DiffPanelHeaderSkeleton,
@@ -31,6 +32,15 @@ import { getThreadById, useStore } from "../store";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 import { getWsRpcClient } from "../wsRpcClient";
+import { normalizeWsUrl } from "../lib/remoteHosts";
+import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
+import {
+  THREAD_BOARD_THREADS_SEARCH_PARAM,
+  THREAD_BOARD_ACTIVE_SEARCH_PARAM,
+  decodeThreadBoardRoutePane,
+  parseThreadBoardRoutePanes,
+} from "../lib/chatThreadBoardRouteSearch";
+import { useHostConnectionStore } from "../hostConnectionStore";
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
 const DIFF_INLINE_LAYOUT_MEDIA_QUERY = "(max-width: 1180px)";
@@ -40,6 +50,44 @@ const DIFF_INLINE_SIDEBAR_MIN_WIDTH = 26 * 16;
 const COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX = 208;
 const INITIAL_THREAD_HYDRATION_RETRY_DELAY_MS = 500;
 const MAX_THREAD_HYDRATION_RETRY_DELAY_MS = 10_000;
+
+export interface ChatThreadRouteSearch extends DiffRouteSearch {
+  readonly active?: string;
+  readonly connection?: string;
+  readonly threads?: string;
+}
+
+function parseChatThreadRouteSearch(search: Record<string, unknown>): ChatThreadRouteSearch {
+  const diffSearch = parseDiffRouteSearch(search);
+  const active =
+    typeof search[THREAD_BOARD_ACTIVE_SEARCH_PARAM] === "string"
+      ? search[THREAD_BOARD_ACTIVE_SEARCH_PARAM].trim()
+      : "";
+  const threads =
+    typeof search[THREAD_BOARD_THREADS_SEARCH_PARAM] === "string"
+      ? search[THREAD_BOARD_THREADS_SEARCH_PARAM].trim()
+      : "";
+  const connectionRaw =
+    typeof search[THREAD_ROUTE_CONNECTION_SEARCH_PARAM] === "string"
+      ? search[THREAD_ROUTE_CONNECTION_SEARCH_PARAM].trim()
+      : "";
+  const boardSearch = {
+    ...diffSearch,
+    ...(active.length > 0 ? { active } : {}),
+    ...(threads.length > 0 ? { threads } : {}),
+  };
+  if (connectionRaw.length === 0) {
+    return boardSearch;
+  }
+  try {
+    return {
+      ...boardSearch,
+      connection: normalizeWsUrl(connectionRaw),
+    };
+  } catch {
+    return boardSearch;
+  }
+}
 
 function resolveThreadHydrationRetryDelayMs(failureCount: number): number {
   return Math.min(
@@ -188,6 +236,19 @@ function ChatThreadRouteView() {
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
   const search = Route.useSearch();
+  const routeConnectionUrl = search.connection;
+  const routeBoardPanes = useMemo(
+    () => parseThreadBoardRoutePanes(search.threads),
+    [search.threads],
+  );
+  const routePathBoardPane = useMemo(
+    () => ({ connectionUrl: routeConnectionUrl ?? null, threadId }),
+    [routeConnectionUrl, threadId],
+  );
+  const routeActiveBoardPane = useMemo(
+    () => (search.active ? decodeThreadBoardRoutePane(search.active) : null),
+    [search.active],
+  );
   const serverThread = useStore((store) => getThreadById(store.threads, threadId));
   const threadExists = serverThread !== undefined;
   const draftThreadExists = useComposerDraftStore((store) =>
@@ -249,6 +310,13 @@ function ChatThreadRouteView() {
     threadHydrationInFlightRef.current = null;
     threadHydrationRequestIdRef.current += 1;
   }, [threadId]);
+
+  useEffect(() => {
+    if (!routeConnectionUrl) {
+      return;
+    }
+    useHostConnectionStore.getState().upsertThreadOwnership(routeConnectionUrl, threadId);
+  }, [routeConnectionUrl, threadId]);
 
   useEffect(() => {
     if (threadHydrationRetryAt === null) {
@@ -404,7 +472,12 @@ function ChatThreadRouteView() {
     return (
       <>
         <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-          <ChatView threadId={threadId} />
+          <ThreadBoard
+            threadId={threadId}
+            connectionUrl={routeConnectionUrl ?? null}
+            routeActiveThread={routeActiveBoardPane ?? routePathBoardPane}
+            routeThreads={routeBoardPanes}
+          />
         </SidebarInset>
         <DiffPanelInlineSidebar
           diffOpen={diffOpen}
@@ -419,7 +492,12 @@ function ChatThreadRouteView() {
   return (
     <>
       <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-        <ChatView threadId={threadId} />
+        <ThreadBoard
+          threadId={threadId}
+          connectionUrl={routeConnectionUrl ?? null}
+          routeActiveThread={routeActiveBoardPane ?? routePathBoardPane}
+          routeThreads={routeBoardPanes}
+        />
       </SidebarInset>
       <DiffPanelSheet diffOpen={diffOpen} onCloseDiff={closeDiff}>
         {hasOpenedDiffPanel ? <LazyDiffPanel mode="sheet" /> : null}
@@ -429,9 +507,11 @@ function ChatThreadRouteView() {
 }
 
 export const Route = createFileRoute("/_chat/$threadId")({
-  validateSearch: (search) => parseDiffRouteSearch(search),
+  validateSearch: (search) => parseChatThreadRouteSearch(search),
   search: {
-    middlewares: [retainSearchParams<DiffRouteSearch>(["diff"])],
+    middlewares: [
+      retainSearchParams<ChatThreadRouteSearch>(["diff", "connection", "threads", "active"]),
+    ],
   },
   component: ChatThreadRouteView,
 });

@@ -16,6 +16,7 @@ describe("buildTerminalContextMenuItems", () => {
     expect(
       buildTerminalContextMenuItems({
         canSplit: false,
+        canUnsplit: false,
         hasCustomTitle: false,
       }),
     ).toEqual([
@@ -33,10 +34,12 @@ describe("buildTerminalContextMenuItems", () => {
     expect(
       buildTerminalContextMenuItems({
         canSplit: true,
+        canUnsplit: true,
         hasCustomTitle: true,
       }),
     ).toEqual([
       { id: "split", label: "Split Terminal", disabled: false },
+      { id: "unsplit", label: "Unsplit Terminal" },
       { id: "new", label: "New Terminal" },
       { id: "duplicate", label: "Duplicate Terminal" },
       { id: "rename", label: "Rename Terminal" },
@@ -91,21 +94,12 @@ describe("buildTerminalColorMenuItems", () => {
 });
 
 describe("buildTerminalSectionMenuItems", () => {
-  it("includes scoped creation and bulk terminal actions", () => {
-    expect(buildTerminalSectionMenuItems({ hasWorkspaceScope: true })).toEqual([
-      { id: "new-thread-shell", label: "New Thread Shell" },
-      { id: "new-workspace-shell", label: "New Workspace Shell", disabled: false },
+  it("includes creation and bulk terminal actions", () => {
+    expect(buildTerminalSectionMenuItems()).toEqual([
+      { id: "new-terminal", label: "New Terminal" },
       { id: "clear-all", label: "Clear All Terminals" },
       { id: "close-all", label: "Kill All Terminals", destructive: true },
     ]);
-  });
-
-  it("disables workspace shell creation when no project scope exists", () => {
-    expect(buildTerminalSectionMenuItems({ hasWorkspaceScope: false })[1]).toEqual({
-      id: "new-workspace-shell",
-      label: "New Workspace Shell",
-      disabled: true,
-    });
   });
 });
 

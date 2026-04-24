@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  type PermissionRequest,
-  type PermissionRequestResult,
-  type SessionEvent,
-} from "@github/copilot-sdk";
+import type { PermissionRequest, PermissionRequestResult, SessionEvent } from "@github/copilot-sdk";
 import {
   type CanonicalItemType,
   type CanonicalRequestType,
@@ -42,6 +38,7 @@ import {
   normalizeGitHubCopilotModelOptionsForModel,
   stopGitHubCopilotClient,
 } from "../githubCopilotSdk";
+import { loadGitHubCopilotSdkModule, type GitHubCopilotSdkLoader } from "../providerSdkRuntime";
 import {
   ProviderAdapterProcessError,
   ProviderAdapterRequestError,
@@ -146,6 +143,7 @@ interface GitHubCopilotSessionContext {
 export interface GitHubCopilotAdapterLiveOptions {
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
+  readonly sdkLoader?: GitHubCopilotSdkLoader;
   readonly timeouts?: {
     readonly sendMs?: number;
     readonly inactivityMs?: number;
@@ -823,6 +821,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           stream: "native",
         })
       : undefined);
+  const sdkLoader = options?.sdkLoader ?? (() => loadGitHubCopilotSdkModule(serverConfig.stateDir));
   const sessions = new Map<ThreadId, GitHubCopilotSessionContext>();
   const timeouts = {
     sendMs: options?.timeouts?.sendMs ?? GITHUB_COPILOT_SEND_TIMEOUT_MS,
@@ -1883,6 +1882,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       const sdkClient = await createGitHubCopilotClient(
         settings.binaryPath,
         settings.cliUrl.trim().length > 0 ? { cliUrl: settings.cliUrl.trim() } : undefined,
+        sdkLoader,
       );
 
       let context: GitHubCopilotSessionContext | undefined;

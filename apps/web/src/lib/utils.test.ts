@@ -129,7 +129,7 @@ describe("resolveServerUrl", () => {
     );
   });
 
-  it("prefers an active ws override over the desktop bridge url", () => {
+  it("keeps the desktop bridge url as primary even when an active override exists", () => {
     setWindowForTest({
       desktopBridge: {
         getWsUrl: () => "ws://127.0.0.1:3025/?token=local-token",
@@ -138,7 +138,7 @@ describe("resolveServerUrl", () => {
     persistActiveWsUrlOverride("ws://10.0.0.25:3773/ws?token=remote");
 
     expect(resolveServerUrl({ protocol: "ws", pathname: "/ws" })).toBe(
-      "ws://10.0.0.25:3773/ws?token=remote",
+      "ws://127.0.0.1:3025/ws?token=local-token",
     );
     clearActiveWsUrlOverride();
   });

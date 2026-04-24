@@ -6,17 +6,32 @@ import {
 } from "@ace/contracts";
 import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
-import { BugIcon, DiffIcon, GlobeIcon, SquarePenIcon, TerminalSquareIcon } from "lucide-react";
+import {
+  BugIcon,
+  DiffIcon,
+  FolderIcon,
+  GitBranchIcon,
+  GitForkIcon,
+  GlobeIcon,
+  SquarePenIcon,
+  TerminalSquareIcon,
+} from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
-import { TopBarCluster, interleaveTopBarItems } from "../thread/TopBarCluster";
+import {
+  HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME,
+  TopBarCluster,
+  interleaveTopBarItems,
+} from "../thread/TopBarCluster";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
+  activeThreadBranch: string | null;
+  activeThreadWorktreePath: string | null;
   activeThreadTitle: string;
   activeProjectId: ProjectId | null;
   activeProjectName: string | undefined;
@@ -50,6 +65,8 @@ interface ChatHeaderProps {
 
 export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
+  activeThreadBranch,
+  activeThreadWorktreePath,
   activeThreadTitle,
   activeProjectId,
   activeProjectName,
@@ -81,6 +98,7 @@ export const ChatHeader = memo(function ChatHeader({
   onWorkspaceModeChange,
 }: ChatHeaderProps) {
   const editorWorkspaceActive = workspaceMode === "editor" || workspaceMode === "split";
+  const workspaceDisplayName = workspaceName ?? activeProjectName ?? "Workspace";
   const workspaceActionItems: ReactNode[] = [
     activeProjectScripts ? (
       <ProjectScriptsControl
@@ -107,8 +125,7 @@ export const ChatHeader = memo(function ChatHeader({
   const workspaceActionNodes = workspaceActionItems.filter(
     (item): item is NonNullable<ReactNode> => item !== null,
   );
-  const utilityToggleClassName =
-    "shrink-0 rounded-full border border-transparent text-foreground/60 hover:text-foreground/85 data-[pressed]:border-border/45 data-[pressed]:text-foreground disabled:text-foreground/25";
+  const utilityToggleClassName = `shrink-0 ${HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME}`;
   const utilityItems = interleaveTopBarItems([
     <Tooltip key="editor-workspace">
       <TooltipTrigger
@@ -225,17 +242,41 @@ export const ChatHeader = memo(function ChatHeader({
   ]);
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2.5">
-      <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
-        {workspaceMode === "editor" ? (
-          <span
-            className="min-w-0 truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80"
-            title={workspaceName ?? activeProjectName}
+    <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden sm:gap-2">
+        {editorWorkspaceActive ? (
+          <div
+            className="flex min-w-0 max-w-full items-center gap-2.5"
+            title={workspaceDisplayName}
           >
-            {workspaceName ?? activeProjectName ?? "Workspace"}
-          </span>
+            <span className="flex size-5 shrink-0 items-center justify-center text-foreground/72">
+              <FolderIcon className="size-4" />
+            </span>
+            <span className="min-w-0 flex flex-col">
+              <span className="truncate text-[13px] leading-none font-medium tracking-tight text-foreground/84">
+                {workspaceDisplayName}
+              </span>
+              <span className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] leading-none text-muted-foreground/72">
+                {activeThreadBranch ? (
+                  <span className="inline-flex min-w-0 items-center gap-1 truncate">
+                    <GitBranchIcon className="size-3 shrink-0" />
+                    <span className="truncate">{activeThreadBranch}</span>
+                  </span>
+                ) : null}
+                {activeThreadWorktreePath ? (
+                  <span className="inline-flex items-center gap-1" title={activeThreadWorktreePath}>
+                    <GitForkIcon className="size-3 shrink-0" />
+                    <span>Worktree</span>
+                  </span>
+                ) : null}
+                {!activeThreadBranch && !activeThreadWorktreePath ? (
+                  <span className="truncate">Editor workspace</span>
+                ) : null}
+              </span>
+            </span>
+          </div>
         ) : (
-          <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
             <h2
               className="min-w-0 shrink truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80"
               title={activeThreadTitle}
@@ -243,7 +284,7 @@ export const ChatHeader = memo(function ChatHeader({
               {activeThreadTitle}
             </h2>
             {activeProjectName ? (
-              <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+              <div className="flex min-w-0 items-center gap-1 overflow-hidden">
                 {activeProjectId !== null && onActiveProjectChange ? (
                   <ProjectContextSwitcher
                     activeProjectId={activeProjectId}
@@ -254,7 +295,7 @@ export const ChatHeader = memo(function ChatHeader({
                   <Badge
                     variant="outline"
                     size="sm"
-                    className="min-w-0 max-w-48 shrink overflow-hidden border-border/15 bg-muted/15 text-muted-foreground/45"
+                    className="min-w-0 max-w-40 shrink overflow-hidden border-pill-border/70 bg-pill/88 text-pill-foreground/65 sm:max-w-48"
                   >
                     <span className="min-w-0 truncate">{activeProjectName}</span>
                   </Badge>
@@ -270,9 +311,9 @@ export const ChatHeader = memo(function ChatHeader({
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-0.75 overflow-x-auto sm:gap-1">
         {workspaceActionNodes.length > 0 ? (
-          <div className="flex min-w-0 items-center gap-1.5">{workspaceActionNodes}</div>
+          <div className="flex min-w-0 items-center gap-0.75 sm:gap-1">{workspaceActionNodes}</div>
         ) : null}
         <TopBarCluster>{utilityItems}</TopBarCluster>
       </div>

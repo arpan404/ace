@@ -78,6 +78,12 @@ import {
   WorkspaceEditorCompleteError,
   WorkspaceEditorCompleteInput,
   WorkspaceEditorCompleteResult,
+  WorkspaceEditorDefinitionError,
+  WorkspaceEditorDefinitionInput,
+  WorkspaceEditorDefinitionResult,
+  WorkspaceEditorReferencesError,
+  WorkspaceEditorReferencesInput,
+  WorkspaceEditorReferencesResult,
   WorkspaceEditorSyncBufferError,
   WorkspaceEditorSyncBufferInput,
   WorkspaceEditorSyncBufferResult,
@@ -128,6 +134,8 @@ export const WS_METHODS = {
   workspaceEditorSyncBuffer: "workspaceEditor.syncBuffer",
   workspaceEditorCloseBuffer: "workspaceEditor.closeBuffer",
   workspaceEditorComplete: "workspaceEditor.complete",
+  workspaceEditorDefinition: "workspaceEditor.definition",
+  workspaceEditorReferences: "workspaceEditor.references",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -323,6 +331,18 @@ export const WsWorkspaceEditorCompleteRpc = Rpc.make(WS_METHODS.workspaceEditorC
   payload: WorkspaceEditorCompleteInput,
   success: WorkspaceEditorCompleteResult,
   error: WorkspaceEditorCompleteError,
+});
+
+export const WsWorkspaceEditorDefinitionRpc = Rpc.make(WS_METHODS.workspaceEditorDefinition, {
+  payload: WorkspaceEditorDefinitionInput,
+  success: WorkspaceEditorDefinitionResult,
+  error: WorkspaceEditorDefinitionError,
+});
+
+export const WsWorkspaceEditorReferencesRpc = Rpc.make(WS_METHODS.workspaceEditorReferences, {
+  payload: WorkspaceEditorReferencesInput,
+  success: WorkspaceEditorReferencesResult,
+  error: WorkspaceEditorReferencesError,
 });
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
@@ -542,6 +562,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkspaceEditorSyncBufferRpc,
   WsWorkspaceEditorCloseBufferRpc,
   WsWorkspaceEditorCompleteRpc,
+  WsWorkspaceEditorDefinitionRpc,
+  WsWorkspaceEditorReferencesRpc,
   WsShellOpenInEditorRpc,
   WsShellRevealInFileManagerRpc,
   WsFilesystemBrowseRpc,

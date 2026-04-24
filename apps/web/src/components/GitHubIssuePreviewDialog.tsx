@@ -63,11 +63,11 @@ export function GitHubIssuePreviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup
         showCloseButton={false}
-        className="flex h-[min(40rem,88vh)] min-h-[16rem] max-w-[min(52rem,94vw)] gap-0 overflow-hidden p-0"
+        className="flex h-[min(40rem,90vh)] min-h-[16rem] max-w-[min(52rem,calc(100vw-1rem))] gap-0 overflow-hidden p-0"
       >
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Header */}
-          <div className="flex shrink-0 items-start justify-between border-b border-border/50 px-5 py-3.5">
+          <div className="flex shrink-0 items-start justify-between border-b border-border/50 px-4 py-3 sm:px-5 sm:py-3.5">
             {displayIssue ? (
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -87,7 +87,7 @@ export function GitHubIssuePreviewDialog({
                   <Badge
                     variant={displayIssue.state === "open" ? "success" : "outline"}
                     size="sm"
-                    className="h-[18px] rounded-full px-1.5 text-[10px] font-medium capitalize"
+                    className="h-[18px] rounded-[var(--chip-radius)] px-1.5 text-[10px] font-medium capitalize"
                   >
                     {displayIssue.state}
                   </Badge>
@@ -107,7 +107,7 @@ export function GitHubIssuePreviewDialog({
                           key={label.name}
                           variant="secondary"
                           size="sm"
-                          className="h-[18px] rounded-full px-1.5 text-[10px] font-normal"
+                          className="h-[18px] rounded-[var(--chip-radius)] px-1.5 text-[10px] font-normal"
                         >
                           {label.name}
                         </Badge>
@@ -127,7 +127,7 @@ export function GitHubIssuePreviewDialog({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="gap-1 rounded-md text-xs"
+                  className="gap-1 text-xs"
                   render={<a href={displayIssue.url} target="_blank" rel="noreferrer" />}
                 >
                   GitHub
@@ -137,7 +137,7 @@ export function GitHubIssuePreviewDialog({
               <Button
                 variant="ghost"
                 size="sm"
-                className="size-7 rounded-md p-0"
+                className="size-7 p-0"
                 onClick={() => onOpenChange(false)}
               >
                 <XIcon className="size-3.5" />
@@ -147,13 +147,13 @@ export function GitHubIssuePreviewDialog({
 
           {/* Body */}
           <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
-            <div className="px-5 py-4 pb-6">
+            <div className="px-4 py-4 pb-6 sm:px-5">
               {threadQuery.isFetching && !thread ? (
                 <GitHubIssueThreadSkeleton />
               ) : thread ? (
                 <div className="space-y-4">
                   {/* Description */}
-                  <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 dark:bg-muted/5">
+                  <div className="rounded-[var(--control-radius)] border border-border/40 bg-muted/10 px-4 py-3 dark:bg-muted/5">
                     <IssueMarkdown
                       text={thread.body?.trim().length ? thread.body : "No description provided."}
                       cwd={cwd}
@@ -173,7 +173,7 @@ export function GitHubIssuePreviewDialog({
                               comment.url ??
                               `${comment.createdAt}-${comment.author?.login ?? "unknown"}`
                             }
-                            className="rounded-lg border border-border/35 bg-background/50 px-4 py-3 dark:bg-background/20"
+                            className="rounded-[var(--control-radius)] border border-border/35 bg-background/50 px-4 py-3 dark:bg-background/20"
                           >
                             <div className="mb-2 flex items-center gap-2 text-[11px]">
                               <span className="font-semibold text-foreground/85">

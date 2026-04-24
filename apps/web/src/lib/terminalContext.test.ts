@@ -212,6 +212,11 @@ describe("terminalContext", () => {
       context: { requestId: "DR-3A91F6C2" },
     });
     expect(extractBrowserDesignRequestId(prompt)).toBe("DR-3A91F6C2");
+    expect(prompt).toContain('"pageUrl": "https://example.com/dashboard?view=card"');
+    expect(prompt).toContain('"mainContainer"');
+    expect(prompt).toContain('"textSnippet": "Save changes"');
+    expect(prompt).not.toContain('"pagePath"');
+    expect(prompt).not.toContain('"htmlSnippet"');
   });
 
   it("hides trailing browser design blocks from rendered user message text", () => {

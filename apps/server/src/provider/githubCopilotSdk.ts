@@ -1,15 +1,14 @@
 import path from "node:path";
 
-import {
-  CopilotClient,
-  type AssistantMessageEvent,
-  type GetAuthStatusResponse,
-  type GetStatusResponse,
-  type MessageOptions,
-  type ModelInfo,
-  type ResumeSessionConfig,
-  type SessionConfig,
-  type SessionEventHandler,
+import type {
+  AssistantMessageEvent,
+  GetAuthStatusResponse,
+  GetStatusResponse,
+  MessageOptions,
+  ModelInfo,
+  ResumeSessionConfig,
+  SessionConfig,
+  SessionEventHandler,
 } from "@github/copilot-sdk";
 import type {
   GitHubCopilotModelOptions,
@@ -20,6 +19,7 @@ import { normalizeGitHubCopilotModelOptionsWithCapabilities } from "@ace/shared/
 import { Effect } from "effect";
 
 import { runProcess } from "../processRunner.ts";
+import type { GitHubCopilotSdkLoader } from "./providerSdkRuntime";
 
 const GITHUB_COPILOT_CLI_LOOKUP_TIMEOUT_MS = 10_000;
 const GITHUB_COPILOT_CLI_START_TIMEOUT_MS = 10_000;
@@ -131,7 +131,19 @@ export async function resolveGitHubCopilotCliPath(binaryPath: string): Promise<s
 export async function createGitHubCopilotClient(
   binaryPath: string,
   config?: GitHubCopilotClientConfig,
+  loadSdk?: GitHubCopilotSdkLoader,
 ): Promise<GitHubCopilotClientLike> {
+  const sdk = await (loadSdk?.() ?? import("@github/copilot-sdk"));
+  const sdkDefault =
+    typeof (sdk as { default?: unknown }).default === "object" &&
+    (sdk as { default?: unknown }).default !== null
+      ? ((sdk as { default?: unknown }).default as { CopilotClient?: unknown })
+      : undefined;
+  const CopilotClient =
+    sdk.CopilotClient ?? (sdkDefault?.CopilotClient as typeof sdk.CopilotClient | undefined);
+  if (typeof CopilotClient !== "function") {
+    throw new Error("GitHub Copilot SDK does not export CopilotClient.");
+  }
   const configuredCliUrl = config?.cliUrl?.trim();
   const envCliUrl = process.env.ACE_GITHUB_COPILOT_CLI_URL?.trim();
   const cliUrl = configuredCliUrl && configuredCliUrl.length > 0 ? configuredCliUrl : envCliUrl;
@@ -300,8 +312,9 @@ export interface GitHubCopilotSdkProbe {
 export async function probeGitHubCopilotSdk(
   binaryPath: string,
   config?: GitHubCopilotClientConfig,
+  loadSdk?: GitHubCopilotSdkLoader,
 ): Promise<GitHubCopilotSdkProbe> {
-  const client = await createGitHubCopilotClient(binaryPath, config);
+  const client = await createGitHubCopilotClient(binaryPath, config, loadSdk);
   try {
     const requestTimeoutMs = config?.requestTimeoutMs ?? GITHUB_COPILOT_CLI_REQUEST_TIMEOUT_MS;
     const [statusResult, authResult, modelsResult] = await Promise.allSettled([

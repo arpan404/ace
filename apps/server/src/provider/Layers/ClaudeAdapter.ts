@@ -6,17 +6,16 @@
  *
  * @module ClaudeAdapterLive
  */
-import {
-  type CanUseTool,
-  query,
-  type Options as ClaudeQueryOptions,
-  type PermissionMode,
-  type PermissionResult,
-  type PermissionUpdate,
-  type SDKMessage,
-  type SDKResultMessage,
-  type SettingSource,
-  type SDKUserMessage,
+import type {
+  CanUseTool,
+  Options as ClaudeQueryOptions,
+  PermissionMode,
+  PermissionResult,
+  PermissionUpdate,
+  SDKMessage,
+  SDKResultMessage,
+  SettingSource,
+  SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   ApprovalRequestId,
@@ -82,6 +81,7 @@ import {
 } from "../providerTranscriptBootstrap.ts";
 import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
+import { loadClaudeAgentSdkModule, type ClaudeAgentSdkLoader } from "../providerSdkRuntime.ts";
 
 const PROVIDER = "claudeAgent" as const;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
@@ -189,9 +189,10 @@ export interface ClaudeAdapterLiveOptions {
   readonly createQuery?: (input: {
     readonly prompt: AsyncIterable<SDKUserMessage>;
     readonly options: ClaudeQueryOptions;
-  }) => ClaudeQueryRuntime;
+  }) => ClaudeQueryRuntime | Promise<ClaudeQueryRuntime>;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
+  readonly sdkLoader?: ClaudeAgentSdkLoader;
 }
 
 function isUuid(value: string): boolean {
@@ -955,13 +956,17 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           stream: "native",
         })
       : undefined);
+  const sdkLoader = options?.sdkLoader ?? (() => loadClaudeAgentSdkModule(serverConfig.stateDir));
 
   const createQuery =
     options?.createQuery ??
-    ((input: {
+    (async (input: {
       readonly prompt: AsyncIterable<SDKUserMessage>;
       readonly options: ClaudeQueryOptions;
-    }) => query({ prompt: input.prompt, options: input.options }) as ClaudeQueryRuntime);
+    }) => {
+      const sdk = await sdkLoader();
+      return sdk.query({ prompt: input.prompt, options: input.options }) as ClaudeQueryRuntime;
+    });
 
   const sessions = new Map<ThreadId, ClaudeSessionContext>();
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
@@ -2756,12 +2761,14 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
       };
 
-      const queryRuntime = yield* Effect.try({
+      const queryRuntime = yield* Effect.tryPromise({
         try: () =>
-          createQuery({
-            prompt,
-            options: queryOptions,
-          }),
+          Promise.resolve(
+            createQuery({
+              prompt,
+              options: queryOptions,
+            }),
+          ),
         catch: (cause) =>
           new ProviderAdapterProcessError({
             provider: PROVIDER,

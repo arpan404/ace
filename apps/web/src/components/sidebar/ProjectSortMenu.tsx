@@ -5,14 +5,17 @@ import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger 
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
-  updated_at: "Last user message",
+  updated_at: "Latest thread activity",
+  last_user_message: "Last user message",
   created_at: "Created at",
   manual: "Manual",
 };
 
 const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
-  updated_at: "Last user message",
+  updated_at: "Latest thread activity",
+  last_user_message: "Last user message",
   created_at: "Created at",
+  manual: "Manual",
 };
 
 export function ProjectSortMenu({

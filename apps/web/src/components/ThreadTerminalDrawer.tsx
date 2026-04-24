@@ -40,6 +40,10 @@ import {
 import { Input } from "~/components/ui/input";
 import { type TerminalContextSelection } from "~/lib/terminalContext";
 import {
+  HEADER_PILL_ICON_CONTROL_CLASS_NAME,
+  HEADER_PILL_SURFACE_CLASS_NAME,
+} from "./thread/TopBarCluster";
+import {
   applyTerminalInputToBuffer,
   buildTerminalFallbackTitle,
   deriveTerminalTitleFromCommand,
@@ -73,7 +77,7 @@ import {
   normalizeTerminalIdList,
   normalizeTerminalSidebarWidth as clampTerminalSidebarWidth,
 } from "~/lib/terminalStateNormalization";
-import { type TerminalScopeKind } from "~/lib/terminalScopes";
+import { cn } from "~/lib/utils";
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
@@ -355,6 +359,7 @@ export function shouldHandleTerminalSelectionMouseUp(
 
 type TerminalMenuAction =
   | "split"
+  | "unsplit"
   | "new"
   | "duplicate"
   | "rename"
@@ -363,11 +368,7 @@ type TerminalMenuAction =
   | "restart"
   | "close";
 
-type TerminalSectionMenuAction =
-  | "new-thread-shell"
-  | "new-workspace-shell"
-  | "clear-all"
-  | "close-all";
+type TerminalSectionMenuAction = "new-terminal" | "clear-all" | "close-all";
 type TerminalSidebarDensity = "compact" | "comfortable";
 type TerminalSidebarDropTarget =
   | { kind: "group"; groupId: string; index: number }
@@ -391,11 +392,13 @@ interface TerminalOptionMenuItemDescriptor<T extends string> {
 
 export function buildTerminalContextMenuItems(options: {
   canSplit: boolean;
+  canUnsplit?: boolean;
   hasCustomTitle: boolean;
 }): TerminalMenuItemDescriptor<TerminalMenuAction>[] {
-  const { canSplit, hasCustomTitle } = options;
+  const { canSplit, canUnsplit = false, hasCustomTitle } = options;
   return [
     { id: "split", label: "Split Terminal", disabled: !canSplit },
+    ...(canUnsplit ? [{ id: "unsplit" as const, label: "Unsplit Terminal" }] : []),
     { id: "new", label: "New Terminal" },
     { id: "duplicate", label: "Duplicate Terminal" },
     { id: "rename", label: "Rename Terminal" },
@@ -437,63 +440,16 @@ export function buildTerminalSidebarDensityItems(
   ];
 }
 
-export function buildTerminalSectionMenuItems(options: {
-  hasWorkspaceScope: boolean;
-}): TerminalMenuItemDescriptor<TerminalSectionMenuAction>[] {
+export function buildTerminalSectionMenuItems(): TerminalMenuItemDescriptor<TerminalSectionMenuAction>[] {
   return [
-    { id: "new-thread-shell", label: "New Thread Shell" },
-    {
-      id: "new-workspace-shell",
-      label: "New Workspace Shell",
-      disabled: !options.hasWorkspaceScope,
-    },
+    { id: "new-terminal", label: "New Terminal" },
     { id: "clear-all", label: "Clear All Terminals" },
     { id: "close-all", label: "Kill All Terminals", destructive: true },
   ];
 }
 
-function basenameOfCwd(path: string): string {
-  const normalizedPath = path.replace(/\\/g, "/").replace(/\/+$/g, "");
-  if (normalizedPath.length === 0) return "workspace";
-  const segments = normalizedPath.split("/");
-  return segments[segments.length - 1] || normalizedPath;
-}
-
 function compactShellLabel(label: string): string {
   return label.replace(/\s+shell$/i, "").trim();
-}
-
-function labelsEqual(left: string, right: string): boolean {
-  return left.trim().toLowerCase() === right.trim().toLowerCase();
-}
-
-function buildTerminalRowSubtitle(options: {
-  cwd: string;
-  displayLabel: string;
-  autoTitle: string | null;
-  isRunning: boolean;
-}): string {
-  const location = basenameOfCwd(options.cwd);
-  const status = options.isRunning ? "running" : "idle";
-  const compactDisplayLabel = compactShellLabel(options.displayLabel);
-  const compactAutoTitle = options.autoTitle ? compactShellLabel(options.autoTitle) : null;
-  const subtitleParts: string[] = [];
-  if (
-    options.autoTitle &&
-    compactAutoTitle &&
-    !labelsEqual(compactAutoTitle, compactDisplayLabel)
-  ) {
-    subtitleParts.push(options.autoTitle);
-  }
-  if (
-    location.length > 0 &&
-    !labelsEqual(location, compactDisplayLabel) &&
-    (!compactAutoTitle || !labelsEqual(location, compactAutoTitle))
-  ) {
-    subtitleParts.push(location);
-  }
-  subtitleParts.push(status);
-  return subtitleParts.join(" · ");
 }
 
 function terminalColorClasses(color: TerminalColorName | null): string {
@@ -620,6 +576,46 @@ function TerminalViewport({
 
     const api = readNativeApi();
     if (!api) return;
+    let resizeFrame: number | null = null;
+    let lastObservedSize: `${number}x${number}` | null = null;
+
+    const fitToViewport = () => {
+      const activeTerminal = terminalRef.current;
+      const activeFitAddon = fitAddonRef.current;
+      const mountElement = containerRef.current;
+      if (!activeTerminal || !activeFitAddon || !mountElement) return;
+      const nextWidth = mountElement.clientWidth;
+      const nextHeight = mountElement.clientHeight;
+      if (nextWidth <= 0 || nextHeight <= 0) return;
+      const nextSize = `${nextWidth}x${nextHeight}` as const;
+      if (nextSize === lastObservedSize) return;
+      lastObservedSize = nextSize;
+      const wasAtBottom =
+        activeTerminal.buffer.active.viewportY >= activeTerminal.buffer.active.baseY;
+      activeFitAddon.fit();
+      if (wasAtBottom) {
+        activeTerminal.scrollToBottom();
+      }
+      runAsyncTask(
+        api.terminal.resize({
+          threadId,
+          terminalId,
+          cols: activeTerminal.cols,
+          rows: activeTerminal.rows,
+        }),
+        "Failed to resize the terminal after viewport changes.",
+      );
+    };
+
+    const scheduleFitToViewport = () => {
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        fitToViewport();
+      });
+    };
 
     const clearSelectionAction = () => {
       selectionActionRequestIdRef.current += 1;
@@ -851,7 +847,8 @@ function TerminalViewport({
           return;
         }
         activeTerminal.open(containerRef.current);
-        activeFitAddon.fit();
+        lastObservedSize = null;
+        scheduleFitToViewport();
         const snapshot = await api.terminal.open({
           threadId,
           terminalId,
@@ -951,30 +948,26 @@ function TerminalViewport({
     });
 
     const fitTimer = window.setTimeout(() => {
-      const activeTerminal = terminalRef.current;
-      const activeFitAddon = fitAddonRef.current;
-      if (!activeTerminal || !activeFitAddon) return;
-      const wasAtBottom =
-        activeTerminal.buffer.active.viewportY >= activeTerminal.buffer.active.baseY;
-      activeFitAddon.fit();
-      if (wasAtBottom) {
-        activeTerminal.scrollToBottom();
-      }
-      runAsyncTask(
-        api.terminal.resize({
-          threadId,
-          terminalId,
-          cols: activeTerminal.cols,
-          rows: activeTerminal.rows,
-        }),
-        "Failed to resize the terminal after fitting the viewport.",
-      );
+      lastObservedSize = null;
+      scheduleFitToViewport();
     }, 30);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            lastObservedSize = null;
+            scheduleFitToViewport();
+          });
+    resizeObserver?.observe(mount);
     void openTerminal();
 
     return () => {
       disposed = true;
       window.clearTimeout(fitTimer);
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
+      resizeObserver?.disconnect();
       unsubscribe();
       inputDisposable.dispose();
       selectionDisposable.dispose();
@@ -1053,22 +1046,15 @@ interface ThreadTerminalDrawerProps {
   terminalIconsById: Record<string, TerminalIconName>;
   terminalColorsById: Record<string, TerminalColorName>;
   splitRatiosByGroupId: Record<string, number[]>;
-  terminalRuntimeThreadIdById?: Record<string, ThreadId>;
-  terminalRuntimeIdById?: Record<string, string>;
-  terminalScopeById?: Record<string, TerminalScopeKind>;
-  terminalGroupScopeById?: Record<string, TerminalScopeKind>;
   focusRequestId: number;
-  hasWorkspaceScope: boolean;
   onSplitTerminal: () => void;
+  onUnsplitTerminal: (terminalId: string) => void;
   onNewTerminal: () => void;
-  onNewThreadTerminal: () => void;
-  onNewWorkspaceTerminal: () => void;
   splitShortcutLabel?: string | undefined;
   newShortcutLabel?: string | undefined;
   closeShortcutLabel?: string | undefined;
   onActiveTerminalChange: (terminalId: string) => void;
   onMoveTerminal: (terminalId: string, targetGroupId: string, targetIndex: number) => void;
-  onMoveTerminalToNewGroup: (terminalId: string, targetGroupIndex: number) => void;
   onDuplicateTerminal: (terminalId: string) => void;
   onRenameTerminal: (terminalId: string, title: string) => void;
   onClearTerminal: (terminalId: string) => void;
@@ -1090,15 +1076,31 @@ interface TerminalActionButtonProps {
   label: string;
   className: string;
   onClick: MouseEventHandler<HTMLButtonElement>;
+  pressed?: boolean;
   children: ReactNode;
 }
 
-function TerminalActionButton({ label, className, onClick, children }: TerminalActionButtonProps) {
+function TerminalActionButton({
+  label,
+  className,
+  onClick,
+  pressed = false,
+  children,
+}: TerminalActionButtonProps) {
   return (
     <Popover>
       <PopoverTrigger
         openOnHover
-        render={<button type="button" className={className} onClick={onClick} aria-label={label} />}
+        render={
+          <button
+            type="button"
+            className={className}
+            onClick={onClick}
+            aria-label={label}
+            aria-pressed={pressed}
+            data-pressed={pressed ? "" : undefined}
+          />
+        }
       >
         {children}
       </PopoverTrigger>
@@ -1114,6 +1116,16 @@ function TerminalActionButton({ label, className, onClick, children }: TerminalA
     </Popover>
   );
 }
+
+const TERMINAL_HEADER_ACTION_GROUP_CLASS_NAME = cn(
+  HEADER_PILL_SURFACE_CLASS_NAME,
+  "inline-flex items-center gap-px p-0.5 shadow-none",
+);
+
+const TERMINAL_HEADER_ACTION_BUTTON_CLASS_NAME = cn(
+  HEADER_PILL_ICON_CONTROL_CLASS_NAME,
+  "!size-6 !rounded-[var(--control-radius)] inline-flex items-center justify-center leading-none text-pill-foreground/78 hover:text-pill-foreground [&_svg]:shrink-0",
+);
 
 export default function ThreadTerminalDrawer({
   threadId,
@@ -1132,22 +1144,15 @@ export default function ThreadTerminalDrawer({
   terminalIconsById,
   terminalColorsById,
   splitRatiosByGroupId,
-  terminalRuntimeThreadIdById,
-  terminalRuntimeIdById,
-  terminalScopeById,
-  terminalGroupScopeById,
   focusRequestId,
-  hasWorkspaceScope,
   onSplitTerminal,
+  onUnsplitTerminal,
   onNewTerminal,
-  onNewThreadTerminal,
-  onNewWorkspaceTerminal,
   splitShortcutLabel,
   newShortcutLabel,
   closeShortcutLabel,
   onActiveTerminalChange,
   onMoveTerminal,
-  onMoveTerminalToNewGroup,
   onDuplicateTerminal,
   onRenameTerminal,
   onClearTerminal,
@@ -1212,65 +1217,6 @@ export default function ThreadTerminalDrawer({
     return normalizeTerminalGroups(terminalGroups, normalizedTerminalIds);
   }, [normalizedTerminalIds, terminalGroups]);
 
-  const resolvedTerminalScopeById = useMemo(
-    () =>
-      Object.fromEntries(
-        normalizedTerminalIds.map((terminalId) => [
-          terminalId,
-          terminalScopeById?.[terminalId] ?? "thread",
-        ]),
-      ) as Record<string, TerminalScopeKind>,
-    [normalizedTerminalIds, terminalScopeById],
-  );
-
-  const resolvedTerminalRuntimeThreadIdById = useMemo(
-    () =>
-      Object.fromEntries(
-        normalizedTerminalIds.map((terminalId) => [
-          terminalId,
-          terminalRuntimeThreadIdById?.[terminalId] ?? threadId,
-        ]),
-      ) as Record<string, ThreadId>,
-    [normalizedTerminalIds, terminalRuntimeThreadIdById, threadId],
-  );
-
-  const resolvedTerminalRuntimeIdById = useMemo(
-    () =>
-      Object.fromEntries(
-        normalizedTerminalIds.map((terminalId) => [
-          terminalId,
-          terminalRuntimeIdById?.[terminalId] ?? terminalId,
-        ]),
-      ) as Record<string, string>,
-    [normalizedTerminalIds, terminalRuntimeIdById],
-  );
-
-  const resolvedGroupScopeById = useMemo(() => {
-    return Object.fromEntries(
-      resolvedTerminalGroups.map((group) => {
-        const fromProp = terminalGroupScopeById?.[group.id];
-        if (fromProp) {
-          return [group.id, fromProp];
-        }
-        const groupScope =
-          resolvedTerminalScopeById[group.terminalIds[0] ?? ""] ?? ("thread" as TerminalScopeKind);
-        return [group.id, groupScope];
-      }),
-    ) as Record<string, TerminalScopeKind>;
-  }, [resolvedTerminalGroups, resolvedTerminalScopeById, terminalGroupScopeById]);
-
-  const groupedTerminalGroups = useMemo(
-    () => ({
-      workspace: resolvedTerminalGroups.filter(
-        (group) => resolvedGroupScopeById[group.id] === "workspace",
-      ),
-      thread: resolvedTerminalGroups.filter(
-        (group) => resolvedGroupScopeById[group.id] === "thread",
-      ),
-    }),
-    [resolvedGroupScopeById, resolvedTerminalGroups],
-  );
-
   const resolvedActiveGroupIndex = useMemo(() => {
     const indexById = resolvedTerminalGroups.findIndex(
       (terminalGroup) => terminalGroup.id === activeTerminalGroupId,
@@ -1289,14 +1235,7 @@ export default function ThreadTerminalDrawer({
   const isSplitView = visibleTerminalIds.length > 1;
   const visibleTerminalGroupId =
     resolvedTerminalGroups[resolvedActiveGroupIndex]?.id ?? `group-${resolvedActiveTerminalId}`;
-  const showGroupHeaders =
-    resolvedTerminalGroups.length > 1 ||
-    resolvedTerminalGroups.some((terminalGroup) => terminalGroup.terminalIds.length > 1);
   const hasReachedSplitLimit = visibleTerminalIds.length >= MAX_TERMINALS_PER_GROUP;
-  const terminalOrderById = useMemo(
-    () => new Map(normalizedTerminalIds.map((terminalId, index) => [terminalId, index + 1])),
-    [normalizedTerminalIds],
-  );
   const terminalLabelById = useMemo(
     () =>
       new Map(
@@ -1356,53 +1295,49 @@ export default function ThreadTerminalDrawer({
     : splitShortcutLabel
       ? `Split Terminal (${splitShortcutLabel})`
       : "Split Terminal";
-  const newThreadTerminalActionLabel = newShortcutLabel
-    ? `New Thread Shell (${newShortcutLabel})`
-    : "New Thread Shell";
-  const newWorkspaceTerminalActionLabel = hasWorkspaceScope
-    ? "New Workspace Shell"
-    : "New Workspace Shell (project required)";
+  const unsplitTerminalActionLabel = isSplitView ? "Unsplit Active Terminal" : "Unsplit Terminal";
+  const newTerminalActionLabel = newShortcutLabel
+    ? `New Terminal (${newShortcutLabel})`
+    : "New Terminal";
   const closeTerminalActionLabel = closeShortcutLabel
     ? `Close Terminal (${closeShortcutLabel})`
     : "Close Terminal";
   const isCompactDensity = sidebarDensity === "compact";
-  const rowPaddingClass = isCompactDensity ? "px-2 py-1" : "px-2 py-1.5";
-  const rowTextClass = isCompactDensity ? "text-[10px]" : "text-[11px]";
-  const groupHeaderPaddingClass = isCompactDensity ? "px-2 py-1" : "px-2 py-1.5";
-  const sidebarSections = useMemo(() => {
+  const rowPaddingClass = isCompactDensity ? "px-2 py-1.5" : "px-2.5 py-2";
+  const rowTextClass = isCompactDensity ? "text-[11px]" : "text-[12px]";
+  const runningTerminalCount = runningTerminalIds.length;
+  const railSummaryLabel =
+    runningTerminalCount > 0
+      ? `${runningTerminalCount} running · ${normalizedTerminalIds.length} open`
+      : `${normalizedTerminalIds.length} open`;
+  const sidebarGroups = useMemo(() => {
     const seenTerminalIds = new Set<string>();
-    const dedupeGroups = (groups: ReadonlyArray<ThreadTerminalGroup>) =>
-      groups
-        .map((group) => ({
-          ...group,
-          terminalIds: group.terminalIds.filter((terminalId) => {
-            if (seenTerminalIds.has(terminalId)) {
-              return false;
-            }
-            seenTerminalIds.add(terminalId);
-            return true;
-          }),
-        }))
-        .filter((group) => group.terminalIds.length > 0);
-
-    return [
-      {
-        scope: "workspace" as const,
-        title: "Workspace",
-        groups: dedupeGroups(groupedTerminalGroups.workspace),
-      },
-      {
-        scope: "thread" as const,
-        title: "Thread",
-        groups: dedupeGroups(groupedTerminalGroups.thread),
-      },
-    ].filter((section) => section.groups.length > 0);
-  }, [groupedTerminalGroups.thread, groupedTerminalGroups.workspace]);
+    return resolvedTerminalGroups
+      .map((group) => ({
+        ...group,
+        terminalIds: group.terminalIds.filter((terminalId) => {
+          if (seenTerminalIds.has(terminalId)) {
+            return false;
+          }
+          seenTerminalIds.add(terminalId);
+          return true;
+        }),
+      }))
+      .filter((group) => group.terminalIds.length > 0);
+  }, [resolvedTerminalGroups]);
   const activeContextMenuTerminalId =
     contextMenuState?.kind === "terminal" ? contextMenuState.terminalId : null;
   const activeContextMenuHasCustomTitle = activeContextMenuTerminalId
     ? Boolean(customTerminalTitlesById[activeContextMenuTerminalId])
     : false;
+  const activeContextMenuGroup = activeContextMenuTerminalId
+    ? (sidebarGroups.find((group) => group.terminalIds.includes(activeContextMenuTerminalId)) ??
+      null)
+    : null;
+  const activeContextMenuCanSplit =
+    (activeContextMenuGroup?.terminalIds.length ?? visibleTerminalIds.length) <
+    MAX_TERMINALS_PER_GROUP;
+  const activeContextMenuCanUnsplit = (activeContextMenuGroup?.terminalIds.length ?? 0) > 1;
   const activeContextMenuIcon = activeContextMenuTerminalId
     ? (terminalIconById.get(activeContextMenuTerminalId) ?? null)
     : null;
@@ -1416,13 +1351,6 @@ export default function ThreadTerminalDrawer({
   const onNewTerminalAction = useCallback(() => {
     onNewTerminal();
   }, [onNewTerminal]);
-  const onNewThreadTerminalAction = useCallback(() => {
-    onNewThreadTerminal();
-  }, [onNewThreadTerminal]);
-  const onNewWorkspaceTerminalAction = useCallback(() => {
-    if (!hasWorkspaceScope) return;
-    onNewWorkspaceTerminal();
-  }, [hasWorkspaceScope, onNewWorkspaceTerminal]);
   const cancelRename = useCallback(() => {
     setEditingTerminalId(null);
     setEditingTitle("");
@@ -1462,6 +1390,10 @@ export default function ThreadTerminalDrawer({
         onSplitTerminalAction();
         return;
       }
+      if (action === "unsplit") {
+        onUnsplitTerminal(terminalId);
+        return;
+      }
       if (action === "new") {
         onNewTerminalAction();
         return;
@@ -1497,6 +1429,7 @@ export default function ThreadTerminalDrawer({
       onCloseTerminal,
       onDuplicateTerminal,
       onNewTerminalAction,
+      onUnsplitTerminal,
       onRenameTerminal,
       onRestartTerminal,
       onSplitTerminalAction,
@@ -1519,12 +1452,8 @@ export default function ThreadTerminalDrawer({
   const handleTerminalSectionAction = useCallback(
     (action: TerminalSectionMenuAction) => {
       closeContextMenu();
-      if (action === "new-thread-shell") {
-        onNewThreadTerminalAction();
-        return;
-      }
-      if (action === "new-workspace-shell") {
-        onNewWorkspaceTerminalAction();
+      if (action === "new-terminal") {
+        onNewTerminalAction();
         return;
       }
       if (action === "clear-all") {
@@ -1535,13 +1464,7 @@ export default function ThreadTerminalDrawer({
         onCloseAllTerminals();
       }
     },
-    [
-      closeContextMenu,
-      onClearAllTerminals,
-      onCloseAllTerminals,
-      onNewThreadTerminalAction,
-      onNewWorkspaceTerminalAction,
-    ],
+    [closeContextMenu, onClearAllTerminals, onCloseAllTerminals, onNewTerminalAction],
   );
   const handleSidebarDensitySelect = useCallback(
     (density: TerminalSidebarDensity) => {
@@ -1555,12 +1478,8 @@ export default function ThreadTerminalDrawer({
     setDropTarget(null);
   }, []);
   const canDropTerminalIntoGroup = useCallback(
-    (terminalId: string, targetGroupId: string) => {
-      const terminalScope = resolvedTerminalScopeById[terminalId] ?? "thread";
-      const targetScope = resolvedGroupScopeById[targetGroupId] ?? "thread";
-      return terminalScope === targetScope;
-    },
-    [resolvedGroupScopeById, resolvedTerminalScopeById],
+    (_terminalId: string, _targetGroupId: string) => true,
+    [],
   );
   const handleTerminalDrop = useCallback(
     (terminalId: string, targetGroupId: string, targetIndex: number) => {
@@ -1574,15 +1493,6 @@ export default function ThreadTerminalDrawer({
     },
     [canDropTerminalIntoGroup, clearDragState, onMoveTerminal],
   );
-  const handleTerminalDropToNewGroup = useCallback(
-    (terminalId: string, targetGroupIndex: number) => {
-      if (!terminalId) return;
-      onMoveTerminalToNewGroup(terminalId, targetGroupIndex);
-      clearDragState();
-    },
-    [clearDragState, onMoveTerminalToNewGroup],
-  );
-
   useEffect(() => {
     if (editingTerminalId && !normalizedTerminalIds.includes(editingTerminalId)) {
       cancelRename();
@@ -1660,10 +1570,9 @@ export default function ThreadTerminalDrawer({
     };
   }, []);
 
-  const handleResizePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleResizePointerMove = useCallback((event: PointerEvent) => {
     const resizeState = resizeStateRef.current;
     if (!resizeState || resizeState.pointerId !== event.pointerId) return;
-    event.preventDefault();
     const clampedHeight = clampDrawerHeight(
       resizeState.startHeight + (resizeState.startY - event.clientY),
     );
@@ -1676,13 +1585,10 @@ export default function ThreadTerminalDrawer({
   }, []);
 
   const handleResizePointerEnd = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
+    (event?: PointerEvent) => {
       const resizeState = resizeStateRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) return;
+      if (!resizeState || (event && resizeState.pointerId !== event.pointerId)) return;
       resizeStateRef.current = null;
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
       if (!didResizeDuringDragRef.current) {
         return;
       }
@@ -1704,10 +1610,9 @@ export default function ThreadTerminalDrawer({
     };
   }, []);
 
-  const handleSidebarResizePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleSidebarResizePointerMove = useCallback((event: PointerEvent) => {
     const resizeState = sidebarResizeStateRef.current;
     if (!resizeState || resizeState.pointerId !== event.pointerId) return;
-    event.preventDefault();
     const clampedWidth = clampTerminalSidebarWidth(
       resizeState.startWidth + (resizeState.startX - event.clientX),
     );
@@ -1720,13 +1625,10 @@ export default function ThreadTerminalDrawer({
   }, []);
 
   const handleSidebarResizePointerEnd = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
+    (event?: PointerEvent) => {
       const resizeState = sidebarResizeStateRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) return;
+      if (!resizeState || (event && resizeState.pointerId !== event.pointerId)) return;
       sidebarResizeStateRef.current = null;
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
       if (!didResizeSidebarDuringDragRef.current) {
         return;
       }
@@ -1787,11 +1689,10 @@ export default function ThreadTerminalDrawer({
   );
 
   const handleSplitResizePointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
+    (event: PointerEvent) => {
       const resizeState = splitResizeStateRef.current;
       const container = splitContainerRef.current;
       if (!resizeState || resizeState.pointerId !== event.pointerId || !container) return;
-      event.preventDefault();
       const nextRatios = resizeTerminalPaneRatios({
         ratios: resizeState.startRatios,
         dividerIndex: resizeState.dividerIndex,
@@ -1799,30 +1700,54 @@ export default function ThreadTerminalDrawer({
         containerWidthPx: container.clientWidth,
       });
       onSplitRatiosChange(visibleTerminalGroupId, nextRatios);
+      setResizeEpoch((value) => value + 1);
     },
     [onSplitRatiosChange, visibleTerminalGroupId],
   );
 
-  const handleSplitResizePointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleSplitResizePointerEnd = useCallback((event?: PointerEvent) => {
     const resizeState = splitResizeStateRef.current;
-    if (!resizeState || resizeState.pointerId !== event.pointerId) return;
+    if (!resizeState || (event && resizeState.pointerId !== event.pointerId)) return;
     splitResizeStateRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
+    setResizeEpoch((value) => value + 1);
   }, []);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      handleResizePointerMove(event);
+      handleSidebarResizePointerMove(event);
+      handleSplitResizePointerMove(event);
+    };
+    const handlePointerEnd = (event: PointerEvent) => {
+      handleResizePointerEnd(event);
+      handleSidebarResizePointerEnd(event);
+      handleSplitResizePointerEnd(event);
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+    };
+  }, [
+    handleResizePointerEnd,
+    handleResizePointerMove,
+    handleSidebarResizePointerEnd,
+    handleSidebarResizePointerMove,
+    handleSplitResizePointerEnd,
+    handleSplitResizePointerMove,
+  ]);
 
   return (
     <aside
-      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/40 bg-background"
+      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/40 bg-terminal"
       style={{ height: `${drawerHeight}px` }}
     >
       <div
         className="terminal-resize-handle absolute inset-x-0 top-0 z-20 h-2 cursor-row-resize"
         onPointerDown={handleResizePointerDown}
-        onPointerMove={handleResizePointerMove}
-        onPointerUp={handleResizePointerEnd}
-        onPointerCancel={handleResizePointerEnd}
       />
 
       {contextMenuState ? (
@@ -1864,12 +1789,21 @@ export default function ThreadTerminalDrawer({
               <>
                 <MenuItem
                   onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "split")}
-                  disabled={hasReachedSplitLimit}
+                  disabled={!activeContextMenuCanSplit}
                   className="menu-item-with-icon"
                 >
                   <SquareSplitHorizontal className="size-4 text-muted-foreground" />
                   <span>Split Terminal</span>
                 </MenuItem>
+                {activeContextMenuCanUnsplit ? (
+                  <MenuItem
+                    onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "unsplit")}
+                    className="menu-item-with-icon"
+                  >
+                    <RotateCcwIcon className="size-4 text-muted-foreground" />
+                    <span>Unsplit Terminal</span>
+                  </MenuItem>
+                ) : null}
                 <MenuItem
                   onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "new")}
                   className="menu-item-with-icon"
@@ -2017,19 +1951,11 @@ export default function ThreadTerminalDrawer({
             ) : (
               <>
                 <MenuItem
-                  onClick={() => handleTerminalSectionAction("new-thread-shell")}
+                  onClick={() => handleTerminalSectionAction("new-terminal")}
                   className="menu-item-with-icon"
                 >
                   <TerminalSquare className="size-4 text-muted-foreground" />
-                  <span>New Thread Shell</span>
-                </MenuItem>
-                <MenuItem
-                  onClick={() => handleTerminalSectionAction("new-workspace-shell")}
-                  disabled={!hasWorkspaceScope}
-                  className="menu-item-with-icon"
-                >
-                  <Globe className="size-4 text-muted-foreground" />
-                  <span>New Workspace Shell</span>
+                  <span>New Terminal</span>
                 </MenuItem>
 
                 <div className="mx-2 my-1 h-px bg-border" />
@@ -2079,9 +2005,7 @@ export default function ThreadTerminalDrawer({
                 {visibleTerminalIds.map((terminalId, index) => (
                   <Fragment key={terminalId}>
                     <div
-                      className={`min-h-0 min-w-0 ${
-                        terminalId === resolvedActiveTerminalId ? "" : "opacity-80"
-                      }`}
+                      className="min-h-0 min-w-0"
                       style={{ flexBasis: 0, flexGrow: activeGroupSplitRatios[index] ?? 1 }}
                       onMouseDown={() => {
                         if (terminalId !== resolvedActiveTerminalId) {
@@ -2089,10 +2013,10 @@ export default function ThreadTerminalDrawer({
                         }
                       }}
                     >
-                      <div className="h-full p-0.5">
+                      <div className="h-full">
                         <TerminalViewport
-                          threadId={resolvedTerminalRuntimeThreadIdById[terminalId] ?? threadId}
-                          terminalId={resolvedTerminalRuntimeIdById[terminalId] ?? terminalId}
+                          threadId={threadId}
+                          terminalId={terminalId}
                           terminalLabel={terminalLabelById.get(terminalId) ?? "terminal"}
                           cwd={cwd}
                           {...(runtimeEnv ? { runtimeEnv } : {})}
@@ -2110,29 +2034,22 @@ export default function ThreadTerminalDrawer({
                     </div>
                     {index < visibleTerminalIds.length - 1 ? (
                       <div
-                        className="terminal-split-divider group flex w-2 shrink-0 cursor-col-resize items-stretch justify-center"
+                        className="terminal-split-divider relative flex w-3 shrink-0 cursor-col-resize items-center justify-center"
                         onPointerDown={(event) => handleSplitResizePointerDown(index, event)}
-                        onPointerMove={handleSplitResizePointerMove}
-                        onPointerUp={handleSplitResizePointerEnd}
-                        onPointerCancel={handleSplitResizePointerEnd}
                       >
-                        <div className="my-3 w-px rounded-full bg-border/50" />
+                        <div className="h-full w-px bg-border/20" />
+                        <div className="pointer-events-none absolute h-10 w-1 rounded-full bg-border/52 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]" />
                       </div>
                     ) : null}
                   </Fragment>
                 ))}
               </div>
             ) : (
-              <div className="h-full p-0.5">
+              <div className="h-full">
                 <TerminalViewport
                   key={resolvedActiveTerminalId}
-                  threadId={
-                    resolvedTerminalRuntimeThreadIdById[resolvedActiveTerminalId] ?? threadId
-                  }
-                  terminalId={
-                    resolvedTerminalRuntimeIdById[resolvedActiveTerminalId] ??
-                    resolvedActiveTerminalId
-                  }
+                  threadId={threadId}
+                  terminalId={resolvedActiveTerminalId}
                   terminalLabel={terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
                   cwd={cwd}
                   {...(runtimeEnv ? { runtimeEnv } : {})}
@@ -2153,201 +2070,165 @@ export default function ThreadTerminalDrawer({
           {hasTerminalSidebar && (
             <>
               <div
-                className="group relative flex w-3 shrink-0 cursor-col-resize items-stretch justify-center"
+                className="terminal-sidebar-resize-handle relative w-2 shrink-0 cursor-col-resize"
                 onPointerDown={handleSidebarResizePointerDown}
-                onPointerMove={handleSidebarResizePointerMove}
-                onPointerUp={handleSidebarResizePointerEnd}
-                onPointerCancel={handleSidebarResizePointerEnd}
                 aria-hidden="true"
-              >
-                <div className="my-3 w-px rounded-full bg-border/50 transition-colors duration-150 group-hover:bg-primary/30" />
-              </div>
+              />
 
               <aside
-                className="flex shrink-0 flex-col overflow-hidden border-l border-border/30"
+                className="terminal-sidebar flex shrink-0 flex-col overflow-hidden"
                 style={{ width: `${sidebarPanelWidth}px`, minWidth: `${sidebarPanelWidth}px` }}
               >
                 <div
-                  className="terminal-sidebar-header flex items-center justify-between gap-2 px-2.5 py-2"
+                  className="terminal-sidebar-header flex flex-col gap-2 px-3 py-2.5"
                   onContextMenu={(event) => {
                     event.preventDefault();
                     handleTerminalSectionMenu({ x: event.clientX, y: event.clientY });
                   }}
                 >
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                      terminals
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        terminals
+                      </div>
+                      <div className="truncate text-[11px] font-medium text-foreground">
+                        {railSummaryLabel}
+                      </div>
                     </div>
-                    <div className="truncate text-[11px] font-medium text-foreground">
-                      {normalizedTerminalIds.length} open
+                    <div className={TERMINAL_HEADER_ACTION_GROUP_CLASS_NAME}>
+                      <TerminalActionButton
+                        className={cn(
+                          "terminal-action-btn",
+                          TERMINAL_HEADER_ACTION_BUTTON_CLASS_NAME,
+                          hasReachedSplitLimit
+                            ? "cursor-not-allowed opacity-40"
+                            : "hover:bg-background/70",
+                        )}
+                        onClick={onSplitTerminalAction}
+                        label={splitTerminalActionLabel}
+                      >
+                        <SquareSplitHorizontal className="size-3.5" />
+                      </TerminalActionButton>
+                      {isSplitView ? (
+                        <TerminalActionButton
+                          className={cn(
+                            "terminal-action-btn hover:bg-background/70",
+                            TERMINAL_HEADER_ACTION_BUTTON_CLASS_NAME,
+                          )}
+                          onClick={() => onUnsplitTerminal(resolvedActiveTerminalId)}
+                          label={unsplitTerminalActionLabel}
+                        >
+                          <RotateCcwIcon className="size-3.5" />
+                        </TerminalActionButton>
+                      ) : null}
+                      <TerminalActionButton
+                        className={cn(
+                          "terminal-action-btn hover:bg-background/70",
+                          TERMINAL_HEADER_ACTION_BUTTON_CLASS_NAME,
+                        )}
+                        onClick={onNewTerminalAction}
+                        label={newTerminalActionLabel}
+                      >
+                        <TerminalSquare className="size-3.5" />
+                      </TerminalActionButton>
+                      <TerminalActionButton
+                        className={cn(
+                          "terminal-action-btn hover:bg-background/70",
+                          TERMINAL_HEADER_ACTION_BUTTON_CLASS_NAME,
+                        )}
+                        onClick={() => onCloseTerminal(resolvedActiveTerminalId)}
+                        label={closeTerminalActionLabel}
+                      >
+                        <XIcon className="size-3.5" />
+                      </TerminalActionButton>
                     </div>
-                  </div>
-                  <div className="inline-flex items-center gap-0.5 overflow-hidden rounded-lg border border-border/40 bg-background/80 p-0.5 backdrop-blur-sm">
-                    <TerminalActionButton
-                      className={`terminal-action-btn inline-flex size-7 items-center justify-center rounded-md text-foreground ${
-                        hasReachedSplitLimit ? "cursor-not-allowed opacity-40" : "hover:bg-accent"
-                      }`}
-                      onClick={onSplitTerminalAction}
-                      label={splitTerminalActionLabel}
-                    >
-                      <SquareSplitHorizontal className="size-3.5" />
-                    </TerminalActionButton>
-                    <TerminalActionButton
-                      className="terminal-action-btn inline-flex size-7 items-center justify-center rounded-md text-foreground hover:bg-accent"
-                      onClick={onNewThreadTerminalAction}
-                      label={newThreadTerminalActionLabel}
-                    >
-                      <TerminalSquare className="size-3.5" />
-                    </TerminalActionButton>
-                    <TerminalActionButton
-                      className={`terminal-action-btn inline-flex size-7 items-center justify-center rounded-md text-foreground ${
-                        hasWorkspaceScope ? "hover:bg-accent" : "cursor-not-allowed opacity-40"
-                      }`}
-                      onClick={onNewWorkspaceTerminalAction}
-                      label={newWorkspaceTerminalActionLabel}
-                    >
-                      <Globe className="size-3.5" />
-                    </TerminalActionButton>
-                    <TerminalActionButton
-                      className="terminal-action-btn inline-flex size-7 items-center justify-center rounded-md text-foreground hover:bg-accent"
-                      onClick={() => onCloseTerminal(resolvedActiveTerminalId)}
-                      label={closeTerminalActionLabel}
-                    >
-                      <XIcon className="size-3.5" />
-                    </TerminalActionButton>
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto px-1 py-0.5">
-                  {sidebarSections.map((section) => (
-                    <div key={section.scope} className="pb-1.5">
-                      <div className="px-2 pb-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/80">
-                        {section.title}
-                      </div>
-                      {section.groups.map((terminalGroup) => {
-                        const groupIndex = resolvedTerminalGroups.findIndex(
-                          (candidate) => candidate.id === terminalGroup.id,
-                        );
-                        const groupScope = resolvedGroupScopeById[terminalGroup.id] ?? "thread";
-                        const isGroupActive =
-                          terminalGroup.terminalIds.includes(resolvedActiveTerminalId);
-                        const groupActiveTerminalId = isGroupActive
-                          ? resolvedActiveTerminalId
-                          : (terminalGroup.terminalIds[0] ?? resolvedActiveTerminalId);
-                        const groupTitle =
-                          terminalGroup.terminalIds.length > 1
-                            ? `${terminalGroup.terminalIds.length} pane split`
-                            : groupScope === "workspace"
-                              ? "workspace shell"
-                              : "thread shell";
-                        const showGroupHeader =
-                          showGroupHeaders && terminalGroup.terminalIds.length > 1;
-
-                        return (
-                          <div key={terminalGroup.id} className="pb-1.5">
-                            {showGroupHeader && (
-                              <button
-                                type="button"
-                                className={`mb-0.5 flex w-full items-center justify-between ${groupHeaderPaddingClass} text-left text-[10px] font-medium uppercase tracking-[0.1em] transition-colors duration-150 ${
-                                  isGroupActive
-                                    ? "text-foreground"
-                                    : "text-muted-foreground hover:text-foreground"
-                                }`}
-                                onClick={() => onActiveTerminalChange(groupActiveTerminalId)}
-                                onDragOver={(event) => {
-                                  if (
-                                    !draggedTerminalId ||
-                                    !canDropTerminalIntoGroup(draggedTerminalId, terminalGroup.id)
-                                  ) {
-                                    return;
-                                  }
-                                  event.preventDefault();
-                                  setDropTarget({
-                                    kind: "group",
-                                    groupId: terminalGroup.id,
-                                    index: terminalGroup.terminalIds.length,
-                                  });
-                                }}
-                                onDrop={(event) => {
-                                  event.preventDefault();
-                                  const droppedTerminalId =
-                                    event.dataTransfer.getData("text/plain") || draggedTerminalId;
-                                  if (!droppedTerminalId) return;
-                                  handleTerminalDrop(
-                                    droppedTerminalId,
-                                    terminalGroup.id,
-                                    terminalGroup.terminalIds.length,
-                                  );
-                                }}
-                              >
-                                <span>{groupTitle}</span>
-                                <span className="rounded-full bg-background px-1.5 py-0.5 text-[9px] tracking-normal text-muted-foreground">
-                                  {terminalGroup.terminalIds.length}
-                                </span>
-                              </button>
+                <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+                  <div className="space-y-2">
+                    {sidebarGroups.map((terminalGroup) => {
+                      const isSplitGroup = terminalGroup.terminalIds.length > 1;
+                      return (
+                        <div
+                          key={terminalGroup.id}
+                          className={cn(
+                            "space-y-0.5",
+                            terminalGroup !== sidebarGroups[0]
+                              ? "border-t border-border/18 pt-2"
+                              : null,
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "space-y-0.5",
+                              isSplitGroup
+                                ? "rounded-[var(--control-radius)] border border-border/28 bg-muted/[0.045] p-1"
+                                : null,
                             )}
-
-                            <div
-                              className={
-                                showGroupHeaders
-                                  ? "space-y-px border-l border-border/30 pl-2"
-                                  : "space-y-px"
+                            onDragOver={(event) => {
+                              if (
+                                !draggedTerminalId ||
+                                !canDropTerminalIntoGroup(draggedTerminalId, terminalGroup.id)
+                              ) {
+                                return;
                               }
-                              onDragOver={(event) => {
-                                if (
-                                  !draggedTerminalId ||
-                                  !canDropTerminalIntoGroup(draggedTerminalId, terminalGroup.id)
-                                ) {
-                                  return;
-                                }
-                                event.preventDefault();
-                                setDropTarget({
-                                  kind: "group",
-                                  groupId: terminalGroup.id,
-                                  index: terminalGroup.terminalIds.length,
-                                });
-                              }}
-                              onDrop={(event) => {
-                                event.preventDefault();
-                                const droppedTerminalId =
-                                  event.dataTransfer.getData("text/plain") || draggedTerminalId;
-                                if (!droppedTerminalId) return;
-                                handleTerminalDrop(
-                                  droppedTerminalId,
-                                  terminalGroup.id,
-                                  terminalGroup.terminalIds.length,
-                                );
-                              }}
-                            >
-                              {terminalGroup.terminalIds.map((terminalId) => {
-                                const isActive = terminalId === resolvedActiveTerminalId;
-                                const isEditing = editingTerminalId === terminalId;
-                                const displayLabel =
-                                  sidebarTerminalLabelById.get(terminalId) ?? "shell";
-                                const ordinal = terminalOrderById.get(terminalId) ?? groupIndex + 1;
-                                const isRunning = runningTerminalIds.includes(terminalId);
-                                const autoTitle = autoTerminalTitlesById[terminalId] ?? null;
-                                const terminalIcon = terminalIconById.get(terminalId) ?? null;
-                                const terminalColor = terminalColorById.get(terminalId) ?? null;
-                                const subtitle = buildTerminalRowSubtitle({
-                                  cwd,
-                                  displayLabel,
-                                  autoTitle,
-                                  isRunning,
-                                });
-                                const closeTerminalLabel = `Close ${
-                                  displayLabel
-                                }${isActive && closeShortcutLabel ? ` (${closeShortcutLabel})` : ""}`;
-                                return (
+                              event.preventDefault();
+                              setDropTarget({
+                                kind: "group",
+                                groupId: terminalGroup.id,
+                                index: terminalGroup.terminalIds.length,
+                              });
+                            }}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              const droppedTerminalId =
+                                event.dataTransfer.getData("text/plain") || draggedTerminalId;
+                              if (!droppedTerminalId) return;
+                              handleTerminalDrop(
+                                droppedTerminalId,
+                                terminalGroup.id,
+                                terminalGroup.terminalIds.length,
+                              );
+                            }}
+                          >
+                            {isSplitGroup ? (
+                              <div className="mb-1 flex items-center gap-2 px-1.5 pb-1">
+                                <span className="h-px flex-1 bg-border/18" />
+                                <span className="inline-flex items-center gap-1 rounded-full border border-border/38 bg-background/76 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/78">
+                                  <SquareSplitHorizontal className="size-3" />
+                                  Split {terminalGroup.terminalIds.length}
+                                </span>
+                              </div>
+                            ) : null}
+                            {terminalGroup.terminalIds.map((terminalId, terminalIndex) => {
+                              const isActive = terminalId === resolvedActiveTerminalId;
+                              const isEditing = editingTerminalId === terminalId;
+                              const displayLabel =
+                                sidebarTerminalLabelById.get(terminalId) ?? "shell";
+                              const isRunning = runningTerminalIds.includes(terminalId);
+                              const terminalIcon = terminalIconById.get(terminalId) ?? null;
+                              const terminalColor = terminalColorById.get(terminalId) ?? null;
+                              const closeTerminalLabel = `Close ${
+                                displayLabel
+                              }${isActive && closeShortcutLabel ? ` (${closeShortcutLabel})` : ""}`;
+                              return (
+                                <Fragment key={terminalId}>
+                                  {isSplitGroup && terminalIndex > 0 ? (
+                                    <div className="mx-2 h-px bg-border/16" />
+                                  ) : null}
                                   <div
-                                    key={terminalId}
-                                    className={`terminal-item group flex items-center gap-2 border-l-2 ${rowPaddingClass} ${rowTextClass} ${
+                                    className={`terminal-item group flex items-center gap-2 rounded-[var(--control-radius)] border ${rowPaddingClass} ${rowTextClass} ${
                                       isActive
-                                        ? "active border-primary/40 text-foreground"
+                                        ? "active border-border/60 text-foreground"
                                         : "border-transparent text-muted-foreground"
-                                    }`}
+                                    } ${isEditing ? "" : "cursor-grab active:cursor-grabbing"}`}
                                     draggable={!isEditing}
                                     onDragStart={(event) => {
+                                      if (isEditing) {
+                                        event.preventDefault();
+                                        return;
+                                      }
                                       event.dataTransfer.effectAllowed = "move";
                                       event.dataTransfer.setData("text/plain", terminalId);
                                       handleTerminalDragStart(terminalId);
@@ -2396,17 +2277,9 @@ export default function ThreadTerminalDrawer({
                                         terminalGroup.terminalIds.indexOf(terminalId)
                                     }
                                   >
-                                    {showGroupHeader && (
-                                      <span className="text-[10px] text-muted-foreground">└</span>
-                                    )}
-                                    <span className="inline-flex min-w-4 shrink-0 items-center justify-center text-[9px] leading-none text-muted-foreground">
-                                      {ordinal}
-                                    </span>
                                     <span
                                       className={`terminal-live-indicator shrink-0 rounded-full ${
-                                        isRunning
-                                          ? "size-1.5 bg-emerald-400 shadow-sm shadow-emerald-400/50"
-                                          : "size-1 bg-border"
+                                        isRunning ? "size-2 bg-emerald-400" : "size-1.5 bg-border"
                                       }`}
                                     />
                                     {isEditing ? (
@@ -2442,7 +2315,7 @@ export default function ThreadTerminalDrawer({
                                           dropTarget.groupId === terminalGroup.id &&
                                           dropTarget.index ===
                                             terminalGroup.terminalIds.indexOf(terminalId)
-                                            ? "rounded-sm bg-primary/10"
+                                            ? "rounded-md bg-accent/55"
                                             : ""
                                         }`}
                                         onClick={() => onActiveTerminalChange(terminalId)}
@@ -2450,21 +2323,11 @@ export default function ThreadTerminalDrawer({
                                         {TerminalIconGlyph({
                                           icon: terminalIcon,
                                           color: terminalColor,
-                                          className: "size-3 shrink-0",
+                                          className: "size-3.5 shrink-0",
                                         })}
-                                        <span className="min-w-0 flex-1">
-                                          <span className="block truncate font-medium">
-                                            {displayLabel}
-                                          </span>
-                                          <span className="block truncate text-[9px] text-muted-foreground">
-                                            {subtitle}
-                                          </span>
+                                        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                                          {displayLabel}
                                         </span>
-                                        {isRunning ? (
-                                          <span className="rounded-sm bg-emerald-500/15 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-emerald-600 dark:text-emerald-300">
-                                            live
-                                          </span>
-                                        ) : null}
                                       </button>
                                     )}
                                     {normalizedTerminalIds.length > 1 && (
@@ -2474,7 +2337,7 @@ export default function ThreadTerminalDrawer({
                                           render={
                                             <button
                                               type="button"
-                                              className="inline-flex size-3.5 items-center justify-center rounded-sm text-xs font-medium leading-none text-muted-foreground opacity-0 transition hover:bg-accent hover:text-foreground group-hover:opacity-100"
+                                              className="inline-flex size-5 items-center justify-center rounded-[calc(var(--control-radius)-2px)] text-xs font-medium leading-none text-muted-foreground opacity-0 transition hover:bg-background/85 hover:text-foreground group-hover:opacity-100"
                                               onClick={() => onCloseTerminal(terminalId)}
                                               aria-label={closeTerminalLabel}
                                             />
@@ -2494,42 +2357,14 @@ export default function ThreadTerminalDrawer({
                                       </Popover>
                                     )}
                                   </div>
-                                );
-                              })}
-                            </div>
-
-                            {draggedTerminalId &&
-                            (resolvedTerminalScopeById[draggedTerminalId] ?? "thread") ===
-                              section.scope ? (
-                              <button
-                                type="button"
-                                className={`mt-1 flex w-full items-center justify-center border border-dashed px-2 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] transition-colors ${
-                                  dropTarget?.kind === "new-group" &&
-                                  dropTarget.groupIndex === groupIndex + 1
-                                    ? "border-primary/40 bg-primary/10 text-foreground"
-                                    : "border-border text-muted-foreground hover:border-primary/25 hover:text-foreground"
-                                }`}
-                                onDragOver={(event) => {
-                                  if (!draggedTerminalId) return;
-                                  event.preventDefault();
-                                  setDropTarget({ kind: "new-group", groupIndex: groupIndex + 1 });
-                                }}
-                                onDrop={(event) => {
-                                  event.preventDefault();
-                                  const droppedTerminalId =
-                                    event.dataTransfer.getData("text/plain") || draggedTerminalId;
-                                  if (!droppedTerminalId) return;
-                                  handleTerminalDropToNewGroup(droppedTerminalId, groupIndex + 1);
-                                }}
-                              >
-                                Drop To New Group
-                              </button>
-                            ) : null}
+                                </Fragment>
+                              );
+                            })}
                           </div>
-                        );
-                      })}
-                    </div>
-                  ))}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </aside>
             </>

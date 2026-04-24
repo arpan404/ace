@@ -18,7 +18,7 @@ import {
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError } from "@ace/contracts";
+import { GitCommandError, type GitWorkingTreeFileStatus } from "@ace/contracts";
 import {
   GitCore,
   type ExecuteGitProgress,
@@ -143,6 +143,76 @@ function parsePorcelainPath(line: string): string | null {
   const parts = line.trim().split(/\s+/g);
   const filePath = parts.at(-1) ?? "";
   return filePath.length > 0 ? filePath : null;
+}
+
+function rankWorkingTreeFileStatus(status: GitWorkingTreeFileStatus): number {
+  switch (status) {
+    case "C":
+      return 0;
+    case "U":
+      return 1;
+    case "A":
+      return 2;
+    case "D":
+      return 3;
+    case "R":
+      return 4;
+    case "M":
+    default:
+      return 5;
+  }
+}
+
+function mergeWorkingTreeFileStatus(
+  current: GitWorkingTreeFileStatus | undefined,
+  next: GitWorkingTreeFileStatus,
+): GitWorkingTreeFileStatus {
+  if (!current) {
+    return next;
+  }
+  return rankWorkingTreeFileStatus(next) < rankWorkingTreeFileStatus(current) ? next : current;
+}
+
+function statusFromPorcelainCode(code: string): GitWorkingTreeFileStatus | null {
+  if (code.includes("U")) {
+    return "C";
+  }
+  if (code.includes("A")) {
+    return "A";
+  }
+  if (code.includes("D")) {
+    return "D";
+  }
+  if (code.includes("R")) {
+    return "R";
+  }
+  if (code.includes("M") || code.includes("T")) {
+    return "M";
+  }
+  return null;
+}
+
+function parsePorcelainFileStatus(
+  line: string,
+): { path: string; status: GitWorkingTreeFileStatus } | null {
+  if (line.startsWith("? ")) {
+    const path = parsePorcelainPath(line);
+    return path ? { path, status: "U" } : null;
+  }
+
+  if (line.startsWith("u ")) {
+    const path = parsePorcelainPath(line);
+    return path ? { path, status: "C" } : null;
+  }
+
+  if (!(line.startsWith("1 ") || line.startsWith("2 "))) {
+    return null;
+  }
+
+  const code = line.trim().split(/\s+/g)[1] ?? "";
+  const status = statusFromPorcelainCode(code);
+  const path = parsePorcelainPath(line);
+  return status && path ? { path, status } : null;
 }
 
 function parseBranchLine(line: string): { name: string; current: boolean } | null {
@@ -311,6 +381,10 @@ function toGitCommandError(
 interface Trace2Monitor {
   readonly env: NodeJS.ProcessEnv;
   readonly flush: Effect.Effect<void, never>;
+}
+
+interface SshAskPassConfig {
+  readonly env: NodeJS.ProcessEnv;
 }
 
 interface TraceTailReader {
@@ -496,6 +570,133 @@ const createTrace2Monitor = Effect.fn("createTrace2Monitor")(function* (
   };
 });
 
+function buildSshAskPassScript(): string {
+  if (process.platform === "win32") {
+    return [
+      "@echo off",
+      'if exist "%ACE_GIT_SSH_ASKPASS_STATE%" exit /b 1',
+      'type nul > "%ACE_GIT_SSH_ASKPASS_STATE%"',
+      'if not exist "%ACE_GIT_SSH_PASSPHRASE_FILE%" exit /b 1',
+      'set /p passphrase=<"%ACE_GIT_SSH_PASSPHRASE_FILE%"',
+      '<nul set /p passphrase="%passphrase%"',
+      "exit /b 0",
+      "",
+    ].join("\r\n");
+  }
+
+  return [
+    "#!/bin/sh",
+    'if [ -e "$ACE_GIT_SSH_ASKPASS_STATE" ]; then',
+    "  exit 1",
+    "fi",
+    ': > "$ACE_GIT_SSH_ASKPASS_STATE" || exit 1',
+    '[ -f "$ACE_GIT_SSH_PASSPHRASE_FILE" ] || exit 1',
+    'IFS= read -r passphrase < "$ACE_GIT_SSH_PASSPHRASE_FILE" || exit 1',
+    'printf "%s\\n" "$passphrase"',
+    "",
+  ].join("\n");
+}
+
+const createSshAskPassConfig = Effect.fn("createSshAskPassConfig")(function* (
+  passphrase: string | null,
+): Effect.fn.Return<
+  SshAskPassConfig,
+  GitCommandError,
+  Scope.Scope | FileSystem.FileSystem | Path.Path
+> {
+  const normalizedPassphrase = passphrase ?? "";
+  if (normalizedPassphrase.length === 0) {
+    return {
+      env: {},
+    };
+  }
+
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const tempDir = yield* fs
+    .makeTempDirectoryScoped({ prefix: `ace-git-ssh-${process.pid}-` })
+    .pipe(
+      Effect.mapError((cause) =>
+        createGitCommandError(
+          "GitCore.createSshAskPassConfig",
+          process.cwd(),
+          ["ssh-askpass"],
+          "Failed to create SSH askpass helper directory.",
+          cause,
+        ),
+      ),
+    );
+  const scriptPath = path.join(
+    tempDir,
+    process.platform === "win32" ? "askpass.cmd" : "askpass.sh",
+  );
+  const statePath = path.join(tempDir, "used");
+  const passphrasePath = path.join(tempDir, "passphrase");
+
+  yield* fs
+    .writeFileString(scriptPath, buildSshAskPassScript())
+    .pipe(
+      Effect.mapError((cause) =>
+        createGitCommandError(
+          "GitCore.createSshAskPassConfig",
+          process.cwd(),
+          ["ssh-askpass"],
+          "Failed to create SSH askpass helper.",
+          cause,
+        ),
+      ),
+    );
+  yield* fs
+    .writeFileString(passphrasePath, `${normalizedPassphrase}\n`)
+    .pipe(
+      Effect.mapError((cause) =>
+        createGitCommandError(
+          "GitCore.createSshAskPassConfig",
+          process.cwd(),
+          ["ssh-askpass"],
+          "Failed to create SSH passphrase file.",
+          cause,
+        ),
+      ),
+    );
+  yield* fs
+    .chmod(scriptPath, 0o700)
+    .pipe(
+      Effect.mapError((cause) =>
+        createGitCommandError(
+          "GitCore.createSshAskPassConfig",
+          process.cwd(),
+          ["ssh-askpass"],
+          "Failed to make SSH askpass helper executable.",
+          cause,
+        ),
+      ),
+    );
+  yield* fs
+    .chmod(passphrasePath, 0o600)
+    .pipe(
+      Effect.mapError((cause) =>
+        createGitCommandError(
+          "GitCore.createSshAskPassConfig",
+          process.cwd(),
+          ["ssh-askpass"],
+          "Failed to secure SSH passphrase file.",
+          cause,
+        ),
+      ),
+    );
+
+  return {
+    env: {
+      ACE_GIT_SSH_ASKPASS_STATE: statePath,
+      ACE_GIT_SSH_PASSPHRASE_FILE: passphrasePath,
+      DISPLAY: process.env.DISPLAY || "ace",
+      SSH_ASKPASS: scriptPath,
+      SSH_ASKPASS_REQUIRE: "force",
+    },
+  };
+});
+
 const collectOutput = Effect.fn("collectOutput")(function* <E>(
   input: Pick<ExecuteGitInput, "operation" | "cwd" | "args">,
   stream: Stream.Stream<Uint8Array, E>,
@@ -572,10 +773,32 @@ const collectOutput = Effect.fn("collectOutput")(function* <E>(
 
 export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
   executeOverride?: GitCoreShape["execute"];
+  readGitSshKeyPassphrase?: () => Effect.Effect<string | null>;
 }) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const { worktreesDir } = yield* ServerConfig;
+  const { settingsPath, worktreesDir } = yield* ServerConfig;
+
+  const readPersistedGitSshKeyPassphrase = Effect.fn("readGitSshKeyPassphrase")(function* () {
+    return yield* fileSystem.readFileString(settingsPath).pipe(
+      Effect.flatMap((raw) =>
+        Effect.try({
+          try: () => JSON.parse(raw) as Record<string, unknown>,
+          catch: () => null,
+        }),
+      ),
+      Effect.map((settings) => {
+        const passphrase =
+          settings && typeof settings.gitSshKeyPassphrase === "string"
+            ? settings.gitSshKeyPassphrase.trim()
+            : "";
+        return passphrase.length > 0 ? passphrase : null;
+      }),
+      Effect.catch(() => Effect.succeed(null)),
+    );
+  });
+  const readGitSshKeyPassphrase =
+    options?.readGitSshKeyPassphrase ?? readPersistedGitSshKeyPassphrase;
 
   let execute: GitCoreShape["execute"];
 
@@ -598,6 +821,13 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
           Effect.provideService(FileSystem.FileSystem, fileSystem),
           Effect.mapError(toGitCommandError(commandInput, "failed to create trace2 monitor.")),
         );
+        const sshAskPassConfig = yield* createSshAskPassConfig(
+          yield* readGitSshKeyPassphrase(),
+        ).pipe(
+          Effect.provideService(Path.Path, path),
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.mapError(toGitCommandError(commandInput, "failed to create SSH askpass helper.")),
+        );
         const child = yield* commandSpawner
           .spawn(
             ChildProcess.make("git", commandInput.args, {
@@ -605,6 +835,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
               env: {
                 ...process.env,
                 ...input.env,
+                ...sshAskPassConfig.env,
                 ...trace2Monitor.env,
               },
             }),
@@ -1120,6 +1351,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     let behindCount = 0;
     let hasWorkingTreeChanges = false;
     const changedFilesWithoutNumstat = new Set<string>();
+    const changedFileStatusByPath = new Map<string, GitWorkingTreeFileStatus>();
 
     for (const line of statusStdout.split(/\r?\n/g)) {
       if (line.startsWith("# branch.head ")) {
@@ -1143,6 +1375,16 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
         hasWorkingTreeChanges = true;
         const pathValue = parsePorcelainPath(line);
         if (pathValue) changedFilesWithoutNumstat.add(pathValue);
+        const fileStatus = parsePorcelainFileStatus(line);
+        if (fileStatus) {
+          changedFileStatusByPath.set(
+            fileStatus.path,
+            mergeWorkingTreeFileStatus(
+              changedFileStatusByPath.get(fileStatus.path),
+              fileStatus.status,
+            ),
+          );
+        }
       }
     }
 
@@ -1169,13 +1411,31 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       .map(([filePath, stat]) => {
         insertions += stat.insertions;
         deletions += stat.deletions;
-        return { path: filePath, insertions: stat.insertions, deletions: stat.deletions };
+        const status = changedFileStatusByPath.get(filePath);
+        const file = {
+          path: filePath,
+          insertions: stat.insertions,
+          deletions: stat.deletions,
+        };
+        if (status) {
+          Object.assign(file, { status });
+        }
+        return file;
       })
       .toSorted((a, b) => a.path.localeCompare(b.path));
 
     for (const filePath of changedFilesWithoutNumstat) {
       if (fileStatMap.has(filePath)) continue;
-      files.push({ path: filePath, insertions: 0, deletions: 0 });
+      const status = changedFileStatusByPath.get(filePath);
+      const file = {
+        path: filePath,
+        insertions: 0,
+        deletions: 0,
+      };
+      if (status) {
+        Object.assign(file, { status });
+      }
+      files.push(file);
     }
     files.sort((a, b) => a.path.localeCompare(b.path));
 

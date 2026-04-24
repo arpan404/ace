@@ -1,5 +1,8 @@
 import { defineConfig } from "tsdown";
 
+const sourcemapEnv = process.env.ACE_SERVER_SOURCEMAP?.trim().toLowerCase();
+const sourcemap = sourcemapEnv === "1" || sourcemapEnv === "true";
+
 export default defineConfig({
   entry: ["src/bin.ts"],
   format: ["esm", "cjs"],
@@ -7,7 +10,7 @@ export default defineConfig({
     legacyCjs: false,
   },
   outDir: "dist",
-  sourcemap: true,
+  sourcemap,
   clean: true,
   noExternal: (id) => id.startsWith("@ace/"),
   inlineOnly: false,

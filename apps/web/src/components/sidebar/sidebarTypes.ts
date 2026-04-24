@@ -7,13 +7,16 @@ export interface RemoteSidebarThreadEntry {
   readonly id: string;
   readonly title: string;
   readonly updatedAt: string;
+  readonly lastUserMessageAt: string;
 }
 
 export interface RemoteSidebarProjectEntry {
   readonly id: ProjectId;
   readonly name: string;
   readonly cwd: string;
+  readonly createdAt: string;
   readonly updatedAt: string;
+  readonly lastUserMessageAt: string;
   readonly icon: Project["icon"];
   readonly defaultModelSelection: Project["defaultModelSelection"];
   readonly threads: ReadonlyArray<RemoteSidebarThreadEntry>;
@@ -32,6 +35,7 @@ export interface CombinedSidebarSnapshotProject {
   readonly name: string;
   readonly cwd: string;
   readonly updatedAt: string;
+  readonly lastUserMessageAt: string;
   readonly icon: Project["icon"];
   readonly defaultModelSelection: Project["defaultModelSelection"];
   readonly connectionUrl: string;
@@ -43,6 +47,7 @@ export interface CombinedSidebarSnapshotThread {
   readonly title: string;
   readonly description: string;
   readonly updatedAt: string;
+  readonly lastUserMessageAt: string;
   readonly connectionUrl: string;
 }
 

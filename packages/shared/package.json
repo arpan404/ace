@@ -52,9 +52,17 @@
       "types": "./src/terminalTitles.ts",
       "import": "./src/terminalTitles.ts"
     },
+    "./terminalContext": {
+      "types": "./src/terminalContext.ts",
+      "import": "./src/terminalContext.ts"
+    },
     "./orchestrationThreadActivities": {
       "types": "./src/orchestrationThreadActivities.ts",
       "import": "./src/orchestrationThreadActivities.ts"
+    },
+    "./notifications": {
+      "types": "./src/notifications.ts",
+      "import": "./src/notifications.ts"
     },
     "./wsAuth": {
       "types": "./src/wsAuth.ts",

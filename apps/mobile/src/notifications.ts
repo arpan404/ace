@@ -1,4 +1,5 @@
 import type { OrchestrationEvent } from "@ace/contracts";
+import { truncateNotificationText } from "@ace/shared/notifications";
 
 export interface MobileNotification {
   readonly title: string;
@@ -8,11 +9,7 @@ export interface MobileNotification {
 const MAX_NOTIFICATION_BODY_CHARS = 120;
 
 function truncate(text: string, maxChars = MAX_NOTIFICATION_BODY_CHARS): string {
-  const normalized = text.trim();
-  if (normalized.length <= maxChars) {
-    return normalized;
-  }
-  return `${normalized.slice(0, maxChars - 1)}…`;
+  return truncateNotificationText(text, maxChars);
 }
 
 export function notificationFromDomainEvent(event: OrchestrationEvent): MobileNotification | null {
@@ -22,7 +19,7 @@ export function notificationFromDomainEvent(event: OrchestrationEvent): MobileNo
         return null;
       }
       return {
-        title: "Assistant reply",
+        title: "Agent replied",
         body:
           truncate(event.payload.text) ||
           `New assistant message on thread ${String(event.payload.threadId)}.`,
@@ -32,13 +29,13 @@ export function notificationFromDomainEvent(event: OrchestrationEvent): MobileNo
       const { activity } = event.payload;
       if (activity.kind === "approval.requested") {
         return {
-          title: "Approval requested",
+          title: "Approval needed",
           body: truncate(activity.summary),
         };
       }
       if (activity.kind === "user-input.requested") {
         return {
-          title: "Input requested",
+          title: "Input needed",
           body: truncate(activity.summary),
         };
       }
@@ -50,7 +47,7 @@ export function notificationFromDomainEvent(event: OrchestrationEvent): MobileNo
         return null;
       }
       return {
-        title: "Session error",
+        title: "Session needs attention",
         body: session.lastError
           ? truncate(session.lastError)
           : "A provider session reported an error.",

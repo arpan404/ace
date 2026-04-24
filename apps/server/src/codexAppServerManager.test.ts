@@ -984,6 +984,38 @@ describe("collab child conversation routing", () => {
     expect(updateSession).not.toHaveBeenCalled();
   });
 
+  it("marks the live session ready when the active turn is aborted", () => {
+    const { manager, context, emitEvent, updateSession } = createCollabNotificationHarness();
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "turn/aborted",
+      params: {
+        threadId: "provider_parent",
+        turnId: "turn_parent",
+      },
+    });
+
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "notification",
+        method: "turn/aborted",
+        threadId: "thread_1",
+        turnId: "turn_parent",
+      }),
+    );
+    expect(updateSession).toHaveBeenCalledWith(
+      context,
+      expect.objectContaining({
+        status: "ready",
+        activeTurnId: undefined,
+      }),
+    );
+  });
+
   it("rewrites child approval requests onto the parent turn", () => {
     const { manager, context, emitEvent } = createCollabNotificationHarness();
 

@@ -25,11 +25,16 @@
   --color-primary: var(--primary);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
+  --color-pill-border: var(--pill-border);
+  --color-pill-foreground: var(--pill-foreground);
+  --color-pill: var(--pill);
+  --color-chat-bubble: var(--chat-bubble);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
-  --color-sidebar: hsl(var(--sidebar));
+  --color-terminal: var(--terminal-surface);
+  --color-sidebar: var(--background);
   --color-sidebar-foreground: hsl(var(--sidebar-foreground));
   --color-sidebar-border: hsl(var(--sidebar-border));
   --color-sidebar-accent: hsl(var(--sidebar-accent));
@@ -108,6 +113,9 @@
 :root {
   color-scheme: light;
   --radius: 0.5rem;
+  --control-radius: var(--radius);
+  --panel-radius: calc(var(--radius) + 2px);
+  --chip-radius: calc(var(--radius) + 1px);
   --transition-timing: cubic-bezier(0.16, 1, 0.3, 1);
   --font-ui:
     "Plus Jakarta Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -149,8 +157,12 @@
   --warning: oklch(0.68 0.15 75);
   --warning-foreground: oklch(0.48 0.13 60);
   --bg-glow: transparent;
-  --terminal-surface: oklch(0.97 0.003 80);
-  --terminal-surface-elevated: oklch(0.98 0.003 80);
+  --pill: color-mix(in oklch, var(--card) 86%, white 14%);
+  --pill-foreground: var(--foreground);
+  --pill-border: color-mix(in oklch, var(--foreground) 9%, var(--background) 91%);
+  --chat-bubble: color-mix(in oklch, var(--card) 88%, var(--background) 12%);
+  --terminal-surface: var(--background);
+  --terminal-surface-elevated: color-mix(in oklch, var(--background) 96%, var(--card) 4%);
   --terminal-foreground: oklch(0.2 0.01 260);
   --terminal-cursor: oklch(0.45 0.12 255);
   --terminal-selection-background: rgba(63, 97, 150, 0.12);
@@ -207,8 +219,12 @@
     --warning: oklch(0.7 0.15 75);
     --warning-foreground: oklch(0.76 0.12 75);
     --bg-glow: transparent;
-    --terminal-surface: oklch(0.14 0.007 260);
-    --terminal-surface-elevated: oklch(0.17 0.007 260);
+    --pill: color-mix(in oklch, var(--card) 82%, white 6%);
+    --pill-foreground: var(--foreground);
+    --pill-border: color-mix(in oklch, var(--foreground) 14%, var(--background) 86%);
+    --chat-bubble: color-mix(in oklch, var(--card) 94%, var(--background) 6%);
+    --terminal-surface: var(--background);
+    --terminal-surface-elevated: color-mix(in oklch, var(--background) 96%, var(--card) 4%);
     --terminal-foreground: oklch(0.9 0.005 260);
     --terminal-cursor: oklch(0.7 0.14 255);
     --terminal-selection-background: rgba(116, 166, 245, 0.16);
@@ -245,16 +261,12 @@ body {
   padding: 0;
   min-height: 100vh;
   background-color: var(--background);
-  background-image: radial-gradient(120% 70% at 50% -15%, var(--bg-glow), transparent 52%);
+  background-image: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition:
     background-color 200ms ease,
     color 200ms ease;
-}
-
-.dark body {
-  background-image: radial-gradient(100% 65% at 50% 0%, var(--bg-glow), transparent 58%);
 }
 
 html,
@@ -349,15 +361,7 @@ label {
 
 .thread-terminal-drawer .terminal-viewport {
   background: var(--terminal-surface);
-  box-shadow:
-    inset 0 1px 3px rgba(0, 0, 0, 0.06),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.04);
-}
-
-.dark .thread-terminal-drawer .terminal-viewport {
-  box-shadow:
-    inset 0 1px 3px rgba(0, 0, 0, 0.2),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+  box-shadow: none;
 }
 
 .thread-terminal-drawer .xterm,
@@ -378,49 +382,34 @@ label {
 
 .thread-terminal-drawer .terminal-resize-handle {
   position: relative;
+  background-color: transparent;
+  transition: background-color 120ms ease;
 }
 
-.thread-terminal-drawer .terminal-resize-handle::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 32px;
-  height: 3px;
-  background: var(--border);
-  border-radius: 2px;
-  opacity: 0.5;
+.thread-terminal-drawer .terminal-resize-handle:hover {
+  background-color: color-mix(in oklch, var(--accent) 30%, transparent);
+}
+
+.thread-terminal-drawer .terminal-resize-handle:active {
+  background-color: color-mix(in oklch, var(--accent) 45%, transparent);
+}
+
+.thread-terminal-drawer .terminal-split-divider,
+.thread-terminal-drawer .terminal-sidebar-resize-handle {
+  background-color: transparent;
   transition:
-    opacity 150ms ease,
-    width 150ms ease;
+    background-color 150ms ease,
+    opacity 150ms ease;
 }
 
-.thread-terminal-drawer .terminal-resize-handle:hover::before,
-.thread-terminal-drawer .terminal-resize-handle:active::before {
-  width: 48px;
-  opacity: 1;
-  background: var(--primary);
+.thread-terminal-drawer .terminal-split-divider:hover,
+.thread-terminal-drawer .terminal-sidebar-resize-handle:hover {
+  background-color: color-mix(in oklch, var(--accent) 35%, transparent);
 }
 
-.thread-terminal-drawer .terminal-split-divider {
-  transition: background-color 150ms ease;
-}
-
-.thread-terminal-drawer .terminal-split-divider > div {
-  transition:
-    width 150ms ease,
-    background-color 150ms ease;
-}
-
-.thread-terminal-drawer .terminal-split-divider:hover > div {
-  width: 3px;
-  background: var(--primary);
-  opacity: 0.5;
-}
-
-.thread-terminal-drawer .terminal-split-divider:active > div {
-  opacity: 0.8;
+.thread-terminal-drawer .terminal-split-divider:active,
+.thread-terminal-drawer .terminal-sidebar-resize-handle:active {
+  background-color: color-mix(in oklch, var(--accent) 48%, transparent);
 }
 
 @keyframes terminal-pulse {
@@ -433,37 +422,72 @@ label {
   }
 }
 
+@keyframes sidebar-thread-status-awaiting {
+  0%,
+  45%,
+  100% {
+    opacity: 1;
+  }
+  46%,
+  55% {
+    opacity: 0.15;
+  }
+}
+
+.sidebar-thread-status-awaiting {
+  animation: sidebar-thread-status-awaiting 1.1s steps(2, end) infinite;
+}
+
 .thread-terminal-drawer .terminal-live-indicator {
   animation: terminal-pulse 2s ease-in-out infinite;
 }
 
 .thread-terminal-drawer .terminal-sidebar-header {
   background: linear-gradient(
-    to bottom,
-    color-mix(in oklch, var(--terminal-surface) 100%, var(--background) 0%),
-    var(--terminal-surface)
+    180deg,
+    color-mix(in oklch, var(--foreground) 4%, transparent),
+    transparent
   );
   border-bottom: 1px solid color-mix(in oklch, var(--border) 40%, transparent);
 }
 
+.thread-terminal-drawer .terminal-sidebar {
+  border-left: 1px solid color-mix(in oklch, var(--border) 32%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--background) 10%, transparent),
+      transparent 120px
+    ),
+    color-mix(in oklch, var(--terminal-surface) 94%, var(--background));
+}
+
 .thread-terminal-drawer .terminal-item {
+  box-shadow: inset 0 0 0 1px transparent;
   transition:
     background-color 120ms ease,
     border-color 120ms ease,
-    padding 120ms ease;
+    box-shadow 120ms ease,
+    color 120ms ease;
 }
 
 .thread-terminal-drawer .terminal-item:hover {
-  background-color: color-mix(in oklch, var(--accent) 50%, transparent);
+  background-color: color-mix(in oklch, var(--accent) 36%, transparent);
 }
 
 .thread-terminal-drawer .terminal-item.active {
-  background-color: color-mix(in oklch, var(--primary) 12%, transparent);
-  border-left-color: var(--primary) !important;
+  background-color: color-mix(in oklch, var(--accent) 46%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 
 .thread-terminal-drawer .terminal-item.active:hover {
-  background-color: color-mix(in oklch, var(--primary) 16%, transparent);
+  background-color: color-mix(in oklch, var(--accent) 54%, transparent);
+}
+
+.thread-terminal-drawer .terminal-item[data-drop-active="true"] {
+  background-color: color-mix(in oklch, var(--accent) 44%, transparent);
+  border-color: color-mix(in oklch, var(--primary) 32%, transparent);
 }
 
 .thread-terminal-drawer .terminal-action-btn {

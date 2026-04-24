@@ -1750,6 +1750,7 @@ const make = Effect.fn("make")(function* () {
           case "turn.started":
             return !conflictsWithActiveTurn;
           case "turn.completed":
+          case "turn.aborted":
             if (conflictsWithActiveTurn) {
               return false;
             }
@@ -1827,12 +1828,15 @@ const make = Effect.fn("make")(function* () {
         event.type === "session.exited" ||
         event.type === "thread.started" ||
         event.type === "turn.started" ||
-        event.type === "turn.completed"
+        event.type === "turn.completed" ||
+        event.type === "turn.aborted"
       ) {
         const nextActiveTurnId =
           event.type === "turn.started"
             ? (eventTurnId ?? null)
-            : event.type === "turn.completed" || event.type === "session.exited"
+            : event.type === "turn.completed" ||
+                event.type === "turn.aborted" ||
+                event.type === "session.exited"
               ? null
               : activeTurnId;
         const status = (() => {
@@ -1847,6 +1851,8 @@ const make = Effect.fn("make")(function* () {
               return normalizeRuntimeTurnState(event.payload.state) === "failed"
                 ? "error"
                 : "ready";
+            case "turn.aborted":
+              return "ready";
             case "session.started":
             case "thread.started":
               // Provider thread/session start notifications can arrive during an
@@ -2042,7 +2048,7 @@ const make = Effect.fn("make")(function* () {
         });
       }
 
-      if (event.type === "turn.completed") {
+      if (event.type === "turn.completed" || event.type === "turn.aborted") {
         const turnId = toTurnId(event.turnId);
         if (turnId) {
           yield* flushPendingStreamingAssistantDeltasForTurn(thread.id, turnId);
@@ -2071,15 +2077,16 @@ const make = Effect.fn("make")(function* () {
           ).pipe(Effect.asVoid);
           yield* clearAssistantMessageIdsForTurn(thread.id, turnId);
           clearAssistantOutputSeenForTurn(thread.id, turnId);
-
-          yield* finalizeBufferedProposedPlan({
-            event,
-            threadId: thread.id,
-            threadProposedPlans: thread.proposedPlans,
-            planId: proposedPlanIdForTurn(thread.id, turnId),
-            turnId,
-            updatedAt: now,
-          });
+          if (event.type === "turn.completed") {
+            yield* finalizeBufferedProposedPlan({
+              event,
+              threadId: thread.id,
+              threadProposedPlans: thread.proposedPlans,
+              planId: proposedPlanIdForTurn(thread.id, turnId),
+              turnId,
+              updatedAt: now,
+            });
+          }
         }
       }
 

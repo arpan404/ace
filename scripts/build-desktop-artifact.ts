@@ -494,6 +494,18 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     appId: "com.ace.ace",
     productName,
     artifactName: "ace-${version}-${arch}.${ext}",
+    files: [
+      "package.json",
+      "apps/desktop/dist-electron/**/*",
+      "apps/desktop/prod-resources/**/*",
+      "apps/server/dist/**/*",
+      "node_modules/**/*",
+      "!**/*.map",
+      "!**/*.d.ts.map",
+      "!**/{test,tests,__tests__,powered-test}/**",
+      "!**/docs/**",
+      "!**/*.md",
+    ],
     directories: {
       buildResources: "apps/desktop/resources",
     },

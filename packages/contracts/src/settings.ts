@@ -18,11 +18,21 @@ export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"])
 export type TimestampFormat = typeof TimestampFormat.Type;
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
 
-export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
+export const SidebarProjectSortOrder = Schema.Literals([
+  "updated_at",
+  "last_user_message",
+  "created_at",
+  "manual",
+]);
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
-export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
+export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "last_user_message";
 
-export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at"]);
+export const SidebarThreadSortOrder = Schema.Literals([
+  "updated_at",
+  "created_at",
+  "last_user_message",
+  "manual",
+]);
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
 
@@ -189,6 +199,7 @@ export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   enableToolStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   enableThinkingStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  gitSshKeyPassphrase: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
   notifyOnAgentCompletion: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   notifyOnApprovalRequired: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   notifyOnUserInputRequired: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
@@ -347,6 +358,7 @@ export const ServerSettingsPatch = Schema.Struct({
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   enableToolStreaming: Schema.optionalKey(Schema.Boolean),
   enableThinkingStreaming: Schema.optionalKey(Schema.Boolean),
+  gitSshKeyPassphrase: Schema.optionalKey(TrimmedString),
   notifyOnAgentCompletion: Schema.optionalKey(Schema.Boolean),
   notifyOnApprovalRequired: Schema.optionalKey(Schema.Boolean),
   notifyOnUserInputRequired: Schema.optionalKey(Schema.Boolean),

@@ -1,11 +1,12 @@
-import { ArchiveIcon, ArchiveX, LoaderCircleIcon } from "lucide-react";
+import { ArchiveIcon, ArchiveX, ChevronDownIcon, LoaderCircleIcon } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type DesktopCliInstallState,
   type ProviderKind,
-  type ServerLspMarketplaceSearchResult,
   type ServerInstallLspToolInput,
+  type ServerLspToolInstaller,
+  type ServerLspToolStatus,
   type ServerLspToolsStatus,
   ThreadId,
 } from "@ace/contracts";
@@ -20,7 +21,11 @@ import {
   type UiLetterSpacing,
   type UiMonoFontFamily,
 } from "@ace/contracts/settings";
-import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/model";
+import {
+  buildProviderModelSelection,
+  formatProviderModelDisplayName,
+  normalizeModelSlug,
+} from "@ace/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
 import {
@@ -64,6 +69,8 @@ import {
   type AgentAttentionNotificationPermission,
 } from "../../lib/agentAttentionNotifications";
 import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
+import { Collapsible, CollapsibleContent } from "../ui/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -71,7 +78,7 @@ import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectAvatar } from "../ProjectAvatar";
-import type { Project } from "../../types";
+import type { Project, Thread } from "../../types";
 import { ProviderSettingsSection, type ProviderCard } from "./ProviderSettingsSection";
 import { KeybindingsSettingsEditor } from "./KeybindingsSettingsEditor";
 import {
@@ -148,6 +155,46 @@ function parseDelimitedValues(input: string): string[] {
   );
 }
 
+const LSP_CATEGORY_LABELS: Record<ServerLspToolStatus["category"], string> = {
+  core: "Core",
+  config: "Config",
+  markup: "Markup",
+  framework: "Frameworks",
+  data: "Data",
+  shell: "Shell",
+  infra: "Infra",
+  custom: "Custom",
+};
+
+const LSP_INSTALLER_LABELS: Record<ServerLspToolInstaller, string> = {
+  npm: "npm",
+  "uv-tool": "uv",
+  "go-install": "go",
+  rustup: "rustup",
+};
+
+const EMPTY_LSP_TOOL_LIST: readonly ServerLspToolStatus[] = [];
+
+function getLspToolSearchText(tool: ServerLspToolStatus): string {
+  return [
+    tool.label,
+    tool.description,
+    tool.installer,
+    tool.packageName,
+    tool.command,
+    ...tool.tags,
+    ...tool.languageIds,
+    ...tool.fileExtensions,
+    ...tool.fileNames,
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+function getLspToolStatusBadgeVariant(tool: ServerLspToolStatus): "success" | "warning" {
+  return tool.installed ? "success" : "warning";
+}
+
 function resolveNotificationSettingsUrl(): string | null {
   if (typeof navigator === "undefined") {
     return null;
@@ -219,6 +266,22 @@ const PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
     binaryDescription: "Path to the OpenCode binary",
   },
 ] as const;
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string" &&
+    error.message.trim().length > 0
+  ) {
+    return error.message;
+  }
+  return fallback;
+}
 
 const PROVIDER_STATUS_STYLES = {
   disabled: {
@@ -600,6 +663,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
+      ...(settings.gitSshKeyPassphrase !== DEFAULT_UNIFIED_SETTINGS.gitSshKeyPassphrase
+        ? ["Git SSH key passphrase"]
+        : []),
       ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
@@ -630,6 +696,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.defaultThreadEnvMode,
+      settings.gitSshKeyPassphrase,
       settings.addProjectBaseDirectory,
       settings.providerCliIdleTtlSeconds,
       settings.providerCliMaxOpen,
@@ -749,25 +816,31 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const [lspToolsStatus, setLspToolsStatus] = useState<ServerLspToolsStatus | null>(null);
   const [lspToolsError, setLspToolsError] = useState<string | null>(null);
   const [isInstallingLspTools, setIsInstallingLspTools] = useState(false);
-  const [lspMarketplaceQuery, setLspMarketplaceQuery] = useState("");
-  const [lspMarketplaceResult, setLspMarketplaceResult] =
-    useState<ServerLspMarketplaceSearchResult | null>(null);
-  const [isSearchingLspMarketplace, setIsSearchingLspMarketplace] = useState(false);
+  const [lspCatalogQuery, setLspCatalogQuery] = useState("");
+  const [lspCatalogCategory, setLspCatalogCategory] = useState<
+    "all" | ServerLspToolStatus["category"]
+  >("all");
   const [isInstallingCustomLsp, setIsInstallingCustomLsp] = useState(false);
+  const [lspInstallTargetId, setLspInstallTargetId] = useState<string | null>(null);
+  const [isLspCustomFormOpen, setIsLspCustomFormOpen] = useState(false);
   const [lspCustomForm, setLspCustomForm] = useState<{
+    installer: ServerLspToolInstaller;
     packageName: string;
     command: string;
     label: string;
     args: string;
     languageIds: string;
     fileExtensions: string;
+    fileNames: string;
   }>({
+    installer: "npm",
     packageName: "",
     command: "",
     label: "",
     args: "",
     languageIds: "",
     fileExtensions: "",
+    fileNames: "",
   });
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
@@ -1119,7 +1192,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     const summary = getProviderSummary(liveProvider);
     const selectedModels = providerConfig.customModels.map((slug) => ({
       slug,
-      name: slug,
+      name: formatProviderModelDisplayName(providerSettings.provider, slug),
       isCustom: true,
       capabilities: null,
     }));
@@ -1182,7 +1255,39 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     mode: "full",
     open: false,
   });
-  const lspToolsInstalled = lspToolsStatus?.tools.every((tool) => tool.installed) ?? false;
+  const lspTools = lspToolsStatus?.tools ?? EMPTY_LSP_TOOL_LIST;
+  const lspCoreTools = useMemo(() => lspTools.filter((tool) => tool.builtin), [lspTools]);
+  const lspCatalogTools = useMemo(
+    () => lspTools.filter((tool) => tool.source !== "custom"),
+    [lspTools],
+  );
+  const lspCustomTools = useMemo(
+    () => lspTools.filter((tool) => tool.source === "custom"),
+    [lspTools],
+  );
+  const lspCoreToolsInstalled =
+    lspCoreTools.length > 0 && lspCoreTools.every((tool) => tool.installed);
+  const filteredLspCatalogTools = useMemo(() => {
+    const normalizedQuery = lspCatalogQuery.trim().toLowerCase();
+    return lspCatalogTools.filter((tool) => {
+      if (lspCatalogCategory !== "all" && tool.category !== lspCatalogCategory) {
+        return false;
+      }
+      if (normalizedQuery.length === 0) {
+        return true;
+      }
+      return getLspToolSearchText(tool).includes(normalizedQuery);
+    });
+  }, [lspCatalogCategory, lspCatalogQuery, lspCatalogTools]);
+  const lspCatalogCategories = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          lspCatalogTools.map((tool) => tool.category).filter((category) => category !== "custom"),
+        ),
+      ),
+    [lspCatalogTools],
+  );
 
   const refreshLspToolsStatus = useCallback(() => {
     void ensureNativeApi()
@@ -1192,9 +1297,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         setLspToolsError(null);
       })
       .catch((error: unknown) => {
-        setLspToolsError(
-          error instanceof Error ? error.message : "Unable to load LSP tool status.",
-        );
+        setLspToolsError(getErrorMessage(error, "Unable to load LSP tool status."));
       });
   }, []);
 
@@ -1211,65 +1314,76 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         });
       })
       .catch((error: unknown) => {
-        setLspToolsError(error instanceof Error ? error.message : "Unable to install LSP tools.");
+        setLspToolsError(getErrorMessage(error, "Unable to install LSP tools."));
       })
       .finally(() => setIsInstallingLspTools(false));
   }, []);
 
-  const searchLspMarketplace = useCallback(() => {
-    const query = lspMarketplaceQuery.trim();
-    if (query.length === 0) {
-      setLspMarketplaceResult(null);
-      return;
-    }
-    setIsSearchingLspMarketplace(true);
-    setLspToolsError(null);
-    void ensureNativeApi()
-      .server.searchLspMarketplace({ query, limit: 12 })
-      .then((result) => {
-        setLspMarketplaceResult(result);
-      })
-      .catch((error: unknown) => {
-        setLspToolsError(
-          error instanceof Error ? error.message : "Unable to search LSP marketplace.",
-        );
-      })
-      .finally(() => setIsSearchingLspMarketplace(false));
-  }, [lspMarketplaceQuery]);
-
-  const installCustomLspTool = useCallback((input: ServerInstallLspToolInput) => {
-    setIsInstallingCustomLsp(true);
-    setLspToolsError(null);
-    void ensureNativeApi()
-      .server.installLspTool(input)
-      .then((status) => {
-        setLspToolsStatus(status);
-        toastManager.add({
-          type: "success",
-          title: `Installed ${input.label}.`,
+  const installCustomLspTool = useCallback(
+    (input: ServerInstallLspToolInput, installTargetId: string | null = null) => {
+      setIsInstallingCustomLsp(true);
+      setLspInstallTargetId(installTargetId);
+      setLspToolsError(null);
+      void ensureNativeApi()
+        .server.installLspTool(input)
+        .then((status) => {
+          setLspToolsStatus(status);
+          toastManager.add({
+            type: "success",
+            title: `Installed ${input.label}.`,
+          });
+        })
+        .catch((error: unknown) => {
+          setLspToolsError(getErrorMessage(error, "Unable to install custom language server."));
+        })
+        .finally(() => {
+          setIsInstallingCustomLsp(false);
+          setLspInstallTargetId(null);
         });
-      })
-      .catch((error: unknown) => {
-        setLspToolsError(
-          error instanceof Error ? error.message : "Unable to install custom language server.",
-        );
-      })
-      .finally(() => setIsInstallingCustomLsp(false));
-  }, []);
+    },
+    [],
+  );
 
-  const installMarketplacePackage = useCallback((packageName: string) => {
-    const packageBasename = packageName.split("/").at(-1) ?? packageName;
-    const normalized = packageBasename.replace(/[^a-zA-Z0-9]+/g, " ").trim();
-    const fallbackLabel = normalized.length > 0 ? normalized : packageName;
-    setLspCustomForm((current) => ({
-      ...current,
-      packageName,
-      command: current.command || packageBasename,
-      label: current.label || fallbackLabel,
-    }));
+  const installCatalogTool = useCallback(
+    (tool: ServerLspToolStatus) => {
+      installCustomLspTool(
+        {
+          packageName: tool.packageName,
+          command: tool.command,
+          label: tool.label,
+          installer: tool.installer,
+          description: tool.description,
+          args: tool.args,
+          installPackages: tool.installPackages,
+          languageIds: tool.languageIds,
+          fileExtensions: tool.fileExtensions,
+          fileNames: tool.fileNames,
+          ...(tool.installed ? { reinstall: true } : {}),
+        },
+        tool.id,
+      );
+    },
+    [installCustomLspTool],
+  );
+
+  const seedCustomLspForm = useCallback((tool?: ServerLspToolStatus) => {
+    if (tool) {
+      setLspCustomForm({
+        installer: tool.installer,
+        packageName: tool.packageName,
+        command: tool.command,
+        label: tool.label,
+        args: tool.args.join(", "),
+        languageIds: tool.languageIds.join(", "),
+        fileExtensions: tool.fileExtensions.join(", "),
+        fileNames: tool.fileNames.join(", "),
+      });
+    }
+    setIsLspCustomFormOpen(true);
   }, []);
 
   const submitCustomLspInstall = useCallback(() => {
+    const installer = lspCustomForm.installer;
     const packageName = lspCustomForm.packageName.trim();
     const command = lspCustomForm.command.trim();
     const label = lspCustomForm.label.trim();
@@ -1277,25 +1391,33 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     const fileExtensions = parseDelimitedValues(lspCustomForm.fileExtensions).map((value) =>
       value.startsWith(".") ? value.toLowerCase() : `.${value.toLowerCase()}`,
     );
+    const fileNames = parseDelimitedValues(lspCustomForm.fileNames);
     const args = parseDelimitedValues(lspCustomForm.args);
     if (
       !packageName ||
       !command ||
       !label ||
       languageIds.length === 0 ||
-      fileExtensions.length === 0
+      (fileExtensions.length === 0 && fileNames.length === 0)
     ) {
-      setLspToolsError("Package, command, label, language IDs, and file extensions are required.");
+      setLspToolsError(
+        "Package, command, label, language IDs, and at least one file extension or file name are required.",
+      );
       return;
     }
-    installCustomLspTool({
-      packageName,
-      command,
-      label,
-      languageIds,
-      fileExtensions,
-      ...(args.length > 0 ? { args } : {}),
-    });
+    installCustomLspTool(
+      {
+        installer,
+        packageName,
+        command,
+        label,
+        languageIds,
+        fileExtensions,
+        ...(fileNames.length > 0 ? { fileNames } : {}),
+        ...(args.length > 0 ? { args } : {}),
+      },
+      "custom-form",
+    );
   }, [installCustomLspTool, lspCustomForm]);
 
   useEffect(() => {
@@ -2190,19 +2312,20 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
             <SettingsRow
               title="Language server tools"
-              description="Manage built-in and custom language servers for diagnostics and autocomplete."
+              description="Install the core bundle, browse a curated LSP catalog, and keep custom servers inside ace."
               status={
-                <div className="space-y-1 text-[11px] text-muted-foreground">
-                  {lspToolsStatus?.tools.map((tool) => (
-                    <div key={tool.id} className="flex items-center gap-2">
-                      <span>{tool.label}</span>
-                      <span className={tool.installed ? "text-emerald-500" : "text-amber-500"}>
-                        {tool.installed
-                          ? `Installed${tool.version ? ` (${tool.version})` : ""}`
-                          : "Missing"}
-                      </span>
-                    </div>
-                  ))}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" size="sm">
+                    {lspCoreTools.filter((tool) => tool.installed).length}/{lspCoreTools.length}{" "}
+                    core
+                  </Badge>
+                  <Badge variant="outline" size="sm">
+                    {lspCatalogTools.filter((tool) => tool.installed).length}/
+                    {lspCatalogTools.length} curated
+                  </Badge>
+                  <Badge variant="outline" size="sm">
+                    {lspCustomTools.length} custom
+                  </Badge>
                   {lspToolsError ? <div className="text-destructive">{lspToolsError}</div> : null}
                 </div>
               }
@@ -2218,121 +2341,332 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   </Button>
                   <Button
                     size="sm"
-                    onClick={() => installLspToolsFromSettings(lspToolsInstalled)}
+                    onClick={() => installLspToolsFromSettings(lspCoreToolsInstalled)}
                     disabled={isInstallingLspTools}
                   >
                     {isInstallingLspTools
                       ? "Installing..."
-                      : lspToolsInstalled
-                        ? "Reinstall"
-                        : "Install"}
+                      : lspCoreToolsInstalled
+                        ? "Reinstall core"
+                        : "Install core"}
                   </Button>
                 </div>
               }
             >
-              <div className="mt-4 space-y-3">
-                <div className="flex gap-2">
-                  <Input
-                    value={lspMarketplaceQuery}
-                    onChange={(event) => setLspMarketplaceQuery(event.target.value)}
-                    placeholder="Search npm for language servers"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={searchLspMarketplace}
-                    disabled={isSearchingLspMarketplace}
-                  >
-                    {isSearchingLspMarketplace ? "Searching..." : "Search"}
-                  </Button>
-                </div>
-                {lspMarketplaceResult && lspMarketplaceResult.packages.length > 0 ? (
-                  <div className="max-h-40 space-y-1 overflow-auto rounded-md bg-secondary/30 p-2">
-                    {lspMarketplaceResult.packages.map((pkg) => (
-                      <div
-                        key={pkg.packageName}
-                        className="flex items-center justify-between gap-2 rounded px-2 py-1"
-                      >
-                        <div className="min-w-0">
-                          <div className="truncate text-xs font-medium">{pkg.packageName}</div>
-                          {pkg.description ? (
-                            <div className="truncate text-[11px] text-muted-foreground">
-                              {pkg.description}
-                            </div>
-                          ) : null}
+              <div className="mt-4 space-y-4">
+                <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,rgba(59,130,246,0.08),transparent_55%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))] p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium text-foreground">
+                        Curated marketplace for ace’s editor runtime
+                      </div>
+                      <div className="max-w-2xl text-[12px] leading-relaxed text-muted-foreground">
+                        Built-ins cover the common web stack. The catalog below adds popular config,
+                        schema, shell, infra, and component-file servers without leaving the app.
+                      </div>
+                    </div>
+                    {lspToolsStatus?.installDir ? (
+                      <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-[11px] text-muted-foreground">
+                        Install root
+                        <div className="mt-1 font-mono text-[10px] text-foreground">
+                          {lspToolsStatus.installDir}
                         </div>
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          onClick={() => installMarketplacePackage(pkg.packageName)}
-                        >
-                          Use
-                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="space-y-3 rounded-2xl border border-border/70 bg-background/40 p-3">
+                  <Input
+                    value={lspCatalogQuery}
+                    onChange={(event) => setLspCatalogQuery(event.target.value)}
+                    placeholder="Search languages, frameworks, commands, or packages"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant={lspCatalogCategory === "all" ? "default" : "outline"}
+                      onClick={() => setLspCatalogCategory("all")}
+                    >
+                      All
+                    </Button>
+                    {lspCatalogCategories.map((category) => (
+                      <Button
+                        key={category}
+                        size="sm"
+                        variant={lspCatalogCategory === category ? "default" : "outline"}
+                        onClick={() => setLspCatalogCategory(category)}
+                      >
+                        {LSP_CATEGORY_LABELS[category]}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {filteredLspCatalogTools.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
+                    No curated language servers match this filter.
+                  </div>
+                ) : (
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {filteredLspCatalogTools.map((tool) => (
+                      <div
+                        key={tool.id}
+                        className={cn(
+                          "rounded-2xl border p-4 transition-colors",
+                          tool.installed
+                            ? "border-emerald-500/25 bg-emerald-500/[0.05]"
+                            : "border-border/70 bg-background/50",
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-medium text-foreground">
+                                {tool.label}
+                              </div>
+                              <Badge variant={getLspToolStatusBadgeVariant(tool)} size="sm">
+                                {tool.installed
+                                  ? tool.version
+                                    ? `Installed · ${tool.version}`
+                                    : "Installed"
+                                  : "Not installed"}
+                              </Badge>
+                              <Badge variant="outline" size="sm">
+                                {tool.builtin ? "Core" : LSP_CATEGORY_LABELS[tool.category]}
+                              </Badge>
+                              <Badge variant="outline" size="sm">
+                                {LSP_INSTALLER_LABELS[tool.installer]}
+                              </Badge>
+                            </div>
+                            <p className="text-[12px] leading-relaxed text-muted-foreground">
+                              {tool.description}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant={tool.installed ? "outline" : "default"}
+                            onClick={() => installCatalogTool(tool)}
+                            disabled={isInstallingCustomLsp}
+                          >
+                            {isInstallingCustomLsp && lspInstallTargetId === tool.id
+                              ? "Installing..."
+                              : tool.installed
+                                ? "Reinstall"
+                                : "Install"}
+                          </Button>
+                        </div>
+
+                        <div className="mt-4 space-y-3 text-[11px] text-muted-foreground">
+                          <div className="space-y-1">
+                            <div className="uppercase tracking-[0.14em] text-muted-foreground/70">
+                              Package
+                            </div>
+                            <div className="font-mono text-foreground">{tool.packageName}</div>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="uppercase tracking-[0.14em] text-muted-foreground/70">
+                              Command
+                            </div>
+                            <div className="font-mono text-foreground">
+                              {tool.command}
+                              {tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {tool.languageIds.map((languageId) => (
+                              <Badge key={`${tool.id}-${languageId}`} variant="secondary" size="sm">
+                                {languageId}
+                              </Badge>
+                            ))}
+                            {tool.fileExtensions.map((extension) => (
+                              <Badge key={`${tool.id}-${extension}`} variant="outline" size="sm">
+                                {extension}
+                              </Badge>
+                            ))}
+                            {tool.fileNames.map((fileName) => (
+                              <Badge key={`${tool.id}-${fileName}`} variant="outline" size="sm">
+                                {fileName}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
+                )}
+
+                {lspCustomTools.length > 0 ? (
+                  <div className="space-y-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      Custom servers
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {lspCustomTools.map((tool) => (
+                        <div
+                          key={tool.id}
+                          className="rounded-2xl border border-border/70 bg-background/40 p-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-sm font-medium text-foreground">
+                                  {tool.label}
+                                </div>
+                                <Badge variant={getLspToolStatusBadgeVariant(tool)} size="sm">
+                                  {tool.installed ? "Installed" : "Missing"}
+                                </Badge>
+                                <Badge variant="outline" size="sm">
+                                  {LSP_INSTALLER_LABELS[tool.installer]}
+                                </Badge>
+                              </div>
+                              <p className="text-[12px] leading-relaxed text-muted-foreground">
+                                {tool.description}
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => seedCustomLspForm(tool)}
+                            >
+                              Edit copy
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 ) : null}
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <Input
-                    value={lspCustomForm.packageName}
-                    onChange={(event) =>
-                      setLspCustomForm((current) => ({
-                        ...current,
-                        packageName: event.target.value,
-                      }))
-                    }
-                    placeholder="Package name (e.g. @tailwindcss/language-server)"
-                  />
-                  <Input
-                    value={lspCustomForm.command}
-                    onChange={(event) =>
-                      setLspCustomForm((current) => ({ ...current, command: event.target.value }))
-                    }
-                    placeholder="Command (e.g. tailwindcss-language-server)"
-                  />
-                  <Input
-                    value={lspCustomForm.label}
-                    onChange={(event) =>
-                      setLspCustomForm((current) => ({ ...current, label: event.target.value }))
-                    }
-                    placeholder="Display label"
-                  />
-                  <Input
-                    value={lspCustomForm.args}
-                    onChange={(event) =>
-                      setLspCustomForm((current) => ({ ...current, args: event.target.value }))
-                    }
-                    placeholder="Args (comma-separated, optional)"
-                  />
-                  <Input
-                    value={lspCustomForm.languageIds}
-                    onChange={(event) =>
-                      setLspCustomForm((current) => ({
-                        ...current,
-                        languageIds: event.target.value,
-                      }))
-                    }
-                    placeholder="Language IDs (comma-separated)"
-                  />
-                  <Input
-                    value={lspCustomForm.fileExtensions}
-                    onChange={(event) =>
-                      setLspCustomForm((current) => ({
-                        ...current,
-                        fileExtensions: event.target.value,
-                      }))
-                    }
-                    placeholder="File extensions (comma-separated)"
-                  />
-                </div>
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    onClick={submitCustomLspInstall}
-                    disabled={isInstallingCustomLsp}
-                  >
-                    {isInstallingCustomLsp ? "Installing..." : "Install custom LSP"}
-                  </Button>
+
+                <div className="rounded-2xl border border-border/70 bg-background/40 p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-sm font-medium text-foreground">Custom package</div>
+                      <div className="text-[12px] text-muted-foreground">
+                        Register npm or uv-backed language servers with explicit file associations.
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setIsLspCustomFormOpen((open) => !open)}
+                    >
+                      {isLspCustomFormOpen ? "Hide form" : "Install custom LSP"}
+                    </Button>
+                  </div>
+
+                  {isLspCustomFormOpen ? (
+                    <div className="mt-3 space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        {(["npm", "uv-tool", "go-install", "rustup"] as const).map((installer) => (
+                          <Button
+                            key={installer}
+                            size="sm"
+                            variant={lspCustomForm.installer === installer ? "default" : "outline"}
+                            onClick={() =>
+                              setLspCustomForm((current) => ({
+                                ...current,
+                                installer,
+                              }))
+                            }
+                          >
+                            {LSP_INSTALLER_LABELS[installer]}
+                          </Button>
+                        ))}
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Input
+                          value={lspCustomForm.packageName}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              packageName: event.target.value,
+                            }))
+                          }
+                          placeholder={
+                            lspCustomForm.installer === "uv-tool"
+                              ? "Package name (e.g. basedpyright)"
+                              : lspCustomForm.installer === "go-install"
+                                ? "Package name (e.g. golang.org/x/tools/gopls)"
+                                : lspCustomForm.installer === "rustup"
+                                  ? "Package name (e.g. rust-analyzer)"
+                                  : "Package name (e.g. @tailwindcss/language-server)"
+                          }
+                        />
+                        <Input
+                          value={lspCustomForm.command}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              command: event.target.value,
+                            }))
+                          }
+                          placeholder="Command"
+                        />
+                        <Input
+                          value={lspCustomForm.label}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              label: event.target.value,
+                            }))
+                          }
+                          placeholder="Display label"
+                        />
+                        <Input
+                          value={lspCustomForm.args}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              args: event.target.value,
+                            }))
+                          }
+                          placeholder="Args (comma-separated, optional)"
+                        />
+                        <Input
+                          value={lspCustomForm.languageIds}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              languageIds: event.target.value,
+                            }))
+                          }
+                          placeholder="Language IDs (comma-separated)"
+                        />
+                        <Input
+                          value={lspCustomForm.fileExtensions}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              fileExtensions: event.target.value,
+                            }))
+                          }
+                          placeholder="File extensions (comma-separated)"
+                        />
+                        <Input
+                          value={lspCustomForm.fileNames}
+                          onChange={(event) =>
+                            setLspCustomForm((current) => ({
+                              ...current,
+                              fileNames: event.target.value,
+                            }))
+                          }
+                          placeholder="File names (comma-separated, optional)"
+                        />
+                      </div>
+                      <div className="flex justify-end">
+                        <Button
+                          size="sm"
+                          onClick={submitCustomLspInstall}
+                          disabled={isInstallingCustomLsp}
+                        >
+                          {isInstallingCustomLsp && lspInstallTargetId === "custom-form"
+                            ? "Installing..."
+                            : "Install custom LSP"}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </SettingsRow>
@@ -2455,7 +2789,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             control={
               <Button
                 size="xs"
-                variant="destructive-outline"
+                variant="destructive"
                 onClick={() => {
                   void repairBrowserStorage();
                 }}
@@ -2652,6 +2986,39 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
       {isAdvancedPage ? (
         <>
+          <SettingsSection title="Git credentials">
+            <SettingsRow
+              title="SSH key passphrase"
+              description="Use this passphrase once when automated git SSH fetch or push needs to unlock a private key."
+              resetAction={
+                settings.gitSshKeyPassphrase !== DEFAULT_UNIFIED_SETTINGS.gitSshKeyPassphrase ? (
+                  <SettingResetButton
+                    label="Git SSH key passphrase"
+                    onClick={() =>
+                      updateSettings({
+                        gitSshKeyPassphrase: DEFAULT_UNIFIED_SETTINGS.gitSshKeyPassphrase,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              status={settings.gitSshKeyPassphrase.trim().length > 0 ? "Configured" : "Not set"}
+              control={
+                <Input
+                  type="password"
+                  className="w-full sm:w-72"
+                  value={settings.gitSshKeyPassphrase}
+                  onChange={(event) => {
+                    updateSettings({ gitSshKeyPassphrase: event.target.value });
+                  }}
+                  placeholder="Optional private key passphrase"
+                  aria-label="Git SSH key passphrase"
+                  autoComplete="off"
+                />
+              }
+            />
+          </SettingsSection>
+
           <SettingsSection title="Performance">
             <SettingsRow
               title="Thread cache budget"
@@ -2759,21 +3126,27 @@ export function AboutSettingsPanel() {
   return <SettingsPanel page="about" />;
 }
 
+type ArchivedProjectGroup = {
+  readonly project: Project;
+  readonly threads: Thread[];
+  readonly totalThreadCount: number;
+  readonly sortKey: string;
+};
+
+function getArchiveSortKey(project: Project, threads: readonly Thread[]) {
+  const projectKey = project.archivedAt ?? project.updatedAt ?? project.createdAt ?? "";
+  const threadKey = threads[0]?.archivedAt ?? threads[0]?.updatedAt ?? threads[0]?.createdAt ?? "";
+  return projectKey > threadKey ? projectKey : threadKey;
+}
+
+function formatCountLabel(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 export function ArchivedThreadsPanel() {
   const projects = useStore((store) => store.projects);
   const threads = useStore((store) => store.threads);
   const { unarchiveThread, confirmAndDeleteThread } = useThreadActions();
-  const archivedProjects = useMemo(
-    () =>
-      projects
-        .filter((project) => project.archivedAt !== null)
-        .toSorted((left, right) => {
-          const leftKey = left.archivedAt ?? left.updatedAt ?? left.createdAt ?? "";
-          const rightKey = right.archivedAt ?? right.updatedAt ?? right.createdAt ?? "";
-          return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
-        }),
-    [projects],
-  );
   const threadCountByProjectId = useMemo(() => {
     const counts = new Map<string, number>();
     for (const thread of threads) {
@@ -2784,18 +3157,40 @@ export function ArchivedThreadsPanel() {
   const archivedGroups = useMemo(() => {
     const projectById = new Map(projects.map((project) => [project.id, project] as const));
     return [...projectById.values()]
-      .map((project) => ({
-        project,
-        threads: threads
+      .map<ArchivedProjectGroup>((project) => {
+        const archivedThreads = threads
           .filter((thread) => thread.projectId === project.id && thread.archivedAt !== null)
           .toSorted((left, right) => {
-            const leftKey = left.archivedAt ?? left.createdAt;
-            const rightKey = right.archivedAt ?? right.createdAt;
+            const leftKey = left.archivedAt ?? left.updatedAt ?? left.createdAt;
+            const rightKey = right.archivedAt ?? right.updatedAt ?? right.createdAt;
             return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
-          }),
-      }))
-      .filter((group) => group.threads.length > 0);
-  }, [projects, threads]);
+          });
+
+        return {
+          project,
+          threads: archivedThreads,
+          totalThreadCount: threadCountByProjectId.get(project.id) ?? 0,
+          sortKey: getArchiveSortKey(project, archivedThreads),
+        };
+      })
+      .filter((group) => group.project.archivedAt !== null || group.threads.length > 0)
+      .toSorted(
+        (left, right) =>
+          right.sortKey.localeCompare(left.sortKey) ||
+          left.project.name.localeCompare(right.project.name) ||
+          right.project.id.localeCompare(left.project.id),
+      );
+  }, [projects, threadCountByProjectId, threads]);
+  const [openGroupIds, setOpenGroupIds] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    setOpenGroupIds((current) => {
+      const next: Record<string, boolean> = {};
+      for (const group of archivedGroups) {
+        next[group.project.id] = current[group.project.id] ?? true;
+      }
+      return next;
+    });
+  }, [archivedGroups]);
 
   const handleArchivedThreadContextMenu = useCallback(
     async (threadId: ThreadId, position: { x: number; y: number }) => {
@@ -2840,12 +3235,28 @@ export function ArchivedThreadsPanel() {
       archivedAt: null,
     });
   }, []);
-  const hasArchivedItems = archivedProjects.length > 0 || archivedGroups.length > 0;
+  const hasArchivedItems = archivedGroups.length > 0;
+  const allGroupsExpanded = archivedGroups.every(
+    (group) => openGroupIds[group.project.id] !== false,
+  );
+  const setAllGroupsOpen = useCallback(
+    (open: boolean) => {
+      const next: Record<string, boolean> = {};
+      for (const group of archivedGroups) {
+        next[group.project.id] = open;
+      }
+      setOpenGroupIds(next);
+    },
+    [archivedGroups],
+  );
+  const setGroupOpen = useCallback((projectId: Project["id"], open: boolean) => {
+    setOpenGroupIds((current) => ({ ...current, [projectId]: open }));
+  }, []);
 
   return (
     <SettingsPageContainer>
       {!hasArchivedItems ? (
-        <SettingsSection title="Archived threads">
+        <SettingsSection title="Archived">
           <Empty className="min-h-88">
             <EmptyMedia variant="icon">
               <ArchiveIcon />
@@ -2857,105 +3268,164 @@ export function ArchivedThreadsPanel() {
           </Empty>
         </SettingsSection>
       ) : (
-        <>
-          {archivedProjects.length > 0 ? (
-            <SettingsSection title="Archived projects" icon={<ArchiveIcon />}>
-              {archivedProjects.map((project) => (
-                <div
-                  key={project.id}
-                  className="flex items-center justify-between gap-3 border-t border-border px-4 py-3 first:border-t-0 sm:px-5"
+        <SettingsSection
+          title="By project"
+          icon={<ArchiveIcon />}
+          headerAction={
+            archivedGroups.length > 1 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => setAllGroupsOpen(!allGroupsExpanded)}
+              >
+                {allGroupsExpanded ? "Collapse all" : "Expand all"}
+              </Button>
+            ) : null
+          }
+        >
+          {archivedGroups.map((group) => {
+            const project = group.project;
+            const isOpen = openGroupIds[project.id] !== false;
+            const archivedItemCount = group.threads.length + (project.archivedAt === null ? 0 : 1);
+
+            return (
+              <div key={project.id} className="border-t border-border first:border-t-0">
+                <button
+                  type="button"
+                  className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-150 hover:bg-muted/35 sm:px-5"
+                  aria-expanded={isOpen}
+                  onClick={() => setGroupOpen(project.id, !isOpen)}
                 >
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <ProjectAvatar project={project} className="size-8 rounded-lg" />
-                    <div className="min-w-0 flex-1">
+                  <ChevronDownIcon
+                    className={cn(
+                      "size-4 shrink-0 text-muted-foreground/55 transition-transform duration-200",
+                      !isOpen && "-rotate-90",
+                    )}
+                    aria-hidden="true"
+                  />
+                  <ProjectAvatar project={project} className="size-8 rounded-lg" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2">
                       <h3 className="truncate text-sm font-medium text-foreground">
                         {project.name}
                       </h3>
-                      <p className="truncate text-xs text-muted-foreground">
-                        Archived{" "}
-                        {formatRelativeTimeLabel(
-                          project.archivedAt ?? project.updatedAt ?? project.createdAt ?? "",
-                        )}
-                        {" \u00b7 "}
-                        {threadCountByProjectId.get(project.id) ?? 0}{" "}
-                        {(threadCountByProjectId.get(project.id) ?? 0) === 1 ? "thread" : "threads"}
-                      </p>
+                      {project.archivedAt !== null ? (
+                        <span className="shrink-0 rounded-md border border-border bg-muted/35 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          Project
+                        </span>
+                      ) : null}
                     </div>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
-                    onClick={() =>
-                      void restoreProject(project.id).catch((error) => {
-                        toastManager.add({
-                          type: "error",
-                          title: "Failed to restore project",
-                          description:
-                            error instanceof Error ? error.message : "An error occurred.",
-                        });
-                      })
-                    }
-                  >
-                    <ArchiveX className="size-3.5" />
-                    <span>Restore</span>
-                  </Button>
-                </div>
-              ))}
-            </SettingsSection>
-          ) : null}
-
-          {archivedGroups.map(({ project, threads: projectThreads }) => (
-            <SettingsSection
-              key={project.id}
-              title={project.name}
-              icon={<ProjectAvatar project={project} />}
-            >
-              {projectThreads.map((thread) => (
-                <div
-                  key={thread.id}
-                  className="flex items-center justify-between gap-3 border-t border-border px-4 py-3 first:border-t-0 sm:px-5"
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    void handleArchivedThreadContextMenu(thread.id, {
-                      x: event.clientX,
-                      y: event.clientY,
-                    });
-                  }}
-                >
-                  <div className="min-w-0 flex-1">
-                    <h3 className="truncate text-sm font-medium text-foreground">{thread.title}</h3>
-                    <p className="text-xs text-muted-foreground">
-                      Archived {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)}
-                      {" \u00b7 Created "}
-                      {formatRelativeTimeLabel(thread.createdAt)}
+                    <p className="truncate text-xs text-muted-foreground">
+                      {formatCountLabel(archivedItemCount, "archived item")} {"\u00b7 "}
+                      {formatCountLabel(group.threads.length, "thread")}
                     </p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
-                    onClick={() =>
-                      void unarchiveThread(thread.id).catch((error) => {
-                        toastManager.add({
-                          type: "error",
-                          title: "Failed to unarchive thread",
-                          description:
-                            error instanceof Error ? error.message : "An error occurred.",
-                        });
-                      })
-                    }
-                  >
-                    <ArchiveX className="size-3.5" />
-                    <span>Unarchive</span>
-                  </Button>
-                </div>
-              ))}
-            </SettingsSection>
-          ))}
-        </>
+                </button>
+
+                <Collapsible open={isOpen} onOpenChange={(open) => setGroupOpen(project.id, open)}>
+                  <CollapsibleContent>
+                    <div className="border-t border-border/70 bg-background/35">
+                      {project.archivedAt !== null ? (
+                        <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5">
+                          <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
+                              <ArchiveIcon className="size-4" />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <h4 className="truncate text-sm font-medium text-foreground">
+                                Project archive
+                              </h4>
+                              <p className="truncate text-xs text-muted-foreground">
+                                Archived{" "}
+                                {formatRelativeTimeLabel(
+                                  project.archivedAt ??
+                                    project.updatedAt ??
+                                    project.createdAt ??
+                                    "",
+                                )}
+                                {" \u00b7 "}
+                                {formatCountLabel(group.totalThreadCount, "total thread")}
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
+                            onClick={() =>
+                              void restoreProject(project.id).catch((error) => {
+                                toastManager.add({
+                                  type: "error",
+                                  title: "Failed to restore project",
+                                  description:
+                                    error instanceof Error ? error.message : "An error occurred.",
+                                });
+                              })
+                            }
+                          >
+                            <ArchiveX className="size-3.5" />
+                            <span>Restore</span>
+                          </Button>
+                        </div>
+                      ) : null}
+
+                      {group.threads.map((thread) => (
+                        <div
+                          key={thread.id}
+                          className={cn(
+                            "flex items-center justify-between gap-3 border-t border-border/70 px-4 py-3 sm:px-5",
+                            project.archivedAt === null && "first:border-t-0",
+                          )}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            void handleArchivedThreadContextMenu(thread.id, {
+                              x: event.clientX,
+                              y: event.clientY,
+                            });
+                          }}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <h4 className="truncate text-sm font-medium text-foreground">
+                              {thread.title}
+                            </h4>
+                            <p className="text-xs text-muted-foreground">
+                              Archived{" "}
+                              {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)}
+                              {" \u00b7 Created "}
+                              {formatRelativeTimeLabel(thread.createdAt)}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 shrink-0 cursor-pointer gap-1.5 px-2.5"
+                            onClick={() =>
+                              void unarchiveThread(thread.id).catch((error) => {
+                                toastManager.add({
+                                  type: "error",
+                                  title: "Failed to unarchive thread",
+                                  description:
+                                    error instanceof Error ? error.message : "An error occurred.",
+                                });
+                              })
+                            }
+                          >
+                            <ArchiveX className="size-3.5" />
+                            <span>Unarchive</span>
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            );
+          })}
+        </SettingsSection>
       )}
     </SettingsPageContainer>
   );

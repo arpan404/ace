@@ -64,6 +64,7 @@ interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
   isStreaming?: boolean;
+  renderPlainText?: boolean;
   streamingTextState?: ChatMessageStreamingTextState;
   onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
@@ -283,29 +284,25 @@ function StreamingMarkdownText({ text }: { text: string }) {
   );
 }
 
-function scheduleDeferredMarkdownUpgrade(callback: () => void): () => void {
-  if (typeof window === "undefined") {
-    return () => undefined;
-  }
-
-  if (typeof window.requestIdleCallback === "function") {
-    const idleHandle = window.requestIdleCallback(
-      () => {
-        callback();
-      },
-      { timeout: 120 },
-    );
-    return () => {
-      if (typeof window.cancelIdleCallback === "function") {
-        window.cancelIdleCallback(idleHandle);
-      }
-    };
-  }
-
-  const timeoutHandle = window.setTimeout(() => {
-    callback();
-  }, 0);
-  return () => window.clearTimeout(timeoutHandle);
+function MarkdownBody({
+  children,
+  isStreaming,
+  markdownComponents,
+}: {
+  children: string;
+  isStreaming: boolean;
+  markdownComponents: Components;
+}) {
+  return (
+    <div
+      className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80"
+      data-streaming-markdown={isStreaming ? "true" : undefined}
+    >
+      <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
+        {children}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 function PreviewTextPanel({
@@ -313,10 +310,7 @@ function PreviewTextPanel({
   dataAttribute,
 }: {
   text: string;
-  dataAttribute?:
-    | "data-streaming-markdown"
-    | "data-large-markdown-preview"
-    | "data-deferred-markdown";
+  dataAttribute?: "data-streaming-markdown" | "data-large-markdown-preview";
 }) {
   return (
     <div
@@ -401,14 +395,11 @@ function LargeMarkdownPreview({
   );
 }
 
-function CompletedMarkdownPreview({ text }: { text: string }) {
-  return <PreviewTextPanel text={text} dataAttribute="data-deferred-markdown" />;
-}
-
 function ChatMarkdown({
   text,
   cwd,
   isStreaming = false,
+  renderPlainText = false,
   streamingTextState,
   onLayoutChange,
   onOpenBrowserUrl = null,
@@ -416,8 +407,6 @@ function ChatMarkdown({
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const [renderPreference, setRenderPreference] = useState<"auto" | "markdown">("auto");
-  const [deferredMarkdownReady, setDeferredMarkdownReady] = useState(() => !isStreaming);
-  const previousStreamingRef = useRef(isStreaming);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isMarkdownTransitionPending, startMarkdownTransition] = useTransition();
   const useLargePreview =
@@ -476,6 +465,13 @@ function ChatMarkdown({
         if (!codeBlock) {
           return <pre {...props}>{children}</pre>;
         }
+        if (isStreaming) {
+          return (
+            <MarkdownCodeBlock code={codeBlock.code}>
+              <pre {...props}>{children}</pre>
+            </MarkdownCodeBlock>
+          );
+        }
         const language = extractFenceLanguage(codeBlock.className);
 
         if (language === "mermaid") {
@@ -510,36 +506,14 @@ function ChatMarkdown({
   );
 
   useEffect(() => {
-    const wasStreaming = previousStreamingRef.current;
-    previousStreamingRef.current = isStreaming;
-
     if (isStreaming) {
       setRenderPreference("auto");
-      setDeferredMarkdownReady(false);
-      return;
     }
-
-    if (useLargePreview) {
-      setDeferredMarkdownReady(false);
-      return;
-    }
-
-    if (!wasStreaming) {
-      setDeferredMarkdownReady(true);
-      return;
-    }
-
-    setDeferredMarkdownReady(false);
-    return scheduleDeferredMarkdownUpgrade(() => {
-      startMarkdownTransition(() => {
-        setDeferredMarkdownReady(true);
-      });
-    });
-  }, [isStreaming, startMarkdownTransition, useLargePreview]);
+  }, [isStreaming]);
 
   useEffect(() => {
     onLayoutChange?.();
-  }, [deferredMarkdownReady, isStreaming, onLayoutChange, renderPreference, text, useLargePreview]);
+  }, [isStreaming, onLayoutChange, renderPreference, text, useLargePreview]);
 
   useEffect(() => {
     if (!onLayoutChange || typeof ResizeObserver === "undefined") {
@@ -579,7 +553,13 @@ function ChatMarkdown({
   }, [onLayoutChange]);
 
   let content: ReactNode;
-  if (isStreaming) {
+  if (renderPlainText) {
+    content = <PreviewTextPanel text={text} />;
+  } else if (
+    isStreaming &&
+    streamingTextState &&
+    (streamingTextState.truncatedCharCount > 0 || streamingTextState.truncatedLineCount > 0)
+  ) {
     content = <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
   } else if (useLargePreview) {
     content = (
@@ -593,15 +573,11 @@ function ChatMarkdown({
         }}
       />
     );
-  } else if (!deferredMarkdownReady) {
-    content = <CompletedMarkdownPreview text={text} />;
   } else {
     content = (
-      <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80">
-        <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
-          {text}
-        </ReactMarkdown>
-      </div>
+      <MarkdownBody isStreaming={isStreaming} markdownComponents={markdownComponents}>
+        {text}
+      </MarkdownBody>
     );
   }
 

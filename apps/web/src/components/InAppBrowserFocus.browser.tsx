@@ -8,7 +8,10 @@ import { removeLocalStorageItem } from "~/hooks/useLocalStorage";
 import { useInAppBrowserState, type InAppBrowserMode } from "~/hooks/useInAppBrowserState";
 import { BROWSER_HISTORY_STORAGE_KEY } from "~/lib/browser/history";
 import { BROWSER_PINNED_PAGES_STORAGE_KEY } from "~/lib/browser/pinnedPages";
-import { BROWSER_SESSION_STORAGE_KEY } from "~/lib/browser/session";
+import {
+  BROWSER_SESSION_STORAGE_KEY,
+  resolveBrowserSessionStorageKey,
+} from "~/lib/browser/session";
 
 vi.mock("~/hooks/useSettings", () => ({
   useSettings: () => ({
@@ -25,6 +28,8 @@ vi.mock("~/nativeApi", () => ({
 
 function resetBrowserStorage() {
   removeLocalStorageItem(BROWSER_SESSION_STORAGE_KEY);
+  removeLocalStorageItem(resolveBrowserSessionStorageKey("thread-a"));
+  removeLocalStorageItem(resolveBrowserSessionStorageKey("thread-b"));
   removeLocalStorageItem(BROWSER_HISTORY_STORAGE_KEY);
   removeLocalStorageItem(BROWSER_PINNED_PAGES_STORAGE_KEY);
 }
@@ -38,16 +43,12 @@ function BrowserFocusHarnessPanel(props: { mode: InAppBrowserMode }) {
 
   return (
     <div>
-      {props.mode === "pip" ? (
-        <div aria-label="Browser pip chrome">PiP</div>
-      ) : (
-        <input
-          aria-label="Browser address bar"
-          ref={state.addressInputRef}
-          value={state.draftUrl}
-          readOnly
-        />
-      )}
+      <input
+        aria-label="Browser address bar"
+        ref={state.addressInputRef}
+        value={state.draftUrl}
+        readOnly
+      />
       <button type="button" onClick={state.openNewTab}>
         Open new tab
       </button>
@@ -72,9 +73,6 @@ function BrowserFocusHarness() {
       </button>
       <button type="button" onClick={() => setMode("split")} disabled={!open}>
         Split browser
-      </button>
-      <button type="button" onClick={() => setMode("pip")} disabled={!open}>
-        Minimize browser
       </button>
       <button type="button" onClick={() => setMode("full")} disabled={!open}>
         Restore browser
@@ -107,7 +105,6 @@ describe("InAppBrowser address bar focus", () => {
       expect(document.activeElement).not.toBe(queryAddressInput());
     });
 
-    await screen.getByText("Minimize browser").click();
     await screen.getByText("Restore browser").click();
 
     await vi.waitFor(() => {
@@ -121,5 +118,56 @@ describe("InAppBrowser address bar focus", () => {
       expect(input).toBeTruthy();
       expect(document.activeElement).toBe(input);
     });
+  });
+});
+
+function BrowserScopeHarnessPanel(props: { scopeId: string }) {
+  const state = useInAppBrowserState({ mode: "full", open: true, scopeId: props.scopeId });
+
+  return (
+    <div>
+      <div aria-label="Tab count">{state.browserSession.tabs.length}</div>
+      <button type="button" onClick={state.openNewTab}>
+        Open scoped tab
+      </button>
+    </div>
+  );
+}
+
+function BrowserScopeHarness() {
+  const [scopeId, setScopeId] = useState("thread-a");
+
+  return (
+    <div>
+      <button type="button" onClick={() => setScopeId("thread-a")}>
+        Thread A
+      </button>
+      <button type="button" onClick={() => setScopeId("thread-b")}>
+        Thread B
+      </button>
+      <BrowserScopeHarnessPanel scopeId={scopeId} />
+    </div>
+  );
+}
+
+describe("InAppBrowser scoped sessions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetBrowserStorage();
+  });
+
+  it("preserves tab state per scope", async () => {
+    const screen = await render(<BrowserScopeHarness />);
+
+    await expect.element(screen.getByLabelText("Tab count")).toHaveTextContent("1");
+
+    await screen.getByText("Open scoped tab").click();
+    await expect.element(screen.getByLabelText("Tab count")).toHaveTextContent("2");
+
+    await screen.getByText("Thread B").click();
+    await expect.element(screen.getByLabelText("Tab count")).toHaveTextContent("1");
+
+    await screen.getByText("Thread A").click();
+    await expect.element(screen.getByLabelText("Tab count")).toHaveTextContent("2");
   });
 });

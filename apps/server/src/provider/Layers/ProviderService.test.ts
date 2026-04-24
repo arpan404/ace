@@ -631,6 +631,51 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
+  it.effect("serializes queued turns per thread until the active provider turn is idle", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const session = yield* provider.startSession(asThreadId("thread-provider-queue"), {
+        provider: "cursor",
+        threadId: asThreadId("thread-provider-queue"),
+        runtimeMode: "full-access",
+      });
+
+      yield* provider.sendTurn({
+        threadId: session.threadId,
+        input: "first",
+        attachments: [],
+      });
+      assert.equal(routing.cursor.sendTurn.mock.calls.length, 1);
+
+      const secondTurn = yield* Effect.forkChild(
+        provider.sendTurn({
+          threadId: session.threadId,
+          input: "second",
+          attachments: [],
+        }),
+      );
+      yield* sleep(50);
+      assert.equal(routing.cursor.sendTurn.mock.calls.length, 1);
+
+      routing.cursor.emit({
+        type: "turn.completed",
+        eventId: asEventId("evt-provider-queue-1"),
+        provider: "cursor",
+        createdAt: new Date().toISOString(),
+        threadId: session.threadId,
+        turnId: asTurnId("turn-provider-queue-1"),
+        status: "completed",
+      });
+
+      yield* Fiber.join(secondTurn);
+      assert.equal(routing.cursor.sendTurn.mock.calls.length, 2);
+      assert.equal(routing.cursor.sendTurn.mock.calls[0]?.[0]?.input, "first");
+      assert.equal(routing.cursor.sendTurn.mock.calls[1]?.[0]?.input, "second");
+
+      yield* provider.stopSession({ threadId: session.threadId });
+    }),
+  );
+
   it.effect("recovers stale persisted sessions for rollback by resuming thread identity", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
@@ -991,9 +1036,9 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const provider = yield* ProviderService;
       const runtimeRepository = yield* ProviderSessionRuntimeRepository;
 
-      const session = yield* provider.startSession(asThreadId("thread-1"), {
+      const session = yield* provider.startSession(asThreadId("thread-runtime-status"), {
         provider: "codex",
-        threadId: asThreadId("thread-1"),
+        threadId: asThreadId("thread-runtime-status"),
         runtimeMode: "full-access",
       });
       yield* provider.sendTurn({
@@ -1348,7 +1393,7 @@ lifecycle.layer("ProviderServiceLive CLI lifecycle policy", (it) => {
         },
       } as LegacyProviderRuntimeEvent);
 
-      yield* sleep(2_200);
+      yield* sleep(3_200);
 
       assert.equal(lifecycle.codex.stopSession.mock.calls.length, 1);
       const binding = yield* directory.getBinding(session.threadId);

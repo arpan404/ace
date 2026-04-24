@@ -9,7 +9,6 @@ import type {
 import { Cache, Duration, Effect, Equal, Layer, Option, Result, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { decodeJsonResult } from "@ace/shared/schemaJson";
-import { query as claudeQuery } from "@anthropic-ai/claude-agent-sdk";
 
 import {
   buildPendingServerProvider,
@@ -25,8 +24,16 @@ import {
 } from "../providerSnapshot";
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import { ClaudeProvider } from "../Services/ClaudeProvider";
+import { ServerConfig } from "../../config";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@ace/contracts";
+import { loadClaudeAgentSdkModule, type ClaudeAgentSdkLoader } from "../providerSdkRuntime";
+import {
+  getClaudeFallbackModelCapabilities,
+  getRememberedClaudeModelCapabilities,
+  rememberClaudeModels,
+  toClaudeServerProviderModel,
+} from "../claudeCatalog";
 
 const PROVIDER = "claudeAgent" as const;
 const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
@@ -86,16 +93,7 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
 ];
 
 export function getClaudeModelCapabilities(model: string | null | undefined): ModelCapabilities {
-  const slug = model?.trim();
-  return (
-    BUILT_IN_MODELS.find((candidate) => candidate.slug === slug)?.capabilities ?? {
-      reasoningEffortLevels: [],
-      supportsFastMode: false,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    }
-  );
+  return getRememberedClaudeModelCapabilities(model) ?? getClaudeFallbackModelCapabilities(model);
 }
 
 export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
@@ -396,10 +394,16 @@ const CAPABILITIES_PROBE_TIMEOUT_MS = 8_000;
  * This is used as a fallback when `claude auth status` does not include
  * subscription type information.
  */
-const probeClaudeCapabilities = (binaryPath: string) => {
+type ClaudeProviderCapabilities = {
+  readonly subscriptionType: string | undefined;
+  readonly models: ReadonlyArray<ServerProviderModel>;
+};
+
+const probeClaudeCapabilities = (binaryPath: string, loadSdk: ClaudeAgentSdkLoader) => {
   const abort = new AbortController();
   return Effect.tryPromise(async () => {
-    const q = claudeQuery({
+    const sdk = await loadSdk();
+    const q = sdk.query({
       prompt: ".",
       options: {
         persistSession: false,
@@ -412,7 +416,10 @@ const probeClaudeCapabilities = (binaryPath: string) => {
       },
     });
     const init = await q.initializationResult();
-    return { subscriptionType: init.account?.subscriptionType };
+    return {
+      subscriptionType: init.account?.subscriptionType,
+      models: init.models.map(toClaudeServerProviderModel),
+    } satisfies ClaudeProviderCapabilities;
   }).pipe(
     Effect.ensuring(
       Effect.sync(() => {
@@ -440,7 +447,9 @@ const runClaudeCommand = Effect.fn("runClaudeCommand")(function* (args: Readonly
 });
 
 export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(function* (
-  resolveSubscriptionType?: (binaryPath: string) => Effect.Effect<string | undefined>,
+  resolveCapabilities?: (
+    binaryPath: string,
+  ) => Effect.Effect<ClaudeProviderCapabilities | undefined>,
 ): Effect.fn.Return<
   ServerProvider,
   ServerSettingsError,
@@ -451,14 +460,19 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     Effect.map((settings) => settings.providers.claudeAgent),
   );
   const checkedAt = new Date().toISOString();
-  const models = providerModelsFromSettings(BUILT_IN_MODELS, PROVIDER, claudeSettings.customModels);
+  const fallbackModels = providerModelsFromSettings(
+    BUILT_IN_MODELS,
+    PROVIDER,
+    claudeSettings.customModels,
+  );
+  rememberClaudeModels(fallbackModels);
 
   if (!claudeSettings.enabled) {
     return buildServerProvider({
       provider: PROVIDER,
       enabled: false,
       checkedAt,
-      models,
+      models: fallbackModels,
       probe: {
         installed: false,
         version: null,
@@ -480,7 +494,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       provider: PROVIDER,
       enabled: claudeSettings.enabled,
       checkedAt,
-      models,
+      models: fallbackModels,
       probe: {
         installed: !isCommandMissingCause(error),
         version: null,
@@ -498,7 +512,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       provider: PROVIDER,
       enabled: claudeSettings.enabled,
       checkedAt,
-      models,
+      models: fallbackModels,
       probe: {
         installed: true,
         version: null,
@@ -518,7 +532,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       provider: PROVIDER,
       enabled: claudeSettings.enabled,
       checkedAt,
-      models,
+      models: fallbackModels,
       probe: {
         installed: true,
         version: parsedVersion,
@@ -546,17 +560,30 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
 
   let subscriptionType: string | undefined;
   let authMethod: string | undefined;
+  let discoveredModels = BUILT_IN_MODELS;
 
   if (Result.isSuccess(authProbe) && Option.isSome(authProbe.success)) {
     subscriptionType = extractSubscriptionTypeFromOutput(authProbe.success.value);
     authMethod = extractClaudeAuthMethodFromOutput(authProbe.success.value);
   }
 
-  if (!subscriptionType && resolveSubscriptionType) {
-    subscriptionType = yield* resolveSubscriptionType(claudeSettings.binaryPath);
+  if (resolveCapabilities) {
+    const capabilities = yield* resolveCapabilities(claudeSettings.binaryPath);
+    if (capabilities?.subscriptionType) {
+      subscriptionType = capabilities.subscriptionType;
+    }
+    if (capabilities?.models && capabilities.models.length > 0) {
+      discoveredModels = capabilities.models;
+    }
   }
 
+  const models = providerModelsFromSettings(
+    discoveredModels,
+    PROVIDER,
+    claudeSettings.customModels,
+  );
   const resolvedModels = adjustModelsForSubscription(models, subscriptionType);
+  rememberClaudeModels(resolvedModels);
 
   // ── Handle auth results (same logic as before, adjusted models) ──
 
@@ -619,18 +646,23 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
 export const ClaudeProviderLive = Layer.effect(
   ClaudeProvider,
   Effect.gen(function* () {
+    const serverConfigOption = yield* Effect.serviceOption(ServerConfig);
     const serverSettings = yield* ServerSettingsService;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
-    const subscriptionProbeCache = yield* Cache.make({
+    const capabilitiesProbeCache = yield* Cache.make({
       capacity: 1,
       timeToLive: Duration.minutes(5),
       lookup: (binaryPath: string) =>
-        probeClaudeCapabilities(binaryPath).pipe(Effect.map((r) => r?.subscriptionType)),
+        Option.isSome(serverConfigOption)
+          ? probeClaudeCapabilities(binaryPath, () =>
+              loadClaudeAgentSdkModule(serverConfigOption.value.stateDir),
+            )
+          : Effect.sync((): ClaudeProviderCapabilities | undefined => undefined),
     });
 
     const checkProvider = checkClaudeProviderStatus((binaryPath) =>
-      Cache.get(subscriptionProbeCache, binaryPath),
+      Cache.get(capabilitiesProbeCache, binaryPath),
     ).pipe(
       Effect.provideService(ServerSettingsService, serverSettings),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),

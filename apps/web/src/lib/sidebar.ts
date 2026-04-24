@@ -23,6 +23,7 @@ export type ThreadTraversalDirection = "previous" | "next";
 
 export interface ThreadStatusPill {
   label:
+    | "Error"
     | "Working"
     | "Connecting"
     | "Completed"
@@ -35,6 +36,7 @@ export interface ThreadStatusPill {
 }
 
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
+  Error: 6,
   "Pending Approval": 5,
   "Awaiting Input": 4,
   Working: 3,
@@ -52,6 +54,7 @@ type ThreadStatusInput = Pick<
   | "latestTurn"
   | "session"
 > & {
+  isErrorDismissed?: boolean | undefined;
   lastVisitedAt?: string | undefined;
 };
 
@@ -329,6 +332,23 @@ export function resolveThreadStatusPill(input: {
 }): ThreadStatusPill | null {
   const { thread } = input;
 
+  const sessionStatus = thread.session?.status;
+  const hasCurrentError =
+    !thread.isErrorDismissed &&
+    (sessionStatus === "error" ||
+      (Boolean(thread.session?.lastError) &&
+        sessionStatus !== "running" &&
+        sessionStatus !== "connecting"));
+
+  if (hasCurrentError) {
+    return {
+      label: "Error",
+      colorClass: "text-rose-600 dark:text-rose-300/90",
+      dotClass: "bg-rose-500 dark:bg-rose-300/90",
+      pulse: false,
+    };
+  }
+
   if (thread.hasPendingApprovals) {
     return {
       label: "Pending Approval",
@@ -497,6 +517,19 @@ function getThreadSortTimestamp(
   return getLatestUserMessageTimestamp(thread);
 }
 
+function getProjectThreadSortTimestamp(
+  thread: SidebarThreadSortInput,
+  sortOrder: Exclude<SidebarProjectSortOrder, "manual">,
+): number {
+  if (sortOrder === "created_at") {
+    return toSortableTimestamp(thread.createdAt) ?? Number.NEGATIVE_INFINITY;
+  }
+  if (sortOrder === "last_user_message") {
+    return getLatestUserMessageTimestamp(thread);
+  }
+  return toSortableTimestamp(thread.updatedAt ?? thread.createdAt) ?? Number.NEGATIVE_INFINITY;
+}
+
 function buildThreadSortTimestampById<
   T extends Pick<Thread, "id" | "createdAt" | "updatedAt"> & SidebarThreadSortInput,
 >(
@@ -513,6 +546,9 @@ function buildThreadSortTimestampById<
 export function sortThreadsForSidebar<
   T extends Pick<Thread, "id" | "createdAt" | "updatedAt"> & SidebarThreadSortInput,
 >(threads: readonly T[], sortOrder: SidebarThreadSortOrder): T[] {
+  if (sortOrder === "manual") {
+    return [...threads];
+  }
   const timestampByThreadId = buildThreadSortTimestampById(threads, sortOrder);
   return threads.toSorted((left, right) => {
     const rightTimestamp = timestampByThreadId.get(right.id) ?? Number.NEGATIVE_INFINITY;
@@ -559,7 +595,7 @@ export function getProjectSortTimestamp(
   if (projectThreads.length > 0) {
     let latest = Number.NEGATIVE_INFINITY;
     for (const thread of projectThreads) {
-      latest = Math.max(latest, getThreadSortTimestamp(thread, sortOrder));
+      latest = Math.max(latest, getProjectThreadSortTimestamp(thread, sortOrder));
     }
     return latest;
   }
@@ -587,7 +623,7 @@ export function sortProjectsForSidebar<
 
   for (const thread of threads) {
     projectsWithThreads.add(thread.projectId);
-    const threadTimestamp = getThreadSortTimestamp(thread, sortOrder);
+    const threadTimestamp = getProjectThreadSortTimestamp(thread, sortOrder);
     const currentTimestamp = projectTimestampById.get(thread.projectId) ?? Number.NEGATIVE_INFINITY;
     if (threadTimestamp > currentTimestamp) {
       projectTimestampById.set(thread.projectId, threadTimestamp);

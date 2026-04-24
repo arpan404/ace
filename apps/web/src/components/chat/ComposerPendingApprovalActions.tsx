@@ -28,7 +28,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
       </Button>
       <Button
         size="sm"
-        variant="destructive-outline"
+        variant="destructive"
         disabled={isResponding}
         onClick={() => void onRespondToApproval(requestId, "decline")}
       >

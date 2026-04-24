@@ -3,6 +3,7 @@ import { DEFAULT_MODEL_BY_PROVIDER, type ModelCapabilities } from "@ace/contract
 
 import {
   applyClaudePromptEffortPrefix,
+  formatProviderModelDisplayName,
   getDefaultContextWindow,
   getDefaultEffort,
   hasContextWindowOption,
@@ -138,6 +139,24 @@ describe("resolveSelectableModel", () => {
     expect(resolveSelectableModel("cursor", "gpt-5.4-mini-none-fast", options)).toBe(
       "gpt-5.4-mini",
     );
+  });
+});
+
+describe("formatProviderModelDisplayName", () => {
+  it("formats Codex model names consistently from the slug", () => {
+    expect(formatProviderModelDisplayName("codex", "gpt-5.4", "gpt-5.4")).toBe("GPT-5.4");
+    expect(formatProviderModelDisplayName("codex", "gpt-5.4-mini", "GPT-5.4-Mini")).toBe(
+      "GPT-5.4 Mini",
+    );
+    expect(
+      formatProviderModelDisplayName("codex", "gpt-5.3-codex-spark", "gpt-5.3-codex-spark"),
+    ).toBe("GPT-5.3 Codex Spark");
+  });
+
+  it("preserves non-Codex display names", () => {
+    expect(
+      formatProviderModelDisplayName("claudeAgent", "claude-sonnet-4-6", "Claude Sonnet 4.6"),
+    ).toBe("Claude Sonnet 4.6");
   });
 });
 

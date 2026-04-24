@@ -31,6 +31,7 @@ import {
   finalizeChatMessageText,
 } from "./lib/chat/messageText";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
+import { resolveConnectionForThreadId } from "./lib/connectionRouting";
 import { resolveServerUrl } from "./lib/utils";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
 
@@ -41,6 +42,7 @@ export interface AppState {
   threads: Thread[];
   sidebarThreadsById: Record<string, SidebarThreadSummary>;
   threadIdsByProjectId: Record<string, ThreadId[]>;
+  dismissedThreadErrorKeysById: Record<string, string>;
   bootstrapComplete: boolean;
 }
 
@@ -49,6 +51,7 @@ const initialState: AppState = {
   threads: [],
   sidebarThreadsById: {},
   threadIdsByProjectId: {},
+  dismissedThreadErrorKeysById: {},
   bootstrapComplete: false,
 };
 
@@ -58,6 +61,7 @@ function createInitialState(): AppState {
     threads: [],
     sidebarThreadsById: {},
     threadIdsByProjectId: {},
+    dismissedThreadErrorKeysById: {},
     bootstrapComplete: false,
   };
 }
@@ -178,14 +182,55 @@ function mapSession(session: OrchestrationSession): Thread["session"] {
   };
 }
 
-function mapMessage(message: OrchestrationMessage): ChatMessage {
+function resolveSessionVisibleError(
+  session: OrchestrationSession | null | undefined,
+): string | null {
+  if (session?.status !== "error") {
+    return null;
+  }
+  return session.lastError ?? null;
+}
+
+function resolveThreadErrorDismissalKey(thread: Pick<Thread, "error" | "session">): string | null {
+  if (thread.session?.status === "error" && thread.session.lastError) {
+    return `${thread.session.lastError}\u0000${thread.session.updatedAt}`;
+  }
+  if (!thread.error) {
+    return null;
+  }
+  return thread.error;
+}
+
+function isThreadErrorDismissed(
+  dismissedThreadErrorKeysById: Readonly<Record<string, string>>,
+  threadId: ThreadId,
+  thread: Pick<Thread, "error" | "session">,
+): boolean {
+  const dismissalKey = resolveThreadErrorDismissalKey(thread);
+  return dismissalKey !== null && dismissedThreadErrorKeysById[threadId] === dismissalKey;
+}
+
+function suppressDismissedThreadError(
+  thread: Thread,
+  dismissedThreadErrorKeysById: Readonly<Record<string, string>>,
+): Thread {
+  if (!isThreadErrorDismissed(dismissedThreadErrorKeysById, thread.id, thread)) {
+    return thread;
+  }
+  return {
+    ...thread,
+    error: null,
+  };
+}
+
+function mapMessage(message: OrchestrationMessage, connectionUrl?: string): ChatMessage {
   const attachments = message.attachments?.map((attachment) => ({
     type: "image" as const,
     id: attachment.id,
     name: attachment.name,
     mimeType: attachment.mimeType,
     sizeBytes: attachment.sizeBytes,
-    previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id)),
+    previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id), connectionUrl),
   }));
 
   return {
@@ -286,8 +331,34 @@ function mapTurnDiffSummary(
   };
 }
 
+function mergeThreadPreservingHydratedHistory(
+  existingThread: Thread | undefined,
+  incomingThread: Thread,
+  preserveHydratedHistory = true,
+): Thread {
+  if (
+    !preserveHydratedHistory ||
+    !existingThread ||
+    existingThread.historyLoaded === false ||
+    incomingThread.historyLoaded
+  ) {
+    return incomingThread;
+  }
+  return {
+    ...incomingThread,
+    messages: existingThread.messages,
+    proposedPlans: existingThread.proposedPlans,
+    latestProposedPlanSummary:
+      existingThread.latestProposedPlanSummary ?? incomingThread.latestProposedPlanSummary,
+    turnDiffSummaries: existingThread.turnDiffSummaries,
+    activities: existingThread.activities,
+    historyLoaded: true,
+  };
+}
+
 export interface SnapshotSyncOptions {
   hydrateThreadId?: ThreadId | null;
+  connectionUrl?: string;
 }
 
 function resolveThreadHistoryLoaded(threadId: ThreadId, options?: SnapshotSyncOptions): boolean {
@@ -298,6 +369,7 @@ function resolveThreadHistoryLoaded(threadId: ThreadId, options?: SnapshotSyncOp
 }
 
 function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): Thread {
+  const threadConnectionUrl = options?.connectionUrl ?? resolveConnectionForThreadId(thread.id);
   return {
     id: thread.id,
     codexThreadId: null,
@@ -307,10 +379,10 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
     runtimeMode: thread.runtimeMode,
     interactionMode: thread.interactionMode,
     session: thread.session ? mapSession(thread.session) : null,
-    messages: thread.messages.map(mapMessage),
+    messages: thread.messages.map((message) => mapMessage(message, threadConnectionUrl)),
     proposedPlans: thread.proposedPlans.map(mapProposedPlan),
     latestProposedPlanSummary: mapLatestProposedPlanSummary(thread.latestProposedPlanSummary),
-    error: thread.session?.lastError ?? null,
+    error: resolveSessionVisibleError(thread.session),
     createdAt: thread.createdAt,
     archivedAt: thread.archivedAt,
     updatedAt: thread.updatedAt,
@@ -360,7 +432,10 @@ function getLatestUserMessageAt(
   return latestUserMessageAt;
 }
 
-function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
+function buildSidebarThreadSummary(
+  thread: Thread,
+  dismissedThreadErrorKeysById: Readonly<Record<string, string>>,
+): SidebarThreadSummary {
   return {
     id: thread.id,
     projectId: thread.projectId,
@@ -377,6 +452,7 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     latestUserMessageAt: getLatestUserMessageAt(thread.messages),
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
+    isErrorDismissed: isThreadErrorDismissed(dismissedThreadErrorKeysById, thread.id, thread),
     hasActionableProposedPlan: hasActionableProposedPlan(
       thread.latestProposedPlanSummary ??
         findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
@@ -409,6 +485,7 @@ function sidebarThreadSummariesEqual(
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
+    left.isErrorDismissed === right.isErrorDismissed &&
     left.hasActionableProposedPlan === right.hasActionableProposedPlan
   );
 }
@@ -465,9 +542,13 @@ function buildThreadIdsByProjectId(threads: ReadonlyArray<Thread>): Record<strin
 
 function buildSidebarThreadsById(
   threads: ReadonlyArray<Thread>,
+  dismissedThreadErrorKeysById: Readonly<Record<string, string>>,
 ): Record<string, SidebarThreadSummary> {
   return Object.fromEntries(
-    threads.map((thread) => [thread.id, buildSidebarThreadSummary(thread)]),
+    threads.map((thread) => [
+      thread.id,
+      buildSidebarThreadSummary(thread, dismissedThreadErrorKeysById),
+    ]),
   );
 }
 
@@ -540,7 +621,7 @@ export function pruneHydratedThreadHistories(
   return {
     ...state,
     threads,
-    sidebarThreadsById: buildSidebarThreadsById(threads),
+    sidebarThreadsById: buildSidebarThreadsById(threads, state.dismissedThreadErrorKeysById),
   };
 }
 
@@ -763,10 +844,28 @@ function toLegacyProvider(providerName: string | null): ProviderKind {
   return "codex";
 }
 
-function toAttachmentPreviewUrl(rawUrl: string): string {
+function toAttachmentPreviewUrl(rawUrl: string, connectionUrl?: string): string {
   if (rawUrl.startsWith("/")) {
     try {
-      const resolvedUrl = new URL(rawUrl, resolveServerUrl({ pathname: "/" }));
+      let connectionToken: string | null = null;
+      const resolveBaseUrl = (): URL => {
+        if (connectionUrl) {
+          const parsedConnectionUrl = new URL(connectionUrl);
+          connectionToken = parsedConnectionUrl.searchParams.get("token");
+          const protocol =
+            parsedConnectionUrl.protocol === "wss:"
+              ? "https:"
+              : parsedConnectionUrl.protocol === "ws:"
+                ? "http:"
+                : parsedConnectionUrl.protocol;
+          return new URL(`${protocol}//${parsedConnectionUrl.host}/`);
+        }
+        return new URL(resolveServerUrl({ pathname: "/" }));
+      };
+      const resolvedUrl = new URL(rawUrl, resolveBaseUrl());
+      if (connectionToken && !resolvedUrl.searchParams.has("token")) {
+        resolvedUrl.searchParams.set("token", connectionToken);
+      }
       resolvedUrl.protocol =
         resolvedUrl.protocol === "wss:"
           ? "https:"
@@ -802,7 +901,7 @@ function updateThreadState(
     return state;
   }
 
-  const nextSummary = buildSidebarThreadSummary(updatedThread);
+  const nextSummary = buildSidebarThreadSummary(updatedThread, state.dismissedThreadErrorKeysById);
   const previousSummary = state.sidebarThreadsById[threadId];
   const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
     ? state.sidebarThreadsById
@@ -916,7 +1015,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
       const threads = existing
         ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
         : [...state.threads, nextThread];
-      const nextSummary = buildSidebarThreadSummary(nextThread);
+      const nextSummary = buildSidebarThreadSummary(nextThread, state.dismissedThreadErrorKeysById);
       const previousSummary = state.sidebarThreadsById[nextThread.id];
       const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
         ? state.sidebarThreadsById
@@ -1060,19 +1159,22 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
 
     case "thread.message-sent": {
       return updateThreadState(state, event.payload.threadId, (thread) => {
-        const message = mapMessage({
-          id: event.payload.messageId,
-          role: event.payload.role,
-          text: event.payload.text,
-          ...(event.payload.attachments !== undefined
-            ? { attachments: event.payload.attachments }
-            : {}),
-          turnId: event.payload.turnId,
-          streaming: event.payload.streaming,
-          sequence: event.payload.sequence ?? event.sequence,
-          createdAt: event.payload.createdAt,
-          updatedAt: event.payload.updatedAt,
-        });
+        const message = mapMessage(
+          {
+            id: event.payload.messageId,
+            role: event.payload.role,
+            text: event.payload.text,
+            ...(event.payload.attachments !== undefined
+              ? { attachments: event.payload.attachments }
+              : {}),
+            turnId: event.payload.turnId,
+            streaming: event.payload.streaming,
+            sequence: event.payload.sequence ?? event.sequence,
+            createdAt: event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+          },
+          resolveConnectionForThreadId(event.payload.threadId),
+        );
         const existingMessageIndex = thread.messages.findIndex((entry) => entry.id === message.id);
         const existingMessage =
           existingMessageIndex >= 0 ? thread.messages[existingMessageIndex] : undefined;
@@ -1174,13 +1276,17 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.session-set": {
-      return updateThreadState(state, event.payload.threadId, (thread) => ({
-        ...thread,
-        session: mapSession(event.payload.session),
-        error: event.payload.session.lastError ?? null,
-        latestTurn: latestTurnFromSessionLifecycleEvent(thread, event.payload.session),
-        updatedAt: event.occurredAt,
-      }));
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        const session = mapSession(event.payload.session);
+        const nextThread = {
+          ...thread,
+          session,
+          error: resolveSessionVisibleError(event.payload.session),
+          latestTurn: latestTurnFromSessionLifecycleEvent(thread, event.payload.session),
+          updatedAt: event.occurredAt,
+        };
+        return suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById);
+      });
     }
 
     case "thread.session-stop-requested": {
@@ -1365,19 +1471,25 @@ export function syncServerReadModel(
   readModel: OrchestrationReadModel,
   options?: SnapshotSyncOptions,
 ): AppState {
+  const existingThreadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
   const projects = readModel.projects
     .filter((project) => project.deletedAt === null)
     .map(mapProject);
   const threads = readModel.threads
     .filter((thread) => thread.deletedAt === null)
     .map((thread) => {
-      const nextThread = mapThread(thread, options);
+      const mappedThread = mapThread(thread, options);
+      const nextThread = mergeThreadPreservingHydratedHistory(
+        existingThreadsById.get(thread.id),
+        mappedThread,
+        options === undefined || mappedThread.historyLoaded,
+      );
       if (options !== undefined && nextThread.historyLoaded !== false) {
         primeHydratedThreadCache(thread);
       }
-      return nextThread;
+      return suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById);
     });
-  const sidebarThreadsById = buildSidebarThreadsById(threads);
+  const sidebarThreadsById = buildSidebarThreadsById(threads, state.dismissedThreadErrorKeysById);
   const threadIdsByProjectId = buildThreadIdsByProjectId(threads);
   return {
     ...state,
@@ -1389,21 +1501,91 @@ export function syncServerReadModel(
   };
 }
 
+export function mergeServerReadModel(
+  state: AppState,
+  readModel: OrchestrationReadModel,
+  options?: SnapshotSyncOptions,
+): AppState {
+  const incomingProjects = readModel.projects
+    .filter((project) => project.deletedAt === null)
+    .map(mapProject);
+  const incomingThreads = readModel.threads
+    .filter((thread) => thread.deletedAt === null)
+    .map((thread) => {
+      const nextThread = suppressDismissedThreadError(
+        mapThread(thread, options),
+        state.dismissedThreadErrorKeysById,
+      );
+      if (options !== undefined && nextThread.historyLoaded !== false) {
+        primeHydratedThreadCache(thread);
+      }
+      return nextThread;
+    });
+
+  const projectsById = new Map(state.projects.map((project) => [project.id, project] as const));
+  for (const project of incomingProjects) {
+    projectsById.set(project.id, project);
+  }
+
+  const threadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
+  for (const thread of incomingThreads) {
+    threadsById.set(
+      thread.id,
+      mergeThreadPreservingHydratedHistory(threadsById.get(thread.id), thread),
+    );
+  }
+
+  const projects = [...projectsById.values()];
+  const threads = [...threadsById.values()];
+  return {
+    ...state,
+    projects,
+    threads,
+    sidebarThreadsById: buildSidebarThreadsById(threads, state.dismissedThreadErrorKeysById),
+    threadIdsByProjectId: buildThreadIdsByProjectId(threads),
+    bootstrapComplete: true,
+  };
+}
+
+export function removeReadModelEntities(
+  state: AppState,
+  input: {
+    readonly projectIds: ReadonlyArray<ProjectId>;
+    readonly threadIds: ReadonlyArray<ThreadId>;
+  },
+): AppState {
+  if (input.projectIds.length === 0 && input.threadIds.length === 0) {
+    return state;
+  }
+  const projectIds = new Set(input.projectIds);
+  const threadIds = new Set(input.threadIds);
+  const projects = state.projects.filter((project) => !projectIds.has(project.id));
+  const threads = state.threads.filter((thread) => !threadIds.has(thread.id));
+  return {
+    ...state,
+    projects,
+    threads,
+    sidebarThreadsById: buildSidebarThreadsById(threads, state.dismissedThreadErrorKeysById),
+    threadIdsByProjectId: buildThreadIdsByProjectId(threads),
+  };
+}
+
 export function hydrateThreadFromReadModel(
   state: AppState,
   readModelThread: OrchestrationReadModel["threads"][number],
+  options?: SnapshotSyncOptions,
 ): AppState {
   if (readModelThread.deletedAt !== null) {
     return state;
   }
 
   primeHydratedThreadCache(readModelThread);
-  const nextThread = { ...mapThread(readModelThread), historyLoaded: true };
+  const nextThread = { ...mapThread(readModelThread, options), historyLoaded: true };
   const existingThread = state.threads.find((thread) => thread.id === nextThread.id);
   const threads = existingThread
     ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
     : [...state.threads, nextThread];
-  const nextSummary = buildSidebarThreadSummary(nextThread);
+  const nextSummary = buildSidebarThreadSummary(nextThread, state.dismissedThreadErrorKeysById);
   const previousSummary = state.sidebarThreadsById[nextThread.id];
   const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
     ? state.sidebarThreadsById
@@ -1480,6 +1662,34 @@ export function setError(state: AppState, threadId: ThreadId, error: string | nu
   });
 }
 
+export function dismissThreadError(state: AppState, threadId: ThreadId): AppState {
+  const thread = getThreadById(state.threads, threadId);
+  if (!thread?.error) {
+    return state;
+  }
+
+  const dismissalKey = resolveThreadErrorDismissalKey(thread);
+  if (dismissalKey === null) {
+    return state;
+  }
+
+  const dismissedThreadErrorKeysById =
+    state.dismissedThreadErrorKeysById[threadId] === dismissalKey
+      ? state.dismissedThreadErrorKeysById
+      : {
+          ...state.dismissedThreadErrorKeysById,
+          [threadId]: dismissalKey,
+        };
+  const nextState =
+    dismissedThreadErrorKeysById === state.dismissedThreadErrorKeysById
+      ? state
+      : {
+          ...state,
+          dismissedThreadErrorKeysById,
+        };
+  return setError(nextState, threadId, null);
+}
+
 export function setThreadBranch(
   state: AppState,
   threadId: ThreadId,
@@ -1498,43 +1708,26 @@ export function setThreadBranch(
   });
 }
 
-export function setThreadQueueState(
-  state: AppState,
-  threadId: ThreadId,
-  queuedComposerMessages: Thread["queuedComposerMessages"],
-  queuedSteerRequest: Thread["queuedSteerRequest"],
-): AppState {
-  return updateThreadState(state, threadId, (thread) => {
-    if (
-      thread.queuedComposerMessages === queuedComposerMessages &&
-      thread.queuedSteerRequest === queuedSteerRequest
-    ) {
-      return thread;
-    }
-    return {
-      ...thread,
-      queuedComposerMessages,
-      queuedSteerRequest,
-    };
-  });
-}
-
 // ── Zustand store ────────────────────────────────────────────────────
 
 interface AppStore extends AppState {
   resetToInitialState: () => void;
   syncServerReadModel: (readModel: OrchestrationReadModel, options?: SnapshotSyncOptions) => void;
-  hydrateThreadFromReadModel: (readModelThread: OrchestrationReadModel["threads"][number]) => void;
+  mergeServerReadModel: (readModel: OrchestrationReadModel, options?: SnapshotSyncOptions) => void;
+  removeReadModelEntities: (input: {
+    readonly projectIds: ReadonlyArray<ProjectId>;
+    readonly threadIds: ReadonlyArray<ThreadId>;
+  }) => void;
+  hydrateThreadFromReadModel: (
+    readModelThread: OrchestrationReadModel["threads"][number],
+    options?: SnapshotSyncOptions,
+  ) => void;
   pruneHydratedThreadHistories: (keepThreadIds: readonly ThreadId[]) => void;
   applyOrchestrationEvent: (event: OrchestrationEvent) => void;
   applyOrchestrationEvents: (events: ReadonlyArray<OrchestrationEvent>) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
+  dismissThreadError: (threadId: ThreadId) => void;
   setThreadBranch: (threadId: ThreadId, branch: string | null, worktreePath: string | null) => void;
-  setThreadQueueState: (
-    threadId: ThreadId,
-    queuedComposerMessages: Thread["queuedComposerMessages"],
-    queuedSteerRequest: Thread["queuedSteerRequest"],
-  ) => void;
 }
 
 export const useStore = create<AppStore>((set) => ({
@@ -1542,17 +1735,17 @@ export const useStore = create<AppStore>((set) => ({
   resetToInitialState: () => set(() => createInitialState()),
   syncServerReadModel: (readModel, options) =>
     set((state) => syncServerReadModel(state, readModel, options)),
-  hydrateThreadFromReadModel: (readModelThread) =>
-    set((state) => hydrateThreadFromReadModel(state, readModelThread)),
+  mergeServerReadModel: (readModel, options) =>
+    set((state) => mergeServerReadModel(state, readModel, options)),
+  removeReadModelEntities: (input) => set((state) => removeReadModelEntities(state, input)),
+  hydrateThreadFromReadModel: (readModelThread, options) =>
+    set((state) => hydrateThreadFromReadModel(state, readModelThread, options)),
   pruneHydratedThreadHistories: (keepThreadIds) =>
     set((state) => pruneHydratedThreadHistories(state, keepThreadIds)),
   applyOrchestrationEvent: (event) => set((state) => applyOrchestrationEvent(state, event)),
   applyOrchestrationEvents: (events) => set((state) => applyOrchestrationEvents(state, events)),
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),
+  dismissThreadError: (threadId) => set((state) => dismissThreadError(state, threadId)),
   setThreadBranch: (threadId, branch, worktreePath) =>
     set((state) => setThreadBranch(state, threadId, branch, worktreePath)),
-  setThreadQueueState: (threadId, queuedComposerMessages, queuedSteerRequest) =>
-    set((state) =>
-      setThreadQueueState(state, threadId, queuedComposerMessages, queuedSteerRequest),
-    ),
 }));
