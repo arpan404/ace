@@ -33,7 +33,7 @@ describe("computeMessageDurationStart", () => {
     );
   });
 
-  it("uses the previous assistant completedAt for subsequent assistant responses", () => {
+  it("keeps using the previous user message for subsequent assistant responses", () => {
     const result = computeMessageDurationStart([
       { id: "u1", role: "user", createdAt: "2026-01-01T00:00:00Z" },
       {
@@ -54,7 +54,7 @@ describe("computeMessageDurationStart", () => {
       new Map([
         ["u1", "2026-01-01T00:00:00Z"],
         ["a1", "2026-01-01T00:00:00Z"],
-        ["a2", "2026-01-01T00:00:30Z"],
+        ["a2", "2026-01-01T00:00:00Z"],
       ]),
     );
   });

@@ -782,6 +782,11 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
       pr: null,
     };
   }
+  if (tag === WS_METHODS.gitReadWorkingTreeDiff) {
+    return {
+      diff: "",
+    };
+  }
   if (tag === WS_METHODS.projectsSearchEntries) {
     return {
       entries: [],
@@ -1516,7 +1521,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     },
   );
 
-  it("hides assistant diff summaries after the user starts the next turn", async () => {
+  it("keeps assistant diff summaries visible after the user starts the next turn", async () => {
     const targetUserMessageId = "msg-user-after-diff-summary" as MessageId;
     const assistantMessageId = "msg-assistant-2" as MessageId;
     const mounted = await mountChatView({
@@ -1545,8 +1550,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
           expect(assistantRow, "Unable to locate assistant row with diff summary.").toBeTruthy();
           expect(nextUserRow, "Unable to locate next user row after diff summary.").toBeTruthy();
-          expect(assistantRow!.closest("[data-index]")).toBeInstanceOf(HTMLElement);
-          expect(assistantRow!.querySelector('[data-turn-diff-summary="true"]')).toBeFalsy();
+          expect(assistantRow!.querySelector('[data-turn-diff-summary="true"]')).toBeTruthy();
 
           const assistantRect = assistantRow!.getBoundingClientRect();
           const nextUserRect = nextUserRow!.getBoundingClientRect();
@@ -1557,6 +1561,105 @@ describe("ChatView timeline estimator parity (full app)", () => {
           timeout: 4_000,
           interval: 16,
         },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows live turn diff totals above the composer and opens the current turn diff", async () => {
+    const baseSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-live-diff" as MessageId,
+      targetText: "show live composer diff",
+      sessionStatus: "running",
+    });
+    const baseThread = baseSnapshot.threads[0];
+    if (!baseThread) {
+      throw new Error("Expected browser test thread.");
+    }
+    const snapshot: OrchestrationReadModel = {
+      ...baseSnapshot,
+      threads: [
+        {
+          ...baseThread,
+          latestTurn: {
+            turnId: "turn-live-diff" as TurnId,
+            state: "running",
+            requestedAt: isoAt(2_000),
+            startedAt: isoAt(2_001),
+            completedAt: null,
+            assistantMessageId: null,
+          },
+          session: {
+            ...baseThread.session!,
+            status: "running",
+            activeTurnId: "turn-live-diff" as TurnId,
+            updatedAt: isoAt(2_001),
+          },
+          checkpoints: [
+            {
+              turnId: "turn-live-diff" as TurnId,
+              checkpointTurnCount: 1,
+              checkpointRef: "provider-diff:turn-live-diff" as CheckpointRef,
+              status: "missing",
+              files: [],
+              assistantMessageId: null,
+              completedAt: isoAt(2_001),
+            },
+          ],
+        },
+      ],
+    };
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.gitStatus) {
+          return {
+            branch: "main",
+            hasWorkingTreeChanges: true,
+            workingTree: {
+              files: [{ path: "README.md", status: "M", insertions: 9, deletions: 5 }],
+              insertions: 9,
+              deletions: 5,
+            },
+            hasUpstream: true,
+            aheadCount: 0,
+            behindCount: 0,
+            pr: null,
+          };
+        }
+        if (body._tag === WS_METHODS.gitReadWorkingTreeDiff) {
+          return {
+            diff: [
+              "diff --git a/README.md b/README.md",
+              "index 1111111..2222222 100644",
+              "--- a/README.md",
+              "+++ b/README.md",
+              "@@ -1 +1,2 @@",
+              "-old heading",
+              "+new heading",
+              "+another line",
+            ].join("\n"),
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      await expect.element(page.getByTestId("composer-live-turn-diff-banner")).toBeInTheDocument();
+      await expect.element(page.getByText("+9")).toBeInTheDocument();
+      await expect.element(page.getByText("-5")).toBeInTheDocument();
+
+      await page.getByRole("button", { name: "Review changes" }).click();
+
+      await vi.waitFor(
+        async () => {
+          expect(document.body.textContent).toContain("README.md");
+        },
+        { timeout: 4_000, interval: 16 },
       );
     } finally {
       await mounted.cleanup();

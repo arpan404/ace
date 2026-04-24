@@ -760,6 +760,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
         ),
       [WS_METHODS.gitStatus]: (input) => gitManager.status(input),
+      [WS_METHODS.gitReadWorkingTreeDiff]: (input) => gitManager.readWorkingTreeDiff(input),
       [WS_METHODS.gitPull]: (input) => git.pullCurrentBranch(input.cwd),
       [WS_METHODS.gitRunStackedAction]: (input) =>
         Stream.callback<GitActionProgressEvent, GitManagerServiceError>((queue) =>
