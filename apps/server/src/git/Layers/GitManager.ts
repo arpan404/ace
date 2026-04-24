@@ -1336,6 +1336,12 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     return yield* Cache.get(statusResultCache, normalizeStatusCacheKey(input.cwd));
   });
 
+  const readWorkingTreeDiff: GitManagerShape["readWorkingTreeDiff"] = Effect.fn(
+    "readWorkingTreeDiff",
+  )(function* (input) {
+    return yield* gitCore.readWorkingTreeDiff(input);
+  });
+
   const listGitHubIssues: GitManagerShape["listGitHubIssues"] = Effect.fn("listGitHubIssues")(
     function* (input) {
       const issues = yield* gitHubCli.listIssues({
@@ -1734,6 +1740,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
 
   return {
     status,
+    readWorkingTreeDiff,
     listGitHubIssues,
     getGitHubIssueThread,
     resolvePullRequest,

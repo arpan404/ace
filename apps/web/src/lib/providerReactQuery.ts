@@ -80,10 +80,11 @@ function normalizeCheckpointErrorMessage(error: unknown): string {
   return message;
 }
 
-function isCheckpointTemporarilyUnavailable(error: unknown): boolean {
+export function isCheckpointTemporarilyUnavailable(error: unknown): boolean {
   const message = asCheckpointErrorMessage(error).toLowerCase();
   return (
     message.includes("exceeds current turn count") ||
+    message.includes("checkpoint ref is unavailable") ||
     message.includes("checkpoint is unavailable for turn") ||
     message.includes("filesystem checkpoint is unavailable")
   );

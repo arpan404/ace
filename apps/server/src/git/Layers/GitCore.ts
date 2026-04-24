@@ -1467,6 +1467,31 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       })),
     );
 
+  const hasHeadCommit = (cwd: string): Effect.Effect<boolean, GitCommandError> =>
+    executeGit("GitCore.readWorkingTreeDiff.revParseHead", cwd, ["rev-parse", "--verify", "HEAD"], {
+      allowNonZeroExit: true,
+      timeoutMs: 5_000,
+    }).pipe(Effect.map((result) => result.code === 0));
+
+  const readWorkingTreeDiff: GitCoreShape["readWorkingTreeDiff"] = Effect.fn("readWorkingTreeDiff")(
+    function* (input) {
+      const args = ["diff", "--no-ext-diff", "--submodule=diff"] as const;
+      const readDiff = (commandArgs: readonly string[]) =>
+        runGitStdoutWithOptions("GitCore.readWorkingTreeDiff", input.cwd, commandArgs, {
+          maxOutputBytes: RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES,
+          truncateOutputAtMaxBytes: true,
+        });
+
+      const diff = (yield* hasHeadCommit(input.cwd))
+        ? yield* readDiff([...args, "HEAD", "--"])
+        : [yield* readDiff([...args, "--cached", "--root", "--"]), yield* readDiff([...args, "--"])]
+            .filter((patch) => patch.trim().length > 0)
+            .join("\n");
+
+      return { diff };
+    },
+  );
+
   const prepareCommitContext: GitCoreShape["prepareCommitContext"] = Effect.fn(
     "prepareCommitContext",
   )(function* (cwd, filePaths) {
@@ -2226,6 +2251,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     execute,
     status,
     statusDetails,
+    readWorkingTreeDiff,
     prepareCommitContext,
     commit,
     pushCurrentBranch,

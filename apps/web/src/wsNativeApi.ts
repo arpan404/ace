@@ -119,6 +119,8 @@ export function createWsNativeApi(): NativeApi {
     git: {
       pull: (input) => resolveRpcClientForActiveRoute().git.pull(input),
       status: (input) => resolveRpcClientForActiveRoute().git.status(input),
+      readWorkingTreeDiff: (input) =>
+        resolveRpcClientForActiveRoute().git.readWorkingTreeDiff(input),
       listBranches: (input) => resolveRpcClientForActiveRoute().git.listBranches(input),
       listGitHubIssues: (input) => resolveRpcClientForActiveRoute().git.listGitHubIssues(input),
       getGitHubIssueThread: (input) =>

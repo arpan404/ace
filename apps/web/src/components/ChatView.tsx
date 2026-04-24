@@ -48,6 +48,7 @@ import {
   gitBranchesQueryOptions,
   gitCreateWorktreeMutationOptions,
   gitGitHubIssuesQueryOptions,
+  gitStatusQueryOptions,
 } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
@@ -222,6 +223,7 @@ import { ComposerQueuedMessages } from "./chat/ComposerQueuedMessages";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
+import { ComposerLiveTurnDiffBanner } from "./chat/ComposerLiveTurnDiffBanner";
 import {
   getComposerProviderState,
   renderProviderTraitsMenuContent,
@@ -1681,11 +1683,7 @@ export default function ChatView({
   );
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
-  const {
-    timelineEntries,
-    turnDiffSummaryByAssistantMessageId,
-    visibleTurnDiffSummaryByAssistantMessageId,
-  } = useMemo(
+  const { timelineEntries, turnDiffSummaryByAssistantMessageId } = useMemo(
     () =>
       deriveThreadTimelineRenderState({
         messages: timelineMessages,
@@ -1755,6 +1753,26 @@ export default function ChatView({
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
+  const liveTurnGitStatusQuery = useQuery({
+    ...gitStatusQueryOptions(gitCwd),
+    enabled: gitCwd !== null,
+    staleTime: liveTurnInProgress ? 0 : 5_000,
+    refetchInterval: liveTurnInProgress ? 1_000 : 15_000,
+  });
+  const liveTurnDiffStat = useMemo(() => {
+    if (!liveTurnInProgress || !activeLatestTurn?.turnId) {
+      return null;
+    }
+    const status = liveTurnGitStatusQuery.data;
+    if (!status?.hasWorkingTreeChanges) {
+      return null;
+    }
+    return {
+      turnId: activeLatestTurn.turnId,
+      additions: status.workingTree.insertions,
+      deletions: status.workingTree.deletions,
+    };
+  }, [activeLatestTurn?.turnId, liveTurnGitStatusQuery.data, liveTurnInProgress]);
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
   const issueTriggerQuery = composerTrigger?.kind === "issue" ? composerTrigger.query : "";
@@ -6492,7 +6510,7 @@ export default function ChatView({
       timelineEntries,
       completionDividerBeforeEntryId,
       completionSummary,
-      turnDiffSummaryByAssistantMessageId: visibleTurnDiffSummaryByAssistantMessageId,
+      turnDiffSummaryByAssistantMessageId,
       expandedWorkGroups,
       onToggleWorkGroup,
       onOpenTurnDiff,
@@ -6534,7 +6552,7 @@ export default function ChatView({
       scheduleComposerFocus,
       timelineEntries,
       timestampFormat,
-      visibleTurnDiffSummaryByAssistantMessageId,
+      turnDiffSummaryByAssistantMessageId,
     ],
   );
   const loadingNotice = useMemo(
@@ -6890,6 +6908,13 @@ export default function ChatView({
                       className="mx-auto w-full min-w-0 max-w-208"
                       data-chat-composer-form="true"
                     >
+                      {liveTurnDiffStat ? (
+                        <ComposerLiveTurnDiffBanner
+                          additions={liveTurnDiffStat.additions}
+                          deletions={liveTurnDiffStat.deletions}
+                          onReviewChanges={() => onOpenTurnDiff(liveTurnDiffStat.turnId)}
+                        />
+                      ) : null}
                       <div
                         className={cn(
                           "group rounded-xl p-px transition-colors duration-200",

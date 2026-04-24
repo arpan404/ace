@@ -29,6 +29,8 @@ import {
   GitRunStackedActionInput,
   GitStatusInput,
   GitStatusResult,
+  GitWorkingTreeDiffInput,
+  GitWorkingTreeDiffResult,
 } from "./git";
 import { KeybindingsConfigError } from "./keybindings";
 import {
@@ -147,6 +149,7 @@ export const WS_METHODS = {
   // Git methods
   gitPull: "git.pull",
   gitStatus: "git.status",
+  gitReadWorkingTreeDiff: "git.readWorkingTreeDiff",
   gitRunStackedAction: "git.runStackedAction",
   gitListBranches: "git.listBranches",
   gitListGitHubIssues: "git.listGitHubIssues",
@@ -367,6 +370,12 @@ export const WsGitStatusRpc = Rpc.make(WS_METHODS.gitStatus, {
   error: GitManagerServiceError,
 });
 
+export const WsGitReadWorkingTreeDiffRpc = Rpc.make(WS_METHODS.gitReadWorkingTreeDiff, {
+  payload: GitWorkingTreeDiffInput,
+  success: GitWorkingTreeDiffResult,
+  error: GitManagerServiceError,
+});
+
 export const WsGitPullRpc = Rpc.make(WS_METHODS.gitPull, {
   payload: GitPullInput,
   success: GitPullResult,
@@ -568,6 +577,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsShellRevealInFileManagerRpc,
   WsFilesystemBrowseRpc,
   WsGitStatusRpc,
+  WsGitReadWorkingTreeDiffRpc,
   WsGitPullRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
