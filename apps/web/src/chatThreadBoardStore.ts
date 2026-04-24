@@ -44,6 +44,10 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
   setPaneRatios: (rowId: string, ratios: readonly number[]) => void;
   setRowRatios: (ratios: readonly number[]) => void;
   syncRouteThread: (input: { connectionUrl?: string | null; threadId: ThreadId }) => string;
+  syncRouteThreads: (input: {
+    activeThread?: { connectionUrl?: string | null; threadId: ThreadId } | null;
+    threads: ReadonlyArray<{ connectionUrl?: string | null; threadId: ThreadId }>;
+  }) => string | null;
 }
 
 const STORAGE_KEY = "ace:chat-thread-board:v1";
@@ -256,6 +260,101 @@ function replacePaneThread(
   }));
 }
 
+function syncBoardThreadsFromRoute(
+  state: PersistedChatThreadBoardState,
+  input: {
+    activeThread?: { connectionUrl?: string | null; threadId: ThreadId } | null;
+    threads: ReadonlyArray<{ connectionUrl?: string | null; threadId: ThreadId }>;
+  },
+): PersistedChatThreadBoardState {
+  const normalizedInputs: Array<{ connectionUrl: string | null; threadId: ThreadId }> = [];
+  const seenThreadKeys = new Set<string>();
+  for (const thread of input.threads) {
+    const connectionUrl = normalizeConnectionUrl(thread.connectionUrl);
+    const threadKey = buildThreadKey(thread.threadId, connectionUrl);
+    if (seenThreadKeys.has(threadKey)) {
+      continue;
+    }
+    seenThreadKeys.add(threadKey);
+    normalizedInputs.push({ connectionUrl, threadId: thread.threadId });
+  }
+
+  if (normalizedInputs.length === 0) {
+    return state;
+  }
+
+  const existingPaneByThreadKey = new Map(
+    state.panes.map((pane) => [buildThreadKey(pane.threadId, pane.connectionUrl), pane] as const),
+  );
+  const panes = normalizedInputs.map((thread) => {
+    const threadKey = buildThreadKey(thread.threadId, thread.connectionUrl);
+    const existingPane = existingPaneByThreadKey.get(threadKey);
+    return existingPane
+      ? Object.assign({}, existingPane, {
+          connectionUrl: thread.connectionUrl,
+          threadId: thread.threadId,
+        })
+      : createPane(thread);
+  });
+  const desiredPaneIds = new Set(panes.map((pane) => pane.id));
+  const assignedPaneIds = new Set<string>();
+  const rows = state.rows
+    .map((row) => {
+      const paneIds = row.paneIds.filter((paneId) => {
+        if (!desiredPaneIds.has(paneId) || assignedPaneIds.has(paneId)) {
+          return false;
+        }
+        assignedPaneIds.add(paneId);
+        return true;
+      });
+      return createRow(paneIds, { id: row.id, paneRatios: row.paneRatios });
+    })
+    .filter((row) => row.paneIds.length > 0);
+  const unassignedPaneIds = panes
+    .map((pane) => pane.id)
+    .filter((paneId) => !assignedPaneIds.has(paneId));
+
+  if (rows.length === 0) {
+    rows.push(createRow(unassignedPaneIds));
+  } else if (unassignedPaneIds.length > 0) {
+    const activeThreadConnectionUrl = normalizeConnectionUrl(input.activeThread?.connectionUrl);
+    const activeThreadKey = input.activeThread
+      ? buildThreadKey(input.activeThread.threadId, activeThreadConnectionUrl)
+      : null;
+    const activePane =
+      activeThreadKey === null
+        ? null
+        : panes.find(
+            (pane) => buildThreadKey(pane.threadId, pane.connectionUrl) === activeThreadKey,
+          );
+    const activeRowIndex = activePane
+      ? rows.findIndex((row) => row.paneIds.includes(activePane.id))
+      : 0;
+    const targetRowIndex = activeRowIndex >= 0 ? activeRowIndex : 0;
+    const targetRow = rows[targetRowIndex]!;
+    rows[targetRowIndex] = createRow([...targetRow.paneIds, ...unassignedPaneIds], {
+      id: targetRow.id,
+      paneRatios: targetRow.paneRatios,
+    });
+  }
+
+  const activeThreadConnectionUrl = normalizeConnectionUrl(input.activeThread?.connectionUrl);
+  const activeThreadKey = input.activeThread
+    ? buildThreadKey(input.activeThread.threadId, activeThreadConnectionUrl)
+    : null;
+  const activePane =
+    activeThreadKey === null
+      ? null
+      : panes.find((pane) => buildThreadKey(pane.threadId, pane.connectionUrl) === activeThreadKey);
+
+  return normalizeBoardState({
+    activePaneId: activePane?.id ?? panes[0]?.id ?? null,
+    paneRatios: state.paneRatios,
+    panes,
+    rows,
+  });
+}
+
 export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
   persist(
     (set) => ({
@@ -430,6 +529,15 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
           });
         });
         return paneId;
+      },
+      syncRouteThreads: (input) => {
+        let activePaneId: string | null = null;
+        set((state) => {
+          const nextState = syncBoardThreadsFromRoute(state, input);
+          activePaneId = nextState.activePaneId;
+          return nextState;
+        });
+        return activePaneId;
       },
     }),
     {

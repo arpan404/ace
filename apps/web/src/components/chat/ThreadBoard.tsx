@@ -1,62 +1,38 @@
-import { type MessageId, type ThreadId, type TurnId } from "@ace/contracts";
+import { type ThreadId } from "@ace/contracts";
 import {
   startTransition,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
-  useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Clock3Icon, LoaderCircleIcon, PanelsTopLeftIcon, XIcon } from "lucide-react";
+import { XIcon } from "lucide-react";
 
 import { type ChatThreadBoardPaneState, useChatThreadBoardStore } from "../../chatThreadBoardStore";
 import ChatView from "../ChatView";
-import { stripDiffSearchParams } from "../../diffRouteSearch";
-import { useSettings } from "../../hooks/useSettings";
-import { useTheme } from "../../hooks/useTheme";
-import { useTurnDiffSummaries } from "../../hooks/useTurnDiffSummaries";
-import { hydrateThreadFromCache, readCachedHydratedThread } from "../../lib/threadHydrationCache";
 import { resizePaneRatios, normalizePaneRatios } from "../../lib/paneRatios";
-import { isScrollContainerNearBottom, scrollContainerToBottom } from "../../chat-scroll";
 import {
   THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
   resolveLocalConnectionUrl,
 } from "../../lib/connectionRouting";
 import {
-  deriveActiveWorkStartedAt,
-  deriveCompletionDividerBeforeEntryId,
-  formatElapsed,
-  hasLiveTurn,
-  isLatestTurnSettled,
-} from "../../session-logic";
-import { useStore } from "../../store";
-import { useProjectById, useSidebarThreadSummaryById, useThreadById } from "../../storeSelectors";
-import { projectScriptCwd } from "../../projectScripts";
-import type { Thread } from "../../types";
+  THREAD_BOARD_ACTIVE_SEARCH_PARAM,
+  THREAD_BOARD_THREADS_SEARCH_PARAM,
+  buildThreadBoardRouteSearch,
+  type ChatThreadBoardRoutePane,
+} from "../../lib/chatThreadBoardRouteSearch";
+import { useSidebarThreadSummaryById } from "../../storeSelectors";
 import { cn } from "~/lib/utils";
-import {
-  deriveThreadActivityRenderState,
-  deriveThreadTimelineRenderState,
-} from "~/lib/chat/threadRenderState";
 import { Button } from "../ui/button";
-import { MessagesTimeline } from "./MessagesTimeline";
 
 const BOARD_MIN_COLUMN_WIDTH_PX = 360;
 const BOARD_MIN_ROW_HEIGHT_PX = 240;
-const EMPTY_REVERT_TURN_COUNT_BY_USER_MESSAGE_ID = new Map<MessageId, number>();
-const EMPTY_THREAD_ACTIVITIES: Thread["activities"] = [];
-const EMPTY_THREAD_MESSAGES: Thread["messages"] = [];
-const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
+const EMPTY_ROUTE_THREADS: readonly ChatThreadBoardRoutePane[] = [];
 
-function buildThreadRouteSearch(connectionUrl: string | null): Record<string, string | undefined> {
-  const localConnectionUrl = resolveLocalConnectionUrl();
-  if (!connectionUrl || connectionUrl === localConnectionUrl) {
-    return {};
-  }
-  return { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: connectionUrl };
+function isSameRoutePane(left: ChatThreadBoardRoutePane, right: ChatThreadBoardRoutePane): boolean {
+  return left.threadId === right.threadId && left.connectionUrl === right.connectionUrl;
 }
 
 function isThreadBoardInteractiveTarget(target: EventTarget | null): boolean {
@@ -65,169 +41,27 @@ function isThreadBoardInteractiveTarget(target: EventTarget | null): boolean {
   }
   return (
     target.closest(
-      "button, a, input, textarea, select, summary, [role='button'], [data-scroll-anchor-target]",
+      "button, a, input, textarea, select, summary, [contenteditable='true'], [role='button'], [role='textbox'], [data-chat-composer-form], [data-scroll-anchor-target]",
     ) !== null
   );
 }
 
-function ThreadMonitorPane(props: {
+function ThreadBoardPane(props: {
   activePaneId: string | null;
-  currentRouteConnectionUrl: string;
   isPrimary: boolean;
   pane: ChatThreadBoardPaneState;
   onClose: () => void;
   onPromote: () => void;
-  onRequestDiff: (pane: ChatThreadBoardPaneState, turnId: TurnId, filePath?: string) => void;
   setActivePane: (paneId: string) => void;
 }) {
   const { pane } = props;
-  const settings = useSettings();
-  const { resolvedTheme } = useTheme();
   const sidebarThread = useSidebarThreadSummaryById(pane.threadId);
-  const thread = useThreadById(pane.threadId);
-  const project = useProjectById(thread?.projectId);
-  const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const shouldAutoScrollRef = useRef(true);
-  const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
-  const threadUpdatedAt = thread?.updatedAt ?? null;
-  const threadHistoryLoaded = thread?.historyLoaded ?? null;
-
-  useEffect(() => {
-    if (!thread || threadHistoryLoaded !== false || !threadUpdatedAt) {
-      return;
-    }
-    const cachedThread = readCachedHydratedThread(pane.threadId, threadUpdatedAt);
-    if (cachedThread) {
-      startTransition(() => {
-        hydrateThreadFromReadModel(cachedThread);
-      });
-      return;
-    }
-
-    let cancelled = false;
-    void (async () => {
-      try {
-        const readModelThread = await hydrateThreadFromCache(pane.threadId, {
-          expectedUpdatedAt: threadUpdatedAt,
-        });
-        if (cancelled) {
-          return;
-        }
-        startTransition(() => {
-          hydrateThreadFromReadModel(readModelThread);
-        });
-      } catch {
-        // Keep the lightweight monitor usable even if hydration is unavailable.
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [hydrateThreadFromReadModel, pane.threadId, thread, threadHistoryLoaded, threadUpdatedAt]);
-
-  const activeLatestTurn = thread?.latestTurn ?? null;
-  const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, thread?.session ?? null);
-  const liveTurnInProgress = hasLiveTurn(activeLatestTurn, thread?.session ?? null);
-  const isWorking = liveTurnInProgress;
-  const activeWorkStartedAt = deriveActiveWorkStartedAt(
-    activeLatestTurn,
-    thread?.session ?? null,
-    null,
-  );
-  const activityVisibilitySettings = useMemo(
-    () => ({
-      enableThinkingStreaming: settings.enableThinkingStreaming,
-      enableToolStreaming: settings.enableToolStreaming,
-    }),
-    [settings.enableThinkingStreaming, settings.enableToolStreaming],
-  );
-  const threadActivities = thread?.activities ?? EMPTY_THREAD_ACTIVITIES;
-  const { workLogEntries } = useMemo(
-    () => deriveThreadActivityRenderState(threadActivities, activityVisibilitySettings),
-    [activityVisibilitySettings, threadActivities],
-  );
-  const timelineMessages = thread?.messages ?? EMPTY_THREAD_MESSAGES;
-  const proposedPlans = thread?.proposedPlans ?? EMPTY_PROPOSED_PLANS;
-  const { turnDiffSummaries } = useTurnDiffSummaries(thread);
-  const { timelineEntries, visibleTurnDiffSummaryByAssistantMessageId } = useMemo(
-    () =>
-      deriveThreadTimelineRenderState({
-        messages: timelineMessages,
-        proposedPlans,
-        workLogEntries,
-        turnDiffSummaries,
-      }),
-    [proposedPlans, timelineMessages, turnDiffSummaries, workLogEntries],
-  );
-  const completionSummary = useMemo(() => {
-    if (!latestTurnSettled || !activeLatestTurn?.startedAt || !activeLatestTurn.completedAt) {
-      return null;
-    }
-    const elapsed = formatElapsed(activeLatestTurn.startedAt, activeLatestTurn.completedAt);
-    return elapsed ? `Worked for ${elapsed}` : null;
-  }, [activeLatestTurn?.completedAt, activeLatestTurn?.startedAt, latestTurnSettled]);
-  const completionDividerBeforeEntryId = useMemo(() => {
-    if (!latestTurnSettled || !completionSummary) {
-      return null;
-    }
-    return deriveCompletionDividerBeforeEntryId(timelineEntries, activeLatestTurn);
-  }, [activeLatestTurn, completionSummary, latestTurnSettled, timelineEntries]);
-  const markdownCwd = project
-    ? projectScriptCwd({
-        project: { cwd: project.cwd },
-        worktreePath: thread?.worktreePath ?? null,
-      })
-    : undefined;
-  const monitorTitle = sidebarThread?.title ?? thread?.title ?? "Thread";
-  const isRouteConnectionMatch =
-    (pane.connectionUrl ?? resolveLocalConnectionUrl()) === props.currentRouteConnectionUrl;
-  const lastTimelineEntry = timelineEntries.at(-1);
-  const timelineScrollKey = `${pane.threadId}:${String(lastTimelineEntry?.id ?? "")}:${String(
-    timelineEntries.length,
-  )}:${String(isWorking)}`;
-
-  const scrollMonitorToBottom = useCallback(() => {
-    const scrollContainer = scrollContainerRef.current;
-    if (!scrollContainer) {
-      return;
-    }
-    scrollContainerToBottom(scrollContainer);
-  }, []);
-
-  useLayoutEffect(() => {
-    shouldAutoScrollRef.current = true;
-    scrollMonitorToBottom();
-  }, [pane.threadId, scrollMonitorToBottom]);
-
-  useLayoutEffect(() => {
-    if (!shouldAutoScrollRef.current) {
-      return;
-    }
-    scrollMonitorToBottom();
-    const frame = window.requestAnimationFrame(() => {
-      if (shouldAutoScrollRef.current) {
-        scrollMonitorToBottom();
-      }
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [scrollMonitorToBottom, timelineScrollKey]);
-
-  const handleMonitorScroll = useCallback(() => {
-    const scrollContainer = scrollContainerRef.current;
-    if (!scrollContainer) {
-      return;
-    }
-    shouldAutoScrollRef.current = isScrollContainerNearBottom(scrollContainer);
-  }, []);
+  const paneTitle = sidebarThread?.title ?? "thread";
 
   return (
     <div
       className={cn(
-        "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
+        "group/thread-pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
         props.isPrimary ? "border-0" : "border-l border-border/80",
       )}
       onPointerDown={() => {
@@ -239,65 +73,15 @@ function ThreadMonitorPane(props: {
         }
       }}
     >
-      <div
-        className={cn(
-          "flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-[12px]",
-          props.isPrimary ? "bg-background/95" : "bg-muted/20",
-        )}
-      >
-        <span
-          className={cn(
-            "inline-flex size-2.5 shrink-0 rounded-full",
-            isWorking
-              ? "bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.14)]"
-              : "bg-muted-foreground/35",
-          )}
-          aria-hidden="true"
-        />
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-medium text-foreground">{monitorTitle}</div>
-        </div>
-        {isWorking ? (
-          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-            <LoaderCircleIcon className="size-3 animate-spin" />
-            Running
-          </span>
-        ) : activeLatestTurn?.completedAt ? (
-          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-            <Clock3Icon className="size-3" />
-            Idle
-          </span>
-        ) : null}
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className={cn(
-            "h-7 gap-1.5 px-2 text-[11px]",
-            props.isPrimary && isRouteConnectionMatch
-              ? "text-foreground"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-          onClick={(event) => {
-            event.stopPropagation();
-            props.setActivePane(pane.id);
-            if (!props.isPrimary || !isRouteConnectionMatch) {
-              props.onPromote();
-            }
-          }}
-          onPointerDown={(event) => {
-            event.stopPropagation();
-          }}
-        >
-          <PanelsTopLeftIcon className="size-3.5" />
-          {props.isPrimary && isRouteConnectionMatch ? "Primary" : "Focus"}
-        </Button>
-        {!props.isPrimary ? (
+      <ChatView threadId={pane.threadId} />
+
+      {!props.isPrimary ? (
+        <>
           <Button
             type="button"
             size="icon-xs"
             variant="ghost"
-            className="text-muted-foreground hover:text-foreground"
+            className="absolute right-2 top-2 z-30 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-opacity hover:bg-background hover:text-foreground group-hover/thread-pane:opacity-100 focus-visible:opacity-100"
             onClick={(event) => {
               event.stopPropagation();
               props.onClose();
@@ -305,69 +89,28 @@ function ThreadMonitorPane(props: {
             onPointerDown={(event) => {
               event.stopPropagation();
             }}
-            aria-label={`Close ${monitorTitle}`}
+            aria-label={`Close ${paneTitle}`}
           >
             <XIcon className="size-3.5" />
           </Button>
-        ) : null}
-      </div>
-
-      <div
-        ref={scrollContainerRef}
-        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
-        onScroll={handleMonitorScroll}
-      >
-        {thread || sidebarThread ? (
-          <MessagesTimeline
-            hasMessages={timelineEntries.length > 0}
-            isWorking={isWorking}
-            activeTurnInProgress={isWorking || !latestTurnSettled}
-            activeTurnStartedAt={activeWorkStartedAt}
-            scrollContainer={scrollContainerRef.current}
-            timelineEntries={timelineEntries}
-            completionDividerBeforeEntryId={completionDividerBeforeEntryId}
-            completionSummary={completionSummary}
-            turnDiffSummaryByAssistantMessageId={visibleTurnDiffSummaryByAssistantMessageId}
-            expandedWorkGroups={expandedWorkGroups}
-            onToggleWorkGroup={(groupId) => {
-              setExpandedWorkGroups((existing) => ({
-                ...existing,
-                [groupId]: !existing[groupId],
-              }));
-            }}
-            onOpenTurnDiff={(turnId, filePath) => {
-              props.onRequestDiff(pane, turnId, filePath);
-            }}
-            revertTurnCountByUserMessageId={EMPTY_REVERT_TURN_COUNT_BY_USER_MESSAGE_ID}
-            onRevertUserMessage={() => undefined}
-            isRevertingCheckpoint={false}
-            onImageExpand={() => undefined}
-            markdownCwd={markdownCwd}
-            onOpenBrowserUrl={null}
-            resolvedTheme={resolvedTheme}
-            timestampFormat={settings.timestampFormat}
-            workspaceRoot={project?.cwd}
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-0 ring-1 ring-inset transition-colors",
+              props.activePaneId === pane.id ? "ring-foreground/12" : "ring-border/60",
+            )}
           />
-        ) : (
-          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-            Open this thread to load its full history into the workspace.
-          </div>
-        )}
-      </div>
-
-      {!props.isPrimary ? (
-        <div
-          className={cn(
-            "pointer-events-none absolute inset-0 ring-1 ring-inset transition-colors",
-            props.activePaneId === pane.id ? "ring-foreground/12" : "ring-border/60",
-          )}
-        />
+        </>
       ) : null}
     </div>
   );
 }
 
-export function ThreadBoard(props: { connectionUrl?: string | null; threadId: ThreadId }) {
+export function ThreadBoard(props: {
+  connectionUrl?: string | null;
+  routeActiveThread?: ChatThreadBoardRoutePane | null;
+  routeThreads?: readonly ChatThreadBoardRoutePane[];
+  threadId: ThreadId;
+}) {
   const navigate = useNavigate();
   const boardRef = useRef<HTMLDivElement | null>(null);
   const rowGroupRefs = useRef(new Map<string, HTMLDivElement>());
@@ -380,23 +123,82 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
   const setPaneRatios = useChatThreadBoardStore((state) => state.setPaneRatios);
   const setRowRatios = useChatThreadBoardStore((state) => state.setRowRatios);
   const syncRouteThread = useChatThreadBoardStore((state) => state.syncRouteThread);
-  const currentRouteConnectionUrl = props.connectionUrl?.trim() || resolveLocalConnectionUrl();
+  const syncRouteThreads = useChatThreadBoardStore((state) => state.syncRouteThreads);
+  const routeThreads = props.routeThreads ?? EMPTY_ROUTE_THREADS;
+  const activeRouteThread = useMemo<ChatThreadBoardRoutePane>(
+    () =>
+      props.routeActiveThread ?? {
+        connectionUrl: props.connectionUrl ?? null,
+        threadId: props.threadId,
+      },
+    [props.connectionUrl, props.routeActiveThread, props.threadId],
+  );
 
   useEffect(() => {
+    if (routeThreads.length > 0) {
+      syncRouteThreads({
+        activeThread: activeRouteThread,
+        threads: routeThreads.some((thread) => isSameRoutePane(thread, activeRouteThread))
+          ? routeThreads
+          : [...routeThreads, activeRouteThread],
+      });
+      return;
+    }
     syncRouteThread({
       connectionUrl: props.connectionUrl ?? null,
       threadId: props.threadId,
     });
-  }, [props.connectionUrl, props.threadId, syncRouteThread]);
+  }, [
+    activeRouteThread,
+    props.connectionUrl,
+    props.threadId,
+    routeThreads,
+    syncRouteThread,
+    syncRouteThreads,
+  ]);
+
+  useEffect(() => {
+    if (routeThreads.length === 0) {
+      return;
+    }
+    const routePanes = routeThreads.some((thread) => isSameRoutePane(thread, activeRouteThread))
+      ? routeThreads
+      : [...routeThreads, activeRouteThread];
+    const nextSearch = buildThreadBoardRouteSearch(routePanes, activeRouteThread);
+    startTransition(() => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: props.threadId },
+        replace: true,
+        search: (previous) => {
+          if (
+            previous[THREAD_BOARD_ACTIVE_SEARCH_PARAM] ===
+              nextSearch[THREAD_BOARD_ACTIVE_SEARCH_PARAM] &&
+            previous[THREAD_BOARD_THREADS_SEARCH_PARAM] ===
+              nextSearch[THREAD_BOARD_THREADS_SEARCH_PARAM] &&
+            previous[THREAD_ROUTE_CONNECTION_SEARCH_PARAM] ===
+              nextSearch[THREAD_ROUTE_CONNECTION_SEARCH_PARAM]
+          ) {
+            return previous;
+          }
+          return {
+            ...previous,
+            ...nextSearch,
+          };
+        },
+      });
+    });
+  }, [activeRouteThread, navigate, props.threadId, routeThreads]);
 
   const primaryPane = useMemo(
     () =>
       panes.find(
         (pane) =>
-          pane.threadId === props.threadId &&
-          (pane.connectionUrl ?? resolveLocalConnectionUrl()) === currentRouteConnectionUrl,
+          pane.threadId === activeRouteThread.threadId &&
+          (pane.connectionUrl ?? resolveLocalConnectionUrl()) ===
+            (activeRouteThread.connectionUrl ?? resolveLocalConnectionUrl()),
       ),
-    [currentRouteConnectionUrl, panes, props.threadId],
+    [activeRouteThread.connectionUrl, activeRouteThread.threadId, panes],
   );
   const normalizedRowRatios = useMemo(
     () => normalizePaneRatios(paneRatios, rows.length),
@@ -412,33 +214,55 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
         void navigate({
           to: "/$threadId",
           params: { threadId: pane.threadId },
-          search: buildThreadRouteSearch(pane.connectionUrl),
+          search: buildThreadBoardRouteSearch(panes, pane),
         });
       });
     },
-    [navigate, setActivePane],
+    [navigate, panes, setActivePane],
   );
 
-  const handleOpenTurnDiff = useCallback(
-    (pane: ChatThreadBoardPaneState, turnId: TurnId, filePath?: string) => {
-      setActivePane(pane.id);
+  useEffect(() => {
+    if (!boardVisible || routeThreads.length > 0 || !primaryPane) {
+      return;
+    }
+    startTransition(() => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: primaryPane.threadId },
+        replace: true,
+        search: (previous) => ({
+          ...previous,
+          ...buildThreadBoardRouteSearch(panes, primaryPane),
+        }),
+      });
+    });
+  }, [boardVisible, navigate, panes, primaryPane, routeThreads.length]);
+
+  const handleClosePane = useCallback(
+    (pane: ChatThreadBoardPaneState) => {
+      const nextPanes = panes.filter((candidate) => candidate.id !== pane.id);
+      closePane(pane.id);
+      if (nextPanes.length === 0) {
+        return;
+      }
+      const nextActivePane =
+        primaryPane && primaryPane.id !== pane.id ? primaryPane : (nextPanes[0] ?? null);
+      if (!nextActivePane) {
+        return;
+      }
       startTransition(() => {
         void navigate({
           to: "/$threadId",
-          params: { threadId: pane.threadId },
-          search: (previous) => {
-            const rest = {
-              ...stripDiffSearchParams(previous),
-              ...buildThreadRouteSearch(pane.connectionUrl),
-            };
-            return filePath
-              ? { ...rest, diff: "1", diffFilePath: filePath, diffTurnId: turnId }
-              : { ...rest, diff: "1", diffTurnId: turnId };
-          },
+          params: { threadId: nextActivePane.threadId },
+          replace: true,
+          search: (previous) => ({
+            ...previous,
+            ...buildThreadBoardRouteSearch(nextPanes, nextActivePane),
+          }),
         });
       });
     },
-    [navigate, setActivePane],
+    [closePane, navigate, panes, primaryPane],
   );
 
   const paneResizeStateRef = useRef<{
@@ -559,11 +383,14 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
   }
 
   return (
-    <div ref={boardRef} className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+    <div
+      ref={boardRef}
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background"
+    >
       {rows.map((row, rowIndex) => (
         <div
           key={row.id}
-          className="flex min-h-0 flex-1 flex-col"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
           style={{ flexBasis: 0, flexGrow: normalizedRowRatios[rowIndex] ?? 1 }}
         >
           <div
@@ -574,46 +401,36 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
                 rowGroupRefs.current.delete(row.id);
               }
             }}
-            className="flex min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-x-contain"
+            className="flex h-full min-h-0 min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden overscroll-x-contain"
           >
             {row.paneIds.map((paneId, paneIndex) => {
               const pane = paneById.get(paneId);
               if (!pane) {
                 return null;
               }
-              const isPrimary =
-                pane.id === primaryPane.id &&
-                (pane.connectionUrl ?? resolveLocalConnectionUrl()) === currentRouteConnectionUrl;
+              const isPrimary = pane.id === primaryPane.id;
               return (
                 <div
                   key={pane.id}
-                  className="flex min-h-0 min-w-0"
+                  className="flex h-full min-h-0 min-w-0 overflow-hidden"
                   style={{
                     flexBasis: 0,
                     flexGrow: row.paneRatios[paneIndex] ?? 1,
                     minWidth: `${BOARD_MIN_COLUMN_WIDTH_PX}px`,
                   }}
                 >
-                  {isPrimary ? (
-                    <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-                      <ChatView threadId={props.threadId} />
-                    </div>
-                  ) : (
-                    <ThreadMonitorPane
-                      activePaneId={activePaneId}
-                      currentRouteConnectionUrl={currentRouteConnectionUrl}
-                      isPrimary={false}
-                      pane={pane}
-                      onClose={() => {
-                        closePane(pane.id);
-                      }}
-                      onPromote={() => {
-                        promotePane(pane);
-                      }}
-                      onRequestDiff={handleOpenTurnDiff}
-                      setActivePane={setActivePane}
-                    />
-                  )}
+                  <ThreadBoardPane
+                    activePaneId={activePaneId}
+                    isPrimary={isPrimary}
+                    pane={pane}
+                    onClose={() => {
+                      handleClosePane(pane);
+                    }}
+                    onPromote={() => {
+                      promotePane(pane);
+                    }}
+                    setActivePane={setActivePane}
+                  />
                   {paneIndex < row.paneIds.length - 1 ? (
                     <div
                       role="separator"

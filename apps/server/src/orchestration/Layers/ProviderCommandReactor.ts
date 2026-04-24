@@ -197,6 +197,34 @@ function liveProviderSessionBlocksQueueDispatch(session: ProviderSession | undef
   return session?.status === "running" || session?.activeTurnId !== undefined;
 }
 
+function isPlanBoundaryToolActivity(activity: OrchestrationThread["activities"][number]): boolean {
+  if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") {
+    return false;
+  }
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
+  return typeof payload?.detail === "string" && payload.detail.startsWith("ExitPlanMode:");
+}
+
+function isRenderableWorkLogActivity(activity: OrchestrationThread["activities"][number]): boolean {
+  if (activity.kind === "task.started" || activity.kind === "task.completed") {
+    return false;
+  }
+  if (activity.kind === "context-window.updated") {
+    return false;
+  }
+  if (activity.summary === "Checkpoint captured") {
+    return false;
+  }
+  return !isPlanBoundaryToolActivity(activity);
+}
+
+function countRenderableWorkLogActivities(thread: OrchestrationThread): number {
+  return thread.activities.filter(isRenderableWorkLogActivity).length;
+}
+
 function buildQueuedMessageText(message: OrchestrationThread["queuedComposerMessages"][number]) {
   const prompt = stripIssueReferenceMarkers(message.prompt);
   const promptWithTerminalContexts = appendTerminalContextsToPrompt(
@@ -336,6 +364,10 @@ const make = Effect.gen(function* () {
     );
 
   const threadModelSelections = new Map<string, ModelSelection>();
+  const queueDispatchReservationsByThreadId = new Map<
+    ThreadId,
+    { readonly createdAt: string; readonly messageId: MessageId }
+  >();
 
   const appendProviderFailureActivity = (input: {
     readonly threadId: ThreadId;
@@ -446,7 +478,97 @@ const make = Effect.gen(function* () {
     return readModel.threads.find((entry) => entry.id === threadId);
   });
 
+  const releaseQueueDispatchReservationIfIdle = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const reservation = queueDispatchReservationsByThreadId.get(threadId);
+    if (!reservation) {
+      return;
+    }
+
+    const thread = yield* resolveThread(threadId);
+    if (!thread || thread.queuedComposerMessages.length === 0) {
+      queueDispatchReservationsByThreadId.delete(threadId);
+      return;
+    }
+
+    if (!threadCanDispatchQueuedMessage(thread)) {
+      return;
+    }
+
+    if (!thread.latestTurn?.completedAt || thread.latestTurn.completedAt < reservation.createdAt) {
+      return;
+    }
+
+    const liveSession = yield* findLiveSession(threadId);
+    if (liveProviderSessionBlocksQueueDispatch(liveSession)) {
+      return;
+    }
+
+    queueDispatchReservationsByThreadId.delete(threadId);
+  });
+
+  const releaseQueueDispatchReservationForCompletedTurn = Effect.fnUntraced(function* (input: {
+    readonly completedAt: string;
+    readonly threadId: ThreadId;
+  }) {
+    const reservation = queueDispatchReservationsByThreadId.get(input.threadId);
+    if (!reservation || input.completedAt < reservation.createdAt) {
+      return;
+    }
+
+    const liveSession = yield* findLiveSession(input.threadId);
+    if (liveProviderSessionBlocksQueueDispatch(liveSession)) {
+      return;
+    }
+
+    queueDispatchReservationsByThreadId.delete(input.threadId);
+  });
+
+  const maybeInterruptForQueuedSteer = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const thread = yield* resolveThread(threadId);
+    const queuedSteerRequest = thread?.queuedSteerRequest ?? null;
+    if (!thread || !queuedSteerRequest || queuedSteerRequest.interruptRequested) {
+      return;
+    }
+    if (
+      !thread.queuedComposerMessages.some((message) => message.id === queuedSteerRequest.messageId)
+    ) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.queue.steer.clear",
+        commandId: serverCommandId("queue-steer-clear-stale"),
+        threadId,
+      });
+      return;
+    }
+    if (thread.latestTurn?.state !== "running") {
+      return;
+    }
+    if (countRenderableWorkLogActivities(thread) <= queuedSteerRequest.baselineWorkLogEntryCount) {
+      return;
+    }
+
+    const createdAt = new Date().toISOString();
+    yield* orchestrationEngine.dispatch({
+      type: "thread.queue.steer",
+      commandId: serverCommandId("queue-steer-interrupt-requested"),
+      threadId,
+      messageId: queuedSteerRequest.messageId,
+      baselineWorkLogEntryCount: queuedSteerRequest.baselineWorkLogEntryCount,
+      interruptRequested: true,
+    });
+    yield* orchestrationEngine.dispatch({
+      type: "thread.turn.interrupt",
+      commandId: serverCommandId("queue-steer-interrupt"),
+      threadId,
+      turnId: thread.latestTurn.turnId,
+      createdAt,
+    });
+  });
+
   const dispatchNextQueuedComposerMessage = Effect.fnUntraced(function* (threadId: ThreadId) {
+    if (queueDispatchReservationsByThreadId.has(threadId)) {
+      return;
+    }
+
     let thread = yield* resolveThread(threadId);
     if (
       thread &&
@@ -478,14 +600,10 @@ const make = Effect.gen(function* () {
     const messageText = buildQueuedMessageText(nextQueuedMessage);
     if (messageText.length === 0 && nextQueuedMessage.images.length === 0) {
       yield* orchestrationEngine.dispatch({
-        type: "thread.meta.update",
+        type: "thread.queue.delete",
         commandId: serverCommandId("queue-drop-empty"),
         threadId,
-        queuedComposerMessages: thread.queuedComposerMessages.slice(1),
-        queuedSteerRequest:
-          thread.queuedSteerRequest?.messageId === nextQueuedMessage.id
-            ? null
-            : thread.queuedSteerRequest,
+        messageId: nextQueuedMessage.id,
       });
       return;
     }
@@ -513,21 +631,20 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const previousMessages = thread.queuedComposerMessages;
     const previousSteerRequest = thread.queuedSteerRequest;
-    const nextMessages = previousMessages.slice(1);
-    const nextSteerRequest =
-      previousSteerRequest?.messageId === nextQueuedMessage.id ? null : previousSteerRequest;
 
     yield* orchestrationEngine.dispatch({
-      type: "thread.meta.update",
+      type: "thread.queue.delete",
       commandId: serverCommandId("queue-pop"),
       threadId,
-      queuedComposerMessages: nextMessages,
-      queuedSteerRequest: nextSteerRequest,
+      messageId: nextQueuedMessage.id,
     });
 
     const titleSeed = buildQueuedMessageTitleSeed(nextQueuedMessage);
+    queueDispatchReservationsByThreadId.set(threadId, {
+      createdAt,
+      messageId: nextQueuedMessage.id,
+    });
     yield* orchestrationEngine
       .dispatch({
         type: "thread.turn.start",
@@ -549,11 +666,14 @@ const make = Effect.gen(function* () {
         Effect.catch((error) =>
           orchestrationEngine
             .dispatch({
-              type: "thread.meta.update",
+              type: "thread.queue.append",
               commandId: serverCommandId("queue-restore"),
               threadId,
-              queuedComposerMessages: previousMessages,
-              queuedSteerRequest: previousSteerRequest,
+              message: nextQueuedMessage,
+              position: "front",
+              ...(previousSteerRequest?.messageId === nextQueuedMessage.id
+                ? { steerRequest: previousSteerRequest }
+                : {}),
             })
             .pipe(
               Effect.flatMap(() =>
@@ -563,6 +683,11 @@ const make = Effect.gen(function* () {
                   detail:
                     error instanceof Error ? error.message : "Failed to start queued message turn.",
                   createdAt,
+                }),
+              ),
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  queueDispatchReservationsByThreadId.delete(threadId);
                 }),
               ),
               Effect.asVoid,
@@ -1026,7 +1151,13 @@ const make = Effect.gen(function* () {
           detail: providerFailureDetailFromCause(cause),
           turnId: null,
           createdAt: event.payload.createdAt,
-        }),
+        }).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              queueDispatchReservationsByThreadId.delete(event.payload.threadId);
+            }),
+          ),
+        ),
       ),
     );
   });
@@ -1289,8 +1420,24 @@ const make = Effect.gen(function* () {
       if (
         event.type === "thread.meta-updated" ||
         event.type === "thread.session-set" ||
-        event.type === "thread.turn-diff-completed"
+        event.type === "thread.turn-diff-completed" ||
+        event.type === "thread.activity-appended"
       ) {
+        if (event.type === "thread.turn-diff-completed") {
+          yield* releaseQueueDispatchReservationForCompletedTurn({
+            threadId: event.payload.threadId,
+            completedAt: event.payload.completedAt,
+          });
+        } else if (event.type === "thread.session-set") {
+          yield* releaseQueueDispatchReservationIfIdle(event.payload.threadId);
+        } else if (
+          event.type === "thread.activity-appended" &&
+          (event.payload.activity.kind === "provider.turn.start.failed" ||
+            event.payload.activity.kind === "thread.queue.dispatch.failed")
+        ) {
+          queueDispatchReservationsByThreadId.delete(event.payload.threadId);
+        }
+        yield* maybeInterruptForQueuedSteer(event.payload.threadId);
         return yield* queueWorker.enqueue(event.payload.threadId);
       }
     });

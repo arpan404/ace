@@ -108,8 +108,50 @@ export const ThreadMetaUpdateCommand = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  queuedComposerMessages: Schema.optional(Schema.Array(QueuedComposerMessage)),
-  queuedSteerRequest: Schema.optional(Schema.NullOr(QueuedSteerRequest)),
+});
+
+export const ThreadQueueAppendCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue.append"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  message: QueuedComposerMessage,
+  position: Schema.Literals(["back", "front"]).pipe(Schema.withDecodingDefault(() => "back")),
+  steerRequest: Schema.optional(QueuedSteerRequest),
+});
+
+export const ThreadQueueUpdateCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue.update"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  message: QueuedComposerMessage,
+});
+
+export const ThreadQueueDeleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue.delete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+});
+
+export const ThreadQueueClearCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue.clear"),
+  commandId: CommandId,
+  threadId: ThreadId,
+});
+
+export const ThreadQueueSteerCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue.steer"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  baselineWorkLogEntryCount: NonNegativeInt,
+  interruptRequested: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+});
+
+export const ThreadQueueSteerClearCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue.steer.clear"),
+  commandId: CommandId,
+  threadId: ThreadId,
 });
 
 export const ThreadRuntimeModeSetCommand = Schema.Struct({
@@ -216,6 +258,12 @@ export const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
   ThreadMetaUpdateCommand,
+  ThreadQueueAppendCommand,
+  ThreadQueueUpdateCommand,
+  ThreadQueueDeleteCommand,
+  ThreadQueueClearCommand,
+  ThreadQueueSteerCommand,
+  ThreadQueueSteerClearCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ThreadTurnStartCommand,
@@ -237,6 +285,12 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
   ThreadMetaUpdateCommand,
+  ThreadQueueAppendCommand,
+  ThreadQueueUpdateCommand,
+  ThreadQueueDeleteCommand,
+  ThreadQueueClearCommand,
+  ThreadQueueSteerCommand,
+  ThreadQueueSteerClearCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ClientThreadTurnStartCommand,

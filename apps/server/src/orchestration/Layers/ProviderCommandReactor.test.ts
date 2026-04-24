@@ -340,43 +340,41 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
+        type: "thread.queue.append",
         commandId: CommandId.makeUnsafe("cmd-queue-message-with-context"),
         threadId: ThreadId.makeUnsafe("thread-1"),
-        queuedComposerMessages: [
-          {
-            id: asMessageId("queued-message-1"),
-            prompt: `Check this output ${INLINE_TERMINAL_CONTEXT_PLACEHOLDER}`,
-            images: [
-              {
-                type: "image",
-                id: "queued-image-1",
-                name: "comment.png",
-                mimeType: "image/png",
-                sizeBytes: 8,
-                dataUrl: "data:image/png;base64,iVBORw0KGgo=",
-              },
-            ],
-            terminalContexts: [
-              {
-                id: "queued-terminal-1",
-                createdAt: new Date().toISOString(),
-                terminalId: "terminal-1",
-                terminalLabel: "Terminal 1",
-                lineStart: 4,
-                lineEnd: 5,
-                text: "alpha\nbeta",
-              },
-            ],
-            modelSelection: {
-              provider: "codex",
-              model: "gpt-5-codex",
+        position: "back",
+        message: {
+          id: asMessageId("queued-message-1"),
+          prompt: `Check this output ${INLINE_TERMINAL_CONTEXT_PLACEHOLDER}`,
+          images: [
+            {
+              type: "image",
+              id: "queued-image-1",
+              name: "comment.png",
+              mimeType: "image/png",
+              sizeBytes: 8,
+              dataUrl: "data:image/png;base64,iVBORw0KGgo=",
             },
-            runtimeMode: "approval-required",
-            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          ],
+          terminalContexts: [
+            {
+              id: "queued-terminal-1",
+              createdAt: new Date().toISOString(),
+              terminalId: "terminal-1",
+              terminalLabel: "Terminal 1",
+              lineStart: 4,
+              lineEnd: 5,
+              text: "alpha\nbeta",
+            },
+          ],
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
           },
-        ],
-        queuedSteerRequest: null,
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        },
       }),
     );
 
@@ -413,6 +411,83 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.messages.at(-1)).toMatchObject({
       id: asMessageId("queued-message-1"),
       role: "user",
+    });
+  });
+
+  it("does not burst queued messages before the previous queued turn becomes idle", async () => {
+    const harness = await createHarness();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+
+    await Effect.runPromise(
+      Effect.all(
+        [
+          harness.engine.dispatch({
+            type: "thread.queue.append",
+            commandId: CommandId.makeUnsafe("cmd-queue-first-message"),
+            threadId,
+            position: "back",
+            message: {
+              id: asMessageId("queued-message-1"),
+              prompt: "first queued message",
+              images: [],
+              terminalContexts: [],
+              modelSelection: {
+                provider: "codex",
+                model: "gpt-5-codex",
+              },
+              runtimeMode: "approval-required",
+              interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            },
+          }),
+          harness.engine.dispatch({
+            type: "thread.queue.append",
+            commandId: CommandId.makeUnsafe("cmd-queue-second-message"),
+            threadId,
+            position: "back",
+            message: {
+              id: asMessageId("queued-message-2"),
+              prompt: "second queued message",
+              images: [],
+              terminalContexts: [],
+              modelSelection: {
+                provider: "codex",
+                model: "gpt-5-codex",
+              },
+              runtimeMode: "approval-required",
+              interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            },
+          }),
+        ],
+        { concurrency: 1 },
+      ),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(harness.sendTurn.mock.calls).toHaveLength(1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      input: "first queued message",
+    });
+
+    const completedAt = new Date(Date.now() - 1).toISOString();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.makeUnsafe("cmd-queued-turn-complete"),
+        threadId,
+        turnId: asTurnId("turn-1"),
+        completedAt,
+        checkpointRef: CheckpointRef.makeUnsafe("checkpoint-queued-turn"),
+        status: "ready",
+        files: [],
+        checkpointTurnCount: 1,
+        createdAt: completedAt,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    expect(harness.sendTurn.mock.calls[1]?.[0]).toMatchObject({
+      input: "second queued message",
     });
   });
 
@@ -471,24 +546,23 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.meta.update",
+        type: "thread.queue.append",
         commandId: CommandId.makeUnsafe("cmd-steer-queued-after-finished-work"),
         threadId,
-        queuedComposerMessages: [
-          {
-            id: asMessageId("queued-steer-after-finished-work"),
-            prompt: "Start this queued steer now",
-            images: [],
-            terminalContexts: [],
-            modelSelection: {
-              provider: "codex",
-              model: "gpt-5-codex",
-            },
-            runtimeMode: "approval-required",
-            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        position: "front",
+        message: {
+          id: asMessageId("queued-steer-after-finished-work"),
+          prompt: "Start this queued steer now",
+          images: [],
+          terminalContexts: [],
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
           },
-        ],
-        queuedSteerRequest: {
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        },
+        steerRequest: {
           messageId: asMessageId("queued-steer-after-finished-work"),
           baselineWorkLogEntryCount: 1,
           interruptRequested: false,

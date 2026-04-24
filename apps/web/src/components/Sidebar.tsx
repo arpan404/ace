@@ -185,6 +185,7 @@ import {
   resolveConnectionForThreadId,
   THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
 } from "../lib/connectionRouting";
+import { buildThreadBoardRouteSearch } from "../lib/chatThreadBoardRouteSearch";
 import { useChatThreadBoardStore } from "../chatThreadBoardStore";
 const THREAD_REVEAL_STEP = 5;
 const REMOTE_HOST_REFRESH_INTERVAL_MS = 20_000;
@@ -252,6 +253,30 @@ function resolveIsoTimestamp(input: string | undefined): number {
 
 function connectionUrlsEqual(left: string, right: string): boolean {
   return normalizeWsUrl(left) === normalizeWsUrl(right);
+}
+
+function buildSplitBoardRouteSearchForActive(input: {
+  connectionUrl: string | null;
+  threadId: ThreadId;
+}): Record<string, string | undefined> {
+  const normalizedActiveConnectionUrl = input.connectionUrl?.trim() || null;
+  const routePanes = useChatThreadBoardStore
+    .getState()
+    .panes.map((pane) => ({ connectionUrl: pane.connectionUrl, threadId: pane.threadId }));
+  const activePane = routePanes.find(
+    (pane) =>
+      pane.threadId === input.threadId && pane.connectionUrl === normalizedActiveConnectionUrl,
+  ) ?? {
+    connectionUrl: normalizedActiveConnectionUrl,
+    threadId: input.threadId,
+  };
+  const panes = routePanes.some(
+    (pane) =>
+      pane.threadId === activePane.threadId && pane.connectionUrl === activePane.connectionUrl,
+  )
+    ? routePanes
+    : [...routePanes, activePane];
+  return buildThreadBoardRouteSearch(panes, activePane);
 }
 
 function sortByUpdatedAtDescending<T extends { readonly updatedAt: string }>(
@@ -2079,10 +2104,7 @@ export default function Sidebar() {
           void navigate({
             to: "/$threadId",
             params: { threadId },
-            search:
-              connectionUrl && !connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl)
-                ? { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: connectionUrl }
-                : {},
+            search: buildSplitBoardRouteSearchForActive({ connectionUrl, threadId }),
           });
         });
         return;
@@ -2139,7 +2161,6 @@ export default function Sidebar() {
       copyPathToClipboard,
       copyThreadIdToClipboard,
       deleteThread,
-      localDeviceConnectionUrl,
       markThreadUnread,
       navigate,
       pinnedThreadIds,
@@ -2185,11 +2206,7 @@ export default function Sidebar() {
             void navigate({
               to: "/$threadId",
               params: { threadId: targetInput.threadId },
-              search:
-                targetInput.connectionUrl &&
-                !connectionUrlsEqual(targetInput.connectionUrl, localDeviceConnectionUrl)
-                  ? { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: targetInput.connectionUrl }
-                  : {},
+              search: buildSplitBoardRouteSearchForActive(targetInput),
             });
           });
         }
@@ -2228,7 +2245,6 @@ export default function Sidebar() {
       appSettings.confirmThreadDelete,
       clearSelection,
       deleteThread,
-      localDeviceConnectionUrl,
       markThreadUnread,
       navigate,
       removeFromSelection,
@@ -2617,9 +2633,10 @@ export default function Sidebar() {
           void navigate({
             to: "/$threadId",
             params: { threadId: remoteThreadId },
-            search: {
-              [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: input.connectionUrl,
-            },
+            search: buildSplitBoardRouteSearchForActive({
+              connectionUrl: input.connectionUrl,
+              threadId: remoteThreadId,
+            }),
           });
         });
         return;

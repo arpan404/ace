@@ -1,5 +1,7 @@
 import {
   type ApprovalRequestId,
+  type ClientOrchestrationCommand,
+  type CommandId,
   DEFAULT_MODEL_BY_PROVIDER,
   type MessageId,
   type ModelSelection,
@@ -335,7 +337,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const setStoreThreadError = useStore((store) => store.setError);
   const dismissStoreThreadError = useStore((store) => store.dismissThreadError);
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
-  const setStoreThreadQueueState = useStore((store) => store.setThreadQueueState);
   const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
   const pruneHydratedThreadHistories = useStore((store) => store.pruneHydratedThreadHistories);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
@@ -488,6 +489,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [messagesScrollElement, setMessagesScrollElement] = useState<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const previousThreadIdRef = useRef<ThreadId | null>(null);
+  const directThreadHydrationInFlightRef = useRef<ThreadId | null>(null);
   const lastKnownScrollTopRef = useRef(0);
   const isPointerScrollActiveRef = useRef(false);
   const lastTouchClientYRef = useRef<number | null>(null);
@@ -727,6 +729,50 @@ export default function ChatView({ threadId }: ChatViewProps) {
   useLayoutEffect(() => {
     trackActiveThread(activeThreadId);
   }, [activeThreadId, trackActiveThread]);
+
+  useEffect(() => {
+    if (!serverThread || serverThread.historyLoaded !== false) {
+      return;
+    }
+    const cachedHydratedThread = serverThread.updatedAt
+      ? readCachedHydratedThread(serverThread.id, serverThread.updatedAt)
+      : null;
+    if (cachedHydratedThread) {
+      startTransition(() => {
+        hydrateThreadFromReadModel(cachedHydratedThread);
+      });
+      return;
+    }
+    if (directThreadHydrationInFlightRef.current === serverThread.id) {
+      return;
+    }
+
+    let canceled = false;
+    directThreadHydrationInFlightRef.current = serverThread.id;
+    void (async () => {
+      try {
+        const readModelThread = await hydrateThreadFromCache(serverThread.id, {
+          expectedUpdatedAt: serverThread.updatedAt ?? null,
+        });
+        if (canceled) {
+          return;
+        }
+        startTransition(() => {
+          hydrateThreadFromReadModel(readModelThread);
+        });
+      } catch {
+        // The route-level retry path will keep trying for the active pane.
+      } finally {
+        if (directThreadHydrationInFlightRef.current === serverThread.id) {
+          directThreadHydrationInFlightRef.current = null;
+        }
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, [hydrateThreadFromReadModel, serverThread]);
 
   useEffect(() => {
     if (
@@ -1065,8 +1111,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const queuedSteerRequest = serverThread?.queuedSteerRequest ?? null;
   const queuedComposerMessagesRef = useRef(queuedComposerMessages);
   queuedComposerMessagesRef.current = queuedComposerMessages;
-  const queuedSteerRequestRef = useRef(queuedSteerRequest);
-  queuedSteerRequestRef.current = queuedSteerRequest;
 
   const openPullRequestDialog = useCallback(
     (reference?: string) => {
@@ -1248,9 +1292,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const selectedModelForPicker = selectedModel;
   const phase = derivePhase(activeThread?.session ?? null);
-  const activeInterruptTurnId =
-    activeThread?.session?.activeTurnId ??
-    (activeLatestTurn?.state === "running" ? activeLatestTurn.turnId : undefined);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const activityVisibilitySettings = useMemo(
     () => ({
@@ -2238,90 +2279,104 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [focusComposer],
   );
-  const persistQueuedComposerStateByThreadId = useCallback(
+  const toQueuedComposerCommandMessage = useCallback((message: QueuedComposerMessage) => {
+    return {
+      id: message.id,
+      prompt: message.prompt,
+      images: message.images.map((image) => ({
+        type: "image" as const,
+        id: image.id,
+        name: image.name,
+        mimeType: image.mimeType,
+        sizeBytes: image.sizeBytes,
+        dataUrl: image.dataUrl,
+      })),
+      terminalContexts: message.terminalContexts.map((context) => ({ ...context })),
+      modelSelection: message.modelSelection,
+      runtimeMode: message.runtimeMode,
+      interactionMode: message.interactionMode,
+    };
+  }, []);
+  const dispatchQueuedComposerCommand = useCallback(
     async (
       targetThreadId: ThreadId,
-      nextMessages: Thread["queuedComposerMessages"],
-      nextSteerRequest: Thread["queuedSteerRequest"],
-      previousMessages: Thread["queuedComposerMessages"],
-      previousSteerRequest: Thread["queuedSteerRequest"],
+      buildCommand: (input: {
+        commandId: CommandId;
+        threadId: ThreadId;
+      }) => ClientOrchestrationCommand,
     ) => {
       const api = readNativeApi();
       if (!api) {
         return false;
       }
-      const previousQueuedMessagesRef = queuedComposerMessagesRef.current;
-      const previousQueuedSteerRequestRef = queuedSteerRequestRef.current;
-      queuedComposerMessagesRef.current = nextMessages;
-      queuedSteerRequestRef.current = nextSteerRequest;
-      setStoreThreadQueueState(targetThreadId, nextMessages, nextSteerRequest);
       try {
-        await api.orchestration.dispatchCommand({
-          type: "thread.meta.update",
-          commandId: newCommandId(),
-          threadId: targetThreadId,
-          queuedComposerMessages: nextMessages.map((message) => ({
-            id: message.id,
-            prompt: message.prompt,
-            images: message.images.map((image) => ({
-              type: "image" as const,
-              id: image.id,
-              name: image.name,
-              mimeType: image.mimeType,
-              sizeBytes: image.sizeBytes,
-              dataUrl: image.dataUrl,
-            })),
-            terminalContexts: message.terminalContexts.map((context) => ({ ...context })),
-            modelSelection: message.modelSelection,
-            runtimeMode: message.runtimeMode,
-            interactionMode: message.interactionMode,
-          })),
-          queuedSteerRequest: nextSteerRequest,
-        });
+        await api.orchestration.dispatchCommand(
+          buildCommand({
+            commandId: newCommandId(),
+            threadId: targetThreadId,
+          }),
+        );
         return true;
       } catch (error) {
-        const currentThread = getThreadById(useStore.getState().threads, targetThreadId);
-        if (
-          currentThread &&
-          currentThread.queuedComposerMessages === nextMessages &&
-          currentThread.queuedSteerRequest === nextSteerRequest
-        ) {
-          setStoreThreadQueueState(targetThreadId, previousMessages, previousSteerRequest);
-        }
-        if (queuedComposerMessagesRef.current === nextMessages) {
-          queuedComposerMessagesRef.current = previousQueuedMessagesRef;
-        }
-        if (queuedSteerRequestRef.current === nextSteerRequest) {
-          queuedSteerRequestRef.current = previousQueuedSteerRequestRef;
-        }
         setThreadError(
           targetThreadId,
-          error instanceof Error ? error.message : "Failed to persist queued messages.",
+          error instanceof Error ? error.message : "Failed to update queued messages.",
         );
         return false;
       }
     },
-    [setStoreThreadQueueState, setThreadError],
+    [setThreadError],
   );
-  const persistQueuedComposerState = useCallback(
+  const appendQueuedComposerMessage = useCallback(
     async (
-      nextMessages: Thread["queuedComposerMessages"],
-      nextSteerRequest: Thread["queuedSteerRequest"],
-      previousMessages: Thread["queuedComposerMessages"],
-      previousSteerRequest: Thread["queuedSteerRequest"],
-    ) => {
-      if (!serverThread) {
-        return false;
-      }
-      return await persistQueuedComposerStateByThreadId(
-        serverThread.id,
-        nextMessages,
-        nextSteerRequest,
-        previousMessages,
-        previousSteerRequest,
-      );
-    },
-    [persistQueuedComposerStateByThreadId, serverThread],
+      targetThreadId: ThreadId,
+      message: QueuedComposerMessage,
+      options?: { steerRequest?: Thread["queuedSteerRequest"] },
+    ) =>
+      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+        type: "thread.queue.append",
+        commandId,
+        threadId,
+        message: toQueuedComposerCommandMessage(message),
+        position: options?.steerRequest ? "front" : "back",
+        ...(options?.steerRequest ? { steerRequest: options.steerRequest } : {}),
+      })),
+    [dispatchQueuedComposerCommand, toQueuedComposerCommandMessage],
+  );
+  const deleteQueuedComposerMessage = useCallback(
+    async (targetThreadId: ThreadId, messageId: MessageId) =>
+      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+        type: "thread.queue.delete",
+        commandId,
+        threadId,
+        messageId,
+      })),
+    [dispatchQueuedComposerCommand],
+  );
+  const clearQueuedComposerState = useCallback(
+    async (targetThreadId: ThreadId) =>
+      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+        type: "thread.queue.clear",
+        commandId,
+        threadId,
+      })),
+    [dispatchQueuedComposerCommand],
+  );
+  const steerQueuedComposerMessage = useCallback(
+    async (
+      targetThreadId: ThreadId,
+      messageId: MessageId,
+      options: { baselineWorkLogEntryCount: number; interruptRequested?: boolean },
+    ) =>
+      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+        type: "thread.queue.steer",
+        commandId,
+        threadId,
+        messageId,
+        baselineWorkLogEntryCount: options.baselineWorkLogEntryCount,
+        interruptRequested: options.interruptRequested ?? false,
+      })),
+    [dispatchQueuedComposerCommand],
   );
   const ensureQueuedComposerThread = useCallback(
     async (options: {
@@ -2401,34 +2456,24 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (!removedMessage) {
         return;
       }
-      const nextMessages = queuedComposerMessages.filter((message) => message.id !== messageId);
-      const nextSteerRequest =
-        queuedSteerRequest?.messageId === messageId ? null : queuedSteerRequest;
-      if (
-        !(await persistQueuedComposerState(
-          nextMessages,
-          nextSteerRequest,
-          queuedComposerMessages,
-          queuedSteerRequest,
-        ))
-      ) {
+      if (!(await deleteQueuedComposerMessage(serverThread.id, messageId))) {
         return;
       }
       revokeComposerImagePreviewUrls(removedMessage.images);
     },
-    [persistQueuedComposerState, queuedComposerMessages, queuedSteerRequest, serverThread],
+    [deleteQueuedComposerMessage, queuedComposerMessages, serverThread],
   );
   const clearQueuedComposerMessages = useCallback(async () => {
     if (!serverThread || queuedComposerMessages.length === 0) {
       return;
     }
-    if (!(await persistQueuedComposerState([], null, queuedComposerMessages, queuedSteerRequest))) {
+    if (!(await clearQueuedComposerState(serverThread.id))) {
       return;
     }
     for (const queuedMessage of queuedComposerMessages) {
       revokeComposerImagePreviewUrls(queuedMessage.images);
     }
-  }, [persistQueuedComposerState, queuedComposerMessages, queuedSteerRequest, serverThread]);
+  }, [clearQueuedComposerState, queuedComposerMessages, serverThread]);
   const restoreQueuedComposerMessageToDraft = useCallback(
     (message: QueuedComposerMessage, restoredImages: ReadonlyArray<ComposerImageAttachment>) => {
       promptRef.current = message.prompt;
@@ -2490,19 +2535,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           return;
         }
       }
-      const nextMessages = queuedComposerMessagesRef.current.filter(
-        (message) => message.id !== messageId,
-      );
-      const nextSteerRequest =
-        queuedSteerRequest?.messageId === messageId ? null : queuedSteerRequest;
-      if (
-        !(await persistQueuedComposerState(
-          nextMessages,
-          nextSteerRequest,
-          queuedComposerMessagesRef.current,
-          queuedSteerRequest,
-        ))
-      ) {
+      if (!serverThread || !(await deleteQueuedComposerMessage(serverThread.id, messageId))) {
         return;
       }
       queuedDesignMessageEditRef.current = messageDraft.includeImages ? null : nextMessage;
@@ -2519,8 +2552,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
       );
     },
     [
-      persistQueuedComposerState,
-      queuedSteerRequest,
+      serverThread,
+      deleteQueuedComposerMessage,
       setThreadError,
       restoreQueuedComposerMessageToDraft,
       threadId,
@@ -2608,29 +2641,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (!targetThreadId) {
         return false;
       }
-      const previousMessages = queuedComposerMessagesRef.current;
-      const previousSteerRequest = queuedSteerRequestRef.current;
-      const nextMessages =
-        mode === "steer"
-          ? [queuedMessage, ...previousMessages]
-          : [...previousMessages, queuedMessage];
-      const nextSteerRequest: Thread["queuedSteerRequest"] =
+      const appendOptions =
         mode === "steer"
           ? {
-              messageId: queuedMessage.id,
-              baselineWorkLogEntryCount: workLogEntries.length,
-              interruptRequested: false,
+              steerRequest: {
+                messageId: queuedMessage.id,
+                baselineWorkLogEntryCount: workLogEntries.length,
+                interruptRequested: false,
+              },
             }
-          : previousSteerRequest;
-      if (
-        !(await persistQueuedComposerStateByThreadId(
-          targetThreadId,
-          nextMessages,
-          nextSteerRequest,
-          previousMessages,
-          previousSteerRequest,
-        ))
-      ) {
+          : undefined;
+      if (!(await appendQueuedComposerMessage(targetThreadId, queuedMessage, appendOptions))) {
         return false;
       }
 
@@ -2661,7 +2682,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       composerTerminalContexts,
       ensureQueuedComposerThread,
       interactionMode,
-      persistQueuedComposerStateByThreadId,
+      appendQueuedComposerMessage,
       runtimeMode,
       selectedModelSelection,
       setThreadError,
@@ -2690,21 +2711,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (!targetThreadId) {
         return false;
       }
-      const previousMessages = queuedComposerMessagesRef.current;
-      const previousSteerRequest = queuedSteerRequestRef.current;
-      return persistQueuedComposerStateByThreadId(
-        targetThreadId,
-        [...previousMessages, queuedMessage],
-        previousSteerRequest,
-        previousMessages,
-        previousSteerRequest,
-      );
+      return appendQueuedComposerMessage(targetThreadId, queuedMessage);
     },
     [
+      appendQueuedComposerMessage,
       buildQueuedComposerImages,
       ensureQueuedComposerThread,
       interactionMode,
-      persistQueuedComposerStateByThreadId,
       runtimeMode,
       selectedModelSelection,
     ],
@@ -2750,15 +2763,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (!targetThreadId) {
         throw new Error("Failed to add the comment.");
       }
-      const previousMessages = queuedComposerMessagesRef.current;
-      const previousSteerRequest = queuedSteerRequestRef.current;
-      const persisted = await persistQueuedComposerStateByThreadId(
-        targetThreadId,
-        [...previousMessages, queuedMessage],
-        previousSteerRequest,
-        previousMessages,
-        previousSteerRequest,
-      );
+      const persisted = await appendQueuedComposerMessage(targetThreadId, queuedMessage);
       if (!persisted) {
         throw new Error("Failed to add the comment.");
       }
@@ -2778,30 +2783,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (nextIndex < 0) {
         return;
       }
-      const nextMessages =
-        nextIndex === 0
-          ? queuedComposerMessagesRef.current
-          : (() => {
-              const next = [...queuedComposerMessagesRef.current];
-              const [promoted] = next.splice(nextIndex, 1);
-              if (!promoted) {
-                return queuedComposerMessagesRef.current;
-              }
-              next.unshift(promoted);
-              return next;
-            })();
-      await persistQueuedComposerState(
-        nextMessages,
-        {
-          messageId,
-          baselineWorkLogEntryCount: workLogEntries.length,
-          interruptRequested: false,
-        },
-        queuedComposerMessagesRef.current,
-        queuedSteerRequest,
-      );
+      if (!serverThread) {
+        return;
+      }
+      await steerQueuedComposerMessage(serverThread.id, messageId, {
+        baselineWorkLogEntryCount: workLogEntries.length,
+        interruptRequested: false,
+      });
     },
-    [persistQueuedComposerState, queuedSteerRequest, workLogEntries.length],
+    [serverThread, steerQueuedComposerMessage, workLogEntries.length],
   );
   const addTerminalContextToDraft = useCallback(
     (selection: TerminalContextSelection) => {
@@ -5385,63 +5375,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     );
   };
 
-  useEffect(() => {
-    if (!queuedSteerRequest) {
-      return;
-    }
-    if (!queuedComposerMessages.some((message) => message.id === queuedSteerRequest.messageId)) {
-      void persistQueuedComposerState(
-        queuedComposerMessages,
-        null,
-        queuedComposerMessages,
-        queuedSteerRequest,
-      );
-      return;
-    }
-    if (!liveTurnInProgress || isConnecting || queuedSteerRequest.interruptRequested) {
-      return;
-    }
-    if (workLogEntries.length <= queuedSteerRequest.baselineWorkLogEntryCount) {
-      return;
-    }
-
-    const api = readNativeApi();
-    if (!api || !activeThread) {
-      return;
-    }
-    void (async () => {
-      if (
-        !(await persistQueuedComposerState(
-          queuedComposerMessages,
-          {
-            ...queuedSteerRequest,
-            interruptRequested: true,
-          },
-          queuedComposerMessages,
-          queuedSteerRequest,
-        ))
-      ) {
-        return;
-      }
-      void api.orchestration.dispatchCommand({
-        type: "thread.turn.interrupt",
-        commandId: newCommandId(),
-        threadId: activeThread.id,
-        ...(activeInterruptTurnId !== undefined ? { turnId: activeInterruptTurnId } : {}),
-        createdAt: new Date().toISOString(),
-      });
-    })();
-  }, [
-    activeInterruptTurnId,
-    activeThread,
-    isConnecting,
-    liveTurnInProgress,
-    persistQueuedComposerState,
-    queuedComposerMessages,
-    queuedSteerRequest,
-    workLogEntries.length,
-  ]);
-
   const onInterrupt = async () => {
     const api = readNativeApi();
     if (!api || !activeThread) return;
@@ -6725,7 +6658,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       : null;
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
       {/* Persistent top bar — always visible regardless of workspace mode */}
       <div
         className={cn(
@@ -6775,16 +6708,20 @@ export default function ChatView({ threadId }: ChatViewProps) {
         </AppPageTopBar>
       </div>
 
-      {/* Error banner */}
       <ProviderStatusBanner status={activeProviderStatus} />
+
+      {/* Error banner */}
       <ThreadErrorBanner
         error={activeThread.error}
         onDismiss={() => dismissThreadError(activeThread.id)}
       />
       {/* Main content area with optional plan sidebar */}
-      <div ref={chatViewportRef} className="relative flex min-h-0 min-w-0 flex-1">
+      <div ref={chatViewportRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {/* Chat column */}
-        <div ref={workspaceViewportRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          ref={workspaceViewportRef}
+          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+        >
           <AnimatePresence initial={false} mode="wait">
             {workspaceMode === "editor" ? (
               <motion.div
@@ -6828,15 +6765,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 key="chat-workspace"
                 className={cn(
                   workspaceMode === "split"
-                    ? "flex min-h-0 min-w-0 flex-1"
-                    : "flex min-h-0 min-w-0 flex-1 flex-col",
+                    ? "flex min-h-0 min-w-0 flex-1 overflow-hidden"
+                    : "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
                 )}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 6 }}
                 transition={WORKSPACE_PANEL_TRANSITION}
               >
-                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                   {activePlan || sidebarProposedPlan || planSidebarOpen ? (
                     <div className="pointer-events-none absolute bottom-3 right-3 z-30">
                       <Button
