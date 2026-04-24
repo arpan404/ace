@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { requestInAppBrowserFromShell } from "../lib/browser/launcher";
+import { buildSingleThreadRouteSearch } from "../lib/chatThreadBoardRouteSearch";
 import { useSettings } from "../hooks/useSettings";
 import { resolveDesktopMenuSettingsRoute } from "../lib/desktopMenu";
 import { resolveSidebarNewThreadEnvMode } from "../lib/sidebar";
@@ -102,6 +103,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           await navigate({
             to: "/$threadId",
             params: { threadId },
+            search: buildSingleThreadRouteSearch(),
           });
         },
         request: { action },

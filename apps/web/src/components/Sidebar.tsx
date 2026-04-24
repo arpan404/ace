@@ -185,7 +185,10 @@ import {
   resolveConnectionForThreadId,
   THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
 } from "../lib/connectionRouting";
-import { buildThreadBoardRouteSearch } from "../lib/chatThreadBoardRouteSearch";
+import {
+  buildSingleThreadRouteSearch,
+  buildThreadBoardRouteSearch,
+} from "../lib/chatThreadBoardRouteSearch";
 import { useChatThreadBoardStore } from "../chatThreadBoardStore";
 const THREAD_REVEAL_STEP = 5;
 const REMOTE_HOST_REFRESH_INTERVAL_MS = 20_000;
@@ -2294,13 +2297,14 @@ export default function Sidebar() {
         });
       }
       startTransition(() => {
-        const threadRouteSearch = connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl)
-          ? {}
-          : { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: connectionUrl };
         void navigate({
           to: "/$threadId",
           params: { threadId },
-          search: threadRouteSearch,
+          search: buildSingleThreadRouteSearch({
+            connectionUrl: connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl)
+              ? null
+              : connectionUrl,
+          }),
         });
       });
     },
@@ -2355,7 +2359,7 @@ export default function Sidebar() {
         void navigate({
           to: "/$threadId",
           params: { threadId },
-          search: {},
+          search: buildSingleThreadRouteSearch(),
         });
       });
     },
@@ -2388,9 +2392,7 @@ export default function Sidebar() {
         void navigate({
           to: "/$threadId",
           params: { threadId },
-          search: {
-            [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: connectionUrl,
-          },
+          search: buildSingleThreadRouteSearch({ connectionUrl }),
         });
       });
     },

@@ -21,10 +21,8 @@ import {
   shouldOfferAgentAttentionNotificationPermission,
   type AgentAttentionNotificationPermission,
 } from "../lib/agentAttentionNotifications";
-import {
-  resolveLocalConnectionUrl,
-  THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
-} from "../lib/connectionRouting";
+import { resolveLocalConnectionUrl } from "../lib/connectionRouting";
+import { buildSingleThreadRouteSearch } from "../lib/chatThreadBoardRouteSearch";
 import {
   CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT,
   loadConnectedRemoteHostIds,
@@ -319,14 +317,13 @@ export function AgentAttentionNotificationBridge() {
   const navigateToRequestThread = useMemo(
     () => (threadId: string, connectionUrl: string) => {
       const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);
-      const search =
-        normalizedConnectionUrl !== localConnectionUrl
-          ? { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: normalizedConnectionUrl }
-          : {};
       void navigate({
         to: "/$threadId",
         params: { threadId },
-        search,
+        search: buildSingleThreadRouteSearch({
+          connectionUrl:
+            normalizedConnectionUrl !== localConnectionUrl ? normalizedConnectionUrl : null,
+        }),
       });
     },
     [localConnectionUrl, navigate],

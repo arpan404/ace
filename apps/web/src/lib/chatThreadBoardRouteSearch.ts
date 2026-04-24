@@ -101,3 +101,14 @@ export function buildThreadBoardRouteSearch(
       : undefined,
   };
 }
+
+export function buildSingleThreadRouteSearch(
+  input?: { connectionUrl?: string | null } | null,
+): Record<string, string | undefined> {
+  const connectionUrl = normalizeRouteConnectionUrl(input?.connectionUrl);
+  return {
+    [THREAD_BOARD_ACTIVE_SEARCH_PARAM]: undefined,
+    [THREAD_BOARD_THREADS_SEARCH_PARAM]: undefined,
+    [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: connectionUrl ?? undefined,
+  };
+}

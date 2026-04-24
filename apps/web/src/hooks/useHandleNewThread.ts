@@ -16,8 +16,8 @@ import {
   readRouteConnectionUrlFromLocation,
   resolveConnectionForProjectId,
   resolveLocalConnectionUrl,
-  THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
 } from "../lib/connectionRouting";
+import { buildSingleThreadRouteSearch } from "../lib/chatThreadBoardRouteSearch";
 import { normalizeWsUrl } from "../lib/remoteHosts";
 
 export function useHandleNewThread() {
@@ -78,10 +78,9 @@ export function useHandleNewThread() {
           return localConnectionUrl;
         }
       })();
-      const threadRouteSearch =
-        resolvedConnectionUrl === localConnectionUrl
-          ? {}
-          : { [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: resolvedConnectionUrl };
+      const threadRouteSearch = buildSingleThreadRouteSearch({
+        connectionUrl: resolvedConnectionUrl === localConnectionUrl ? null : resolvedConnectionUrl,
+      });
       const storedDraftThread = getDraftThreadByProjectId(projectId);
       const latestActiveDraftThread: DraftThreadState | null = routeThreadId
         ? getDraftThread(routeThreadId)

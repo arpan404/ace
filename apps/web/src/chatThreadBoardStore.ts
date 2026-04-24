@@ -41,6 +41,7 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
     options?: { sourcePaneId?: string | null },
   ) => string | null;
   setActivePane: (paneId: string | null) => void;
+  setGridLayout: (input: { columns: number }) => void;
   setPaneRatios: (rowId: string, ratios: readonly number[]) => void;
   setRowRatios: (ratios: readonly number[]) => void;
   syncRouteThread: (input: { connectionUrl?: string | null; threadId: ThreadId }) => string;
@@ -260,6 +261,51 @@ function replacePaneThread(
   }));
 }
 
+function getOrderedBoardPaneIds(state: PersistedChatThreadBoardState): string[] {
+  const orderedPaneIds: string[] = [];
+  const seenPaneIds = new Set<string>();
+  for (const row of state.rows) {
+    for (const paneId of row.paneIds) {
+      if (seenPaneIds.has(paneId)) {
+        continue;
+      }
+      orderedPaneIds.push(paneId);
+      seenPaneIds.add(paneId);
+    }
+  }
+  for (const pane of state.panes) {
+    if (seenPaneIds.has(pane.id)) {
+      continue;
+    }
+    orderedPaneIds.push(pane.id);
+    seenPaneIds.add(pane.id);
+  }
+  return orderedPaneIds;
+}
+
+function applyGridLayout(
+  state: PersistedChatThreadBoardState,
+  input: { columns: number },
+): PersistedChatThreadBoardState {
+  const orderedPaneIds = getOrderedBoardPaneIds(state);
+  if (orderedPaneIds.length === 0) {
+    return normalizeBoardState(state);
+  }
+
+  const columnCount = Math.max(1, Math.min(orderedPaneIds.length, Math.floor(input.columns)));
+  const rows: ChatThreadBoardRowState[] = [];
+  for (let index = 0; index < orderedPaneIds.length; index += columnCount) {
+    rows.push(createRow(orderedPaneIds.slice(index, index + columnCount)));
+  }
+
+  return normalizeBoardState({
+    activePaneId: state.activePaneId,
+    paneRatios: [],
+    panes: state.panes,
+    rows,
+  });
+}
+
 function syncBoardThreadsFromRoute(
   state: PersistedChatThreadBoardState,
   input: {
@@ -473,6 +519,9 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
             ? { activePaneId: paneId }
             : state,
         );
+      },
+      setGridLayout: (input) => {
+        set((state) => applyGridLayout(state, input));
       },
       setPaneRatios: (rowId, ratios) => {
         set((state) => ({
