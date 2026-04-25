@@ -9,6 +9,8 @@ import type {
 import { Effect, Option, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { normalizeModelSlug } from "@ace/shared/model";
+
+import { attachStaticProviderUsage } from "./providerUsage.ts";
 import { isWindowsCommandNotFound } from "../processRunner";
 
 export const DEFAULT_TIMEOUT_MS = 4_000;
@@ -183,7 +185,7 @@ export function buildServerProvider(input: {
   models: ReadonlyArray<ServerProviderModel>;
   probe: ProviderProbeResult;
 }): ServerProvider {
-  return {
+  return attachStaticProviderUsage({
     provider: input.provider,
     enabled: input.enabled,
     installed: input.probe.installed,
@@ -193,7 +195,7 @@ export function buildServerProvider(input: {
     checkedAt: input.checkedAt,
     ...(input.probe.message ? { message: input.probe.message } : {}),
     models: input.models,
-  };
+  });
 }
 
 export function buildPendingServerProvider(input: {

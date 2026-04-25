@@ -216,6 +216,7 @@ export default function DiffPanel({
   const activeThread = useStore((store) =>
     activeThreadId ? store.threads.find((thread) => thread.id === activeThreadId) : undefined,
   );
+  const liveTurnDiffMode = activeThread?.session?.capabilities?.liveTurnDiffMode;
   const activeProjectId = activeThread?.projectId ?? null;
   const activeProject = useStore((store) =>
     activeProjectId ? store.projects.find((project) => project.id === activeProjectId) : undefined,
@@ -299,6 +300,7 @@ export default function DiffPanel({
     activeThread?.latestTurn?.state === "running" &&
     selectedTurn?.status === "missing" &&
     !selectedTurnLiveDiff &&
+    (liveTurnDiffMode === undefined || liveTurnDiffMode === "workspace") &&
     gitStatusQuery.data?.hasWorkingTreeChanges === true;
   const selectedTurnUnavailableReason = useMemo(() => {
     if (

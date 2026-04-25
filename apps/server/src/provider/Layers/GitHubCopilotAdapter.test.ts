@@ -39,6 +39,10 @@ function makeFakeClient(options: {
   readonly disconnect?: ReturnType<typeof vi.fn<() => Promise<void>>>;
   readonly send?: ReturnType<typeof vi.fn<(input: unknown) => Promise<string>>>;
   readonly abort?: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  readonly planRead?: ReturnType<
+    typeof vi.fn<() => Promise<{ exists: boolean; content: string | null; path: string | null }>>
+  >;
+  readonly workspacePath?: string;
   readonly stop?: ReturnType<typeof vi.fn<() => Promise<ReadonlyArray<Error>>>>;
   readonly forceStop?: ReturnType<typeof vi.fn<() => Promise<void>>>;
 }): GitHubCopilotClientLike & {
@@ -78,9 +82,22 @@ function makeFakeClient(options: {
       const abort = options.abort
         ? vi.fn(async () => options.abort?.())
         : vi.fn(async () => undefined);
+      const planRead =
+        options.planRead ??
+        vi.fn(async () => ({
+          exists: false,
+          content: null,
+          path: options.workspacePath ? `${options.workspacePath}/plan.md` : null,
+        }));
 
       return {
         sessionId: "copilot-session-1",
+        ...(options.workspacePath ? { workspacePath: options.workspacePath } : {}),
+        rpc: {
+          plan: {
+            read: planRead,
+          },
+        },
         on: vi.fn((listener: (event: SessionEvent) => void) => {
           sessionListeners.push(listener);
           return () => {
@@ -754,6 +771,197 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
 
         yield* adapter.stopSession(asThreadId("thread-copilot-tool-announcement"));
       }),
+  );
+
+  it.effect("emits native turn.plan.updated events from Copilot update_todo markdown", () =>
+    Effect.gen(function* () {
+      const fakeClient = makeFakeClient({
+        models: [],
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const planEventsFiber = yield* Stream.runCollect(
+        Stream.take(
+          Stream.filter(adapter.streamEvents, (event) => event.type === "turn.plan.updated"),
+          1,
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId: asThreadId("thread-copilot-native-todo"),
+        cwd: "/repo",
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: asThreadId("thread-copilot-native-todo"),
+        input: "Track the implementation todos.",
+      });
+
+      fakeClient.emitSessionEvent({
+        id: "event-assistant-message-native-todo",
+        type: "assistant.message",
+        timestamp: "2024-01-01T00:00:02.000Z",
+        parentId: null,
+        data: {
+          messageId: "assistant-message-native-todo",
+          content: "Tracking native todos",
+          toolRequests: [
+            {
+              toolCallId: "tool-call-native-todo",
+              name: "update_todo",
+              arguments: {
+                todos: [
+                  "- [x] Inspect the adapter",
+                  "- [ ] Capture plan.md",
+                  "- [ ] Render the SQL-backed todo state",
+                ].join("\n"),
+              },
+              toolTitle: "Update Todo List",
+            },
+          ],
+        },
+      });
+
+      fakeClient.emitSessionEvent({
+        id: "event-tool-start-native-todo",
+        type: "tool.execution_start",
+        timestamp: "2024-01-01T00:00:03.000Z",
+        parentId: "event-assistant-message-native-todo",
+        data: {
+          toolCallId: "tool-call-native-todo",
+          toolName: "update_todo",
+          arguments: {
+            todos: [
+              "- [x] Inspect the adapter",
+              "- [ ] Capture plan.md",
+              "- [ ] Render the SQL-backed todo state",
+            ].join("\n"),
+          },
+        },
+      });
+
+      fakeClient.emitSessionEvent({
+        id: "event-tool-complete-native-todo",
+        type: "tool.execution_complete",
+        timestamp: "2024-01-01T00:00:04.000Z",
+        parentId: "event-tool-start-native-todo",
+        data: {
+          toolCallId: "tool-call-native-todo",
+          success: true,
+          result: {
+            content: "Todo list updated",
+          },
+        },
+      });
+
+      const events = Array.from(yield* Fiber.join(planEventsFiber));
+      assert.equal(events.length, 1);
+
+      const [planUpdated] = events;
+      assert.equal(planUpdated?.type, "turn.plan.updated");
+      if (planUpdated?.type !== "turn.plan.updated") {
+        return;
+      }
+
+      assert.deepEqual(planUpdated.payload.plan, [
+        { step: "Inspect the adapter", status: "completed" },
+        { step: "Capture plan.md", status: "pending" },
+        { step: "Render the SQL-backed todo state", status: "pending" },
+      ]);
+
+      yield* adapter.stopSession(asThreadId("thread-copilot-native-todo"));
+    }),
+  );
+
+  it.effect("emits native proposed plans from Copilot plan mode events and file-path hints", () =>
+    Effect.gen(function* () {
+      const planRead = vi.fn(async () => ({
+        exists: true,
+        content: "# Native plan\n\n- Audit the adapter\n- Read the SQL todos\n- Render the plan",
+        path: "/tmp/copilot-session/plan.md",
+      }));
+      const fakeClient = makeFakeClient({
+        models: [],
+        planRead,
+        workspacePath: "/tmp/copilot-session",
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const proposedPlanEventsFiber = yield* Stream.runCollect(
+        Stream.take(
+          Stream.filter(adapter.streamEvents, (event) => event.type === "turn.proposed.completed"),
+          2,
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId: asThreadId("thread-copilot-native-plan"),
+        cwd: "/repo",
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: asThreadId("thread-copilot-native-plan"),
+        input: "Create the implementation plan.",
+      });
+
+      fakeClient.emitSessionEvent({
+        id: "event-exit-plan-mode",
+        type: "exit_plan_mode.requested",
+        timestamp: "2024-01-01T00:00:02.000Z",
+        parentId: null,
+        ephemeral: true,
+        data: {
+          requestId: "exit-plan-request-1",
+          summary: "- Audit\n- Render",
+          planContent: "# Exit plan\n\n- Use the native exit payload\n- Wait for user review",
+          actions: ["exit_only", "interactive"],
+          recommendedAction: "interactive",
+        },
+      });
+
+      fakeClient.emitSessionEvent({
+        id: "event-assistant-message-plan-path",
+        type: "assistant.message",
+        timestamp: "2024-01-01T00:00:03.000Z",
+        parentId: "event-exit-plan-mode",
+        data: {
+          messageId: "assistant-message-plan-path",
+          content: "The plan is in file:///tmp/copilot-session/plan.md and is ready for review.",
+        },
+      });
+
+      const events = Array.from(yield* Fiber.join(proposedPlanEventsFiber));
+      assert.equal(events.length, 2);
+
+      const [exitPlanEvent, filePathPlanEvent] = events;
+      assert.equal(exitPlanEvent?.type, "turn.proposed.completed");
+      assert.equal(filePathPlanEvent?.type, "turn.proposed.completed");
+
+      if (exitPlanEvent?.type !== "turn.proposed.completed") {
+        return;
+      }
+      if (filePathPlanEvent?.type !== "turn.proposed.completed") {
+        return;
+      }
+
+      assert.equal(
+        exitPlanEvent.payload.planMarkdown,
+        "# Exit plan\n\n- Use the native exit payload\n- Wait for user review",
+      );
+      assert.equal(
+        filePathPlanEvent.payload.planMarkdown,
+        "# Native plan\n\n- Audit the adapter\n- Read the SQL todos\n- Render the plan",
+      );
+      assert.equal(planRead.mock.calls.length, 1);
+
+      yield* adapter.stopSession(asThreadId("thread-copilot-native-plan"));
+    }),
   );
 
   it.effect(

@@ -27,6 +27,7 @@ import type { OpenCodeProviderShape } from "../Services/OpenCodeProvider";
 import { OpenCodeProvider } from "../Services/OpenCodeProvider";
 import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry";
 import { withStartupTiming } from "../../startupDiagnostics";
+import { attachStaticProviderUsage } from "../providerUsage";
 
 const PROVIDER_LABEL_BY_KIND: Record<ProviderKind, string> = {
   codex: "Codex",
@@ -65,7 +66,7 @@ export function fallbackProviderSnapshot(
     return previousProvider;
   }
 
-  return {
+  return attachStaticProviderUsage({
     provider,
     enabled: true,
     installed: false,
@@ -75,7 +76,7 @@ export function fallbackProviderSnapshot(
     checkedAt: new Date().toISOString(),
     message: `Failed to load ${PROVIDER_LABEL_BY_KIND[provider]} provider status.`,
     models: [],
-  };
+  });
 }
 
 export function loadProviderSnapshotSafely<R, E>(

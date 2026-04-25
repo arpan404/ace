@@ -86,7 +86,18 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
   it.effect("reports in-session model switching capability", () =>
     Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;
-      assert.deepStrictEqual(adapter.capabilities, { sessionModelSwitch: "in-session" });
+      assert.deepStrictEqual(adapter.capabilities, {
+        sessionModelSwitch: "in-session",
+        sessionModelOptionsSwitch: "in-session",
+        liveTurnDiffMode: "workspace",
+        reviewChangesMode: "git",
+        reviewSurface: "git-worktree",
+        approvalRequestsMode: "native",
+        turnSteeringMode: "queued-message",
+        transcriptAuthority: "local",
+        historyAuthority: "local-server-session",
+        sessionResumeMode: "local-replay",
+      });
     }),
   );
 

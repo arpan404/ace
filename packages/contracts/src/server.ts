@@ -57,6 +57,77 @@ export const ServerProviderModel = Schema.Struct({
 });
 export type ServerProviderModel = typeof ServerProviderModel.Type;
 
+export const ServerProviderUsageSource = Schema.Literals([
+  "provider-runtime",
+  "provider-dashboard",
+  "local-estimate",
+  "static-plan",
+  "unavailable",
+]);
+export type ServerProviderUsageSource = typeof ServerProviderUsageSource.Type;
+
+export const ServerProviderUsageConfidence = Schema.Literals([
+  "exact",
+  "provider-reported",
+  "estimated",
+  "unknown",
+]);
+export type ServerProviderUsageConfidence = typeof ServerProviderUsageConfidence.Type;
+
+export const ServerProviderUsageWindowKind = Schema.Literals([
+  "session",
+  "rolling_5h",
+  "daily",
+  "weekly",
+  "monthly",
+  "context",
+  "credits",
+  "api",
+  "other",
+]);
+export type ServerProviderUsageWindowKind = typeof ServerProviderUsageWindowKind.Type;
+
+export const ServerProviderUsageUnit = Schema.Literals([
+  "tokens",
+  "requests",
+  "messages",
+  "tasks",
+  "reviews",
+  "credits",
+  "usd",
+  "percent",
+  "other",
+]);
+export type ServerProviderUsageUnit = typeof ServerProviderUsageUnit.Type;
+
+export const ServerProviderUsageWindow = Schema.Struct({
+  kind: ServerProviderUsageWindowKind,
+  label: TrimmedNonEmptyString,
+  unit: ServerProviderUsageUnit,
+  source: ServerProviderUsageSource,
+  confidence: ServerProviderUsageConfidence,
+  used: Schema.optional(Schema.Number),
+  limit: Schema.optional(Schema.Number),
+  remaining: Schema.optional(Schema.Number),
+  percentRemaining: Schema.optional(Schema.Number),
+  resetAt: Schema.optional(IsoDateTime),
+  resetLabel: Schema.optional(TrimmedNonEmptyString),
+  detail: Schema.optional(TrimmedNonEmptyString),
+});
+export type ServerProviderUsageWindow = typeof ServerProviderUsageWindow.Type;
+
+export const ServerProviderUsage = Schema.Struct({
+  headline: TrimmedNonEmptyString,
+  detail: Schema.optional(TrimmedNonEmptyString),
+  source: ServerProviderUsageSource,
+  confidence: ServerProviderUsageConfidence,
+  dashboardUrl: Schema.optional(TrimmedNonEmptyString),
+  updatedAt: Schema.optional(IsoDateTime),
+  windows: Schema.Array(ServerProviderUsageWindow),
+  notes: Schema.Array(TrimmedNonEmptyString),
+});
+export type ServerProviderUsage = typeof ServerProviderUsage.Type;
+
 export const ServerProvider = Schema.Struct({
   provider: ProviderKind,
   enabled: Schema.Boolean,
@@ -67,6 +138,7 @@ export const ServerProvider = Schema.Struct({
   checkedAt: IsoDateTime,
   message: Schema.optional(TrimmedNonEmptyString),
   models: Schema.Array(ServerProviderModel),
+  usage: Schema.optional(ServerProviderUsage),
 });
 export type ServerProvider = typeof ServerProvider.Type;
 

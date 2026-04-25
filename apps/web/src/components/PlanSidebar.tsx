@@ -1,4 +1,5 @@
 import { memo, useState, useCallback, useMemo } from "react";
+import { type ProviderKind } from "@ace/contracts";
 import { type TimestampFormat } from "@ace/contracts/settings";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -53,6 +54,7 @@ function stepStatusIcon(status: string): React.ReactNode {
 interface PlanSidebarProps {
   activePlan: ActivePlanState | null;
   activeProposedPlan: LatestProposedPlanState | null;
+  activeProvider?: ProviderKind | null;
   markdownCwd: string | undefined;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   workspaceRoot: string | undefined;
@@ -63,6 +65,7 @@ interface PlanSidebarProps {
 const PlanSidebar = memo(function PlanSidebar({
   activePlan,
   activeProposedPlan,
+  activeProvider = null,
   markdownCwd,
   onOpenBrowserUrl = null,
   workspaceRoot,
@@ -86,6 +89,53 @@ const PlanSidebar = memo(function PlanSidebar({
       total: activePlan.steps.length,
     };
   }, [activePlan]);
+  const isCopilotPlanSidebar = activeProvider === "githubCopilot";
+  const activePlanSectionMeta = useMemo(() => {
+    if (!activePlan) {
+      return null;
+    }
+    if (isCopilotPlanSidebar) {
+      return activePlan.source === "plan-update"
+        ? {
+            badge: "Live",
+            label: "Live todo state",
+            detail: "Execution checklist mirrored from Copilot's session state.",
+          }
+        : {
+            badge: "Derived",
+            label: "Execution checklist",
+            detail:
+              "Inferred from current task activity because no native todo update is available.",
+          };
+    }
+    return activePlan.source === "plan-update"
+      ? {
+          badge: "Plan",
+          label: "Current plan",
+          detail: null,
+        }
+      : {
+          badge: "Derived",
+          label: "Current plan",
+          detail: "Derived from task activity.",
+        };
+  }, [activePlan, isCopilotPlanSidebar]);
+  const proposedPlanMeta = useMemo(() => {
+    if (!planMarkdown) {
+      return null;
+    }
+    return isCopilotPlanSidebar
+      ? {
+          badge: "plan.md",
+          label: "Plan document",
+          detail: "Native Copilot plan file prepared for review.",
+        }
+      : {
+          badge: "Draft",
+          label: planTitle ?? "Full plan",
+          detail: null,
+        };
+  }, [isCopilotPlanSidebar, planMarkdown, planTitle]);
 
   const handleCopyPlan = useCallback(() => {
     if (!planMarkdown) return;
@@ -190,26 +240,41 @@ const PlanSidebar = memo(function PlanSidebar({
       {/* Content */}
       <ScrollArea className="min-h-0 flex-1">
         <div className="p-3 space-y-4">
-          {/* Explanation */}
-          {activePlan?.explanation ? (
-            <p className="text-[13px] leading-relaxed text-muted-foreground">
-              {activePlan.explanation}
-            </p>
-          ) : null}
-
           {/* Plan Steps */}
           {activePlan && activePlan.steps.length > 0 ? (
-            <div className="space-y-1">
+            <section className="space-y-2 rounded-xl border border-border/40 bg-background/70 p-3">
               {(() => {
                 const stepOccurrenceByText = new Map<string, number>();
                 return (
                   <>
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <p className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
-                        Current todo
-                      </p>
+                    <div className="mb-2 flex items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2">
+                          {activePlanSectionMeta ? (
+                            <Badge
+                              variant="secondary"
+                              className="rounded-md border border-border/40 bg-muted/30 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
+                            >
+                              {activePlanSectionMeta.badge}
+                            </Badge>
+                          ) : null}
+                          <p className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
+                            {activePlanSectionMeta?.label ?? "Current plan"}
+                          </p>
+                        </div>
+                        {activePlanSectionMeta?.detail ? (
+                          <p className="max-w-[28ch] text-[11px] leading-relaxed text-muted-foreground">
+                            {activePlanSectionMeta.detail}
+                          </p>
+                        ) : null}
+                        {activePlan?.explanation ? (
+                          <p className="text-[12px] leading-relaxed text-muted-foreground">
+                            {activePlan.explanation}
+                          </p>
+                        ) : null}
+                      </div>
                       {planStepSummary ? (
-                        <p className="text-[10px] text-muted-foreground">
+                        <p className="shrink-0 text-[10px] text-muted-foreground">
                           {planStepSummary.completed}/{planStepSummary.total} done
                         </p>
                       ) : null}
@@ -246,12 +311,34 @@ const PlanSidebar = memo(function PlanSidebar({
                   </>
                 );
               })()}
-            </div>
+            </section>
           ) : null}
 
           {/* Proposed Plan Markdown */}
           {planMarkdown ? (
-            <div className="space-y-2">
+            <section className="space-y-2 rounded-xl border border-border/40 bg-background/70 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex items-center gap-2">
+                    {proposedPlanMeta ? (
+                      <Badge
+                        variant="secondary"
+                        className="rounded-md border border-border/40 bg-muted/30 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
+                      >
+                        {proposedPlanMeta.badge}
+                      </Badge>
+                    ) : null}
+                    <p className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">
+                      {proposedPlanMeta?.label ?? planTitle ?? "Full plan"}
+                    </p>
+                  </div>
+                  {proposedPlanMeta?.detail ? (
+                    <p className="max-w-[28ch] text-[11px] leading-relaxed text-muted-foreground">
+                      {proposedPlanMeta.detail}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
               <button
                 type="button"
                 className="group flex w-full items-center gap-1.5 text-left"
@@ -263,7 +350,7 @@ const PlanSidebar = memo(function PlanSidebar({
                   <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform" />
                 )}
                 <span className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase group-hover:text-muted-foreground">
-                  {planTitle ?? "Full Plan"}
+                  {isCopilotPlanSidebar ? "Open plan preview" : (planTitle ?? "Full Plan")}
                 </span>
               </button>
               {proposedPlanExpanded ? (
@@ -276,7 +363,7 @@ const PlanSidebar = memo(function PlanSidebar({
                   />
                 </div>
               ) : null}
-            </div>
+            </section>
           ) : null}
 
           {/* Empty state */}

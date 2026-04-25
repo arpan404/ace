@@ -1759,6 +1759,7 @@ export default function ChatView({
     }
     return turnDiffSummaries.find((summary) => summary.turnId === activeLatestTurn.turnId) ?? null;
   }, [activeLatestTurn?.turnId, liveTurnInProgress, turnDiffSummaries]);
+  const liveTurnDiffMode = activeThread?.session?.capabilities?.liveTurnDiffMode;
   const liveTurnDiffStat = useMemo(() => {
     if (!liveTurnInProgress || !activeLatestTurn?.turnId || !liveTurnDiffSummary) {
       return null;
@@ -1782,7 +1783,10 @@ export default function ChatView({
   }, [activeLatestTurn?.turnId, liveTurnDiffSummary, liveTurnInProgress]);
   const liveWorkspaceStatusQuery = useQuery({
     ...gitStatusQueryOptions(gitCwd),
-    enabled: liveTurnInProgress && gitCwd !== null,
+    enabled:
+      liveTurnInProgress &&
+      gitCwd !== null &&
+      (liveTurnDiffMode === undefined || liveTurnDiffMode === "workspace"),
     staleTime: 0,
     refetchInterval: 1_000,
   });
@@ -6690,6 +6694,7 @@ export default function ChatView({
       ? {
           activePlan,
           activeProposedPlan: sidebarProposedPlan,
+          activeProvider: activeThread?.session?.provider ?? null,
           markdownCwd: gitCwd ?? undefined,
           onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
           workspaceRoot: activeProject?.cwd ?? undefined,

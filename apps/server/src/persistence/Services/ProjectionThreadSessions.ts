@@ -10,6 +10,7 @@ import {
   RuntimeMode,
   IsoDateTime,
   OrchestrationSessionStatus,
+  ProviderIntegrationCapabilities,
   ThreadId,
   TurnId,
 } from "@ace/contracts";
@@ -22,6 +23,9 @@ export const ProjectionThreadSession = Schema.Struct({
   threadId: ThreadId,
   status: OrchestrationSessionStatus,
   providerName: Schema.NullOr(Schema.String),
+  capabilities: Schema.NullOr(ProviderIntegrationCapabilities).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   runtimeMode: RuntimeMode,
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(Schema.String),

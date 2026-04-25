@@ -21,6 +21,8 @@ import {
   OrchestrationThread,
   type OrchestrationThreadActivity,
   ModelSelection,
+  ProviderIntegrationCapabilities,
+  ProviderKind,
   ProjectIcon,
   ProjectId,
   RuntimeMode,
@@ -45,6 +47,7 @@ import { ProjectionThreadMessage } from "../../persistence/Services/ProjectionTh
 import { ProjectionThreadProposedPlan } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
+import { defaultProviderIntegrationCapabilities } from "../../provider/providerCapabilities.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
   ProjectionSnapshotQuery,
@@ -92,7 +95,11 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
     sequence: Schema.NullOr(NonNegativeInt),
   }),
 );
-const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession;
+const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession.mapFields(
+  Struct.assign({
+    capabilities: Schema.NullOr(Schema.fromJsonString(ProviderIntegrationCapabilities)),
+  }),
+);
 const ProviderSessionRuntimeDbRowSchema = Schema.Struct({
   threadId: ThreadId,
   providerName: Schema.String,
@@ -259,10 +266,20 @@ function toOrchestrationLatestTurn(
 function toOrchestrationSession(
   row: Schema.Schema.Type<typeof ProjectionThreadSessionDbRowSchema>,
 ): OrchestrationSession {
+  const providerName =
+    row.providerName !== null && Schema.is(ProviderKind)(row.providerName)
+      ? row.providerName
+      : null;
+
   return {
     threadId: row.threadId,
     status: row.status,
-    providerName: row.providerName,
+    providerName,
+    ...(providerName
+      ? {
+          capabilities: row.capabilities ?? defaultProviderIntegrationCapabilities(providerName),
+        }
+      : {}),
     runtimeMode: row.runtimeMode,
     activeTurnId: row.activeTurnId,
     lastError: row.lastError,
@@ -758,6 +775,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           status,
           provider_name AS "providerName",
+          capabilities_json AS "capabilities",
           provider_session_id AS "providerSessionId",
           provider_thread_id AS "providerThreadId",
           runtime_mode AS "runtimeMode",
@@ -778,6 +796,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           status,
           provider_name AS "providerName",
+          capabilities_json AS "capabilities",
           provider_session_id AS "providerSessionId",
           provider_thread_id AS "providerThreadId",
           runtime_mode AS "runtimeMode",

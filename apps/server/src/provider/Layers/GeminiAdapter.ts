@@ -25,6 +25,7 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { meaningfulErrorMessage } from "../errorCause.ts";
 import { logWarningEffect, runLoggedEffect } from "../fireAndForget.ts";
+import { buildRuntimeErrorPayload } from "../runtimeEventPayloads.ts";
 import {
   buildBootstrapPromptFromReplayTurns,
   cloneReplayTurns,
@@ -1988,8 +1989,10 @@ const makeGeminiAdapter = Effect.gen(function* () {
         baseEvent(context, {
           type: "runtime.error",
           payload: {
-            message: `Gemini ACP exited unexpectedly (code=${input.code ?? "null"}, signal=${input.signal ?? "null"})`,
-            class: "transport_error",
+            ...buildRuntimeErrorPayload({
+              message: `Gemini ACP exited unexpectedly (code=${input.code ?? "null"}, signal=${input.signal ?? "null"})`,
+              class: "transport_error",
+            }),
           },
         }),
       );
@@ -2053,8 +2056,11 @@ const makeGeminiAdapter = Effect.gen(function* () {
               baseEvent(contextRef, {
                 type: "runtime.error",
                 payload: {
-                  message: toMessage(error, "Gemini ACP protocol error"),
-                  class: "transport_error",
+                  ...buildRuntimeErrorPayload({
+                    message: toMessage(error, "Gemini ACP protocol error"),
+                    cause: error,
+                    class: "transport_error",
+                  }),
                 },
               }),
             );
@@ -2308,8 +2314,11 @@ const makeGeminiAdapter = Effect.gen(function* () {
                   type: "runtime.error",
                   turnId,
                   payload: {
-                    message: toMessage(cause, "Gemini prompt failed"),
-                    class: "provider_error",
+                    ...buildRuntimeErrorPayload({
+                      message: toMessage(cause, "Gemini prompt failed"),
+                      cause,
+                      class: "provider_error",
+                    }),
                   },
                 }),
               );
@@ -2602,6 +2611,15 @@ const makeGeminiAdapter = Effect.gen(function* () {
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      sessionModelOptionsSwitch: "in-session",
+      liveTurnDiffMode: "reconstructed",
+      reviewChangesMode: "provider",
+      reviewSurface: "editor-native",
+      approvalRequestsMode: "native",
+      turnSteeringMode: "queued-message",
+      transcriptAuthority: "local",
+      historyAuthority: "project-local",
+      sessionResumeMode: "local-replay",
     },
     startSession,
     sendTurn,
