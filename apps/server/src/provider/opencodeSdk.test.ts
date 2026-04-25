@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getOpenCodeModelContextWindowTokensFromConfig,
   openCodeModelsFromProviderList,
   searchOpenCodeModelsFromProviderList,
 } from "./opencodeSdk";
@@ -239,6 +240,42 @@ describe("openCodeModelsFromProviderList", () => {
         "openrouter/gpt-paid",
       ]),
     );
+  });
+});
+
+describe("getOpenCodeModelContextWindowTokensFromConfig", () => {
+  it("resolves model ids that contain slashes", () => {
+    const result = getOpenCodeModelContextWindowTokensFromConfig(
+      {
+        providers: [
+          {
+            id: "openrouter",
+            name: "OpenRouter",
+            env: ["OPENROUTER_API_KEY"],
+            models: {
+              "anthropic/claude-sonnet-4.5": {
+                id: "anthropic/claude-sonnet-4.5",
+                name: "Claude Sonnet 4.5",
+                release_date: "2026-01-01",
+                attachment: true,
+                reasoning: true,
+                tool_call: true,
+                limit: {
+                  context: 200_000,
+                  output: 64_000,
+                },
+              },
+            },
+          },
+        ],
+        default: {
+          openrouter: "anthropic/claude-sonnet-4.5",
+        },
+      },
+      "openrouter/anthropic/claude-sonnet-4.5",
+    );
+
+    expect(result).toBe(200_000);
   });
 });
 
