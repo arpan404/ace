@@ -350,6 +350,24 @@ describe("buildOpenCodeThreadUsageSnapshot", () => {
     });
   });
 
+  it("includes the native model context window when available", () => {
+    expect(
+      buildOpenCodeThreadUsageSnapshot(
+        {
+          total: 2_048,
+          input: 1_100,
+          output: 300,
+        },
+        undefined,
+        undefined,
+        200_000,
+      ),
+    ).toMatchObject({
+      usedTokens: 2_048,
+      maxTokens: 200_000,
+    });
+  });
+
   it("returns undefined when the provider reports no positive usage", () => {
     expect(buildOpenCodeThreadUsageSnapshot({ input: 0, output: 0 })).toBeUndefined();
     expect(buildOpenCodeThreadUsageSnapshot(undefined)).toBeUndefined();
