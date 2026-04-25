@@ -168,13 +168,18 @@ describe("inferModelContextWindowTokens", () => {
   });
 
   it("returns Cursor defaults for documented Cursor models", () => {
+    expect(inferModelContextWindowTokens("cursor", "auto")).toBe(200_000);
+    expect(inferModelContextWindowTokens("cursor", "default[]")).toBe(200_000);
     expect(inferModelContextWindowTokens("cursor", "claude-4-sonnet")).toBe(200_000);
     expect(inferModelContextWindowTokens("cursor", "composer-2")).toBe(200_000);
     expect(inferModelContextWindowTokens("cursor", "gpt-5.4")).toBe(272_000);
+    expect(inferModelContextWindowTokens("cursor", "gpt-5.4[reasoning=high,context=272k]")).toBe(
+      272_000,
+    );
+    expect(inferModelContextWindowTokens("cursor", "gpt-5.3-codex-fast")).toBe(272_000);
   });
 
   it("returns undefined when the provider model limit is not known", () => {
-    expect(inferModelContextWindowTokens("cursor", "auto")).toBeUndefined();
     expect(inferModelContextWindowTokens("cursor", "gpt-5.4-mini")).toBeUndefined();
     expect(inferModelContextWindowTokens("gemini", "custom-model")).toBeUndefined();
   });

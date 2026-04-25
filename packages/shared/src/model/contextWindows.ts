@@ -7,6 +7,49 @@ function includesAny(value: string, candidates: ReadonlyArray<string>): boolean 
   return candidates.some((candidate) => value.includes(candidate));
 }
 
+function parseContextTokenCount(value: string): number | undefined {
+  const match = value.match(/\bcontext\s*=\s*(\d+(?:\.\d+)?)\s*([km])?\b/i);
+  if (!match) {
+    return undefined;
+  }
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return undefined;
+  }
+
+  const unit = match[2]?.toLowerCase();
+  const multiplier = unit === "m" ? 1_000_000 : unit === "k" ? 1_000 : 1;
+  return Math.round(amount * multiplier);
+}
+
+function matchesCursorModelVariant(value: string, baseModel: string): boolean {
+  if (value === baseModel) {
+    return true;
+  }
+  if (!value.startsWith(baseModel)) {
+    return false;
+  }
+
+  const suffix = value.slice(baseModel.length);
+  return (
+    suffix.startsWith("[") ||
+    suffix.startsWith(" ") ||
+    suffix === "-fast" ||
+    suffix === "-xhigh" ||
+    suffix === "-high" ||
+    suffix === "-medium" ||
+    suffix === "-low" ||
+    suffix === "-none" ||
+    suffix.startsWith("-fast[") ||
+    suffix.startsWith("-xhigh[") ||
+    suffix.startsWith("-high[") ||
+    suffix.startsWith("-medium[") ||
+    suffix.startsWith("-low[") ||
+    suffix.startsWith("-none[")
+  );
+}
+
 export function inferModelContextWindowTokens(
   provider: ProviderKind,
   model: string | null | undefined,
@@ -33,6 +76,15 @@ export function inferModelContextWindowTokens(
       return undefined;
     }
     case "cursor": {
+      const explicitContextTokens = parseContextTokenCount(lookupValue);
+      if (explicitContextTokens !== undefined) {
+        return explicitContextTokens;
+      }
+
+      if (lookupValue === "auto" || lookupValue.startsWith("default[")) {
+        return 200_000;
+      }
+
       if (includesAny(lookupValue, ["composer-2", "composer 2"])) {
         return 200_000;
       }
@@ -56,16 +108,16 @@ export function inferModelContextWindowTokens(
       ) {
         return 200_000;
       }
-      if (
-        lookupValue === "gpt-5.3-codex" ||
-        lookupValue.startsWith("gpt-5.3-codex ") ||
-        lookupValue === "gpt 5.3 codex" ||
-        lookupValue.startsWith("gpt 5.3 codex ") ||
-        lookupValue === "gpt-5.4" ||
-        lookupValue.startsWith("gpt-5.4 ") ||
-        lookupValue === "gpt 5.4" ||
-        lookupValue.startsWith("gpt 5.4 ")
-      ) {
+      if (matchesCursorModelVariant(lookupValue, "gpt-5.3-codex")) {
+        return 272_000;
+      }
+      if (matchesCursorModelVariant(lookupValue, "gpt-5.4")) {
+        return 272_000;
+      }
+      if (lookupValue === "gpt 5.3 codex" || lookupValue.startsWith("gpt 5.3 codex ")) {
+        return 272_000;
+      }
+      if (lookupValue === "gpt 5.4" || lookupValue.startsWith("gpt 5.4 ")) {
         return 272_000;
       }
       return undefined;

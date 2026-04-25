@@ -20,7 +20,6 @@ import {
   type RuntimeItemStatus,
   type UserInputQuestion,
 } from "@ace/contracts";
-import { inferModelContextWindowTokens } from "@ace/shared/model";
 import { Effect, FileSystem, Layer, PubSub, Stream } from "effect";
 
 import {
@@ -632,12 +631,6 @@ export const CursorAdapterLive = Layer.effect(
       findCursorConfigOption(context.metadata.configOptions, { category: "model", id: "model" })
         ?.currentValue ?? context.metadata.models?.currentModelId;
 
-    const currentCursorContextWindowTokens = (context: CursorSessionContext) =>
-      inferModelContextWindowTokens(
-        PROVIDER,
-        currentCursorModelConfigValue(context) ?? context.session.model,
-      );
-
     const availableCursorModeIds = (context: CursorSessionContext) => {
       const modeOption = findCursorConfigOption(context.metadata.configOptions, {
         category: "mode",
@@ -1074,7 +1067,6 @@ export const CursorAdapterLive = Layer.effect(
         outcome.type === "completed" ? outcome.usage : undefined,
         context.activeTurn,
         context.lastUsageTurnId === turnId ? context.lastUsageSnapshot : undefined,
-        currentCursorContextWindowTokens(context),
       );
       const finalUsageSnapshot =
         turnUsageSnapshot ??
@@ -1333,7 +1325,6 @@ export const CursorAdapterLive = Layer.effect(
         const usage = buildCursorUsageSnapshot(
           update,
           context.activeTurn,
-          currentCursorContextWindowTokens(context),
         );
         if (!usage) {
           return;
