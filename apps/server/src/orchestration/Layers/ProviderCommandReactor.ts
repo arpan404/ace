@@ -226,6 +226,18 @@ function countRenderableWorkLogActivities(thread: OrchestrationThread): number {
   return thread.activities.filter(isRenderableWorkLogActivity).length;
 }
 
+function isQueuedSteerActivityBoundary(
+  activity: OrchestrationThread["activities"][number],
+): boolean {
+  return activity.kind === "tool.completed" || activity.kind === "reasoning.completed";
+}
+
+function isQueuedSteerAssistantOutputBoundary(
+  event: Extract<OrchestrationEvent, { type: "thread.message-sent" }>,
+): boolean {
+  return event.payload.role === "assistant" && event.payload.streaming === false;
+}
+
 function buildQueuedMessageText(message: OrchestrationThread["queuedComposerMessages"][number]) {
   const prompt = stripIssueReferenceMarkers(message.prompt);
   const promptWithTerminalContexts = appendTerminalContextsToPrompt(
@@ -550,7 +562,26 @@ const make = Effect.gen(function* () {
     queueDispatchReservationsByThreadId.delete(input.threadId);
   });
 
-  const maybeInterruptForQueuedSteer = Effect.fnUntraced(function* (threadId: ThreadId) {
+  const maybeInterruptForQueuedSteer = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    input:
+      | {
+          readonly boundary: "activity";
+          readonly activity: OrchestrationThread["activities"][number];
+        }
+      | {
+          readonly boundary: "assistant-output";
+          readonly event: Extract<OrchestrationEvent, { type: "thread.message-sent" }>;
+        },
+  ) {
+    if (
+      input.boundary === "activity"
+        ? !isQueuedSteerActivityBoundary(input.activity)
+        : !isQueuedSteerAssistantOutputBoundary(input.event)
+    ) {
+      return;
+    }
+
     const thread = yield* resolveThread(threadId);
     const queuedSteerRequest = thread?.queuedSteerRequest ?? null;
     if (!thread || !queuedSteerRequest || queuedSteerRequest.interruptRequested) {
@@ -569,7 +600,10 @@ const make = Effect.gen(function* () {
     if (thread.latestTurn?.state !== "running") {
       return;
     }
-    if (countRenderableWorkLogActivities(thread) <= queuedSteerRequest.baselineWorkLogEntryCount) {
+    if (
+      input.boundary === "activity" &&
+      countRenderableWorkLogActivities(thread) <= queuedSteerRequest.baselineWorkLogEntryCount
+    ) {
       return;
     }
 
@@ -1452,6 +1486,13 @@ const make = Effect.gen(function* () {
       ) {
         return yield* worker.enqueue(event);
       }
+      if (event.type === "thread.message-sent") {
+        yield* maybeInterruptForQueuedSteer(event.payload.threadId, {
+          boundary: "assistant-output",
+          event,
+        });
+        return;
+      }
       if (
         event.type === "thread.meta-updated" ||
         event.type === "thread.session-set" ||
@@ -1472,7 +1513,12 @@ const make = Effect.gen(function* () {
         ) {
           queueDispatchReservationsByThreadId.delete(event.payload.threadId);
         }
-        yield* maybeInterruptForQueuedSteer(event.payload.threadId);
+        if (event.type === "thread.activity-appended") {
+          yield* maybeInterruptForQueuedSteer(event.payload.threadId, {
+            boundary: "activity",
+            activity: event.payload.activity,
+          });
+        }
         return yield* queueWorker.enqueue(event.payload.threadId);
       }
     });

@@ -1646,10 +1646,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
         return;
       }
       case "usage_update": {
-        const usage = buildGeminiContextUsageSnapshot(
-          update,
-          context.activeTurn,
-        );
+        const usage = buildGeminiContextUsageSnapshot(update, context.activeTurn);
         if (!usage) {
           return;
         }

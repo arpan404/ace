@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { EventId, type OrchestrationThreadActivity, TurnId } from "@ace/contracts";
 
-import {
-  deriveLatestContextWindowSnapshot,
-  formatContextWindowTokens,
-} from "./contextWindow";
+import { deriveLatestContextWindowSnapshot, formatContextWindowTokens } from "./contextWindow";
 
 function makeActivity(id: string, kind: string, payload: unknown): OrchestrationThreadActivity {
   return {
@@ -42,6 +39,16 @@ describe("contextWindow", () => {
   it("ignores malformed payloads", () => {
     const snapshot = deriveLatestContextWindowSnapshot([
       makeActivity("activity-1", "context-window.updated", {}),
+    ]);
+
+    expect(snapshot).toBeNull();
+  });
+
+  it("ignores token-only payloads without a native context window", () => {
+    const snapshot = deriveLatestContextWindowSnapshot([
+      makeActivity("activity-1", "context-window.updated", {
+        usedTokens: 1400,
+      }),
     ]);
 
     expect(snapshot).toBeNull();

@@ -3267,6 +3267,35 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
+  it("does not project token-only usage as a context window activity", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "thread.token-usage.updated",
+      eventId: asEventId("evt-thread-token-usage-updated-token-only"),
+      provider: "cursor",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        usage: {
+          usedTokens: 1075,
+          lastUsedTokens: 1075,
+        },
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === asThreadId("thread-1"));
+
+    expect(
+      thread?.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "context-window.updated",
+      ) ?? false,
+    ).toBe(false);
+  });
+
   it("projects Codex camelCase token usage payloads into normalized thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
