@@ -1322,10 +1322,7 @@ export const CursorAdapterLive = Layer.effect(
       }
 
       if (updateKind === "usage_update") {
-        const usage = buildCursorUsageSnapshot(
-          update,
-          context.activeTurn,
-        );
+        const usage = buildCursorUsageSnapshot(update, context.activeTurn);
         if (!usage) {
           return;
         }

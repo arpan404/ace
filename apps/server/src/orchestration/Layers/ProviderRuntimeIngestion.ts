@@ -211,7 +211,12 @@ function assistantStreamKey(
 function buildContextWindowActivityPayload(
   event: ProviderRuntimeEvent,
 ): ThreadTokenUsageSnapshot | undefined {
-  if (event.type !== "thread.token-usage.updated" || event.payload.usage.usedTokens <= 0) {
+  if (
+    event.type !== "thread.token-usage.updated" ||
+    event.payload.usage.usedTokens <= 0 ||
+    event.payload.usage.maxTokens === undefined ||
+    event.payload.usage.maxTokens <= 0
+  ) {
     return undefined;
   }
   return event.payload.usage;

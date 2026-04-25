@@ -161,25 +161,14 @@ describe("formatProviderModelDisplayName", () => {
 });
 
 describe("inferModelContextWindowTokens", () => {
-  it("returns Gemini CLI token limits for configured Gemini models", () => {
-    expect(inferModelContextWindowTokens("gemini", "gemini-2.5-pro")).toBe(1_048_576);
-    expect(inferModelContextWindowTokens("gemini", "gemini-3.1-pro-preview")).toBe(1_048_576);
-    expect(inferModelContextWindowTokens("gemini", "auto")).toBe(1_048_576);
-  });
-
-  it("returns Cursor defaults for documented Cursor models", () => {
-    expect(inferModelContextWindowTokens("cursor", "auto")).toBe(200_000);
-    expect(inferModelContextWindowTokens("cursor", "default[]")).toBe(200_000);
-    expect(inferModelContextWindowTokens("cursor", "claude-4-sonnet")).toBe(200_000);
-    expect(inferModelContextWindowTokens("cursor", "composer-2")).toBe(200_000);
-    expect(inferModelContextWindowTokens("cursor", "gpt-5.4")).toBe(272_000);
-    expect(inferModelContextWindowTokens("cursor", "gpt-5.4[reasoning=high,context=272k]")).toBe(
-      272_000,
-    );
-    expect(inferModelContextWindowTokens("cursor", "gpt-5.3-codex-fast")).toBe(272_000);
-  });
-
-  it("returns undefined when the provider model limit is not known", () => {
+  it("does not infer provider context windows from model names", () => {
+    expect(inferModelContextWindowTokens("cursor", "auto")).toBeUndefined();
+    expect(inferModelContextWindowTokens("cursor", "default[]")).toBeUndefined();
+    expect(
+      inferModelContextWindowTokens("cursor", "gpt-5.4[reasoning=high,context=272k]"),
+    ).toBeUndefined();
+    expect(inferModelContextWindowTokens("gemini", "gemini-2.5-pro")).toBeUndefined();
+    expect(inferModelContextWindowTokens("gemini", "auto")).toBeUndefined();
     expect(inferModelContextWindowTokens("cursor", "gpt-5.4-mini")).toBeUndefined();
     expect(inferModelContextWindowTokens("gemini", "custom-model")).toBeUndefined();
   });
