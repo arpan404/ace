@@ -53,6 +53,73 @@ export type ProviderSandboxMode = typeof ProviderSandboxMode.Type;
 
 export const DEFAULT_PROVIDER_KIND: ProviderKind = "codex";
 
+export const ProviderSessionModelSwitchMode = Schema.Literals([
+  "in-session",
+  "restart-session",
+  "unsupported",
+]);
+export type ProviderSessionModelSwitchMode = typeof ProviderSessionModelSwitchMode.Type;
+
+export const ProviderSessionModelOptionsSwitchMode = Schema.Literals([
+  "in-session",
+  "restart-session",
+]);
+export type ProviderSessionModelOptionsSwitchMode =
+  typeof ProviderSessionModelOptionsSwitchMode.Type;
+
+export const ProviderLiveTurnDiffMode = Schema.Literals(["native", "reconstructed", "workspace"]);
+export type ProviderLiveTurnDiffMode = typeof ProviderLiveTurnDiffMode.Type;
+
+export const ProviderReviewChangesMode = Schema.Literals(["provider", "git"]);
+export type ProviderReviewChangesMode = typeof ProviderReviewChangesMode.Type;
+
+export const ProviderReviewSurface = Schema.Literals([
+  "turn-native",
+  "editor-native",
+  "pending-changes",
+  "pull-request",
+  "git-worktree",
+]);
+export type ProviderReviewSurface = typeof ProviderReviewSurface.Type;
+
+export const ProviderApprovalRequestsMode = Schema.Literals(["native", "none"]);
+export type ProviderApprovalRequestsMode = typeof ProviderApprovalRequestsMode.Type;
+
+export const ProviderTurnSteeringMode = Schema.Literals(["native", "queued-message"]);
+export type ProviderTurnSteeringMode = typeof ProviderTurnSteeringMode.Type;
+
+export const ProviderTranscriptAuthority = Schema.Literals(["provider", "local"]);
+export type ProviderTranscriptAuthority = typeof ProviderTranscriptAuthority.Type;
+
+export const ProviderHistoryAuthority = Schema.Literals([
+  "provider-session",
+  "project-local",
+  "local-server-session",
+  "pull-request",
+]);
+export type ProviderHistoryAuthority = typeof ProviderHistoryAuthority.Type;
+
+export const ProviderSessionResumeMode = Schema.Literals(["native", "local-replay"]);
+export type ProviderSessionResumeMode = typeof ProviderSessionResumeMode.Type;
+
+export const ProviderIntegrationCapabilities = Schema.Struct({
+  sessionModelSwitch: ProviderSessionModelSwitchMode,
+  sessionModelOptionsSwitch: ProviderSessionModelOptionsSwitchMode,
+  liveTurnDiffMode: ProviderLiveTurnDiffMode,
+  reviewChangesMode: ProviderReviewChangesMode,
+  reviewSurface: ProviderReviewSurface.pipe(
+    Schema.withDecodingDefault(() => "git-worktree" as const),
+  ),
+  approvalRequestsMode: ProviderApprovalRequestsMode,
+  turnSteeringMode: ProviderTurnSteeringMode,
+  transcriptAuthority: ProviderTranscriptAuthority,
+  historyAuthority: ProviderHistoryAuthority.pipe(
+    Schema.withDecodingDefault(() => "project-local" as const),
+  ),
+  sessionResumeMode: ProviderSessionResumeMode,
+});
+export type ProviderIntegrationCapabilities = typeof ProviderIntegrationCapabilities.Type;
+
 export const CodexModelSelection = Schema.Struct({
   provider: Schema.Literal("codex"),
   model: TrimmedNonEmptyString,

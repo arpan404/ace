@@ -472,6 +472,7 @@ describe("deriveActivePlanState", () => {
     expect(deriveActivePlanState(activities, TurnId.makeUnsafe("turn-1"))).toEqual({
       createdAt: "2026-02-23T00:00:02.000Z",
       turnId: "turn-1",
+      source: "plan-update",
       explanation: "Refined plan",
       steps: [{ step: "Implement Codex user input", status: "inProgress" }],
     });
@@ -506,6 +507,7 @@ describe("deriveActivePlanState", () => {
     expect(deriveActivePlanState(activities, TurnId.makeUnsafe("turn-3"))).toEqual({
       createdAt: "2026-02-23T00:00:02.000Z",
       turnId: "turn-2",
+      source: "plan-update",
       steps: [{ step: "Implement UI fixes", status: "inProgress" }],
     });
   });
@@ -538,8 +540,42 @@ describe("deriveActivePlanState", () => {
     expect(deriveActivePlanState(activities, TurnId.makeUnsafe("turn-1"))).toEqual({
       createdAt: "2026-02-23T00:00:02.000Z",
       turnId: null,
+      source: "plan-update",
       steps: [{ step: "Draft implementation", status: "completed" }],
     });
+  });
+
+  it("does not treat task activity as plan data when no explicit plan update exists", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "task-start",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "task.started",
+        summary: "Plan task started",
+        tone: "info",
+        turnId: "turn-2",
+        payload: {
+          taskId: "task-1",
+          taskType: "plan",
+          detail: "Patch GitHub Copilot Adapter",
+        },
+      }),
+      makeActivity({
+        id: "task-progress",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "task.progress",
+        summary: "Reasoning update",
+        tone: "info",
+        turnId: "turn-2",
+        payload: {
+          taskId: "task-1",
+          detail: "Patch GitHub Copilot Adapter",
+          summary: "Applying the adapter changes",
+        },
+      }),
+    ];
+
+    expect(deriveActivePlanState(activities, TurnId.makeUnsafe("turn-2"))).toBeNull();
   });
 });
 

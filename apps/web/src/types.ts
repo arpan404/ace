@@ -3,6 +3,7 @@ import type {
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
   OrchestrationProposedPlanSummary,
+  ProviderIntegrationCapabilities,
   ProjectIcon as ContractProjectIcon,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
@@ -193,6 +194,7 @@ export interface SidebarThreadSummary {
 export interface ThreadSession {
   provider: ProviderKind;
   status: SessionPhase | "error" | "closed";
+  capabilities?: ProviderIntegrationCapabilities | undefined;
   activeTurnId?: TurnId | undefined;
   createdAt: string;
   updatedAt: string;

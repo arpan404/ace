@@ -1628,15 +1628,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      await expect.element(page.getByTestId("composer-live-turn-diff-banner")).toBeInTheDocument();
-      await expect.element(page.getByText("+9")).toBeInTheDocument();
-      await expect.element(page.getByText("-5")).toBeInTheDocument();
+      const liveDiffBanner = page.getByTestId("composer-live-turn-diff-banner");
+      await expect.element(liveDiffBanner).toBeInTheDocument();
+      await expect.element(liveDiffBanner.getByText("+9")).toBeInTheDocument();
+      await expect.element(liveDiffBanner.getByText("-5")).toBeInTheDocument();
 
       await page.getByRole("button", { name: "Review changes" }).click();
 
       await vi.waitFor(
         async () => {
-          expect(document.body.textContent).toContain("README.md");
+          await expect.element(page.getByText("All turns")).toBeInTheDocument();
+          await expect.element(page.getByText("Turn 1")).toBeInTheDocument();
         },
         { timeout: 4_000, interval: 16 },
       );

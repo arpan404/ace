@@ -175,6 +175,7 @@ function mapSession(session: OrchestrationSession): Thread["session"] {
     provider: toLegacyProvider(session.providerName),
     status: toLegacySessionStatus(session.status),
     orchestrationStatus: session.status,
+    ...(session.capabilities ? { capabilities: session.capabilities } : {}),
     activeTurnId: session.activeTurnId ?? undefined,
     createdAt: session.updatedAt,
     updatedAt: session.updatedAt,

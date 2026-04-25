@@ -30,6 +30,7 @@ import {
   ProviderAdapterValidationError,
 } from "../Errors.ts";
 import { startCursorAcpClient, type CursorAcpClient, type CursorAcpJsonRpcId } from "../cursorAcp";
+import { buildRuntimeErrorPayload } from "../runtimeEventPayloads.ts";
 import { type CursorAdapterShape, CursorAdapter } from "../Services/CursorAdapter.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
@@ -1635,11 +1636,11 @@ export const CursorAdapterLive = Layer.effect(
               rawSource: "cursor.acp.request",
             }),
             type: "runtime.error",
-            payload: {
+            payload: buildRuntimeErrorPayload({
               message: "Ignoring cursor/ask_question request without valid questions.",
+              detail: request.params,
               class: "validation_error",
-              ...(request.params !== undefined ? { detail: request.params } : {}),
-            },
+            }),
           });
           return;
         }
@@ -1889,10 +1890,11 @@ export const CursorAdapterLive = Layer.effect(
                 emit({
                   ...baseEvent(context),
                   type: "runtime.error",
-                  payload: {
+                  payload: buildRuntimeErrorPayload({
                     message: describeCursorAdapterCause(error),
+                    cause: error,
                     class: "transport_error",
-                  },
+                  }),
                 });
               });
               client.setNotificationHandler((notification) =>
@@ -2201,10 +2203,11 @@ export const CursorAdapterLive = Layer.effect(
               emit({
                 ...baseEvent(context, { turnId }),
                 type: "runtime.error",
-                payload: {
+                payload: buildRuntimeErrorPayload({
                   message: detailMessage,
+                  cause: error,
                   class: "provider_error",
-                },
+                }),
               });
               if (context.activeTurn?.id === turnId && context.activeTurn.interruptRequested) {
                 settleTurn(context, turnId, {
@@ -2602,7 +2605,18 @@ export const CursorAdapterLive = Layer.effect(
 
     return {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "restart-session" },
+      capabilities: {
+        sessionModelSwitch: "restart-session",
+        sessionModelOptionsSwitch: "restart-session",
+        liveTurnDiffMode: "workspace",
+        reviewChangesMode: "git",
+        reviewSurface: "pending-changes",
+        approvalRequestsMode: "native",
+        turnSteeringMode: "queued-message",
+        transcriptAuthority: "local",
+        historyAuthority: "project-local",
+        sessionResumeMode: "local-replay",
+      },
       startSession,
       sendTurn,
       interruptTurn,

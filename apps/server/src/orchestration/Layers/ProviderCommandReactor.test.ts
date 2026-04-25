@@ -26,6 +26,7 @@ import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "@ace/shared/terminalContext
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "@ace/contracts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
+import { defaultProviderIntegrationCapabilities } from "../../provider/providerCapabilities.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
@@ -109,6 +110,7 @@ describe("ProviderCommandReactor", () => {
     readonly serverSettings?: Partial<ServerSettings>;
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session" | "restart-session";
+    readonly sessionModelOptionsSwitch?: "in-session" | "restart-session";
   }) {
     const now = new Date().toISOString();
     const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "ace-reactor-"));
@@ -215,9 +217,15 @@ describe("ProviderCommandReactor", () => {
       respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],
       stopSession: stopSession as ProviderServiceShape["stopSession"],
       listSessions: () => Effect.succeed(runtimeSessions),
-      getCapabilities: (_provider) =>
+      getCapabilities: (provider) =>
         Effect.succeed({
-          sessionModelSwitch: input?.sessionModelSwitch ?? "in-session",
+          ...defaultProviderIntegrationCapabilities(provider),
+          ...(input?.sessionModelSwitch !== undefined
+            ? { sessionModelSwitch: input.sessionModelSwitch }
+            : {}),
+          ...(input?.sessionModelOptionsSwitch !== undefined
+            ? { sessionModelOptionsSwitch: input.sessionModelOptionsSwitch }
+            : {}),
         }),
       rollbackConversation: () => unsupported(),
       streamEvents: Stream.fromPubSub(runtimeEventPubSub),

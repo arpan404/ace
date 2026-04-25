@@ -1259,6 +1259,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       providerConfig,
       statusStyle: PROVIDER_STATUS_STYLES[statusKey],
       summary,
+      usage: liveProvider?.usage ?? null,
       versionLabel: getProviderVersionLabel(liveProvider?.version),
     };
   });

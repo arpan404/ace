@@ -43,6 +43,7 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { meaningfulErrorMessage } from "../errorCause.ts";
 import { runLoggedEffect } from "../fireAndForget.ts";
+import { buildRuntimeErrorPayload, buildRuntimeWarningPayload } from "../runtimeEventPayloads.ts";
 import {
   buildBootstrapPromptFromReplayTurns,
   cloneReplayTurns,
@@ -1611,11 +1612,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             sseEvent({
               type: "runtime.error",
               ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
-              payload: {
+              payload: buildRuntimeErrorPayload({
                 message,
+                detail,
                 class: "provider_error",
-                ...(detail ? { detail } : {}),
-              },
+              }),
             }),
           );
           return;
@@ -1624,10 +1625,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           sseEvent({
             type: "runtime.warning",
             ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
-            payload: {
-              message,
-              ...(detail ? { detail } : {}),
-            },
+            payload: buildRuntimeWarningPayload(message, detail),
           }),
         );
         return;
@@ -1672,11 +1670,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         emit(
           sseEvent({
             type: "runtime.error",
-            payload: {
+            payload: buildRuntimeErrorPayload({
               message: msg,
+              detail: err !== undefined && err !== null ? err : undefined,
               class: "provider_error",
-              ...(err !== undefined && err !== null ? { detail: err } : {}),
-            },
+            }),
           }),
         );
         return;
@@ -1821,10 +1819,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           emit(
             baseEvent(ctx, {
               type: "runtime.error",
-              payload: {
+              payload: buildRuntimeErrorPayload({
                 message: toMessage(cause, "OpenCode event stream failed"),
+                cause,
                 class: "transport_error",
-              },
+              }),
             }),
           );
         }
@@ -2402,6 +2401,15 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      sessionModelOptionsSwitch: "in-session",
+      liveTurnDiffMode: "workspace",
+      reviewChangesMode: "git",
+      reviewSurface: "git-worktree",
+      approvalRequestsMode: "native",
+      turnSteeringMode: "queued-message",
+      transcriptAuthority: "local",
+      historyAuthority: "local-server-session",
+      sessionResumeMode: "local-replay",
     },
     startSession,
     sendTurn,

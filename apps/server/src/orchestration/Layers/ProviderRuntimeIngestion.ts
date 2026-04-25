@@ -31,6 +31,7 @@ import {
 } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { updateProviderRuntimeIngestionCacheStats } from "../../runtimeProfile.ts";
+import { resolveProviderIntegrationCapabilities } from "../../provider/providerCapabilities.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId =>
@@ -1048,6 +1049,25 @@ const make = Effect.fn("make")(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
+  const providerCapabilitiesByProvider = new Map<
+    string,
+    ReturnType<typeof resolveProviderIntegrationCapabilities>
+  >();
+
+  const resolveSessionCapabilities = (provider: ProviderRuntimeEvent["provider"]) => {
+    const cached = providerCapabilitiesByProvider.get(provider);
+    if (cached) {
+      return Effect.succeed(cached);
+    }
+    return providerService.getCapabilities(provider).pipe(
+      Effect.map((capabilities) => resolveProviderIntegrationCapabilities(provider, capabilities)),
+      Effect.tap((capabilities) =>
+        Effect.sync(() => {
+          providerCapabilitiesByProvider.set(provider, capabilities);
+        }),
+      ),
+    );
+  };
 
   const turnMessageIdsByTurnKey = yield* Cache.make<string, Set<MessageId>>({
     capacity: TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY,
@@ -2212,6 +2232,7 @@ const make = Effect.fn("make")(function* () {
               threadId: thread.id,
               status,
               providerName: event.provider,
+              capabilities: yield* resolveSessionCapabilities(event.provider),
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: nextActiveTurnId,
               lastError,
@@ -2424,6 +2445,7 @@ const make = Effect.fn("make")(function* () {
               threadId: thread.id,
               status: "error",
               providerName: event.provider,
+              capabilities: yield* resolveSessionCapabilities(event.provider),
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: eventTurnId ?? null,
               lastError: runtimeErrorMessage,
@@ -2475,7 +2497,12 @@ const make = Effect.fn("make")(function* () {
         event.payload.itemType === "file_change"
       ) {
         const turnId = toTurnId(event.turnId);
-        const extracted = turnId ? extractLiveTurnDiffFromItem(event) : null;
+        const liveTurnDiffMode =
+          thread.session?.providerName === event.provider
+            ? thread.session.capabilities?.liveTurnDiffMode
+            : undefined;
+        const extracted =
+          liveTurnDiffMode === "workspace" || !turnId ? null : extractLiveTurnDiffFromItem(event);
         if (turnId && extracted && (extracted.files.length > 0 || extracted.diff)) {
           const existingAggregate = liveTurnDiffByTurnKey.get(providerTurnKey(thread.id, turnId));
           if (existingAggregate?.source === "provider-native") {
