@@ -20,7 +20,6 @@ export function cursorToolUseCount(turn: TurnUsageLike | undefined): number | un
 export function buildCursorUsageSnapshot(
   update: Record<string, unknown>,
   turn: TurnUsageLike | undefined,
-  inferredMaxTokens?: number,
 ):
   | {
       readonly usedTokens: number;
@@ -47,8 +46,7 @@ export function buildCursorUsageSnapshot(
     asRoundedNonNegativeInt(update.max_tokens) ??
     asRoundedNonNegativeInt(update.tokenLimit) ??
     asRoundedNonNegativeInt(update.token_limit) ??
-    asRoundedNonNegativeInt(update.limit) ??
-    inferredMaxTokens;
+    asRoundedNonNegativeInt(update.limit);
   const toolUses = cursorToolUseCount(turn);
 
   return {
@@ -146,7 +144,6 @@ export function buildCursorTurnUsageSnapshot(
   value: unknown,
   turn: TurnUsageLike | undefined,
   lastUsageSnapshot: CursorUsageSnapshot | undefined,
-  inferredMaxTokens?: number,
 ): CursorUsageSnapshot | undefined {
   const record = asObject(value);
   const usageRecord =
@@ -158,9 +155,7 @@ export function buildCursorTurnUsageSnapshot(
     record;
   const tokenCountTotals = readCursorTokenCountTotals(usageRecord);
   const contextUsage =
-    usageRecord === undefined
-      ? undefined
-      : buildCursorUsageSnapshot(usageRecord, turn, inferredMaxTokens);
+    usageRecord === undefined ? undefined : buildCursorUsageSnapshot(usageRecord, turn);
   const totalTokens =
     firstRoundedNonNegativeInt(usageRecord, ["totalTokens", "total_tokens"]) ??
     tokenCountTotals?.totalTokens;
@@ -205,10 +200,7 @@ export function buildCursorTurnUsageSnapshot(
 
   const contextUsedTokens = lastUsageSnapshot?.usedTokens ?? contextUsage?.usedTokens;
   const usedTokens = contextUsedTokens ?? totalTokens;
-  const maxTokens =
-    lastUsageSnapshot?.maxTokens ??
-    contextUsage?.maxTokens ??
-    (contextUsedTokens !== undefined ? inferredMaxTokens : undefined);
+  const maxTokens = lastUsageSnapshot?.maxTokens ?? contextUsage?.maxTokens;
 
   if (usedTokens === undefined || usedTokens <= 0) {
     return undefined;

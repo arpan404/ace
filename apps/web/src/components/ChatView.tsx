@@ -1106,10 +1106,6 @@ export default function ChatView({
     isServerThread,
     threads,
   ]);
-  const activeContextWindow = useMemo(
-    () => deriveLatestContextWindowSnapshot(activeThread?.activities ?? []),
-    [activeThread?.activities],
-  );
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
   const liveTurnInProgress = hasLiveTurn(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = useProjectById(activeThread?.projectId);
@@ -1391,6 +1387,12 @@ export default function ChatView({
       buildProviderModelSelection(selectedProvider, selectedModel, selectedModelOptionsForDispatch),
     [selectedModel, selectedModelOptionsForDispatch, selectedProvider],
   );
+  const activeContextWindow = useMemo(() => {
+    if (!hasThreadStarted) {
+      return null;
+    }
+    return deriveLatestContextWindowSnapshot(activeThread?.activities ?? []);
+  }, [activeThread?.activities, hasThreadStarted]);
   const selectedModelForPicker = selectedModel;
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;

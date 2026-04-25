@@ -17,7 +17,6 @@ import {
   ThreadId,
   TurnId,
 } from "@ace/contracts";
-import { inferModelContextWindowTokens } from "@ace/shared/model";
 import { Effect, Layer, Queue, Schema, Stream } from "effect";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -409,7 +408,6 @@ function geminiToolUseCount(turn: GeminiTurnState | null): number | undefined {
 function buildGeminiContextUsageSnapshot(
   value: unknown,
   turn: GeminiTurnState | null,
-  inferredMaxTokens?: number,
 ):
   | (ProviderRuntimeEventByType<"thread.token-usage.updated">["payload"]["usage"] &
       GeminiContextUsageSnapshot)
@@ -419,6 +417,8 @@ function buildGeminiContextUsageSnapshot(
   const usedTokens =
     firstRoundedNonNegativeInt(record, [
       "used",
+      "currentTokens",
+      "current_tokens",
       "usedTokens",
       "used_tokens",
       "promptTokenCount",
@@ -428,6 +428,8 @@ function buildGeminiContextUsageSnapshot(
     ]) ??
     firstRoundedNonNegativeInt(usageMetadata, [
       "used",
+      "currentTokens",
+      "current_tokens",
       "usedTokens",
       "used_tokens",
       "promptTokenCount",
@@ -463,8 +465,7 @@ function buildGeminiContextUsageSnapshot(
       "tokenLimit",
       "token_limit",
       "limit",
-    ]) ??
-    inferredMaxTokens;
+    ]);
   const toolUses = geminiToolUseCount(turn);
 
   return {
@@ -479,17 +480,20 @@ function buildGeminiTurnUsageSnapshot(
   value: unknown,
   turn: GeminiTurnState,
   lastUsageSnapshot: GeminiContextUsageSnapshot | undefined,
-  inferredMaxTokens?: number,
 ): ProviderRuntimeEventByType<"thread.token-usage.updated">["payload"]["usage"] | undefined {
   const record = asObject(value);
   const tokenCountTotals = readGeminiTokenCountTotals(record);
-  const finalContextUsage = buildGeminiContextUsageSnapshot(value, turn, inferredMaxTokens);
+  const finalContextUsage = buildGeminiContextUsageSnapshot(value, turn);
   const totalTokens =
-    firstRoundedNonNegativeInt(record, ["totalTokens", "total_tokens"]) ??
+    firstRoundedNonNegativeInt(record, ["totalTokens", "total_tokens", "totalTokenCount"]) ??
     tokenCountTotals?.totalTokens;
   const inputTokens =
-    firstRoundedNonNegativeInt(record, ["inputTokens", "input_tokens"]) ??
-    tokenCountTotals?.inputTokens;
+    firstRoundedNonNegativeInt(record, [
+      "inputTokens",
+      "input_tokens",
+      "promptTokenCount",
+      "prompt_token_count",
+    ]) ?? tokenCountTotals?.inputTokens;
   const cachedReadTokens =
     firstRoundedNonNegativeInt(record, ["cachedReadTokens", "cached_read_tokens"]) ??
     tokenCountTotals?.cachedReadTokens;
@@ -497,12 +501,18 @@ function buildGeminiTurnUsageSnapshot(
     firstRoundedNonNegativeInt(record, ["cachedWriteTokens", "cached_write_tokens"]) ??
     tokenCountTotals?.cachedWriteTokens;
   const outputTokens =
-    firstRoundedNonNegativeInt(record, ["outputTokens", "output_tokens"]) ??
-    tokenCountTotals?.outputTokens;
+    firstRoundedNonNegativeInt(record, [
+      "outputTokens",
+      "output_tokens",
+      "candidatesTokenCount",
+      "candidates_token_count",
+    ]) ?? tokenCountTotals?.outputTokens;
   const reasoningOutputTokens =
     firstRoundedNonNegativeInt(record, [
       "thoughtTokens",
       "thought_tokens",
+      "thoughtsTokenCount",
+      "thoughts_token_count",
       "reasoningTokens",
       "reasoning_tokens",
       "reasoningOutputTokens",
@@ -530,10 +540,7 @@ function buildGeminiTurnUsageSnapshot(
 
   const contextUsedTokens = lastUsageSnapshot?.usedTokens ?? finalContextUsage?.usedTokens;
   const usedTokens = contextUsedTokens ?? totalTokens;
-  const maxTokens =
-    lastUsageSnapshot?.maxTokens ??
-    finalContextUsage?.maxTokens ??
-    (contextUsedTokens !== undefined ? inferredMaxTokens : undefined);
+  const maxTokens = lastUsageSnapshot?.maxTokens ?? finalContextUsage?.maxTokens;
   if (usedTokens === undefined || usedTokens <= 0) {
     return undefined;
   }
@@ -989,12 +996,6 @@ const makeGeminiAdapter = Effect.gen(function* () {
     });
   };
 
-  const currentGeminiContextWindowTokens = (context: GeminiSessionContext) =>
-    inferModelContextWindowTokens(
-      PROVIDER,
-      context.metadata.currentModelId ?? context.session.model,
-    );
-
   const baseEvent = <TType extends ProviderRuntimeEvent["type"]>(
     context: GeminiSessionContext,
     input: {
@@ -1246,7 +1247,6 @@ const makeGeminiAdapter = Effect.gen(function* () {
         outcome.usage,
         turn,
         context.lastUsageSnapshot,
-        currentGeminiContextWindowTokens(context),
       );
       const processedTokens = readGeminiProcessedTokens(outcome.usage);
       if (processedTokens !== undefined && processedTokens > 0) {
@@ -1649,7 +1649,6 @@ const makeGeminiAdapter = Effect.gen(function* () {
         const usage = buildGeminiContextUsageSnapshot(
           update,
           context.activeTurn,
-          currentGeminiContextWindowTokens(context),
         );
         if (!usage) {
           return;
