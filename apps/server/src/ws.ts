@@ -237,6 +237,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const terminalManager = yield* TerminalManager;
     const providerRegistry = yield* ProviderRegistry;
+    const providerServiceOption = yield* Effect.serviceOption(ProviderService);
     const config = yield* ServerConfig;
     const lifecycleEvents = yield* ServerLifecycleEvents;
     const serverSettings = yield* ServerSettingsService;
@@ -263,7 +264,6 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     });
 
     const loadRuntimeProfile = Effect.gen(function* () {
-      const providerServiceOption = yield* Effect.serviceOption(ProviderService);
       const providerSessions = Option.isSome(providerServiceOption)
         ? yield* providerServiceOption.value.listSessions()
         : [];
@@ -760,6 +760,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
         ),
       [WS_METHODS.gitStatus]: (input) => gitManager.status(input),
+      [WS_METHODS.gitReadWorkingTreeDiff]: (input) => gitManager.readWorkingTreeDiff(input),
       [WS_METHODS.gitPull]: (input) => git.pullCurrentBranch(input.cwd),
       [WS_METHODS.gitRunStackedAction]: (input) =>
         Stream.callback<GitActionProgressEvent, GitManagerServiceError>((queue) =>

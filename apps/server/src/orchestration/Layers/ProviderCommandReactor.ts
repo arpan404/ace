@@ -22,6 +22,7 @@ import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { meaningfulErrorMessage } from "../../provider/errorCause.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
+import { resolveProviderIntegrationCapabilities } from "../../provider/providerCapabilities.ts";
 import {
   sourceMessagesToHandoffReplayTurns,
   sourceMessagesToReplayTurns,
@@ -225,6 +226,18 @@ function countRenderableWorkLogActivities(thread: OrchestrationThread): number {
   return thread.activities.filter(isRenderableWorkLogActivity).length;
 }
 
+function isQueuedSteerActivityBoundary(
+  activity: OrchestrationThread["activities"][number],
+): boolean {
+  return activity.kind === "tool.completed" || activity.kind === "reasoning.completed";
+}
+
+function isQueuedSteerAssistantOutputBoundary(
+  event: Extract<OrchestrationEvent, { type: "thread.message-sent" }>,
+): boolean {
+  return event.payload.role === "assistant" && event.payload.streaming === false;
+}
+
 function buildQueuedMessageText(message: OrchestrationThread["queuedComposerMessages"][number]) {
   const prompt = stripIssueReferenceMarkers(message.prompt);
   const promptWithTerminalContexts = appendTerminalContextsToPrompt(
@@ -364,10 +377,29 @@ const make = Effect.gen(function* () {
     );
 
   const threadModelSelections = new Map<string, ModelSelection>();
+  const providerCapabilitiesByProvider = new Map<
+    ProviderKind,
+    OrchestrationSession["capabilities"]
+  >();
   const queueDispatchReservationsByThreadId = new Map<
     ThreadId,
     { readonly createdAt: string; readonly messageId: MessageId }
   >();
+
+  const resolveSessionCapabilities = (provider: ProviderKind) => {
+    const cached = providerCapabilitiesByProvider.get(provider);
+    if (cached) {
+      return Effect.succeed(cached);
+    }
+    return providerService.getCapabilities(provider).pipe(
+      Effect.map((capabilities) => resolveProviderIntegrationCapabilities(provider, capabilities)),
+      Effect.tap((capabilities) =>
+        Effect.sync(() => {
+          providerCapabilitiesByProvider.set(provider, capabilities);
+        }),
+      ),
+    );
+  };
 
   const appendProviderFailureActivity = (input: {
     readonly threadId: ThreadId;
@@ -453,24 +485,31 @@ const make = Effect.gen(function* () {
     readonly liveSession: ProviderSession | undefined;
     readonly createdAt: string;
   }) =>
-    setThreadSession({
-      threadId: input.thread.id,
-      session: {
+    Effect.gen(function* () {
+      const rawProvider = input.liveSession?.provider ?? input.thread.session?.providerName ?? null;
+      const provider = rawProvider && Schema.is(ProviderKind)(rawProvider) ? rawProvider : null;
+      const capabilities = provider ? yield* resolveSessionCapabilities(provider) : undefined;
+
+      return yield* setThreadSession({
         threadId: input.thread.id,
-        status:
-          input.liveSession !== undefined
-            ? mapProviderSessionStatusToOrchestrationStatus(input.liveSession.status)
-            : "stopped",
-        providerName: input.liveSession?.provider ?? input.thread.session?.providerName ?? null,
-        runtimeMode:
-          input.liveSession?.runtimeMode ??
-          input.thread.session?.runtimeMode ??
-          DEFAULT_RUNTIME_MODE,
-        activeTurnId: null,
-        lastError: input.liveSession?.lastError ?? input.thread.session?.lastError ?? null,
-        updatedAt: input.createdAt,
-      },
-      createdAt: input.createdAt,
+        session: {
+          threadId: input.thread.id,
+          status:
+            input.liveSession !== undefined
+              ? mapProviderSessionStatusToOrchestrationStatus(input.liveSession.status)
+              : "stopped",
+          providerName: provider,
+          ...(capabilities ? { capabilities } : {}),
+          runtimeMode:
+            input.liveSession?.runtimeMode ??
+            input.thread.session?.runtimeMode ??
+            DEFAULT_RUNTIME_MODE,
+          activeTurnId: null,
+          lastError: input.liveSession?.lastError ?? input.thread.session?.lastError ?? null,
+          updatedAt: input.createdAt,
+        },
+        createdAt: input.createdAt,
+      });
     });
 
   const resolveThread = Effect.fnUntraced(function* (threadId: ThreadId) {
@@ -523,7 +562,26 @@ const make = Effect.gen(function* () {
     queueDispatchReservationsByThreadId.delete(input.threadId);
   });
 
-  const maybeInterruptForQueuedSteer = Effect.fnUntraced(function* (threadId: ThreadId) {
+  const maybeInterruptForQueuedSteer = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    input:
+      | {
+          readonly boundary: "activity";
+          readonly activity: OrchestrationThread["activities"][number];
+        }
+      | {
+          readonly boundary: "assistant-output";
+          readonly event: Extract<OrchestrationEvent, { type: "thread.message-sent" }>;
+        },
+  ) {
+    if (
+      input.boundary === "activity"
+        ? !isQueuedSteerActivityBoundary(input.activity)
+        : !isQueuedSteerAssistantOutputBoundary(input.event)
+    ) {
+      return;
+    }
+
     const thread = yield* resolveThread(threadId);
     const queuedSteerRequest = thread?.queuedSteerRequest ?? null;
     if (!thread || !queuedSteerRequest || queuedSteerRequest.interruptRequested) {
@@ -542,7 +600,10 @@ const make = Effect.gen(function* () {
     if (thread.latestTurn?.state !== "running") {
       return;
     }
-    if (countRenderableWorkLogActivities(thread) <= queuedSteerRequest.baselineWorkLogEntryCount) {
+    if (
+      input.boundary === "activity" &&
+      countRenderableWorkLogActivities(thread) <= queuedSteerRequest.baselineWorkLogEntryCount
+    ) {
       return;
     }
 
@@ -782,19 +843,27 @@ const make = Effect.gen(function* () {
         requestedModelSelection !== undefined &&
         requestedModelSelection.provider !== currentProvider;
       const activeSession = yield* resolveActiveSession(existingSessionThreadId);
-      const sessionModelSwitch =
+      const providerCapabilities =
         currentProvider === undefined
-          ? "in-session"
-          : (yield* providerService.getCapabilities(currentProvider)).sessionModelSwitch;
+          ? {
+              sessionModelSwitch: "in-session" as const,
+              sessionModelOptionsSwitch: "in-session" as const,
+            }
+          : yield* providerService.getCapabilities(currentProvider);
+      const sessionModelSwitch = providerCapabilities.sessionModelSwitch;
+      const sessionModelOptionsSwitch = providerCapabilities.sessionModelOptionsSwitch;
       const modelChanged =
         requestedModelSelection !== undefined &&
         requestedModelSelection.model !== activeSession?.model;
       const shouldRestartForModelChange = modelChanged && sessionModelSwitch === "restart-session";
-      const previousModelSelection = threadModelSelections.get(threadId);
-      const shouldRestartForModelSelectionChange =
-        (currentProvider === "claudeAgent" || currentProvider === "cursor") &&
+      const previousModelSelection = threadModelSelections.get(threadId) ?? thread.modelSelection;
+      const modelOptionsChanged =
         requestedModelSelection !== undefined &&
-        !Equal.equals(previousModelSelection, requestedModelSelection);
+        requestedModelSelection.provider === previousModelSelection.provider &&
+        requestedModelSelection.model === previousModelSelection.model &&
+        !Equal.equals(previousModelSelection.options, requestedModelSelection.options);
+      const shouldRestartForModelSelectionChange =
+        modelOptionsChanged && sessionModelOptionsSwitch === "restart-session";
       const shouldRestartReadySessionForTurn =
         options?.preferFreshSession === true &&
         sessionModelSwitch === "restart-session" &&
@@ -1417,6 +1486,13 @@ const make = Effect.gen(function* () {
       ) {
         return yield* worker.enqueue(event);
       }
+      if (event.type === "thread.message-sent") {
+        yield* maybeInterruptForQueuedSteer(event.payload.threadId, {
+          boundary: "assistant-output",
+          event,
+        });
+        return;
+      }
       if (
         event.type === "thread.meta-updated" ||
         event.type === "thread.session-set" ||
@@ -1437,7 +1513,12 @@ const make = Effect.gen(function* () {
         ) {
           queueDispatchReservationsByThreadId.delete(event.payload.threadId);
         }
-        yield* maybeInterruptForQueuedSteer(event.payload.threadId);
+        if (event.type === "thread.activity-appended") {
+          yield* maybeInterruptForQueuedSteer(event.payload.threadId, {
+            boundary: "activity",
+            activity: event.payload.activity,
+          });
+        }
         return yield* queueWorker.enqueue(event.payload.threadId);
       }
     });

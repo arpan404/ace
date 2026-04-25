@@ -175,6 +175,7 @@ function mapSession(session: OrchestrationSession): Thread["session"] {
     provider: toLegacyProvider(session.providerName),
     status: toLegacySessionStatus(session.status),
     orchestrationStatus: session.status,
+    ...(session.capabilities ? { capabilities: session.capabilities } : {}),
     activeTurnId: session.activeTurnId ?? undefined,
     createdAt: session.updatedAt,
     updatedAt: session.updatedAt,
@@ -324,9 +325,11 @@ function mapTurnDiffSummary(
     turnId: checkpoint.turnId,
     completedAt: checkpoint.completedAt,
     status: checkpoint.status,
+    source: checkpoint.source,
     assistantMessageId: checkpoint.assistantMessageId ?? undefined,
     checkpointTurnCount: checkpoint.checkpointTurnCount,
     checkpointRef: checkpoint.checkpointRef,
+    diff: checkpoint.diff,
     files: checkpoint.files.map((file) => ({ ...file })),
   };
 }
@@ -1339,6 +1342,8 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           checkpointTurnCount: event.payload.checkpointTurnCount,
           checkpointRef: event.payload.checkpointRef,
           status: event.payload.status,
+          source: event.payload.source,
+          ...(event.payload.diff !== undefined ? { diff: event.payload.diff } : {}),
           files: event.payload.files,
           assistantMessageId: event.payload.assistantMessageId,
           completedAt: event.payload.completedAt,
@@ -1347,6 +1352,13 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           (entry) => entry.turnId === checkpoint.turnId,
         );
         if (existing && existing.status !== "missing" && checkpoint.status === "missing") {
+          return thread;
+        }
+        if (
+          existing &&
+          existing.source === "provider-native" &&
+          checkpoint.source === "provider-reconstructed"
+        ) {
           return thread;
         }
         const turnDiffSummaries =

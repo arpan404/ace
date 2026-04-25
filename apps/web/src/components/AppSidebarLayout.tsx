@@ -142,6 +142,18 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         return;
       }
 
+      if (action === "zoom-in" || action === "zoom-out" || action === "zoom-reset") {
+        const activeElement = document.activeElement;
+        if (
+          activeElement instanceof HTMLElement &&
+          activeElement.closest("[data-in-app-browser-shell='true']")
+        ) {
+          return;
+        }
+        void window.desktopBridge?.applyAppZoom?.(action);
+        return;
+      }
+
       if (action !== "new-thread" && action !== "new-local-thread") {
         return;
       }

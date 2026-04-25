@@ -44,6 +44,8 @@ export type BrowserWebview = HTMLElement & {
   openDevTools: (options?: { mode?: "detach" | "left" | "right" | "bottom" | "undocked" }) => void;
   reload: () => void;
   sendInputEvent?: (event: BrowserWebviewMouseWheelInputEvent) => void;
+  getZoomFactor?: () => number;
+  setZoomFactor?: (factor: number) => void;
   stop: () => void;
 };
 
@@ -112,6 +114,9 @@ export type BrowserTabHandle = {
   openDevTools: () => void;
   reload: () => void;
   stop: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  zoomReset: () => void;
 };
 
 export type BrowserWebviewContextMenuAction =

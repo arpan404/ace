@@ -43,7 +43,10 @@ import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
-import { normalizeCompactToolLabel } from "~/lib/chat/messagesTimeline";
+import {
+  computeMessageDurationStart,
+  normalizeCompactToolLabel,
+} from "~/lib/chat/messagesTimeline";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import {
   deriveDisplayedUserMessageState,
@@ -169,16 +172,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       activeTurnStartedAt,
     ],
   );
-  const latestAssistantTurnSummary = useMemo(
-    () =>
-      activeTurnInProgress
-        ? null
-        : resolveLatestAssistantTurnDiffSummary(
-            timelineEntries,
-            turnDiffSummaryByAssistantMessageId,
-          ),
-    [activeTurnInProgress, timelineEntries, turnDiffSummaryByAssistantMessageId],
-  );
+  const activeTurnStartedAtMs =
+    activeTurnInProgress && activeTurnStartedAt ? Date.parse(activeTurnStartedAt) : Number.NaN;
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
     Record<string, boolean>
   >({});
@@ -429,20 +424,43 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
         {row.kind === "message" &&
           isAssistantTimelineMessage(row.message) &&
-          (() => (
-            <AssistantMessageTimelineRow
-              completionSummary={row.completionSummary}
-              durationStart={row.durationStart}
-              isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}
-              showCompletedTiming={row.showAssistantTiming ?? false}
-              showAssistantSummaryByDefault={row.showAssistantSummaryByDefault ?? false}
-              markdownCwd={markdownCwd}
-              message={row.message}
-              onOpenBrowserUrl={onOpenBrowserUrl}
-              timestampFormat={timestampFormat}
-              {...(onMeasuredLayoutChange ? { onLayoutChange: onMeasuredLayoutChange } : {})}
-            />
-          ))()}
+          (() => {
+            const turnSummary = turnDiffSummaryByAssistantMessageId.get(row.message.id) ?? null;
+            const shouldShowTurnSummary =
+              turnSummary !== null &&
+              turnSummary.files.length > 0 &&
+              !(activeTurnInProgress && isEventInActiveTurn(row.createdAt, activeTurnStartedAtMs));
+
+            return (
+              <div className="min-w-0">
+                <AssistantMessageTimelineRow
+                  completionSummary={row.completionSummary}
+                  durationStart={row.durationStart}
+                  isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}
+                  showCompletedTiming={row.showAssistantTiming ?? false}
+                  showAssistantSummaryByDefault={row.showAssistantSummaryByDefault ?? false}
+                  markdownCwd={markdownCwd}
+                  message={row.message}
+                  onOpenBrowserUrl={onOpenBrowserUrl}
+                  timestampFormat={timestampFormat}
+                  {...(onMeasuredLayoutChange ? { onLayoutChange: onMeasuredLayoutChange } : {})}
+                />
+                {shouldShowTurnSummary && (
+                  <div className="mt-2.5 rounded-xl border border-border/45 bg-background/35 px-4 py-3">
+                    <AssistantMessageTurnDiffSummary
+                      allDirectoriesExpanded={
+                        allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? false
+                      }
+                      onOpenTurnDiff={onOpenTurnDiff}
+                      onToggleAllDirectories={onToggleAllDirectories}
+                      resolvedTheme={resolvedTheme}
+                      turnSummary={turnSummary}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
         {row.kind === "proposed-plan" && (
           <ProposedPlanTimelineRow
@@ -572,24 +590,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       {trailingRows.map((row, index) => (
         <div key={`row:${row.id}`}>{renderRowContent(row, virtualizedRows.length + index)}</div>
       ))}
-      {latestAssistantTurnSummary && (
-        <div
-          className="group/timeline relative pb-3"
-          data-timeline-row-kind="assistant-diff-summary"
-        >
-          <div className="rounded-xl border border-border/45 bg-background/35 px-4 py-3">
-            <AssistantMessageTurnDiffSummary
-              allDirectoriesExpanded={
-                allDirectoriesExpandedByTurnId[latestAssistantTurnSummary.turnId] ?? false
-              }
-              onOpenTurnDiff={onOpenTurnDiff}
-              onToggleAllDirectories={onToggleAllDirectories}
-              resolvedTheme={resolvedTheme}
-              turnSummary={latestAssistantTurnSummary}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 });
@@ -792,6 +792,24 @@ function buildTimelineRows(input: {
     activeTurnInProgress: input.activeTurnInProgress,
     activeTurnStartedAtMs,
   });
+  const messageDurationStartById = computeMessageDurationStart(
+    input.timelineEntries.flatMap((timelineEntry) => {
+      if (timelineEntry?.kind !== "message") {
+        return [];
+      }
+
+      return [
+        {
+          id: timelineEntry.message.id,
+          role: timelineEntry.message.role,
+          createdAt: timelineEntry.message.createdAt,
+          ...(timelineEntry.message.completedAt
+            ? { completedAt: timelineEntry.message.completedAt }
+            : {}),
+        },
+      ];
+    }),
+  );
   let hasRenderableCurrentTurnOutput = false;
   let lastMessageBoundaryAt: string | null = null;
   let activeTurnUserMessageCreatedAt: string | null = null;
@@ -962,7 +980,8 @@ function buildTimelineRows(input: {
       hasRenderableCurrentTurnOutput = true;
     }
 
-    const durationStart = lastMessageBoundaryAt ?? timelineEntry.message.createdAt;
+    const durationStart =
+      messageDurationStartById.get(timelineEntry.message.id) ?? timelineEntry.message.createdAt;
     if (timelineEntry.message.role === "user") {
       lastMessageBoundaryAt = timelineEntry.message.createdAt;
       if (
@@ -1323,14 +1342,6 @@ function formatCompletedWorkTimer(startIso: string, endIso: string): string | nu
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-function normalizeCompletionSummaryElapsed(summary: string | null): string | null {
-  if (!summary) {
-    return null;
-  }
-
-  return summary.replace(/^Worked for\s+/i, "").trim() || null;
-}
-
 function summarizeWorkGroupBreakdownParts(entries: ReadonlyArray<TimelineMetaGroupEntry>): Array<{
   label: string;
   count: number;
@@ -1382,27 +1393,6 @@ function shouldSkipAssistantMessageRow(message: TimelineMessage): boolean {
     return false;
   }
   return message.text.trim().length === 0;
-}
-
-function resolveLatestAssistantTurnDiffSummary(
-  timelineEntries: ReadonlyArray<TimelineEntry>,
-  summaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>,
-): TurnDiffSummary | null {
-  for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
-    const entry = timelineEntries[index];
-    if (!entry || entry.kind !== "message") {
-      continue;
-    }
-    if (entry.message.role !== "assistant") {
-      return null;
-    }
-    const summary = summaryByAssistantMessageId.get(entry.message.id);
-    if (!summary || summary.files.length === 0) {
-      return null;
-    }
-    return summary;
-  }
-  return null;
 }
 
 function isUserTimelineMessage(message: TimelineMessage): message is UserTimelineMessage {
@@ -1655,8 +1645,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   const completedAt = props.message.completedAt ?? null;
   const elapsedLabel =
     props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt
-      ? (normalizeCompletionSummaryElapsed(props.completionSummary) ??
-        formatCompletedWorkTimer(props.durationStart, completedAt))
+      ? formatCompletedWorkTimer(props.durationStart, completedAt)
       : null;
   const completedAtLabel =
     props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt

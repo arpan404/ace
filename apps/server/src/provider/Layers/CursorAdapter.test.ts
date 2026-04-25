@@ -2092,18 +2092,16 @@ describe("CursorAdapterLive", () => {
     });
   });
 
-  it("fills Cursor max tokens from the current model when usage updates omit size", () => {
+  it("leaves Cursor max tokens unset when usage updates omit a native size", () => {
     const snapshot = buildCursorUsageSnapshot(
       {
         used: 32_000,
       },
       undefined,
-      200_000,
     );
 
     expect(snapshot).toEqual({
       usedTokens: 32_000,
-      maxTokens: 200_000,
       lastUsedTokens: 32_000,
     });
   });
@@ -2121,7 +2119,6 @@ describe("CursorAdapterLive", () => {
       },
       undefined,
       undefined,
-      200_000,
     );
 
     expect(snapshot).toEqual({
@@ -2149,7 +2146,6 @@ describe("CursorAdapterLive", () => {
         maxTokens: 128_000,
         lastUsedTokens: 32_000,
       },
-      200_000,
     );
 
     expect(snapshot).toEqual({

@@ -26,6 +26,7 @@ import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "@ace/shared/terminalContext
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "@ace/contracts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
+import { defaultProviderIntegrationCapabilities } from "../../provider/providerCapabilities.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
@@ -109,6 +110,7 @@ describe("ProviderCommandReactor", () => {
     readonly serverSettings?: Partial<ServerSettings>;
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session" | "restart-session";
+    readonly sessionModelOptionsSwitch?: "in-session" | "restart-session";
   }) {
     const now = new Date().toISOString();
     const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "ace-reactor-"));
@@ -215,9 +217,15 @@ describe("ProviderCommandReactor", () => {
       respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],
       stopSession: stopSession as ProviderServiceShape["stopSession"],
       listSessions: () => Effect.succeed(runtimeSessions),
-      getCapabilities: (_provider) =>
+      getCapabilities: (provider) =>
         Effect.succeed({
-          sessionModelSwitch: input?.sessionModelSwitch ?? "in-session",
+          ...defaultProviderIntegrationCapabilities(provider),
+          ...(input?.sessionModelSwitch !== undefined
+            ? { sessionModelSwitch: input.sessionModelSwitch }
+            : {}),
+          ...(input?.sessionModelOptionsSwitch !== undefined
+            ? { sessionModelOptionsSwitch: input.sessionModelOptionsSwitch }
+            : {}),
         }),
       rollbackConversation: () => unsupported(),
       streamEvents: Stream.fromPubSub(runtimeEventPubSub),
@@ -479,6 +487,7 @@ describe("ProviderCommandReactor", () => {
         completedAt,
         checkpointRef: CheckpointRef.makeUnsafe("checkpoint-queued-turn"),
         status: "ready",
+        source: "git-checkpoint",
         files: [],
         checkpointTurnCount: 1,
         createdAt: completedAt,
@@ -585,6 +594,178 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.queuedSteerRequest).toBeNull();
     expect(thread?.session?.status).toBe("ready");
     expect(thread?.session?.activeTurnId).toBeNull();
+  });
+
+  it("interrupts queued steering on the next tool, reasoning, or assistant output boundary", async () => {
+    const boundaryCases = [
+      {
+        name: "tool",
+        dispatchBoundary: async (
+          harness: Awaited<ReturnType<typeof createHarness>>,
+          threadId: ThreadId,
+          turnId: TurnId,
+          now: string,
+        ) =>
+          Effect.runPromise(
+            harness.engine.dispatch({
+              type: "thread.activity.append",
+              commandId: CommandId.makeUnsafe("cmd-steer-tool-boundary"),
+              threadId,
+              activity: {
+                id: EventId.makeUnsafe("activity-steer-tool-boundary"),
+                tone: "tool",
+                kind: "tool.completed",
+                summary: "Tool",
+                payload: {},
+                turnId,
+                createdAt: now,
+              },
+              createdAt: now,
+            }),
+          ),
+      },
+      {
+        name: "reasoning",
+        dispatchBoundary: async (
+          harness: Awaited<ReturnType<typeof createHarness>>,
+          threadId: ThreadId,
+          turnId: TurnId,
+          now: string,
+        ) =>
+          Effect.runPromise(
+            harness.engine.dispatch({
+              type: "thread.activity.append",
+              commandId: CommandId.makeUnsafe("cmd-steer-reasoning-boundary"),
+              threadId,
+              activity: {
+                id: EventId.makeUnsafe("activity-steer-reasoning-boundary"),
+                tone: "info",
+                kind: "reasoning.completed",
+                summary: "Reasoning",
+                payload: {},
+                turnId,
+                createdAt: now,
+              },
+              createdAt: now,
+            }),
+          ),
+      },
+      {
+        name: "assistant-output",
+        dispatchBoundary: async (
+          harness: Awaited<ReturnType<typeof createHarness>>,
+          threadId: ThreadId,
+          turnId: TurnId,
+          now: string,
+        ) =>
+          Effect.runPromise(
+            harness.engine.dispatch({
+              type: "thread.message.assistant.complete",
+              commandId: CommandId.makeUnsafe("cmd-steer-assistant-boundary"),
+              threadId,
+              messageId: asMessageId("assistant-steer-boundary"),
+              turnId,
+              createdAt: now,
+            }),
+          ),
+      },
+    ] as const;
+
+    for (const boundaryCase of boundaryCases) {
+      const harness = await createHarness();
+      const now = new Date().toISOString();
+      const threadId = ThreadId.makeUnsafe("thread-1");
+      const activeTurnId = asTurnId(`turn-steer-${boundaryCase.name}`);
+
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe(`cmd-turn-start-${boundaryCase.name}`),
+          threadId,
+          message: {
+            messageId: asMessageId(`message-${boundaryCase.name}`),
+            role: "user",
+            text: "start",
+            attachments: [],
+          },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          createdAt: now,
+        }),
+      );
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe(`cmd-running-session-${boundaryCase.name}`),
+          threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "approval-required",
+            activeTurnId,
+            lastError: null,
+            updatedAt: now,
+          },
+          createdAt: now,
+        }),
+      );
+      const liveSession = harness.runtimeSessions[0];
+      expect(liveSession).toBeDefined();
+      if (!liveSession) {
+        return;
+      }
+      harness.runtimeSessions[0] = {
+        ...liveSession,
+        status: "running",
+        activeTurnId,
+        updatedAt: now,
+      };
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.queue.append",
+          commandId: CommandId.makeUnsafe(`cmd-queue-steer-${boundaryCase.name}`),
+          threadId,
+          position: "front",
+          message: {
+            id: asMessageId(`queued-steer-${boundaryCase.name}`),
+            prompt: "steer after boundary",
+            images: [],
+            terminalContexts: [],
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "approval-required",
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          },
+          steerRequest: {
+            messageId: asMessageId(`queued-steer-${boundaryCase.name}`),
+            baselineWorkLogEntryCount: 0,
+            interruptRequested: false,
+          },
+        }),
+      );
+
+      await harness.drain();
+      expect(harness.interruptTurn).toHaveBeenCalledTimes(0);
+
+      await boundaryCase.dispatchBoundary(harness, threadId, activeTurnId, now);
+      await waitFor(() => harness.interruptTurn.mock.calls.length === 1);
+
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find((entry) => entry.id === threadId);
+      expect(thread?.queuedSteerRequest?.interruptRequested).toBe(true);
+
+      if (scope) {
+        await Effect.runPromise(Scope.close(scope, Exit.void));
+        scope = null;
+      }
+      await runtime?.dispose();
+      runtime = null;
+    }
   });
 
   it("passes handoff replay turns when starting the destination thread session", async () => {
@@ -796,6 +977,7 @@ describe("ProviderCommandReactor", () => {
         completedAt,
         checkpointRef: CheckpointRef.makeUnsafe("checkpoint-stale-replay"),
         status: "ready",
+        source: "git-checkpoint",
         files: [],
         checkpointTurnCount: 1,
         createdAt: completedAt,

@@ -785,7 +785,6 @@ describe("GeminiAdapterLive approvals", () => {
         expect(usageEvent.value.turnId).toBe(turn.turnId);
         expect(usageEvent.value.payload.usage).toEqual({
           usedTokens: 6_144,
-          maxTokens: 1_048_576,
           lastUsedTokens: 1_280,
           lastInputTokens: 900,
           lastOutputTokens: 220,

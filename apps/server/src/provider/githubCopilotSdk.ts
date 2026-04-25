@@ -35,6 +35,18 @@ export interface GitHubCopilotClientConfig {
 
 export interface GitHubCopilotSessionClient {
   readonly sessionId: string;
+  readonly workspacePath?: string | undefined;
+  readonly rpc?:
+    | {
+        readonly plan?: {
+          read(): Promise<{
+            readonly exists: boolean;
+            readonly content: string | null;
+            readonly path: string | null;
+          }>;
+        };
+      }
+    | undefined;
   on(handler: SessionEventHandler): () => void;
   disconnect(): Promise<void>;
   send(options: MessageOptions): Promise<string>;

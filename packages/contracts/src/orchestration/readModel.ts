@@ -16,6 +16,7 @@ import {
   DEFAULT_RUNTIME_MODE,
   ModelSelection,
   ProviderKind,
+  ProviderIntegrationCapabilities,
   ProviderInteractionMode,
   QueuedComposerMessage,
   QueuedSteerRequest,
@@ -155,6 +156,7 @@ export const OrchestrationSession = Schema.Struct({
   status: OrchestrationSessionStatus,
   providerName: Schema.NullOr(TrimmedNonEmptyString),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  capabilities: Schema.optional(ProviderIntegrationCapabilities),
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(TrimmedNonEmptyString),
   updatedAt: IsoDateTime,
@@ -172,12 +174,23 @@ export type OrchestrationCheckpointFile = typeof OrchestrationCheckpointFile.Typ
 export const OrchestrationCheckpointStatus = Schema.Literals(["ready", "missing", "error"]);
 export type OrchestrationCheckpointStatus = typeof OrchestrationCheckpointStatus.Type;
 
+export const OrchestrationCheckpointDiffSource = Schema.Literals([
+  "git-checkpoint",
+  "provider-native",
+  "provider-reconstructed",
+]);
+export type OrchestrationCheckpointDiffSource = typeof OrchestrationCheckpointDiffSource.Type;
+
 export const OrchestrationCheckpointSummary = Schema.Struct({
   turnId: TurnId,
   checkpointTurnCount: NonNegativeInt,
   checkpointRef: CheckpointRef,
   status: OrchestrationCheckpointStatus,
+  source: OrchestrationCheckpointDiffSource.pipe(
+    Schema.withDecodingDefault(() => "git-checkpoint" as const),
+  ),
   files: Schema.Array(OrchestrationCheckpointFile),
+  diff: Schema.optional(Schema.String),
   assistantMessageId: Schema.NullOr(MessageId),
   completedAt: IsoDateTime,
 });

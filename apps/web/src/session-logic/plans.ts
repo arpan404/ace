@@ -72,6 +72,7 @@ export function deriveActivePlanState(
   return {
     createdAt: latest.createdAt,
     turnId: latest.turnId,
+    source: "plan-update",
     ...(payload && "explanation" in payload
       ? { explanation: payload.explanation as string | null }
       : {}),

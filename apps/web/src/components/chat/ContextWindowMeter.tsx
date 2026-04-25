@@ -6,6 +6,9 @@ function formatPercentage(value: number | null): string | null {
   if (value === null || !Number.isFinite(value)) {
     return null;
   }
+  if (value > 0 && value < 0.1) {
+    return "<0.1%";
+  }
   if (value < 10) {
     return `${value.toFixed(1).replace(/\.0$/, "")}%`;
   }

@@ -74,6 +74,7 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { meaningfulErrorMessage } from "../errorCause.ts";
+import { buildRuntimeErrorPayload, buildRuntimeWarningPayload } from "../runtimeEventPayloads.ts";
 import {
   buildBootstrapPromptFromReplayTurns,
   cloneReplayTurns,
@@ -1280,11 +1281,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       createdAt: stamp.createdAt,
       threadId: context.session.threadId,
       ...(turnState ? { turnId: asCanonicalTurnId(turnState.turnId) } : {}),
-      payload: {
+      payload: buildRuntimeErrorPayload({
         message,
+        cause,
         class: "provider_error",
-        ...(cause !== undefined ? { detail: cause } : {}),
-      },
+      }),
       providerRefs: nativeProviderRefs(context),
     });
   });
@@ -1303,10 +1304,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       createdAt: stamp.createdAt,
       threadId: context.session.threadId,
       ...(turnState ? { turnId: asCanonicalTurnId(turnState.turnId) } : {}),
-      payload: {
-        message,
-        ...(detail !== undefined ? { detail } : {}),
-      },
+      payload: buildRuntimeWarningPayload(message, detail),
       providerRefs: nativeProviderRefs(context),
     });
   });
@@ -3099,6 +3097,15 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      sessionModelOptionsSwitch: "restart-session",
+      liveTurnDiffMode: "reconstructed",
+      reviewChangesMode: "provider",
+      reviewSurface: "git-worktree",
+      approvalRequestsMode: "native",
+      turnSteeringMode: "queued-message",
+      transcriptAuthority: "provider",
+      historyAuthority: "provider-session",
+      sessionResumeMode: "native",
     },
     startSession,
     sendTurn,

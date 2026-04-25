@@ -53,7 +53,7 @@ interface OpenCodeProviderListResponse {
   readonly connected: ReadonlyArray<string>;
 }
 
-interface OpenCodeConfigProvidersResponse {
+export interface OpenCodeConfigProvidersResponse {
   readonly providers: ReadonlyArray<OpenCodeListedProvider>;
   readonly default: Record<string, string>;
 }
@@ -602,22 +602,24 @@ export function getOpenCodeModelContextWindowTokens(
     return undefined;
   }
 
-  const slugParts = modelSlug.split("/");
-  if (slugParts.length !== 2) {
-    return undefined;
-  }
-  const providerId = slugParts[0];
-  const modelId = slugParts[1];
-  if (!providerId || !modelId) {
+  return getOpenCodeModelContextWindowTokensFromConfig(cacheEntry.value, modelSlug);
+}
+
+export function getOpenCodeModelContextWindowTokensFromConfig(
+  config: OpenCodeConfigProvidersResponse,
+  modelSlug: string,
+): number | undefined {
+  const parsed = parseOpenCodeModelSlug(modelSlug);
+  if (!parsed) {
     return undefined;
   }
 
-  const provider = cacheEntry.value.providers.find((p) => p.id === providerId);
+  const provider = config.providers.find((p) => p.id === parsed.providerID);
   if (!provider) {
     return undefined;
   }
 
-  const model = provider.models[modelId];
+  const model = provider.models[parsed.modelID];
   if (!model) {
     return undefined;
   }

@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 import type { PermissionRequest, PermissionRequestResult, SessionEvent } from "@github/copilot-sdk";
 import {
@@ -26,6 +28,7 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { meaningfulErrorMessage } from "../errorCause.ts";
 import { runLoggedEffect } from "../fireAndForget.ts";
+import { buildRuntimeErrorPayload } from "../runtimeEventPayloads.ts";
 import {
   buildBootstrapPromptFromReplayTurns,
   cloneReplayTurns,
@@ -117,6 +120,8 @@ interface TurnState {
   streamingReasoningProviderContentId?: string | undefined;
   reasoningOutputSeen: boolean;
   abortRequested: boolean;
+  lastTodoMarkdown?: string;
+  lastProposedPlanMarkdown?: string;
 }
 
 interface GitHubCopilotSessionContext {
@@ -268,6 +273,71 @@ function classifyToolItemType(toolName: string | undefined): CanonicalItemType {
     return "image_view";
   }
   return "dynamic_tool_call";
+}
+
+function isUpdateTodoTool(toolName: string | undefined): boolean {
+  return (toolName ?? "").trim().toLowerCase() === "update_todo";
+}
+
+function isTodoBookkeepingSqlTool(input: {
+  readonly toolName?: string;
+  readonly toolArguments?: Record<string, unknown>;
+}): boolean {
+  if ((input.toolName ?? "").trim().toLowerCase() !== "sql") {
+    return false;
+  }
+  const query = stringValue(input.toolArguments?.query);
+  return typeof query === "string" && /\b(?:todos|todo_deps)\b/i.test(query);
+}
+
+function isCopilotInternalTodoBookkeepingTool(input: {
+  readonly toolName?: string;
+  readonly toolArguments?: Record<string, unknown>;
+}): boolean {
+  return isUpdateTodoTool(input.toolName) || isTodoBookkeepingSqlTool(input);
+}
+
+function parseTodoMarkdownSteps(todoMarkdown: string): Array<{
+  step: string;
+  status: "pending" | "completed";
+}> {
+  const steps: Array<{
+    step: string;
+    status: "pending" | "completed";
+  }> = [];
+
+  for (const line of todoMarkdown.split(/\r?\n/u)) {
+    const match = /^\s*(?:[-*+]|\d+\.)\s+\[(?<mark>[ xX])\]\s+(?<step>.+?)\s*$/.exec(line);
+    const step = match?.groups?.step?.trim();
+    if (!step) {
+      continue;
+    }
+    steps.push({
+      step,
+      status: match?.groups?.mark?.toLowerCase() === "x" ? "completed" : "pending",
+    });
+  }
+
+  return steps;
+}
+
+function extractPlanPathFromAssistantMessage(content: string | undefined): string | undefined {
+  if (!content) {
+    return undefined;
+  }
+
+  const fileUrlMatch = /file:\/\/(?<path>\/[^\s`]+plan\.md)\b/iu.exec(content);
+  if (fileUrlMatch?.groups?.path) {
+    return fileUrlMatch.groups.path;
+  }
+
+  const unixPathMatch = /(?<path>\/[^\s`]+plan\.md)\b/iu.exec(content);
+  if (unixPathMatch?.groups?.path) {
+    return unixPathMatch.groups.path;
+  }
+
+  const windowsPathMatch = /(?<path>[a-zA-Z]:\\[^\r\n`]+plan\.md)\b/u.exec(content);
+  return windowsPathMatch?.groups?.path;
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -896,6 +966,176 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
     } as unknown as ProviderRuntimeEventByType<TType>;
   };
 
+  const emitTodoPlanUpdate = (
+    context: GitHubCopilotSessionContext,
+    turnState: TurnState,
+    input: {
+      readonly todoMarkdown: string;
+      readonly createdAt?: string | undefined;
+      readonly rawMethod: string;
+      readonly rawSource: "github-copilot.sdk.event" | "github-copilot.sdk.permission";
+      readonly rawPayload: unknown;
+      readonly providerItemId?: string | undefined;
+    },
+  ): void => {
+    const todoMarkdown = input.todoMarkdown.trim();
+    if (todoMarkdown.length === 0 || turnState.lastTodoMarkdown === todoMarkdown) {
+      return;
+    }
+
+    const plan = parseTodoMarkdownSteps(todoMarkdown);
+    if (plan.length === 0) {
+      return;
+    }
+
+    turnState.lastTodoMarkdown = todoMarkdown;
+    emitRuntimeEvent(
+      makeBaseEvent(context, {
+        type: "turn.plan.updated",
+        createdAt: input.createdAt,
+        turnId: turnState.turnId,
+        ...(input.providerItemId ? { providerItemId: input.providerItemId } : {}),
+        payload: {
+          ...(turnState.lastIntentText ? { explanation: turnState.lastIntentText } : {}),
+          plan,
+        },
+        rawMethod: input.rawMethod,
+        rawSource: input.rawSource,
+        rawPayload: input.rawPayload,
+      }),
+    );
+  };
+
+  const emitProposedPlanCompleted = (
+    context: GitHubCopilotSessionContext,
+    turnState: TurnState,
+    input: {
+      readonly planMarkdown: string;
+      readonly createdAt?: string | undefined;
+      readonly rawMethod: string;
+      readonly rawSource: "github-copilot.sdk.event" | "github-copilot.sdk.permission";
+      readonly rawPayload: unknown;
+      readonly providerItemId?: string | undefined;
+    },
+  ): void => {
+    const planMarkdown = input.planMarkdown.trim();
+    if (planMarkdown.length === 0 || turnState.lastProposedPlanMarkdown === planMarkdown) {
+      return;
+    }
+
+    turnState.lastProposedPlanMarkdown = planMarkdown;
+    emitRuntimeEvent(
+      makeBaseEvent(context, {
+        type: "turn.proposed.completed",
+        createdAt: input.createdAt,
+        turnId: turnState.turnId,
+        ...(input.providerItemId ? { providerItemId: input.providerItemId } : {}),
+        payload: {
+          planMarkdown,
+        },
+        rawMethod: input.rawMethod,
+        rawSource: input.rawSource,
+        rawPayload: input.rawPayload,
+      }),
+    );
+  };
+
+  const readSessionPlanMarkdown = async (
+    context: GitHubCopilotSessionContext,
+    options?: {
+      readonly planPathHint?: string | undefined;
+    },
+  ): Promise<string | undefined> => {
+    const rpcPlanRead = context.sdkSession.rpc?.plan?.read;
+    if (rpcPlanRead) {
+      const result = await rpcPlanRead();
+      const content = result.content?.trim();
+      if (result.exists && content) {
+        return content;
+      }
+      if (result.path) {
+        options = { ...options, planPathHint: result.path };
+      }
+    }
+
+    const planPathHint = options?.planPathHint;
+    const planPath =
+      planPathHint && planPathHint.endsWith("plan.md")
+        ? planPathHint
+        : context.sdkSession.workspacePath
+          ? path.join(context.sdkSession.workspacePath, "plan.md")
+          : planPathHint;
+    if (!planPath) {
+      return undefined;
+    }
+
+    try {
+      const content = (await readFile(planPath, "utf8")).trim();
+      return content.length > 0 ? content : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const refreshProposedPlanFromSession = (
+    context: GitHubCopilotSessionContext,
+    turnState: TurnState,
+    input: {
+      readonly createdAt?: string | undefined;
+      readonly rawMethod: string;
+      readonly rawSource: "github-copilot.sdk.event" | "github-copilot.sdk.permission";
+      readonly rawPayload: unknown;
+      readonly providerItemId?: string | undefined;
+      readonly planMarkdown?: string | undefined;
+      readonly planPathHint?: string | undefined;
+    },
+  ): void => {
+    const planMarkdown = input.planMarkdown?.trim();
+    if (planMarkdown) {
+      emitProposedPlanCompleted(context, turnState, {
+        planMarkdown,
+        createdAt: input.createdAt,
+        rawMethod: input.rawMethod,
+        rawSource: input.rawSource,
+        rawPayload: input.rawPayload,
+        ...(input.providerItemId ? { providerItemId: input.providerItemId } : {}),
+      });
+      return;
+    }
+
+    void readSessionPlanMarkdown(context, {
+      planPathHint: input.planPathHint,
+    })
+      .then((resolvedPlanMarkdown) => {
+        if (!resolvedPlanMarkdown) {
+          return;
+        }
+        emitProposedPlanCompleted(context, turnState, {
+          planMarkdown: resolvedPlanMarkdown,
+          createdAt: input.createdAt,
+          rawMethod: input.rawMethod,
+          rawSource: input.rawSource,
+          rawPayload: input.rawPayload,
+          ...(input.providerItemId ? { providerItemId: input.providerItemId } : {}),
+        });
+      })
+      .catch((cause) => {
+        emitRuntimeEvent(
+          makeBaseEvent(context, {
+            type: "runtime.warning",
+            createdAt: input.createdAt,
+            turnId: turnState.turnId,
+            payload: {
+              message: toMessage(cause, "Failed to read GitHub Copilot plan."),
+            },
+            rawMethod: input.rawMethod,
+            rawSource: input.rawSource,
+            rawPayload: input.rawPayload,
+          }),
+        );
+      });
+  };
+
   const completeTurn = (
     context: GitHubCopilotSessionContext,
     state: "completed" | "interrupted" | "failed",
@@ -1236,11 +1476,11 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             type: "runtime.error",
             createdAt: getSessionEventTimestamp(event),
             turnId: turnState?.turnId,
-            payload: {
+            payload: buildRuntimeErrorPayload({
               message,
+              detail: Object.keys(data).length > 0 ? data : undefined,
               class: "provider_error",
-              ...(Object.keys(data).length > 0 ? { detail: data } : {}),
-            },
+            }),
             rawMethod: event.type,
             rawSource: "github-copilot.sdk.event",
             rawPayload: event,
@@ -1343,6 +1583,16 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             toolRequests,
             turnState,
           });
+        const planPathHint = extractPlanPathFromAssistantMessage(content);
+        if (turnState && planPathHint) {
+          refreshProposedPlanFromSession(context, turnState, {
+            createdAt: getSessionEventTimestamp(event),
+            rawMethod: event.type,
+            rawSource: "github-copilot.sdk.event",
+            rawPayload: event,
+            planPathHint,
+          });
+        }
         if ((!content && !hasStreamingItem) || shouldSuppressAnnouncementMessage) {
           return;
         }
@@ -1463,6 +1713,31 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         );
         return;
       }
+      case "session.plan_changed": {
+        if (!turnState) {
+          return;
+        }
+        refreshProposedPlanFromSession(context, turnState, {
+          createdAt: getSessionEventTimestamp(event),
+          rawMethod: event.type,
+          rawSource: "github-copilot.sdk.event",
+          rawPayload: event,
+        });
+        return;
+      }
+      case "exit_plan_mode.requested": {
+        if (!turnState) {
+          return;
+        }
+        refreshProposedPlanFromSession(context, turnState, {
+          createdAt: getSessionEventTimestamp(event),
+          rawMethod: event.type,
+          rawSource: "github-copilot.sdk.event",
+          rawPayload: event,
+          planMarkdown: stringValue(getObjectProperty(data, "planContent")),
+        });
+        return;
+      }
       case "tool.execution_start": {
         if (!turnState) {
           return;
@@ -1473,6 +1748,27 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           stringValue(getObjectProperty(data, "toolName")) ?? requestMetadata?.toolName ?? "Tool";
         const toolArguments =
           recordValue(getObjectProperty(data, "arguments")) ?? requestMetadata?.arguments;
+        if (isUpdateTodoTool(toolName)) {
+          const todoMarkdown = stringValue(toolArguments?.todos);
+          if (todoMarkdown) {
+            emitTodoPlanUpdate(context, turnState, {
+              todoMarkdown,
+              createdAt: getSessionEventTimestamp(event),
+              rawMethod: event.type,
+              rawSource: "github-copilot.sdk.event",
+              rawPayload: event,
+              providerItemId,
+            });
+          }
+        }
+        if (
+          isCopilotInternalTodoBookkeepingTool({
+            toolName,
+            ...(toolArguments ? { toolArguments } : {}),
+          })
+        ) {
+          return;
+        }
         const mcpServerName = stringValue(getObjectProperty(data, "mcpServerName"));
         const mcpToolName = stringValue(getObjectProperty(data, "mcpToolName"));
         const existing = turnState.toolItems.get(providerItemId);
@@ -1549,6 +1845,21 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           return;
         }
         const providerItemId = stringValue(getObjectProperty(data, "toolCallId"));
+        const requestMetadata = providerItemId
+          ? context.toolRequestMetadata.get(providerItemId)
+          : undefined;
+        const toolName =
+          stringValue(getObjectProperty(data, "toolName")) ?? requestMetadata?.toolName;
+        const toolArguments =
+          recordValue(getObjectProperty(data, "arguments")) ?? requestMetadata?.arguments;
+        if (
+          isCopilotInternalTodoBookkeepingTool({
+            ...(toolName ? { toolName } : {}),
+            ...(toolArguments ? { toolArguments } : {}),
+          })
+        ) {
+          return;
+        }
         const toolItem = providerItemId ? turnState.toolItems.get(providerItemId) : undefined;
         if (!providerItemId || !toolItem || toolItem.completed) {
           return;
@@ -1583,6 +1894,21 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           return;
         }
         const providerItemId = stringValue(getObjectProperty(data, "toolCallId"));
+        const requestMetadata = providerItemId
+          ? context.toolRequestMetadata.get(providerItemId)
+          : undefined;
+        const toolName =
+          stringValue(getObjectProperty(data, "toolName")) ?? requestMetadata?.toolName;
+        const toolArguments =
+          recordValue(getObjectProperty(data, "arguments")) ?? requestMetadata?.arguments;
+        if (
+          isCopilotInternalTodoBookkeepingTool({
+            ...(toolName ? { toolName } : {}),
+            ...(toolArguments ? { toolArguments } : {}),
+          })
+        ) {
+          return;
+        }
         const toolItem = providerItemId ? turnState.toolItems.get(providerItemId) : undefined;
         if (!providerItemId || !toolItem || toolItem.completed) {
           return;
@@ -1622,6 +1948,31 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           : undefined;
         const completedToolName =
           stringValue(getObjectProperty(data, "toolName")) ?? requestMetadata?.toolName ?? "Tool";
+        if (isUpdateTodoTool(completedToolName)) {
+          const todoMarkdown = stringValue(requestMetadata?.arguments?.todos);
+          if (todoMarkdown) {
+            emitTodoPlanUpdate(context, turnState, {
+              todoMarkdown,
+              createdAt: getSessionEventTimestamp(event),
+              rawMethod: event.type,
+              rawSource: "github-copilot.sdk.event",
+              rawPayload: event,
+              ...(providerItemId ? { providerItemId } : {}),
+            });
+          }
+        }
+        if (
+          isCopilotInternalTodoBookkeepingTool({
+            toolName: completedToolName,
+            ...(requestMetadata?.arguments ? { toolArguments: requestMetadata.arguments } : {}),
+          })
+        ) {
+          if (providerItemId) {
+            context.toolRequestMetadata.delete(providerItemId);
+            turnState.toolItems.delete(providerItemId);
+          }
+          return;
+        }
         const toolItem =
           (providerItemId ? turnState.toolItems.get(providerItemId) : undefined) ??
           ({
@@ -1793,10 +2144,10 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           type: "runtime.error",
           createdAt: new Date().toISOString(),
           turnId: context.turnState?.turnId,
-          payload: {
+          payload: buildRuntimeErrorPayload({
             message: input.reason,
             class: input.errorClass ?? "transport_error",
-          },
+          }),
           rawMethod: "runtime.error",
           rawSource: "github-copilot.sdk.event",
           rawPayload: { reason: input.reason },
@@ -2481,6 +2832,15 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "restart-session",
+      sessionModelOptionsSwitch: "restart-session",
+      liveTurnDiffMode: "workspace",
+      reviewChangesMode: "git",
+      reviewSurface: "editor-native",
+      approvalRequestsMode: "native",
+      turnSteeringMode: "queued-message",
+      transcriptAuthority: "local",
+      historyAuthority: "local-server-session",
+      sessionResumeMode: "local-replay",
     },
     startSession,
     sendTurn,

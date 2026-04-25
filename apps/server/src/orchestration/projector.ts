@@ -608,7 +608,9 @@ export function projectEvent(
             checkpointTurnCount: payload.checkpointTurnCount,
             checkpointRef: payload.checkpointRef,
             status: payload.status,
+            source: payload.source,
             files: payload.files,
+            ...(payload.diff !== undefined ? { diff: payload.diff } : {}),
             assistantMessageId: payload.assistantMessageId,
             completedAt: payload.completedAt,
           },
@@ -616,13 +618,20 @@ export function projectEvent(
           "checkpoint",
         );
 
-        // Do not let a placeholder (status "missing") overwrite a checkpoint
+        // Do not let a placeholder (status "missing") overwrite an authoritative checkpoint
         // that has already been captured with a real git ref (status "ready").
         // ProviderRuntimeIngestion may fire multiple turn.diff.updated events
         // per turn; without this guard later placeholders would clobber the
         // real capture dispatched by CheckpointReactor.
         const existing = thread.checkpoints.find((entry) => entry.turnId === checkpoint.turnId);
         if (existing && existing.status !== "missing" && checkpoint.status === "missing") {
+          return nextBase;
+        }
+        if (
+          existing &&
+          existing.source === "provider-native" &&
+          checkpoint.source === "provider-reconstructed"
+        ) {
           return nextBase;
         }
 

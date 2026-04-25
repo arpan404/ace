@@ -41,10 +41,11 @@ export function deriveLatestContextWindowSnapshot(
     }
 
     const maxTokens = asFiniteNumber(payload?.maxTokens);
-    const usedPercentage =
-      maxTokens !== null && maxTokens > 0 ? Math.min(100, (usedTokens / maxTokens) * 100) : null;
-    const remainingTokens =
-      maxTokens !== null ? Math.max(0, Math.round(maxTokens - usedTokens)) : null;
+    if (maxTokens === null || maxTokens <= 0) {
+      continue;
+    }
+    const usedPercentage = maxTokens > 0 ? Math.min(100, (usedTokens / maxTokens) * 100) : null;
+    const remainingTokens = Math.max(0, Math.round(maxTokens - usedTokens));
     const remainingPercentage = usedPercentage !== null ? Math.max(0, 100 - usedPercentage) : null;
 
     return {

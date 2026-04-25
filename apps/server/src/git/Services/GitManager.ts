@@ -20,6 +20,8 @@ import {
   GitRunStackedActionResult,
   GitStatusInput,
   GitStatusResult,
+  GitWorkingTreeDiffInput,
+  GitWorkingTreeDiffResult,
 } from "@ace/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
@@ -44,6 +46,13 @@ export interface GitManagerShape {
   readonly status: (
     input: GitStatusInput,
   ) => Effect.Effect<GitStatusResult, GitManagerServiceError>;
+
+  /**
+   * Read the current working tree patch diff relative to HEAD.
+   */
+  readonly readWorkingTreeDiff: (
+    input: GitWorkingTreeDiffInput,
+  ) => Effect.Effect<GitWorkingTreeDiffResult, GitManagerServiceError>;
 
   /**
    * Resolve a pull request by URL/number against the current repository.

@@ -3,6 +3,7 @@ import type {
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
   OrchestrationProposedPlanSummary,
+  ProviderIntegrationCapabilities,
   ProjectIcon as ContractProjectIcon,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
@@ -122,7 +123,9 @@ export interface TurnDiffSummary {
   turnId: TurnId;
   completedAt: string;
   status?: string | undefined;
+  source?: "git-checkpoint" | "provider-native" | "provider-reconstructed" | undefined;
   files: TurnDiffFileChange[];
+  diff?: string | undefined;
   checkpointRef?: CheckpointRef | undefined;
   assistantMessageId?: MessageId | undefined;
   checkpointTurnCount?: number | undefined;
@@ -191,6 +194,7 @@ export interface SidebarThreadSummary {
 export interface ThreadSession {
   provider: ProviderKind;
   status: SessionPhase | "error" | "closed";
+  capabilities?: ProviderIntegrationCapabilities | undefined;
   activeTurnId?: TurnId | undefined;
   createdAt: string;
   updatedAt: string;
