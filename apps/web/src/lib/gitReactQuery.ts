@@ -9,6 +9,7 @@ import { getWsRpcClient } from "../wsRpcClient";
 
 const GIT_STATUS_STALE_TIME_MS = 5_000;
 const GIT_STATUS_REFETCH_INTERVAL_MS = 15_000;
+const GIT_WORKING_TREE_DIFF_STALE_TIME_MS = 1_000;
 const GIT_BRANCHES_STALE_TIME_MS = 15_000;
 const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
 const GIT_GITHUB_ISSUES_STALE_TIME_MS = 30_000;
@@ -17,6 +18,7 @@ export type GitHubIssueListStateFilter = "open" | "closed" | "all";
 export const gitQueryKeys = {
   all: ["git"] as const,
   status: (cwd: string | null) => ["git", "status", cwd] as const,
+  workingTreeDiff: (cwd: string | null) => ["git", "working-tree-diff", cwd] as const,
   branches: (cwd: string | null) => ["git", "branches", cwd] as const,
   githubIssues: (
     cwd: string | null,
@@ -71,6 +73,21 @@ export function gitStatusQueryOptions(cwd: string | null) {
     refetchOnWindowFocus: "always",
     refetchOnReconnect: "always",
     refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
+  });
+}
+
+export function gitWorkingTreeDiffQueryOptions(input: { cwd: string | null; enabled?: boolean }) {
+  return queryOptions({
+    queryKey: gitQueryKeys.workingTreeDiff(input.cwd),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!input.cwd) throw new Error("Working tree diff is unavailable.");
+      return api.git.readWorkingTreeDiff({ cwd: input.cwd });
+    },
+    enabled: (input.enabled ?? true) && input.cwd !== null,
+    staleTime: GIT_WORKING_TREE_DIFF_STALE_TIME_MS,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
   });
 }
 

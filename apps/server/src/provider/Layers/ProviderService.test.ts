@@ -31,6 +31,7 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
+import type { ProviderAdapterCapabilities } from "../Services/ProviderAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderService } from "../Services/ProviderService.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
@@ -72,6 +73,7 @@ type LegacyProviderRuntimeEvent = {
 function makeFakeCodexAdapter(
   provider: ProviderKind = "codex",
   sessionModelSwitch: "in-session" | "restart-session" = "in-session",
+  capabilityOverrides?: Partial<ProviderAdapterCapabilities>,
 ) {
   const sessions = new Map<ThreadId, ProviderSession>();
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
@@ -186,6 +188,7 @@ function makeFakeCodexAdapter(
     provider,
     capabilities: {
       sessionModelSwitch,
+      ...capabilityOverrides,
     },
     startSession,
     sendTurn,
@@ -408,6 +411,118 @@ it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", (
       `;
     }).pipe(Effect.provide(persistenceLayer));
     assert.equal(legacyTableRows.length, 0);
+
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("ProviderServiceLive rebuilds local transcript recovery from adapter capabilities", () =>
+  Effect.gen(function* () {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ace-provider-service-claude-local-"));
+    const dbPath = path.join(tempDir, "orchestration.sqlite");
+    const claude = makeFakeCodexAdapter("claudeAgent", "in-session", {
+      transcriptAuthority: "local",
+      sessionResumeMode: "local-replay",
+    });
+    const registry: typeof ProviderAdapterRegistry.Service = {
+      getByProvider: (provider) =>
+        provider === "claudeAgent"
+          ? Effect.succeed(claude.adapter)
+          : Effect.fail(new ProviderUnsupportedError({ provider })),
+      listProviders: () => Effect.succeed(["claudeAgent"]),
+    };
+    const providerAdapterLayer = Layer.succeed(ProviderAdapterRegistry, registry);
+    const persistenceLayer = makeSqlitePersistenceLive(dbPath);
+    const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+      Layer.provide(persistenceLayer),
+    );
+    const projectionMessageRepositoryLayer = ProjectionThreadMessageRepositoryLive.pipe(
+      Layer.provide(persistenceLayer),
+    );
+    const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(providerAdapterLayer),
+      Layer.provide(directoryLayer),
+      Layer.provide(projectionMessageRepositoryLayer),
+      Layer.provide(defaultServerSettingsLayer),
+      Layer.provide(AnalyticsService.layerTest),
+    );
+
+    const threadId = asThreadId("thread-claude-capability-recover");
+    const createdAt = "2026-04-24T12:00:00.000Z";
+
+    yield* Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const messages = yield* ProjectionThreadMessageRepository;
+      yield* directory.upsert({
+        provider: "claudeAgent",
+        threadId,
+        runtimeMode: "full-access",
+        status: "stopped",
+        runtimePayload: {
+          cwd: "/tmp/project-claude-capability-recover",
+          modelSelection: {
+            provider: "claudeAgent",
+            model: "claude-sonnet-4-6",
+          },
+        },
+      });
+      yield* messages.upsert({
+        messageId: asMessageId("user-claude-capability-recover-1"),
+        threadId,
+        turnId: asTurnId("turn-claude-capability-recover-1"),
+        role: "user",
+        text: "Earlier prompt",
+        attachments: [],
+        isStreaming: false,
+        sequence: 1,
+        createdAt,
+        updatedAt: createdAt,
+      });
+      yield* messages.upsert({
+        messageId: asMessageId("assistant-claude-capability-recover-1"),
+        threadId,
+        turnId: asTurnId("turn-claude-capability-recover-1"),
+        role: "assistant",
+        text: "Earlier answer",
+        isStreaming: false,
+        sequence: 2,
+        createdAt,
+        updatedAt: createdAt,
+      });
+    }).pipe(Effect.provide(Layer.mergeAll(directoryLayer, projectionMessageRepositoryLayer)));
+
+    yield* Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      yield* provider.sendTurn({
+        threadId,
+        input: "Continue",
+        attachments: [],
+      });
+    }).pipe(Effect.provide(providerLayer));
+
+    assert.equal(claude.startSession.mock.calls.length, 1);
+    const startPayload = claude.startSession.mock.calls[0]?.[0] as
+      | {
+          cwd?: string;
+          modelSelection?: unknown;
+          resumeCursor?: unknown;
+          replayTurns?: unknown;
+        }
+      | undefined;
+    assert.equal(startPayload?.cwd, "/tmp/project-claude-capability-recover");
+    assert.deepEqual(startPayload?.modelSelection, {
+      provider: "claudeAgent",
+      model: "claude-sonnet-4-6",
+    });
+    assert.equal(startPayload?.resumeCursor, undefined);
+    assert.deepEqual(startPayload?.replayTurns, [
+      {
+        prompt: "Earlier prompt",
+        attachmentNames: [],
+        assistantResponse: "Earlier answer",
+      },
+    ]);
 
     fs.rmSync(tempDir, { recursive: true, force: true });
   }).pipe(Effect.provide(NodeServices.layer)),

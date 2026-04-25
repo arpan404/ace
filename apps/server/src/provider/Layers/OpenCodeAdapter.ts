@@ -43,6 +43,7 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { meaningfulErrorMessage } from "../errorCause.ts";
 import { runLoggedEffect } from "../fireAndForget.ts";
+import { buildRuntimeErrorPayload, buildRuntimeWarningPayload } from "../runtimeEventPayloads.ts";
 import {
   buildBootstrapPromptFromReplayTurns,
   cloneReplayTurns,
@@ -55,8 +56,10 @@ import {
 } from "../Errors.ts";
 import { startOpenCodeServerIsolated, type OpenCodeServerHandle } from "../opencodeRuntime.ts";
 import {
+  type OpenCodeConfigProvidersResponse,
   createOpenCodeSdkClient,
   getOpenCodeModelContextWindowTokens,
+  getOpenCodeModelContextWindowTokensFromConfig,
   parseOpenCodeModelSlug,
   resolveOpenCodeModelForPrompt,
 } from "../opencodeSdk.ts";
@@ -81,6 +84,7 @@ type OpenCodeSessionContext = {
   readonly opencodeSessionId: string;
   readonly opencodeBaseUrl: string;
   defaultModels: Record<string, string>;
+  readonly modelCatalog: OpenCodeConfigProvidersResponse | null;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
   readonly replayTurns: Array<TranscriptReplayTurn>;
   totalProcessedTokens: number;
@@ -371,7 +375,10 @@ function currentOpenCodeModelContextWindowTokens(
       return undefined;
     }
   }
-  const tokens = getOpenCodeModelContextWindowTokens(context.opencodeBaseUrl, modelSlug);
+  const tokens =
+    context.modelCatalog !== null
+      ? getOpenCodeModelContextWindowTokensFromConfig(context.modelCatalog, modelSlug)
+      : getOpenCodeModelContextWindowTokens(context.opencodeBaseUrl, modelSlug);
   if (tokens !== undefined) {
     return tokens;
   }
@@ -1611,11 +1618,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             sseEvent({
               type: "runtime.error",
               ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
-              payload: {
+              payload: buildRuntimeErrorPayload({
                 message,
+                detail,
                 class: "provider_error",
-                ...(detail ? { detail } : {}),
-              },
+              }),
             }),
           );
           return;
@@ -1624,10 +1631,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           sseEvent({
             type: "runtime.warning",
             ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
-            payload: {
-              message,
-              ...(detail ? { detail } : {}),
-            },
+            payload: buildRuntimeWarningPayload(message, detail),
           }),
         );
         return;
@@ -1672,11 +1676,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         emit(
           sseEvent({
             type: "runtime.error",
-            payload: {
+            payload: buildRuntimeErrorPayload({
               message: msg,
+              detail: err !== undefined && err !== null ? err : undefined,
               class: "provider_error",
-              ...(err !== undefined && err !== null ? { detail: err } : {}),
-            },
+            }),
           }),
         );
         return;
@@ -1821,10 +1825,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           emit(
             baseEvent(ctx, {
               type: "runtime.error",
-              payload: {
+              payload: buildRuntimeErrorPayload({
                 message: toMessage(cause, "OpenCode event stream failed"),
+                cause,
                 class: "transport_error",
-              },
+              }),
             }),
           );
         }
@@ -1858,16 +1863,23 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           directory: cwd,
         });
         try {
-          const listed = await client.provider.list();
+          const listed = await client.config.providers();
           if (listed.error) {
             throw new ProviderAdapterRequestError({
               provider: PROVIDER,
-              method: "provider.list",
+              method: "config.providers",
               detail: toMessage(listed.error, "Failed to list OpenCode providers"),
             });
           }
-          const body = listed.data as { default?: Record<string, string> } | undefined;
-          const defaultModels = body?.default ?? {};
+          const body = listed.data as OpenCodeConfigProvidersResponse | undefined;
+          if (!body || !Array.isArray(body.providers)) {
+            throw new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "config.providers",
+              detail: "Unexpected OpenCode provider catalog response.",
+            });
+          }
+          const defaultModels = body.default ?? {};
 
           const createSession = async (): Promise<string> => {
             const permission = openCodePermissionRulesForRuntimeMode(input.runtimeMode);
@@ -1960,6 +1972,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             opencodeSessionId,
             opencodeBaseUrl: server.url,
             defaultModels,
+            modelCatalog: body,
             turns: [],
             replayTurns: cloneReplayTurns(input.replayTurns),
             totalProcessedTokens: 0,
@@ -2402,6 +2415,15 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      sessionModelOptionsSwitch: "in-session",
+      liveTurnDiffMode: "workspace",
+      reviewChangesMode: "git",
+      reviewSurface: "git-worktree",
+      approvalRequestsMode: "native",
+      turnSteeringMode: "queued-message",
+      transcriptAuthority: "local",
+      historyAuthority: "local-server-session",
+      sessionResumeMode: "local-replay",
     },
     startSession,
     sendTurn,

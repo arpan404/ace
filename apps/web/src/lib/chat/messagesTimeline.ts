@@ -9,16 +9,13 @@ export function computeMessageDurationStart(
   messages: ReadonlyArray<TimelineDurationMessage>,
 ): Map<string, string> {
   const result = new Map<string, string>();
-  let lastBoundary: string | null = null;
+  let latestUserMessageCreatedAt: string | null = null;
 
   for (const message of messages) {
     if (message.role === "user") {
-      lastBoundary = message.createdAt;
+      latestUserMessageCreatedAt = message.createdAt;
     }
-    result.set(message.id, lastBoundary ?? message.createdAt);
-    if (message.role === "assistant" && message.completedAt) {
-      lastBoundary = message.completedAt;
-    }
+    result.set(message.id, latestUserMessageCreatedAt ?? message.createdAt);
   }
 
   return result;

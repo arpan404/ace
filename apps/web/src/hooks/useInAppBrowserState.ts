@@ -85,6 +85,9 @@ export interface InAppBrowserController {
   setActiveTabByIndex: (index: number) => void;
   toggleDesignerTool: (tool: BrowserDesignerTool) => void;
   toggleDevTools: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  zoomReset: () => void;
 }
 
 export type ActiveBrowserRuntimeState = {
@@ -137,6 +140,20 @@ export function resolveBrowserSuggestionDraftValue(suggestion: BrowserSuggestion
   return suggestion.kind === "search" ? suggestion.title : suggestion.url;
 }
 
+export function resolveNextBrowserSuggestionIndex(
+  currentIndex: number,
+  suggestionCount: number,
+  direction: -1 | 1,
+): number {
+  if (suggestionCount <= 0) {
+    return -1;
+  }
+  if (currentIndex < 0) {
+    return direction > 0 ? 0 : suggestionCount - 1;
+  }
+  return Math.max(0, Math.min(currentIndex + direction, suggestionCount - 1));
+}
+
 export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const {
     designerModeEnabled = true,
@@ -182,7 +199,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const [browserResetKey, setBrowserResetKey] = useState(0);
   const [isRepairingStorage, setIsRepairingStorage] = useState(false);
   const [isAddressBarFocused, setIsAddressBarFocused] = useState(false);
-  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
   const [tabRuntimeById, setTabRuntimeById] = useState<Record<string, BrowserTabRuntimeState>>({});
   const updateBrowserSession = useCallback(
     (updater: (state: typeof browserSession) => typeof browserSession) => {
@@ -257,7 +274,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         return;
       }
       updateBrowserSession((current) => setActiveBrowserTab(current, nextTab.id));
-      setSelectedSuggestionIndex(0);
+      setSelectedSuggestionIndex(-1);
     },
     [browserSession.tabs, updateBrowserSession],
   );
@@ -369,6 +386,27 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     moveTab(activeTab.id, 1);
   }, [activeTab, moveTab]);
 
+  const zoomIn = useCallback(() => {
+    if (!activeTab || activeTabIsInternal) {
+      return;
+    }
+    webviewHandlesRef.current.get(activeTab.id)?.zoomIn();
+  }, [activeTab, activeTabIsInternal]);
+
+  const zoomOut = useCallback(() => {
+    if (!activeTab || activeTabIsInternal) {
+      return;
+    }
+    webviewHandlesRef.current.get(activeTab.id)?.zoomOut();
+  }, [activeTab, activeTabIsInternal]);
+
+  const zoomReset = useCallback(() => {
+    if (!activeTab || activeTabIsInternal) {
+      return;
+    }
+    webviewHandlesRef.current.get(activeTab.id)?.zoomReset();
+  }, [activeTab, activeTabIsInternal]);
+
   const openUrl = useCallback(
     (rawUrl: string, options?: { newTab?: boolean }) => {
       const nextUrl = normalizeBrowserInput(rawUrl, browserSearchEngine);
@@ -395,13 +433,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
           setActiveBrowserTab(current, suggestion.tabId ?? current.activeTabId),
         );
         setIsAddressBarFocused(false);
-        setSelectedSuggestionIndex(0);
+        setSelectedSuggestionIndex(-1);
         return;
       }
       setDraftUrl(resolveBrowserSuggestionDraftValue(suggestion));
       openUrl(suggestion.url);
       setIsAddressBarFocused(false);
-      setSelectedSuggestionIndex(0);
+      setSelectedSuggestionIndex(-1);
     },
     [openUrl, updateBrowserSession],
   );
@@ -856,6 +894,9 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const setActiveTabByIndexEvent = useEffectEvent(setActiveTabByIndex);
   const toggleDesignerToolEvent = useEffectEvent(toggleDesignerTool);
   const toggleDevToolsEvent = useEffectEvent(toggleDevTools);
+  const zoomInEvent = useEffectEvent(zoomIn);
+  const zoomOutEvent = useEffectEvent(zoomOut);
+  const zoomResetEvent = useEffectEvent(zoomReset);
   const browserController = useMemo<InAppBrowserController>(
     () => ({
       closeActiveTab: () => closeActiveTabEvent(),
@@ -875,6 +916,9 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       setActiveTabByIndex: (index) => setActiveTabByIndexEvent(index),
       toggleDesignerTool: (tool) => toggleDesignerToolEvent(tool),
       toggleDevTools: () => toggleDevToolsEvent(),
+      zoomIn: () => zoomInEvent(),
+      zoomOut: () => zoomOutEvent(),
+      zoomReset: () => zoomResetEvent(),
     }),
     [],
   );
@@ -942,13 +986,15 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setSelectedSuggestionIndex((current) =>
-          Math.min(current + 1, addressBarSuggestions.length - 1),
+          resolveNextBrowserSuggestionIndex(current, addressBarSuggestions.length, 1),
         );
         return;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        setSelectedSuggestionIndex((current) => Math.max(current - 1, 0));
+        setSelectedSuggestionIndex((current) =>
+          resolveNextBrowserSuggestionIndex(current, addressBarSuggestions.length, -1),
+        );
         return;
       }
       if (event.key === "Enter") {
@@ -1156,7 +1202,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   }, [browserSessionStorageKey]);
 
   useEffect(() => {
-    setSelectedSuggestionIndex(0);
+    setSelectedSuggestionIndex(-1);
   }, [draftUrl, addressBarSuggestions.length]);
 
   useEffect(() => {
@@ -1389,5 +1435,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     showAddressBarSuggestions,
     toggleDevTools,
     togglePinnedActivePage,
+    zoomIn,
+    zoomOut,
+    zoomReset,
   };
 }

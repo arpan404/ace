@@ -20,8 +20,15 @@ import {
   useState,
 } from "react";
 import { openInPreferredEditor } from "../editorPreferences";
-import { gitBranchesQueryOptions } from "~/lib/gitReactQuery";
-import { checkpointDiffQueryOptions } from "~/lib/providerReactQuery";
+import {
+  gitBranchesQueryOptions,
+  gitStatusQueryOptions,
+  gitWorkingTreeDiffQueryOptions,
+} from "~/lib/gitReactQuery";
+import {
+  checkpointDiffQueryOptions,
+  isCheckpointTemporarilyUnavailable,
+} from "~/lib/providerReactQuery";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { resolvePathLinkTarget } from "../terminal-links";
@@ -209,12 +216,18 @@ export default function DiffPanel({
   const activeThread = useStore((store) =>
     activeThreadId ? store.threads.find((thread) => thread.id === activeThreadId) : undefined,
   );
+  const liveTurnDiffMode = activeThread?.session?.capabilities?.liveTurnDiffMode;
   const activeProjectId = activeThread?.projectId ?? null;
   const activeProject = useStore((store) =>
     activeProjectId ? store.projects.find((project) => project.id === activeProjectId) : undefined,
   );
   const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd;
   const gitBranchesQuery = useQuery(gitBranchesQueryOptions(activeCwd ?? null));
+  const gitStatusQuery = useQuery(
+    gitStatusQueryOptions(
+      activeThread?.latestTurn?.state === "running" ? (activeCwd ?? null) : null,
+    ),
+  );
   const gitRepoStatus = gitBranchesQuery.data?.isRepo;
   const gitRepoCheckError =
     gitBranchesQuery.error instanceof Error
@@ -274,8 +287,28 @@ export default function DiffPanel({
   const selectedTurnQueryable = selectedTurn
     ? isCheckpointSummaryQueryable(selectedTurn, selectedCheckpointTurnCount)
     : false;
+  const selectedTurnLiveDiff =
+    diffOpen &&
+    selectedTurn?.turnId === activeThread?.latestTurn?.turnId &&
+    activeThread?.latestTurn?.state === "running" &&
+    selectedTurn?.status === "missing"
+      ? selectedTurn.diff
+      : undefined;
+  const selectedTurnWorkspaceFallback =
+    diffOpen &&
+    selectedTurn?.turnId === activeThread?.latestTurn?.turnId &&
+    activeThread?.latestTurn?.state === "running" &&
+    selectedTurn?.status === "missing" &&
+    !selectedTurnLiveDiff &&
+    (liveTurnDiffMode === undefined || liveTurnDiffMode === "workspace") &&
+    gitStatusQuery.data?.hasWorkingTreeChanges === true;
   const selectedTurnUnavailableReason = useMemo(() => {
-    if (!selectedTurn || selectedTurnQueryable) {
+    if (
+      !selectedTurn ||
+      selectedTurnQueryable ||
+      selectedTurnLiveDiff ||
+      selectedTurnWorkspaceFallback
+    ) {
       return null;
     }
     if (selectedTurn.status === "missing") {
@@ -285,7 +318,7 @@ export default function DiffPanel({
       return "Diff generation failed for this turn.";
     }
     return "Diff is unavailable for this turn.";
-  }, [selectedTurn, selectedTurnQueryable]);
+  }, [selectedTurn, selectedTurnLiveDiff, selectedTurnQueryable, selectedTurnWorkspaceFallback]);
   const selectedCheckpointRange = useMemo(
     () =>
       selectedTurn && selectedTurnQueryable && typeof selectedCheckpointTurnCount === "number"
@@ -333,7 +366,9 @@ export default function DiffPanel({
     !isCheckingGitRepo &&
     isGitRepo &&
     activeThreadId !== null &&
-    activeCheckpointRange !== null;
+    activeCheckpointRange !== null &&
+    !selectedTurnLiveDiff &&
+    !selectedTurnWorkspaceFallback;
   const activeCheckpointDiffQuery = useQuery(
     checkpointDiffQueryOptions({
       threadId: activeThreadId,
@@ -346,22 +381,41 @@ export default function DiffPanel({
   const selectedTurnCheckpointDiff = selectedTurn
     ? activeCheckpointDiffQuery.data?.diff
     : undefined;
+  const workingTreeDiffQuery = useQuery(
+    gitWorkingTreeDiffQueryOptions({
+      cwd: activeCwd ?? null,
+      enabled: diffOpen && selectedTurnWorkspaceFallback,
+    }),
+  );
   const conversationCheckpointDiff = selectedTurn
     ? undefined
     : activeCheckpointDiffQuery.data?.diff;
   const isLoadingCheckpointDiff =
-    canQueryCheckpointDiff &&
-    (activeCheckpointDiffQuery.isPending || activeCheckpointDiffQuery.fetchStatus === "fetching");
-  const checkpointDiffError =
-    activeCheckpointDiffQuery.error instanceof Error
+    (canQueryCheckpointDiff &&
+      (activeCheckpointDiffQuery.isPending ||
+        activeCheckpointDiffQuery.fetchStatus === "fetching")) ||
+    (selectedTurnWorkspaceFallback &&
+      (workingTreeDiffQuery.isPending || workingTreeDiffQuery.fetchStatus === "fetching"));
+  const checkpointDiffError = selectedTurnWorkspaceFallback
+    ? workingTreeDiffQuery.error instanceof Error
+      ? workingTreeDiffQuery.error.message
+      : workingTreeDiffQuery.error
+        ? "Failed to load workspace diff."
+        : null
+    : activeCheckpointDiffQuery.error instanceof Error
       ? activeCheckpointDiffQuery.error.message
       : activeCheckpointDiffQuery.error
         ? "Failed to load checkpoint diff."
         : null;
+  const checkpointDiffIsTemporarilyUnavailable =
+    !selectedTurnLiveDiff &&
+    !selectedTurnWorkspaceFallback &&
+    activeCheckpointDiffQuery.error !== null &&
+    isCheckpointTemporarilyUnavailable(activeCheckpointDiffQuery.error);
 
   const selectedPatch = diffOpen
     ? selectedTurn
-      ? selectedTurnCheckpointDiff
+      ? (selectedTurnLiveDiff ?? workingTreeDiffQuery.data?.diff ?? selectedTurnCheckpointDiff)
       : conversationCheckpointDiff
     : undefined;
   const deferredSelectedPatch = useDeferredValue(selectedPatch);
@@ -371,10 +425,15 @@ export default function DiffPanel({
   const hasNoNetChanges = hasResolvedPatch && deferredSelectedPatch.trim().length === 0;
   const noPatchMessage =
     selectedTurnUnavailableReason ??
+    (checkpointDiffIsTemporarilyUnavailable
+      ? "Diff checkpoints are still being prepared for this selection."
+      : null) ??
     (!selectedTurn && queryableTurnDiffSummaries.length === 0
       ? "Diff checkpoints are still being prepared for this conversation."
       : hasNoNetChanges
-        ? "No net changes in this selection."
+        ? selectedTurnLiveDiff || selectedTurnWorkspaceFallback
+          ? "No net changes in the current turn."
+          : "No net changes in this selection."
         : "No patch available for this selection.");
   const renderablePatch = useMemo(
     () => getRenderablePatch(deferredSelectedPatch, "diff-panel"),
@@ -672,7 +731,7 @@ export default function DiffPanel({
             ref={patchViewportRef}
             className="diff-panel-viewport min-h-0 min-w-0 flex-1 overflow-hidden"
           >
-            {checkpointDiffError && !renderablePatch && (
+            {checkpointDiffError && !checkpointDiffIsTemporarilyUnavailable && !renderablePatch && (
               <div className="px-3.5">
                 <p className="mb-2 text-[11px] text-destructive/70">{checkpointDiffError}</p>
               </div>

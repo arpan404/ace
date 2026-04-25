@@ -20,7 +20,6 @@ import {
   type RuntimeItemStatus,
   type UserInputQuestion,
 } from "@ace/contracts";
-import { inferModelContextWindowTokens } from "@ace/shared/model";
 import { Effect, FileSystem, Layer, PubSub, Stream } from "effect";
 
 import {
@@ -30,6 +29,7 @@ import {
   ProviderAdapterValidationError,
 } from "../Errors.ts";
 import { startCursorAcpClient, type CursorAcpClient, type CursorAcpJsonRpcId } from "../cursorAcp";
+import { buildRuntimeErrorPayload } from "../runtimeEventPayloads.ts";
 import { type CursorAdapterShape, CursorAdapter } from "../Services/CursorAdapter.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
@@ -631,12 +631,6 @@ export const CursorAdapterLive = Layer.effect(
       findCursorConfigOption(context.metadata.configOptions, { category: "model", id: "model" })
         ?.currentValue ?? context.metadata.models?.currentModelId;
 
-    const currentCursorContextWindowTokens = (context: CursorSessionContext) =>
-      inferModelContextWindowTokens(
-        PROVIDER,
-        currentCursorModelConfigValue(context) ?? context.session.model,
-      );
-
     const availableCursorModeIds = (context: CursorSessionContext) => {
       const modeOption = findCursorConfigOption(context.metadata.configOptions, {
         category: "mode",
@@ -1073,7 +1067,6 @@ export const CursorAdapterLive = Layer.effect(
         outcome.type === "completed" ? outcome.usage : undefined,
         context.activeTurn,
         context.lastUsageTurnId === turnId ? context.lastUsageSnapshot : undefined,
-        currentCursorContextWindowTokens(context),
       );
       const finalUsageSnapshot =
         turnUsageSnapshot ??
@@ -1329,11 +1322,7 @@ export const CursorAdapterLive = Layer.effect(
       }
 
       if (updateKind === "usage_update") {
-        const usage = buildCursorUsageSnapshot(
-          update,
-          context.activeTurn,
-          currentCursorContextWindowTokens(context),
-        );
+        const usage = buildCursorUsageSnapshot(update, context.activeTurn);
         if (!usage) {
           return;
         }
@@ -1635,11 +1624,11 @@ export const CursorAdapterLive = Layer.effect(
               rawSource: "cursor.acp.request",
             }),
             type: "runtime.error",
-            payload: {
+            payload: buildRuntimeErrorPayload({
               message: "Ignoring cursor/ask_question request without valid questions.",
+              detail: request.params,
               class: "validation_error",
-              ...(request.params !== undefined ? { detail: request.params } : {}),
-            },
+            }),
           });
           return;
         }
@@ -1889,10 +1878,11 @@ export const CursorAdapterLive = Layer.effect(
                 emit({
                   ...baseEvent(context),
                   type: "runtime.error",
-                  payload: {
+                  payload: buildRuntimeErrorPayload({
                     message: describeCursorAdapterCause(error),
+                    cause: error,
                     class: "transport_error",
-                  },
+                  }),
                 });
               });
               client.setNotificationHandler((notification) =>
@@ -2201,10 +2191,11 @@ export const CursorAdapterLive = Layer.effect(
               emit({
                 ...baseEvent(context, { turnId }),
                 type: "runtime.error",
-                payload: {
+                payload: buildRuntimeErrorPayload({
                   message: detailMessage,
+                  cause: error,
                   class: "provider_error",
-                },
+                }),
               });
               if (context.activeTurn?.id === turnId && context.activeTurn.interruptRequested) {
                 settleTurn(context, turnId, {
@@ -2602,7 +2593,18 @@ export const CursorAdapterLive = Layer.effect(
 
     return {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "restart-session" },
+      capabilities: {
+        sessionModelSwitch: "restart-session",
+        sessionModelOptionsSwitch: "restart-session",
+        liveTurnDiffMode: "workspace",
+        reviewChangesMode: "git",
+        reviewSurface: "pending-changes",
+        approvalRequestsMode: "native",
+        turnSteeringMode: "queued-message",
+        transcriptAuthority: "local",
+        historyAuthority: "project-local",
+        sessionResumeMode: "local-replay",
+      },
       startSession,
       sendTurn,
       interruptTurn,

@@ -108,6 +108,7 @@ function makeThread(
         checkpointTurnCount: 1,
         checkpointRef: CheckpointRef.makeUnsafe(`${threadId}-checkpoint`),
         status: "ready" as const,
+        source: "git-checkpoint" as const,
         files: [],
         assistantMessageId: MessageId.makeUnsafe(`${threadId}-assistant-message`),
         completedAt: NOW,

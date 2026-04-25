@@ -29,6 +29,10 @@ import {
 import { normalizeBrowserHttpUrl } from "~/lib/browser/url";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 
+const BROWSER_ZOOM_STEP = 0.1;
+const MIN_BROWSER_ZOOM_FACTOR = 0.25;
+const MAX_BROWSER_ZOOM_FACTOR = 3;
+
 export function isAbortedWebviewLoad(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
@@ -53,6 +57,19 @@ function loadWebviewUrl(
     const message = error instanceof Error ? error.message : "Could not load the requested page.";
     onError?.(message);
   });
+}
+
+function clampBrowserZoomFactor(factor: number): number {
+  return Math.max(MIN_BROWSER_ZOOM_FACTOR, Math.min(MAX_BROWSER_ZOOM_FACTOR, factor));
+}
+
+function getWebviewZoomFactor(webview: BrowserWebview): number {
+  const factor = webview.getZoomFactor?.();
+  return typeof factor === "number" && Number.isFinite(factor) ? factor : 1;
+}
+
+function setWebviewZoomFactor(webview: BrowserWebview, factor: number): void {
+  webview.setZoomFactor?.(clampBrowserZoomFactor(factor));
 }
 
 function resolveBrowserFaviconSources(url: string): string[] {
@@ -1604,6 +1621,24 @@ export function BrowserTabWebview(props: {
       stop: () => {
         if (!readyRef.current || !webviewRef.current) return;
         webviewRef.current.stop();
+      },
+      zoomIn: () => {
+        if (!readyRef.current || !webviewRef.current) return;
+        setWebviewZoomFactor(
+          webviewRef.current,
+          getWebviewZoomFactor(webviewRef.current) + BROWSER_ZOOM_STEP,
+        );
+      },
+      zoomOut: () => {
+        if (!readyRef.current || !webviewRef.current) return;
+        setWebviewZoomFactor(
+          webviewRef.current,
+          getWebviewZoomFactor(webviewRef.current) - BROWSER_ZOOM_STEP,
+        );
+      },
+      zoomReset: () => {
+        if (!readyRef.current || !webviewRef.current) return;
+        setWebviewZoomFactor(webviewRef.current, 1);
       },
     };
     onHandleChange(tab.id, handle);

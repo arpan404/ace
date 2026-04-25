@@ -39,6 +39,7 @@ import {
   asString,
 } from "../unknown.ts";
 import { meaningfulErrorMessage } from "../errorCause.ts";
+import { buildRuntimeErrorPayload, buildRuntimeWarningPayload } from "../runtimeEventPayloads.ts";
 import {
   buildBootstrapPromptFromReplayTurns,
   cloneReplayTurns,
@@ -601,11 +602,11 @@ function mapToRuntimeEvents(
       {
         ...runtimeEventBase(event, canonicalThreadId),
         type: "runtime.error",
-        payload: {
+        payload: buildRuntimeErrorPayload({
           message: event.message,
+          detail: event.payload,
           class: "provider_error",
-          ...(event.payload !== undefined ? { detail: event.payload } : {}),
-        },
+        }),
       },
     ];
   }
@@ -1284,11 +1285,13 @@ function mapToRuntimeEvents(
       {
         type: willRetry ? "runtime.warning" : "runtime.error",
         ...runtimeEventBase(event, canonicalThreadId),
-        payload: {
-          message,
-          ...(!willRetry ? { class: "provider_error" as const } : {}),
-          ...(event.payload !== undefined ? { detail: event.payload } : {}),
-        },
+        payload: willRetry
+          ? buildRuntimeWarningPayload(message, event.payload)
+          : buildRuntimeErrorPayload({
+              message,
+              detail: event.payload,
+              class: "provider_error",
+            }),
       },
     ];
   }
@@ -1301,19 +1304,16 @@ function mapToRuntimeEvents(
         ? {
             type: "runtime.error",
             ...runtimeEventBase(event, canonicalThreadId),
-            payload: {
+            payload: buildRuntimeErrorPayload({
               message,
-              class: "provider_error" as const,
-              ...(event.payload !== undefined ? { detail: event.payload } : {}),
-            },
+              detail: event.payload,
+              class: "provider_error",
+            }),
           }
         : {
             type: "runtime.warning",
             ...runtimeEventBase(event, canonicalThreadId),
-            payload: {
-              message,
-              ...(event.payload !== undefined ? { detail: event.payload } : {}),
-            },
+            payload: buildRuntimeWarningPayload(message, event.payload),
           },
     ];
   }
@@ -1323,10 +1323,10 @@ function mapToRuntimeEvents(
       {
         type: "runtime.warning",
         ...runtimeEventBase(event, canonicalThreadId),
-        payload: {
-          message: event.message ?? "Windows world-writable warning",
-          ...(event.payload !== undefined ? { detail: event.payload } : {}),
-        },
+        payload: buildRuntimeWarningPayload(
+          event.message ?? "Windows world-writable warning",
+          event.payload,
+        ),
       },
     ];
   }
@@ -1352,10 +1352,7 @@ function mapToRuntimeEvents(
             {
               type: "runtime.warning" as const,
               ...runtimeEventBase(event, canonicalThreadId),
-              payload: {
-                message: failureMessage,
-                ...(event.payload !== undefined ? { detail: event.payload } : {}),
-              },
+              payload: buildRuntimeWarningPayload(failureMessage, event.payload),
             },
           ]
         : []),
@@ -1661,6 +1658,15 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      sessionModelOptionsSwitch: "in-session",
+      liveTurnDiffMode: "native",
+      reviewChangesMode: "provider",
+      reviewSurface: "turn-native",
+      approvalRequestsMode: "native",
+      turnSteeringMode: "native",
+      transcriptAuthority: "provider",
+      historyAuthority: "provider-session",
+      sessionResumeMode: "native",
     },
     startSession,
     sendTurn,

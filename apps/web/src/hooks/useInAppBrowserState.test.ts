@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   resolveBrowserSuggestionDraftValue,
+  resolveNextBrowserSuggestionIndex,
   shouldAutoFocusBrowserAddressBarOnOpen,
 } from "./useInAppBrowserState";
 
@@ -53,5 +54,22 @@ describe("resolveBrowserSuggestionDraftValue", () => {
         url: "https://www.google.com/search?q=vitest%20browser",
       }),
     ).toBe("vitest browser");
+  });
+});
+
+describe("resolveNextBrowserSuggestionIndex", () => {
+  it("keeps suggestions unselected until keyboard navigation starts", () => {
+    expect(resolveNextBrowserSuggestionIndex(-1, 3, 1)).toBe(0);
+    expect(resolveNextBrowserSuggestionIndex(-1, 3, -1)).toBe(2);
+  });
+
+  it("clamps keyboard navigation inside the suggestion list", () => {
+    expect(resolveNextBrowserSuggestionIndex(0, 3, -1)).toBe(0);
+    expect(resolveNextBrowserSuggestionIndex(1, 3, 1)).toBe(2);
+    expect(resolveNextBrowserSuggestionIndex(2, 3, 1)).toBe(2);
+  });
+
+  it("returns no selection when there are no suggestions", () => {
+    expect(resolveNextBrowserSuggestionIndex(0, 0, 1)).toBe(-1);
   });
 });

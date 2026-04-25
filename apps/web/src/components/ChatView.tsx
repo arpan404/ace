@@ -48,6 +48,7 @@ import {
   gitBranchesQueryOptions,
   gitCreateWorktreeMutationOptions,
   gitGitHubIssuesQueryOptions,
+  gitStatusQueryOptions,
 } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
@@ -124,7 +125,11 @@ import {
   type Thread,
 } from "../types";
 import { isMemoryPressureAtLeast, subscribeToMemoryPressure } from "../lib/memoryPressure";
-import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
+import {
+  hydrateThreadFromCache,
+  readCachedHydratedThread,
+  resolveThreadHydrationRetryDelayMs,
+} from "../lib/threadHydrationCache";
 
 import { basenameOfPath } from "../vscode-icons";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -222,6 +227,7 @@ import { ComposerQueuedMessages } from "./chat/ComposerQueuedMessages";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
+import { ComposerLiveTurnDiffBanner } from "./chat/ComposerLiveTurnDiffBanner";
 import {
   getComposerProviderState,
   renderProviderTraitsMenuContent,
@@ -290,10 +296,6 @@ import {
 
 const ThreadWorkspaceEditor = lazy(() => import("./editor/ThreadWorkspaceEditor"));
 
-const WORKSPACE_PANEL_TRANSITION = {
-  duration: 0.2,
-  ease: [0.16, 1, 0.3, 1],
-} as const;
 const WORKSPACE_SIDE_PANEL_TRANSITION = {
   duration: 0.22,
   ease: [0.16, 1, 0.3, 1],
@@ -327,6 +329,7 @@ const DiffPanel = lazy(() => import("./DiffPanel"));
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
 interface ChatViewProps {
+  shortcutsEnabled?: boolean;
   showSidebarTrigger?: boolean;
   splitPane?: boolean;
   threadId: ThreadId;
@@ -379,6 +382,7 @@ function LocalDiffPanel(props: {
 }
 
 export default function ChatView({
+  shortcutsEnabled = true,
   showSidebarTrigger = true,
   splitPane = false,
   threadId,
@@ -546,6 +550,10 @@ export default function ChatView({
   const shouldAutoScrollRef = useRef(true);
   const previousThreadIdRef = useRef<ThreadId | null>(null);
   const directThreadHydrationInFlightRef = useRef<ThreadId | null>(null);
+  const directThreadHydrationFailureCountRef = useRef(0);
+  const [directThreadHydrationRetryAt, setDirectThreadHydrationRetryAt] = useState<number | null>(
+    null,
+  );
   const lastKnownScrollTopRef = useRef(0);
   const isPointerScrollActiveRef = useRef(false);
   const lastTouchClientYRef = useRef<number | null>(null);
@@ -789,13 +797,40 @@ export default function ChatView({
   }, [activeThreadId, trackActiveThread]);
 
   useEffect(() => {
-    if (!serverThread || serverThread.historyLoaded !== false) {
+    directThreadHydrationFailureCountRef.current = 0;
+    setDirectThreadHydrationRetryAt(null);
+    directThreadHydrationInFlightRef.current = null;
+  }, [serverThread?.id, serverThread?.updatedAt]);
+
+  useEffect(() => {
+    if (directThreadHydrationRetryAt === null) {
+      return;
+    }
+    const remainingDelay = Math.max(0, directThreadHydrationRetryAt - Date.now());
+    const timer = window.setTimeout(() => {
+      setDirectThreadHydrationRetryAt((current) =>
+        current === directThreadHydrationRetryAt ? null : current,
+      );
+    }, remainingDelay);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [directThreadHydrationRetryAt]);
+
+  useEffect(() => {
+    if (
+      !serverThread ||
+      serverThread.historyLoaded !== false ||
+      directThreadHydrationRetryAt !== null
+    ) {
       return;
     }
     const cachedHydratedThread = serverThread.updatedAt
       ? readCachedHydratedThread(serverThread.id, serverThread.updatedAt)
       : null;
     if (cachedHydratedThread) {
+      directThreadHydrationFailureCountRef.current = 0;
+      setDirectThreadHydrationRetryAt(null);
       startTransition(() => {
         hydrateThreadFromReadModel(cachedHydratedThread);
       });
@@ -818,8 +853,16 @@ export default function ChatView({
         startTransition(() => {
           hydrateThreadFromReadModel(readModelThread);
         });
+        directThreadHydrationFailureCountRef.current = 0;
+        setDirectThreadHydrationRetryAt(null);
       } catch {
-        // The route-level retry path will keep trying for the active pane.
+        if (!canceled) {
+          const nextFailureCount = directThreadHydrationFailureCountRef.current + 1;
+          directThreadHydrationFailureCountRef.current = nextFailureCount;
+          setDirectThreadHydrationRetryAt(
+            Date.now() + resolveThreadHydrationRetryDelayMs(nextFailureCount),
+          );
+        }
       } finally {
         if (directThreadHydrationInFlightRef.current === serverThread.id) {
           directThreadHydrationInFlightRef.current = null;
@@ -830,7 +873,7 @@ export default function ChatView({
     return () => {
       canceled = true;
     };
-  }, [hydrateThreadFromReadModel, serverThread]);
+  }, [directThreadHydrationRetryAt, hydrateThreadFromReadModel, serverThread]);
 
   useEffect(() => {
     if (
@@ -1063,10 +1106,6 @@ export default function ChatView({
     isServerThread,
     threads,
   ]);
-  const activeContextWindow = useMemo(
-    () => deriveLatestContextWindowSnapshot(activeThread?.activities ?? []),
-    [activeThread?.activities],
-  );
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
   const liveTurnInProgress = hasLiveTurn(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = useProjectById(activeThread?.projectId);
@@ -1348,6 +1387,12 @@ export default function ChatView({
       buildProviderModelSelection(selectedProvider, selectedModel, selectedModelOptionsForDispatch),
     [selectedModel, selectedModelOptionsForDispatch, selectedProvider],
   );
+  const activeContextWindow = useMemo(() => {
+    if (!hasThreadStarted) {
+      return null;
+    }
+    return deriveLatestContextWindowSnapshot(activeThread?.activities ?? []);
+  }, [activeThread?.activities, hasThreadStarted]);
   const selectedModelForPicker = selectedModel;
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
@@ -1681,11 +1726,7 @@ export default function ChatView({
   );
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
-  const {
-    timelineEntries,
-    turnDiffSummaryByAssistantMessageId,
-    visibleTurnDiffSummaryByAssistantMessageId,
-  } = useMemo(
+  const { timelineEntries, turnDiffSummaryByAssistantMessageId } = useMemo(
     () =>
       deriveThreadTimelineRenderState({
         messages: timelineMessages,
@@ -1755,6 +1796,77 @@ export default function ChatView({
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
+  const liveTurnDiffSummary = useMemo(() => {
+    if (!liveTurnInProgress || !activeLatestTurn?.turnId) {
+      return null;
+    }
+    return turnDiffSummaries.find((summary) => summary.turnId === activeLatestTurn.turnId) ?? null;
+  }, [activeLatestTurn?.turnId, liveTurnInProgress, turnDiffSummaries]);
+  const liveTurnDiffMode = activeThread?.session?.capabilities?.liveTurnDiffMode;
+  const liveTurnDiffStat = useMemo(() => {
+    if (!liveTurnInProgress || !activeLatestTurn?.turnId || !liveTurnDiffSummary) {
+      return null;
+    }
+    const totals = liveTurnDiffSummary.files.reduce(
+      (acc, file) => ({
+        additions: acc.additions + (typeof file.additions === "number" ? file.additions : 0),
+        deletions: acc.deletions + (typeof file.deletions === "number" ? file.deletions : 0),
+      }),
+      { additions: 0, deletions: 0 },
+    );
+    if (totals.additions === 0 && totals.deletions === 0) {
+      return null;
+    }
+    return {
+      turnId: activeLatestTurn.turnId,
+      additions: totals.additions,
+      deletions: totals.deletions,
+      fileCount: liveTurnDiffSummary.files.length,
+    };
+  }, [activeLatestTurn?.turnId, liveTurnDiffSummary, liveTurnInProgress]);
+  const liveWorkspaceStatusQuery = useQuery({
+    ...gitStatusQueryOptions(gitCwd),
+    enabled:
+      liveTurnInProgress &&
+      gitCwd !== null &&
+      (liveTurnDiffMode === undefined || liveTurnDiffMode === "workspace"),
+    staleTime: 0,
+    refetchInterval: 1_000,
+  });
+  const composerDiffBanner = useMemo(() => {
+    if (liveTurnDiffStat) {
+      return {
+        turnId: liveTurnDiffStat.turnId,
+        additions: liveTurnDiffStat.additions,
+        deletions: liveTurnDiffStat.deletions,
+        fileCount: liveTurnDiffStat.fileCount,
+        prefixLabel: undefined,
+      };
+    }
+    if (!liveTurnInProgress || !activeLatestTurn?.turnId) {
+      return null;
+    }
+    const workingTree = liveWorkspaceStatusQuery.data?.workingTree;
+    if (
+      !workingTree ||
+      (workingTree.insertions === 0 && workingTree.deletions === 0) ||
+      workingTree.files.length === 0
+    ) {
+      return null;
+    }
+    return {
+      turnId: activeLatestTurn.turnId,
+      additions: workingTree.insertions,
+      deletions: workingTree.deletions,
+      fileCount: workingTree.files.length,
+      prefixLabel: "Workspace changes:",
+    };
+  }, [
+    activeLatestTurn?.turnId,
+    liveTurnDiffStat,
+    liveTurnInProgress,
+    liveWorkspaceStatusQuery.data,
+  ]);
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
   const issueTriggerQuery = composerTrigger?.kind === "issue" ? composerTrigger.query : "";
@@ -3909,7 +4021,7 @@ export default function ChatView({
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
   useEffect(() => {
-    if (splitPane) return;
+    if (!shortcutsEnabled) return;
     if (!isElectron) return;
     return window.desktopBridge?.onMenuAction((action) => {
       if (!activeThreadId) {
@@ -3930,7 +4042,13 @@ export default function ChatView({
         toggleInteractionMode();
       }
     });
-  }, [activeThreadId, onToggleDiff, splitPane, toggleInteractionMode, toggleTerminalVisibility]);
+  }, [
+    activeThreadId,
+    onToggleDiff,
+    shortcutsEnabled,
+    toggleInteractionMode,
+    toggleTerminalVisibility,
+  ]);
   const togglePlanSidebar = useCallback(() => {
     setPlanSidebarOpen((open) => {
       if (open) {
@@ -4524,7 +4642,7 @@ export default function ChatView({
   }, [activeThreadId, scheduleComposerFocus, terminalState.terminalOpen]);
 
   useEffect(() => {
-    if (splitPane) return;
+    if (!shortcutsEnabled) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (!activeThreadId || event.defaultPrevented) return;
       if (
@@ -4754,7 +4872,7 @@ export default function ChatView({
     splitTerminal,
     keybindings,
     onToggleDiff,
-    splitPane,
+    shortcutsEnabled,
     toggleInteractionMode,
     toggleWorkspaceMode,
     toggleHeaderVisibility,
@@ -6492,7 +6610,7 @@ export default function ChatView({
       timelineEntries,
       completionDividerBeforeEntryId,
       completionSummary,
-      turnDiffSummaryByAssistantMessageId: visibleTurnDiffSummaryByAssistantMessageId,
+      turnDiffSummaryByAssistantMessageId,
       expandedWorkGroups,
       onToggleWorkGroup,
       onOpenTurnDiff,
@@ -6534,7 +6652,7 @@ export default function ChatView({
       scheduleComposerFocus,
       timelineEntries,
       timestampFormat,
-      visibleTurnDiffSummaryByAssistantMessageId,
+      turnDiffSummaryByAssistantMessageId,
     ],
   );
   const loadingNotice = useMemo(
@@ -6625,6 +6743,7 @@ export default function ChatView({
       ? {
           activePlan,
           activeProposedPlan: sidebarProposedPlan,
+          activeProvider: activeThread?.session?.provider ?? null,
           markdownCwd: gitCwd ?? undefined,
           onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
           workspaceRoot: activeProject?.cwd ?? undefined,
@@ -6804,16 +6923,9 @@ export default function ChatView({
           ref={workspaceViewportRef}
           className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
         >
-          <AnimatePresence initial={false} mode="wait">
+          <>
             {workspaceMode === "editor" ? (
-              <motion.div
-                key="editor-workspace"
-                className="flex min-h-0 min-w-0 flex-1 flex-col"
-                initial={{ opacity: 0, y: 8, scale: 0.995 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -6, scale: 0.995 }}
-                transition={WORKSPACE_PANEL_TRANSITION}
-              >
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <Suspense
                   fallback={
                     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
@@ -6841,19 +6953,14 @@ export default function ChatView({
                     worktreePath={activeThread.worktreePath ?? null}
                   />
                 </Suspense>
-              </motion.div>
+              </div>
             ) : (
-              <motion.div
-                key="chat-workspace"
+              <div
                 className={cn(
                   workspaceMode === "split"
                     ? "flex min-h-0 min-w-0 flex-1 overflow-hidden"
                     : "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
                 )}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 6 }}
-                transition={WORKSPACE_PANEL_TRANSITION}
               >
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                   {activePlan || sidebarProposedPlan || planSidebarOpen ? (
@@ -6890,6 +6997,17 @@ export default function ChatView({
                       className="mx-auto w-full min-w-0 max-w-208"
                       data-chat-composer-form="true"
                     >
+                      {composerDiffBanner ? (
+                        <ComposerLiveTurnDiffBanner
+                          additions={composerDiffBanner.additions}
+                          deletions={composerDiffBanner.deletions}
+                          fileCount={composerDiffBanner.fileCount}
+                          {...(composerDiffBanner.prefixLabel
+                            ? { prefixLabel: composerDiffBanner.prefixLabel }
+                            : {})}
+                          onReviewChanges={() => onOpenTurnDiff(composerDiffBanner.turnId)}
+                        />
+                      ) : null}
                       <div
                         className={cn(
                           "group rounded-xl p-px transition-colors duration-200",
@@ -7277,67 +7395,64 @@ export default function ChatView({
                     />
                   ) : null}
                 </div>
-                <AnimatePresence initial={false}>
-                  {workspaceMode === "split" ? (
-                    <motion.div
-                      key="workspace-split-editor"
-                      className="flex h-full min-h-0 shrink-0 overflow-hidden"
-                      initial={{ width: 0, opacity: 0, x: 18 }}
-                      animate={{ width: "auto", opacity: 1, x: 0 }}
-                      exit={{ width: 0, opacity: 0, x: 18 }}
-                      transition={WORKSPACE_SIDE_PANEL_TRANSITION}
+                {workspaceMode === "split" ? (
+                  <motion.div
+                    key="workspace-split-editor"
+                    className="flex h-full min-h-0 shrink-0 overflow-hidden"
+                    initial={{ width: 0, opacity: 0, x: 18 }}
+                    animate={{ width: "auto", opacity: 1, x: 0 }}
+                    transition={WORKSPACE_SIDE_PANEL_TRANSITION}
+                  >
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label="Resize workspace editor panel"
+                      className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none"
+                      onPointerDown={handleWorkspaceEditorSplitResizePointerDown}
                     >
-                      <div
-                        role="separator"
-                        aria-orientation="vertical"
-                        aria-label="Resize workspace editor panel"
-                        className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none"
-                        onPointerDown={handleWorkspaceEditorSplitResizePointerDown}
-                      >
-                        <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-primary/55" />
-                        <div className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-primary/10" />
-                      </div>
-                      <div
-                        className="flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden"
-                        style={{
-                          width: `${workspaceEditorSplitWidth}px`,
-                          minWidth: `${workspaceEditorSplitWidth}px`,
-                        }}
-                      >
-                        <Suspense
-                          fallback={
-                            <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-                              <div className="border-b border-border/60 px-4 py-3">
-                                <div className="h-5 w-44 rounded bg-foreground/6" />
-                              </div>
-                              <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
-                                <div className="border-r border-border/60 bg-foreground/3" />
-                                <div className="bg-background" />
-                              </div>
+                      <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-colors group-hover:bg-primary/55" />
+                      <div className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-primary/10" />
+                    </div>
+                    <div
+                      className="flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden"
+                      style={{
+                        width: `${workspaceEditorSplitWidth}px`,
+                        minWidth: `${workspaceEditorSplitWidth}px`,
+                      }}
+                    >
+                      <Suspense
+                        fallback={
+                          <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+                            <div className="border-b border-border/60 px-4 py-3">
+                              <div className="h-5 w-44 rounded bg-foreground/6" />
                             </div>
-                          }
-                        >
-                          <ThreadWorkspaceEditor
-                            availableEditors={availableEditors}
-                            branch={activeThreadBranchName}
-                            gitCwd={gitCwd}
-                            lspCwd={activeProject?.cwd ?? null}
-                            keybindings={keybindings}
-                            browserOpen={browserOpen}
-                            workspaceMode={workspaceMode}
-                            onWorkspaceModeChange={onWorkspaceModeChange}
-                            terminalOpen={terminalState.terminalOpen}
-                            threadId={activeThread.id}
-                            worktreePath={activeThread.worktreePath ?? null}
-                          />
-                        </Suspense>
-                      </div>
-                    </motion.div>
-                  ) : null}
-                </AnimatePresence>
-              </motion.div>
+                            <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
+                              <div className="border-r border-border/60 bg-foreground/3" />
+                              <div className="bg-background" />
+                            </div>
+                          </div>
+                        }
+                      >
+                        <ThreadWorkspaceEditor
+                          availableEditors={availableEditors}
+                          branch={activeThreadBranchName}
+                          gitCwd={gitCwd}
+                          lspCwd={activeProject?.cwd ?? null}
+                          keybindings={keybindings}
+                          browserOpen={browserOpen}
+                          workspaceMode={workspaceMode}
+                          onWorkspaceModeChange={onWorkspaceModeChange}
+                          terminalOpen={terminalState.terminalOpen}
+                          threadId={activeThread.id}
+                          worktreePath={activeThread.worktreePath ?? null}
+                        />
+                      </Suspense>
+                    </div>
+                  </motion.div>
+                ) : null}
+              </div>
             )}
-          </AnimatePresence>
+          </>
         </div>
         {/* end chat column */}
 

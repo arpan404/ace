@@ -1395,7 +1395,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-work-entry-id="work-tool-followup"');
   });
 
-  it("hides changed-files summaries after a newer user message", async () => {
+  it("keeps changed-files summaries visible after a newer user message", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const assistantMessageId = MessageId.makeUnsafe("assistant-with-diff");
     const markup = renderToStaticMarkup(
@@ -1485,8 +1485,14 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).not.toContain('data-turn-diff-summary="true"');
-    expect(markup).not.toContain("Changed files (2)");
+    expect(markup).toContain('data-turn-diff-summary="true"');
+    expect(markup).toContain("Changed files (2)");
+    expect(markup.indexOf("Updated the timeline rendering.")).toBeLessThan(
+      markup.indexOf("Changed files (2)"),
+    );
+    expect(markup.indexOf("Changed files (2)")).toBeLessThan(
+      markup.indexOf("Thanks, now fix the spacing below it."),
+    );
   });
 
   it("renders changed-files summaries at the end of the latest assistant turn", async () => {
@@ -2049,6 +2055,18 @@ describe("MessagesTimeline", () => {
         scrollContainer={null}
         timelineEntries={[
           {
+            id: "user-summary-start",
+            kind: "message",
+            createdAt: "2026-03-17T19:10:14.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-summary-start"),
+              role: "user",
+              text: "Update the timeline rendering.",
+              createdAt: "2026-03-17T19:10:14.000Z",
+              streaming: false,
+            },
+          },
+          {
             id: "assistant-summary-row",
             kind: "message",
             createdAt: "2026-03-17T19:12:31.500Z",
@@ -2063,7 +2081,7 @@ describe("MessagesTimeline", () => {
           },
         ]}
         completionDividerBeforeEntryId="assistant-summary-row"
-        completionSummary="Worked for 2m 20s"
+        completionSummary="Worked for 3s"
         turnDiffSummaryByAssistantMessageId={new Map()}
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
@@ -2204,6 +2222,18 @@ describe("MessagesTimeline", () => {
         scrollContainer={null}
         timelineEntries={[
           {
+            id: "user-turn-start",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-turn-start"),
+              role: "user",
+              text: "Do the thing.",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+          },
+          {
             id: "assistant-turn-part-1",
             kind: "message",
             createdAt: "2026-03-17T19:12:31.000Z",
@@ -2250,7 +2280,7 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup.match(/data-response-summary="true"/g) ?? []).toHaveLength(1);
-    expect(markup).toContain('data-response-summary-elapsed="2s"');
+    expect(markup).toContain('data-response-summary-elapsed="4s"');
   });
 
   it("does not render an assistant header for assistant messages", async () => {

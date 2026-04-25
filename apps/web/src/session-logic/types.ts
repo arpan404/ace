@@ -63,6 +63,7 @@ export interface PendingUserInput {
 export interface ActivePlanState {
   createdAt: string;
   turnId: TurnId | null;
+  source: "plan-update" | "task-activity";
   explanation?: string | null;
   steps: Array<{
     step: string;

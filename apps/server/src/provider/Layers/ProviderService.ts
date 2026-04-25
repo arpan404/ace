@@ -41,6 +41,7 @@ import {
 
 import { ProviderValidationError, type ProviderServiceError } from "../Errors.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
+import type { ProviderAdapterCapabilities } from "../Services/ProviderAdapter.ts";
 import { ProviderService, type ProviderServiceShape } from "../Services/ProviderService.ts";
 import {
   ProviderSessionDirectory,
@@ -52,6 +53,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProjectionThreadMessageRepository } from "../../persistence/Services/ProjectionThreadMessages.ts";
 import { withStartupTiming } from "../../startupDiagnostics.ts";
 import { projectionMessagesToReplayTurns } from "../providerReplayTurns.ts";
+import { resolveProviderIntegrationCapabilities } from "../providerCapabilities.ts";
 
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogPath?: string;
@@ -63,12 +65,6 @@ const ProviderRollbackConversationInput = Schema.Struct({
   numTurns: NonNegativeInt,
 });
 
-const LOCAL_TRANSCRIPT_AUTHORITATIVE_PROVIDERS = new Set<ProviderKind>([
-  "githubCopilot",
-  "cursor",
-  "gemini",
-  "opencode",
-]);
 const PROVIDER_CLI_POLICY_SWEEP_INTERVAL_MS = 1_000;
 
 type ProviderCliPoolPolicy = {
@@ -89,8 +85,24 @@ type QueuedProviderTurn = {
   readonly result: Deferred.Deferred<ProviderTurnStartResult, ProviderServiceError>;
 };
 
-function usesLocalTranscriptAuthority(provider: ProviderKind): boolean {
-  return LOCAL_TRANSCRIPT_AUTHORITATIVE_PROVIDERS.has(provider);
+function shouldReplayPersistedTranscript(provider: {
+  readonly provider: ProviderKind;
+  readonly capabilities?: ProviderAdapterCapabilities | null;
+}): boolean {
+  return (
+    resolveProviderIntegrationCapabilities(provider.provider, provider.capabilities)
+      .sessionResumeMode === "local-replay"
+  );
+}
+
+function shouldClearResumeCursorOnRollback(provider: {
+  readonly provider: ProviderKind;
+  readonly capabilities?: ProviderAdapterCapabilities | null;
+}): boolean {
+  return (
+    resolveProviderIntegrationCapabilities(provider.provider, provider.capabilities)
+      .sessionResumeMode === "local-replay"
+  );
 }
 
 function toValidationError(
@@ -639,7 +651,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       input.binding.resumeCursor !== null && input.binding.resumeCursor !== undefined
         ? input.binding.resumeCursor
         : undefined;
-    const localTranscriptAuthority = usesLocalTranscriptAuthority(input.binding.provider);
+    const shouldReplayTranscript = shouldReplayPersistedTranscript(adapter);
     const hasActiveSession = yield* adapter.hasSession(input.binding.threadId);
     if (hasActiveSession) {
       const activeSessions = yield* adapter.listSessions();
@@ -658,7 +670,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       }
     }
 
-    if (resumeCursor === undefined && !localTranscriptAuthority) {
+    if (resumeCursor === undefined && !shouldReplayTranscript) {
       return yield* toValidationError(
         input.operation,
         `Cannot recover thread '${input.binding.threadId}' because no provider resume state is persisted.`,
@@ -667,7 +679,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
     const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
     const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
-    const replayTurns = localTranscriptAuthority
+    const replayTurns = shouldReplayTranscript
       ? projectionMessagesToReplayTurns(
           yield* projectionThreadMessageRepository.listByThreadId({
             threadId: input.binding.threadId,
@@ -704,7 +716,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ? "resume-thread-with-local-fallback"
           : resumeCursor !== undefined
             ? "resume-thread"
-            : localTranscriptAuthority
+            : shouldReplayTranscript
               ? "rebuild-local-transcript"
               : "resume-thread",
       hasResumeCursor: resumed.resumeCursor !== undefined,
@@ -768,12 +780,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           `Provider '${input.provider}' is disabled in ace settings.`,
         );
       }
+      const adapter = yield* registry.getByProvider(input.provider);
       const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
-      const localTranscriptAuthority = usesLocalTranscriptAuthority(input.provider);
+      const shouldReplayTranscript = shouldReplayPersistedTranscript(adapter);
       const explicitReplayTurns = input.replayTurns;
       const shouldIncludePersistedTranscript =
         explicitReplayTurns === undefined &&
-        localTranscriptAuthority &&
+        shouldReplayTranscript &&
         persistedBinding?.provider === input.provider;
       const persistedResumeCursor =
         persistedBinding?.provider === input.provider &&
@@ -791,7 +804,6 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
               }),
             )
           : []);
-      const adapter = yield* registry.getByProvider(input.provider);
       yield* prepareForNewSession({
         threadId,
         operation: "ProviderService.startSession",
@@ -1107,7 +1119,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
     if (refreshedSession) {
       markSessionObserved(refreshedSession, Date.now());
-      const shouldClearResumeCursor = usesLocalTranscriptAuthority(routed.adapter.provider);
+      const shouldClearResumeCursor = shouldClearResumeCursorOnRollback(routed.adapter);
       yield* upsertSessionBinding(refreshedSession, routed.threadId, {
         lastRuntimeEvent: "provider.rollbackConversation",
         lastRuntimeEventAt: new Date().toISOString(),

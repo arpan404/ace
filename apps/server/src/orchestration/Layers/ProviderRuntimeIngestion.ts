@@ -21,6 +21,7 @@ import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
+import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -30,6 +31,7 @@ import {
 } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { updateProviderRuntimeIngestionCacheStats } from "../../runtimeProfile.ts";
+import { resolveProviderIntegrationCapabilities } from "../../provider/providerCapabilities.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId =>
@@ -209,7 +211,12 @@ function assistantStreamKey(
 function buildContextWindowActivityPayload(
   event: ProviderRuntimeEvent,
 ): ThreadTokenUsageSnapshot | undefined {
-  if (event.type !== "thread.token-usage.updated" || event.payload.usage.usedTokens <= 0) {
+  if (
+    event.type !== "thread.token-usage.updated" ||
+    event.payload.usage.usedTokens <= 0 ||
+    event.payload.usage.maxTokens === undefined ||
+    event.payload.usage.maxTokens <= 0
+  ) {
     return undefined;
   }
   return event.payload.usage;
@@ -224,6 +231,212 @@ function activityFingerprint(activity: OrchestrationThreadActivity): string {
     }
   })();
   return `${activity.kind}|${activity.turnId ?? "none"}|${activity.summary}|${payload}`;
+}
+
+type LiveTurnDiffSource = "provider-native" | "provider-reconstructed";
+
+type LiveTurnDiffFile = {
+  path: string;
+  kind: "modified";
+  additions: number;
+  deletions: number;
+};
+
+type LiveTurnDiffAggregate = {
+  source: LiveTurnDiffSource;
+  files: Map<string, LiveTurnDiffFile>;
+  diff?: string;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function asArray(value: unknown): ReadonlyArray<unknown> | undefined {
+  return Array.isArray(value) ? value : undefined;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function lineCount(value: string | undefined): number {
+  if (!value) {
+    return 0;
+  }
+  return value.split("\n").length;
+}
+
+function countUnifiedDiffStats(diff: string): { additions: number; deletions: number } {
+  return diff.split("\n").reduce(
+    (acc, line) => {
+      if (line.startsWith("+++ ") || line.startsWith("--- ")) {
+        return acc;
+      }
+      if (line.startsWith("+")) {
+        acc.additions += 1;
+      } else if (line.startsWith("-")) {
+        acc.deletions += 1;
+      }
+      return acc;
+    },
+    { additions: 0, deletions: 0 },
+  );
+}
+
+function summarizeUnifiedDiffFiles(diff: string): ReadonlyArray<LiveTurnDiffFile> {
+  const parsed = parseTurnDiffFilesFromUnifiedDiff(diff).map((file) => ({
+    path: file.path,
+    kind: "modified" as const,
+    additions: file.additions,
+    deletions: file.deletions,
+  }));
+  if (parsed.some((file) => file.additions > 0 || file.deletions > 0)) {
+    return parsed;
+  }
+
+  const fallbackStats = countUnifiedDiffStats(diff);
+  if (parsed.length > 0 && (fallbackStats.additions > 0 || fallbackStats.deletions > 0)) {
+    return parsed.map((file, index) =>
+      index === 0
+        ? {
+            ...file,
+            additions: fallbackStats.additions,
+            deletions: fallbackStats.deletions,
+          }
+        : file,
+    );
+  }
+
+  return parsed;
+}
+
+function extractUnifiedDiffCandidate(value: unknown): string | undefined {
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+
+  for (const candidate of [
+    asString(record.unifiedDiff),
+    asString(record.diff),
+    asString(record.patch),
+    asString(record.content),
+    asString(record.text),
+  ]) {
+    if (candidate && /(^diff --git |^--- |^@@ )/m.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  for (const key of ["data", "input", "arguments", "result", "rawInput", "rawOutput", "output"]) {
+    const nested = extractUnifiedDiffCandidate(record[key]);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return undefined;
+}
+
+function collectPathCandidates(value: unknown, results: Set<string>) {
+  const record = asRecord(value);
+  if (!record) {
+    return;
+  }
+
+  for (const key of [
+    "path",
+    "filePath",
+    "relativePath",
+    "filename",
+    "file_name",
+    "newPath",
+    "oldPath",
+  ]) {
+    const candidate = asString(record[key])?.trim();
+    if (candidate && candidate !== "/dev/null") {
+      results.add(candidate);
+    }
+  }
+
+  for (const key of ["data", "input", "arguments", "result", "rawInput", "rawOutput", "output"]) {
+    collectPathCandidates(record[key], results);
+  }
+
+  const content = asArray(record.content);
+  if (content) {
+    for (const entry of content) {
+      collectPathCandidates(entry, results);
+    }
+  }
+}
+
+function extractLiveTurnDiffFromItem(
+  event: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >,
+): { files: ReadonlyArray<LiveTurnDiffFile>; diff?: string } | null {
+  if (event.payload.itemType !== "file_change") {
+    return null;
+  }
+
+  const payloadData = asRecord(event.payload.data);
+  const unifiedDiff = extractUnifiedDiffCandidate(payloadData);
+  if (unifiedDiff) {
+    const files = summarizeUnifiedDiffFiles(unifiedDiff);
+    if (files.length > 0) {
+      return { files, diff: unifiedDiff };
+    }
+  }
+
+  const content = asArray(payloadData?.content);
+  if (content) {
+    const diffFiles = content
+      .map((entry) => asRecord(entry))
+      .filter((entry): entry is Record<string, unknown> => entry !== undefined)
+      .filter((entry) => entry.type === "diff")
+      .map((entry) => {
+        const path = asString(entry.path);
+        if (!path) {
+          return undefined;
+        }
+        return {
+          path,
+          kind: "modified" as const,
+          additions: lineCount(asString(entry.newText)),
+          deletions: lineCount(asString(entry.oldText)),
+        };
+      })
+      .filter((entry): entry is LiveTurnDiffFile => entry !== undefined);
+    if (diffFiles.length > 0) {
+      return { files: diffFiles };
+    }
+  }
+
+  const paths = new Set<string>();
+  collectPathCandidates(payloadData, paths);
+  if (paths.size === 0) {
+    const detailPath = event.payload.detail?.trim();
+    if (detailPath && !detailPath.includes("\n")) {
+      paths.add(detailPath);
+    }
+  }
+  if (paths.size === 0) {
+    return null;
+  }
+
+  return {
+    files: [...paths].map((path) => ({
+      path,
+      kind: "modified" as const,
+      additions: 0,
+      deletions: 0,
+    })),
+  };
 }
 
 function asActivityPayloadRecord(
@@ -841,6 +1054,25 @@ const make = Effect.fn("make")(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
+  const providerCapabilitiesByProvider = new Map<
+    string,
+    ReturnType<typeof resolveProviderIntegrationCapabilities>
+  >();
+
+  const resolveSessionCapabilities = (provider: ProviderRuntimeEvent["provider"]) => {
+    const cached = providerCapabilitiesByProvider.get(provider);
+    if (cached) {
+      return Effect.succeed(cached);
+    }
+    return providerService.getCapabilities(provider).pipe(
+      Effect.map((capabilities) => resolveProviderIntegrationCapabilities(provider, capabilities)),
+      Effect.tap((capabilities) =>
+        Effect.sync(() => {
+          providerCapabilitiesByProvider.set(provider, capabilities);
+        }),
+      ),
+    );
+  };
 
   const turnMessageIdsByTurnKey = yield* Cache.make<string, Set<MessageId>>({
     capacity: TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY,
@@ -867,6 +1099,7 @@ const make = Effect.fn("make")(function* () {
     }
   >();
   const bufferedThinkingActivityByKey = new Map<string, BufferedThinkingActivity>();
+  const liveTurnDiffByTurnKey = new Map<string, LiveTurnDiffAggregate>();
   const lastActivityFingerprintByThread = new Map<ThreadId, string>();
   const sessionProcessPidByThread = new Map<ThreadId, number>();
   let runtimeEventsSinceMemoryPressureCheck = 0;
@@ -904,6 +1137,100 @@ const make = Effect.fn("make")(function* () {
       return false;
     }
     return isGitRepository(workspaceCwd);
+  });
+
+  const mergeLiveTurnDiffAggregate = (
+    current: LiveTurnDiffAggregate | undefined,
+    next: {
+      readonly source: LiveTurnDiffSource;
+      readonly files: ReadonlyArray<LiveTurnDiffFile>;
+      readonly diff?: string;
+    },
+  ): LiveTurnDiffAggregate => {
+    const aggregate: LiveTurnDiffAggregate =
+      current && current.source === next.source
+        ? {
+            source: current.source,
+            files: new Map(current.files),
+            ...(current.diff ? { diff: current.diff } : {}),
+          }
+        : {
+            source: next.source,
+            files: new Map<string, LiveTurnDiffFile>(),
+          };
+
+    for (const file of next.files) {
+      const existing = aggregate.files.get(file.path);
+      aggregate.files.set(file.path, {
+        path: file.path,
+        kind: "modified",
+        additions: Math.max(existing?.additions ?? 0, file.additions),
+        deletions: Math.max(existing?.deletions ?? 0, file.deletions),
+      });
+    }
+
+    if (next.diff && next.diff.trim().length > 0) {
+      aggregate.diff = next.diff;
+    }
+
+    return aggregate;
+  };
+
+  const dispatchMissingTurnDiffSummary = Effect.fnUntraced(function* (input: {
+    readonly thread: {
+      readonly id: ThreadId;
+      readonly checkpoints: ReadonlyArray<{
+        readonly turnId: TurnId;
+        readonly checkpointTurnCount: number;
+        readonly status: "ready" | "missing" | "error";
+        readonly assistantMessageId: MessageId | null;
+      }>;
+    };
+    readonly event: ProviderRuntimeEvent;
+    readonly turnId: TurnId;
+    readonly source: LiveTurnDiffSource;
+    readonly files: ReadonlyArray<LiveTurnDiffFile>;
+    readonly diff: string | undefined;
+    readonly now: string;
+  }) {
+    if (!(yield* isGitRepoForThread(input.thread.id))) {
+      return;
+    }
+
+    const existingCheckpoint = input.thread.checkpoints.find(
+      (checkpoint) => checkpoint.turnId === input.turnId,
+    );
+    if (existingCheckpoint?.status !== undefined && existingCheckpoint.status !== "missing") {
+      return;
+    }
+
+    const assistantMessageId =
+      existingCheckpoint?.assistantMessageId ??
+      MessageId.makeUnsafe(
+        `assistant:${input.event.itemId ?? input.event.turnId ?? input.event.eventId}`,
+      );
+    const checkpointTurnCount =
+      existingCheckpoint?.checkpointTurnCount ??
+      input.thread.checkpoints.reduce(
+        (max, checkpoint) => Math.max(max, checkpoint.checkpointTurnCount),
+        0,
+      ) + 1;
+
+    yield* orchestrationEngine.dispatch({
+      type: "thread.turn.diff.complete",
+      commandId: providerCommandId(input.event, "thread-turn-diff-complete"),
+      threadId: input.thread.id,
+      turnId: input.turnId,
+      completedAt: input.now,
+      checkpointRef: CheckpointRef.makeUnsafe(`provider-diff:${input.event.eventId}`),
+      status: "missing",
+      source: input.source,
+      files: [...input.files],
+      ...(input.diff && input.diff.trim().length > 0 ? { diff: input.diff } : {}),
+      assistantMessageId,
+      checkpointTurnCount,
+      createdAt: input.now,
+    });
   });
 
   const rememberAssistantMessageId = (threadId: ThreadId, turnId: TurnId, messageId: MessageId) =>
@@ -1046,6 +1373,7 @@ const make = Effect.fn("make")(function* () {
     assistantOutputSeenByStreamKey.clear();
     pendingStreamingAssistantDeltasByStreamKey.clear();
     bufferedThinkingActivityByKey.clear();
+    liveTurnDiffByTurnKey.clear();
     lastActivityFingerprintByThread.clear();
     publishRuntimeIngestionProfileStats();
 
@@ -1909,6 +2237,7 @@ const make = Effect.fn("make")(function* () {
               threadId: thread.id,
               status,
               providerName: event.provider,
+              capabilities: yield* resolveSessionCapabilities(event.provider),
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: nextActiveTurnId,
               lastError,
@@ -2087,6 +2416,7 @@ const make = Effect.fn("make")(function* () {
               updatedAt: now,
             });
           }
+          liveTurnDiffByTurnKey.delete(providerTurnKey(thread.id, turnId));
         }
       }
 
@@ -2096,6 +2426,11 @@ const make = Effect.fn("make")(function* () {
         yield* clearTurnStateForSession(thread.id);
         clearAssistantStreamStateForThread(thread.id);
         clearPendingStreamingAssistantDeltasForThread(thread.id);
+        for (const turnKey of liveTurnDiffByTurnKey.keys()) {
+          if (turnKey.startsWith(`${thread.id}:`)) {
+            liveTurnDiffByTurnKey.delete(turnKey);
+          }
+        }
         lastActivityFingerprintByThread.delete(thread.id);
       }
 
@@ -2115,6 +2450,7 @@ const make = Effect.fn("make")(function* () {
               threadId: thread.id,
               status: "error",
               providerName: event.provider,
+              capabilities: yield* resolveSessionCapabilities(event.provider),
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: eventTurnId ?? null,
               lastError: runtimeErrorMessage,
@@ -2136,35 +2472,64 @@ const make = Effect.fn("make")(function* () {
 
       if (event.type === "turn.diff.updated") {
         const turnId = toTurnId(event.turnId);
-        if (turnId && (yield* isGitRepoForThread(thread.id))) {
-          // Skip if a checkpoint already exists for this turn. A real
-          // (non-placeholder) capture from CheckpointReactor should not
-          // be clobbered, and dispatching a duplicate placeholder for the
-          // same turnId would produce an unstable checkpointTurnCount.
-          if (thread.checkpoints.some((c) => c.turnId === turnId)) {
-            // Already tracked; no-op.
-          } else {
-            const assistantMessageId = MessageId.makeUnsafe(
-              `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
-            );
-            const maxTurnCount = thread.checkpoints.reduce(
-              (max, c) => Math.max(max, c.checkpointTurnCount),
-              0,
-            );
-            yield* orchestrationEngine.dispatch({
-              type: "thread.turn.diff.complete",
-              commandId: providerCommandId(event, "thread-turn-diff-complete"),
-              threadId: thread.id,
-              turnId,
-              completedAt: now,
-              checkpointRef: CheckpointRef.makeUnsafe(`provider-diff:${event.eventId}`),
-              status: "missing",
-              files: [],
-              assistantMessageId,
-              checkpointTurnCount: maxTurnCount + 1,
-              createdAt: now,
-            });
+        if (turnId) {
+          const unifiedDiff = event.payload.unifiedDiff;
+          const aggregate = mergeLiveTurnDiffAggregate(
+            liveTurnDiffByTurnKey.get(providerTurnKey(thread.id, turnId)),
+            {
+              source: "provider-native",
+              files: summarizeUnifiedDiffFiles(unifiedDiff),
+              ...(unifiedDiff.length > 0 ? { diff: unifiedDiff } : {}),
+            },
+          );
+          liveTurnDiffByTurnKey.set(providerTurnKey(thread.id, turnId), aggregate);
+          yield* dispatchMissingTurnDiffSummary({
+            thread,
+            event,
+            turnId,
+            source: aggregate.source,
+            files: [...aggregate.files.values()],
+            diff: aggregate.diff,
+            now,
+          });
+        }
+      }
+
+      if (
+        (event.type === "item.started" ||
+          event.type === "item.updated" ||
+          event.type === "item.completed") &&
+        event.payload.itemType === "file_change"
+      ) {
+        const turnId = toTurnId(event.turnId);
+        const liveTurnDiffMode =
+          thread.session?.providerName === event.provider
+            ? thread.session.capabilities?.liveTurnDiffMode
+            : undefined;
+        const extracted =
+          liveTurnDiffMode === "workspace" || !turnId ? null : extractLiveTurnDiffFromItem(event);
+        if (turnId && extracted && (extracted.files.length > 0 || extracted.diff)) {
+          const existingAggregate = liveTurnDiffByTurnKey.get(providerTurnKey(thread.id, turnId));
+          if (existingAggregate?.source === "provider-native") {
+            // Codex-native turn diffs are authoritative for live turn state.
+            // Do not let later file_change lifecycle events degrade them.
+            return;
           }
+          const aggregate = mergeLiveTurnDiffAggregate(existingAggregate, {
+            source: "provider-reconstructed",
+            files: extracted.files,
+            ...(extracted.diff ? { diff: extracted.diff } : {}),
+          });
+          liveTurnDiffByTurnKey.set(providerTurnKey(thread.id, turnId), aggregate);
+          yield* dispatchMissingTurnDiffSummary({
+            thread,
+            event,
+            turnId,
+            source: aggregate.source,
+            files: [...aggregate.files.values()],
+            diff: aggregate.diff,
+            now,
+          });
         }
       }
 

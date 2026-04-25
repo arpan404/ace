@@ -182,6 +182,7 @@ describe("shouldRefreshThreadAttentionForEvent", () => {
           checkpointTurnCount: 1,
           checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
           status: "ready",
+          source: "git-checkpoint",
           files: [],
           assistantMessageId: MessageId.makeUnsafe("message-final"),
           completedAt: "2026-04-14T03:05:00.000Z",

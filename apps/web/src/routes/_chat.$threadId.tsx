@@ -27,7 +27,11 @@ import {
   stripDiffSearchParams,
 } from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
+import {
+  hydrateThreadFromCache,
+  readCachedHydratedThread,
+  resolveThreadHydrationRetryDelayMs,
+} from "../lib/threadHydrationCache";
 import { getThreadById, useStore } from "../store";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
@@ -49,8 +53,6 @@ const DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_diff_sidebar_width";
 const DIFF_INLINE_DEFAULT_WIDTH = "clamp(28rem,48vw,44rem)";
 const DIFF_INLINE_SIDEBAR_MIN_WIDTH = 26 * 16;
 const COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX = 208;
-const INITIAL_THREAD_HYDRATION_RETRY_DELAY_MS = 500;
-const MAX_THREAD_HYDRATION_RETRY_DELAY_MS = 10_000;
 
 export interface ChatThreadRouteSearch extends DiffRouteSearch {
   readonly active?: string;
@@ -94,13 +96,6 @@ function parseChatThreadRouteSearch(search: Record<string, unknown>): ChatThread
   } catch {
     return boardSearch;
   }
-}
-
-function resolveThreadHydrationRetryDelayMs(failureCount: number): number {
-  return Math.min(
-    MAX_THREAD_HYDRATION_RETRY_DELAY_MS,
-    INITIAL_THREAD_HYDRATION_RETRY_DELAY_MS * 2 ** Math.max(0, failureCount - 1),
-  );
 }
 
 const DiffPanelSheet = (props: {

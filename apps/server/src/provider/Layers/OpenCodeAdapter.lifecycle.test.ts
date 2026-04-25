@@ -40,13 +40,34 @@ function emptyStream(): AsyncIterable<unknown> {
 
 function makeFakeOpenCodeClient(sessionId: string) {
   return {
-    provider: {
-      list: vi.fn(async () => ({
+    config: {
+      providers: vi.fn(async () => ({
         error: undefined,
         data: {
           default: {
             openai: "gpt-5",
           },
+          providers: [
+            {
+              id: "openai",
+              name: "OpenAI",
+              env: ["OPENAI_API_KEY"],
+              models: {
+                "gpt-5": {
+                  id: "gpt-5",
+                  name: "GPT-5",
+                  release_date: "2026-01-01",
+                  attachment: true,
+                  reasoning: true,
+                  tool_call: true,
+                  limit: {
+                    context: 400_000,
+                    output: 128_000,
+                  },
+                },
+              },
+            },
+          ],
         },
       })),
     },
@@ -86,7 +107,18 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
   it.effect("reports in-session model switching capability", () =>
     Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;
-      assert.deepStrictEqual(adapter.capabilities, { sessionModelSwitch: "in-session" });
+      assert.deepStrictEqual(adapter.capabilities, {
+        sessionModelSwitch: "in-session",
+        sessionModelOptionsSwitch: "in-session",
+        liveTurnDiffMode: "workspace",
+        reviewChangesMode: "git",
+        reviewSurface: "git-worktree",
+        approvalRequestsMode: "native",
+        turnSteeringMode: "queued-message",
+        transcriptAuthority: "local",
+        historyAuthority: "local-server-session",
+        sessionResumeMode: "local-replay",
+      });
     }),
   );
 

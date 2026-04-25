@@ -128,6 +128,7 @@ describe("checkpointDiffQueryOptions", () => {
     expect(
       retry(5, new Error("Filesystem checkpoint is unavailable for turn 2 in thread thread-1.")),
     ).toBe(true);
+    expect(retry(5, new Error("Checkpoint ref is unavailable for turn 2."))).toBe(true);
     expect(
       retry(6, new Error("Filesystem checkpoint is unavailable for turn 2 in thread thread-1.")),
     ).toBe(false);

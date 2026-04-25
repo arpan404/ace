@@ -80,6 +80,7 @@ export interface WsRpcClient {
   readonly git: {
     readonly pull: RpcUnaryMethod<typeof WS_METHODS.gitPull>;
     readonly status: RpcUnaryMethod<typeof WS_METHODS.gitStatus>;
+    readonly readWorkingTreeDiff: RpcUnaryMethod<typeof WS_METHODS.gitReadWorkingTreeDiff>;
     readonly listGitHubIssues: RpcUnaryMethod<typeof WS_METHODS.gitListGitHubIssues>;
     readonly getGitHubIssueThread: RpcUnaryMethod<typeof WS_METHODS.gitGetGitHubIssueThread>;
     readonly runStackedAction: (
@@ -205,6 +206,8 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     git: {
       pull: (input) => transport.request((client) => client[WS_METHODS.gitPull](input)),
       status: (input) => transport.request((client) => client[WS_METHODS.gitStatus](input)),
+      readWorkingTreeDiff: (input) =>
+        transport.request((client) => client[WS_METHODS.gitReadWorkingTreeDiff](input)),
       listGitHubIssues: (input) =>
         transport.request((client) => client[WS_METHODS.gitListGitHubIssues](input)),
       getGitHubIssueThread: (input) =>

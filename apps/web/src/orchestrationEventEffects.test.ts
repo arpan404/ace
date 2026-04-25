@@ -94,6 +94,7 @@ describe("deriveOrchestrationBatchEffects", () => {
         checkpointTurnCount: 1,
         checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
         status: "ready",
+        source: "git-checkpoint",
         files: [],
         assistantMessageId: MessageId.makeUnsafe("assistant-1"),
         completedAt: "2026-02-27T00:00:03.000Z",

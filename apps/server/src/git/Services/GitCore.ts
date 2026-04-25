@@ -20,6 +20,8 @@ import type {
   GitRemoveWorktreeInput,
   GitStatusInput,
   GitStatusResult,
+  GitWorkingTreeDiffInput,
+  GitWorkingTreeDiffResult,
 } from "@ace/contracts";
 
 import type { GitCommandError } from "@ace/contracts";
@@ -155,6 +157,13 @@ export interface GitCoreShape {
    * Read detailed working tree / branch status for a repository.
    */
   readonly statusDetails: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
+
+  /**
+   * Read the current working tree patch diff relative to HEAD.
+   */
+  readonly readWorkingTreeDiff: (
+    input: GitWorkingTreeDiffInput,
+  ) => Effect.Effect<GitWorkingTreeDiffResult, GitCommandError>;
 
   /**
    * Build staged change context for commit generation.
