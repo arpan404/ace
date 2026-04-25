@@ -10,8 +10,6 @@ import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "reac
 import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
-  type ServerProviderUsage,
-  type ServerProviderUsageWindow,
   type ServerProviderModel,
 } from "@ace/contracts";
 import { type UnifiedSettings, DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
@@ -54,7 +52,6 @@ export interface ProviderCard {
   providerConfig: UnifiedSettings["providers"][ProviderKind];
   statusStyle: ProviderStatusStyle;
   summary: ProviderSummary;
-  usage: ServerProviderUsage | null;
   versionLabel: string | null;
 }
 
@@ -70,63 +67,6 @@ function resolveCustomModelPlaceholder(provider: ProviderKind): string {
       return "anthropic/claude-3-5-sonnet-20241022";
     default:
       return "gpt-5-mini";
-  }
-}
-
-function formatUsageNumber(value: number, unit: ServerProviderUsageWindow["unit"]): string {
-  if (unit === "usd") {
-    return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-  }
-  if (unit === "percent") {
-    return `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
-  }
-  return value.toLocaleString(undefined, { maximumFractionDigits: 1 });
-}
-
-function formatUsageWindowValue(window: ServerProviderUsageWindow): string | null {
-  if (window.used !== undefined && window.limit !== undefined) {
-    return `${formatUsageNumber(window.used, window.unit)} / ${formatUsageNumber(
-      window.limit,
-      window.unit,
-    )}`;
-  }
-  if (window.remaining !== undefined) {
-    return `${formatUsageNumber(window.remaining, window.unit)} left`;
-  }
-  if (window.used !== undefined) {
-    return formatUsageNumber(window.used, window.unit);
-  }
-  if (window.limit !== undefined) {
-    return `${formatUsageNumber(window.limit, window.unit)} limit`;
-  }
-  return null;
-}
-
-function formatUsageSource(source: ServerProviderUsage["source"]): string {
-  switch (source) {
-    case "provider-runtime":
-      return "runtime";
-    case "provider-dashboard":
-      return "dashboard";
-    case "local-estimate":
-      return "local estimate";
-    case "static-plan":
-      return "plan reference";
-    case "unavailable":
-      return "unavailable";
-  }
-}
-
-function formatUsageConfidence(confidence: ServerProviderUsage["confidence"]): string {
-  switch (confidence) {
-    case "exact":
-      return "exact";
-    case "provider-reported":
-      return "provider reported";
-    case "estimated":
-      return "estimated";
-    case "unknown":
-      return "unknown";
   }
 }
 
@@ -248,11 +188,6 @@ export function ProviderSettingsSection({
                     {providerCard.summary.headline}
                     {providerCard.summary.detail ? ` - ${providerCard.summary.detail}` : null}
                   </p>
-                  {providerCard.usage ? (
-                    <p className="text-[11px] leading-relaxed text-muted-foreground/40">
-                      Usage: {providerCard.usage.headline}
-                    </p>
-                  ) : null}
                 </div>
                 <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
                   <Button
@@ -414,93 +349,6 @@ export function ProviderSettingsSection({
                           </span>
                         ) : null}
                       </label>
-                    </div>
-                  ) : null}
-
-                  {providerCard.usage ? (
-                    <div className="border-t border-border/12 px-4 py-3 sm:px-5">
-                      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <div className="text-[12px] font-medium text-foreground/80">Usage</div>
-                          <div className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground/45">
-                            {providerCard.usage.detail ?? providerCard.usage.headline}
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 flex-wrap gap-1.5">
-                          <span className="rounded border border-border/20 px-1.5 py-0.5 text-[10px] text-muted-foreground/55">
-                            {formatUsageSource(providerCard.usage.source)}
-                          </span>
-                          <span className="rounded border border-border/20 px-1.5 py-0.5 text-[10px] text-muted-foreground/55">
-                            {formatUsageConfidence(providerCard.usage.confidence)}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        {providerCard.usage.windows.map((window) => {
-                          const value = formatUsageWindowValue(window);
-                          const percent =
-                            window.percentRemaining !== undefined
-                              ? `${Math.round(window.percentRemaining)}% left`
-                              : null;
-                          return (
-                            <div
-                              key={`${window.kind}:${window.label}`}
-                              className="min-w-0 rounded-md border border-border/12 px-2.5 py-2"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="min-w-0 truncate text-[11px] font-medium text-foreground/80">
-                                  {window.label}
-                                </div>
-                                {percent ? (
-                                  <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/55">
-                                    {percent}
-                                  </span>
-                                ) : null}
-                              </div>
-                              {value ? (
-                                <div className="mt-1 text-[11px] tabular-nums text-muted-foreground/60">
-                                  {value}
-                                </div>
-                              ) : null}
-                              {window.resetLabel ? (
-                                <div className="mt-1 text-[10px] text-muted-foreground/40">
-                                  Resets {window.resetLabel}
-                                </div>
-                              ) : null}
-                              {window.detail ? (
-                                <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground/40">
-                                  {window.detail}
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {providerCard.usage.notes.length > 0 ? (
-                        <div className="mt-3 space-y-1">
-                          {providerCard.usage.notes.map((note) => (
-                            <div
-                              key={note}
-                              className="text-[10px] leading-relaxed text-muted-foreground/40"
-                            >
-                              {note}
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      {providerCard.usage.dashboardUrl ? (
-                        <a
-                          className="mt-3 inline-flex text-[11px] font-medium text-foreground/65 underline-offset-4 hover:underline"
-                          href={providerCard.usage.dashboardUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open provider usage dashboard
-                        </a>
-                      ) : null}
                     </div>
                   ) : null}
 

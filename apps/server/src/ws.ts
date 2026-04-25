@@ -1,4 +1,4 @@
-import { Effect, Layer, Option, PubSub, Queue, Ref, Schema, Stream } from "effect";
+import { Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
 import {
   type GitActionProgressEvent,
   type GitManagerServiceError,
@@ -8,7 +8,6 @@ import {
   type OrchestrationReadModel,
   type ProviderKind,
   type ServerProvider,
-  type ServerProviderUsage,
   type ThreadId,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
@@ -55,7 +54,6 @@ import { OrchestrationEngineService } from "./orchestration/Services/Orchestrati
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ProviderService } from "./provider/Services/ProviderService";
-import { buildRuntimeUsageFromEvent } from "./provider/providerUsage";
 import { startOpenCodeServer } from "./provider/opencodeRuntime";
 import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./provider/opencodeSdk";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
@@ -248,61 +246,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const workspaceEditor = yield* WorkspaceEditor;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
     const snapshotViewCache = createReadModelSnapshotViewCache();
-    const providerUsageRef = yield* Ref.make(new Map<ProviderKind, ServerProviderUsage>());
-    const providerUsagePubSub = yield* Effect.acquireRelease(
-      PubSub.unbounded<ReadonlyArray<ServerProvider>>(),
-      PubSub.shutdown,
-    );
-
-    const overlayProviderUsage = Effect.fn("overlayProviderUsage")(function* (
-      providers: ReadonlyArray<ServerProvider>,
-    ) {
-      const usageByProvider = yield* Ref.get(providerUsageRef);
-      if (usageByProvider.size === 0) {
-        return providers;
-      }
-      return providers.map((provider) => {
-        const usage = usageByProvider.get(provider.provider);
-        return usage ? { ...provider, usage } : provider;
-      });
-    });
-
-    const loadProvidersWithUsage = providerRegistry.getProviders.pipe(
-      Effect.flatMap(overlayProviderUsage),
-    );
-
-    const publishProviderUsageUpdate = Effect.fn("publishProviderUsageUpdate")(function* () {
-      const providers = yield* loadProvidersWithUsage;
-      yield* PubSub.publish(providerUsagePubSub, providers);
-    });
-
-    const recordProviderUsageEvent = Effect.fn("recordProviderUsageEvent")(function* (
-      event: Parameters<typeof buildRuntimeUsageFromEvent>[0],
-    ) {
-      const previousUsageByProvider = yield* Ref.get(providerUsageRef);
-      const previousUsage = previousUsageByProvider.get(event.provider);
-      const usage = buildRuntimeUsageFromEvent(event, previousUsage);
-      if (!usage) {
-        return false;
-      }
-      const nextUsageByProvider = new Map(previousUsageByProvider);
-      nextUsageByProvider.set(event.provider, usage);
-      yield* Ref.set(providerUsageRef, nextUsageByProvider);
-      return true;
-    });
-
-    if (Option.isSome(providerServiceOption)) {
-      yield* Stream.runForEach(providerServiceOption.value.streamEvents, (event) =>
-        recordProviderUsageEvent(event).pipe(
-          Effect.flatMap((updated) => (updated ? publishProviderUsageUpdate() : Effect.void)),
-          Effect.catchCause((cause) => Effect.logWarning(`Provider usage update failed: ${cause}`)),
-        ),
-      ).pipe(Effect.forkScoped);
-    }
 
     const loadServerConfig = Effect.gen(function* () {
       const keybindingsConfig = yield* keybindings.loadConfigState;
-      const providers = yield* loadProvidersWithUsage;
+      const providers = yield* providerRegistry.getProviders;
       const settings = yield* serverSettings.getSettings;
 
       return {
@@ -553,10 +500,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig,
       [WS_METHODS.serverPickFolder]: (input) => open.pickFolder(input),
       [WS_METHODS.serverRefreshProviders]: (_input) =>
-        providerRegistry.refresh().pipe(
-          Effect.flatMap(overlayProviderUsage),
-          Effect.map((providers) => ({ providers })),
-        ),
+        providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
       [WS_METHODS.serverGetRuntimeProfile]: (_input) => loadRuntimeProfile,
       [WS_METHODS.serverSearchOpenCodeModels]: (input) =>
         Effect.gen(function* () {
@@ -874,14 +818,6 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               })),
             );
             const providerStatuses = providerRegistry.streamChanges.pipe(
-              Stream.mapEffect(overlayProviderUsage),
-              Stream.map((providers) => ({
-                version: 1 as const,
-                type: "providerStatuses" as const,
-                payload: { providers },
-              })),
-            );
-            const providerUsageStatuses = Stream.fromPubSub(providerUsagePubSub).pipe(
               Stream.map((providers) => ({
                 version: 1 as const,
                 type: "providerStatuses" as const,
@@ -904,13 +840,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                   type: "snapshot" as const,
                   config: yield* loadServerConfig,
                 }),
-                Stream.merge(
-                  keybindingsUpdates,
-                  Stream.merge(
-                    Stream.merge(providerStatuses, providerUsageStatuses),
-                    settingsUpdates,
-                  ),
-                ),
+                Stream.merge(keybindingsUpdates, Stream.merge(providerStatuses, settingsUpdates)),
               ),
             );
           }),

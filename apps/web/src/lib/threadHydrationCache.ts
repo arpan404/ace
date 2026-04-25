@@ -27,6 +27,8 @@ const MODERATE_DEVICE_CACHE_MEMORY_BYTES = 64 * BYTES_PER_MEGABYTE;
 const CONSTRAINED_DEVICE_CACHE_MEMORY_BYTES = 32 * BYTES_PER_MEGABYTE;
 const BACKGROUND_PREFETCH_TIMEOUT_MS = 750;
 const BACKGROUND_PREFETCH_FALLBACK_DELAY_MS = 120;
+const INITIAL_THREAD_HYDRATION_RETRY_DELAY_MS = 500;
+const MAX_THREAD_HYDRATION_RETRY_DELAY_MS = 10_000;
 
 export interface ThreadHydrationCacheConfig {
   readonly maxEntries?: number;
@@ -41,6 +43,13 @@ interface ResolvedThreadHydrationCacheConfig {
 type ThreadHydrationOptions = {
   readonly expectedUpdatedAt?: string | null;
 };
+
+export function resolveThreadHydrationRetryDelayMs(failureCount: number): number {
+  return Math.min(
+    MAX_THREAD_HYDRATION_RETRY_DELAY_MS,
+    INITIAL_THREAD_HYDRATION_RETRY_DELAY_MS * 2 ** Math.max(0, failureCount - 1),
+  );
+}
 
 type ScheduledPrefetchHandle =
   | {

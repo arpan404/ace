@@ -72,4 +72,31 @@ describe("buildApplicationMenuTemplate", () => {
     expect(onMenuAction).toHaveBeenNthCalledWith(3, "open-settings-about");
     expect(onCheckForUpdates).toHaveBeenCalledOnce();
   });
+
+  it("routes zoom shortcuts through app-owned actions instead of Electron global zoom roles", () => {
+    const onCheckForUpdates = vi.fn();
+    const onMenuAction = vi.fn();
+    const template = buildApplicationMenuTemplate({
+      appName: "ace",
+      platform: "darwin",
+      onCheckForUpdates,
+      onMenuAction,
+    });
+
+    const viewMenu = template.find((item) => item.label === "View");
+    const viewItems = viewMenu?.submenu as MenuItemConstructorOptions[];
+    expect(viewItems.some((item) => item.role === "zoomIn" || item.role === "zoomOut")).toBe(false);
+    expect(viewItems).toContainEqual(
+      expect.objectContaining({
+        accelerator: "CmdOrCtrl+=",
+        label: "Zoom In",
+      }),
+    );
+    expect(viewItems).toContainEqual(
+      expect.objectContaining({
+        accelerator: "CmdOrCtrl+-",
+        label: "Zoom Out",
+      }),
+    );
+  });
 });

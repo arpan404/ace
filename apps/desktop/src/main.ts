@@ -31,6 +31,7 @@ import type {
   DesktopUpdateActionResult,
   DesktopUpdateCheckResult,
   DesktopUpdateState,
+  DesktopZoomAction,
   PickFolderOptions,
 } from "@ace/contracts";
 import {
@@ -82,6 +83,7 @@ const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
 const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
 const SET_THEME_CHANNEL = "desktop:set-theme";
+const APP_ZOOM_CHANNEL = "desktop:app-zoom";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
@@ -108,6 +110,9 @@ const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
 const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
 const ORCHESTRATION_EVENT_CHANNEL = "desktop:orchestration-event";
 const SERVER_CONFIG_EVENT_CHANNEL = "desktop:server-config-event";
+const APP_ZOOM_STEP = 0.1;
+const MIN_APP_ZOOM_FACTOR = 0.5;
+const MAX_APP_ZOOM_FACTOR = 2;
 const MAC_TRAFFIC_LIGHT_POSITION = { x: 16, y: 18 };
 const MAC_TITLEBAR_LEFT_INSET_PX = 90;
 const isSourceCheckoutRun = process.env.ACE_LOCAL_DESKTOP_RUN === "1";
@@ -1240,6 +1245,21 @@ function dispatchMenuAction(action: DesktopMenuAction): void {
   });
 }
 
+function clampAppZoomFactor(factor: number): number {
+  return Math.max(MIN_APP_ZOOM_FACTOR, Math.min(MAX_APP_ZOOM_FACTOR, factor));
+}
+
+function applyAppZoom(window: BrowserWindow, action: DesktopZoomAction): void {
+  const currentZoomFactor = window.webContents.getZoomFactor();
+  const nextZoomFactor =
+    action === "zoom-reset"
+      ? 1
+      : action === "zoom-in"
+        ? currentZoomFactor + APP_ZOOM_STEP
+        : currentZoomFactor - APP_ZOOM_STEP;
+  window.webContents.setZoomFactor(clampAppZoomFactor(nextZoomFactor));
+}
+
 function handleCheckForUpdatesMenuClick(): void {
   const disabledReason = getAutoUpdateDisabledReason({
     isDevelopment,
@@ -2152,6 +2172,18 @@ function registerIpcHandlers(): void {
     }
 
     nativeTheme.themeSource = theme;
+  });
+
+  ipcMain.removeHandler(APP_ZOOM_CHANNEL);
+  ipcMain.handle(APP_ZOOM_CHANNEL, async (_event, rawAction: unknown) => {
+    if (rawAction !== "zoom-in" && rawAction !== "zoom-out" && rawAction !== "zoom-reset") {
+      return;
+    }
+    const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+    if (!owner || owner.isDestroyed()) {
+      return;
+    }
+    applyAppZoom(owner, rawAction);
   });
 
   ipcMain.removeHandler(CONTEXT_MENU_CHANNEL);
