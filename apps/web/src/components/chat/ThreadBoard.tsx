@@ -91,6 +91,7 @@ function getCurrentLayoutColumns(rows: readonly { paneIds: readonly string[] }[]
 
 function ThreadBoardPane(props: {
   activePaneId: string | null;
+  shortcutsEnabled: boolean;
   isPrimary: boolean;
   pane: ChatThreadBoardPaneState;
   showSidebarTrigger: boolean;
@@ -117,7 +118,12 @@ function ThreadBoardPane(props: {
         }
       }}
     >
-      <ChatView threadId={pane.threadId} showSidebarTrigger={props.showSidebarTrigger} splitPane />
+      <ChatView
+        threadId={pane.threadId}
+        shortcutsEnabled={props.shortcutsEnabled}
+        showSidebarTrigger={props.showSidebarTrigger}
+        splitPane
+      />
 
       {!props.isPrimary ? (
         <>
@@ -140,7 +146,7 @@ function ThreadBoardPane(props: {
           <div
             className={cn(
               "pointer-events-none absolute inset-0 ring-1 ring-inset transition-colors",
-              props.activePaneId === pane.id ? "ring-foreground/12" : "ring-border/60",
+              props.activePaneId === pane.id ? "ring-primary/35" : "ring-border/60",
             )}
           />
         </>
@@ -496,6 +502,7 @@ export function ThreadBoard(props: {
                     activePaneId={activePaneId}
                     isPrimary={isPrimary}
                     pane={pane}
+                    shortcutsEnabled={(activePaneId ?? primaryPane.id) === pane.id}
                     showSidebarTrigger={showSidebarTrigger}
                     onClose={() => {
                       handleClosePane(pane);

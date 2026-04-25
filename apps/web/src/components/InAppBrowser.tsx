@@ -414,6 +414,9 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     showAddressBarSuggestions,
     toggleDevTools,
     togglePinnedActivePage,
+    zoomIn,
+    zoomOut,
+    zoomReset,
   } = useInAppBrowserState({
     designerModeEnabled: Boolean(onQueueDesignRequest),
     mode,
@@ -422,6 +425,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     ...(onActiveRuntimeStateChange ? { onActiveRuntimeStateChange } : {}),
     ...(onControllerChange ? { onControllerChange } : {}),
   });
+  const browserShellRef = useRef<HTMLElement | null>(null);
 
   const activeTabFavicon = activeTab ? (
     <BrowserFavicon
@@ -603,6 +607,36 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       setDesignerModeActive(false);
     }
   }, [open, setDesignerModeActive]);
+
+  useEffect(() => {
+    if (!window.desktopBridge?.onMenuAction) {
+      return;
+    }
+    return window.desktopBridge.onMenuAction((action) => {
+      if (!open || !visible || !activeInstance) {
+        return;
+      }
+      if (action !== "zoom-in" && action !== "zoom-out" && action !== "zoom-reset") {
+        return;
+      }
+      const activeElement = document.activeElement;
+      if (
+        !(activeElement instanceof HTMLElement) ||
+        !browserShellRef.current?.contains(activeElement)
+      ) {
+        return;
+      }
+      if (action === "zoom-in") {
+        zoomIn();
+        return;
+      }
+      if (action === "zoom-out") {
+        zoomOut();
+        return;
+      }
+      zoomReset();
+    });
+  }, [activeInstance, open, visible, zoomIn, zoomOut, zoomReset]);
 
   useEffect(() => {
     if (activeTabIsInternal && designerState.active) {
@@ -962,6 +996,8 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       {...(browserShellStyle ? { style: browserShellStyle as MotionStyle } : {})}
     >
       <section
+        ref={browserShellRef}
+        data-in-app-browser-shell="true"
         onKeyDownCapture={handleBrowserSectionKeyDownCapture}
         className={cn(
           "flex size-full min-h-0 flex-col overflow-hidden border border-border bg-background text-foreground [-webkit-app-region:no-drag]",

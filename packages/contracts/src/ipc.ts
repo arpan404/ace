@@ -154,6 +154,9 @@ export const DESKTOP_MENU_ACTIONS = [
   "toggle-terminal",
   "toggle-browser",
   "toggle-diff",
+  "zoom-in",
+  "zoom-out",
+  "zoom-reset",
   "open-settings",
   "open-settings-chat",
   "open-settings-editor",
@@ -250,6 +253,7 @@ export interface DesktopNotificationReplyEvent {
 }
 
 export type DesktopNotificationPermission = "granted" | "denied" | "default" | "unsupported";
+export type DesktopZoomAction = "zoom-in" | "zoom-out" | "zoom-reset";
 
 export interface DesktopBridge {
   getWsUrl: () => string | null;
@@ -269,6 +273,7 @@ export interface DesktopBridge {
   openExternal: (url: string) => Promise<boolean>;
   showNotification: (input: DesktopNotificationInput) => Promise<boolean>;
   closeNotification: (id: string) => Promise<boolean>;
+  applyAppZoom?: (action: DesktopZoomAction) => Promise<void>;
   onNotificationClick: (listener: (event: DesktopNotificationClickEvent) => void) => () => void;
   onNotificationReply: (listener: (event: DesktopNotificationReplyEvent) => void) => () => void;
   onMenuAction: (listener: (action: DesktopMenuAction) => void) => () => void;

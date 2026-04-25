@@ -106,10 +106,23 @@ export function buildApplicationMenuTemplate({
         { role: "forceReload" },
         { role: "toggleDevTools" },
         { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn", accelerator: "CmdOrCtrl+=" },
-        { role: "zoomIn", accelerator: "CmdOrCtrl+Plus", visible: false },
-        { role: "zoomOut" },
+        {
+          ...menuActionItem({ action: "zoom-reset", label: "Actual Size" }),
+          accelerator: "CmdOrCtrl+0",
+        },
+        {
+          ...menuActionItem({ action: "zoom-in", label: "Zoom In" }),
+          accelerator: "CmdOrCtrl+=",
+        },
+        {
+          ...menuActionItem({ action: "zoom-in", label: "Zoom In" }),
+          accelerator: "CmdOrCtrl+Plus",
+          visible: false,
+        },
+        {
+          ...menuActionItem({ action: "zoom-out", label: "Zoom Out" }),
+          accelerator: "CmdOrCtrl+-",
+        },
         { type: "separator" },
         { role: "togglefullscreen" },
       ],
