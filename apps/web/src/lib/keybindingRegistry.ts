@@ -47,6 +47,20 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       label: "Toggle sidebar",
       description: "Collapse or expand the main sidebar.",
     },
+    "navigation.back": {
+      category: "Sidebar",
+      label: "Navigate back",
+      description: "Go back in app history.",
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
+    "navigation.forward": {
+      category: "Sidebar",
+      label: "Navigate forward",
+      description: "Go forward in app history.",
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
     "project.add": {
       category: "Sidebar",
       label: "Add project",
