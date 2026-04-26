@@ -4,8 +4,10 @@ import {
   DEFAULT_BROWSER_HOME_URL,
   normalizeBrowserInput,
   normalizeBrowserHttpUrl,
+  resolveBrowserDisplayUrl,
   resolveBrowserHomeUrl,
   resolveBrowserInputTarget,
+  resolveBrowserRelayUrl,
 } from "./url";
 
 describe("browser url", () => {
@@ -65,5 +67,35 @@ describe("browser url", () => {
     expect(normalizeBrowserHttpUrl(" https://example.com/docs ")).toBe("https://example.com/docs");
     expect(normalizeBrowserHttpUrl("chrome-error://chromewebdata/")).toBeNull();
     expect(normalizeBrowserHttpUrl("about:blank")).toBeNull();
+  });
+
+  it("relays browser URLs through the project owner connection", () => {
+    expect(
+      resolveBrowserRelayUrl({
+        url: "https://example.com/app",
+        ownerConnectionUrl: "ws://remote.example:8080/ws?token=abc",
+        localConnectionUrl: "ws://127.0.0.1:8080/ws",
+      }),
+    ).toBe(
+      "http://remote.example:8080/api/browser-relay?url=https%3A%2F%2Fexample.com%2Fapp&token=abc",
+    );
+  });
+
+  it("does not relay browser URLs when the project owner is local", () => {
+    expect(
+      resolveBrowserRelayUrl({
+        url: "https://example.com/app",
+        ownerConnectionUrl: "ws://127.0.0.1:8080/ws",
+        localConnectionUrl: "ws://127.0.0.1:8080/ws",
+      }),
+    ).toBe("https://example.com/app");
+  });
+
+  it("restores the displayed URL for relayed browser navigations", () => {
+    expect(
+      resolveBrowserDisplayUrl(
+        "http://remote.example:8080/api/browser-relay?url=http%3A%2F%2Flocalhost%3A3000%2Fapp",
+      ),
+    ).toBe("http://localhost:3000/app");
   });
 });

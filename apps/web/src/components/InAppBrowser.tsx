@@ -222,6 +222,7 @@ const SortableBrowserTab = memo(function SortableBrowserTab(props: {
 interface InAppBrowserProps {
   open: boolean;
   activeInstance?: boolean;
+  connectionUrl?: string | null | undefined;
   mode: InAppBrowserMode;
   scopeId?: string;
   visible?: boolean;
@@ -354,6 +355,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   const {
     open,
     activeInstance = true,
+    connectionUrl,
     mode,
     scopeId,
     visible = activeInstance,
@@ -1342,6 +1344,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
               <BrowserTabWebview
                 key={`${browserResetKey}:${tab.id}`}
                 active={visible && !activeTabIsInternal && activeTab?.id === tab.id}
+                connectionUrl={connectionUrl}
                 designerModeActive={
                   visible &&
                   designerState.active &&

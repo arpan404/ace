@@ -331,8 +331,15 @@ export interface NativeApi {
     references: (input: WorkspaceEditorReferencesInput) => Promise<WorkspaceEditorReferencesResult>;
   };
   shell: {
-    openInEditor: (cwd: string, editor: EditorId) => Promise<void>;
-    revealInFileManager: (path: string) => Promise<void>;
+    openInEditor: (
+      cwd: string,
+      editor: EditorId,
+      options?: { readonly connectionUrl?: string | null | undefined },
+    ) => Promise<void>;
+    revealInFileManager: (
+      path: string,
+      options?: { readonly connectionUrl?: string | null | undefined },
+    ) => Promise<void>;
     openExternal: (url: string) => Promise<void>;
   };
   git: {

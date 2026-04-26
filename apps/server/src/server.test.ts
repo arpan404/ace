@@ -1,6 +1,7 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeHttp from "node:http";
 import { resolveWebSocketAuthConnection } from "@ace/shared/wsAuth";
 import {
   CommandId,
@@ -393,6 +394,54 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(response.status, 302);
       assert.equal(response.headers.get("location"), "http://127.0.0.1:5173/");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves browser relay requests before the dev URL redirect", () =>
+    Effect.gen(function* () {
+      const upstream = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          NodeHttp.createServer((_request, response) => {
+            response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+            response.end('<html><img src="/asset.png"><a href="next">next</a></html>');
+          }),
+        ),
+        (server) =>
+          Effect.promise(
+            () =>
+              new Promise<void>((resolve) => {
+                server.close(() => resolve());
+              }),
+          ),
+      );
+      yield* Effect.promise(
+        () =>
+          new Promise<void>((resolve) => {
+            upstream.listen(0, "127.0.0.1", () => resolve());
+          }),
+      );
+      const address = upstream.address();
+      if (typeof address === "string" || address === null) {
+        throw new Error("Expected TCP upstream test server address.");
+      }
+
+      yield* buildAppUnderTest({
+        config: { devUrl: new URL("http://127.0.0.1:5173") },
+      });
+
+      const targetUrl = `http://127.0.0.1:${String(address.port)}/page`;
+      const response = yield* HttpClient.get(
+        `/api/browser-relay?url=${encodeURIComponent(targetUrl)}`,
+      );
+      const body = yield* response.text;
+
+      assert.equal(response.status, 200);
+      assert.include(body, "/api/browser-relay?url=");
+      assert.include(
+        body,
+        encodeURIComponent(`http://127.0.0.1:${String(address.port)}/asset.png`),
+      );
+      assert.include(body, encodeURIComponent(`http://127.0.0.1:${String(address.port)}/next`));
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

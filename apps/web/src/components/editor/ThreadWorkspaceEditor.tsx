@@ -61,6 +61,7 @@ import {
   projectQueryKeys,
   projectSearchEntriesQueryOptions,
 } from "~/lib/projectReactQuery";
+import { withRpcRouteConnection } from "~/lib/connectionRouting";
 import { ensureMonacoConfigured } from "~/lib/editor/monacoSetup";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
@@ -129,10 +130,12 @@ function parseSaveConflictState(
 }
 
 const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
+  connectionUrl,
   gitCwd,
   keybindings,
   availableEditors,
 }: {
+  connectionUrl?: string | null | undefined;
   gitCwd: string | null;
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
@@ -160,9 +163,9 @@ const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
     if (!api || !gitCwd || !preferredEditorOption) {
       return;
     }
-    void api.shell.openInEditor(gitCwd, preferredEditorOption.value);
+    void api.shell.openInEditor(gitCwd, preferredEditorOption.value, { connectionUrl });
     setPreferredEditor(preferredEditorOption.value);
-  }, [api, gitCwd, preferredEditorOption, setPreferredEditor]);
+  }, [api, connectionUrl, gitCwd, preferredEditorOption, setPreferredEditor]);
 
   if (!gitCwd) {
     return null;
@@ -642,6 +645,7 @@ function ThreadWorkspaceEditor(inputProps: {
   availableEditors: ReadonlyArray<EditorId>;
   branch?: string | null;
   browserOpen: boolean;
+  connectionUrl?: string | null | undefined;
   gitCwd: string | null;
   keybindings: ResolvedKeybindingsConfig;
   lspCwd?: string | null;
@@ -788,10 +792,15 @@ function ThreadWorkspaceEditor(inputProps: {
       const previousCwd = previous.cwd;
       void Promise.allSettled(
         removedFilePaths.map((relativePath) =>
-          api.workspaceEditor.closeBuffer({
-            cwd: previousCwd,
-            relativePath,
-          }),
+          api.workspaceEditor.closeBuffer(
+            withRpcRouteConnection(
+              {
+                cwd: previousCwd,
+                relativePath,
+              },
+              inputProps.connectionUrl,
+            ),
+          ),
         ),
       ).then((results) => {
         for (const [index, result] of results.entries()) {
@@ -810,7 +819,7 @@ function ThreadWorkspaceEditor(inputProps: {
       cwd: diagnosticsCwd,
       filePaths: nextFilePaths,
     };
-  }, [api, diagnosticsCwd, openWorkspaceFilePaths]);
+  }, [api, diagnosticsCwd, inputProps.connectionUrl, openWorkspaceFilePaths]);
 
   useEffect(
     () => () => {
@@ -821,28 +830,35 @@ function ThreadWorkspaceEditor(inputProps: {
       const previousCwd = previous.cwd;
       void Promise.allSettled(
         Array.from(previous.filePaths).map((relativePath) =>
-          api.workspaceEditor.closeBuffer({
-            cwd: previousCwd,
-            relativePath,
-          }),
+          api.workspaceEditor.closeBuffer(
+            withRpcRouteConnection(
+              {
+                cwd: previousCwd,
+                relativePath,
+              },
+              inputProps.connectionUrl,
+            ),
+          ),
         ),
       );
     },
-    [api],
+    [api, inputProps.connectionUrl],
   );
 
   const workspaceTreeQuery = useQuery(
     projectListTreeQueryOptions({
+      connectionUrl: inputProps.connectionUrl,
       cwd: props.gitCwd,
       refetchInterval: WORKSPACE_TREE_REFETCH_INTERVAL_MS,
       staleTime: 0,
     }),
   );
-  const gitStatusQuery = useQuery(gitStatusQueryOptions(props.gitCwd));
+  const gitStatusQuery = useQuery(gitStatusQueryOptions(props.gitCwd, inputProps.connectionUrl));
   const searchMode = deferredTreeSearch.length > 0;
   const remoteSearchEnabled = shouldRunWorkspaceRemoteSearch(deferredTreeSearch);
   const workspaceSearchQuery = useQuery(
     projectSearchEntriesQueryOptions({
+      connectionUrl: inputProps.connectionUrl,
       cwd: props.gitCwd,
       enabled: remoteSearchEnabled,
       limit: WORKSPACE_SEARCH_RESULT_LIMIT,
@@ -927,11 +943,16 @@ function ThreadWorkspaceEditor(inputProps: {
         throw new Error("Workspace editor is unavailable.");
       }
       return api.projects.writeFile({
-        contents: input.contents,
-        cwd: props.gitCwd,
-        expectedVersion: input.expectedVersion,
-        overwrite: input.overwrite,
-        relativePath: input.relativePath,
+        ...withRpcRouteConnection(
+          {
+            contents: input.contents,
+            cwd: props.gitCwd,
+            expectedVersion: input.expectedVersion,
+            overwrite: input.overwrite,
+            relativePath: input.relativePath,
+          },
+          inputProps.connectionUrl,
+        ),
       });
     },
     onError: (error, variables) => {
@@ -952,13 +973,18 @@ function ThreadWorkspaceEditor(inputProps: {
         current?.relativePath === variables.relativePath ? null : current,
       );
       markFileSaved(props.threadId, variables.relativePath, variables.contents);
-      queryClient.setQueryData(projectQueryKeys.readFile(props.gitCwd, variables.relativePath), {
-        contents: variables.contents,
-        relativePath: variables.relativePath,
-        sizeBytes: new Blob([variables.contents]).size,
-        version: result.version,
+      queryClient.setQueryData(
+        projectQueryKeys.readFile(props.gitCwd, variables.relativePath, inputProps.connectionUrl),
+        {
+          contents: variables.contents,
+          relativePath: variables.relativePath,
+          sizeBytes: new Blob([variables.contents]).size,
+          version: result.version,
+        },
+      );
+      void queryClient.invalidateQueries({
+        queryKey: projectQueryKeys.listTree(props.gitCwd, inputProps.connectionUrl),
       });
-      void queryClient.invalidateQueries({ queryKey: projectQueryKeys.listTree(props.gitCwd) });
     },
   });
 
@@ -968,7 +994,7 @@ function ThreadWorkspaceEditor(inputProps: {
         return;
       }
       const readFileCache = queryClient.getQueryData<ProjectReadFileResult>(
-        projectQueryKeys.readFile(props.gitCwd, relativePath),
+        projectQueryKeys.readFile(props.gitCwd, relativePath, inputProps.connectionUrl),
       );
       const payload: {
         contents: string;
@@ -983,7 +1009,7 @@ function ThreadWorkspaceEditor(inputProps: {
       }
       void saveMutation.mutate(payload);
     },
-    [props.gitCwd, queryClient, saveMutation],
+    [inputProps.connectionUrl, props.gitCwd, queryClient, saveMutation],
   );
   const handleOverwriteSaveConflict = useCallback(() => {
     if (!saveConflict || saveMutation.isPending) {
@@ -1010,19 +1036,37 @@ function ThreadWorkspaceEditor(inputProps: {
     }
     markFileSaved(props.threadId, saveConflict.relativePath, saveConflict.currentContents);
     if (saveConflict.currentVersion) {
-      queryClient.setQueryData(projectQueryKeys.readFile(props.gitCwd, saveConflict.relativePath), {
-        contents: saveConflict.currentContents,
-        relativePath: saveConflict.relativePath,
-        sizeBytes: new Blob([saveConflict.currentContents]).size,
-        version: saveConflict.currentVersion,
-      });
+      queryClient.setQueryData(
+        projectQueryKeys.readFile(
+          props.gitCwd,
+          saveConflict.relativePath,
+          inputProps.connectionUrl,
+        ),
+        {
+          contents: saveConflict.currentContents,
+          relativePath: saveConflict.relativePath,
+          sizeBytes: new Blob([saveConflict.currentContents]).size,
+          version: saveConflict.currentVersion,
+        },
+      );
     } else {
       void queryClient.invalidateQueries({
-        queryKey: projectQueryKeys.readFile(props.gitCwd, saveConflict.relativePath),
+        queryKey: projectQueryKeys.readFile(
+          props.gitCwd,
+          saveConflict.relativePath,
+          inputProps.connectionUrl,
+        ),
       });
     }
     setSaveConflict(null);
-  }, [markFileSaved, props.gitCwd, props.threadId, queryClient, saveConflict]);
+  }, [
+    inputProps.connectionUrl,
+    markFileSaved,
+    props.gitCwd,
+    props.threadId,
+    queryClient,
+    saveConflict,
+  ]);
   const handleHydrateFile = useCallback(
     (filePath: string, contents: string) => {
       hydrateFile(props.threadId, filePath, contents);
@@ -1329,24 +1373,28 @@ function ThreadWorkspaceEditor(inputProps: {
       return;
     }
     void queryClient.invalidateQueries({
-      queryKey: projectQueryKeys.readFile(props.gitCwd, activePane.activeFilePath),
+      queryKey: projectQueryKeys.readFile(
+        props.gitCwd,
+        activePane.activeFilePath,
+        inputProps.connectionUrl,
+      ),
     });
-  }, [activePane?.activeFilePath, props.gitCwd, queryClient]);
+  }, [activePane?.activeFilePath, inputProps.connectionUrl, props.gitCwd, queryClient]);
 
   const invalidateWorkspaceTree = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: projectQueryKeys.listTree(props.gitCwd),
+      queryKey: projectQueryKeys.listTree(props.gitCwd, inputProps.connectionUrl),
     });
-  }, [props.gitCwd, queryClient]);
+  }, [inputProps.connectionUrl, props.gitCwd, queryClient]);
 
   const clearReadFileCache = useCallback(
     (relativePath: string) => {
       queryClient.removeQueries({
-        queryKey: projectQueryKeys.readFile(props.gitCwd, relativePath),
+        queryKey: projectQueryKeys.readFile(props.gitCwd, relativePath, inputProps.connectionUrl),
         exact: true,
       });
     },
-    [props.gitCwd, queryClient],
+    [inputProps.connectionUrl, props.gitCwd, queryClient],
   );
 
   const focusExplorerEntry = useCallback((path: string) => {
@@ -1385,9 +1433,14 @@ function ThreadWorkspaceEditor(inputProps: {
         throw new Error("Workspace editor is unavailable.");
       }
       return api.projects.createEntry({
-        cwd: props.gitCwd,
-        kind: input.kind,
-        relativePath: input.relativePath,
+        ...withRpcRouteConnection(
+          {
+            cwd: props.gitCwd,
+            kind: input.kind,
+            relativePath: input.relativePath,
+          },
+          inputProps.connectionUrl,
+        ),
       });
     },
     onError: (error, variables) => {
@@ -1429,9 +1482,14 @@ function ThreadWorkspaceEditor(inputProps: {
         throw new Error("Workspace editor is unavailable.");
       }
       return api.projects.renameEntry({
-        cwd: props.gitCwd,
-        nextRelativePath: input.nextRelativePath,
-        relativePath: input.relativePath,
+        ...withRpcRouteConnection(
+          {
+            cwd: props.gitCwd,
+            nextRelativePath: input.nextRelativePath,
+            relativePath: input.relativePath,
+          },
+          inputProps.connectionUrl,
+        ),
       });
     },
     onError: (error, variables) => {
@@ -1466,8 +1524,13 @@ function ThreadWorkspaceEditor(inputProps: {
         throw new Error("Workspace editor is unavailable.");
       }
       return api.projects.deleteEntry({
-        cwd: props.gitCwd,
-        relativePath: input.relativePath,
+        ...withRpcRouteConnection(
+          {
+            cwd: props.gitCwd,
+            relativePath: input.relativePath,
+          },
+          inputProps.connectionUrl,
+        ),
       });
     },
     onError: (error, variables) => {
@@ -1555,7 +1618,9 @@ function ThreadWorkspaceEditor(inputProps: {
           ? joinWorkspaceAbsolutePath(props.gitCwd, entry.path)
           : props.gitCwd;
         try {
-          await api.shell.revealInFileManager(targetPath);
+          await api.shell.revealInFileManager(targetPath, {
+            connectionUrl: inputProps.connectionUrl,
+          });
         } catch (error) {
           toastManager.add({
             description:
@@ -1582,6 +1647,7 @@ function ThreadWorkspaceEditor(inputProps: {
     [
       api,
       handleDeleteEntry,
+      inputProps.connectionUrl,
       props.gitCwd,
       revealEntryLabel,
       revealWorkspaceLabel,
@@ -2051,6 +2117,7 @@ function ThreadWorkspaceEditor(inputProps: {
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                   <ExternalEditorOpenMenu
                     availableEditors={props.availableEditors}
+                    connectionUrl={inputProps.connectionUrl}
                     gitCwd={props.gitCwd}
                     keybindings={props.keybindings}
                   />
@@ -2385,6 +2452,7 @@ function ThreadWorkspaceEditor(inputProps: {
                                 </>
                               ) : undefined
                             }
+                            connectionUrl={inputProps.connectionUrl}
                             diagnosticsCwd={diagnosticsCwd}
                             dirtyFilePaths={activeDirtyPaths}
                             draftsByFilePath={draftsByFilePath}

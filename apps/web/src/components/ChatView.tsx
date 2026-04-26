@@ -13,7 +13,6 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_DISPLAY_NAMES,
-  type ServerProvider,
   type ThreadHandoffMode,
   type ThreadId,
   type TurnId,
@@ -195,10 +194,7 @@ import {
   shouldUseCompactComposerPrimaryActions,
   shouldUseCompactComposerFooter,
 } from "~/lib/composer/footerLayout";
-import {
-  THREAD_ROUTE_CONNECTION_SEARCH_PARAM,
-  resolveLocalConnectionUrl,
-} from "../lib/connectionRouting";
+import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { ChatHeader } from "./chat/ChatHeader";
@@ -284,10 +280,10 @@ import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
-  useServerAvailableEditors,
-  useServerConfig,
-  useServerKeybindings,
-} from "~/rpc/serverState";
+  useConnectionServerProviders,
+  resolveThreadOriginConnectionUrl,
+} from "~/hooks/useConnectionServerProviders";
+import { useServerAvailableEditors, useServerKeybindings } from "~/rpc/serverState";
 import {
   loadRemoteHostInstances,
   normalizeWsUrl,
@@ -312,7 +308,6 @@ const IMAGE_ONLY_BOOTSTRAP_PROMPT =
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
-const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
@@ -329,6 +324,7 @@ const DiffPanel = lazy(() => import("./DiffPanel"));
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
 interface ChatViewProps {
+  connectionUrl?: string | null;
   shortcutsEnabled?: boolean;
   showSidebarTrigger?: boolean;
   splitPane?: boolean;
@@ -382,6 +378,7 @@ function LocalDiffPanel(props: {
 }
 
 export default function ChatView({
+  connectionUrl = null,
   shortcutsEnabled = true,
   showSidebarTrigger = true,
   splitPane = false,
@@ -702,10 +699,70 @@ export default function ChatView({
     ],
   );
 
+  const threadConnectionById = useHostConnectionStore((store) => store.threadConnectionById);
+  const projectConnectionById = useHostConnectionStore((store) => store.projectConnectionById);
+  const routeConnectionUrl = useMemo(() => {
+    const value = new URLSearchParams(locationSearch)
+      .get(THREAD_ROUTE_CONNECTION_SEARCH_PARAM)
+      ?.trim();
+    if (!value) {
+      return null;
+    }
+    try {
+      return normalizeWsUrl(value);
+    } catch {
+      return null;
+    }
+  }, [locationSearch]);
+  const activeServerConnectionUrl = useMemo(
+    () =>
+      resolveThreadOriginConnectionUrl({
+        threadId,
+        explicitConnectionUrl: connectionUrl,
+        routeConnectionUrl,
+        projectId: serverThread?.projectId ?? draftThread?.projectId ?? null,
+        threadConnectionById,
+        projectConnectionById,
+      }),
+    [
+      connectionUrl,
+      draftThread?.projectId,
+      projectConnectionById,
+      routeConnectionUrl,
+      serverThread?.projectId,
+      threadConnectionById,
+      threadId,
+    ],
+  );
+  const resolveBrowserThreadConnectionUrl = useCallback(
+    (browserThreadId: ThreadId): string => {
+      const browserThread =
+        browserThreadId === threadId
+          ? (serverThread ?? draftThread ?? null)
+          : (threads.find((candidate) => candidate.id === browserThreadId) ?? null);
+      return resolveThreadOriginConnectionUrl({
+        threadId: browserThreadId,
+        explicitConnectionUrl: browserThreadId === threadId ? connectionUrl : null,
+        routeConnectionUrl,
+        projectId: browserThread?.projectId ?? null,
+        threadConnectionById,
+        projectConnectionById,
+      });
+    },
+    [
+      connectionUrl,
+      draftThread,
+      projectConnectionById,
+      routeConnectionUrl,
+      serverThread,
+      threadConnectionById,
+      threadId,
+      threads,
+    ],
+  );
   const fallbackDraftProject = useProjectById(draftThread?.projectId);
   const localDraftError = serverThread ? null : (localDraftErrorsByThreadId[threadId] ?? null);
-  const serverConfig = useServerConfig();
-  const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
+  const providerStatuses = useConnectionServerProviders(activeServerConnectionUrl);
   const localDraftThread = useMemo(
     () =>
       draftThread
@@ -1110,45 +1167,6 @@ export default function ChatView({
   const liveTurnInProgress = hasLiveTurn(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = useProjectById(activeThread?.projectId);
   const activeProjectId = activeProject?.id ?? null;
-  const threadConnectionById = useHostConnectionStore((store) => store.threadConnectionById);
-  const projectConnectionById = useHostConnectionStore((store) => store.projectConnectionById);
-  const routeConnectionUrl = useMemo(() => {
-    const value = new URLSearchParams(locationSearch)
-      .get(THREAD_ROUTE_CONNECTION_SEARCH_PARAM)
-      ?.trim();
-    if (!value) {
-      return null;
-    }
-    try {
-      return normalizeWsUrl(value);
-    } catch {
-      return null;
-    }
-  }, [locationSearch]);
-  const activeServerConnectionUrl = useMemo(() => {
-    if (routeConnectionUrl) {
-      return routeConnectionUrl;
-    }
-    if (activeThread) {
-      const threadConnectionUrl = threadConnectionById[activeThread.id];
-      if (threadConnectionUrl) {
-        return normalizeWsUrl(threadConnectionUrl);
-      }
-    }
-    if (activeProjectId) {
-      const projectConnectionUrl = projectConnectionById[activeProjectId];
-      if (projectConnectionUrl) {
-        return normalizeWsUrl(projectConnectionUrl);
-      }
-    }
-    return resolveLocalConnectionUrl();
-  }, [
-    activeProjectId,
-    activeThread,
-    projectConnectionById,
-    routeConnectionUrl,
-    threadConnectionById,
-  ]);
   const activeRemoteHost = useMemo(
     () =>
       loadRemoteHostInstances().find(
@@ -5575,7 +5593,7 @@ export default function ChatView({
     const api = readNativeApi();
     if (!api || !activeThread) return;
     await api.orchestration.dispatchCommand({
-      type: "thread.session.stop",
+      type: "thread.turn.interrupt",
       commandId: newCommandId(),
       threadId: activeThread.id,
       createdAt: new Date().toISOString(),
@@ -6771,11 +6789,13 @@ export default function ChatView({
             ),
           ].map((browserThreadId) => {
             const isActiveBrowserThread = browserThreadId === activeThreadId;
+            const browserConnectionUrl = resolveBrowserThreadConnectionUrl(browserThreadId);
             return {
               key: browserThreadId,
               inAppBrowserProps: {
                 open: browserOpen,
                 activeInstance: isActiveBrowserThread,
+                connectionUrl: browserConnectionUrl,
                 visible: isActiveBrowserThread,
                 mode: browserMode,
                 onClose: closeBrowser,
@@ -6942,6 +6962,7 @@ export default function ChatView({
                   <ThreadWorkspaceEditor
                     availableEditors={availableEditors}
                     branch={activeThreadBranchName}
+                    connectionUrl={activeServerConnectionUrl}
                     gitCwd={gitCwd}
                     lspCwd={activeProject?.cwd ?? null}
                     keybindings={keybindings}
@@ -7436,6 +7457,7 @@ export default function ChatView({
                         <ThreadWorkspaceEditor
                           availableEditors={availableEditors}
                           branch={activeThreadBranchName}
+                          connectionUrl={activeServerConnectionUrl}
                           gitCwd={gitCwd}
                           lspCwd={activeProject?.cwd ?? null}
                           keybindings={keybindings}
