@@ -57,7 +57,7 @@ import {
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { type SidebarProjectSortOrder, type SidebarThreadSortOrder } from "@ace/contracts/settings";
 import { isElectron } from "../env";
-import { APP_BASE_NAME, APP_VERSION, IS_DEV_BUILD } from "../branding";
+import { APP_VERSION, IS_DEV_BUILD } from "../branding";
 import { reportBackgroundError } from "../lib/async";
 import { cn } from "../lib/utils";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -99,7 +99,6 @@ import {
   shouldToastDesktopUpdateActionResult,
 } from "../lib/desktopUpdate";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
-import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import {
@@ -125,6 +124,7 @@ import {
   MenuSubTrigger,
   MenuTrigger,
 } from "./ui/menu";
+import { Kbd } from "./ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
   SidebarContent,
@@ -863,6 +863,19 @@ function sortProjectsByTimestamp(
   });
 }
 
+function renderSidebarHeaderTooltipContent(label: string, shortcutLabel: string | null) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span>{label}</span>
+      {shortcutLabel ? (
+        <Kbd className="h-4.5 min-w-0 rounded-md bg-background/70 px-1.5 text-[10px] text-foreground/75 dark:bg-background/25">
+          {shortcutLabel}
+        </Kbd>
+      ) : null}
+    </span>
+  );
+}
+
 export default function Sidebar() {
   const { isMobile, state: sidebarState } = useSidebar();
   const projects = useStore((store) => store.projects);
@@ -1009,7 +1022,6 @@ export default function Sidebar() {
   const suppressProjectClickAfterDragRef = useRef(false);
   const suppressProjectClickForContextMenuRef = useRef(false);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
-  const [isSidebarHeaderCompact, setIsSidebarHeaderCompact] = useState(false);
   const showSidebarHeaderToggle = !isMobile && sidebarState === "expanded";
   const selectedThreadIds = useThreadSelectionStore((s) => s.selectedThreadIds);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -4719,25 +4731,21 @@ export default function Sidebar() {
     "project.add",
     sidebarShortcutLabelOptions,
   );
-
-  useEffect(() => {
-    const headerRow = sidebarHeaderRowRef.current;
-    if (!headerRow || typeof ResizeObserver === "undefined") {
-      return;
-    }
-
-    const updateCompactState = () => {
-      setIsSidebarHeaderCompact(headerRow.clientWidth < 168);
-    };
-
-    updateCompactState();
-    const observer = new ResizeObserver(updateCompactState);
-    observer.observe(headerRow);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
+  const navigationBackShortcutLabel = shortcutLabelForCommand(
+    keybindings,
+    "navigation.back",
+    sidebarShortcutLabelOptions,
+  );
+  const navigationForwardShortcutLabel = shortcutLabelForCommand(
+    keybindings,
+    "navigation.forward",
+    sidebarShortcutLabelOptions,
+  );
+  const sidebarToggleShortcutLabel = shortcutLabelForCommand(
+    keybindings,
+    "sidebar.toggle",
+    sidebarShortcutLabelOptions,
+  );
 
   // Auto-scroll search palette list when navigating with keyboard
   useEffect(() => {
@@ -4875,46 +4883,84 @@ export default function Sidebar() {
     });
   }, []);
 
-  const showWordmarkDevBadge = IS_DEV_BUILD && !isSidebarHeaderCompact;
+  const sidebarWordmarkLabel = IS_DEV_BUILD ? "acē" : "ace";
   const wordmark = (
-    <div className="flex min-w-0 items-center gap-2">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <div className="flex min-w-0 cursor-pointer items-center gap-1">
-              <span className="min-w-0 truncate text-sm font-medium tracking-tight text-foreground">
-                {APP_BASE_NAME}
-              </span>
-              {showWordmarkDevBadge ? (
-                <Badge
-                  variant="info"
-                  size="sm"
-                  className="h-5 shrink-0 rounded-full border border-info/20 bg-info/10 px-1.5 text-[9px] font-semibold tracking-[0.16em] uppercase shadow-none"
-                >
-                  DEV
-                </Badge>
-              ) : null}
-            </div>
-          }
-        />
-        <TooltipPopup side="bottom" sideOffset={2}>
-          Version {APP_VERSION}
-        </TooltipPopup>
-      </Tooltip>
-    </div>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <div className="group/sidebar-brand flex h-7 min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 text-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30">
+            <span className="min-w-0 truncate text-[15px] font-semibold tracking-tight">
+              {sidebarWordmarkLabel}
+            </span>
+          </div>
+        }
+      />
+      <TooltipPopup side="bottom" sideOffset={2}>
+        Version {APP_VERSION}
+      </TooltipPopup>
+    </Tooltip>
   );
-  const sidebarHeaderWordmark = (
-    <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex min-w-0 items-center justify-center px-12">
-      <div className="pointer-events-auto flex min-w-0 max-w-full items-center justify-center">
-        {wordmark}
+  const sidebarHeaderToggle = showSidebarHeaderToggle ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <SidebarTrigger
+            className={cn(DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME, HEADER_PILL_ICON_TRIGGER_CLASS_NAME)}
+          />
+        }
+      />
+      <TooltipPopup side="bottom" sideOffset={4}>
+        {renderSidebarHeaderTooltipContent("Toggle sidebar", sidebarToggleShortcutLabel)}
+      </TooltipPopup>
+    </Tooltip>
+  ) : null;
+  const sidebarHeaderNavButtonClassName =
+    "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/65 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30 active:text-foreground disabled:pointer-events-none disabled:opacity-40";
+  const sidebarHeaderChrome = (
+    <div
+      ref={sidebarHeaderRowRef}
+      className="grid h-7 min-w-0 grid-cols-[1fr_auto_1fr] items-center"
+    >
+      <div className="flex min-w-0 items-center">{sidebarHeaderToggle}</div>
+      <div className="flex min-w-0 items-center justify-center">{wordmark}</div>
+      <div className="flex min-w-0 items-center justify-end gap-1.5">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className={sidebarHeaderNavButtonClassName}
+                aria-label="Go back"
+                onClick={() => window.history.back()}
+              >
+                <ChevronLeftIcon className="size-4.5" strokeWidth={2.25} />
+              </button>
+            }
+          />
+          <TooltipPopup side="bottom" sideOffset={4}>
+            {renderSidebarHeaderTooltipContent("Back", navigationBackShortcutLabel)}
+          </TooltipPopup>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className={sidebarHeaderNavButtonClassName}
+                aria-label="Go forward"
+                onClick={() => window.history.forward()}
+              >
+                <ChevronRightIcon className="size-4.5" strokeWidth={2.25} />
+              </button>
+            }
+          />
+          <TooltipPopup side="bottom" sideOffset={4}>
+            {renderSidebarHeaderTooltipContent("Forward", navigationForwardShortcutLabel)}
+          </TooltipPopup>
+        </Tooltip>
       </div>
     </div>
   );
-  const sidebarHeaderToggle = showSidebarHeaderToggle ? (
-    <SidebarTrigger
-      className={cn(DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME, HEADER_PILL_ICON_TRIGGER_CLASS_NAME)}
-    />
-  ) : null;
 
   return (
     <>
@@ -5785,19 +5831,11 @@ export default function Sidebar() {
       </CommandDialog>
 
       {isElectron ? (
-        <SidebarHeader className="drag-region h-[52px] px-4 py-0">
-          <div ref={sidebarHeaderRowRef} className="relative flex h-full min-w-0 items-center">
-            {sidebarHeaderWordmark}
-            <div className="ml-auto flex shrink-0 items-center">{sidebarHeaderToggle}</div>
-          </div>
+        <SidebarHeader className="drag-region px-3.5 pt-3 pb-1">
+          {sidebarHeaderChrome}
         </SidebarHeader>
       ) : (
-        <SidebarHeader className="gap-3 px-3.5 py-3 sm:gap-2.5 sm:px-4 sm:py-3.5">
-          <div className="relative flex h-full min-w-0 flex-1 items-center">
-            {sidebarHeaderWordmark}
-            <div className="ml-auto flex shrink-0 items-center">{sidebarHeaderToggle}</div>
-          </div>
-        </SidebarHeader>
+        <SidebarHeader className="px-3.5 pt-3 pb-1 sm:px-4">{sidebarHeaderChrome}</SidebarHeader>
       )}
 
       {isOnSettings ? (
@@ -5827,7 +5865,7 @@ export default function Sidebar() {
               </Alert>
             </SidebarGroup>
           ) : null}
-          <SidebarGroup className="px-2.5 pt-3 pb-0">
+          <SidebarGroup className="px-2.5 pt-5 pb-0">
             <div className="flex flex-col gap-1">
               <button
                 type="button"
@@ -5855,7 +5893,7 @@ export default function Sidebar() {
               </button>
             </div>
           </SidebarGroup>
-          <SidebarContent className="gap-0">
+          <SidebarContent className="gap-0 pt-1.5">
             {sortedRenderedPinnedItems.length > 0 ? (
               <SidebarGroup className="px-2.5 pt-5 pb-2">
                 <button
@@ -5864,11 +5902,11 @@ export default function Sidebar() {
                   aria-expanded={pinnedSectionExpanded}
                   onClick={() => setPinnedSectionExpanded(!pinnedSectionExpanded)}
                 >
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 transition-colors group-hover/section-header:text-foreground">
+                  <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors group-hover/section-header:text-foreground">
                     Pinned
                   </span>
                   <ChevronRightIcon
-                    className={`size-3 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
+                    className={`size-4 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
                       pinnedSectionExpanded ? "rotate-90" : ""
                     }`}
                   />
@@ -5934,11 +5972,11 @@ export default function Sidebar() {
                       setBoardsSectionExpanded(!boardsSectionExpanded);
                     }}
                   >
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 transition-colors group-hover/section-header:text-foreground">
+                    <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors group-hover/section-header:text-foreground">
                       Boards
                     </span>
                     <ChevronRightIcon
-                      className={`size-3 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
+                      className={`size-4 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
                         boardsSectionExpanded ? "rotate-90" : ""
                       }`}
                     />
@@ -5949,10 +5987,10 @@ export default function Sidebar() {
                         <Tooltip>
                           <TooltipTrigger
                             render={
-                              <MenuTrigger className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground" />
+                              <MenuTrigger className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground" />
                             }
                           >
-                            <IconFilter2 className="size-3.5" />
+                            <IconFilter2 className="size-4" />
                           </TooltipTrigger>
                           <TooltipPopup side="right">Sort boards</TooltipPopup>
                         </Tooltip>
@@ -5991,13 +6029,13 @@ export default function Sidebar() {
                           <button
                             type="button"
                             aria-label="New board"
-                            className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
+                            className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
                             disabled={splitPickerThreadOptions.length < 2}
                             onClick={openSplitPicker}
                           />
                         }
                       >
-                        <PlusIcon className="size-3.5" />
+                        <PlusIcon className="size-4" />
                       </TooltipTrigger>
                       <TooltipPopup side="right">New board</TooltipPopup>
                     </Tooltip>
@@ -6128,11 +6166,11 @@ export default function Sidebar() {
                   aria-expanded={projectsSectionExpanded}
                   onClick={() => setProjectsSectionExpanded(!projectsSectionExpanded)}
                 >
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 transition-colors group-hover/section-header:text-foreground">
+                  <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors group-hover/section-header:text-foreground">
                     Projects
                   </span>
                   <ChevronRightIcon
-                    className={`size-3 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
+                    className={`size-4 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
                       projectsSectionExpanded ? "rotate-90" : ""
                     }`}
                   />
@@ -6145,12 +6183,12 @@ export default function Sidebar() {
                           <button
                             type="button"
                             aria-label="Collapse open projects"
-                            className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                            className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
                             onClick={collapseVisibleProjects}
                           />
                         }
                       >
-                        <IconArrowsDiagonalMinimize2 className="size-3.5" />
+                        <IconArrowsDiagonalMinimize2 className="size-4" />
                       </TooltipTrigger>
                       <TooltipPopup side="right">Collapse open projects</TooltipPopup>
                     </Tooltip>
@@ -6174,7 +6212,7 @@ export default function Sidebar() {
                             shouldShowProjectPathEntry ? "Cancel add project" : "Add project"
                           }
                           aria-pressed={shouldShowProjectPathEntry}
-                          className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                          className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
                           onClick={handleStartAddProject}
                         />
                       }

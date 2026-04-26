@@ -12,6 +12,7 @@ import { resolveThreadCreationOptions } from "../lib/threadCreation";
 import { resolveShortcutCommand } from "../keybindings";
 import { useUiStateStore } from "../uiStateStore";
 import { useServerKeybindings } from "../rpc/serverState";
+import { isTerminalFocused } from "../lib/terminalFocus";
 import ThreadSidebar from "./Sidebar";
 import { Sidebar, SidebarProvider, SidebarRail, useSidebar } from "./ui/sidebar";
 import { toastManager } from "./ui/toast";
@@ -35,7 +36,7 @@ function isEditableHotkeyTarget(target: EventTarget | null): boolean {
   );
 }
 
-function SidebarToggleHotkeyHandler() {
+function SidebarGlobalHotkeyHandler() {
   const { isMobile, toggleSidebar } = useSidebar();
   const keybindings = useServerKeybindings();
 
@@ -47,10 +48,31 @@ function SidebarToggleHotkeyHandler() {
       if (event.defaultPrevented || event.repeat) {
         return;
       }
-      const command = resolveShortcutCommand(event, keybindings);
-      if (command !== "sidebar.toggle" || isEditableHotkeyTarget(event.target)) {
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          terminalFocus: isTerminalFocused(),
+        },
+      });
+      if (!command || isEditableHotkeyTarget(event.target)) {
         return;
       }
+
+      if (command === "navigation.back") {
+        event.preventDefault();
+        event.stopPropagation();
+        window.history.back();
+        return;
+      }
+
+      if (command === "navigation.forward") {
+        event.preventDefault();
+        event.stopPropagation();
+        window.history.forward();
+        return;
+      }
+
+      if (command !== "sidebar.toggle") return;
+
       event.preventDefault();
       event.stopPropagation();
       toggleSidebar();
@@ -211,7 +233,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
 
   return (
     <SidebarProvider defaultOpen>
-      <SidebarToggleHotkeyHandler />
+      <SidebarGlobalHotkeyHandler />
       <Sidebar
         side="left"
         collapsible="offcanvas"

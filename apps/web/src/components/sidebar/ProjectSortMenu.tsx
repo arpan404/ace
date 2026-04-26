@@ -34,10 +34,10 @@ export function ProjectSortMenu({
       <Tooltip>
         <TooltipTrigger
           render={
-            <MenuTrigger className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground" />
+            <MenuTrigger className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground" />
           }
         >
-          <IconFilter2 className="size-3.5" />
+          <IconFilter2 className="size-4" />
         </TooltipTrigger>
         <TooltipPopup side="right">Sort projects</TooltipPopup>
       </Tooltip>

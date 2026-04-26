@@ -30,8 +30,8 @@ export function AppPageTopBar({
       className={cn(
         "relative z-30 w-full shrink-0 bg-sidebar",
         isElectron
-          ? "drag-region flex min-h-[48px] items-center px-3.5 sm:px-6"
-          : "px-3.5 py-1.5 sm:px-6 sm:py-2",
+          ? "drag-region flex min-h-[44px] items-center px-3.5 pt-3 pb-1"
+          : "px-3.5 pt-3 pb-1",
         className,
       )}
       style={isElectron && sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined}
@@ -39,7 +39,7 @@ export function AppPageTopBar({
       <div
         className={cn(
           "flex min-w-0 flex-1 items-center gap-1.5 transition-[padding] duration-200 ease-out sm:gap-2",
-          showHeaderSidebarTrigger ? "pl-2 sm:pl-2.5" : "pl-0",
+          "pl-0",
           contentClassName,
         )}
       >
