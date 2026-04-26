@@ -28,7 +28,7 @@ export function AppPageTopBar({
   return (
     <header
       className={cn(
-        "relative z-30 w-full shrink-0 border-b border-sidebar-border bg-sidebar",
+        "relative z-30 w-full shrink-0 bg-sidebar",
         isElectron
           ? "drag-region flex min-h-[48px] items-center px-3.5 sm:px-6"
           : "px-3.5 py-1.5 sm:px-6 sm:py-2",

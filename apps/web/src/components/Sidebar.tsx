@@ -1,11 +1,13 @@
 import {
   IconArrowsDiagonalMinimize2,
+  IconArrowsSort,
   IconFilter2,
   IconFolderPlus,
   IconPin,
   IconPinFilled,
   IconPinnedOff,
   IconSearch,
+  IconSettings,
 } from "@tabler/icons-react";
 import {
   ArrowUpIcon,
@@ -111,7 +113,18 @@ import {
 } from "./ui/dialog";
 import { CommandDialog, CommandDialogPopup } from "./ui/command";
 import { Input } from "./ui/input";
-import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
+import {
+  Menu,
+  MenuGroup,
+  MenuItem,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
   SidebarContent,
@@ -200,6 +213,7 @@ import {
   THREAD_BOARD_SPLIT_SEARCH_PARAM,
   THREAD_BOARD_THREADS_SEARCH_PARAM,
 } from "../lib/chatThreadBoardRouteSearch";
+import { buildThreadBoardLayoutOptions, getCurrentLayoutColumns } from "../lib/threadBoardLayout";
 import {
   type ChatThreadBoardPaneState,
   type ChatThreadBoardRowState,
@@ -215,12 +229,22 @@ const REMOTE_SIDEBAR_SNAPSHOT_FETCH_CONCURRENCY = 2;
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_TIMEOUT_MS = 600;
 
 type SidebarSplitSortOrder = "updated_at" | "created_at" | "name" | "pane_count";
+type SplitPickerSortOrder = "recent" | "project" | "title";
+type SplitContextMenuState = {
+  position: { x: number; y: number };
+  splitId: string;
+};
 
 const SIDEBAR_SPLIT_SORT_LABELS: Record<SidebarSplitSortOrder, string> = {
   updated_at: "Recent activity",
   created_at: "Created at",
   name: "Name",
   pane_count: "Thread count",
+};
+const SPLIT_PICKER_SORT_LABELS: Record<SplitPickerSortOrder, string> = {
+  recent: "Recent activity",
+  project: "Project",
+  title: "Thread title",
 };
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_DELAY_MS = 120;
 const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
@@ -855,16 +879,22 @@ export default function Sidebar() {
   );
   const threadIdsByProjectId = useStore((store) => store.threadIdsByProjectId);
   const {
+    boardsSectionExpanded,
     pinnedItems,
+    pinnedSectionExpanded,
     projectExpandedById,
     projectOrder,
+    projectsSectionExpanded,
     threadOrderByProjectId,
     threadLastVisitedAtById,
   } = useUiStateStore(
     useShallow((store) => ({
+      boardsSectionExpanded: store.boardsSectionExpanded,
       pinnedItems: store.pinnedItems,
+      pinnedSectionExpanded: store.pinnedSectionExpanded,
       projectExpandedById: store.projectExpandedById,
       projectOrder: store.projectOrder,
+      projectsSectionExpanded: store.projectsSectionExpanded,
       threadOrderByProjectId: store.threadOrderByProjectId,
       threadLastVisitedAtById: store.threadLastVisitedAtById,
     })),
@@ -874,6 +904,9 @@ export default function Sidebar() {
   const togglePinnedThread = useUiStateStore((store) => store.togglePinnedThread);
   const toggleProject = useUiStateStore((store) => store.toggleProject);
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
+  const setPinnedSectionExpanded = useUiStateStore((store) => store.setPinnedSectionExpanded);
+  const setProjectsSectionExpanded = useUiStateStore((store) => store.setProjectsSectionExpanded);
+  const setBoardsSectionExpanded = useUiStateStore((store) => store.setBoardsSectionExpanded);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const reorderThreadsInProject = useUiStateStore((store) => store.reorderThreadsInProject);
   const reorderPinnedThreads = useUiStateStore((store) => store.reorderPinnedThreads);
@@ -953,15 +986,18 @@ export default function Sidebar() {
     thread: RemoteSidebarThreadEntry;
   } | null>(null);
   const [remoteThreadRenameTitle, setRemoteThreadRenameTitle] = useState("");
-  const [savedSplitFolderOpen, setSavedSplitFolderOpen] = useState(true);
   const [splitSortOrder, setSplitSortOrder] = useState<SidebarSplitSortOrder>("updated_at");
   const [splitRevealCount, setSplitRevealCount] = useState(SPLIT_REVEAL_STEP);
   const [splitPickerOpen, setSplitPickerOpen] = useState(false);
+  const [splitPickerQuery, setSplitPickerQuery] = useState("");
+  const [splitPickerProjectFilter, setSplitPickerProjectFilter] = useState<string>("all");
+  const [splitPickerSortOrder, setSplitPickerSortOrder] = useState<SplitPickerSortOrder>("recent");
   const [splitPickerSelectedThreadIds, setSplitPickerSelectedThreadIds] = useState<Set<ThreadId>>(
     () => new Set(),
   );
-  const [pinnedSectionExpanded, setPinnedSectionExpanded] = useState(true);
-  const [projectsSectionExpanded, setProjectsSectionExpanded] = useState(true);
+  const [splitContextMenuState, setSplitContextMenuState] = useState<SplitContextMenuState | null>(
+    null,
+  );
   const [renamingSplitId, setRenamingSplitId] = useState<string | null>(null);
   const [renamingSplitTitle, setRenamingSplitTitle] = useState("");
   const { showThreadJumpHints, updateThreadJumpHintsVisibility } = useThreadJumpHintVisibility();
@@ -1011,9 +1047,9 @@ export default function Sidebar() {
     const params = new URLSearchParams(locationSearch);
     return Boolean(params.get(THREAD_BOARD_THREADS_SEARCH_PARAM)?.trim());
   }, [locationSearch]);
-  const savedSplits = useMemo(() => {
-    const activeSplits = savedSplitBoard.splits.filter((split) => split.archivedAt === null);
-    return activeSplits.toSorted((left, right) => {
+  const savedBoards = useMemo(() => {
+    const activeBoards = savedSplitBoard.splits.filter((split) => split.archivedAt === null);
+    return activeBoards.toSorted((left, right) => {
       const updatedSort =
         resolveIsoTimestamp(right.updatedAt) - resolveIsoTimestamp(left.updatedAt);
       if (splitSortOrder === "created_at") {
@@ -1028,12 +1064,27 @@ export default function Sidebar() {
       return updatedSort;
     });
   }, [savedSplitBoard.splits, splitSortOrder]);
-  const visibleSavedSplits = useMemo(
-    () => savedSplits.slice(0, splitRevealCount),
-    [savedSplits, splitRevealCount],
+  const visibleSavedBoards = useMemo(
+    () => savedBoards.slice(0, splitRevealCount),
+    [savedBoards, splitRevealCount],
   );
-  const hiddenSavedSplitCount = Math.max(0, savedSplits.length - visibleSavedSplits.length);
+  const hiddenSavedSplitCount = Math.max(0, savedBoards.length - visibleSavedBoards.length);
   const canCollapseSplitList = splitRevealCount > SPLIT_REVEAL_STEP;
+  const contextMenuSplit = useMemo(
+    () =>
+      splitContextMenuState
+        ? (savedBoards.find((split) => split.id === splitContextMenuState.splitId) ?? null)
+        : null,
+    [savedBoards, splitContextMenuState],
+  );
+  const contextMenuSplitLayoutOptions = useMemo(
+    () => (contextMenuSplit ? buildThreadBoardLayoutOptions(contextMenuSplit.panes.length) : []),
+    [contextMenuSplit],
+  );
+  const contextMenuSplitCurrentColumns = useMemo(
+    () => (contextMenuSplit ? getCurrentLayoutColumns(contextMenuSplit.rows) : 1),
+    [contextMenuSplit],
+  );
   useEffect(() => {
     setSplitRevealCount(SPLIT_REVEAL_STEP);
   }, [splitSortOrder]);
@@ -1043,7 +1094,7 @@ export default function Sidebar() {
         .map((thread) => sidebarThreadsById[thread.threadId]?.title?.trim())
         .filter((title): title is string => Boolean(title));
       if (titles.length === 0) {
-        return `Split ${savedSplitBoard.splits.length + 1}`;
+        return `Board ${savedSplitBoard.splits.length + 1}`;
       }
       if (titles.length === 1) {
         return titles[0]!;
@@ -1230,7 +1281,7 @@ export default function Sidebar() {
       if (!title) {
         toastManager.add({
           type: "warning",
-          title: "Split name cannot be empty",
+          title: "Board name cannot be empty",
         });
         cancelSplitRename();
         return;
@@ -1240,40 +1291,45 @@ export default function Sidebar() {
     },
     [cancelSplitRename, renamingSplitTitle],
   );
-  const handleSplitContextMenu = useCallback(
-    async (split: ChatThreadBoardSplitState, position: { x: number; y: number }) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const clicked = await api.contextMenu.show(
-        [
-          { id: "open", label: "Open split" },
-          { id: "rename", label: "Rename split" },
-          { id: "archive", label: "Archive split" },
-          { id: "delete", label: "Delete split", destructive: true },
-        ],
-        position,
-      );
-      if (clicked === "open") {
+  const closeSplitContextMenu = useCallback(() => {
+    setSplitContextMenuState(null);
+  }, []);
+  const openSplitContextMenu = useCallback(
+    (split: ChatThreadBoardSplitState, position: { x: number; y: number }) => {
+      setSplitContextMenuState({ position, splitId: split.id });
+    },
+    [],
+  );
+  const handleSplitLayoutSelect = useCallback(
+    (split: ChatThreadBoardSplitState, columns: number) => {
+      useChatThreadBoardStore.getState().setSplitGridLayout(split.id, { columns });
+      closeSplitContextMenu();
+    },
+    [closeSplitContextMenu],
+  );
+  const handleSplitMenuAction = useCallback(
+    async (split: ChatThreadBoardSplitState, action: "archive" | "delete" | "open" | "rename") => {
+      closeSplitContextMenu();
+      if (action === "open") {
         restoreSavedSplit(split);
         return;
       }
-      if (clicked === "rename") {
+      if (action === "rename") {
         setRenamingSplitId(split.id);
         setRenamingSplitTitle(split.title);
         return;
       }
-      if (clicked === "archive") {
+      if (action === "archive") {
         useChatThreadBoardStore.getState().archiveSplit(split.id);
         if (activeRouteSplitId === split.id) {
           closeActiveSplitRoute();
         }
         return;
       }
-      if (clicked !== "delete") {
-        return;
-      }
+      const api = readNativeApi();
+      if (!api) return;
       const confirmed = await api.dialogs.confirm(
-        [`Delete split "${split.title}"?`, "The threads are not deleted."].join("\n"),
+        [`Delete board "${split.title}"?`, "The threads are not deleted."].join("\n"),
       );
       if (!confirmed) {
         return;
@@ -1283,7 +1339,7 @@ export default function Sidebar() {
         closeActiveSplitRoute();
       }
     },
-    [activeRouteSplitId, closeActiveSplitRoute, restoreSavedSplit],
+    [activeRouteSplitId, closeActiveSplitRoute, closeSplitContextMenu, restoreSavedSplit],
   );
   const [remoteSidebarHosts, setRemoteSidebarHosts] = useState<
     ReadonlyArray<RemoteSidebarHostEntry>
@@ -2423,7 +2479,7 @@ export default function Sidebar() {
         thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
       const clicked = await api.contextMenu.show(
         [
-          { id: "open-in-board", label: "Open in split board" },
+          { id: "open-in-board", label: "Open in board" },
           { id: "pin", label: pinnedThreadIds.includes(threadId) ? "Unpin thread" : "Pin thread" },
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
@@ -2513,7 +2569,7 @@ export default function Sidebar() {
 
       const clicked = await api.contextMenu.show(
         [
-          { id: "open-in-board", label: `Open in split board (${count})` },
+          { id: "open-in-board", label: `Open in board (${count})` },
           { id: "mark-unread", label: `Mark unread (${count})` },
           { id: "delete", label: `Delete (${count})`, destructive: true },
         ],
@@ -2924,7 +2980,7 @@ export default function Sidebar() {
       if (!api) return;
       const clicked = await api.contextMenu.show(
         [
-          { id: "open-in-board", label: "Open in split board" },
+          { id: "open-in-board", label: "Open in board" },
           { id: "rename", label: "Rename thread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
@@ -3224,7 +3280,8 @@ export default function Sidebar() {
     [],
   );
 
-  const activeThreadId = routeThreadId ?? undefined;
+  const activeThreadId = routeHasSplitThreads ? undefined : (routeThreadId ?? undefined);
+  const activeSidebarRouteThreadId = activeThreadId ?? null;
   const pinnedProjectIdSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds]);
   const pinnedThreadIdSet = useMemo(() => new Set(pinnedThreadIds), [pinnedThreadIds]);
   const visibleProjectThreadsByProjectId = useMemo(() => {
@@ -3496,7 +3553,7 @@ export default function Sidebar() {
             activeRouteConnectionUrl,
             entry.connectionUrl,
           )
-            ? (routeThreadId ?? undefined)
+            ? activeThreadId
             : undefined;
           const {
             hasHiddenThreads,
@@ -3530,7 +3587,7 @@ export default function Sidebar() {
     filteredRemoteSidebarHosts,
     remoteProjectExpandedById,
     remoteThreadRevealCountByProject,
-    routeThreadId,
+    activeThreadId,
   ]);
   const unifiedRenderedProjects = useMemo(() => {
     const localProjects = filteredRenderedProjects.map((project) => ({
@@ -3640,13 +3697,66 @@ export default function Sidebar() {
       sortedActiveThreads.map((thread) => ({
         connectionUrl: resolveConnectionForThreadId(thread.id) ?? null,
         id: thread.id,
+        projectId: thread.projectId,
         projectName: projectById.get(thread.projectId)?.name ?? "Unknown project",
         title: thread.title.trim() || "Untitled thread",
+        updatedAt: Math.max(
+          resolveIsoTimestamp(thread.latestUserMessageAt ?? undefined),
+          resolveIsoTimestamp(thread.updatedAt),
+          resolveIsoTimestamp(thread.createdAt),
+        ),
       })),
     [projectById, sortedActiveThreads],
   );
+  const splitPickerProjectFilterOptions = useMemo(() => {
+    const projectOptions = new Map<string, string>();
+    for (const thread of splitPickerThreadOptions) {
+      projectOptions.set(thread.projectId, thread.projectName);
+    }
+    return [...projectOptions.entries()]
+      .map(([projectId, projectName]) => ({ projectId, projectName }))
+      .toSorted((left, right) => left.projectName.localeCompare(right.projectName));
+  }, [splitPickerThreadOptions]);
+  const normalizedSplitPickerQuery = splitPickerQuery.trim().toLowerCase();
+  const visibleSplitPickerThreadOptions = useMemo(() => {
+    const filteredThreads = splitPickerThreadOptions.filter((thread) => {
+      if (splitPickerProjectFilter !== "all" && thread.projectId !== splitPickerProjectFilter) {
+        return false;
+      }
+      if (!normalizedSplitPickerQuery) {
+        return true;
+      }
+      return (
+        thread.title.toLowerCase().includes(normalizedSplitPickerQuery) ||
+        thread.projectName.toLowerCase().includes(normalizedSplitPickerQuery)
+      );
+    });
+    return filteredThreads.toSorted((left, right) => {
+      if (splitPickerSortOrder === "title") {
+        return (
+          left.title.localeCompare(right.title, undefined, { sensitivity: "base" }) ||
+          right.updatedAt - left.updatedAt
+        );
+      }
+      if (splitPickerSortOrder === "project") {
+        return (
+          left.projectName.localeCompare(right.projectName, undefined, { sensitivity: "base" }) ||
+          left.title.localeCompare(right.title, undefined, { sensitivity: "base" })
+        );
+      }
+      return right.updatedAt - left.updatedAt;
+    });
+  }, [
+    normalizedSplitPickerQuery,
+    splitPickerProjectFilter,
+    splitPickerSortOrder,
+    splitPickerThreadOptions,
+  ]);
   const selectedSplitThreadCount = splitPickerSelectedThreadIds.size;
   const openSplitPicker = useCallback(() => {
+    setSplitPickerQuery("");
+    setSplitPickerProjectFilter("all");
+    setSplitPickerSortOrder("recent");
     setSplitPickerSelectedThreadIds(new Set());
     setSplitPickerOpen(true);
   }, []);
@@ -3688,6 +3798,9 @@ export default function Sidebar() {
       return;
     }
     setSplitPickerOpen(false);
+    setSplitPickerQuery("");
+    setSplitPickerProjectFilter("all");
+    setSplitPickerSortOrder("recent");
     setSplitPickerSelectedThreadIds(new Set());
     navigateToCurrentSplit(activeTarget);
   }, [
@@ -4016,7 +4129,7 @@ export default function Sidebar() {
         key={threadId}
         threadId={threadId}
         orderedProjectThreadIds={renderedPinnedThreadIds}
-        routeThreadId={routeThreadId}
+        routeThreadId={activeSidebarRouteThreadId}
         activeRouteConnectionUrl={activeRouteConnectionUrl}
         connectionUrl={activeWsUrl}
         selectedThreadIds={selectedThreadIds}
@@ -4096,7 +4209,7 @@ export default function Sidebar() {
         key={threadId}
         threadId={threadId}
         orderedProjectThreadIds={orderedProjectThreadIds}
-        routeThreadId={routeThreadId}
+        routeThreadId={activeSidebarRouteThreadId}
         activeRouteConnectionUrl={activeRouteConnectionUrl}
         connectionUrl={connectionUrl}
         selectedThreadIds={selectedThreadIds}
@@ -4406,7 +4519,7 @@ export default function Sidebar() {
                     key={thread.id}
                     threadId={threadId}
                     orderedProjectThreadIds={sortedThreadIds}
-                    routeThreadId={routeThreadId}
+                    routeThreadId={activeSidebarRouteThreadId}
                     activeRouteConnectionUrl={activeRouteConnectionUrl}
                     connectionUrl={connectionUrl}
                     selectedThreadIds={selectedThreadIds}
@@ -4971,49 +5084,150 @@ export default function Sidebar() {
         onOpenChange={(open) => {
           setSplitPickerOpen(open);
           if (!open) {
+            setSplitPickerQuery("");
+            setSplitPickerProjectFilter("all");
+            setSplitPickerSortOrder("recent");
             setSplitPickerSelectedThreadIds(new Set());
           }
         }}
       >
         <DialogPopup className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>New split</DialogTitle>
+            <DialogTitle>New board</DialogTitle>
             <DialogDescription>
-              Choose two or more threads to open together in a saved split.
+              Choose two or more threads to open together in a saved board.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
             {splitPickerThreadOptions.length < 2 ? (
               <p className="rounded-md border border-border/50 px-3 py-4 text-center text-sm text-muted-foreground">
-                Add at least two active threads before creating a split.
+                Add at least two active threads before creating a board.
               </p>
             ) : (
-              <div className="max-h-80 space-y-1 overflow-y-auto pr-1">
-                {splitPickerThreadOptions.map((thread) => {
-                  const selected = splitPickerSelectedThreadIds.has(thread.id);
-                  return (
-                    <label
-                      key={thread.id}
-                      className={cn(
-                        "flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors",
-                        selected
-                          ? "bg-foreground/[0.06] text-foreground"
-                          : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
-                      )}
-                      onClick={() => toggleSplitPickerThread(thread.id)}
-                    >
-                      <Checkbox
-                        checked={selected}
-                        onClick={(event) => event.stopPropagation()}
-                        onCheckedChange={() => toggleSplitPickerThread(thread.id)}
-                      />
-                      <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-                      <span className="max-w-32 shrink-0 truncate text-xs text-muted-foreground/70">
-                        {thread.projectName}
-                      </span>
-                    </label>
-                  );
-                })}
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-1.5">
+                  <div className="relative min-w-0 flex-1">
+                    <IconSearch className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 size-4 text-muted-foreground/60" />
+                    <Input
+                      value={splitPickerQuery}
+                      onChange={(event) => setSplitPickerQuery(event.target.value)}
+                      placeholder="Search threads or projects"
+                      className="h-9 bg-background/60 pl-8 text-sm"
+                      autoFocus
+                    />
+                  </div>
+                  <Menu>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <MenuTrigger className="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-foreground/[0.06] hover:text-foreground" />
+                        }
+                      >
+                        <IconFilter2 className="size-4" />
+                      </TooltipTrigger>
+                      <TooltipPopup>Filter threads</TooltipPopup>
+                    </Tooltip>
+                    <MenuPopup align="end" side="bottom" className="min-w-44">
+                      <MenuGroup>
+                        <div className="px-2 py-1 font-medium text-muted-foreground sm:text-xs">
+                          Filter by project
+                        </div>
+                        <MenuRadioGroup
+                          value={splitPickerProjectFilter}
+                          onValueChange={setSplitPickerProjectFilter}
+                        >
+                          <MenuRadioItem value="all" className="min-h-7 py-1 sm:text-xs">
+                            All projects
+                          </MenuRadioItem>
+                          {splitPickerProjectFilterOptions.map((project) => (
+                            <MenuRadioItem
+                              key={project.projectId}
+                              value={project.projectId}
+                              className="min-h-7 py-1 sm:text-xs"
+                            >
+                              {project.projectName}
+                            </MenuRadioItem>
+                          ))}
+                        </MenuRadioGroup>
+                      </MenuGroup>
+                    </MenuPopup>
+                  </Menu>
+                  <Menu>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <MenuTrigger className="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-foreground/[0.06] hover:text-foreground" />
+                        }
+                      >
+                        <IconArrowsSort className="size-4" />
+                      </TooltipTrigger>
+                      <TooltipPopup>Sort threads</TooltipPopup>
+                    </Tooltip>
+                    <MenuPopup align="end" side="bottom" className="min-w-40">
+                      <MenuGroup>
+                        <div className="px-2 py-1 font-medium text-muted-foreground sm:text-xs">
+                          Sort by
+                        </div>
+                        <MenuRadioGroup
+                          value={splitPickerSortOrder}
+                          onValueChange={(value) =>
+                            setSplitPickerSortOrder(value as SplitPickerSortOrder)
+                          }
+                        >
+                          {(
+                            Object.entries(SPLIT_PICKER_SORT_LABELS) as Array<
+                              [SplitPickerSortOrder, string]
+                            >
+                          ).map(([value, label]) => (
+                            <MenuRadioItem
+                              key={value}
+                              value={value}
+                              className="min-h-7 py-1 sm:text-xs"
+                            >
+                              {label}
+                            </MenuRadioItem>
+                          ))}
+                        </MenuRadioGroup>
+                      </MenuGroup>
+                    </MenuPopup>
+                  </Menu>
+                </div>
+                <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+                  {visibleSplitPickerThreadOptions.length > 0 ? (
+                    visibleSplitPickerThreadOptions.map((thread) => {
+                      const selected = splitPickerSelectedThreadIds.has(thread.id);
+                      return (
+                        <button
+                          key={thread.id}
+                          type="button"
+                          role="checkbox"
+                          aria-checked={selected}
+                          className={cn(
+                            "flex w-full cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm outline-none transition-colors focus-visible:bg-foreground/[0.06] focus-visible:text-foreground",
+                            selected
+                              ? "bg-foreground/[0.06] text-foreground"
+                              : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
+                          )}
+                          onClick={() => toggleSplitPickerThread(thread.id)}
+                        >
+                          <Checkbox
+                            checked={selected}
+                            tabIndex={-1}
+                            className="pointer-events-none"
+                          />
+                          <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+                          <span className="max-w-32 shrink-0 truncate text-xs text-muted-foreground/70">
+                            {thread.projectName}
+                          </span>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <p className="rounded-md px-3 py-6 text-center text-sm text-muted-foreground/60">
+                      No matching threads
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </DialogPanel>
@@ -5023,6 +5237,9 @@ export default function Sidebar() {
               variant="outline"
               onClick={() => {
                 setSplitPickerOpen(false);
+                setSplitPickerQuery("");
+                setSplitPickerProjectFilter("all");
+                setSplitPickerSortOrder("recent");
                 setSplitPickerSelectedThreadIds(new Set());
               }}
             >
@@ -5033,11 +5250,87 @@ export default function Sidebar() {
               disabled={selectedSplitThreadCount < 2}
               onClick={createSelectedSplit}
             >
-              Create split
+              Create board
             </Button>
           </DialogFooter>
         </DialogPopup>
       </Dialog>
+      {splitContextMenuState && contextMenuSplit ? (
+        <Menu
+          key={`${contextMenuSplit.id}:${splitContextMenuState.position.x}:${splitContextMenuState.position.y}`}
+          defaultOpen
+          modal={false}
+          onOpenChange={(open) => {
+            if (!open) {
+              closeSplitContextMenu();
+            }
+          }}
+        >
+          <MenuTrigger
+            render={
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-hidden="true"
+                className="pointer-events-none fixed z-50 size-px opacity-0"
+                style={{
+                  left: `${splitContextMenuState.position.x}px`,
+                  top: `${splitContextMenuState.position.y}px`,
+                }}
+              />
+            }
+          />
+          <MenuPopup align="start" side="bottom" sideOffset={6} className="min-w-48">
+            <MenuItem onClick={() => void handleSplitMenuAction(contextMenuSplit, "open")}>
+              Open board
+            </MenuItem>
+            <MenuSub>
+              <MenuSubTrigger>
+                <span>Layout</span>
+                <span className="ms-auto truncate text-[10px] text-muted-foreground">
+                  {contextMenuSplitCurrentColumns} col
+                </span>
+              </MenuSubTrigger>
+              <MenuSubPopup sideOffset={4}>
+                {contextMenuSplitLayoutOptions.map((option) => {
+                  const selected = option.columns === contextMenuSplitCurrentColumns;
+                  return (
+                    <MenuItem
+                      key={option.value}
+                      onClick={() => handleSplitLayoutSelect(contextMenuSplit, option.columns)}
+                    >
+                      <span className="min-w-0 flex-1">{option.label}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {option.columns === 1
+                          ? "stack"
+                          : option.rows === 1
+                            ? "row"
+                            : `${option.columns} cols`}
+                      </span>
+                      {selected ? (
+                        <span className="ml-1 text-xs text-muted-foreground">Selected</span>
+                      ) : null}
+                    </MenuItem>
+                  );
+                })}
+              </MenuSubPopup>
+            </MenuSub>
+            <div className="mx-2 my-1 h-px bg-border" />
+            <MenuItem onClick={() => void handleSplitMenuAction(contextMenuSplit, "rename")}>
+              Rename board
+            </MenuItem>
+            <MenuItem onClick={() => void handleSplitMenuAction(contextMenuSplit, "archive")}>
+              Archive board
+            </MenuItem>
+            <MenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => void handleSplitMenuAction(contextMenuSplit, "delete")}
+            >
+              Delete board
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      ) : null}
 
       <CommandDialog open={searchPaletteOpen} onOpenChange={handleSearchPaletteOpenChange}>
         <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0 shadow-lg rounded-xl">
@@ -5569,7 +5862,7 @@ export default function Sidebar() {
                   type="button"
                   className="group/section-header mb-1.5 flex h-5 w-full cursor-pointer items-center gap-1.5 bg-transparent pl-2 pr-1.5 text-left"
                   aria-expanded={pinnedSectionExpanded}
-                  onClick={() => setPinnedSectionExpanded((expanded) => !expanded)}
+                  onClick={() => setPinnedSectionExpanded(!pinnedSectionExpanded)}
                 >
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 transition-colors group-hover/section-header:text-foreground">
                     Pinned
@@ -5630,72 +5923,74 @@ export default function Sidebar() {
                 </div>
               </SidebarGroup>
             ) : null}
-            {savedSplits.length > 0 || splitPickerThreadOptions.length >= 2 ? (
-              <SidebarGroup className="px-2.5 pt-2.5 pb-2">
+            {savedBoards.length > 0 || splitPickerThreadOptions.length >= 2 ? (
+              <SidebarGroup className="order-last px-2.5 pt-1 pb-2">
                 <div className="mb-1.5 flex items-center justify-between pl-2 pr-1.5">
                   <button
                     type="button"
                     className="group/section-header flex h-5 min-w-0 flex-1 cursor-pointer items-center gap-1.5 bg-transparent text-left"
-                    aria-expanded={savedSplitFolderOpen}
+                    aria-expanded={boardsSectionExpanded}
                     onClick={() => {
-                      setSavedSplitFolderOpen((open) => !open);
+                      setBoardsSectionExpanded(!boardsSectionExpanded);
                     }}
                   >
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 transition-colors group-hover/section-header:text-foreground">
-                      Splits
+                      Boards
                     </span>
                     <ChevronRightIcon
                       className={`size-3 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
-                        savedSplitFolderOpen ? "rotate-90" : ""
+                        boardsSectionExpanded ? "rotate-90" : ""
                       }`}
                     />
                   </button>
                   <div className="flex items-center gap-1">
-                    <Menu>
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <MenuTrigger className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground" />
-                          }
-                        >
-                          <IconFilter2 className="size-3.5" />
-                        </TooltipTrigger>
-                        <TooltipPopup side="right">Sort splits</TooltipPopup>
-                      </Tooltip>
-                      <MenuPopup align="end" side="bottom" className="min-w-40">
-                        <MenuGroup>
-                          <div className="px-2 py-1 font-medium text-muted-foreground sm:text-xs">
-                            Sort splits
-                          </div>
-                          <MenuRadioGroup
-                            value={splitSortOrder}
-                            onValueChange={(value) => {
-                              setSplitSortOrder(value as SidebarSplitSortOrder);
-                            }}
+                    {savedBoards.length > 0 ? (
+                      <Menu>
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <MenuTrigger className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground" />
+                            }
                           >
-                            {(
-                              Object.entries(SIDEBAR_SPLIT_SORT_LABELS) as Array<
-                                [SidebarSplitSortOrder, string]
-                              >
-                            ).map(([value, label]) => (
-                              <MenuRadioItem
-                                key={value}
-                                value={value}
-                                className="min-h-7 py-1 sm:text-xs"
-                              >
-                                {label}
-                              </MenuRadioItem>
-                            ))}
-                          </MenuRadioGroup>
-                        </MenuGroup>
-                      </MenuPopup>
-                    </Menu>
+                            <IconFilter2 className="size-3.5" />
+                          </TooltipTrigger>
+                          <TooltipPopup side="right">Sort boards</TooltipPopup>
+                        </Tooltip>
+                        <MenuPopup align="end" side="bottom" className="min-w-40">
+                          <MenuGroup>
+                            <div className="px-2 py-1 font-medium text-muted-foreground sm:text-xs">
+                              Sort boards
+                            </div>
+                            <MenuRadioGroup
+                              value={splitSortOrder}
+                              onValueChange={(value) => {
+                                setSplitSortOrder(value as SidebarSplitSortOrder);
+                              }}
+                            >
+                              {(
+                                Object.entries(SIDEBAR_SPLIT_SORT_LABELS) as Array<
+                                  [SidebarSplitSortOrder, string]
+                                >
+                              ).map(([value, label]) => (
+                                <MenuRadioItem
+                                  key={value}
+                                  value={value}
+                                  className="min-h-7 py-1 sm:text-xs"
+                                >
+                                  {label}
+                                </MenuRadioItem>
+                              ))}
+                            </MenuRadioGroup>
+                          </MenuGroup>
+                        </MenuPopup>
+                      </Menu>
+                    ) : null}
                     <Tooltip>
                       <TooltipTrigger
                         render={
                           <button
                             type="button"
-                            aria-label="New split"
+                            aria-label="New board"
                             className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
                             disabled={splitPickerThreadOptions.length < 2}
                             onClick={openSplitPicker}
@@ -5704,22 +5999,22 @@ export default function Sidebar() {
                       >
                         <PlusIcon className="size-3.5" />
                       </TooltipTrigger>
-                      <TooltipPopup side="right">New split</TooltipPopup>
+                      <TooltipPopup side="right">New board</TooltipPopup>
                     </Tooltip>
                   </div>
                 </div>
                 <div
-                  aria-hidden={!savedSplitFolderOpen}
+                  aria-hidden={!boardsSectionExpanded}
                   className={cn(
                     "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
-                    savedSplitFolderOpen
+                    boardsSectionExpanded
                       ? "grid-rows-[1fr] opacity-100"
                       : "pointer-events-none grid-rows-[0fr] opacity-0",
                   )}
                 >
                   <div className="min-h-0 overflow-hidden">
                     <SidebarMenu>
-                      {visibleSavedSplits.map((split) => {
+                      {visibleSavedBoards.map((split) => {
                         const paneCount = split.panes.length;
                         const isActiveSplit = activeRouteSplitId === split.id;
                         return (
@@ -5728,7 +6023,7 @@ export default function Sidebar() {
                             className="rounded-md"
                             onContextMenu={(event) => {
                               event.preventDefault();
-                              void handleSplitContextMenu(split, {
+                              openSplitContextMenu(split, {
                                 x: event.clientX,
                                 y: event.clientY,
                               });
@@ -5765,7 +6060,7 @@ export default function Sidebar() {
                                 render={<button type="button" />}
                                 size="sm"
                                 className={cn(
-                                  "h-7 w-full cursor-pointer gap-2 px-2 text-left text-xs transition-colors duration-150",
+                                  "h-7 w-full cursor-pointer gap-2 px-2 text-left text-xs transition-colors duration-150 focus-visible:!ring-1 focus-visible:!ring-ring/35 focus-visible:ring-inset",
                                   isActiveSplit
                                     ? "!bg-foreground/[0.06] !text-pill-foreground"
                                     : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-pill-foreground",
@@ -5785,43 +6080,39 @@ export default function Sidebar() {
                           </SidebarMenuItem>
                         );
                       })}
-                      {savedSplits.length === 0 ? (
+                      {savedBoards.length === 0 ? (
                         <SidebarMenuItem>
                           <div className="h-7 px-2 text-xs text-muted-foreground/60">
-                            No splits yet
+                            No boards yet
                           </div>
                         </SidebarMenuItem>
                       ) : null}
                       {hiddenSavedSplitCount > 0 ? (
                         <SidebarMenuItem className="rounded-md">
-                          <Button
+                          <button
                             type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-full justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
+                            className="flex h-6 w-full cursor-pointer items-center justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 outline-none transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 focus-visible:text-foreground/90 dark:hover:text-foreground dark:hover:brightness-125"
                             onClick={() => {
                               setSplitRevealCount((current) =>
-                                Math.min(savedSplits.length, current + SPLIT_REVEAL_STEP),
+                                Math.min(savedBoards.length, current + SPLIT_REVEAL_STEP),
                               );
                             }}
                           >
                             <span>
                               Show {Math.min(SPLIT_REVEAL_STEP, hiddenSavedSplitCount)} more
                             </span>
-                          </Button>
+                          </button>
                         </SidebarMenuItem>
                       ) : null}
                       {canCollapseSplitList ? (
                         <SidebarMenuItem className="rounded-md">
-                          <Button
+                          <button
                             type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-full justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
+                            className="flex h-6 w-full cursor-pointer items-center justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 outline-none transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 focus-visible:text-foreground/90 dark:hover:text-foreground dark:hover:brightness-125"
                             onClick={() => setSplitRevealCount(SPLIT_REVEAL_STEP)}
                           >
                             <span>Show less</span>
-                          </Button>
+                          </button>
                         </SidebarMenuItem>
                       ) : null}
                     </SidebarMenu>
@@ -5835,7 +6126,7 @@ export default function Sidebar() {
                   type="button"
                   className="group/section-header flex h-5 min-w-0 flex-1 cursor-pointer items-center gap-1.5 bg-transparent text-left"
                   aria-expanded={projectsSectionExpanded}
-                  onClick={() => setProjectsSectionExpanded((expanded) => !expanded)}
+                  onClick={() => setProjectsSectionExpanded(!projectsSectionExpanded)}
                 >
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 transition-colors group-hover/section-header:text-foreground">
                     Projects
@@ -5979,12 +6270,11 @@ export default function Sidebar() {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  size="sm"
-                  className="gap-2.5 px-2.5 py-2 text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+                  className="h-8 gap-1.5 px-2.5 text-[13px] font-medium text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground active:bg-accent active:text-foreground"
                   onClick={() => void navigate({ to: "/settings" })}
                 >
-                  <SettingsIcon className="size-3.5" />
-                  <span className="text-xs">Settings</span>
+                  <IconSettings className="size-4" />
+                  <span>Settings</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
