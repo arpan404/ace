@@ -311,6 +311,9 @@ function AboutVersionTitle() {
 function AboutVersionSection() {
   const queryClient = useQueryClient();
   const updateStateQuery = useDesktopUpdateState();
+  const runningAgentCount = useStore(
+    (store) => store.threads.filter((thread) => thread.session?.status === "running").length,
+  );
 
   const updateState = updateStateQuery.data ?? null;
 
@@ -342,6 +345,7 @@ function AboutVersionSection() {
         const confirmed = await api.dialogs.confirm(
           getDesktopUpdateInstallConfirmationMessage(
             updateState ?? { availableVersion: null, downloadedVersion: null },
+            runningAgentCount,
           ),
         );
         if (!confirmed) return;
@@ -378,7 +382,7 @@ function AboutVersionSection() {
           description: error instanceof Error ? error.message : "Update check failed.",
         });
       });
-  }, [queryClient, updateState]);
+  }, [queryClient, runningAgentCount, updateState]);
 
   const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
   const buttonTooltip = updateState ? getDesktopUpdateButtonTooltip(updateState) : null;

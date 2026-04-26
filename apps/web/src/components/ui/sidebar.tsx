@@ -1,10 +1,9 @@
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
+import { IconLayoutSidebar, IconLayoutSidebarFilled } from "@tabler/icons-react";
 import { cva, type VariantProps } from "class-variance-authority";
-import { PanelLeftCloseIcon, PanelLeftIcon } from "lucide-react";
 import * as React from "react";
 import { cn } from "~/lib/utils";
-import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Separator } from "~/components/ui/separator";
@@ -302,35 +301,40 @@ function Sidebar({
   );
 }
 
-function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<typeof Button>) {
+function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<"button">) {
   const { isMobile, open, openMobile, toggleSidebar } = useSidebar();
+  const iconClassName =
+    "size-[18px] opacity-70 brightness-90 transition-[filter,opacity] duration-150 group-hover/sidebar-trigger:opacity-100 group-hover/sidebar-trigger:brightness-125";
 
   return (
-    <Button
-      className={cn("size-7", className)}
+    <button
+      className={cn(
+        "group/sidebar-trigger inline-flex size-7 shrink-0 cursor-pointer items-center justify-center text-current outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:opacity-50",
+        className,
+        "!border-0 !bg-transparent !p-0 !shadow-none hover:!border-0 hover:!bg-transparent hover:!shadow-none active:!bg-transparent",
+      )}
       data-sidebar="trigger"
       data-slot="sidebar-trigger"
       onClick={(event) => {
         onClick?.(event);
         toggleSidebar();
       }}
-      size="icon"
-      variant="ghost"
+      type="button"
       {...props}
     >
       {isMobile ? (
         openMobile ? (
-          <PanelLeftCloseIcon />
+          <IconLayoutSidebarFilled className={iconClassName} />
         ) : (
-          <PanelLeftIcon />
+          <IconLayoutSidebar className={iconClassName} />
         )
       ) : open ? (
-        <PanelLeftCloseIcon />
+        <IconLayoutSidebarFilled className={iconClassName} />
       ) : (
-        <PanelLeftIcon />
+        <IconLayoutSidebar className={iconClassName} />
       )}
       <span className="sr-only">Toggle Sidebar</span>
-    </Button>
+    </button>
   );
 }
 

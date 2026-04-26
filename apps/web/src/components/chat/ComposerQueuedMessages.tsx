@@ -1,11 +1,5 @@
-import {
-  ArrowRightIcon,
-  ImageIcon,
-  LockIcon,
-  PencilIcon,
-  TerminalSquareIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { IconTerminal } from "@tabler/icons-react";
+import { ArrowRightIcon, ImageIcon, LockIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { PROVIDER_DISPLAY_NAMES, type MessageId, type ModelSelection } from "@ace/contracts";
 
 import { formatQueuedComposerMessagePreview } from "../../lib/chat/chatView";
@@ -165,7 +159,7 @@ export function ComposerQueuedMessages(props: {
                     ) : null}
                     {message.terminalContexts.length > 0 ? (
                       <span className="inline-flex items-center gap-1 rounded-full border border-border/35 bg-background/60 px-1.5 py-0.5">
-                        <TerminalSquareIcon className="size-3" />
+                        <IconTerminal className="size-3" />
                         {message.terminalContexts.length} terminal
                         {message.terminalContexts.length === 1 ? "" : "s"}
                       </span>

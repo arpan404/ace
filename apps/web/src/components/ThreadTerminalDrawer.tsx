@@ -1,4 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
+import { IconTerminal } from "@tabler/icons-react";
 import {
   Code2,
   Copy as CopyIcon,
@@ -9,7 +10,6 @@ import {
   RotateCcw as RotateCcwIcon,
   Server,
   SquareSplitHorizontal,
-  TerminalSquare,
   Trash as TrashIcon,
   Wrench,
   XIcon,
@@ -488,7 +488,7 @@ function TerminalIconGlyph(props: {
     case "wrench":
       return <Wrench className={resolvedClassName} />;
     default:
-      return <TerminalSquare className={resolvedClassName} />;
+      return <IconTerminal className={resolvedClassName} />;
   }
 }
 
@@ -1808,7 +1808,7 @@ export default function ThreadTerminalDrawer({
                   onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "new")}
                   className="menu-item-with-icon"
                 >
-                  <TerminalSquare className="size-4 text-muted-foreground" />
+                  <IconTerminal className="size-4 text-muted-foreground" />
                   <span>New Terminal</span>
                 </MenuItem>
                 <MenuItem
@@ -1954,7 +1954,7 @@ export default function ThreadTerminalDrawer({
                   onClick={() => handleTerminalSectionAction("new-terminal")}
                   className="menu-item-with-icon"
                 >
-                  <TerminalSquare className="size-4 text-muted-foreground" />
+                  <IconTerminal className="size-4 text-muted-foreground" />
                   <span>New Terminal</span>
                 </MenuItem>
 
@@ -2129,7 +2129,7 @@ export default function ThreadTerminalDrawer({
                         onClick={onNewTerminalAction}
                         label={newTerminalActionLabel}
                       >
-                        <TerminalSquare className="size-3.5" />
+                        <IconTerminal className="size-3.5" />
                       </TerminalActionButton>
                       <TerminalActionButton
                         className={cn(

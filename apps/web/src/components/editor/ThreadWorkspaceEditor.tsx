@@ -7,6 +7,7 @@ import type {
   ResolvedKeybindingsConfig,
   ThreadId,
 } from "@ace/contracts";
+import { IconLayoutSidebar, IconLayoutSidebarFilled } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -18,8 +19,6 @@ import {
   GitBranchIcon,
   GitForkIcon,
   Maximize2Icon,
-  PanelLeftCloseIcon,
-  PanelLeftIcon,
   SearchIcon,
 } from "lucide-react";
 import {
@@ -2145,7 +2144,7 @@ function ThreadWorkspaceEditor(inputProps: {
                     onClick={() => setExplorerOpen(props.threadId, false)}
                     title="Collapse explorer"
                   >
-                    <PanelLeftCloseIcon className="size-3.5" />
+                    <IconLayoutSidebarFilled className="size-3.5" />
                   </Button>
                   {onWorkspaceModeChange ? (
                     <Button
@@ -2420,9 +2419,9 @@ function ThreadWorkspaceEditor(inputProps: {
                                     }
                                   >
                                     {explorerOpen ? (
-                                      <PanelLeftCloseIcon className="size-3" />
+                                      <IconLayoutSidebarFilled className="size-3" />
                                     ) : (
-                                      <PanelLeftIcon className="size-3" />
+                                      <IconLayoutSidebar className="size-3" />
                                     )}
                                   </Button>
                                   {onWorkspaceModeChange ? (

@@ -21,10 +21,14 @@ import {
 } from "../../lib/desktopUpdate";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { useStore } from "../../store";
 
 export function SidebarUpdatePill() {
   const queryClient = useQueryClient();
   const state = useDesktopUpdateState().data ?? null;
+  const runningAgentCount = useStore(
+    (store) => store.threads.filter((thread) => thread.session?.status === "running").length,
+  );
   const [dismissed, setDismissed] = useState(false);
 
   const visible = isElectron && shouldShowDesktopUpdateButton(state) && !dismissed;
@@ -76,7 +80,7 @@ export function SidebarUpdatePill() {
       const api = readNativeApi() ?? ensureNativeApi();
       void (async () => {
         const confirmed = await api.dialogs.confirm(
-          getDesktopUpdateInstallConfirmationMessage(state),
+          getDesktopUpdateInstallConfirmationMessage(state, runningAgentCount),
         );
         if (!confirmed) return;
         const result = await bridge.installUpdate();
@@ -97,7 +101,7 @@ export function SidebarUpdatePill() {
         });
       });
     }
-  }, [action, disabled, queryClient, state]);
+  }, [action, disabled, queryClient, runningAgentCount, state]);
 
   if (!visible && !showArm64Warning) return null;
 

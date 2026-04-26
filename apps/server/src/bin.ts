@@ -47,6 +47,10 @@ const rewriteCliAliases = () => {
       process.argv = [process.argv[0]!, process.argv[1]!, "daemon", "restart", ...args.slice(1)];
       return;
     }
+    case "--update": {
+      process.argv = [process.argv[0]!, process.argv[1]!, "update", ...args.slice(1)];
+      return;
+    }
     case "--profile": {
       process.argv = [process.argv[0]!, process.argv[1]!, "profile", ...args.slice(1)];
       return;

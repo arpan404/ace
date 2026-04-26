@@ -137,6 +137,7 @@ const LOG_DIR = Path.join(STATE_DIR, "logs");
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const DAEMON_LOGIN_ITEM_ARG = "--daemon-login-item";
+const DESKTOP_UPDATE_ARG = "--ace-update";
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -156,7 +157,11 @@ interface DaemonStartOutput {
     readonly port: number;
     readonly authToken: string;
     readonly wsUrl: string;
+    readonly serverVersion?: string;
   };
+  readonly upgraded?: true;
+  readonly recovered?: true;
+  readonly previousVersion?: string;
 }
 interface DaemonStatusOutput {
   readonly status: "running" | "stopped" | "stale";
@@ -910,11 +915,15 @@ function parseDaemonStartOutput(raw: string): DaemonStartOutput {
   }
   const payload = parsed as {
     status?: unknown;
+    upgraded?: unknown;
+    recovered?: unknown;
+    previousVersion?: unknown;
     daemon?: {
       pid?: unknown;
       port?: unknown;
       authToken?: unknown;
       wsUrl?: unknown;
+      serverVersion?: unknown;
     };
   };
   if (payload.status !== "started" && payload.status !== "already-running") {
@@ -935,7 +944,15 @@ function parseDaemonStartOutput(raw: string): DaemonStartOutput {
       port: payload.daemon.port,
       authToken: payload.daemon.authToken,
       wsUrl: payload.daemon.wsUrl,
+      ...(typeof payload.daemon.serverVersion === "string"
+        ? { serverVersion: payload.daemon.serverVersion }
+        : {}),
     },
+    ...(payload.upgraded === true ? { upgraded: true as const } : {}),
+    ...(payload.recovered === true ? { recovered: true as const } : {}),
+    ...(typeof payload.previousVersion === "string"
+      ? { previousVersion: payload.previousVersion }
+      : {}),
   };
 }
 
@@ -1100,6 +1117,20 @@ function startOrConnectBackendDaemon(): void {
   writeDesktopLogHeader(
     `daemon backend ${parsed.status} pid=${String(parsed.daemon.pid)} port=${String(parsed.daemon.port)}`,
   );
+  if (parsed.upgraded === true) {
+    writeDesktopLogHeader(
+      `daemon backend upgraded previousVersion=${sanitizeLogValue(
+        parsed.previousVersion ?? "unknown",
+      )} currentVersion=${sanitizeLogValue(parsed.daemon.serverVersion ?? "unknown")}`,
+    );
+  }
+  if (parsed.recovered === true) {
+    writeDesktopLogHeader(
+      `daemon backend recovered currentVersion=${sanitizeLogValue(
+        parsed.daemon.serverVersion ?? "unknown",
+      )}`,
+    );
+  }
 }
 
 async function stopDaemonForUpdateInstall(timeoutMs = 10_000): Promise<void> {
@@ -1491,6 +1522,10 @@ function shouldRunHeadlessDaemonBootstrap(): boolean {
   }
 }
 
+function shouldRunHeadlessDesktopUpdate(): boolean {
+  return app.isPackaged && process.argv.includes(DESKTOP_UPDATE_ARG);
+}
+
 function getInAppBrowserSession(): Electron.Session {
   return session.fromPartition(IN_APP_BROWSER_PARTITION);
 }
@@ -1789,6 +1824,59 @@ async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed
     setUpdateState(reduceDesktopUpdateStateOnInstallFailure(updateState, message));
     console.error(`[desktop-updater] Failed to install update: ${message}`);
     return { accepted: true, completed: false };
+  }
+}
+
+async function runHeadlessDesktopUpdate(): Promise<void> {
+  writeDesktopLogHeader("headless update start");
+  configureAutoUpdater();
+  if (!updaterConfigured) {
+    const message = updateState.message ?? "Automatic updates are unavailable in this build.";
+    writeDesktopLogHeader(`headless update unavailable message=${sanitizeLogValue(message)}`);
+    process.stdout.write(`${message}\n`);
+    process.exitCode = 2;
+    app.quit();
+    return;
+  }
+
+  const checked = await checkForUpdates("cli");
+  if (!checked) {
+    process.stdout.write("Update check could not be started.\n");
+    process.exitCode = 1;
+    app.quit();
+    return;
+  }
+
+  if (updateState.status === "up-to-date") {
+    process.stdout.write(`ace ${updateState.currentVersion} is up to date.\n`);
+    app.quit();
+    return;
+  }
+
+  if (updateState.status !== "available") {
+    const message = updateState.message ?? "No installable update is available.";
+    process.stdout.write(`${message}\n`);
+    process.exitCode = updateState.status === "error" ? 1 : 0;
+    app.quit();
+    return;
+  }
+
+  const version = updateState.availableVersion ?? "available";
+  process.stdout.write(`Downloading update ${version}...\n`);
+  const downloadResult = await downloadAvailableUpdate();
+  if (!downloadResult.completed || updateState.downloadedVersion === null) {
+    process.stdout.write(`${updateState.message ?? "Update download failed."}\n`);
+    process.exitCode = 1;
+    app.quit();
+    return;
+  }
+
+  process.stdout.write("Installing update and restarting ace...\n");
+  const installResult = await installDownloadedUpdate();
+  if (!installResult.accepted) {
+    process.stdout.write(`${updateState.message ?? "Update install could not be started."}\n`);
+    process.exitCode = 1;
+    app.quit();
   }
 }
 
@@ -2661,6 +2749,17 @@ app
     configureAppIdentity();
     if (useDaemonBackend) {
       ensureDaemonAutostartRegistration();
+    }
+    if (shouldRunHeadlessDesktopUpdate()) {
+      writeDesktopLogHeader("headless update launch detected");
+      void runHeadlessDesktopUpdate().catch((error) => {
+        const message = formatErrorMessage(error);
+        writeDesktopLogHeader(`headless update failed error=${sanitizeLogValue(message)}`);
+        process.stderr.write(`${message}\n`);
+        process.exitCode = 1;
+        app.quit();
+      });
+      return;
     }
     if (useDaemonBackend && shouldRunHeadlessDaemonBootstrap()) {
       writeDesktopLogHeader("headless login launch detected; starting daemon only");

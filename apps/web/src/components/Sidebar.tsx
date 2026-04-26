@@ -1,16 +1,23 @@
 import {
+  IconArrowsDiagonalMinimize2,
+  IconFilter2,
+  IconFolderPlus,
+  IconPin,
+  IconPinFilled,
+  IconPinnedOff,
+  IconSearch,
+} from "@tabler/icons-react";
+import {
   ArrowUpIcon,
+  ChevronLeftIcon,
   ChevronRightIcon,
+  Columns2Icon,
   FolderIcon,
   LaptopIcon,
-  PinIcon,
-  PinOffIcon,
   PlusIcon,
-  SearchIcon,
   SettingsIcon,
   SquarePenIcon,
   TriangleAlertIcon,
-  ChevronLeftIcon,
 } from "lucide-react";
 import {
   startTransition,
@@ -92,6 +99,7 @@ import {
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
 import {
   Dialog,
   DialogDescription,
@@ -103,13 +111,13 @@ import {
 } from "./ui/dialog";
 import { CommandDialog, CommandDialogPopup } from "./ui/command";
 import { Input } from "./ui/input";
+import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
   SidebarHeader,
-  SidebarMenuBadge,
   SidebarMenuAction,
   SidebarMenu,
   SidebarMenuButton,
@@ -199,11 +207,21 @@ import {
   useChatThreadBoardStore,
 } from "../chatThreadBoardStore";
 const THREAD_REVEAL_STEP = 5;
+const SPLIT_REVEAL_STEP = 5;
 const REMOTE_HOST_REFRESH_INTERVAL_MS = 20_000;
 const REMOTE_HOST_HIDDEN_REFRESH_INTERVAL_MS = 90_000;
 const REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS = 1_500;
 const REMOTE_SIDEBAR_SNAPSHOT_FETCH_CONCURRENCY = 2;
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_TIMEOUT_MS = 600;
+
+type SidebarSplitSortOrder = "updated_at" | "created_at" | "name" | "pane_count";
+
+const SIDEBAR_SPLIT_SORT_LABELS: Record<SidebarSplitSortOrder, string> = {
+  updated_at: "Recent activity",
+  created_at: "Created at",
+  name: "Name",
+  pane_count: "Thread count",
+};
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_DELAY_MS = 120;
 const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
 const sortedSidebarThreadsCache = new WeakMap<
@@ -837,16 +855,14 @@ export default function Sidebar() {
   );
   const threadIdsByProjectId = useStore((store) => store.threadIdsByProjectId);
   const {
-    pinnedProjectIds,
-    pinnedThreadIds,
+    pinnedItems,
     projectExpandedById,
     projectOrder,
     threadOrderByProjectId,
     threadLastVisitedAtById,
   } = useUiStateStore(
     useShallow((store) => ({
-      pinnedProjectIds: store.pinnedProjectIds,
-      pinnedThreadIds: store.pinnedThreadIds,
+      pinnedItems: store.pinnedItems,
       projectExpandedById: store.projectExpandedById,
       projectOrder: store.projectOrder,
       threadOrderByProjectId: store.threadOrderByProjectId,
@@ -857,6 +873,7 @@ export default function Sidebar() {
   const togglePinnedProject = useUiStateStore((store) => store.togglePinnedProject);
   const togglePinnedThread = useUiStateStore((store) => store.togglePinnedThread);
   const toggleProject = useUiStateStore((store) => store.toggleProject);
+  const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const reorderThreadsInProject = useUiStateStore((store) => store.reorderThreadsInProject);
   const reorderPinnedThreads = useUiStateStore((store) => store.reorderPinnedThreads);
@@ -874,8 +891,17 @@ export default function Sidebar() {
   const isOnSettings = pathname.startsWith("/settings");
   const appSettings = useSettings();
   const { updateSettings } = useUpdateSettings();
+  const pinnedProjectIds = useMemo(
+    () => pinnedItems.flatMap((item) => (item.kind === "project" ? [item.id] : [])),
+    [pinnedItems],
+  );
+  const pinnedThreadIds = useMemo(
+    () => pinnedItems.flatMap((item) => (item.kind === "thread" ? [item.id] : [])),
+    [pinnedItems],
+  );
   const providerStatuses = useServerProviders();
-  const { activeDraftThread, activeThread, handleNewThread } = useHandleNewThread();
+  const { activeDraftThread, activeThread, defaultProjectId, handleNewThread } =
+    useHandleNewThread();
   const { archiveThread, deleteThread } = useThreadActions();
   const routeThreadId = useParams({
     strict: false,
@@ -928,6 +954,14 @@ export default function Sidebar() {
   } | null>(null);
   const [remoteThreadRenameTitle, setRemoteThreadRenameTitle] = useState("");
   const [savedSplitFolderOpen, setSavedSplitFolderOpen] = useState(true);
+  const [splitSortOrder, setSplitSortOrder] = useState<SidebarSplitSortOrder>("updated_at");
+  const [splitRevealCount, setSplitRevealCount] = useState(SPLIT_REVEAL_STEP);
+  const [splitPickerOpen, setSplitPickerOpen] = useState(false);
+  const [splitPickerSelectedThreadIds, setSplitPickerSelectedThreadIds] = useState<Set<ThreadId>>(
+    () => new Set(),
+  );
+  const [pinnedSectionExpanded, setPinnedSectionExpanded] = useState(true);
+  const [projectsSectionExpanded, setProjectsSectionExpanded] = useState(true);
   const [renamingSplitId, setRenamingSplitId] = useState<string | null>(null);
   const [renamingSplitTitle, setRenamingSplitTitle] = useState("");
   const { showThreadJumpHints, updateThreadJumpHintsVisibility } = useThreadJumpHintVisibility();
@@ -977,16 +1011,32 @@ export default function Sidebar() {
     const params = new URLSearchParams(locationSearch);
     return Boolean(params.get(THREAD_BOARD_THREADS_SEARCH_PARAM)?.trim());
   }, [locationSearch]);
-  const savedSplits = useMemo(
-    () =>
-      savedSplitBoard.splits
-        .filter((split) => split.archivedAt === null)
-        .toSorted(
-          (left, right) =>
-            resolveIsoTimestamp(right.updatedAt) - resolveIsoTimestamp(left.updatedAt),
-        ),
-    [savedSplitBoard.splits],
+  const savedSplits = useMemo(() => {
+    const activeSplits = savedSplitBoard.splits.filter((split) => split.archivedAt === null);
+    return activeSplits.toSorted((left, right) => {
+      const updatedSort =
+        resolveIsoTimestamp(right.updatedAt) - resolveIsoTimestamp(left.updatedAt);
+      if (splitSortOrder === "created_at") {
+        return resolveIsoTimestamp(right.createdAt) - resolveIsoTimestamp(left.createdAt);
+      }
+      if (splitSortOrder === "name") {
+        return left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
+      }
+      if (splitSortOrder === "pane_count") {
+        return right.panes.length - left.panes.length || updatedSort;
+      }
+      return updatedSort;
+    });
+  }, [savedSplitBoard.splits, splitSortOrder]);
+  const visibleSavedSplits = useMemo(
+    () => savedSplits.slice(0, splitRevealCount),
+    [savedSplits, splitRevealCount],
   );
+  const hiddenSavedSplitCount = Math.max(0, savedSplits.length - visibleSavedSplits.length);
+  const canCollapseSplitList = splitRevealCount > SPLIT_REVEAL_STEP;
+  useEffect(() => {
+    setSplitRevealCount(SPLIT_REVEAL_STEP);
+  }, [splitSortOrder]);
   const buildSplitTitle = useCallback(
     (threads: ReadonlyArray<{ threadId: ThreadId }>) => {
       const titles = threads
@@ -3177,21 +3227,6 @@ export default function Sidebar() {
   const activeThreadId = routeThreadId ?? undefined;
   const pinnedProjectIdSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds]);
   const pinnedThreadIdSet = useMemo(() => new Set(pinnedThreadIds), [pinnedThreadIds]);
-  const pinnedSidebarThreads = useMemo(
-    () =>
-      pinnedThreadIds.flatMap((threadId) => {
-        const thread = sidebarThreadsById[threadId];
-        if (!thread || thread.archivedAt !== null || !projectById.has(thread.projectId)) {
-          return [];
-        }
-        return [thread];
-      }),
-    [pinnedThreadIds, projectById, sidebarThreadsById],
-  );
-  const renderedPinnedThreadIds = useMemo(
-    () => pinnedSidebarThreads.map((thread) => thread.id),
-    [pinnedSidebarThreads],
-  );
   const visibleProjectThreadsByProjectId = useMemo(() => {
     const next = new Map<ProjectId, SidebarThreadSummary[]>();
     for (const project of activeProjects) {
@@ -3333,11 +3368,56 @@ export default function Sidebar() {
       visibleProjectThreadsByProjectId,
     ],
   );
+  const renderedProjectById = useMemo(
+    () =>
+      new Map(
+        renderedProjects.map((renderedProject) => [renderedProject.project.id, renderedProject]),
+      ),
+    [renderedProjects],
+  );
+  const renderedPinnedItems = useMemo<
+    Array<
+      | { kind: "project"; renderedProject: (typeof renderedProjects)[number] }
+      | { kind: "thread"; threadId: ThreadId }
+    >
+  >(
+    () =>
+      pinnedItems.flatMap<
+        | { kind: "project"; renderedProject: (typeof renderedProjects)[number] }
+        | { kind: "thread"; threadId: ThreadId }
+      >((item) => {
+        if (item.kind === "project") {
+          const renderedProject = renderedProjectById.get(item.id);
+          return renderedProject ? [{ kind: "project" as const, renderedProject }] : [];
+        }
+        const thread = sidebarThreadsById[item.id];
+        if (!thread || thread.archivedAt !== null || !projectById.has(thread.projectId)) {
+          return [];
+        }
+        return [{ kind: "thread" as const, threadId: item.id }];
+      }),
+    [pinnedItems, projectById, renderedProjectById, sidebarThreadsById],
+  );
+  const sortedRenderedPinnedItems = useMemo(
+    () => [
+      ...renderedPinnedItems.filter((item) => item.kind === "thread"),
+      ...renderedPinnedItems.filter((item) => item.kind === "project"),
+    ],
+    [renderedPinnedItems],
+  );
+  const renderedPinnedThreadIds = useMemo(
+    () =>
+      sortedRenderedPinnedItems.flatMap((item) => (item.kind === "thread" ? [item.threadId] : [])),
+    [sortedRenderedPinnedItems],
+  );
   const filteredRenderedProjects = useMemo(() => {
+    const unpinnedRenderedProjects = renderedProjects.filter(
+      (renderedProject) => !pinnedProjectIdSet.has(renderedProject.project.id),
+    );
     if (normalizedProjectSearchQuery.length === 0) {
-      return renderedProjects;
+      return unpinnedRenderedProjects;
     }
-    return renderedProjects.filter((renderedProject) => {
+    return unpinnedRenderedProjects.filter((renderedProject) => {
       const { project } = renderedProject;
       if (
         project.name.toLowerCase().includes(normalizedProjectSearchQuery) ||
@@ -3351,7 +3431,12 @@ export default function Sidebar() {
         thread.title.toLowerCase().includes(normalizedProjectSearchQuery),
       );
     });
-  }, [normalizedProjectSearchQuery, renderedProjects, visibleProjectThreadsByProjectId]);
+  }, [
+    normalizedProjectSearchQuery,
+    pinnedProjectIdSet,
+    renderedProjects,
+    visibleProjectThreadsByProjectId,
+  ]);
   const filteredRemoteSidebarHosts = useMemo(() => {
     const visibleRemoteSidebarHosts = remoteSidebarHosts.filter(
       (entry) => !isHostConnectionActive(entry.host, activeWsUrl),
@@ -3496,6 +3581,40 @@ export default function Sidebar() {
     renderedRemoteProjects,
     visibleProjectThreadsByProjectId,
   ]);
+  const hasExpandedVisibleProjects = useMemo(
+    () =>
+      filteredRenderedProjects.some(
+        (renderedProject) =>
+          renderedProject.projectExpanded && renderedProject.renderedThreadIds.length > 0,
+      ) ||
+      renderedRemoteProjects.some(
+        (renderedProject) =>
+          renderedProject.projectExpanded && renderedProject.visibleThreads.length > 0,
+      ),
+    [filteredRenderedProjects, renderedRemoteProjects],
+  );
+  const canCollapseVisibleProjects = projectsSectionExpanded && hasExpandedVisibleProjects;
+  const collapseVisibleProjects = useCallback(() => {
+    for (const renderedProject of filteredRenderedProjects) {
+      if (renderedProject.projectExpanded && renderedProject.renderedThreadIds.length > 0) {
+        setProjectExpanded(renderedProject.project.id, false);
+      }
+    }
+    setRemoteProjectExpandedById((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const renderedProject of renderedRemoteProjects) {
+        if (!renderedProject.projectExpanded || renderedProject.visibleThreads.length === 0) {
+          continue;
+        }
+        if (next[renderedProject.projectKey] !== false) {
+          next[renderedProject.projectKey] = false;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [filteredRenderedProjects, renderedRemoteProjects, setProjectExpanded]);
   const sortedActiveThreads = useMemo(
     () =>
       Object.values(sidebarThreadsById)
@@ -3516,6 +3635,82 @@ export default function Sidebar() {
         ),
     [sidebarThreadsById],
   );
+  const splitPickerThreadOptions = useMemo(
+    () =>
+      sortedActiveThreads.map((thread) => ({
+        connectionUrl: resolveConnectionForThreadId(thread.id) ?? null,
+        id: thread.id,
+        projectName: projectById.get(thread.projectId)?.name ?? "Unknown project",
+        title: thread.title.trim() || "Untitled thread",
+      })),
+    [projectById, sortedActiveThreads],
+  );
+  const selectedSplitThreadCount = splitPickerSelectedThreadIds.size;
+  const openSplitPicker = useCallback(() => {
+    setSplitPickerSelectedThreadIds(new Set());
+    setSplitPickerOpen(true);
+  }, []);
+  const toggleSplitPickerThread = useCallback((threadId: ThreadId) => {
+    setSplitPickerSelectedThreadIds((current) => {
+      const next = new Set(current);
+      if (next.has(threadId)) {
+        next.delete(threadId);
+      } else {
+        next.add(threadId);
+      }
+      return next;
+    });
+  }, []);
+  const createSelectedSplit = useCallback(() => {
+    const selectedTargets = splitPickerThreadOptions
+      .filter((thread) => splitPickerSelectedThreadIds.has(thread.id))
+      .map((thread) => ({
+        connectionUrl: thread.connectionUrl,
+        threadId: thread.id,
+      }));
+    if (selectedTargets.length < 2) {
+      return;
+    }
+    for (const target of selectedTargets) {
+      if (target.connectionUrl) {
+        useHostConnectionStore
+          .getState()
+          .upsertThreadOwnership(target.connectionUrl, target.threadId);
+      }
+    }
+    const activeTarget = selectedTargets[selectedTargets.length - 1]!;
+    const splitId = useChatThreadBoardStore.getState().createSplit({
+      activeThread: activeTarget,
+      threads: selectedTargets,
+      title: buildSplitTitle(selectedTargets),
+    });
+    if (!splitId) {
+      return;
+    }
+    setSplitPickerOpen(false);
+    setSplitPickerSelectedThreadIds(new Set());
+    navigateToCurrentSplit(activeTarget);
+  }, [
+    buildSplitTitle,
+    navigateToCurrentSplit,
+    splitPickerSelectedThreadIds,
+    splitPickerThreadOptions,
+  ]);
+  const sidebarNewChatProjectId = useMemo(() => {
+    const currentProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
+    if (currentProjectId && projectById.has(currentProjectId)) {
+      return currentProjectId;
+    }
+
+    const latestThreadProjectId = sortedActiveThreads.find((thread) =>
+      projectById.has(thread.projectId),
+    )?.projectId;
+    if (latestThreadProjectId) {
+      return latestThreadProjectId;
+    }
+
+    return defaultProjectId && projectById.has(defaultProjectId) ? defaultProjectId : null;
+  }, [activeDraftThread, activeThread, defaultProjectId, projectById, sortedActiveThreads]);
   const handleStartNewThreadForProject = useCallback(
     (projectId: ProjectId) => {
       void handleNewThread(
@@ -3547,6 +3742,12 @@ export default function Sidebar() {
     },
     [activeDraftThread, activeThread, appSettings.defaultThreadEnvMode, handleNewThread],
   );
+  const handleStartSidebarNewChat = useCallback(() => {
+    if (!sidebarNewChatProjectId) {
+      return;
+    }
+    handleStartNewThreadForProject(sidebarNewChatProjectId);
+  }, [handleStartNewThreadForProject, sidebarNewChatProjectId]);
 
   const handleStartNewThreadForRemoteProject = useCallback(
     (input: { connectionUrl: string; project: RemoteSidebarProjectEntry }) => {
@@ -3849,11 +4050,14 @@ export default function Sidebar() {
     );
   }
   const canDragPinnedThreads =
-    normalizedProjectSearchQuery.length === 0 && renderedPinnedThreadIds.length > 1;
+    normalizedProjectSearchQuery.length === 0 &&
+    sortedRenderedPinnedItems.every((item) => item.kind === "thread") &&
+    renderedPinnedThreadIds.length > 1;
 
   function renderProjectItem(
     renderedProject: (typeof renderedProjects)[number],
     dragHandleProps: SortableProjectHandleProps | null,
+    options: { renderThreadPanel?: boolean } = {},
   ) {
     const {
       hasHiddenThreads,
@@ -3871,7 +4075,9 @@ export default function Sidebar() {
       connectionUrl,
     } = renderedProject;
     const isDraggable = dragHandleProps !== null;
+    const renderThreadPanel = options.renderThreadPanel ?? true;
     const shouldRenderThreadPanel =
+      renderThreadPanel &&
       shouldShowThreadPanel &&
       (showEmptyThreadState ||
         renderedThreadIds.length > 0 ||
@@ -3927,9 +4133,7 @@ export default function Sidebar() {
           <SidebarMenuButton
             ref={isDraggable ? dragHandleProps?.setActivatorNodeRef : undefined}
             size="sm"
-            className={`gap-2 px-2 py-1.5 text-left transition-colors duration-150 hover:bg-accent group-hover/project-header:bg-accent ${
-              isDraggable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
-            }`}
+            className="cursor-pointer gap-2 px-2 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-foreground/[0.06] hover:text-pill-foreground group-hover/project-header:bg-foreground/[0.06] group-hover/project-header:text-pill-foreground"
             {...(isDraggable && dragHandleProps ? dragHandleProps.attributes : {})}
             {...(isDraggable && dragHandleProps ? dragHandleProps.listeners : {})}
             onPointerDownCapture={handleProjectTitlePointerDownCapture}
@@ -3967,12 +4171,7 @@ export default function Sidebar() {
               />
             )}
             <ProjectAvatar project={project} />
-            <span className="flex-1 truncate text-xs font-medium text-foreground">
-              {project.name}
-            </span>
-            {isPinned && (
-              <PinIcon className="size-3 shrink-0 text-amber-500/80 dark:text-amber-300/85" />
-            )}
+            <span className="flex-1 truncate text-xs font-medium">{project.name}</span>
           </SidebarMenuButton>
           <Tooltip>
             <TooltipTrigger
@@ -3984,11 +4183,9 @@ export default function Sidebar() {
                       aria-label={`${isPinned ? "Unpin" : "Pin"} project ${project.name}`}
                     />
                   }
-                  showOnHover={!isPinned}
-                  className={`top-1 right-7 size-5 rounded-md p-0 hover:bg-secondary hover:text-foreground ${
-                    isPinned
-                      ? "text-amber-500/90 dark:text-amber-300/90"
-                      : "text-muted-foreground/70"
+                  showOnHover
+                  className={`group/project-pin top-1 right-7 size-5 rounded-md bg-transparent p-0 hover:bg-transparent hover:text-foreground ${
+                    isPinned ? "text-foreground" : "text-muted-foreground/70"
                   }`}
                   onPointerDown={(event) => {
                     event.preventDefault();
@@ -4001,9 +4198,12 @@ export default function Sidebar() {
                   }}
                 >
                   {isPinned ? (
-                    <PinOffIcon className="size-3.5" />
+                    <span className="relative inline-flex size-4 items-center justify-center">
+                      <IconPinFilled className="absolute size-4 opacity-100 transition-opacity duration-150 group-hover/project-pin:opacity-0 group-focus-visible/project-pin:opacity-0" />
+                      <IconPinnedOff className="absolute size-4 opacity-0 transition-opacity duration-150 group-hover/project-pin:opacity-100 group-focus-visible/project-pin:opacity-100" />
+                    </span>
                   ) : (
-                    <PinIcon className="size-3.5" />
+                    <IconPin className="size-4" />
                   )}
                 </SidebarMenuAction>
               }
@@ -4022,7 +4222,7 @@ export default function Sidebar() {
                     />
                   }
                   showOnHover
-                  className="top-1 right-1.5 size-5 rounded-md p-0 text-muted-foreground/70 hover:bg-secondary hover:text-foreground"
+                  className="top-1 right-1.5 size-5 rounded-md bg-transparent p-0 text-muted-foreground/70 hover:bg-transparent hover:text-foreground"
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -4040,7 +4240,7 @@ export default function Sidebar() {
         </div>
 
         {shouldRenderThreadPanel && (
-          <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0.5">
+          <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0">
             {shouldShowThreadPanel && showEmptyThreadState ? (
               <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
                 <div
@@ -4077,7 +4277,7 @@ export default function Sidebar() {
                   render={<button type="button" />}
                   data-thread-selection-safe
                   size="sm"
-                  className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                  className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
                   onClick={() => {
                     expandThreadListForProject(project.id);
                   }}
@@ -4097,7 +4297,7 @@ export default function Sidebar() {
                   render={<button type="button" />}
                   data-thread-selection-safe
                   size="sm"
-                  className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                  className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
                   onClick={() => {
                     collapseThreadListForProject(project.id);
                   }}
@@ -4133,7 +4333,7 @@ export default function Sidebar() {
         <div className="group/project-header relative">
           <SidebarMenuButton
             size="sm"
-            className="cursor-pointer gap-2 px-2 py-1.5 text-left transition-colors duration-150 hover:bg-accent group-hover/project-header:bg-accent"
+            className="cursor-pointer gap-2 px-2 py-1.5 text-left text-muted-foreground transition-colors duration-150 hover:bg-foreground/[0.06] hover:text-pill-foreground group-hover/project-header:bg-foreground/[0.06] group-hover/project-header:text-pill-foreground"
             onClick={() => toggleRemoteProject(projectKey)}
             onContextMenu={(event) => {
               event.preventDefault();
@@ -4155,9 +4355,7 @@ export default function Sidebar() {
               }`}
             />
             <ProjectAvatar project={{ cwd: project.cwd, icon: project.icon }} />
-            <span className="flex-1 truncate text-xs font-medium text-foreground">
-              {project.name}
-            </span>
+            <span className="flex-1 truncate text-xs font-medium">{project.name}</span>
           </SidebarMenuButton>
           <Tooltip>
             <TooltipTrigger
@@ -4171,7 +4369,7 @@ export default function Sidebar() {
                     />
                   }
                   showOnHover
-                  className="top-1 right-1.5 size-5 rounded-md p-0 text-muted-foreground/70 hover:bg-secondary hover:text-foreground"
+                  className="top-1 right-1.5 size-5 rounded-md bg-transparent p-0 text-muted-foreground/70 hover:bg-transparent hover:text-foreground"
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -4192,7 +4390,7 @@ export default function Sidebar() {
         </div>
 
         {shouldRenderThreadPanel && (
-          <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0.5">
+          <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0">
             {projectExpanded && visibleThreads.length === 0 ? (
               <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
                 <div className="flex h-6 w-full translate-x-0 items-center px-2 text-left text-[10px] text-muted-foreground/60">
@@ -4262,7 +4460,7 @@ export default function Sidebar() {
                   render={<button type="button" />}
                   data-thread-selection-safe
                   size="sm"
-                  className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                  className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
                   onClick={() => {
                     expandThreadListForRemoteProject(projectKey);
                   }}
@@ -4277,7 +4475,7 @@ export default function Sidebar() {
                   render={<button type="button" />}
                   data-thread-selection-safe
                   size="sm"
-                  className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                  className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
                   onClick={() => {
                     collapseThreadListForRemoteProject(projectKey);
                   }}
@@ -4768,6 +4966,78 @@ export default function Sidebar() {
           </DialogFooter>
         </DialogPopup>
       </Dialog>
+      <Dialog
+        open={splitPickerOpen}
+        onOpenChange={(open) => {
+          setSplitPickerOpen(open);
+          if (!open) {
+            setSplitPickerSelectedThreadIds(new Set());
+          }
+        }}
+      >
+        <DialogPopup className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>New split</DialogTitle>
+            <DialogDescription>
+              Choose two or more threads to open together in a saved split.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            {splitPickerThreadOptions.length < 2 ? (
+              <p className="rounded-md border border-border/50 px-3 py-4 text-center text-sm text-muted-foreground">
+                Add at least two active threads before creating a split.
+              </p>
+            ) : (
+              <div className="max-h-80 space-y-1 overflow-y-auto pr-1">
+                {splitPickerThreadOptions.map((thread) => {
+                  const selected = splitPickerSelectedThreadIds.has(thread.id);
+                  return (
+                    <label
+                      key={thread.id}
+                      className={cn(
+                        "flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors",
+                        selected
+                          ? "bg-foreground/[0.06] text-foreground"
+                          : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
+                      )}
+                      onClick={() => toggleSplitPickerThread(thread.id)}
+                    >
+                      <Checkbox
+                        checked={selected}
+                        onClick={(event) => event.stopPropagation()}
+                        onCheckedChange={() => toggleSplitPickerThread(thread.id)}
+                      />
+                      <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+                      <span className="max-w-32 shrink-0 truncate text-xs text-muted-foreground/70">
+                        {thread.projectName}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setSplitPickerOpen(false);
+                setSplitPickerSelectedThreadIds(new Set());
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={selectedSplitThreadCount < 2}
+              onClick={createSelectedSplit}
+            >
+              Create split
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
 
       <CommandDialog open={searchPaletteOpen} onOpenChange={handleSearchPaletteOpenChange}>
         <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0 shadow-lg rounded-xl">
@@ -4782,7 +5052,7 @@ export default function Sidebar() {
                 <ChevronLeftIcon className="size-5" strokeWidth={2.5} />
               </button>
             ) : (
-              <SearchIcon className="size-5 shrink-0 text-muted-foreground/60" strokeWidth={2} />
+              <IconSearch className="size-5 shrink-0 text-muted-foreground/60" strokeWidth={2} />
             )}
             <input
               ref={searchPaletteInputRef}
@@ -5241,86 +5511,359 @@ export default function Sidebar() {
         <SettingsSidebarNav pathname={pathname} />
       ) : (
         <>
-          <SidebarContent className="gap-0">
-            {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
-              <SidebarGroup className="px-2 pt-2 pb-0">
-                <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
-                  <TriangleAlertIcon />
-                  <AlertTitle>Intel build on Apple Silicon</AlertTitle>
-                  <AlertDescription>{arm64IntelBuildWarningDescription}</AlertDescription>
-                  {desktopUpdateButtonAction !== "none" ? (
-                    <AlertAction>
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        disabled={desktopUpdateButtonDisabled}
-                        onClick={handleDesktopUpdateButtonClick}
-                      >
-                        {desktopUpdateButtonAction === "download"
-                          ? "Download ARM build"
-                          : "Install ARM build"}
-                      </Button>
-                    </AlertAction>
-                  ) : null}
-                </Alert>
-              </SidebarGroup>
-            ) : null}
-            <SidebarGroup className="px-2.5 pt-2.5 pb-0">
+          {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
+            <SidebarGroup className="px-2 pt-2 pb-0">
+              <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
+                <TriangleAlertIcon />
+                <AlertTitle>Intel build on Apple Silicon</AlertTitle>
+                <AlertDescription>{arm64IntelBuildWarningDescription}</AlertDescription>
+                {desktopUpdateButtonAction !== "none" ? (
+                  <AlertAction>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={desktopUpdateButtonDisabled}
+                      onClick={handleDesktopUpdateButtonClick}
+                    >
+                      {desktopUpdateButtonAction === "download"
+                        ? "Download ARM build"
+                        : "Install ARM build"}
+                    </Button>
+                  </AlertAction>
+                ) : null}
+              </Alert>
+            </SidebarGroup>
+          ) : null}
+          <SidebarGroup className="px-2.5 pt-3 pb-0">
+            <div className="flex flex-col gap-1">
               <button
                 type="button"
-                className="flex h-8 w-full items-center gap-2 rounded-md border border-border/60 bg-secondary/40 px-2.5 text-left text-muted-foreground text-xs transition-colors hover:bg-accent hover:text-foreground"
+                className="group/sidebar-new-chat flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+                onClick={handleStartSidebarNewChat}
+                disabled={!sidebarNewChatProjectId}
+                aria-label="New chat"
+              >
+                <SquarePenIcon className="size-3.5 shrink-0 transition-colors group-hover/sidebar-new-chat:text-foreground" />
+                <span className="min-w-0 flex-1 truncate">New chat</span>
+              </button>
+              <button
+                type="button"
+                className="group/sidebar-search flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 onClick={openSearchPalette}
                 aria-label="Open search"
               >
-                <SearchIcon className="size-3.5 shrink-0" />
+                <IconSearch className="size-3.5 shrink-0 transition-colors group-hover/sidebar-search:text-foreground" />
                 <span className="min-w-0 flex-1 truncate">Search</span>
                 {searchShortcutLabel ? (
-                  <span className="rounded border border-border/70 bg-muted/65 px-1.5 py-0.5 text-[10px] text-foreground/82">
+                  <span className="rounded-md bg-background/70 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground/80 transition-colors group-hover/sidebar-search:text-foreground/80 dark:bg-background/25">
                     {searchShortcutLabel}
                   </span>
                 ) : null}
               </button>
-            </SidebarGroup>
-            {renderedPinnedThreadIds.length > 0 ? (
-              <SidebarGroup className="px-2.5 pt-2.5 pb-0">
-                <div className="mb-1.5 flex items-center pl-2 pr-1.5">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-                    Pinned Threads
+            </div>
+          </SidebarGroup>
+          <SidebarContent className="gap-0">
+            {sortedRenderedPinnedItems.length > 0 ? (
+              <SidebarGroup className="px-2.5 pt-5 pb-2">
+                <button
+                  type="button"
+                  className="group/section-header mb-1.5 flex h-5 w-full cursor-pointer items-center gap-1.5 bg-transparent pl-2 pr-1.5 text-left"
+                  aria-expanded={pinnedSectionExpanded}
+                  onClick={() => setPinnedSectionExpanded((expanded) => !expanded)}
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 transition-colors group-hover/section-header:text-foreground">
+                    Pinned
                   </span>
-                </div>
-                <SidebarMenuSub className="mx-0 my-0 w-full translate-x-0 gap-0.5 border-l-0 px-0 py-0.5">
-                  {canDragPinnedThreads ? (
-                    <DndContext
-                      sensors={threadDnDSensors}
-                      collisionDetection={projectCollisionDetection}
-                      modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
-                      onDragEnd={handlePinnedThreadDragEnd}
-                    >
-                      <SortableContext
-                        items={renderedPinnedThreadIds}
-                        strategy={verticalListSortingStrategy}
-                      >
-                        {renderedPinnedThreadIds.map((threadId) => (
-                          <SortableThreadItem key={threadId} threadId={threadId}>
-                            {(sortableHandleProps) =>
-                              renderPinnedThreadRow(threadId, sortableHandleProps)
-                            }
-                          </SortableThreadItem>
-                        ))}
-                      </SortableContext>
-                    </DndContext>
-                  ) : (
-                    renderedPinnedThreadIds.map((threadId) => renderPinnedThreadRow(threadId))
+                  <ChevronRightIcon
+                    className={`size-3 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
+                      pinnedSectionExpanded ? "rotate-90" : ""
+                    }`}
+                  />
+                </button>
+                <div
+                  aria-hidden={!pinnedSectionExpanded}
+                  className={cn(
+                    "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
+                    pinnedSectionExpanded
+                      ? "grid-rows-[1fr] opacity-100"
+                      : "pointer-events-none grid-rows-[0fr] opacity-0",
                   )}
-                </SidebarMenuSub>
+                >
+                  <div className="min-h-0 overflow-hidden">
+                    <SidebarMenuSub className="mx-0 my-0 w-full translate-x-0 gap-0.5 border-l-0 px-0 py-0.5">
+                      {canDragPinnedThreads ? (
+                        <DndContext
+                          sensors={threadDnDSensors}
+                          collisionDetection={projectCollisionDetection}
+                          modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+                          onDragEnd={handlePinnedThreadDragEnd}
+                        >
+                          <SortableContext
+                            items={renderedPinnedThreadIds}
+                            strategy={verticalListSortingStrategy}
+                          >
+                            {renderedPinnedThreadIds.map((threadId) => (
+                              <SortableThreadItem key={threadId} threadId={threadId}>
+                                {(sortableHandleProps) =>
+                                  renderPinnedThreadRow(threadId, sortableHandleProps)
+                                }
+                              </SortableThreadItem>
+                            ))}
+                          </SortableContext>
+                        </DndContext>
+                      ) : (
+                        sortedRenderedPinnedItems.map((item) =>
+                          item.kind === "thread" ? (
+                            renderPinnedThreadRow(item.threadId)
+                          ) : (
+                            <SidebarMenuItem
+                              key={`pinned-project:${item.renderedProject.project.id}`}
+                              className="mt-2 rounded-md"
+                            >
+                              {renderProjectItem(item.renderedProject, null)}
+                            </SidebarMenuItem>
+                          ),
+                        )
+                      )}
+                    </SidebarMenuSub>
+                  </div>
+                </div>
               </SidebarGroup>
             ) : null}
-            <SidebarGroup className="px-2.5 py-2.5">
+            {savedSplits.length > 0 || splitPickerThreadOptions.length >= 2 ? (
+              <SidebarGroup className="px-2.5 pt-2.5 pb-2">
+                <div className="mb-1.5 flex items-center justify-between pl-2 pr-1.5">
+                  <button
+                    type="button"
+                    className="group/section-header flex h-5 min-w-0 flex-1 cursor-pointer items-center gap-1.5 bg-transparent text-left"
+                    aria-expanded={savedSplitFolderOpen}
+                    onClick={() => {
+                      setSavedSplitFolderOpen((open) => !open);
+                    }}
+                  >
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 transition-colors group-hover/section-header:text-foreground">
+                      Splits
+                    </span>
+                    <ChevronRightIcon
+                      className={`size-3 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
+                        savedSplitFolderOpen ? "rotate-90" : ""
+                      }`}
+                    />
+                  </button>
+                  <div className="flex items-center gap-1">
+                    <Menu>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <MenuTrigger className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground" />
+                          }
+                        >
+                          <IconFilter2 className="size-3.5" />
+                        </TooltipTrigger>
+                        <TooltipPopup side="right">Sort splits</TooltipPopup>
+                      </Tooltip>
+                      <MenuPopup align="end" side="bottom" className="min-w-40">
+                        <MenuGroup>
+                          <div className="px-2 py-1 font-medium text-muted-foreground sm:text-xs">
+                            Sort splits
+                          </div>
+                          <MenuRadioGroup
+                            value={splitSortOrder}
+                            onValueChange={(value) => {
+                              setSplitSortOrder(value as SidebarSplitSortOrder);
+                            }}
+                          >
+                            {(
+                              Object.entries(SIDEBAR_SPLIT_SORT_LABELS) as Array<
+                                [SidebarSplitSortOrder, string]
+                              >
+                            ).map(([value, label]) => (
+                              <MenuRadioItem
+                                key={value}
+                                value={value}
+                                className="min-h-7 py-1 sm:text-xs"
+                              >
+                                {label}
+                              </MenuRadioItem>
+                            ))}
+                          </MenuRadioGroup>
+                        </MenuGroup>
+                      </MenuPopup>
+                    </Menu>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            aria-label="New split"
+                            className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
+                            disabled={splitPickerThreadOptions.length < 2}
+                            onClick={openSplitPicker}
+                          />
+                        }
+                      >
+                        <PlusIcon className="size-3.5" />
+                      </TooltipTrigger>
+                      <TooltipPopup side="right">New split</TooltipPopup>
+                    </Tooltip>
+                  </div>
+                </div>
+                <div
+                  aria-hidden={!savedSplitFolderOpen}
+                  className={cn(
+                    "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
+                    savedSplitFolderOpen
+                      ? "grid-rows-[1fr] opacity-100"
+                      : "pointer-events-none grid-rows-[0fr] opacity-0",
+                  )}
+                >
+                  <div className="min-h-0 overflow-hidden">
+                    <SidebarMenu>
+                      {visibleSavedSplits.map((split) => {
+                        const paneCount = split.panes.length;
+                        const isActiveSplit = activeRouteSplitId === split.id;
+                        return (
+                          <SidebarMenuItem
+                            key={split.id}
+                            className="rounded-md"
+                            onContextMenu={(event) => {
+                              event.preventDefault();
+                              void handleSplitContextMenu(split, {
+                                x: event.clientX,
+                                y: event.clientY,
+                              });
+                            }}
+                          >
+                            {renamingSplitId === split.id ? (
+                              <form
+                                className="flex h-7 min-w-0 items-center px-2"
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  commitSplitRename(split);
+                                }}
+                              >
+                                <Input
+                                  value={renamingSplitTitle}
+                                  onChange={(event) => {
+                                    setRenamingSplitTitle(event.target.value);
+                                  }}
+                                  onBlur={() => {
+                                    commitSplitRename(split);
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Escape") {
+                                      event.preventDefault();
+                                      cancelSplitRename();
+                                    }
+                                  }}
+                                  className="h-6 bg-transparent px-1.5 text-xs"
+                                  autoFocus
+                                />
+                              </form>
+                            ) : (
+                              <SidebarMenuButton
+                                render={<button type="button" />}
+                                size="sm"
+                                className={cn(
+                                  "h-7 w-full cursor-pointer gap-2 px-2 text-left text-xs transition-colors duration-150",
+                                  isActiveSplit
+                                    ? "!bg-foreground/[0.06] !text-pill-foreground"
+                                    : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-pill-foreground",
+                                )}
+                                title={split.title}
+                                onClick={() => {
+                                  restoreSavedSplit(split);
+                                }}
+                              >
+                                <Columns2Icon className="size-3.5 shrink-0" />
+                                <span className="min-w-0 flex-1 truncate">{split.title}</span>
+                                <span className="ml-auto shrink-0 text-[9px] text-muted-foreground/60">
+                                  {paneCount}
+                                </span>
+                              </SidebarMenuButton>
+                            )}
+                          </SidebarMenuItem>
+                        );
+                      })}
+                      {savedSplits.length === 0 ? (
+                        <SidebarMenuItem>
+                          <div className="h-7 px-2 text-xs text-muted-foreground/60">
+                            No splits yet
+                          </div>
+                        </SidebarMenuItem>
+                      ) : null}
+                      {hiddenSavedSplitCount > 0 ? (
+                        <SidebarMenuItem className="rounded-md">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-full justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
+                            onClick={() => {
+                              setSplitRevealCount((current) =>
+                                Math.min(savedSplits.length, current + SPLIT_REVEAL_STEP),
+                              );
+                            }}
+                          >
+                            <span>
+                              Show {Math.min(SPLIT_REVEAL_STEP, hiddenSavedSplitCount)} more
+                            </span>
+                          </Button>
+                        </SidebarMenuItem>
+                      ) : null}
+                      {canCollapseSplitList ? (
+                        <SidebarMenuItem className="rounded-md">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-full justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
+                            onClick={() => setSplitRevealCount(SPLIT_REVEAL_STEP)}
+                          >
+                            <span>Show less</span>
+                          </Button>
+                        </SidebarMenuItem>
+                      ) : null}
+                    </SidebarMenu>
+                  </div>
+                </div>
+              </SidebarGroup>
+            ) : null}
+            <SidebarGroup className="px-2.5 pt-2.5 pb-5">
               <div className="mb-1.5 flex items-center justify-between pl-2 pr-1.5">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-                  Projects
-                </span>
+                <button
+                  type="button"
+                  className="group/section-header flex h-5 min-w-0 flex-1 cursor-pointer items-center gap-1.5 bg-transparent text-left"
+                  aria-expanded={projectsSectionExpanded}
+                  onClick={() => setProjectsSectionExpanded((expanded) => !expanded)}
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 transition-colors group-hover/section-header:text-foreground">
+                    Projects
+                  </span>
+                  <ChevronRightIcon
+                    className={`size-3 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
+                      projectsSectionExpanded ? "rotate-90" : ""
+                    }`}
+                  />
+                </button>
                 <div className="flex items-center gap-1">
+                  {canCollapseVisibleProjects ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            aria-label="Collapse open projects"
+                            className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                            onClick={collapseVisibleProjects}
+                          />
+                        }
+                      >
+                        <IconArrowsDiagonalMinimize2 className="size-3.5" />
+                      </TooltipTrigger>
+                      <TooltipPopup side="right">Collapse open projects</TooltipPopup>
+                    </Tooltip>
+                  ) : null}
                   <ProjectSortMenu
                     projectSortOrder={appSettings.sidebarProjectSortOrder}
                     threadSortOrder={appSettings.sidebarThreadSortOrder}
@@ -5345,11 +5888,7 @@ export default function Sidebar() {
                         />
                       }
                     >
-                      <PlusIcon
-                        className={`size-3.5 transition-transform duration-150 ${
-                          shouldShowProjectPathEntry ? "rotate-45" : "rotate-0"
-                        }`}
-                      />
+                      <IconFolderPlus className="size-4" />
                     </TooltipTrigger>
                     <TooltipPopup side="right">
                       {shouldShowProjectPathEntry
@@ -5361,158 +5900,82 @@ export default function Sidebar() {
                   </Tooltip>
                 </div>
               </div>
-              {isProjectDraggingEnabled ? (
-                <DndContext
-                  sensors={projectDnDSensors}
-                  collisionDetection={projectCollisionDetection}
-                  modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
-                  onDragStart={handleProjectDragStart}
-                  onDragEnd={handleProjectDragEnd}
-                  onDragCancel={handleProjectDragCancel}
-                >
-                  <SidebarMenu>
-                    <SortableContext
-                      items={filteredRenderedProjects.map(
-                        (renderedProject) => renderedProject.project.id,
-                      )}
-                      strategy={verticalListSortingStrategy}
+              <div
+                aria-hidden={!projectsSectionExpanded}
+                className={cn(
+                  "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
+                  projectsSectionExpanded
+                    ? "grid-rows-[1fr] opacity-100"
+                    : "pointer-events-none grid-rows-[0fr] opacity-0",
+                )}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  {isProjectDraggingEnabled ? (
+                    <DndContext
+                      sensors={projectDnDSensors}
+                      collisionDetection={projectCollisionDetection}
+                      modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+                      onDragStart={handleProjectDragStart}
+                      onDragEnd={handleProjectDragEnd}
+                      onDragCancel={handleProjectDragCancel}
                     >
-                      {filteredRenderedProjects.map((renderedProject) => (
-                        <SortableProjectItem
-                          key={renderedProject.project.id}
-                          projectId={renderedProject.project.id}
+                      <SidebarMenu>
+                        <SortableContext
+                          items={filteredRenderedProjects.map(
+                            (renderedProject) => renderedProject.project.id,
+                          )}
+                          strategy={verticalListSortingStrategy}
                         >
-                          {(dragHandleProps) => renderProjectItem(renderedProject, dragHandleProps)}
-                        </SortableProjectItem>
+                          {filteredRenderedProjects.map((renderedProject) => (
+                            <SortableProjectItem
+                              key={renderedProject.project.id}
+                              projectId={renderedProject.project.id}
+                            >
+                              {(dragHandleProps) =>
+                                renderProjectItem(renderedProject, dragHandleProps)
+                              }
+                            </SortableProjectItem>
+                          ))}
+                        </SortableContext>
+                        {renderedRemoteProjects.map((renderedProject) => (
+                          <SidebarMenuItem key={renderedProject.projectKey} className="rounded-md">
+                            {renderRemoteProjectItem(renderedProject)}
+                          </SidebarMenuItem>
+                        ))}
+                      </SidebarMenu>
+                    </DndContext>
+                  ) : (
+                    <SidebarMenu>
+                      {unifiedRenderedProjects.map((renderedProject) => (
+                        <SidebarMenuItem key={renderedProject.key} className="rounded-md">
+                          {renderedProject.kind === "local"
+                            ? renderProjectItem(renderedProject.payload, null)
+                            : renderRemoteProjectItem(renderedProject.payload)}
+                        </SidebarMenuItem>
                       ))}
-                    </SortableContext>
-                    {renderedRemoteProjects.map((renderedProject) => (
-                      <SidebarMenuItem key={renderedProject.projectKey} className="rounded-md">
-                        {renderRemoteProjectItem(renderedProject)}
-                      </SidebarMenuItem>
-                    ))}
-                  </SidebarMenu>
-                </DndContext>
-              ) : (
-                <SidebarMenu>
-                  {unifiedRenderedProjects.map((renderedProject) => (
-                    <SidebarMenuItem key={renderedProject.key} className="rounded-md">
-                      {renderedProject.kind === "local"
-                        ? renderProjectItem(renderedProject.payload, null)
-                        : renderRemoteProjectItem(renderedProject.payload)}
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              )}
-
-              {projects.length === 0 &&
-                renderedRemoteProjects.length === 0 &&
-                !shouldShowProjectPathEntry && (
-                  <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
-                    No projects yet
-                  </div>
-                )}
-              {(projects.length > 0 || remoteSidebarHosts.length > 0) &&
-                normalizedProjectSearchQuery.length > 0 &&
-                unifiedRenderedProjects.length === 0 && (
-                  <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
-                    No matching projects
-                  </div>
-                )}
+                    </SidebarMenu>
+                  )}
+                  {projects.length === 0 &&
+                    renderedRemoteProjects.length === 0 &&
+                    !shouldShowProjectPathEntry && (
+                      <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
+                        No projects yet
+                      </div>
+                    )}
+                  {(projects.length > 0 || remoteSidebarHosts.length > 0) &&
+                    normalizedProjectSearchQuery.length > 0 &&
+                    unifiedRenderedProjects.length === 0 && (
+                      <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
+                        No matching projects
+                      </div>
+                    )}
+                </div>
+              </div>
             </SidebarGroup>
           </SidebarContent>
 
           <SidebarFooter className="p-2.5">
             <SidebarUpdatePill />
-            {savedSplits.length > 0 ? (
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    size="sm"
-                    className="gap-2.5 px-2.5 py-2 text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
-                    aria-expanded={savedSplitFolderOpen}
-                    onClick={() => {
-                      setSavedSplitFolderOpen((open) => !open);
-                    }}
-                    tooltip="Splits"
-                  >
-                    <ChevronRightIcon
-                      className={cn(
-                        "size-3.5 transition-transform duration-150",
-                        savedSplitFolderOpen && "rotate-90",
-                      )}
-                    />
-                    <FolderIcon className="size-3.5" />
-                    <span className="truncate text-xs">Splits</span>
-                  </SidebarMenuButton>
-                  <SidebarMenuBadge className="text-[10px]">{savedSplits.length}</SidebarMenuBadge>
-                </SidebarMenuItem>
-                {savedSplitFolderOpen ? (
-                  <SidebarMenuSub className="mt-1">
-                    {savedSplits.map((split) => {
-                      const paneCount = split.panes.length;
-                      const isActiveSplit = activeRouteSplitId === split.id;
-                      return (
-                        <SidebarMenuSubItem
-                          key={split.id}
-                          onContextMenu={(event) => {
-                            event.preventDefault();
-                            void handleSplitContextMenu(split, {
-                              x: event.clientX,
-                              y: event.clientY,
-                            });
-                          }}
-                        >
-                          {renamingSplitId === split.id ? (
-                            <form
-                              className="flex h-6 min-w-0 items-center"
-                              onSubmit={(event) => {
-                                event.preventDefault();
-                                commitSplitRename(split);
-                              }}
-                            >
-                              <Input
-                                value={renamingSplitTitle}
-                                onChange={(event) => {
-                                  setRenamingSplitTitle(event.target.value);
-                                }}
-                                onBlur={() => {
-                                  commitSplitRename(split);
-                                }}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Escape") {
-                                    event.preventDefault();
-                                    cancelSplitRename();
-                                  }
-                                }}
-                                className="h-6 px-2 text-[10px]"
-                                autoFocus
-                              />
-                            </form>
-                          ) : (
-                            <SidebarMenuSubButton
-                              render={<button type="button" />}
-                              size="sm"
-                              isActive={isActiveSplit}
-                              className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px]"
-                              title={split.title}
-                              onClick={() => {
-                                restoreSavedSplit(split);
-                              }}
-                            >
-                              <span className="min-w-0 flex-1 truncate">{split.title}</span>
-                              <span className="ml-auto shrink-0 text-[9px] text-muted-foreground/60">
-                                {paneCount}
-                              </span>
-                            </SidebarMenuSubButton>
-                          )}
-                        </SidebarMenuSubItem>
-                      );
-                    })}
-                  </SidebarMenuSub>
-                ) : null}
-              </SidebarMenu>
-            ) : null}
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
