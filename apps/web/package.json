@@ -26,6 +26,7 @@
     "@lexical/react": "^0.41.0",
     "@monaco-editor/react": "^4.7.0",
     "@pierre/diffs": "^1.1.0-beta.16",
+    "@tabler/icons-react": "^3.41.1",
     "@tanstack/react-pacer": "^0.19.4",
     "@tanstack/react-query": "^5.90.0",
     "@tanstack/react-router": "^1.160.2",

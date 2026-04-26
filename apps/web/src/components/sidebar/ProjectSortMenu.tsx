@@ -1,4 +1,4 @@
-import { ArrowUpDownIcon } from "lucide-react";
+import { IconFilter2 } from "@tabler/icons-react";
 import { type SidebarProjectSortOrder, type SidebarThreadSortOrder } from "@ace/contracts/settings";
 
 import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
@@ -37,7 +37,7 @@ export function ProjectSortMenu({
             <MenuTrigger className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground" />
           }
         >
-          <ArrowUpDownIcon className="size-3.5" />
+          <IconFilter2 className="size-3.5" />
         </TooltipTrigger>
         <TooltipPopup side="right">Sort projects</TooltipPopup>
       </Tooltip>

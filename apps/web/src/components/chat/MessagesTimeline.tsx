@@ -1,4 +1,5 @@
 import { type MessageId, type TurnId } from "@ace/contracts";
+import { IconTerminal } from "@tabler/icons-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Fragment,
@@ -8,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type ReactNode,
 } from "react";
 import { estimateTimelineMessageHeight } from "../../lib/chat/timelineHeight";
@@ -32,7 +34,6 @@ import {
   HammerIcon,
   type LucideIcon,
   SquarePenIcon,
-  TerminalIcon,
   Undo2Icon,
   WrenchIcon,
   ZapIcon,
@@ -66,6 +67,7 @@ const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
 
 const timelineRowHeightCache = new Map<string, number>();
+type TimelineIcon = ComponentType<{ className?: string }>;
 
 function readCachedTimelineRowHeight(cacheKey: string): number | null {
   const cachedHeight = timelineRowHeightCache.get(cacheKey);
@@ -1820,13 +1822,13 @@ function normalizeWorkCommandText(command: string | undefined): string | null {
   return normalized;
 }
 
-function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
-  if (workEntry.requestKind === "command") return TerminalIcon;
+function workEntryIcon(workEntry: TimelineWorkEntry): TimelineIcon {
+  if (workEntry.requestKind === "command") return IconTerminal;
   if (workEntry.requestKind === "file-read") return EyeIcon;
   if (workEntry.requestKind === "file-change") return SquarePenIcon;
 
   if (workEntry.itemType === "command_execution" || workEntry.command) {
-    return TerminalIcon;
+    return IconTerminal;
   }
   if (workEntry.itemType === "file_change" || (workEntry.changedFiles?.length ?? 0) > 0) {
     return SquarePenIcon;

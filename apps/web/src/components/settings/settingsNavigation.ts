@@ -1,3 +1,4 @@
+import { IconTerminal } from "@tabler/icons-react";
 import type { ComponentType } from "react";
 import {
   ArchiveIcon,
@@ -8,7 +9,6 @@ import {
   ServerIcon,
   Settings2Icon,
   SquarePenIcon,
-  TerminalSquareIcon,
   WrenchIcon,
 } from "lucide-react";
 
@@ -65,7 +65,7 @@ export const SETTINGS_NAV_ITEMS = [
     label: "Providers",
     description: "CLI status, installs, and custom models",
     to: "/settings/providers",
-    icon: TerminalSquareIcon,
+    icon: IconTerminal,
   },
   {
     group: "system",

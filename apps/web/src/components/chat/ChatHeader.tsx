@@ -4,6 +4,7 @@ import {
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@ace/contracts";
+import { IconTerminal } from "@tabler/icons-react";
 import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
 import {
@@ -14,7 +15,6 @@ import {
   GitForkIcon,
   GlobeIcon,
   SquarePenIcon,
-  TerminalSquareIcon,
 } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -203,7 +203,7 @@ export const ChatHeader = memo(function ChatHeader({
             size="xs"
             disabled={!terminalAvailable}
           >
-            <TerminalSquareIcon className="size-3.5" />
+            <IconTerminal className="size-3.5" />
           </Toggle>
         }
       />

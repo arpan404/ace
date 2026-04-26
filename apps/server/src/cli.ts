@@ -451,6 +451,82 @@ const writeJson = (value: unknown) => writeStdout(`${JSON.stringify(value, null,
 const formatErrorMessage = (error: unknown): string =>
   error instanceof Error && error.message.trim().length > 0 ? error.message : String(error);
 
+const promptForUpdateConfirmation = Effect.tryPromise({
+  try: async (): Promise<boolean> => {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      throw new Error(
+        "Updating while the daemon is running requires an interactive terminal confirmation.",
+      );
+    }
+
+    const rl = Readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    try {
+      const answer = (
+        await rl.question(
+          `${pc.yellow(
+            "A background ace daemon is running. Updating will stop any running agents. Continue? [y/N] ",
+          )}`,
+        )
+      )
+        .trim()
+        .toLowerCase();
+      return answer === "y" || answer === "yes";
+    } finally {
+      rl.close();
+    }
+  },
+  catch: (cause) =>
+    new DaemonCommandError({
+      message: "Could not confirm app update.",
+      cause,
+    }),
+});
+
+const launchDesktopUpdate = Effect.fn("launchDesktopUpdate")(function* () {
+  if (process.versions.electron === undefined) {
+    return yield* new DaemonCommandError({
+      message: "`ace update` is only available from the CLI installed by the packaged desktop app.",
+    });
+  }
+
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.NODE_OPTIONS;
+
+  yield* Effect.tryPromise({
+    try: () =>
+      new Promise<void>((resolve, reject) => {
+        const child = ChildProcess.spawn(process.execPath, ["--ace-update"], {
+          cwd: process.cwd(),
+          stdio: "inherit",
+          env,
+          windowsHide: true,
+        });
+        child.once("error", reject);
+        child.once("exit", (code, signal) => {
+          if (signal) {
+            reject(new Error(`Desktop updater terminated by signal ${signal}.`));
+            return;
+          }
+          if (code !== 0) {
+            reject(new Error(`Desktop updater exited with code ${String(code ?? 0)}.`));
+            return;
+          }
+          resolve();
+        });
+      }),
+    catch: (cause) =>
+      new DaemonCommandError({
+        message: "Failed to launch desktop updater.",
+        cause,
+      }),
+  });
+});
+
 const formatRows = (
   headers: ReadonlyArray<string>,
   rows: ReadonlyArray<ReadonlyArray<string>>,
@@ -1519,6 +1595,29 @@ const webCommand = Command.make("web", {
   ),
 );
 
+const updateCommand = Command.make("update", {
+  ...dataCommandFlags,
+}).pipe(
+  Command.withDescription("Update the packaged ace desktop app."),
+  Command.withHandler((flags) =>
+    Effect.gen(function* () {
+      const logLevel = yield* GlobalFlag.LogLevel;
+      const config = yield* resolveDataConfig(flags, logLevel);
+      const daemonStatus = yield* readDaemonStatusPayload(config.baseDir);
+
+      if (daemonStatus.status === "running") {
+        const confirmed = yield* promptForUpdateConfirmation;
+        if (!confirmed) {
+          return yield* writeStdout(`${pc.yellow("Cancelled")} update not started.\n`);
+        }
+      }
+
+      yield* writeStdout(`${pc.green("Launching")} desktop updater...\n`);
+      return yield* launchDesktopUpdate();
+    }),
+  ),
+);
+
 const projectAddCommand = Command.make("add", {
   ...dataCommandFlags,
   path: Argument.string("path").pipe(Argument.withDescription("Workspace directory path to add.")),
@@ -2393,6 +2492,7 @@ const formatRootCliGuide = (): string =>
     `${pc.bold("Quick start")}`,
     `  ${pc.cyan("ace --web")}              open ace web app in your browser`,
     `  ${pc.cyan("ace serve")}              run or attach to background daemon`,
+    `  ${pc.cyan("ace --update")}           update the packaged desktop app`,
     `  ${pc.cyan("ace --profile")}          live ace-specific process/memory profiler`,
     `  ${pc.cyan("ace daemon start")}       run reusable background daemon`,
     `  ${pc.cyan("ace --restart")}          restart background daemon`,
@@ -2431,6 +2531,7 @@ export const playRootCliLogoAnimation = Effect.gen(function* () {
 const interactiveActionIds = [
   "web",
   "serve",
+  "update",
   "daemon-status",
   "daemon-restart",
   "project-list",
@@ -2449,6 +2550,10 @@ const interactiveActions: Record<
   serve: {
     description: "Run or attach to daemon",
     argv: ["serve"],
+  },
+  update: {
+    description: "Update packaged desktop app",
+    argv: ["update"],
   },
   "daemon-status": {
     description: "Show daemon status",
@@ -2592,6 +2697,7 @@ export const cli = rootCommand.pipe(
   Command.withSubcommands([
     webCommand,
     serveCommand,
+    updateCommand,
     profileCommand,
     projectCommand,
     remoteCommand,

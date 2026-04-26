@@ -1,11 +1,5 @@
-import {
-  BoxIcon,
-  FlaskConicalIcon,
-  FolderIcon,
-  Code2Icon,
-  RocketIcon,
-  SquareTerminalIcon,
-} from "lucide-react";
+import { IconTerminal } from "@tabler/icons-react";
+import { BoxIcon, FlaskConicalIcon, FolderIcon, Code2Icon, RocketIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 import type { Project, ProjectIcon } from "~/types";
@@ -53,7 +47,7 @@ const PROJECT_ICON_ACCENT_CLASS_NAMES: Record<ProjectIcon["color"], string> = {
 function iconComponentForGlyph(glyph: ProjectIcon["glyph"]) {
   switch (glyph) {
     case "terminal":
-      return SquareTerminalIcon;
+      return IconTerminal;
     case "code":
       return Code2Icon;
     case "flask":
