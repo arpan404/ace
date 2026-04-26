@@ -377,6 +377,7 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
     id: thread.id,
     codexThreadId: null,
     projectId: thread.projectId,
+    kind: thread.kind ?? "coding",
     title: thread.title,
     modelSelection: normalizeModelSelection(thread.modelSelection),
     runtimeMode: thread.runtimeMode,
@@ -442,6 +443,7 @@ function buildSidebarThreadSummary(
   return {
     id: thread.id,
     projectId: thread.projectId,
+    kind: thread.kind,
     title: thread.title,
     interactionMode: thread.interactionMode,
     session: thread.session,
@@ -994,6 +996,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
       const nextThread = mapThread({
         id: event.payload.threadId,
         projectId: event.payload.projectId,
+        kind: event.payload.kind ?? "coding",
         title: event.payload.title,
         modelSelection: event.payload.modelSelection,
         runtimeMode: event.payload.runtimeMode,
@@ -1085,6 +1088,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     case "thread.meta-updated": {
       return updateThreadState(state, event.payload.threadId, (thread) => ({
         ...thread,
+        ...(event.payload.kind !== undefined ? { kind: event.payload.kind } : {}),
         ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
         ...(event.payload.modelSelection !== undefined
           ? { modelSelection: normalizeModelSelection(event.payload.modelSelection) }

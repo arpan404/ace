@@ -34,6 +34,7 @@ import {
   ProjectScript,
   SourceProposedPlanReference,
   ThreadHandoff,
+  ThreadKind,
 } from "./readModel";
 import { CheckpointRef } from "../baseSchemas";
 
@@ -71,6 +72,7 @@ export const ThreadCreateCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   projectId: ProjectId,
+  kind: Schema.optional(ThreadKind),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -105,6 +107,7 @@ export const ThreadMetaUpdateCommand = Schema.Struct({
   type: Schema.Literal("thread.meta.update"),
   commandId: CommandId,
   threadId: ThreadId,
+  kind: Schema.optional(ThreadKind),
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),

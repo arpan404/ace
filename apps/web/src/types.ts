@@ -17,6 +17,7 @@ import type {
   ProviderInteractionMode,
   RuntimeMode,
   ThreadHandoff,
+  ThreadKind,
 } from "@ace/contracts";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
@@ -147,6 +148,7 @@ export interface Thread {
   id: ThreadId;
   codexThreadId: string | null;
   projectId: ProjectId;
+  kind: ThreadKind;
   title: string;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
@@ -174,6 +176,7 @@ export interface Thread {
 export interface SidebarThreadSummary {
   id: ThreadId;
   projectId: ProjectId;
+  kind: ThreadKind;
   title: string;
   interactionMode: ProviderInteractionMode;
   session: ThreadSession | null;

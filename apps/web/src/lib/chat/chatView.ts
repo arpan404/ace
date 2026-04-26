@@ -47,6 +47,7 @@ export function buildLocalDraftThread(
     id: threadId,
     codexThreadId: null,
     projectId: draftThread.projectId,
+    kind: draftThread.kind,
     title: "New thread",
     modelSelection: fallbackModelSelection,
     runtimeMode: draftThread.runtimeMode,

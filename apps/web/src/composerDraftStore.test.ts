@@ -530,6 +530,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       envMode: "worktree",
       runtimeMode: "full-access",
       interactionMode: "default",
+      kind: "coding",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toEqual({
@@ -539,6 +540,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       envMode: "worktree",
       runtimeMode: "full-access",
       interactionMode: "default",
+      kind: "coding",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
   });
@@ -567,6 +569,31 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().getDraftThreadByProjectId(projectId)).toBeNull();
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toBeNull();
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
+  });
+
+  it("keeps chat and coding draft threads separate for the same project", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectId, threadId, { kind: "coding" });
+    store.setProjectDraftThreadId(projectId, otherThreadId, { kind: "chat" });
+
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, { kind: "coding" })
+        ?.threadId,
+    ).toBe(threadId);
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, { kind: "chat" })
+        ?.threadId,
+    ).toBe(otherThreadId);
+
+    store.clearProjectDraftThreadId(projectId, { kind: "chat" });
+
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, { kind: "coding" })
+        ?.threadId,
+    ).toBe(threadId);
+    expect(
+      useComposerDraftStore.getState().getDraftThreadByProjectId(projectId, { kind: "chat" }),
+    ).toBeNull();
   });
 
   it("clears orphaned composer drafts when remapping a project to a new draft thread", () => {

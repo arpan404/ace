@@ -31,6 +31,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     queuedComposerMessages: [],
     queuedSteerRequest: null,
     ...overrides,
+    kind: overrides.kind ?? "coding",
   };
 }
 

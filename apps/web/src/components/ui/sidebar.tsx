@@ -26,6 +26,8 @@ const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "calc(100vw - var(--spacing(3)))";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
+const SIDEBAR_TRANSITION_CLASS_NAME =
+  "duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed";
@@ -264,7 +266,8 @@ function Sidebar({
         {/* This is what handles the sidebar gap on desktop */}
         <div
           className={cn(
-            "relative w-(--sidebar-width) bg-transparent transition-[width] duration-300 ease-[var(--transition-timing)]",
+            "relative w-(--sidebar-width) bg-transparent transition-[width]",
+            SIDEBAR_TRANSITION_CLASS_NAME,
             "group-data-[collapsible=offcanvas]:w-0",
             "group-data-[side=right]:rotate-180",
             variant === "floating" || variant === "inset"
@@ -275,7 +278,8 @@ function Sidebar({
         />
         <div
           className={cn(
-            "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transform-gpu transition-[transform,width] duration-300 ease-[var(--transition-timing)] will-change-transform md:flex",
+            "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transform-gpu transition-[transform,width] will-change-[transform,width] md:flex",
+            SIDEBAR_TRANSITION_CLASS_NAME,
             side === "left"
               ? "left-0 group-data-[collapsible=offcanvas]:-translate-x-full"
               : "right-0 group-data-[collapsible=offcanvas]:translate-x-full",
@@ -396,6 +400,9 @@ function SidebarRail({
       }
       document.body.style.removeProperty("cursor");
       document.body.style.removeProperty("user-select");
+      for (const element of resizeState.transitionTargets) {
+        element.style.removeProperty("transition-duration");
+      }
     },
     [resolvedResizable],
   );

@@ -785,6 +785,8 @@ export default function ChatView({
     ],
   );
   const activeThread = serverThread ?? localDraftThread;
+  const activeThreadKind = activeThread?.kind ?? "coding";
+  const isChatThread = activeThreadKind === "chat";
   const runtimeMode =
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
@@ -1194,9 +1196,8 @@ export default function ChatView({
   const terminalState = threadTerminalState;
   const handleActiveProjectChange = useCallback(
     (projectId: ProjectId) => {
-      void handleNewThread(
-        projectId,
-        resolveSidebarNewThreadOptions({
+      void handleNewThread(projectId, {
+        ...resolveSidebarNewThreadOptions({
           projectId,
           defaultEnvMode: settings.defaultThreadEnvMode,
           activeThread:
@@ -1217,9 +1218,16 @@ export default function ChatView({
                 }
               : null,
         }),
-      );
+        kind: activeThreadKind,
+      });
     },
-    [currentRouteDraftThread, currentRouteThread, handleNewThread, settings.defaultThreadEnvMode],
+    [
+      activeThreadKind,
+      currentRouteDraftThread,
+      currentRouteThread,
+      handleNewThread,
+      settings.defaultThreadEnvMode,
+    ],
   );
   const queuedComposerMessages =
     serverThread?.queuedComposerMessages ?? EMPTY_QUEUED_COMPOSER_MESSAGES;
@@ -1814,6 +1822,7 @@ export default function ChatView({
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
+  const codingGitCwd = isChatThread ? null : gitCwd;
   const liveTurnDiffSummary = useMemo(() => {
     if (!liveTurnInProgress || !activeLatestTurn?.turnId) {
       return null;
@@ -1843,15 +1852,19 @@ export default function ChatView({
     };
   }, [activeLatestTurn?.turnId, liveTurnDiffSummary, liveTurnInProgress]);
   const liveWorkspaceStatusQuery = useQuery({
-    ...gitStatusQueryOptions(gitCwd),
+    ...gitStatusQueryOptions(codingGitCwd),
     enabled:
+      !isChatThread &&
       liveTurnInProgress &&
-      gitCwd !== null &&
+      codingGitCwd !== null &&
       (liveTurnDiffMode === undefined || liveTurnDiffMode === "workspace"),
     staleTime: 0,
     refetchInterval: 1_000,
   });
   const composerDiffBanner = useMemo(() => {
+    if (isChatThread) {
+      return null;
+    }
     if (liveTurnDiffStat) {
       return {
         turnId: liveTurnDiffStat.turnId,
@@ -1881,6 +1894,7 @@ export default function ChatView({
     };
   }, [
     activeLatestTurn?.turnId,
+    isChatThread,
     liveTurnDiffStat,
     liveTurnInProgress,
     liveWorkspaceStatusQuery.data,
@@ -1896,9 +1910,10 @@ export default function ChatView({
     (debouncerState) => ({ isPending: debouncerState.isPending }),
   );
   const effectivePathQuery = pathTriggerQuery.length > 0 ? debouncedPathQuery : "";
-  const branchesQuery = useQuery(gitBranchesQueryOptions(gitCwd));
+  const branchesQuery = useQuery(gitBranchesQueryOptions(codingGitCwd));
   // Default true while loading to avoid toolbar flicker.
-  const isGitRepo = branchesQuery.data?.isRepo ?? true;
+  const rawIsGitRepo = branchesQuery.data?.isRepo ?? true;
+  const isGitRepo = !isChatThread && rawIsGitRepo;
   const activeThreadBranchName =
     activeThread?.branch ??
     branchesQuery.data?.branches.find((branch) => branch.current)?.name ??
@@ -1977,10 +1992,10 @@ export default function ChatView({
     }),
   );
   const workspaceEntries = workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
-  const canLookupIssueTags = isGitRepo;
+  const canLookupIssueTags = !isChatThread && isGitRepo;
   const issueTriggerLookupQuery = useQuery(
     gitGitHubIssuesQueryOptions({
-      cwd: gitCwd,
+      cwd: codingGitCwd,
       limit: 120,
       state: "all",
       enabled: isIssueTrigger && canLookupIssueTags,
@@ -2282,7 +2297,11 @@ export default function ChatView({
     workspaceLayoutByThreadId[threadId],
     defaultWorkspaceMode,
   );
-  const workspaceMode = routeWorkspaceMode === "chat" ? persistedWorkspaceMode : routeWorkspaceMode;
+  const workspaceMode: ThreadWorkspaceMode = isChatThread
+    ? "chat"
+    : routeWorkspaceMode === "chat"
+      ? persistedWorkspaceMode
+      : routeWorkspaceMode;
   const defaultBrowserMode: Extract<InAppBrowserMode, "full" | "split"> = settings.browserOpenMode;
   const browserOpen = browserMode !== "closed";
   useEffect(() => {
@@ -2607,6 +2626,7 @@ export default function ChatView({
           commandId: newCommandId(),
           threadId: targetThreadId,
           projectId,
+          kind: activeThread?.kind ?? "coding",
           title,
           modelSelection: options.modelSelection,
           runtimeMode: options.runtimeMode,
@@ -5218,6 +5238,7 @@ export default function ChatView({
             commandId: newCommandId(),
             threadId: threadIdForSend,
             projectId: activeProject.id,
+            kind: activeThread.kind,
             title,
             modelSelection: threadCreateModelSelection,
             runtimeMode: submission.runtimeMode,
@@ -5924,6 +5945,7 @@ export default function ChatView({
         commandId: newCommandId(),
         threadId: nextThreadId,
         projectId: activeProject.id,
+        kind: activeThread.kind,
         title: nextThreadTitle,
         modelSelection: nextThreadModelSelection,
         runtimeMode,
@@ -6062,6 +6084,7 @@ export default function ChatView({
           commandId: newCommandId(),
           threadId: nextThreadId,
           projectId: activeProject.id,
+          kind: activeThread.kind,
           title: nextThreadTitle,
           modelSelection,
           runtimeMode,
@@ -6415,6 +6438,7 @@ export default function ChatView({
     (composerTriggerKind === "issue" &&
       (issueTriggerLookupQuery.isLoading || issueTriggerLookupQuery.isFetching));
   const showIssuesCommandExamplesHint =
+    !isChatThread &&
     !isComposerApprovalState &&
     pendingUserInputs.length === 0 &&
     /^\/issues\s*$/i.test(prompt.trimStart());
@@ -6614,9 +6638,9 @@ export default function ChatView({
         isHandoffThread,
       isWorking,
       onStartConversationFromMessage: scheduleComposerFocus,
-      onContinueWithGitHubIssues: openGitHubIssueDialog,
-      isContinueWithGitHubIssuesDisabled: !gitCwd || !isGitRepo,
-      ...(!gitCwd || !isGitRepo
+      onContinueWithGitHubIssues: isChatThread ? null : openGitHubIssueDialog,
+      isContinueWithGitHubIssuesDisabled: !codingGitCwd || !isGitRepo,
+      ...(!codingGitCwd || !isGitRepo
         ? {
             continueWithGitHubIssuesDisabledReason:
               "GitHub issues are available only for Git repositories.",
@@ -6637,7 +6661,7 @@ export default function ChatView({
       revertActionTitle: checkpointRestoreActionTitle(activeThread.session?.provider),
       isRevertingCheckpoint,
       onImageExpand: onExpandTimelineImage,
-      markdownCwd: gitCwd ?? undefined,
+      markdownCwd: codingGitCwd ?? undefined,
       onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
       resolvedTheme,
       timestampFormat,
@@ -6651,7 +6675,8 @@ export default function ChatView({
       completionDividerBeforeEntryId,
       completionSummary,
       expandedWorkGroups,
-      gitCwd,
+      codingGitCwd,
+      isChatThread,
       isGitRepo,
       isHandoffThread,
       isRevertingCheckpoint,
@@ -6714,48 +6739,51 @@ export default function ChatView({
       showScrollToBottom,
     ],
   );
-  const branchToolbarProps = isGitRepo
-    ? {
-        threadId: activeThread.id,
-        onEnvModeChange,
-        envLocked,
-        localEnvironmentLabel: activeRemoteHost?.name ?? "Local",
-        localEnvironmentIcon: activeEnvironmentIcon,
-        runtimeMode,
-        onRuntimeModeChange: handleRuntimeModeChange,
-        onComposerFocusRequest: scheduleComposerFocus,
-        ...(canCheckoutPullRequestIntoThread
-          ? { onCheckoutPullRequestRequest: openPullRequestDialog }
-          : {}),
-      }
-    : null;
-  const gitHubIssueDialogProps = gitHubIssueDialogOpen
-    ? {
-        open: true,
-        cwd: gitCwd ?? activeProject?.cwd ?? null,
-        initialIssueNumber: gitHubIssueDialogInitialIssueNumber,
-        initialSelectedIssueNumbers: gitHubIssueDialogInitialSelectedIssueNumbers,
-        onOpenChange: (open: boolean) => {
-          if (!open) {
-            closeGitHubIssueDialog();
-          }
-        },
-        onFixIssue: onFixGitHubIssue,
-      }
-    : null;
-  const pullRequestDialogProps = pullRequestDialogState
-    ? {
-        open: true,
-        cwd: activeProject?.cwd ?? null,
-        initialReference: pullRequestDialogState.initialReference,
-        onOpenChange: (open: boolean) => {
-          if (!open) {
-            closePullRequestDialog();
-          }
-        },
-        onPrepared: handlePreparedPullRequestThread,
-      }
-    : null;
+  const branchToolbarProps =
+    !isChatThread && isGitRepo
+      ? {
+          threadId: activeThread.id,
+          onEnvModeChange,
+          envLocked,
+          localEnvironmentLabel: activeRemoteHost?.name ?? "Local",
+          localEnvironmentIcon: activeEnvironmentIcon,
+          runtimeMode,
+          onRuntimeModeChange: handleRuntimeModeChange,
+          onComposerFocusRequest: scheduleComposerFocus,
+          ...(canCheckoutPullRequestIntoThread
+            ? { onCheckoutPullRequestRequest: openPullRequestDialog }
+            : {}),
+        }
+      : null;
+  const gitHubIssueDialogProps =
+    !isChatThread && gitHubIssueDialogOpen
+      ? {
+          open: true,
+          cwd: codingGitCwd ?? activeProject?.cwd ?? null,
+          initialIssueNumber: gitHubIssueDialogInitialIssueNumber,
+          initialSelectedIssueNumbers: gitHubIssueDialogInitialSelectedIssueNumbers,
+          onOpenChange: (open: boolean) => {
+            if (!open) {
+              closeGitHubIssueDialog();
+            }
+          },
+          onFixIssue: onFixGitHubIssue,
+        }
+      : null;
+  const pullRequestDialogProps =
+    !isChatThread && pullRequestDialogState
+      ? {
+          open: true,
+          cwd: activeProject?.cwd ?? null,
+          initialReference: pullRequestDialogState.initialReference,
+          onOpenChange: (open: boolean) => {
+            if (!open) {
+              closePullRequestDialog();
+            }
+          },
+          onPrepared: handlePreparedPullRequestThread,
+        }
+      : null;
   const planSidebarProps =
     workspaceMode !== "editor" && planSidebarOpen
       ? {
@@ -6895,6 +6923,7 @@ export default function ChatView({
             activeThreadTitle={activeThread.title}
             activeProjectId={activeProject?.id ?? null}
             activeProjectName={activeProject?.name}
+            isChatThread={isChatThread}
             isGitRepo={isGitRepo}
             activeProjectScripts={activeProject?.scripts}
             preferredScriptId={
@@ -7041,7 +7070,7 @@ export default function ChatView({
                       >
                         <div
                           className={cn(
-                            "rounded-xl border-2 border-border bg-card transition-all duration-200 has-focus-visible:border-ring has-focus-visible:ring-2 has-focus-visible:ring-ring/35",
+                            "rounded-xl border-2 border-border bg-input transition-all duration-200 has-focus-visible:border-ring has-focus-visible:ring-2 has-focus-visible:ring-ring/35",
                             isDragOverComposer ? "border-primary bg-primary/8" : "border-border",
                             composerProviderState.composerSurfaceClassName,
                           )}
@@ -7400,12 +7429,12 @@ export default function ChatView({
                   </div>
 
                   <ChatConversationExtras
-                    branchToolbarProps={branchToolbarProps}
-                    gitHubIssueDialogProps={gitHubIssueDialogProps}
+                    branchToolbarProps={isChatThread ? null : branchToolbarProps}
+                    gitHubIssueDialogProps={isChatThread ? null : gitHubIssueDialogProps}
                     pullRequestDialogKey={pullRequestDialogState?.key ?? null}
-                    pullRequestDialogProps={pullRequestDialogProps}
+                    pullRequestDialogProps={isChatThread ? null : pullRequestDialogProps}
                   />
-                  {issuePreviewNumber !== null ? (
+                  {!isChatThread && issuePreviewNumber !== null ? (
                     <GitHubIssuePreviewDialog
                       open
                       issueNumber={issuePreviewNumber}

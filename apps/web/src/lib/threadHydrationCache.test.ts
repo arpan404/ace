@@ -53,6 +53,7 @@ function makeThread(
     checkpoints: [],
     session: null,
     ...overrides,
+    kind: overrides.kind ?? "coding",
   };
 }
 

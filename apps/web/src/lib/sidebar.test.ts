@@ -8,6 +8,7 @@ import {
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
   hasUnseenCompletion,
+  isCodingSidebarThread,
   isContextMenuPointerDown,
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
@@ -57,6 +58,13 @@ describe("hasUnseenCompletion", () => {
         session: null,
       }),
     ).toBe(true);
+  });
+});
+
+describe("isCodingSidebarThread", () => {
+  it("keeps chat threads out of project-only thread lists", () => {
+    expect(isCodingSidebarThread({ kind: "coding" })).toBe(true);
+    expect(isCodingSidebarThread({ kind: "chat" })).toBe(false);
   });
 });
 
@@ -588,24 +596,23 @@ describe("resolveThreadStatusPill", () => {
 describe("resolveThreadRowClassName", () => {
   it("uses the darker selected palette when a thread is both selected and active", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: true });
-    expect(className).toContain("bg-primary/22");
-    expect(className).toContain("hover:bg-primary/26");
-    expect(className).toContain("dark:bg-primary/30");
-    expect(className).not.toContain("bg-accent/85");
+    expect(className).toContain("!bg-foreground/[0.06]");
+    expect(className).toContain("!text-pill-foreground");
+    expect(className).toContain("hover:!bg-foreground/[0.06]");
   });
 
   it("uses selected hover colors for selected threads", () => {
     const className = resolveThreadRowClassName({ isActive: false, isSelected: true });
-    expect(className).toContain("bg-primary/15");
-    expect(className).toContain("hover:bg-primary/19");
-    expect(className).toContain("dark:bg-primary/22");
-    expect(className).not.toContain("hover:bg-accent");
+    expect(className).toContain("!bg-foreground/[0.06]");
+    expect(className).toContain("!text-pill-foreground");
+    expect(className).toContain("hover:!text-pill-foreground");
   });
 
   it("keeps the accent palette for active-only threads", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: false });
-    expect(className).toContain("bg-accent/85");
-    expect(className).toContain("hover:bg-accent");
+    expect(className).toContain("!bg-foreground/[0.06]");
+    expect(className).toContain("!text-pill-foreground");
+    expect(className).toContain("hover:!bg-foreground/[0.06]");
   });
 });
 
@@ -759,6 +766,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     turnDiffSummaries: [],
     activities: [],
     ...overrides,
+    kind: overrides.kind ?? "coding",
   };
 }
 

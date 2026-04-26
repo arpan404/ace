@@ -41,6 +41,7 @@ import {
   ProjectIcon,
   ProjectScript,
   ThreadHandoff,
+  ThreadKind,
 } from "./readModel";
 
 export const OrchestrationEventType = Schema.Literals([
@@ -106,6 +107,7 @@ export const ProjectDeletedPayload = Schema.Struct({
 export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
+  kind: Schema.optionalKey(ThreadKind),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
@@ -137,6 +139,7 @@ export const ThreadUnarchivedPayload = Schema.Struct({
 
 export const ThreadMetaUpdatedPayload = Schema.Struct({
   threadId: ThreadId,
+  kind: Schema.optional(ThreadKind),
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),

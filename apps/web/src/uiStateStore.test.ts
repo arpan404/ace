@@ -19,6 +19,7 @@ import {
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     boardsSectionExpanded: true,
+    chatsSectionExpanded: true,
     pinnedItems: [],
     pinnedSectionExpanded: true,
     threadOrderByProjectId: {},

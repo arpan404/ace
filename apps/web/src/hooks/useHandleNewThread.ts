@@ -1,4 +1,4 @@
-import { DEFAULT_RUNTIME_MODE, type ProjectId, ThreadId } from "@ace/contracts";
+import { DEFAULT_RUNTIME_MODE, type ProjectId, type ThreadKind, ThreadId } from "@ace/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -51,6 +51,7 @@ export function useHandleNewThread() {
         branch?: string | null;
         worktreePath?: string | null;
         envMode?: DraftThreadEnvMode;
+        kind?: ThreadKind;
         connectionUrl?: string;
       },
     ): Promise<void> => {
@@ -65,6 +66,7 @@ export function useHandleNewThread() {
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
+      const kind = options?.kind ?? "coding";
       const localConnectionUrl = resolveLocalConnectionUrl();
       const resolvedConnectionUrl = (() => {
         const candidateConnectionUrl =
@@ -81,7 +83,7 @@ export function useHandleNewThread() {
       const threadRouteSearch = buildSingleThreadRouteSearch({
         connectionUrl: resolvedConnectionUrl === localConnectionUrl ? null : resolvedConnectionUrl,
       });
-      const storedDraftThread = getDraftThreadByProjectId(projectId);
+      const storedDraftThread = getDraftThreadByProjectId(projectId, { kind });
       const latestActiveDraftThread: DraftThreadState | null = routeThreadId
         ? getDraftThread(routeThreadId)
         : null;
@@ -94,7 +96,7 @@ export function useHandleNewThread() {
               ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
             });
           }
-          setProjectDraftThreadId(projectId, storedDraftThread.threadId);
+          setProjectDraftThreadId(projectId, storedDraftThread.threadId, { kind });
           if (routeThreadId === storedDraftThread.threadId) {
             return;
           }
@@ -106,12 +108,13 @@ export function useHandleNewThread() {
         })();
       }
 
-      clearProjectDraftThreadId(projectId);
+      clearProjectDraftThreadId(projectId, { kind });
 
       if (
         latestActiveDraftThread &&
         routeThreadId &&
-        latestActiveDraftThread.projectId === projectId
+        latestActiveDraftThread.projectId === projectId &&
+        latestActiveDraftThread.kind === kind
       ) {
         if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
           setDraftThreadContext(routeThreadId, {
@@ -120,7 +123,7 @@ export function useHandleNewThread() {
             ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
           });
         }
-        setProjectDraftThreadId(projectId, routeThreadId);
+        setProjectDraftThreadId(projectId, routeThreadId, { kind });
         return Promise.resolve();
       }
 
@@ -129,6 +132,7 @@ export function useHandleNewThread() {
       return (async () => {
         setProjectDraftThreadId(projectId, threadId, {
           createdAt,
+          kind,
           branch: options?.branch ?? null,
           worktreePath: options?.worktreePath ?? null,
           envMode: options?.envMode ?? "local",

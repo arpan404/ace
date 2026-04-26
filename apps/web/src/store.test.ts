@@ -58,6 +58,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     queuedComposerMessages: [],
     queuedSteerRequest: null,
     ...overrides,
+    kind: overrides.kind ?? "coding",
   };
 }
 
@@ -142,6 +143,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     checkpoints: [],
     session: null,
     ...overrides,
+    kind: overrides.kind ?? "coding",
   } satisfies OrchestrationReadModel["threads"][number];
 }
 
@@ -984,6 +986,7 @@ describe("incremental orchestration updates", () => {
       makeEvent("thread.created", {
         threadId,
         projectId: recreatedProjectId,
+        kind: "coding",
         title: "Recovered thread",
         modelSelection: {
           provider: "codex",
@@ -1043,6 +1046,7 @@ describe("incremental orchestration updates", () => {
       makeEvent("thread.created", {
         threadId,
         projectId,
+        kind: "coding",
         title: "Handoff thread",
         modelSelection: {
           provider: "claudeAgent",
