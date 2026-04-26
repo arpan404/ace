@@ -18,10 +18,13 @@ import {
 
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
+    boardsSectionExpanded: true,
     pinnedItems: [],
+    pinnedSectionExpanded: true,
     threadOrderByProjectId: {},
     projectExpandedById: {},
     projectOrder: [],
+    projectsSectionExpanded: true,
     threadLastVisitedAtById: {},
     activeThreadId: null,
     previousActiveThreadId: null,

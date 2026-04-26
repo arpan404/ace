@@ -18,6 +18,8 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 ] as const;
 
 const PersistedUiStateSchema = Schema.Struct({
+  boardsSectionExpanded: Schema.optional(Schema.Boolean),
+  collapsedProjectCwds: Schema.optional(Schema.Array(Schema.String)),
   expandedProjectCwds: Schema.optional(Schema.Array(Schema.String)),
   pinnedItems: Schema.optional(
     Schema.Array(
@@ -31,6 +33,8 @@ const PersistedUiStateSchema = Schema.Struct({
   pinnedProjectCwds: Schema.optional(Schema.Array(Schema.String)),
   pinnedThreadIds: Schema.optional(Schema.Array(Schema.String)),
   projectOrderCwds: Schema.optional(Schema.Array(Schema.String)),
+  projectsSectionExpanded: Schema.optional(Schema.Boolean),
+  pinnedSectionExpanded: Schema.optional(Schema.Boolean),
   threadOrderByProjectCwds: Schema.optional(
     Schema.Record(Schema.String, Schema.Array(Schema.String)),
   ),
@@ -41,8 +45,11 @@ const decodePersistedUiState = Schema.decodeSync(Schema.fromJsonString(Persisted
 export type UiPinnedItem = { kind: "project"; id: ProjectId } | { kind: "thread"; id: ThreadId };
 
 export interface UiProjectState {
+  boardsSectionExpanded: boolean;
+  pinnedSectionExpanded: boolean;
   projectExpandedById: Record<string, boolean>;
   projectOrder: ProjectId[];
+  projectsSectionExpanded: boolean;
 }
 
 export interface UiThreadState {
@@ -67,15 +74,19 @@ export interface SyncThreadInput {
 }
 
 const initialState: UiState = {
+  boardsSectionExpanded: true,
   pinnedItems: [],
+  pinnedSectionExpanded: true,
   threadOrderByProjectId: {},
   projectExpandedById: {},
   projectOrder: [],
+  projectsSectionExpanded: true,
   threadLastVisitedAtById: {},
   activeThreadId: null,
   previousActiveThreadId: null,
 };
 
+const persistedCollapsedProjectCwds = new Set<string>();
 const persistedExpandedProjectCwds = new Set<string>();
 const persistedPinnedProjectCwds = new Set<string>();
 const persistedPinnedThreadIds = new Set<string>();
@@ -96,20 +107,32 @@ function readPersistedState(): UiState {
         if (!legacyRaw) {
           continue;
         }
-        hydratePersistedProjectState(decodePersistedUiState(legacyRaw));
-        return initialState;
+        const parsed = decodePersistedUiState(legacyRaw);
+        hydratePersistedProjectState(parsed);
+        return hydratePersistedUiStateFields(initialState, parsed);
       }
       return initialState;
     }
-    hydratePersistedProjectState(decodePersistedUiState(raw));
-    return initialState;
+    const parsed = decodePersistedUiState(raw);
+    hydratePersistedProjectState(parsed);
+    return hydratePersistedUiStateFields(initialState, parsed);
   } catch {
     return initialState;
   }
 }
 
+function hydratePersistedUiStateFields(state: UiState, parsed: PersistedUiState): UiState {
+  return {
+    ...state,
+    boardsSectionExpanded: parsed.boardsSectionExpanded ?? state.boardsSectionExpanded,
+    pinnedSectionExpanded: parsed.pinnedSectionExpanded ?? state.pinnedSectionExpanded,
+    projectsSectionExpanded: parsed.projectsSectionExpanded ?? state.projectsSectionExpanded,
+  };
+}
+
 function hydratePersistedProjectState(parsed: PersistedUiState): void {
   persistedExpandedProjectCwds.clear();
+  persistedCollapsedProjectCwds.clear();
   persistedPinnedProjectCwds.clear();
   persistedPinnedThreadIds.clear();
   persistedThreadOrderByProjectCwd.clear();
@@ -117,6 +140,11 @@ function hydratePersistedProjectState(parsed: PersistedUiState): void {
   for (const cwd of parsed.expandedProjectCwds ?? []) {
     if (typeof cwd === "string" && cwd.length > 0) {
       persistedExpandedProjectCwds.add(cwd);
+    }
+  }
+  for (const cwd of parsed.collapsedProjectCwds ?? []) {
+    if (typeof cwd === "string" && cwd.length > 0) {
+      persistedCollapsedProjectCwds.add(cwd);
     }
   }
   if (parsed.pinnedItems) {
@@ -169,6 +197,12 @@ function persistState(state: UiState): void {
         const cwd = currentProjectCwdById.get(projectId as ProjectId);
         return cwd ? [cwd] : [];
       });
+    const collapsedProjectCwds = Object.entries(state.projectExpandedById)
+      .filter(([, expanded]) => !expanded)
+      .flatMap(([projectId]) => {
+        const cwd = currentProjectCwdById.get(projectId as ProjectId);
+        return cwd ? [cwd] : [];
+      });
     const pinnedItems: Array<{ kind: "project" | "thread"; cwd?: string; id?: string }> = [];
     for (const item of state.pinnedItems) {
       if (item.kind === "thread") {
@@ -198,9 +232,13 @@ function persistState(state: UiState): void {
     window.localStorage.setItem(
       PERSISTED_STATE_KEY,
       JSON.stringify({
+        boardsSectionExpanded: state.boardsSectionExpanded,
+        collapsedProjectCwds,
         expandedProjectCwds,
         pinnedItems,
+        pinnedSectionExpanded: state.pinnedSectionExpanded,
         projectOrderCwds,
+        projectsSectionExpanded: state.projectsSectionExpanded,
         threadOrderByProjectCwds,
       } satisfies PersistedUiState),
     );
@@ -292,6 +330,7 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
     const expanded =
       previousExpandedById[project.id] ??
       (previousProjectIdForCwd ? previousExpandedById[previousProjectIdForCwd] : undefined) ??
+      (persistedCollapsedProjectCwds.has(project.cwd) ? false : undefined) ??
       (persistedExpandedProjectCwds.size > 0
         ? persistedExpandedProjectCwds.has(project.cwd)
         : true);
@@ -766,6 +805,36 @@ export function setProjectExpanded(
   };
 }
 
+export function setPinnedSectionExpanded(state: UiState, expanded: boolean): UiState {
+  if (state.pinnedSectionExpanded === expanded) {
+    return state;
+  }
+  return {
+    ...state,
+    pinnedSectionExpanded: expanded,
+  };
+}
+
+export function setProjectsSectionExpanded(state: UiState, expanded: boolean): UiState {
+  if (state.projectsSectionExpanded === expanded) {
+    return state;
+  }
+  return {
+    ...state,
+    projectsSectionExpanded: expanded,
+  };
+}
+
+export function setBoardsSectionExpanded(state: UiState, expanded: boolean): UiState {
+  if (state.boardsSectionExpanded === expanded) {
+    return state;
+  }
+  return {
+    ...state,
+    boardsSectionExpanded: expanded,
+  };
+}
+
 export function reorderProjects(
   state: UiState,
   draggedProjectId: ProjectId,
@@ -808,6 +877,9 @@ interface UiStateStore extends UiState {
   togglePinnedThread: (threadId: ThreadId) => void;
   toggleProject: (projectId: ProjectId) => void;
   setProjectExpanded: (projectId: ProjectId, expanded: boolean) => void;
+  setPinnedSectionExpanded: (expanded: boolean) => void;
+  setProjectsSectionExpanded: (expanded: boolean) => void;
+  setBoardsSectionExpanded: (expanded: boolean) => void;
   reorderProjects: (draggedProjectId: ProjectId, targetProjectId: ProjectId) => void;
 }
 
@@ -830,6 +902,10 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),
+  setPinnedSectionExpanded: (expanded) => set((state) => setPinnedSectionExpanded(state, expanded)),
+  setProjectsSectionExpanded: (expanded) =>
+    set((state) => setProjectsSectionExpanded(state, expanded)),
+  setBoardsSectionExpanded: (expanded) => set((state) => setBoardsSectionExpanded(state, expanded)),
   reorderProjects: (draggedProjectId, targetProjectId) =>
     set((state) => reorderProjects(state, draggedProjectId, targetProjectId)),
 }));
