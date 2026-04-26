@@ -27,6 +27,7 @@ import { WorkspacePaths } from "./workspace/Services/WorkspacePaths";
 const PROJECT_FAVICON_CACHE_CONTROL = "no-store";
 const WORKSPACE_FILE_PREVIEW_MAX_BYTES = 50 * 1024 * 1024;
 const GITHUB_ISSUE_IMAGE_ROUTE = "/api/github-issue-image";
+const BROWSER_RELAY_ROUTE = "/api/browser-relay";
 const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#6b728080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-fallback="project-favicon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>`;
 const SECURITY_HEADERS = {
   "Content-Security-Policy":
@@ -41,6 +42,10 @@ const PAIRING_CORS_HEADERS = {
 } as const;
 
 class GitHubIssueImageFetchError extends Data.TaggedError("GitHubIssueImageFetchError")<{
+  readonly cause: unknown;
+}> {}
+
+class BrowserRelayFetchError extends Data.TaggedError("BrowserRelayFetchError")<{
   readonly cause: unknown;
 }> {}
 
@@ -143,6 +148,77 @@ function isLoopbackHostname(hostname: string): boolean {
     normalized === "0.0.0.0" ||
     normalized === "::"
   );
+}
+
+function resolveAllowedBrowserRelayUrl(rawUrl: string): URL | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return null;
+  }
+  return parsed;
+}
+
+function toBrowserRelayUrl(requestUrl: URL, targetUrl: URL, rawReference: string): string {
+  const trimmed = rawReference.trim();
+  if (
+    trimmed.length === 0 ||
+    trimmed.startsWith("#") ||
+    /^(?:data|blob|javascript|mailto|tel):/i.test(trimmed)
+  ) {
+    return rawReference;
+  }
+
+  let resolved: URL;
+  try {
+    resolved = new URL(trimmed, targetUrl);
+  } catch {
+    return rawReference;
+  }
+  if (!resolveAllowedBrowserRelayUrl(resolved.toString())) {
+    return rawReference;
+  }
+
+  const relayUrl = new URL(BROWSER_RELAY_ROUTE, requestUrl);
+  relayUrl.searchParams.set("url", resolved.toString());
+  const authToken = requestUrl.searchParams.get("token")?.trim();
+  if (authToken) {
+    relayUrl.searchParams.set("token", authToken);
+  }
+  return relayUrl.toString();
+}
+
+function rewriteBrowserRelayText(input: {
+  readonly contentType: string;
+  readonly requestUrl: URL;
+  readonly targetUrl: URL;
+  readonly text: string;
+}): string {
+  const lowerContentType = input.contentType.toLowerCase();
+  if (lowerContentType.includes("text/css")) {
+    return input.text.replace(/url\((["']?)([^"')]+)\1\)/gi, (_match, quote, rawReference) => {
+      const rewritten = toBrowserRelayUrl(input.requestUrl, input.targetUrl, rawReference);
+      return `url(${quote}${rewritten}${quote})`;
+    });
+  }
+  if (!lowerContentType.includes("text/html")) {
+    return input.text;
+  }
+
+  return input.text
+    .replace(
+      /\b(src|href|action)=("|')([^"']+)\2/gi,
+      (_match, attribute, quote, rawReference) =>
+        `${attribute}=${quote}${toBrowserRelayUrl(input.requestUrl, input.targetUrl, rawReference)}${quote}`,
+    )
+    .replace(/url\((["']?)([^"')]+)\1\)/gi, (_match, quote, rawReference) => {
+      const rewritten = toBrowserRelayUrl(input.requestUrl, input.targetUrl, rawReference);
+      return `url(${quote}${rewritten}${quote})`;
+    });
 }
 
 function isPrivateIpv4(ipv4: string): boolean {
@@ -518,6 +594,99 @@ export const githubIssueImageRouteLayer = HttpRouter.add(
         headers: {
           "Cache-Control": "private, no-store",
         },
+      }),
+    );
+  }),
+);
+
+export const browserRelayRouteLayer = HttpRouter.add(
+  "GET",
+  BROWSER_RELAY_ROUTE,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const requestUrl = HttpServerRequest.toURL(request);
+    if (Option.isNone(requestUrl)) {
+      return withSecurityHeaders(HttpServerResponse.text("Bad Request", { status: 400 }));
+    }
+    const config = yield* ServerConfig;
+    if (config.authToken?.trim()) {
+      const providedToken = readAuthTokenFromRequest(request, requestUrl.value);
+      if (providedToken !== config.authToken.trim()) {
+        return withSecurityHeaders(
+          respondJson({ error: "Unauthorized browser relay request." }, { status: 401 }),
+        );
+      }
+    }
+
+    const rawTargetUrl = requestUrl.value.searchParams.get("url");
+    if (!rawTargetUrl) {
+      return withSecurityHeaders(HttpServerResponse.text("Missing url parameter", { status: 400 }));
+    }
+
+    const targetUrl = resolveAllowedBrowserRelayUrl(rawTargetUrl);
+    if (!targetUrl) {
+      return withSecurityHeaders(
+        HttpServerResponse.text("Browser relay only supports HTTP targets.", {
+          status: 400,
+        }),
+      );
+    }
+
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(targetUrl, {
+          headers: {
+            Accept: request.headers.accept ?? "*/*",
+            "User-Agent": request.headers["user-agent"] ?? "ace-browser-relay",
+          },
+          redirect: "follow",
+        }),
+      catch: (cause) => new BrowserRelayFetchError({ cause }),
+    }).pipe(Effect.catch(() => Effect.succeed(null)));
+
+    if (!response) {
+      return withSecurityHeaders(
+        HttpServerResponse.text("Unable to reach browser relay target.", { status: 502 }),
+      );
+    }
+
+    const contentType =
+      response.headers.get("content-type") ?? Mime.getType(targetUrl.pathname) ?? "text/plain";
+    const responseUrl = resolveAllowedBrowserRelayUrl(response.url);
+    const resolvedTargetUrl = responseUrl ?? targetUrl;
+    const isTextResponse =
+      contentType.toLowerCase().includes("text/html") ||
+      contentType.toLowerCase().includes("text/css");
+    const cacheControl = response.headers.get("cache-control") ?? "no-store";
+    const headers = {
+      "Cache-Control": cacheControl,
+    };
+
+    if (isTextResponse) {
+      const text = yield* Effect.promise(() => response.text());
+      return withSecurityHeaders(
+        HttpServerResponse.text(
+          rewriteBrowserRelayText({
+            contentType,
+            requestUrl: requestUrl.value,
+            targetUrl: resolvedTargetUrl,
+            text,
+          }),
+          {
+            status: response.status,
+            contentType,
+            headers,
+          },
+        ),
+      );
+    }
+
+    const data = new Uint8Array(yield* Effect.promise(() => response.arrayBuffer()));
+    return withSecurityHeaders(
+      HttpServerResponse.uint8Array(data, {
+        status: response.status,
+        contentType,
+        headers,
       }),
     );
   }),

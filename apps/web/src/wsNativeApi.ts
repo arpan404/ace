@@ -7,6 +7,7 @@ import {
   readRouteConnectionUrlFromLocation,
   resolveConnectionForInput,
   resolveLocalConnectionUrl,
+  stripRpcRouteConnection,
 } from "./lib/connectionRouting";
 import { useHostConnectionStore } from "./hostConnectionStore";
 import { getRouteRpcClient } from "./lib/remoteWsRouter";
@@ -81,29 +82,42 @@ export function createWsNativeApi(): NativeApi {
       onEvent: (callback) => resolveRpcClientForActiveRoute().terminal.onEvent(callback),
     },
     projects: {
-      searchEntries: (input) => resolveRpcClientForActiveRoute().projects.searchEntries(input),
-      listTree: (input) => resolveRpcClientForActiveRoute().projects.listTree(input),
-      createEntry: (input) => resolveRpcClientForActiveRoute().projects.createEntry(input),
-      deleteEntry: (input) => resolveRpcClientForActiveRoute().projects.deleteEntry(input),
-      readFile: (input) => resolveRpcClientForActiveRoute().projects.readFile(input),
-      renameEntry: (input) => resolveRpcClientForActiveRoute().projects.renameEntry(input),
-      writeFile: (input) => resolveRpcClientForActiveRoute().projects.writeFile(input),
+      searchEntries: (input) =>
+        resolveRpcClientForInput(input).projects.searchEntries(stripRpcRouteConnection(input)),
+      listTree: (input) =>
+        resolveRpcClientForInput(input).projects.listTree(stripRpcRouteConnection(input)),
+      createEntry: (input) =>
+        resolveRpcClientForInput(input).projects.createEntry(stripRpcRouteConnection(input)),
+      deleteEntry: (input) =>
+        resolveRpcClientForInput(input).projects.deleteEntry(stripRpcRouteConnection(input)),
+      readFile: (input) =>
+        resolveRpcClientForInput(input).projects.readFile(stripRpcRouteConnection(input)),
+      renameEntry: (input) =>
+        resolveRpcClientForInput(input).projects.renameEntry(stripRpcRouteConnection(input)),
+      writeFile: (input) =>
+        resolveRpcClientForInput(input).projects.writeFile(stripRpcRouteConnection(input)),
     },
     filesystem: {
-      browse: (input) => resolveRpcClientForActiveRoute().filesystem.browse(input),
+      browse: (input) =>
+        resolveRpcClientForInput(input).filesystem.browse(stripRpcRouteConnection(input)),
     },
     workspaceEditor: {
-      syncBuffer: (input) => resolveRpcClientForActiveRoute().workspaceEditor.syncBuffer(input),
-      closeBuffer: (input) => resolveRpcClientForActiveRoute().workspaceEditor.closeBuffer(input),
-      complete: (input) => resolveRpcClientForActiveRoute().workspaceEditor.complete(input),
-      definition: (input) => resolveRpcClientForActiveRoute().workspaceEditor.definition(input),
-      references: (input) => resolveRpcClientForActiveRoute().workspaceEditor.references(input),
+      syncBuffer: (input) =>
+        resolveRpcClientForInput(input).workspaceEditor.syncBuffer(stripRpcRouteConnection(input)),
+      closeBuffer: (input) =>
+        resolveRpcClientForInput(input).workspaceEditor.closeBuffer(stripRpcRouteConnection(input)),
+      complete: (input) =>
+        resolveRpcClientForInput(input).workspaceEditor.complete(stripRpcRouteConnection(input)),
+      definition: (input) =>
+        resolveRpcClientForInput(input).workspaceEditor.definition(stripRpcRouteConnection(input)),
+      references: (input) =>
+        resolveRpcClientForInput(input).workspaceEditor.references(stripRpcRouteConnection(input)),
     },
     shell: {
-      openInEditor: (cwd, editor) =>
-        resolveRpcClientForActiveRoute().shell.openInEditor({ cwd, editor }),
-      revealInFileManager: (path) =>
-        resolveRpcClientForActiveRoute().shell.revealInFileManager({ path }),
+      openInEditor: (cwd, editor, options) =>
+        resolveRpcClientForInput(options).shell.openInEditor({ cwd, editor }),
+      revealInFileManager: (path, options) =>
+        resolveRpcClientForInput(options).shell.revealInFileManager({ path }),
       openExternal: async (url) => {
         if (window.desktopBridge) {
           const opened = await window.desktopBridge.openExternal(url);
@@ -117,22 +131,31 @@ export function createWsNativeApi(): NativeApi {
       },
     },
     git: {
-      pull: (input) => resolveRpcClientForActiveRoute().git.pull(input),
-      status: (input) => resolveRpcClientForActiveRoute().git.status(input),
+      pull: (input) => resolveRpcClientForInput(input).git.pull(stripRpcRouteConnection(input)),
+      status: (input) => resolveRpcClientForInput(input).git.status(stripRpcRouteConnection(input)),
       readWorkingTreeDiff: (input) =>
-        resolveRpcClientForActiveRoute().git.readWorkingTreeDiff(input),
-      listBranches: (input) => resolveRpcClientForActiveRoute().git.listBranches(input),
-      listGitHubIssues: (input) => resolveRpcClientForActiveRoute().git.listGitHubIssues(input),
+        resolveRpcClientForInput(input).git.readWorkingTreeDiff(stripRpcRouteConnection(input)),
+      listBranches: (input) =>
+        resolveRpcClientForInput(input).git.listBranches(stripRpcRouteConnection(input)),
+      listGitHubIssues: (input) =>
+        resolveRpcClientForInput(input).git.listGitHubIssues(stripRpcRouteConnection(input)),
       getGitHubIssueThread: (input) =>
-        resolveRpcClientForActiveRoute().git.getGitHubIssueThread(input),
-      createWorktree: (input) => resolveRpcClientForActiveRoute().git.createWorktree(input),
-      removeWorktree: (input) => resolveRpcClientForActiveRoute().git.removeWorktree(input),
-      createBranch: (input) => resolveRpcClientForActiveRoute().git.createBranch(input),
-      checkout: (input) => resolveRpcClientForActiveRoute().git.checkout(input),
-      init: (input) => resolveRpcClientForActiveRoute().git.init(input),
-      resolvePullRequest: (input) => resolveRpcClientForActiveRoute().git.resolvePullRequest(input),
+        resolveRpcClientForInput(input).git.getGitHubIssueThread(stripRpcRouteConnection(input)),
+      createWorktree: (input) =>
+        resolveRpcClientForInput(input).git.createWorktree(stripRpcRouteConnection(input)),
+      removeWorktree: (input) =>
+        resolveRpcClientForInput(input).git.removeWorktree(stripRpcRouteConnection(input)),
+      createBranch: (input) =>
+        resolveRpcClientForInput(input).git.createBranch(stripRpcRouteConnection(input)),
+      checkout: (input) =>
+        resolveRpcClientForInput(input).git.checkout(stripRpcRouteConnection(input)),
+      init: (input) => resolveRpcClientForInput(input).git.init(stripRpcRouteConnection(input)),
+      resolvePullRequest: (input) =>
+        resolveRpcClientForInput(input).git.resolvePullRequest(stripRpcRouteConnection(input)),
       preparePullRequestThread: (input) =>
-        resolveRpcClientForActiveRoute().git.preparePullRequestThread(input),
+        resolveRpcClientForInput(input).git.preparePullRequestThread(
+          stripRpcRouteConnection(input),
+        ),
     },
     contextMenu: {
       show: async <T extends string>(

@@ -26,7 +26,12 @@ import {
   type BrowserWebview,
   IN_APP_BROWSER_PARTITION,
 } from "~/lib/browser/types";
-import { normalizeBrowserHttpUrl } from "~/lib/browser/url";
+import {
+  normalizeBrowserHttpUrl,
+  resolveBrowserDisplayUrl,
+  resolveBrowserRelayUrl,
+} from "~/lib/browser/url";
+import { resolveLocalConnectionUrl } from "~/lib/connectionRouting";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 
 const BROWSER_ZOOM_STEP = 0.1;
@@ -1295,6 +1300,7 @@ export function BrowserFavicon(props: {
 
 export function BrowserTabWebview(props: {
   active: boolean;
+  connectionUrl?: string | null | undefined;
   designerModeActive?: boolean;
   designerTool?: BrowserDesignerTool;
   onBrowserLoadError?: (message: string) => void;
@@ -1316,6 +1322,7 @@ export function BrowserTabWebview(props: {
 }) {
   const {
     active,
+    connectionUrl,
     designerModeActive = false,
     designerTool = "area-comment",
     onBrowserLoadError,
@@ -1368,6 +1375,7 @@ export function BrowserTabWebview(props: {
     tool: AnnotationTool;
   } | null>(null);
   const requestedUrlRef = useRef(tab.url);
+  const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
   const activeRef = useRef(active);
   activeRef.current = active;
   const [selectionRect, setSelectionRect] = useState<BrowserDesignSelectionRect | null>(null);
@@ -1438,8 +1446,19 @@ export function BrowserTabWebview(props: {
     commitHoveredElementCapture(null, null);
   }, [commitHoveredElementCapture]);
 
+  const resolveLoadUrl = useCallback(
+    (url: string) =>
+      resolveBrowserRelayUrl({
+        url,
+        ownerConnectionUrl: connectionUrl,
+        localConnectionUrl,
+      }),
+    [connectionUrl, localConnectionUrl],
+  );
+
   const resolveSnapshotUrl = useCallback((currentUrl: string) => {
-    return normalizeBrowserHttpUrl(currentUrl) ?? requestedUrlRef.current;
+    const displayUrl = resolveBrowserDisplayUrl(currentUrl);
+    return normalizeBrowserHttpUrl(displayUrl) ?? requestedUrlRef.current;
   }, []);
 
   const emitSnapshotNow = useCallback(
@@ -1505,15 +1524,15 @@ export function BrowserTabWebview(props: {
         pendingUrlRef.current = url;
         return;
       }
-      const currentUrl = normalizeBrowserHttpUrl(webview.getURL());
+      const currentUrl = normalizeBrowserHttpUrl(resolveBrowserDisplayUrl(webview.getURL()));
       if (currentUrl === normalizeBrowserHttpUrl(url)) {
         scheduleEmitSnapshot({ persistTab: true });
         return;
       }
 
-      loadWebviewUrl(webview, url, reportBrowserLoadError);
+      loadWebviewUrl(webview, resolveLoadUrl(url), reportBrowserLoadError);
     },
-    [scheduleEmitSnapshot],
+    [resolveLoadUrl, scheduleEmitSnapshot],
   );
 
   const inspectBrowserPoint = useCallback(
@@ -1661,7 +1680,7 @@ export function BrowserTabWebview(props: {
     const webview = document.createElement("webview") as BrowserWebview;
     webview.className = "size-full bg-background";
     webview.setAttribute("partition", IN_APP_BROWSER_PARTITION);
-    webview.setAttribute("src", requestedUrlRef.current);
+    webview.setAttribute("src", resolveLoadUrl(requestedUrlRef.current));
 
     const handleDomReady = () => {
       readyRef.current = true;
@@ -1669,9 +1688,10 @@ export function BrowserTabWebview(props: {
       pendingUrlRef.current = null;
       if (
         pendingUrl &&
-        normalizeBrowserHttpUrl(pendingUrl) !== normalizeBrowserHttpUrl(webview.getURL())
+        normalizeBrowserHttpUrl(pendingUrl) !==
+          normalizeBrowserHttpUrl(resolveBrowserDisplayUrl(webview.getURL()))
       ) {
-        loadWebviewUrl(webview, pendingUrl, reportBrowserLoadError);
+        loadWebviewUrl(webview, resolveLoadUrl(pendingUrl), reportBrowserLoadError);
         return;
       }
       scheduleEmitSnapshot({ persistTab: true });
@@ -1775,7 +1795,7 @@ export function BrowserTabWebview(props: {
       readyRef.current = false;
       cancelScheduledSnapshot();
     };
-  }, [cancelScheduledSnapshot, resolveSnapshotUrl, scheduleEmitSnapshot]);
+  }, [cancelScheduledSnapshot, resolveLoadUrl, resolveSnapshotUrl, scheduleEmitSnapshot]);
 
   useEffect(() => {
     navigate(tab.url);

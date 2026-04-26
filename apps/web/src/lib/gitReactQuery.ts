@@ -6,6 +6,7 @@ import {
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
 import { getWsRpcClient } from "../wsRpcClient";
+import { withRpcRouteConnection } from "./connectionRouting";
 
 const GIT_STATUS_STALE_TIME_MS = 5_000;
 const GIT_STATUS_REFETCH_INTERVAL_MS = 15_000;
@@ -17,7 +18,8 @@ export type GitHubIssueListStateFilter = "open" | "closed" | "all";
 
 export const gitQueryKeys = {
   all: ["git"] as const,
-  status: (cwd: string | null) => ["git", "status", cwd] as const,
+  status: (cwd: string | null, connectionUrl?: string | null) =>
+    ["git", "status", connectionUrl ?? null, cwd] as const,
   workingTreeDiff: (cwd: string | null) => ["git", "working-tree-diff", cwd] as const,
   branches: (cwd: string | null) => ["git", "branches", cwd] as const,
   githubIssues: (
@@ -60,13 +62,13 @@ export function invalidateGitStatusQuery(queryClient: QueryClient, cwd: string |
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.status(cwd) });
 }
 
-export function gitStatusQueryOptions(cwd: string | null) {
+export function gitStatusQueryOptions(cwd: string | null, connectionUrl?: string | null) {
   return queryOptions({
-    queryKey: gitQueryKeys.status(cwd),
+    queryKey: gitQueryKeys.status(cwd, connectionUrl),
     queryFn: async () => {
       const api = ensureNativeApi();
       if (!cwd) throw new Error("Git status is unavailable.");
-      return api.git.status({ cwd });
+      return api.git.status(withRpcRouteConnection({ cwd }, connectionUrl));
     },
     enabled: cwd !== null,
     staleTime: GIT_STATUS_STALE_TIME_MS,

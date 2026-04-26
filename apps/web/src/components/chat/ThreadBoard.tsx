@@ -119,6 +119,7 @@ function ThreadBoardPane(props: {
       }}
     >
       <ChatView
+        connectionUrl={pane.connectionUrl}
         threadId={pane.threadId}
         shortcutsEnabled={props.shortcutsEnabled}
         showSidebarTrigger={props.showSidebarTrigger}
@@ -416,7 +417,7 @@ export function ThreadBoard(props: {
   }, []);
 
   if (!boardVisible || !primaryPane) {
-    return <ChatView threadId={props.threadId} />;
+    return <ChatView connectionUrl={props.connectionUrl ?? null} threadId={props.threadId} />;
   }
 
   return (

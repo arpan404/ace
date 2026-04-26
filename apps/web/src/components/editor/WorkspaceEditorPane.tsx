@@ -23,6 +23,7 @@ import {
 
 import { openInPreferredEditor } from "~/editorPreferences";
 import type { ThreadEditorPaneState } from "~/editorStateStore";
+import { withRpcRouteConnection } from "~/lib/connectionRouting";
 import { resolveMonacoLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
 import { projectReadFileQueryOptions } from "~/lib/projectReactQuery";
 import { cn } from "~/lib/utils";
@@ -52,6 +53,7 @@ interface WorkspaceEditorPaneProps {
   canReopenClosedTab: boolean;
   canSplitPane: boolean;
   chromeActions?: ReactNode;
+  connectionUrl?: string | null | undefined;
   diagnosticsCwd: string | null;
   dirtyFilePaths: ReadonlySet<string>;
   draftsByFilePath: Record<string, { draftContents: string; savedContents: string }>;
@@ -391,6 +393,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     : false;
   const activeFileQuery = useQuery(
     projectReadFileQueryOptions({
+      connectionUrl: props.connectionUrl,
       cwd: props.gitCwd,
       relativePath: pane.activeFilePath,
       enabled:
@@ -514,10 +517,15 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       const draft = draftsByFilePathRef.current[relativePath];
       let contents = draft?.draftContents;
       if (contents === undefined) {
-        const result = await api.projects.readFile({
-          cwd: workspaceCwd,
-          relativePath,
-        });
+        const result = await api.projects.readFile(
+          withRpcRouteConnection(
+            {
+              cwd: workspaceCwd,
+              relativePath,
+            },
+            props.connectionUrl,
+          ),
+        );
         contents = result.contents;
         onHydrateFile(relativePath, result.contents);
       }
@@ -532,7 +540,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         uri,
       );
     },
-    [api, onHydrateFile, workspaceCwd],
+    [api, onHydrateFile, props.connectionUrl, workspaceCwd],
   );
 
   const toMonacoLocations = useCallback(
@@ -590,13 +598,18 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       }
       try {
         setActionError(null);
-        const result = await api.workspaceEditor.definition({
-          cwd: props.diagnosticsCwd,
-          relativePath: input.relativePath,
-          contents: input.contents,
-          line: input.line,
-          column: input.column,
-        });
+        const result = await api.workspaceEditor.definition(
+          withRpcRouteConnection(
+            {
+              cwd: props.diagnosticsCwd,
+              relativePath: input.relativePath,
+              contents: input.contents,
+              line: input.line,
+              column: input.column,
+            },
+            props.connectionUrl,
+          ),
+        );
         return result.locations;
       } catch (error) {
         const message = toErrorMessage(error);
@@ -609,7 +622,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         return [];
       }
     },
-    [api, props.diagnosticsCwd],
+    [api, props.connectionUrl, props.diagnosticsCwd],
   );
 
   const navigateToDefinitionAtPosition = useCallback(
@@ -794,11 +807,16 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
 
     const timeoutId = window.setTimeout(() => {
       void api.workspaceEditor
-        .syncBuffer({
-          cwd: props.diagnosticsCwd!,
-          relativePath: activeFilePath,
-          contents: activeFileContents,
-        })
+        .syncBuffer(
+          withRpcRouteConnection(
+            {
+              cwd: props.diagnosticsCwd!,
+              relativePath: activeFilePath,
+              contents: activeFileContents,
+            },
+            props.connectionUrl,
+          ),
+        )
         .then((result) => {
           if (syncRequestIdRef.current !== requestId) {
             return;
@@ -861,6 +879,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     editorMountVersion,
     isPreviewMode,
     pane.activeFilePath,
+    props.connectionUrl,
     props.diagnosticsCwd,
     props.gitCwd,
     syncProblemState,
@@ -902,13 +921,18 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           return { suggestions: [] };
         }
         try {
-          const result = await api.workspaceEditor.complete({
-            cwd: props.diagnosticsCwd,
-            relativePath: pane.activeFilePath,
-            contents: model.getValue(),
-            line: Math.max(0, position.lineNumber - 1),
-            column: Math.max(0, position.column - 1),
-          });
+          const result = await api.workspaceEditor.complete(
+            withRpcRouteConnection(
+              {
+                cwd: props.diagnosticsCwd,
+                relativePath: pane.activeFilePath,
+                contents: model.getValue(),
+                line: Math.max(0, position.lineNumber - 1),
+                column: Math.max(0, position.column - 1),
+              },
+              props.connectionUrl,
+            ),
+          );
           const word = model.getWordUntilPosition(position);
           const range = {
             startLineNumber: position.lineNumber,
@@ -967,6 +991,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     editorMountVersion,
     isPreviewMode,
     pane.activeFilePath,
+    props.connectionUrl,
     props.diagnosticsCwd,
   ]);
 
@@ -1020,13 +1045,18 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           return [];
         }
         try {
-          const result = await api.workspaceEditor.references({
-            cwd: props.diagnosticsCwd,
-            relativePath,
-            contents: model.getValue(),
-            line: Math.max(0, position.lineNumber - 1),
-            column: Math.max(0, position.column - 1),
-          });
+          const result = await api.workspaceEditor.references(
+            withRpcRouteConnection(
+              {
+                cwd: props.diagnosticsCwd,
+                relativePath,
+                contents: model.getValue(),
+                line: Math.max(0, position.lineNumber - 1),
+                column: Math.max(0, position.column - 1),
+              },
+              props.connectionUrl,
+            ),
+          );
           if (token.isCancellationRequested) {
             return [];
           }
@@ -1048,6 +1078,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     editorMountVersion,
     isPreviewMode,
     pane.activeFilePath,
+    props.connectionUrl,
     props.diagnosticsCwd,
     toMonacoLocations,
   ]);
