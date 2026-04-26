@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { isElectron } from "../env";
 import {
+  DESKTOP_HEADER_CHROME_CLASS_NAME,
   DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
   MAC_TITLEBAR_LEFT_INSET_STYLE,
 } from "../lib/desktopChrome";
@@ -30,15 +31,15 @@ export function AppPageTopBar({
       className={cn(
         "relative z-30 w-full shrink-0 bg-sidebar",
         isElectron
-          ? "drag-region flex min-h-[44px] items-center px-3.5 pt-3 pb-1"
-          : "px-3.5 pt-3 pb-1",
+          ? cn("drag-region flex min-h-[44px] items-center", DESKTOP_HEADER_CHROME_CLASS_NAME)
+          : DESKTOP_HEADER_CHROME_CLASS_NAME,
         className,
       )}
       style={isElectron && sidebarState === "collapsed" ? MAC_TITLEBAR_LEFT_INSET_STYLE : undefined}
     >
       <div
         className={cn(
-          "flex min-w-0 flex-1 items-center gap-1.5 transition-[padding] duration-200 ease-out sm:gap-2",
+          "flex min-w-0 flex-1 items-center gap-1.5 transition-[padding] duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:gap-2",
           "pl-0",
           contentClassName,
         )}

@@ -56,12 +56,18 @@ export interface CombinedSidebarSnapshot {
   readonly threads: ReadonlyArray<CombinedSidebarSnapshotThread>;
 }
 
-export type SearchPaletteMode = "root" | "new-thread-project";
+export type SearchPaletteMode = "root" | "new-thread-project" | "new-chat-project";
 
 export type SearchPaletteItem =
   | {
       id: string;
       type: "action.new-thread";
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "action.new-chat";
       label: string;
       description: string;
     }

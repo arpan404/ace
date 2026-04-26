@@ -35,6 +35,7 @@ interface ChatHeaderProps {
   activeThreadTitle: string;
   activeProjectId: ProjectId | null;
   activeProjectName: string | undefined;
+  isChatThread: boolean;
   isGitRepo: boolean;
   activeProjectScripts: ProjectScript[] | undefined;
   preferredScriptId: string | null;
@@ -70,6 +71,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadTitle,
   activeProjectId,
   activeProjectName,
+  isChatThread,
   isGitRepo,
   activeProjectScripts,
   preferredScriptId,
@@ -97,10 +99,11 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleDiff,
   onWorkspaceModeChange,
 }: ChatHeaderProps) {
-  const editorWorkspaceActive = workspaceMode === "editor" || workspaceMode === "split";
+  const editorWorkspaceActive =
+    !isChatThread && (workspaceMode === "editor" || workspaceMode === "split");
   const workspaceDisplayName = workspaceName ?? activeProjectName ?? "Workspace";
   const workspaceActionItems: ReactNode[] = [
-    activeProjectScripts ? (
+    !isChatThread && activeProjectScripts ? (
       <ProjectScriptsControl
         key="scripts"
         scripts={activeProjectScripts}
@@ -112,7 +115,7 @@ export const ChatHeader = memo(function ChatHeader({
         onDeleteScript={onDeleteProjectScript}
       />
     ) : null,
-    activeProjectName ? (
+    !isChatThread && activeProjectName ? (
       <GitActionsControl
         key="git"
         gitCwd={gitCwd}
@@ -127,28 +130,30 @@ export const ChatHeader = memo(function ChatHeader({
   );
   const utilityToggleClassName = `shrink-0 ${HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME}`;
   const utilityItems = interleaveTopBarItems([
-    <Tooltip key="editor-workspace">
-      <TooltipTrigger
-        render={
-          <Toggle
-            className={utilityToggleClassName}
-            pressed={editorWorkspaceActive}
-            onPressedChange={(pressed) => {
-              onWorkspaceModeChange(pressed ? "editor" : "chat");
-            }}
-            aria-pressed={editorWorkspaceActive}
-            aria-label="Editor workspace"
-            variant="default"
-            size="xs"
-          >
-            <SquarePenIcon className="size-3.5" />
-          </Toggle>
-        }
-      />
-      <TooltipPopup side="bottom">
-        {editorWorkspaceActive ? "Leave editor — return to chat" : "Open editor workspace"}
-      </TooltipPopup>
-    </Tooltip>,
+    !isChatThread ? (
+      <Tooltip key="editor-workspace">
+        <TooltipTrigger
+          render={
+            <Toggle
+              className={utilityToggleClassName}
+              pressed={editorWorkspaceActive}
+              onPressedChange={(pressed) => {
+                onWorkspaceModeChange(pressed ? "editor" : "chat");
+              }}
+              aria-pressed={editorWorkspaceActive}
+              aria-label="Editor workspace"
+              variant="default"
+              size="xs"
+            >
+              <SquarePenIcon className="size-3.5" />
+            </Toggle>
+          }
+        />
+        <TooltipPopup side="bottom">
+          {editorWorkspaceActive ? "Leave editor — return to chat" : "Open editor workspace"}
+        </TooltipPopup>
+      </Tooltip>
+    ) : null,
     browserAvailable ? (
       <Tooltip key="browser">
         <TooltipTrigger
@@ -215,30 +220,32 @@ export const ChatHeader = memo(function ChatHeader({
             : "Toggle terminal drawer"}
       </TooltipPopup>
     </Tooltip>,
-    <Tooltip key="diff">
-      <TooltipTrigger
-        render={
-          <Toggle
-            className={utilityToggleClassName}
-            pressed={diffOpen}
-            onPressedChange={onToggleDiff}
-            aria-label="Toggle diff panel"
-            variant="default"
-            size="xs"
-            disabled={!isGitRepo}
-          >
-            <DiffIcon className="size-3.5" />
-          </Toggle>
-        }
-      />
-      <TooltipPopup side="bottom">
-        {!isGitRepo
-          ? "Diff panel is unavailable because this project is not a git repository."
-          : diffToggleShortcutLabel
-            ? `Toggle diff panel (${diffToggleShortcutLabel})`
-            : "Toggle diff panel"}
-      </TooltipPopup>
-    </Tooltip>,
+    !isChatThread ? (
+      <Tooltip key="diff">
+        <TooltipTrigger
+          render={
+            <Toggle
+              className={utilityToggleClassName}
+              pressed={diffOpen}
+              onPressedChange={onToggleDiff}
+              aria-label="Toggle diff panel"
+              variant="default"
+              size="xs"
+              disabled={!isGitRepo}
+            >
+              <DiffIcon className="size-3.5" />
+            </Toggle>
+          }
+        />
+        <TooltipPopup side="bottom">
+          {!isGitRepo
+            ? "Diff panel is unavailable because this project is not a git repository."
+            : diffToggleShortcutLabel
+              ? `Toggle diff panel (${diffToggleShortcutLabel})`
+              : "Toggle diff panel"}
+        </TooltipPopup>
+      </Tooltip>
+    ) : null,
   ]);
 
   return (
@@ -300,7 +307,7 @@ export const ChatHeader = memo(function ChatHeader({
                     <span className="min-w-0 truncate">{activeProjectName}</span>
                   </Badge>
                 )}
-                {!isGitRepo ? (
+                {!isChatThread && !isGitRepo ? (
                   <Badge variant="warning" size="sm" className="shrink-0">
                     No Git
                   </Badge>

@@ -58,6 +58,7 @@ function makeThread(input: {
     id: ThreadId.makeUnsafe(input.id),
     codexThreadId: null,
     projectId: ProjectId.makeUnsafe("project-1"),
+    kind: "coding",
     title: input.title,
     modelSelection: {
       provider: "codex",

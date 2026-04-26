@@ -140,6 +140,9 @@ export const ThreadHandoff = Schema.Struct({
 });
 export type ThreadHandoff = typeof ThreadHandoff.Type;
 
+export const ThreadKind = Schema.Literals(["coding", "chat"]);
+export type ThreadKind = typeof ThreadKind.Type;
+
 export const OrchestrationSessionStatus = Schema.Literals([
   "idle",
   "starting",
@@ -238,6 +241,7 @@ export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
+  kind: Schema.optionalKey(ThreadKind),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,

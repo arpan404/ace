@@ -19,6 +19,7 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 
 const PersistedUiStateSchema = Schema.Struct({
   boardsSectionExpanded: Schema.optional(Schema.Boolean),
+  chatsSectionExpanded: Schema.optional(Schema.Boolean),
   collapsedProjectCwds: Schema.optional(Schema.Array(Schema.String)),
   expandedProjectCwds: Schema.optional(Schema.Array(Schema.String)),
   pinnedItems: Schema.optional(
@@ -46,6 +47,7 @@ export type UiPinnedItem = { kind: "project"; id: ProjectId } | { kind: "thread"
 
 export interface UiProjectState {
   boardsSectionExpanded: boolean;
+  chatsSectionExpanded: boolean;
   pinnedSectionExpanded: boolean;
   projectExpandedById: Record<string, boolean>;
   projectOrder: ProjectId[];
@@ -75,6 +77,7 @@ export interface SyncThreadInput {
 
 const initialState: UiState = {
   boardsSectionExpanded: true,
+  chatsSectionExpanded: true,
   pinnedItems: [],
   pinnedSectionExpanded: true,
   threadOrderByProjectId: {},
@@ -125,6 +128,7 @@ function hydratePersistedUiStateFields(state: UiState, parsed: PersistedUiState)
   return {
     ...state,
     boardsSectionExpanded: parsed.boardsSectionExpanded ?? state.boardsSectionExpanded,
+    chatsSectionExpanded: parsed.chatsSectionExpanded ?? state.chatsSectionExpanded,
     pinnedSectionExpanded: parsed.pinnedSectionExpanded ?? state.pinnedSectionExpanded,
     projectsSectionExpanded: parsed.projectsSectionExpanded ?? state.projectsSectionExpanded,
   };
@@ -233,6 +237,7 @@ function persistState(state: UiState): void {
       PERSISTED_STATE_KEY,
       JSON.stringify({
         boardsSectionExpanded: state.boardsSectionExpanded,
+        chatsSectionExpanded: state.chatsSectionExpanded,
         collapsedProjectCwds,
         expandedProjectCwds,
         pinnedItems,
@@ -835,6 +840,16 @@ export function setBoardsSectionExpanded(state: UiState, expanded: boolean): UiS
   };
 }
 
+export function setChatsSectionExpanded(state: UiState, expanded: boolean): UiState {
+  if (state.chatsSectionExpanded === expanded) {
+    return state;
+  }
+  return {
+    ...state,
+    chatsSectionExpanded: expanded,
+  };
+}
+
 export function reorderProjects(
   state: UiState,
   draggedProjectId: ProjectId,
@@ -880,6 +895,7 @@ interface UiStateStore extends UiState {
   setPinnedSectionExpanded: (expanded: boolean) => void;
   setProjectsSectionExpanded: (expanded: boolean) => void;
   setBoardsSectionExpanded: (expanded: boolean) => void;
+  setChatsSectionExpanded: (expanded: boolean) => void;
   reorderProjects: (draggedProjectId: ProjectId, targetProjectId: ProjectId) => void;
 }
 
@@ -906,6 +922,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setProjectsSectionExpanded: (expanded) =>
     set((state) => setProjectsSectionExpanded(state, expanded)),
   setBoardsSectionExpanded: (expanded) => set((state) => setBoardsSectionExpanded(state, expanded)),
+  setChatsSectionExpanded: (expanded) => set((state) => setChatsSectionExpanded(state, expanded)),
   reorderProjects: (draggedProjectId, targetProjectId) =>
     set((state) => reorderProjects(state, draggedProjectId, targetProjectId)),
 }));

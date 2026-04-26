@@ -53,6 +53,7 @@ function makeThread(input: {
 }): OrchestrationThread {
   return {
     id: ThreadId.makeUnsafe(input.id ?? "thread-1"),
+    kind: "coding",
     projectId: ProjectId.makeUnsafe("project-1"),
     title: input.title ?? "Build fixes",
     modelSelection: {
