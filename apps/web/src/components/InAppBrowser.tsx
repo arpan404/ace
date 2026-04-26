@@ -19,7 +19,6 @@ import {
   CropIcon,
   ExternalLinkIcon,
   LoaderCircleIcon,
-  Maximize2Icon,
   MousePointer2Icon,
   PinIcon,
   PlusIcon,
@@ -225,6 +224,7 @@ interface InAppBrowserProps {
   connectionUrl?: string | null | undefined;
   mode: InAppBrowserMode;
   scopeId?: string;
+  showLayoutControls?: boolean;
   visible?: boolean;
   onClose: () => void;
   onRestore: () => void;
@@ -358,6 +358,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     connectionUrl,
     mode,
     scopeId,
+    showLayoutControls = true,
     visible = activeInstance,
     onClose,
     onRestore,
@@ -1249,27 +1250,25 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
             </form>
 
             <div className="flex shrink-0 items-center gap-1.5">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
-                      onClick={mode === "split" ? onRestore : onSplit}
-                      aria-label={mode === "split" ? "Expand browser" : "Open split view"}
-                    >
-                      {mode === "split" ? (
-                        <Maximize2Icon className="size-3.5" />
-                      ) : (
+              {showLayoutControls ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="outline"
+                        size="icon-xs"
+                        onClick={mode === "split" ? onRestore : onSplit}
+                        aria-label={mode === "split" ? "Expand browser" : "Open split view"}
+                      >
                         <Columns2Icon className="size-3.5" />
-                      )}
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">
-                  {mode === "split" ? "Expand to full browser" : "Open split view"}
-                </TooltipPopup>
-              </Tooltip>
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="bottom">
+                    {mode === "split" ? "Expand to full browser" : "Open split view"}
+                  </TooltipPopup>
+                </Tooltip>
+              ) : null}
               <Tooltip>
                 <TooltipTrigger
                   render={

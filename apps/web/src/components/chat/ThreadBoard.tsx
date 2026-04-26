@@ -62,6 +62,7 @@ function isThreadBoardInteractiveTarget(target: EventTarget | null): boolean {
 
 function ThreadBoardPane(props: {
   activePaneId: string | null;
+  inlineDiffPanelEnabled: boolean;
   shortcutsEnabled: boolean;
   isPrimary: boolean;
   pane: ChatThreadBoardPaneState;
@@ -91,6 +92,7 @@ function ThreadBoardPane(props: {
     >
       <ChatView
         connectionUrl={pane.connectionUrl}
+        inlineDiffPanelEnabled={props.inlineDiffPanelEnabled}
         threadId={pane.threadId}
         shortcutsEnabled={props.shortcutsEnabled}
         showSidebarTrigger={props.showSidebarTrigger}
@@ -129,6 +131,7 @@ function ThreadBoardPane(props: {
 
 export function ThreadBoard(props: {
   connectionUrl?: string | null;
+  inlineDiffPanelEnabled?: boolean;
   routeActiveThread?: ChatThreadBoardRoutePane | null;
   routeSplitId?: string | null;
   routeThreads?: readonly ChatThreadBoardRoutePane[];
@@ -388,7 +391,13 @@ export function ThreadBoard(props: {
   }, []);
 
   if (!boardVisible || !primaryPane) {
-    return <ChatView connectionUrl={props.connectionUrl ?? null} threadId={props.threadId} />;
+    return (
+      <ChatView
+        connectionUrl={props.connectionUrl ?? null}
+        inlineDiffPanelEnabled={props.inlineDiffPanelEnabled ?? true}
+        threadId={props.threadId}
+      />
+    );
   }
 
   return (
@@ -472,6 +481,7 @@ export function ThreadBoard(props: {
                 >
                   <ThreadBoardPane
                     activePaneId={activePaneId}
+                    inlineDiffPanelEnabled={props.inlineDiffPanelEnabled ?? true}
                     isPrimary={isPrimary}
                     pane={pane}
                     shortcutsEnabled={(activePaneId ?? primaryPane.id) === pane.id}

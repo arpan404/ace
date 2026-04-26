@@ -104,7 +104,6 @@ describe("OrchestrationEngine", () => {
         {
           id: ThreadId.makeUnsafe("thread-bootstrap"),
           projectId: asProjectId("project-bootstrap"),
-          kind: "coding" as const,
           title: "Bootstrap Thread",
           modelSelection: {
             provider: "codex" as const,

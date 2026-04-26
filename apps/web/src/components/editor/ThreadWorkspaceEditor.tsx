@@ -649,6 +649,7 @@ function ThreadWorkspaceEditor(inputProps: {
   keybindings: ResolvedKeybindingsConfig;
   lspCwd?: string | null;
   onWorkspaceModeChange?: ((mode: ThreadWorkspaceMode) => void) | undefined;
+  showWorkspaceModeControl?: boolean | undefined;
   terminalOpen: boolean;
   threadId: ThreadId;
   worktreePath?: string | null;
@@ -714,6 +715,7 @@ function ThreadWorkspaceEditor(inputProps: {
   const [dragTargetParentPath, setDragTargetParentPath] = useState<string | null>(null);
   const [saveConflict, setSaveConflict] = useState<SaveConflictState | null>(null);
   const onWorkspaceModeChange = props.onWorkspaceModeChange;
+  const showWorkspaceModeControl = inputProps.showWorkspaceModeControl ?? true;
   const editorWorkspaceMode: ThreadWorkspaceMode =
     props.workspaceMode === "split" ? "split" : "editor";
   const hasRecentlyClosedFiles = useEditorStateStore(
@@ -2146,7 +2148,7 @@ function ThreadWorkspaceEditor(inputProps: {
                   >
                     <IconLayoutSidebarFilled className="size-3.5" />
                   </Button>
-                  {onWorkspaceModeChange ? (
+                  {onWorkspaceModeChange && showWorkspaceModeControl ? (
                     <Button
                       type="button"
                       variant="ghost"

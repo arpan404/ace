@@ -8,7 +8,6 @@ import {
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
   hasUnseenCompletion,
-  isCodingSidebarThread,
   isContextMenuPointerDown,
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
@@ -58,13 +57,6 @@ describe("hasUnseenCompletion", () => {
         session: null,
       }),
     ).toBe(true);
-  });
-});
-
-describe("isCodingSidebarThread", () => {
-  it("keeps chat threads out of project-only thread lists", () => {
-    expect(isCodingSidebarThread({ kind: "coding" })).toBe(true);
-    expect(isCodingSidebarThread({ kind: "chat" })).toBe(false);
   });
 });
 
@@ -766,7 +758,6 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     turnDiffSummaries: [],
     activities: [],
     ...overrides,
-    kind: overrides.kind ?? "coding",
   };
 }
 

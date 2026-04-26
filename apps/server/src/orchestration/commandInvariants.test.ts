@@ -55,7 +55,6 @@ const readModel: OrchestrationReadModel = {
     {
       id: ThreadId.makeUnsafe("thread-1"),
       projectId: ProjectId.makeUnsafe("project-a"),
-      kind: "coding",
       title: "Thread A",
       modelSelection: {
         provider: "codex",
@@ -82,7 +81,6 @@ const readModel: OrchestrationReadModel = {
     {
       id: ThreadId.makeUnsafe("thread-2"),
       projectId: ProjectId.makeUnsafe("project-b"),
-      kind: "coding",
       title: "Thread B",
       modelSelection: {
         provider: "codex",

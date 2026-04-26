@@ -266,7 +266,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         {
           id: ThreadId.makeUnsafe("thread-1"),
           projectId: asProjectId("project-1"),
-          kind: "coding",
           title: "Thread 1",
           modelSelection: {
             provider: "codex",

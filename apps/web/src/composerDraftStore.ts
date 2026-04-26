@@ -10,7 +10,6 @@ import {
   ProviderModelOptions,
   RuntimeMode,
   type ServerProvider,
-  type ThreadKind,
   ThreadId,
 } from "@ace/contracts";
 import * as Schema from "effect/Schema";
@@ -37,8 +36,6 @@ export const COMPOSER_DRAFT_STORAGE_KEY = "ace:composer-drafts:v1";
 const COMPOSER_DRAFT_STORAGE_VERSION = 3;
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
-const DraftThreadKindSchema = Schema.Literals(["coding", "chat"]);
-const CHAT_DRAFT_PROJECT_KEY_PREFIX = "chat:";
 
 const COMPOSER_PERSIST_DEBOUNCE_MS = 300;
 const ALL_PROVIDER_KINDS = [
@@ -142,7 +139,6 @@ type LegacyPersistedComposerDraftStoreState = PersistedComposerDraftStoreState &
 
 const PersistedDraftThreadState = Schema.Struct({
   projectId: ProjectId,
-  kind: Schema.optionalKey(DraftThreadKindSchema),
   createdAt: Schema.String,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
@@ -182,7 +178,6 @@ export interface ComposerThreadDraftState {
 
 export interface DraftThreadState {
   projectId: ProjectId;
-  kind: ThreadKind;
   createdAt: string;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
@@ -201,10 +196,7 @@ interface ComposerDraftStoreState {
   projectDraftThreadIdByProjectId: Record<ProjectId, ThreadId>;
   stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
   stickyActiveProvider: ProviderKind | null;
-  getDraftThreadByProjectId: (
-    projectId: ProjectId,
-    options?: { kind?: ThreadKind },
-  ) => ProjectDraftThread | null;
+  getDraftThreadByProjectId: (projectId: ProjectId) => ProjectDraftThread | null;
   getDraftThread: (threadId: ThreadId) => DraftThreadState | null;
   setProjectDraftThreadId: (
     projectId: ProjectId,
@@ -216,7 +208,6 @@ interface ComposerDraftStoreState {
       envMode?: DraftThreadEnvMode;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
-      kind?: ThreadKind;
     },
   ) => void;
   setDraftThreadContext: (
@@ -229,10 +220,9 @@ interface ComposerDraftStoreState {
       envMode?: DraftThreadEnvMode;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
-      kind?: ThreadKind;
     },
   ) => void;
-  clearProjectDraftThreadId: (projectId: ProjectId, options?: { kind?: ThreadKind }) => void;
+  clearProjectDraftThreadId: (projectId: ProjectId) => void;
   clearProjectDraftThreadById: (projectId: ProjectId, threadId: ThreadId) => void;
   clearDraftThread: (threadId: ThreadId) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
@@ -472,22 +462,6 @@ function withUpdatedComposerDraft(
   return nextDraftsByThreadId;
 }
 
-function projectDraftThreadKey(projectId: ProjectId, kind: ThreadKind): ProjectId {
-  return (
-    kind === "chat" ? `${CHAT_DRAFT_PROJECT_KEY_PREFIX}${projectId}` : projectId
-  ) as ProjectId;
-}
-
-function parseProjectDraftThreadKey(key: string): { projectId: ProjectId; kind: ThreadKind } {
-  if (key.startsWith(CHAT_DRAFT_PROJECT_KEY_PREFIX)) {
-    return {
-      projectId: key.slice(CHAT_DRAFT_PROJECT_KEY_PREFIX.length) as ProjectId,
-      kind: "chat",
-    };
-  }
-  return { projectId: key as ProjectId, kind: "coding" };
-}
-
 function removeProjectDraftMapping(
   state: Pick<
     ComposerDraftStoreState,
@@ -496,21 +470,15 @@ function removeProjectDraftMapping(
   projectId: ProjectId,
   options?: {
     expectedThreadId?: ThreadId;
-    kind?: ThreadKind;
   },
 ): Pick<
   ComposerDraftStoreState,
   "draftsByThreadId" | "draftThreadsByThreadId" | "projectDraftThreadIdByProjectId"
 > | null {
   const entriesToRemove = Object.entries(state.projectDraftThreadIdByProjectId).filter(
-    ([rawProjectKey, threadId]) => {
-      const parsedKey = parseProjectDraftThreadKey(rawProjectKey);
-      return (
-        parsedKey.projectId === projectId &&
-        (options?.kind === undefined || parsedKey.kind === options.kind) &&
-        (options?.expectedThreadId === undefined || threadId === options.expectedThreadId)
-      );
-    },
+    ([rawProjectKey, threadId]) =>
+      rawProjectKey === projectId &&
+      (options?.expectedThreadId === undefined || threadId === options.expectedThreadId),
   );
   if (entriesToRemove.length === 0) {
     return null;
@@ -996,7 +964,6 @@ function normalizePersistedDraftThreads(
             : DEFAULT_RUNTIME_MODE;
       draftThreadsByThreadId[threadId as ThreadId] = {
         projectId: projectId as ProjectId,
-        kind: candidateDraftThread.kind === "chat" ? "chat" : "coding",
         createdAt:
           typeof createdAt === "string" && createdAt.length > 0
             ? createdAt
@@ -1022,7 +989,7 @@ function normalizePersistedDraftThreads(
     for (const [rawProjectKey, threadId] of Object.entries(
       rawProjectDraftThreadIdByProjectId as Record<string, unknown>,
     )) {
-      const { projectId, kind: keyKind } = parseProjectDraftThreadKey(rawProjectKey);
+      const projectId = rawProjectKey as ProjectId;
       if (
         typeof projectId === "string" &&
         projectId.length > 0 &&
@@ -1032,7 +999,6 @@ function normalizePersistedDraftThreads(
         if (!draftThreadsByThreadId[threadId as ThreadId]) {
           draftThreadsByThreadId[threadId as ThreadId] = {
             projectId: projectId as ProjectId,
-            kind: keyKind,
             createdAt: new Date().toISOString(),
             runtimeMode: DEFAULT_RUNTIME_MODE,
             interactionMode: DEFAULT_INTERACTION_MODE,
@@ -1046,10 +1012,7 @@ function normalizePersistedDraftThreads(
             projectId: projectId as ProjectId,
           };
         }
-        const draftThreadKind = draftThreadsByThreadId[threadId as ThreadId]?.kind ?? keyKind;
-        projectDraftThreadIdByProjectId[
-          projectDraftThreadKey(projectId as ProjectId, draftThreadKind)
-        ] = threadId as ThreadId;
+        projectDraftThreadIdByProjectId[projectId as ProjectId] = threadId as ThreadId;
       }
     }
   }
@@ -1483,21 +1446,16 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
       stickyActiveProvider: null,
-      getDraftThreadByProjectId: (projectId, options) => {
+      getDraftThreadByProjectId: (projectId) => {
         if (projectId.length === 0) {
           return null;
         }
-        const kind = options?.kind ?? "coding";
-        const threadId =
-          get().projectDraftThreadIdByProjectId[projectDraftThreadKey(projectId, kind)];
+        const threadId = get().projectDraftThreadIdByProjectId[projectId];
         if (!threadId) {
           return null;
         }
         const draftThread = get().draftThreadsByThreadId[threadId];
         if (!draftThread || draftThread.projectId !== projectId) {
-          return null;
-        }
-        if (draftThread.kind !== kind) {
           return null;
         }
         return {
@@ -1523,7 +1481,6 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               : (options.worktreePath ?? null);
           const nextDraftThread: DraftThreadState = {
             projectId,
-            kind: options?.kind ?? existingThread?.kind ?? "coding",
             createdAt: options?.createdAt ?? existingThread?.createdAt ?? new Date().toISOString(),
             runtimeMode:
               options?.runtimeMode ?? existingThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
@@ -1540,14 +1497,11 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               options?.envMode ??
               (nextWorktreePath ? "worktree" : (existingThread?.envMode ?? "local")),
           };
-          const nextProjectDraftThreadKey = projectDraftThreadKey(projectId, nextDraftThread.kind);
-          const previousThreadIdForProjectKind =
-            state.projectDraftThreadIdByProjectId[nextProjectDraftThreadKey];
-          const hasSameProjectMapping = previousThreadIdForProjectKind === threadId;
+          const previousThreadIdForProject = state.projectDraftThreadIdByProjectId[projectId];
+          const hasSameProjectMapping = previousThreadIdForProject === threadId;
           const hasSameDraftThread =
             existingThread &&
             existingThread.projectId === nextDraftThread.projectId &&
-            existingThread.kind === nextDraftThread.kind &&
             existingThread.createdAt === nextDraftThread.createdAt &&
             existingThread.runtimeMode === nextDraftThread.runtimeMode &&
             existingThread.interactionMode === nextDraftThread.interactionMode &&
@@ -1559,7 +1513,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           }
           const nextProjectDraftThreadIdByProjectId: Record<ProjectId, ThreadId> = {
             ...state.projectDraftThreadIdByProjectId,
-            [nextProjectDraftThreadKey]: threadId,
+            [projectId]: threadId,
           };
           const nextDraftThreadsByThreadId: Record<ThreadId, DraftThreadState> = {
             ...state.draftThreadsByThreadId,
@@ -1567,16 +1521,14 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           };
           let nextDraftsByThreadId = state.draftsByThreadId;
           if (
-            previousThreadIdForProjectKind &&
-            previousThreadIdForProjectKind !== threadId &&
-            !Object.values(nextProjectDraftThreadIdByProjectId).includes(
-              previousThreadIdForProjectKind,
-            )
+            previousThreadIdForProject &&
+            previousThreadIdForProject !== threadId &&
+            !Object.values(nextProjectDraftThreadIdByProjectId).includes(previousThreadIdForProject)
           ) {
-            delete nextDraftThreadsByThreadId[previousThreadIdForProjectKind];
-            if (state.draftsByThreadId[previousThreadIdForProjectKind] !== undefined) {
+            delete nextDraftThreadsByThreadId[previousThreadIdForProject];
+            if (state.draftsByThreadId[previousThreadIdForProject] !== undefined) {
               nextDraftsByThreadId = { ...state.draftsByThreadId };
-              delete nextDraftsByThreadId[previousThreadIdForProjectKind];
+              delete nextDraftsByThreadId[previousThreadIdForProject];
             }
           }
           return {
@@ -1605,7 +1557,6 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               : (options.worktreePath ?? null);
           const nextDraftThread: DraftThreadState = {
             projectId: nextProjectId,
-            kind: options.kind ?? existing.kind,
             createdAt:
               options.createdAt === undefined
                 ? existing.createdAt
@@ -1619,7 +1570,6 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           };
           const isUnchanged =
             nextDraftThread.projectId === existing.projectId &&
-            nextDraftThread.kind === existing.kind &&
             nextDraftThread.createdAt === existing.createdAt &&
             nextDraftThread.runtimeMode === existing.runtimeMode &&
             nextDraftThread.interactionMode === existing.interactionMode &&
@@ -1629,21 +1579,13 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           if (isUnchanged) {
             return state;
           }
-          const nextProjectDraftThreadKey = projectDraftThreadKey(
-            nextProjectId,
-            nextDraftThread.kind,
-          );
           const nextProjectDraftThreadIdByProjectId: Record<ProjectId, ThreadId> = {
             ...state.projectDraftThreadIdByProjectId,
-            [nextProjectDraftThreadKey]: threadId,
+            [nextProjectId]: threadId,
           };
-          if (existing.projectId !== nextProjectId || existing.kind !== nextDraftThread.kind) {
-            const previousProjectDraftThreadKey = projectDraftThreadKey(
-              existing.projectId,
-              existing.kind,
-            );
-            if (nextProjectDraftThreadIdByProjectId[previousProjectDraftThreadKey] === threadId) {
-              delete nextProjectDraftThreadIdByProjectId[previousProjectDraftThreadKey];
+          if (existing.projectId !== nextProjectId) {
+            if (nextProjectDraftThreadIdByProjectId[existing.projectId] === threadId) {
+              delete nextProjectDraftThreadIdByProjectId[existing.projectId];
             }
           }
           return {
@@ -1655,18 +1597,12 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           };
         });
       },
-      clearProjectDraftThreadId: (projectId, options) => {
+      clearProjectDraftThreadId: (projectId) => {
         if (projectId.length === 0) {
           return;
         }
         set((state) => {
-          return (
-            removeProjectDraftMapping(
-              state,
-              projectId,
-              options?.kind === undefined ? undefined : { kind: options.kind },
-            ) ?? state
-          );
+          return removeProjectDraftMapping(state, projectId) ?? state;
         });
       },
       clearProjectDraftThreadById: (projectId, threadId) => {
@@ -2290,16 +2226,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             toHydratedThreadDraft(draft),
           ]),
         );
-        const draftThreadsByThreadId = Object.fromEntries(
-          Object.entries(normalizedPersisted.draftThreadsByThreadId).map(([threadId, thread]) => [
-            threadId,
-            { ...thread, kind: thread.kind ?? "coding" },
-          ]),
-        ) as Record<ThreadId, DraftThreadState>;
         return {
           ...currentState,
           draftsByThreadId,
-          draftThreadsByThreadId,
+          draftThreadsByThreadId: normalizedPersisted.draftThreadsByThreadId,
           projectDraftThreadIdByProjectId: normalizedPersisted.projectDraftThreadIdByProjectId,
           stickyModelSelectionByProvider: normalizedPersisted.stickyModelSelectionByProvider ?? {},
           stickyActiveProvider: normalizedPersisted.stickyActiveProvider ?? null,

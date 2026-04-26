@@ -91,7 +91,6 @@ import {
 } from "./ProjectAvatar";
 import { toastManager } from "./ui/toast";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
-import { HEADER_PILL_ICON_TRIGGER_CLASS_NAME } from "./thread/TopBarCluster";
 import {
   getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
@@ -155,7 +154,6 @@ import {
 import {
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
-  isCodingSidebarThread,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
   resolveProjectStatusIndicator,
@@ -897,7 +895,6 @@ export default function Sidebar() {
   const threadIdsByProjectId = useStore((store) => store.threadIdsByProjectId);
   const {
     boardsSectionExpanded,
-    chatsSectionExpanded,
     pinnedItems,
     pinnedSectionExpanded,
     projectExpandedById,
@@ -908,7 +905,6 @@ export default function Sidebar() {
   } = useUiStateStore(
     useShallow((store) => ({
       boardsSectionExpanded: store.boardsSectionExpanded,
-      chatsSectionExpanded: store.chatsSectionExpanded,
       pinnedItems: store.pinnedItems,
       pinnedSectionExpanded: store.pinnedSectionExpanded,
       projectExpandedById: store.projectExpandedById,
@@ -926,7 +922,6 @@ export default function Sidebar() {
   const setPinnedSectionExpanded = useUiStateStore((store) => store.setPinnedSectionExpanded);
   const setProjectsSectionExpanded = useUiStateStore((store) => store.setProjectsSectionExpanded);
   const setBoardsSectionExpanded = useUiStateStore((store) => store.setBoardsSectionExpanded);
-  const setChatsSectionExpanded = useUiStateStore((store) => store.setChatsSectionExpanded);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const reorderThreadsInProject = useUiStateStore((store) => store.reorderThreadsInProject);
   const reorderPinnedThreads = useUiStateStore((store) => store.reorderPinnedThreads);
@@ -1904,7 +1899,7 @@ export default function Sidebar() {
         (threadIdsByProjectId[projectId] ?? [])
           .map((threadId) => sidebarThreadsById[threadId])
           .filter((thread): thread is NonNullable<typeof thread> => thread !== undefined)
-          .filter((thread) => thread.archivedAt === null && isCodingSidebarThread(thread)),
+          .filter((thread) => thread.archivedAt === null),
         sortOrder,
       );
       const latestThread =
@@ -3310,7 +3305,7 @@ export default function Sidebar() {
       const threadIds = threadIdsByProjectId[project.id] ?? [];
       for (const threadId of threadIds) {
         const thread = sidebarThreadsById[threadId];
-        if (!thread || thread.archivedAt !== null || !isCodingSidebarThread(thread)) {
+        if (!thread || thread.archivedAt !== null) {
           continue;
         }
         projectThreads.push(thread);
@@ -3711,17 +3706,6 @@ export default function Sidebar() {
         ),
     [sidebarThreadsById],
   );
-  const sortedChatThreads = useMemo(
-    () =>
-      sortedActiveThreads.filter(
-        (thread) => thread.kind === "chat" && !pinnedThreadIdSet.has(thread.id),
-      ),
-    [pinnedThreadIdSet, sortedActiveThreads],
-  );
-  const sortedChatThreadIds = useMemo(
-    () => sortedChatThreads.map((thread) => thread.id),
-    [sortedChatThreads],
-  );
   const splitPickerThreadOptions = useMemo(
     () =>
       sortedActiveThreads.map((thread) => ({
@@ -3839,21 +3823,8 @@ export default function Sidebar() {
     splitPickerSelectedThreadIds,
     splitPickerThreadOptions,
   ]);
-  const sidebarNewChatProjectId = useMemo(() => {
-    const currentProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
-    if (currentProjectId && projectById.has(currentProjectId)) {
-      return currentProjectId;
-    }
-
-    const latestThreadProjectId = sortedActiveThreads.find((thread) =>
-      projectById.has(thread.projectId),
-    )?.projectId;
-    if (latestThreadProjectId) {
-      return latestThreadProjectId;
-    }
-
-    return defaultProjectId && projectById.has(defaultProjectId) ? defaultProjectId : null;
-  }, [activeDraftThread, activeThread, defaultProjectId, projectById, sortedActiveThreads]);
+  const sidebarNewThreadProjectId =
+    defaultProjectId && projectById.has(defaultProjectId) ? defaultProjectId : null;
   const handleStartNewThreadForProject = useCallback(
     (projectId: ProjectId) => {
       void handleNewThread(
@@ -3886,27 +3857,11 @@ export default function Sidebar() {
     [activeDraftThread, activeThread, appSettings.defaultThreadEnvMode, handleNewThread],
   );
   const handleStartSidebarNewChat = useCallback(() => {
-    if (!sidebarNewChatProjectId) {
+    if (!sidebarNewThreadProjectId) {
       return;
     }
-    void handleNewThread(sidebarNewChatProjectId, {
-      kind: "chat",
-      envMode: "local",
-      branch: null,
-      worktreePath: null,
-    });
-  }, [handleNewThread, sidebarNewChatProjectId]);
-  const handleStartNewChatForProject = useCallback(
-    (projectId: ProjectId) => {
-      void handleNewThread(projectId, {
-        kind: "chat",
-        envMode: "local",
-        branch: null,
-        worktreePath: null,
-      });
-    },
-    [handleNewThread],
-  );
+    handleStartNewThreadForProject(sidebarNewThreadProjectId);
+  }, [handleStartNewThreadForProject, sidebarNewThreadProjectId]);
 
   const handleStartNewThreadForRemoteProject = useCallback(
     (input: { connectionUrl: string; project: RemoteSidebarProjectEntry }) => {
@@ -3939,19 +3894,6 @@ export default function Sidebar() {
     },
     [activeDraftThread, activeThread, appSettings.defaultThreadEnvMode, handleNewThread],
   );
-  const handleStartNewChatForRemoteProject = useCallback(
-    (input: { connectionUrl: string; project: RemoteSidebarProjectEntry }) => {
-      void handleNewThread(input.project.id, {
-        kind: "chat",
-        envMode: "local",
-        branch: null,
-        worktreePath: null,
-        connectionUrl: input.connectionUrl,
-      });
-    },
-    [handleNewThread],
-  );
-
   const {
     searchPaletteOpen,
     searchPaletteMode,
@@ -3983,10 +3925,6 @@ export default function Sidebar() {
     projectSortOrder: appSettings.sidebarProjectSortOrder,
     threadSortOrder: appSettings.sidebarThreadSortOrder,
     onStartAddProject: handleStartAddProject,
-    onStartNewChatForProject: handleStartNewChatForProject,
-    onStartNewChatForRemoteProject: (input) => {
-      void handleStartNewChatForRemoteProject(input);
-    },
     onStartNewThreadForProject: handleStartNewThreadForProject,
     onStartNewThreadForRemoteProject: (input) => {
       void handleStartNewThreadForRemoteProject(input);
@@ -4005,9 +3943,8 @@ export default function Sidebar() {
         ? [{ renderedThreadIds: renderedPinnedThreadIds }]
         : []),
       ...filteredRenderedProjects,
-      ...(sortedChatThreadIds.length > 0 ? [{ renderedThreadIds: sortedChatThreadIds }] : []),
     ],
-    [filteredRenderedProjects, renderedPinnedThreadIds, sortedChatThreadIds],
+    [filteredRenderedProjects, renderedPinnedThreadIds],
   );
   const { visibleSidebarThreadIds, prByThreadId } = useSidebarThreadPrStatus({
     renderedProjects: renderedSidebarThreadGroups,
@@ -4225,45 +4162,6 @@ export default function Sidebar() {
     );
   }
 
-  function renderChatThreadRow(threadId: ThreadId) {
-    return (
-      <SidebarThreadRow
-        key={threadId}
-        threadId={threadId}
-        orderedProjectThreadIds={sortedChatThreadIds}
-        routeThreadId={activeSidebarRouteThreadId}
-        activeRouteConnectionUrl={activeRouteConnectionUrl}
-        connectionUrl={activeWsUrl}
-        selectedThreadIds={selectedThreadIds}
-        showThreadJumpHints={showThreadJumpHints}
-        jumpLabel={threadJumpLabelById.get(threadId) ?? null}
-        appSettingsConfirmThreadArchive={appSettings.confirmThreadArchive}
-        isPinned={pinnedThreadIdSet.has(threadId)}
-        sortableHandleProps={null}
-        showPinnedIndicator={false}
-        renamingThreadId={renamingThreadId}
-        renamingTitle={renamingTitle}
-        setRenamingTitle={setRenamingTitle}
-        renamingInputRef={renamingInputRef}
-        renamingCommittedRef={renamingCommittedRef}
-        confirmingArchiveThreadId={confirmingArchiveThreadId}
-        setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
-        confirmArchiveButtonRefs={confirmArchiveButtonRefs}
-        handleThreadClick={handleThreadClick}
-        navigateToThread={navigateToThread}
-        prefetchThreadHistory={prefetchThreadHistory}
-        handleMultiSelectContextMenu={handleMultiSelectContextMenu}
-        handleThreadContextMenu={handleThreadContextMenu}
-        clearSelection={clearSelection}
-        commitRename={commitRename}
-        cancelRename={cancelRename}
-        attemptArchiveThread={attemptArchiveThread}
-        onTogglePinnedThread={togglePinnedThread}
-        openPrLink={openPrLink}
-        pr={null}
-      />
-    );
-  }
   const canDragPinnedThreads =
     normalizedProjectSearchQuery.length === 0 &&
     sortedRenderedPinnedItems.every((item) => item.kind === "thread") &&
@@ -4992,20 +4890,14 @@ export default function Sidebar() {
   );
   const sidebarHeaderToggle = showSidebarHeaderToggle ? (
     <Tooltip>
-      <TooltipTrigger
-        render={
-          <SidebarTrigger
-            className={cn(DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME, HEADER_PILL_ICON_TRIGGER_CLASS_NAME)}
-          />
-        }
-      />
+      <TooltipTrigger render={<SidebarTrigger className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME} />} />
       <TooltipPopup side="bottom" sideOffset={4}>
         {renderSidebarHeaderTooltipContent("Toggle sidebar", sidebarToggleShortcutLabel)}
       </TooltipPopup>
     </Tooltip>
   ) : null;
   const sidebarHeaderNavButtonClassName =
-    "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/65 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30 active:text-foreground disabled:pointer-events-none disabled:opacity-40";
+    "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/65 outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30 active:bg-accent/80 active:text-foreground disabled:pointer-events-none disabled:opacity-40";
   const sidebarHeaderChrome = (
     <div
       ref={sidebarHeaderRowRef}
@@ -5471,8 +5363,7 @@ export default function Sidebar() {
       <CommandDialog open={searchPaletteOpen} onOpenChange={handleSearchPaletteOpenChange}>
         <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0 shadow-lg rounded-xl">
           <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3 bg-gradient-to-b from-popover/50 to-popover/20">
-            {searchPaletteMode === "new-thread-project" ||
-            searchPaletteMode === "new-chat-project" ? (
+            {searchPaletteMode === "new-thread-project" ? (
               <button
                 type="button"
                 className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent/80 hover:text-foreground active:scale-95"
@@ -5490,9 +5381,7 @@ export default function Sidebar() {
               placeholder={
                 searchPaletteMode === "new-thread-project"
                   ? "Select project for a new thread..."
-                  : searchPaletteMode === "new-chat-project"
-                    ? "Select project for a new chat..."
-                    : "Search commands, projects, and threads..."
+                  : "Search commands, projects, and threads..."
               }
               value={searchPaletteQuery}
               onChange={(event) => handleSearchPaletteQueryChange(event.target.value)}
@@ -5519,7 +5408,7 @@ export default function Sidebar() {
                   const itemIndex = searchPaletteIndexById.get(item.id) ?? -1;
                   const isActive = itemIndex === searchPaletteActiveIndex;
                   const icon =
-                    item.type === "action.new-thread" || item.type === "action.new-chat" ? (
+                    item.type === "action.new-thread" ? (
                       <SquarePenIcon className="size-4 shrink-0" strokeWidth={2} />
                     ) : item.type === "action.new-project" ? (
                       <FolderIcon className="size-4 shrink-0" strokeWidth={2} />
@@ -5556,11 +5445,9 @@ export default function Sidebar() {
                     <p className="px-0 pt-3 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
                       {searchPaletteMode === "new-thread-project"
                         ? "Projects"
-                        : searchPaletteMode === "new-chat-project"
-                          ? "Chat folders"
-                          : normalizedSearchPaletteQuery.length === 0
-                            ? "Recent Projects"
-                            : "Projects"}
+                        : normalizedSearchPaletteQuery.length === 0
+                          ? "Recent Projects"
+                          : "Projects"}
                     </p>
                     {searchPaletteProjectItems.map((item) => {
                       if (item.type !== "project") {
@@ -5968,7 +5855,7 @@ export default function Sidebar() {
                 type="button"
                 className="group/sidebar-new-chat flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
                 onClick={handleStartSidebarNewChat}
-                disabled={!sidebarNewChatProjectId}
+                disabled={!sidebarNewThreadProjectId}
                 aria-label="New chat"
               >
                 <SquarePenIcon className="size-3.5 shrink-0 transition-colors group-hover/sidebar-new-chat:text-foreground" />
@@ -6255,64 +6142,6 @@ export default function Sidebar() {
                 </div>
               </SidebarGroup>
             ) : null}
-            <SidebarGroup className="order-last px-2.5 pt-1 pb-2">
-              <div className="mb-1.5 flex items-center justify-between pl-2 pr-1.5">
-                <button
-                  type="button"
-                  className="group/section-header flex h-5 min-w-0 flex-1 cursor-pointer items-center gap-1.5 bg-transparent text-left"
-                  aria-expanded={chatsSectionExpanded}
-                  onClick={() => setChatsSectionExpanded(!chatsSectionExpanded)}
-                >
-                  <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors group-hover/section-header:text-foreground">
-                    Chats
-                  </span>
-                  <ChevronRightIcon
-                    className={`size-4 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
-                      chatsSectionExpanded ? "rotate-90" : ""
-                    }`}
-                  />
-                </button>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        aria-label="New chat"
-                        className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
-                        disabled={!sidebarNewChatProjectId}
-                        onClick={handleStartSidebarNewChat}
-                      />
-                    }
-                  >
-                    <SquarePenIcon className="size-4" />
-                  </TooltipTrigger>
-                  <TooltipPopup side="right">New chat</TooltipPopup>
-                </Tooltip>
-              </div>
-              <div
-                aria-hidden={!chatsSectionExpanded}
-                className={cn(
-                  "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
-                  chatsSectionExpanded
-                    ? "grid-rows-[1fr] opacity-100"
-                    : "pointer-events-none grid-rows-[0fr] opacity-0",
-                )}
-              >
-                <div className="min-h-0 overflow-hidden">
-                  <SidebarMenuSub className="mx-0 my-0 w-full translate-x-0 gap-0.5 border-l-0 px-0 py-0.5">
-                    {sortedChatThreadIds.length > 0 ? (
-                      sortedChatThreadIds.map((threadId) => renderChatThreadRow(threadId))
-                    ) : (
-                      <SidebarMenuItem>
-                        <div className="h-7 px-2 text-xs text-muted-foreground/60">
-                          No chats yet
-                        </div>
-                      </SidebarMenuItem>
-                    )}
-                  </SidebarMenuSub>
-                </div>
-              </div>
-            </SidebarGroup>
             <SidebarGroup className="px-2.5 pt-2.5 pb-5">
               <div className="mb-1.5 flex items-center justify-between pl-2 pr-1.5">
                 <button

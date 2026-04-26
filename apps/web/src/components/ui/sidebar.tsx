@@ -313,9 +313,9 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<"
   return (
     <button
       className={cn(
-        "group/sidebar-trigger inline-flex size-7 shrink-0 cursor-pointer items-center justify-center text-current outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:opacity-50",
+        "group/sidebar-trigger inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[var(--control-radius)] text-current outline-none transition-[background-color,color,filter,opacity] duration-150 ease-out hover:bg-foreground/[0.06] active:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:opacity-50",
         className,
-        "!border-0 !bg-transparent !p-0 !shadow-none hover:!border-0 hover:!bg-transparent hover:!shadow-none active:!bg-transparent",
+        "!border-0 !p-0 !shadow-none hover:!border-0 hover:!shadow-none",
       )}
       data-sidebar="trigger"
       data-slot="sidebar-trigger"

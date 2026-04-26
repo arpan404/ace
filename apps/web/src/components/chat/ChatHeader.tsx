@@ -4,7 +4,7 @@ import {
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@ace/contracts";
-import { IconTerminal } from "@tabler/icons-react";
+import { IconLayoutSidebarRight, IconTerminal } from "@tabler/icons-react";
 import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
 import {
@@ -35,7 +35,6 @@ interface ChatHeaderProps {
   activeThreadTitle: string;
   activeProjectId: ProjectId | null;
   activeProjectName: string | undefined;
-  isChatThread: boolean;
   isGitRepo: boolean;
   activeProjectScripts: ProjectScript[] | undefined;
   preferredScriptId: string | null;
@@ -50,6 +49,7 @@ interface ChatHeaderProps {
   browserDevToolsOpen: boolean;
   gitCwd: string | null;
   diffOpen: boolean;
+  rightSidePanelOpen: boolean;
   workspaceMode: ThreadWorkspaceMode;
   workspaceName: string | undefined;
   onRunProjectScript: (script: ProjectScript) => void;
@@ -61,6 +61,7 @@ interface ChatHeaderProps {
   onActiveProjectChange?: ((projectId: ProjectId) => void) | null;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
+  onToggleRightSidePanel: () => void;
   onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
 }
 
@@ -71,7 +72,6 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadTitle,
   activeProjectId,
   activeProjectName,
-  isChatThread,
   isGitRepo,
   activeProjectScripts,
   preferredScriptId,
@@ -86,6 +86,7 @@ export const ChatHeader = memo(function ChatHeader({
   browserDevToolsOpen,
   gitCwd,
   diffOpen,
+  rightSidePanelOpen,
   workspaceMode,
   workspaceName,
   onRunProjectScript,
@@ -97,13 +98,13 @@ export const ChatHeader = memo(function ChatHeader({
   onActiveProjectChange,
   onToggleTerminal,
   onToggleDiff,
+  onToggleRightSidePanel,
   onWorkspaceModeChange,
 }: ChatHeaderProps) {
-  const editorWorkspaceActive =
-    !isChatThread && (workspaceMode === "editor" || workspaceMode === "split");
+  const editorWorkspaceActive = workspaceMode === "editor" || workspaceMode === "split";
   const workspaceDisplayName = workspaceName ?? activeProjectName ?? "Workspace";
   const workspaceActionItems: ReactNode[] = [
-    !isChatThread && activeProjectScripts ? (
+    activeProjectScripts ? (
       <ProjectScriptsControl
         key="scripts"
         scripts={activeProjectScripts}
@@ -115,7 +116,7 @@ export const ChatHeader = memo(function ChatHeader({
         onDeleteScript={onDeleteProjectScript}
       />
     ) : null,
-    !isChatThread && activeProjectName ? (
+    activeProjectName ? (
       <GitActionsControl
         key="git"
         gitCwd={gitCwd}
@@ -129,31 +130,31 @@ export const ChatHeader = memo(function ChatHeader({
     (item): item is NonNullable<ReactNode> => item !== null,
   );
   const utilityToggleClassName = `shrink-0 ${HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME}`;
+  const sidePanelToggleClassName =
+    "group/right-panel shrink-0 !size-8 !rounded-lg !border !border-transparent !bg-transparent !p-0 !text-foreground/45 !shadow-none transition-all hover:!bg-accent hover:!text-foreground active:!bg-accent/80";
   const utilityItems = interleaveTopBarItems([
-    !isChatThread ? (
-      <Tooltip key="editor-workspace">
-        <TooltipTrigger
-          render={
-            <Toggle
-              className={utilityToggleClassName}
-              pressed={editorWorkspaceActive}
-              onPressedChange={(pressed) => {
-                onWorkspaceModeChange(pressed ? "editor" : "chat");
-              }}
-              aria-pressed={editorWorkspaceActive}
-              aria-label="Editor workspace"
-              variant="default"
-              size="xs"
-            >
-              <SquarePenIcon className="size-3.5" />
-            </Toggle>
-          }
-        />
-        <TooltipPopup side="bottom">
-          {editorWorkspaceActive ? "Leave editor — return to chat" : "Open editor workspace"}
-        </TooltipPopup>
-      </Tooltip>
-    ) : null,
+    <Tooltip key="editor-workspace">
+      <TooltipTrigger
+        render={
+          <Toggle
+            className={utilityToggleClassName}
+            pressed={editorWorkspaceActive}
+            onPressedChange={(pressed) => {
+              onWorkspaceModeChange(pressed ? "editor" : "chat");
+            }}
+            aria-pressed={editorWorkspaceActive}
+            aria-label="Editor workspace"
+            variant="default"
+            size="xs"
+          >
+            <SquarePenIcon className="size-3.5" />
+          </Toggle>
+        }
+      />
+      <TooltipPopup side="bottom">
+        {editorWorkspaceActive ? "Leave editor — return to chat" : "Open editor workspace"}
+      </TooltipPopup>
+    </Tooltip>,
     browserAvailable ? (
       <Tooltip key="browser">
         <TooltipTrigger
@@ -220,32 +221,30 @@ export const ChatHeader = memo(function ChatHeader({
             : "Toggle terminal drawer"}
       </TooltipPopup>
     </Tooltip>,
-    !isChatThread ? (
-      <Tooltip key="diff">
-        <TooltipTrigger
-          render={
-            <Toggle
-              className={utilityToggleClassName}
-              pressed={diffOpen}
-              onPressedChange={onToggleDiff}
-              aria-label="Toggle diff panel"
-              variant="default"
-              size="xs"
-              disabled={!isGitRepo}
-            >
-              <DiffIcon className="size-3.5" />
-            </Toggle>
-          }
-        />
-        <TooltipPopup side="bottom">
-          {!isGitRepo
-            ? "Diff panel is unavailable because this project is not a git repository."
-            : diffToggleShortcutLabel
-              ? `Toggle diff panel (${diffToggleShortcutLabel})`
-              : "Toggle diff panel"}
-        </TooltipPopup>
-      </Tooltip>
-    ) : null,
+    <Tooltip key="diff">
+      <TooltipTrigger
+        render={
+          <Toggle
+            className={utilityToggleClassName}
+            pressed={diffOpen}
+            onPressedChange={onToggleDiff}
+            aria-label="Toggle diff panel"
+            variant="default"
+            size="xs"
+            disabled={!isGitRepo}
+          >
+            <DiffIcon className="size-3.5" />
+          </Toggle>
+        }
+      />
+      <TooltipPopup side="bottom">
+        {!isGitRepo
+          ? "Diff panel is unavailable because this project is not a git repository."
+          : diffToggleShortcutLabel
+            ? `Toggle diff panel (${diffToggleShortcutLabel})`
+            : "Toggle diff panel"}
+      </TooltipPopup>
+    </Tooltip>,
   ]);
 
   return (
@@ -307,7 +306,7 @@ export const ChatHeader = memo(function ChatHeader({
                     <span className="min-w-0 truncate">{activeProjectName}</span>
                   </Badge>
                 )}
-                {!isChatThread && !isGitRepo ? (
+                {!isGitRepo ? (
                   <Badge variant="warning" size="sm" className="shrink-0">
                     No Git
                   </Badge>
@@ -323,6 +322,28 @@ export const ChatHeader = memo(function ChatHeader({
           <div className="flex min-w-0 items-center gap-0.75 sm:gap-1">{workspaceActionNodes}</div>
         ) : null}
         <TopBarCluster>{utilityItems}</TopBarCluster>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Toggle
+                className={sidePanelToggleClassName}
+                pressed={rightSidePanelOpen}
+                onPressedChange={onToggleRightSidePanel}
+                aria-label="Toggle right side panel"
+                variant="default"
+                size="xs"
+              >
+                <IconLayoutSidebarRight
+                  className="size-[18px] opacity-70 brightness-90 transition-[filter,opacity] duration-150 group-hover/right-panel:opacity-100 group-hover/right-panel:brightness-125"
+                  strokeWidth={2}
+                />
+              </Toggle>
+            }
+          />
+          <TooltipPopup side="bottom">
+            {rightSidePanelOpen ? "Close right side panel" : "Open right side panel"}
+          </TooltipPopup>
+        </Tooltip>
       </div>
     </div>
   );
