@@ -116,7 +116,6 @@ function makeThread(
     ],
     session: null,
     ...overrides,
-    kind: overrides.kind ?? "coding",
   };
 }
 

@@ -77,7 +77,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       yield* threads.upsert({
         threadId: ThreadId.makeUnsafe("thread-null-options"),
         projectId: ProjectId.makeUnsafe("project-null-options"),
-        kind: "coding",
         title: "Null options thread",
         modelSelection: {
           provider: "claudeAgent",

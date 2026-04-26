@@ -345,7 +345,6 @@ export function projectEvent(
           {
             id: payload.threadId,
             projectId: payload.projectId,
-            kind: payload.kind ?? "coding",
             title: payload.title,
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
@@ -418,7 +417,6 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             ...(payload.title !== undefined ? { title: payload.title } : {}),
-            ...(payload.kind !== undefined ? { kind: payload.kind } : {}),
             ...(payload.modelSelection !== undefined
               ? { modelSelection: payload.modelSelection }
               : {}),

@@ -135,7 +135,18 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
-import { BotIcon, CircleAlertIcon, ListTodoIcon, XIcon } from "lucide-react";
+import {
+  BotIcon,
+  CircleAlertIcon,
+  DiffIcon,
+  GlobeIcon,
+  ListTodoIcon,
+  Maximize2Icon,
+  Minimize2Icon,
+  PlusIcon,
+  SquarePenIcon,
+  XIcon,
+} from "lucide-react";
 import { AppPageTopBar } from "./AppPageTopBar";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
@@ -211,9 +222,9 @@ import { buildExpandedImagePreview, type ExpandedImagePreview } from "./chat/Exp
 import { NewThreadLanding } from "./chat/NewThreadLanding";
 import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
 import {
+  InAppBrowser,
   type ActiveBrowserRuntimeState,
   type InAppBrowserController,
-  type InAppBrowserMode,
 } from "./InAppBrowser";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
@@ -296,6 +307,15 @@ const WORKSPACE_SIDE_PANEL_TRANSITION = {
   duration: 0.22,
   ease: [0.16, 1, 0.3, 1],
 } as const;
+const RIGHT_SIDE_PANEL_TRANSITION = {
+  duration: 0.3,
+  ease: [0.16, 1, 0.3, 1],
+} as const;
+const RIGHT_SIDE_PANEL_CONTENT_TRANSITION = {
+  delay: 0.06,
+  duration: 0.18,
+  ease: [0.16, 1, 0.3, 1],
+} as const;
 const TERMINAL_DRAWER_TRANSITION = {
   duration: 0.2,
   ease: [0.16, 1, 0.3, 1],
@@ -317,14 +337,41 @@ const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
-const SPLIT_PANE_DIFF_PANEL_WIDTH = "min(32rem,72%)";
+const RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY = "ace:chat:right-side-panel-width:v1";
+const DEFAULT_RIGHT_SIDE_PANEL_WIDTH = 512;
+const MIN_RIGHT_SIDE_PANEL_WIDTH = 416;
+const MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH = 420;
+
+function clampRightSidePanelWidth(width: number, viewportWidth: number): number {
+  const safeViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
+  const maxWidth = Math.max(
+    MIN_RIGHT_SIDE_PANEL_WIDTH,
+    safeViewportWidth - MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
+  );
+  const normalizedWidth = Number.isFinite(width)
+    ? Math.round(width)
+    : DEFAULT_RIGHT_SIDE_PANEL_WIDTH;
+  return Math.min(maxWidth, Math.max(MIN_RIGHT_SIDE_PANEL_WIDTH, normalizedWidth));
+}
 
 const DiffPanel = lazy(() => import("./DiffPanel"));
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
+type RightSidePanelMode = "browser" | "diff" | "editor";
+
+const RIGHT_SIDE_PANEL_TABS: ReadonlyArray<{
+  icon: typeof DiffIcon;
+  label: string;
+  mode: RightSidePanelMode;
+}> = [
+  { icon: DiffIcon, label: "Diff", mode: "diff" },
+  { icon: SquarePenIcon, label: "Editor", mode: "editor" },
+  { icon: GlobeIcon, label: "Browser", mode: "browser" },
+];
 
 interface ChatViewProps {
   connectionUrl?: string | null;
+  inlineDiffPanelEnabled?: boolean;
   shortcutsEnabled?: boolean;
   showSidebarTrigger?: boolean;
   splitPane?: boolean;
@@ -377,8 +424,84 @@ function LocalDiffPanel(props: {
   );
 }
 
+function RouteDiffPanel(props: { threadId: ThreadId }) {
+  return (
+    <DiffWorkerPoolProvider>
+      <Suspense fallback={<LocalDiffLoadingFallback />}>
+        <DiffPanel mode="sidebar" threadId={props.threadId} />
+      </Suspense>
+    </DiffWorkerPoolProvider>
+  );
+}
+
+function RightSidePanelTabStrip(props: {
+  activeMode: RightSidePanelMode;
+  browserAvailable: boolean;
+  diffAvailable: boolean;
+  fullscreen: boolean;
+  onNewBrowserTab: () => void;
+  onSelectMode: (mode: RightSidePanelMode) => void;
+  onToggleFullscreen: () => void;
+}) {
+  return (
+    <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/70 bg-card/80 px-2.5">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {RIGHT_SIDE_PANEL_TABS.map((tab) => {
+          const Icon = tab.icon;
+          const active = tab.mode === props.activeMode;
+          const disabled =
+            (tab.mode === "diff" && !props.diffAvailable) ||
+            (tab.mode === "browser" && !props.browserAvailable);
+          return (
+            <button
+              key={tab.mode}
+              type="button"
+              className={cn(
+                "inline-flex h-8 min-w-0 shrink-0 items-center gap-2 rounded-lg border px-2.5 text-[13px] font-medium transition-colors",
+                active
+                  ? "border-border bg-background text-foreground shadow-[0_0_0_1px_rgba(96,165,250,0.26)]"
+                  : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+                disabled &&
+                  "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground",
+              )}
+              disabled={disabled}
+              aria-pressed={active}
+              onClick={() => props.onSelectMode(tab.mode)}
+            >
+              <Icon className="size-4 shrink-0" />
+              <span className="truncate">{tab.label}</span>
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+          disabled={!props.browserAvailable}
+          aria-label="Open browser tab"
+          onClick={props.onNewBrowserTab}
+        >
+          <PlusIcon className="size-4" />
+        </button>
+      </div>
+      <button
+        type="button"
+        className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        aria-label={props.fullscreen ? "Exit full screen side panel" : "Full screen side panel"}
+        onClick={props.onToggleFullscreen}
+      >
+        {props.fullscreen ? (
+          <Minimize2Icon className="size-4" />
+        ) : (
+          <Maximize2Icon className="size-4" />
+        )}
+      </button>
+    </div>
+  );
+}
+
 export default function ChatView({
   connectionUrl = null,
+  inlineDiffPanelEnabled = true,
   shortcutsEnabled = true,
   showSidebarTrigger = true,
   splitPane = false,
@@ -420,6 +543,10 @@ export default function ChatView({
     open: false,
     turnId: null,
   });
+  const [rightSidePanelMode, setRightSidePanelMode] = useState<RightSidePanelMode | null>(
+    rawSearch.diff === "1" ? "diff" : null,
+  );
+  const [rightSidePanelFullscreen, setRightSidePanelFullscreen] = useState(false);
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
   const createWorktreeMutation = useMutation(gitCreateWorktreeMutationOptions({ queryClient }));
@@ -785,8 +912,6 @@ export default function ChatView({
     ],
   );
   const activeThread = serverThread ?? localDraftThread;
-  const activeThreadKind = activeThread?.kind ?? "coding";
-  const isChatThread = activeThreadKind === "chat";
   const runtimeMode =
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
@@ -815,6 +940,8 @@ export default function ChatView({
       ? rawSearch.mode
       : "chat";
   const diffOpen = splitPane ? localDiffState.open : rawSearch.diff === "1";
+  const rightSidePanelOpen =
+    (splitPane || inlineDiffPanelEnabled) && (diffOpen || rightSidePanelMode !== null);
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
@@ -1218,16 +1345,9 @@ export default function ChatView({
                 }
               : null,
         }),
-        kind: activeThreadKind,
       });
     },
-    [
-      activeThreadKind,
-      currentRouteDraftThread,
-      currentRouteThread,
-      handleNewThread,
-      settings.defaultThreadEnvMode,
-    ],
+    [currentRouteDraftThread, currentRouteThread, handleNewThread, settings.defaultThreadEnvMode],
   );
   const queuedComposerMessages =
     serverThread?.queuedComposerMessages ?? EMPTY_QUEUED_COMPOSER_MESSAGES;
@@ -1822,7 +1942,7 @@ export default function ChatView({
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
-  const codingGitCwd = isChatThread ? null : gitCwd;
+  const codingGitCwd = gitCwd;
   const liveTurnDiffSummary = useMemo(() => {
     if (!liveTurnInProgress || !activeLatestTurn?.turnId) {
       return null;
@@ -1854,7 +1974,6 @@ export default function ChatView({
   const liveWorkspaceStatusQuery = useQuery({
     ...gitStatusQueryOptions(codingGitCwd),
     enabled:
-      !isChatThread &&
       liveTurnInProgress &&
       codingGitCwd !== null &&
       (liveTurnDiffMode === undefined || liveTurnDiffMode === "workspace"),
@@ -1862,9 +1981,6 @@ export default function ChatView({
     refetchInterval: 1_000,
   });
   const composerDiffBanner = useMemo(() => {
-    if (isChatThread) {
-      return null;
-    }
     if (liveTurnDiffStat) {
       return {
         turnId: liveTurnDiffStat.turnId,
@@ -1894,7 +2010,6 @@ export default function ChatView({
     };
   }, [
     activeLatestTurn?.turnId,
-    isChatThread,
     liveTurnDiffStat,
     liveTurnInProgress,
     liveWorkspaceStatusQuery.data,
@@ -1913,7 +2028,7 @@ export default function ChatView({
   const branchesQuery = useQuery(gitBranchesQueryOptions(codingGitCwd));
   // Default true while loading to avoid toolbar flicker.
   const rawIsGitRepo = branchesQuery.data?.isRepo ?? true;
-  const isGitRepo = !isChatThread && rawIsGitRepo;
+  const isGitRepo = rawIsGitRepo;
   const activeThreadBranchName =
     activeThread?.branch ??
     branchesQuery.data?.branches.find((branch) => branch.current)?.name ??
@@ -1992,7 +2107,7 @@ export default function ChatView({
     }),
   );
   const workspaceEntries = workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
-  const canLookupIssueTags = !isChatThread && isGitRepo;
+  const canLookupIssueTags = isGitRepo;
   const issueTriggerLookupQuery = useQuery(
     gitGitHubIssuesQueryOptions({
       cwd: codingGitCwd,
@@ -2247,6 +2362,11 @@ export default function ChatView({
     DEFAULT_WORKSPACE_EDITOR_SPLIT_WIDTH,
     Schema.Number,
   );
+  const [storedRightSidePanelWidth, setStoredRightSidePanelWidth] = useLocalStorage(
+    RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY,
+    DEFAULT_RIGHT_SIDE_PANEL_WIDTH,
+    Schema.Number,
+  );
   const [workspaceModeByThreadId, setWorkspaceModeByThreadId] = useLocalStorage(
     THREAD_WORKSPACE_MODE_BY_THREAD_ID_STORAGE_KEY,
     {},
@@ -2259,6 +2379,9 @@ export default function ChatView({
   );
   const [workspaceEditorSplitWidth, setWorkspaceEditorSplitWidth] = useState(() =>
     clampWorkspaceEditorSplitWidth(storedWorkspaceEditorSplitWidth, 0),
+  );
+  const [rightSidePanelWidth, setRightSidePanelWidth] = useState(() =>
+    clampRightSidePanelWidth(storedRightSidePanelWidth, 0),
   );
   const browserControllerRef = useRef<InAppBrowserController | null>(null);
   const browserControllerByThreadRef = useRef(new Map<ThreadId, InAppBrowserController>());
@@ -2290,6 +2413,14 @@ export default function ChatView({
   } | null>(null);
   const didResizeWorkspaceEditorSplitDuringDragRef = useRef(false);
   const lastSyncedWorkspaceEditorSplitWidthRef = useRef(workspaceEditorSplitWidth);
+  const rightSidePanelWidthRef = useRef(rightSidePanelWidth);
+  const rightSidePanelResizePointerIdRef = useRef<number | null>(null);
+  const rightSidePanelResizeStateRef = useRef<{
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+  const didResizeRightSidePanelDuringDragRef = useRef(false);
+  const lastSyncedRightSidePanelWidthRef = useRef(rightSidePanelWidth);
   const defaultWorkspaceMode: ThreadWorkspaceMode =
     settings.workspaceEditorOpenMode === "split" ? "split" : "editor";
   const persistedWorkspaceMode = normalizeThreadWorkspaceMode(workspaceModeByThreadId[threadId]);
@@ -2297,13 +2428,29 @@ export default function ChatView({
     workspaceLayoutByThreadId[threadId],
     defaultWorkspaceMode,
   );
-  const workspaceMode: ThreadWorkspaceMode = isChatThread
-    ? "chat"
-    : routeWorkspaceMode === "chat"
-      ? persistedWorkspaceMode
-      : routeWorkspaceMode;
-  const defaultBrowserMode: Extract<InAppBrowserMode, "full" | "split"> = settings.browserOpenMode;
+  const workspaceMode: ThreadWorkspaceMode =
+    routeWorkspaceMode === "chat" ? persistedWorkspaceMode : routeWorkspaceMode;
+  const editorHostedInRightPanel =
+    rightSidePanelMode === "editor" || workspaceMode === "editor" || workspaceMode === "split";
+  const headerWorkspaceMode: ThreadWorkspaceMode = editorHostedInRightPanel
+    ? "split"
+    : workspaceMode;
   const browserOpen = browserMode !== "closed";
+  useEffect(() => {
+    if (diffOpen) {
+      setRightSidePanelMode("diff");
+    }
+  }, [diffOpen]);
+  useEffect(() => {
+    if (browserOpen && isElectron && !diffOpen && rightSidePanelMode === null) {
+      setRightSidePanelMode("browser");
+    }
+  }, [browserOpen, diffOpen, rightSidePanelMode]);
+  useEffect(() => {
+    if (!splitPane && (routeWorkspaceMode === "editor" || routeWorkspaceMode === "split")) {
+      setRightSidePanelMode("editor");
+    }
+  }, [routeWorkspaceMode, splitPane]);
   useEffect(() => {
     activeBrowserThreadIdRef.current = activeThreadId;
     browserControllerRef.current = activeThreadId
@@ -2362,6 +2509,17 @@ export default function ChatView({
     (mode: ThreadWorkspaceMode) => {
       const nextMode =
         mode === "editor" && workspaceMode === "chat" ? persistedWorkspaceLayout : mode;
+      if (nextMode === "editor" || nextMode === "split") {
+        setRightSidePanelMode("editor");
+        setWorkspaceLayoutByThreadId((previous) => ({
+          ...previous,
+          [threadId]: nextMode,
+        }));
+        return;
+      }
+      if (rightSidePanelMode === "editor") {
+        setRightSidePanelMode(null);
+      }
       if (nextMode === workspaceMode) {
         return;
       }
@@ -2391,6 +2549,7 @@ export default function ChatView({
     [
       navigate,
       persistedWorkspaceLayout,
+      rightSidePanelMode,
       setWorkspaceLayoutByThreadId,
       setWorkspaceModeByThreadId,
       splitPane,
@@ -2410,7 +2569,11 @@ export default function ChatView({
         ...previous,
         open: !previous.open,
       }));
+      setRightSidePanelMode("diff");
       return;
+    }
+    if (!diffOpen) {
+      setRightSidePanelMode("diff");
     }
     startTransition(() => {
       void navigate({
@@ -2626,7 +2789,6 @@ export default function ChatView({
           commandId: newCommandId(),
           threadId: targetThreadId,
           projectId,
-          kind: activeThread?.kind ?? "coding",
           title,
           modelSelection: options.modelSelection,
           runtimeMode: options.runtimeMode,
@@ -3100,24 +3262,75 @@ export default function ChatView({
   }, [activeThreadId, setTerminalOpen, terminalState.terminalOpen]);
   const openBrowser = useCallback(() => {
     if (!isElectron) return;
-    setBrowserMode(defaultBrowserMode);
-  }, [defaultBrowserMode, setBrowserMode]);
+    setRightSidePanelMode("browser");
+    setBrowserMode("split");
+  }, [setBrowserMode]);
   const openSplitBrowser = useCallback(() => {
     if (!isElectron) return;
+    setRightSidePanelMode("browser");
     setBrowserMode("split");
   }, [setBrowserMode]);
   const closeBrowser = useCallback(() => {
     setBrowserMode("closed");
     setBrowserDevToolsOpen(false);
+    setRightSidePanelMode((current) => (current === "browser" ? null : current));
   }, [setBrowserMode]);
   const restoreBrowser = useCallback(() => {
     if (!isElectron) return;
-    setBrowserMode("full");
+    setRightSidePanelMode("browser");
+    setBrowserMode("split");
   }, [setBrowserMode]);
   const toggleBrowserVisibility = useCallback(() => {
     if (!isElectron) return;
-    setBrowserMode((current) => (current === "closed" ? defaultBrowserMode : "closed"));
-  }, [defaultBrowserMode, setBrowserMode]);
+    setBrowserMode((current) => {
+      if (current === "closed") {
+        setRightSidePanelMode("browser");
+        return "split";
+      }
+      setRightSidePanelMode((mode) => (mode === "browser" ? null : mode));
+      return "closed";
+    });
+  }, [setBrowserMode]);
+  const onToggleRightSidePanel = useCallback(() => {
+    if (rightSidePanelOpen) {
+      setRightSidePanelMode(null);
+      if (diffOpen) {
+        onToggleDiff();
+      }
+      if (browserOpen) {
+        closeBrowser();
+      }
+      return;
+    }
+    setRightSidePanelMode("diff");
+    if (!diffOpen) {
+      onToggleDiff();
+    }
+  }, [browserOpen, closeBrowser, diffOpen, onToggleDiff, rightSidePanelOpen]);
+  const onSelectRightSidePanelMode = useCallback(
+    (mode: RightSidePanelMode) => {
+      if (mode === "browser") {
+        openBrowser();
+        return;
+      }
+      if (mode === "diff") {
+        setRightSidePanelMode("diff");
+        if (!diffOpen) {
+          onToggleDiff();
+        }
+        return;
+      }
+      setRightSidePanelMode("editor");
+    },
+    [diffOpen, onToggleDiff, openBrowser],
+  );
+  const onOpenRightSidePanelBrowserTab = useCallback(() => {
+    openBrowser();
+    browserControllerRef.current?.openNewTab();
+  }, [openBrowser]);
+  const onToggleRightSidePanelFullscreen = useCallback(() => {
+    setRightSidePanelFullscreen((current) => !current);
+  }, []);
   const setBrowserController = useCallback(
     (browserThreadId: ThreadId, controller: InAppBrowserController | null) => {
       if (controller) {
@@ -3185,7 +3398,8 @@ export default function ChatView({
   const openBrowserUrl = useCallback(
     (url: string, options?: { newTab?: boolean }) => {
       if (!isElectron || typeof url !== "string" || url.length === 0) return;
-      setBrowserMode(defaultBrowserMode);
+      setRightSidePanelMode("browser");
+      setBrowserMode("split");
       const controller = browserControllerRef.current;
       if (!controller) {
         pendingBrowserOpenUrlRef.current = url;
@@ -3193,7 +3407,7 @@ export default function ChatView({
       }
       controller.openUrl(url, options);
     },
-    [defaultBrowserMode, setBrowserMode],
+    [setBrowserMode],
   );
   const openBrowserUrlInNewTab = useCallback(
     (url: string) => {
@@ -3520,6 +3734,156 @@ export default function ChatView({
       window.removeEventListener("resize", syncViewportWidth);
     };
   }, [syncWorkspaceEditorSplitWidth]);
+
+  const syncRightSidePanelWidth = useCallback(
+    (nextWidth: number) => {
+      const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+      const clampedWidth = clampRightSidePanelWidth(nextWidth, viewportWidth);
+      rightSidePanelWidthRef.current = clampedWidth;
+      setRightSidePanelWidth(clampedWidth);
+      if (lastSyncedRightSidePanelWidthRef.current === clampedWidth) {
+        return;
+      }
+      lastSyncedRightSidePanelWidthRef.current = clampedWidth;
+      setStoredRightSidePanelWidth(clampedWidth);
+    },
+    [setStoredRightSidePanelWidth],
+  );
+
+  const handleRightSidePanelResizePointerMove = useCallback((event: PointerEvent) => {
+    const resizeState = rightSidePanelResizeStateRef.current;
+    if (!resizeState) {
+      return;
+    }
+    const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+    const nextWidth = clampRightSidePanelWidth(
+      resizeState.startWidth + (resizeState.startX - event.clientX),
+      viewportWidth,
+    );
+    rightSidePanelWidthRef.current = nextWidth;
+    setRightSidePanelWidth(nextWidth);
+    didResizeRightSidePanelDuringDragRef.current = true;
+  }, []);
+
+  const handleRightSidePanelResizePointerEnd = useCallback(() => {
+    rightSidePanelResizePointerIdRef.current = null;
+    rightSidePanelResizeStateRef.current = null;
+    if (!didResizeRightSidePanelDuringDragRef.current) {
+      return;
+    }
+    didResizeRightSidePanelDuringDragRef.current = false;
+    syncRightSidePanelWidth(rightSidePanelWidthRef.current);
+  }, [syncRightSidePanelWidth]);
+
+  const handleRightSidePanelResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      rightSidePanelResizePointerIdRef.current = event.pointerId;
+      rightSidePanelResizeStateRef.current = {
+        startX: event.clientX,
+        startWidth: rightSidePanelWidthRef.current,
+      };
+      didResizeRightSidePanelDuringDragRef.current = false;
+    },
+    [],
+  );
+
+  const handleRightSidePanelResizeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (!rightSidePanelOpen) {
+        return;
+      }
+      const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+      const currentWidth = rightSidePanelWidthRef.current;
+      const step = event.shiftKey ? 96 : 32;
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        syncRightSidePanelWidth(currentWidth + step);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        syncRightSidePanelWidth(currentWidth - step);
+        return;
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        syncRightSidePanelWidth(viewportWidth);
+        return;
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        syncRightSidePanelWidth(0);
+      }
+    },
+    [rightSidePanelOpen, syncRightSidePanelWidth],
+  );
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      if (rightSidePanelResizePointerIdRef.current !== null) {
+        handleRightSidePanelResizePointerMove(event);
+      }
+    };
+    const handlePointerEnd = () => {
+      if (rightSidePanelResizePointerIdRef.current === null) {
+        return;
+      }
+      handleRightSidePanelResizePointerEnd();
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+    };
+  }, [handleRightSidePanelResizePointerEnd, handleRightSidePanelResizePointerMove]);
+
+  useEffect(() => {
+    const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+    const clampedWidth = clampRightSidePanelWidth(storedRightSidePanelWidth, viewportWidth);
+    rightSidePanelWidthRef.current = clampedWidth;
+    lastSyncedRightSidePanelWidthRef.current = clampedWidth;
+    setRightSidePanelWidth(clampedWidth);
+  }, [storedRightSidePanelWidth]);
+
+  useEffect(() => {
+    const syncViewportWidth = () => {
+      const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
+      const clampedWidth = clampRightSidePanelWidth(rightSidePanelWidthRef.current, viewportWidth);
+      if (rightSidePanelWidthRef.current !== clampedWidth) {
+        rightSidePanelWidthRef.current = clampedWidth;
+        setRightSidePanelWidth(clampedWidth);
+      }
+      if (rightSidePanelResizePointerIdRef.current === null) {
+        syncRightSidePanelWidth(clampedWidth);
+      }
+    };
+
+    syncViewportWidth();
+    const viewportElement = chatViewportRef.current;
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" || !viewportElement
+        ? null
+        : new ResizeObserver(() => {
+            syncViewportWidth();
+          });
+    if (resizeObserver && viewportElement) {
+      resizeObserver.observe(viewportElement);
+    }
+    window.addEventListener("resize", syncViewportWidth);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", syncViewportWidth);
+    };
+  }, [syncRightSidePanelWidth]);
 
   const splitTerminal = useCallback(() => {
     if (!activeThreadId || hasReachedSplitLimit) return;
@@ -5238,7 +5602,6 @@ export default function ChatView({
             commandId: newCommandId(),
             threadId: threadIdForSend,
             projectId: activeProject.id,
-            kind: activeThread.kind,
             title,
             modelSelection: threadCreateModelSelection,
             runtimeMode: submission.runtimeMode,
@@ -5945,7 +6308,6 @@ export default function ChatView({
         commandId: newCommandId(),
         threadId: nextThreadId,
         projectId: activeProject.id,
-        kind: activeThread.kind,
         title: nextThreadTitle,
         modelSelection: nextThreadModelSelection,
         runtimeMode,
@@ -6084,7 +6446,6 @@ export default function ChatView({
           commandId: newCommandId(),
           threadId: nextThreadId,
           projectId: activeProject.id,
-          kind: activeThread.kind,
           title: nextThreadTitle,
           modelSelection,
           runtimeMode,
@@ -6438,7 +6799,6 @@ export default function ChatView({
     (composerTriggerKind === "issue" &&
       (issueTriggerLookupQuery.isLoading || issueTriggerLookupQuery.isFetching));
   const showIssuesCommandExamplesHint =
-    !isChatThread &&
     !isComposerApprovalState &&
     pendingUserInputs.length === 0 &&
     /^\/issues\s*$/i.test(prompt.trimStart());
@@ -6550,6 +6910,7 @@ export default function ChatView({
   const expandedImageItem = expandedImage ? expandedImage.images[expandedImage.index] : null;
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
+      setRightSidePanelMode("diff");
       if (splitPane) {
         setLocalDiffState({ open: true, turnId, filePath: filePath ?? null });
         return;
@@ -6638,7 +6999,7 @@ export default function ChatView({
         isHandoffThread,
       isWorking,
       onStartConversationFromMessage: scheduleComposerFocus,
-      onContinueWithGitHubIssues: isChatThread ? null : openGitHubIssueDialog,
+      onContinueWithGitHubIssues: openGitHubIssueDialog,
       isContinueWithGitHubIssuesDisabled: !codingGitCwd || !isGitRepo,
       ...(!codingGitCwd || !isGitRepo
         ? {
@@ -6676,7 +7037,6 @@ export default function ChatView({
       completionSummary,
       expandedWorkGroups,
       codingGitCwd,
-      isChatThread,
       isGitRepo,
       isHandoffThread,
       isRevertingCheckpoint,
@@ -6739,51 +7099,48 @@ export default function ChatView({
       showScrollToBottom,
     ],
   );
-  const branchToolbarProps =
-    !isChatThread && isGitRepo
-      ? {
-          threadId: activeThread.id,
-          onEnvModeChange,
-          envLocked,
-          localEnvironmentLabel: activeRemoteHost?.name ?? "Local",
-          localEnvironmentIcon: activeEnvironmentIcon,
-          runtimeMode,
-          onRuntimeModeChange: handleRuntimeModeChange,
-          onComposerFocusRequest: scheduleComposerFocus,
-          ...(canCheckoutPullRequestIntoThread
-            ? { onCheckoutPullRequestRequest: openPullRequestDialog }
-            : {}),
-        }
-      : null;
-  const gitHubIssueDialogProps =
-    !isChatThread && gitHubIssueDialogOpen
-      ? {
-          open: true,
-          cwd: codingGitCwd ?? activeProject?.cwd ?? null,
-          initialIssueNumber: gitHubIssueDialogInitialIssueNumber,
-          initialSelectedIssueNumbers: gitHubIssueDialogInitialSelectedIssueNumbers,
-          onOpenChange: (open: boolean) => {
-            if (!open) {
-              closeGitHubIssueDialog();
-            }
-          },
-          onFixIssue: onFixGitHubIssue,
-        }
-      : null;
-  const pullRequestDialogProps =
-    !isChatThread && pullRequestDialogState
-      ? {
-          open: true,
-          cwd: activeProject?.cwd ?? null,
-          initialReference: pullRequestDialogState.initialReference,
-          onOpenChange: (open: boolean) => {
-            if (!open) {
-              closePullRequestDialog();
-            }
-          },
-          onPrepared: handlePreparedPullRequestThread,
-        }
-      : null;
+  const branchToolbarProps = isGitRepo
+    ? {
+        threadId: activeThread.id,
+        onEnvModeChange,
+        envLocked,
+        localEnvironmentLabel: activeRemoteHost?.name ?? "Local",
+        localEnvironmentIcon: activeEnvironmentIcon,
+        runtimeMode,
+        onRuntimeModeChange: handleRuntimeModeChange,
+        onComposerFocusRequest: scheduleComposerFocus,
+        ...(canCheckoutPullRequestIntoThread
+          ? { onCheckoutPullRequestRequest: openPullRequestDialog }
+          : {}),
+      }
+    : null;
+  const gitHubIssueDialogProps = gitHubIssueDialogOpen
+    ? {
+        open: true,
+        cwd: codingGitCwd ?? activeProject?.cwd ?? null,
+        initialIssueNumber: gitHubIssueDialogInitialIssueNumber,
+        initialSelectedIssueNumbers: gitHubIssueDialogInitialSelectedIssueNumbers,
+        onOpenChange: (open: boolean) => {
+          if (!open) {
+            closeGitHubIssueDialog();
+          }
+        },
+        onFixIssue: onFixGitHubIssue,
+      }
+    : null;
+  const pullRequestDialogProps = pullRequestDialogState
+    ? {
+        open: true,
+        cwd: activeProject?.cwd ?? null,
+        initialReference: pullRequestDialogState.initialReference,
+        onOpenChange: (open: boolean) => {
+          if (!open) {
+            closePullRequestDialog();
+          }
+        },
+        onPrepared: handlePreparedPullRequestThread,
+      }
+    : null;
   const planSidebarProps =
     workspaceMode !== "editor" && planSidebarOpen
       ? {
@@ -6905,6 +7262,11 @@ export default function ChatView({
           navigateExpandedImage,
         }
       : null;
+  const requestedRightSidePanelMode: RightSidePanelMode | null = rightSidePanelOpen
+    ? (rightSidePanelMode ?? (diffOpen ? "diff" : null))
+    : null;
+  const activeRightSidePanelMode =
+    requestedRightSidePanelMode === "browser" && !browserPanel ? null : requestedRightSidePanelMode;
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
@@ -6915,7 +7277,15 @@ export default function ChatView({
           isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
         )}
       >
-        <AppPageTopBar showSidebarTrigger={showSidebarTrigger}>
+        <AppPageTopBar
+          className={cn(
+            "after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:origin-right after:bg-border/70 after:transition-[opacity,transform] after:duration-300 after:ease-[cubic-bezier(0.16,1,0.3,1)]",
+            rightSidePanelOpen
+              ? "after:scale-x-100 after:opacity-100"
+              : "after:scale-x-0 after:opacity-0",
+          )}
+          showSidebarTrigger={showSidebarTrigger}
+        >
           <ChatHeader
             activeThreadId={activeThread.id}
             activeThreadBranch={activeThreadBranchName}
@@ -6923,7 +7293,6 @@ export default function ChatView({
             activeThreadTitle={activeThread.title}
             activeProjectId={activeProject?.id ?? null}
             activeProjectName={activeProject?.name}
-            isChatThread={isChatThread}
             isGitRepo={isGitRepo}
             activeProjectScripts={activeProject?.scripts}
             preferredScriptId={
@@ -6940,7 +7309,8 @@ export default function ChatView({
             browserDevToolsOpen={browserDevToolsOpen}
             gitCwd={gitCwd}
             diffOpen={diffOpen}
-            workspaceMode={workspaceMode}
+            rightSidePanelOpen={rightSidePanelOpen}
+            workspaceMode={headerWorkspaceMode}
             workspaceName={activeProject?.name}
             onRunProjectScript={(script) => {
               void runProjectScript(script);
@@ -6953,6 +7323,7 @@ export default function ChatView({
             onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
             onToggleTerminal={toggleTerminalVisibility}
             onToggleDiff={onToggleDiff}
+            onToggleRightSidePanel={onToggleRightSidePanel}
             onWorkspaceModeChange={onWorkspaceModeChange}
           />
         </AppPageTopBar>
@@ -6973,7 +7344,7 @@ export default function ChatView({
           className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
         >
           <>
-            {workspaceMode === "editor" ? (
+            {workspaceMode === "editor" && !editorHostedInRightPanel ? (
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <Suspense
                   fallback={
@@ -7007,7 +7378,7 @@ export default function ChatView({
             ) : (
               <div
                 className={cn(
-                  workspaceMode === "split"
+                  workspaceMode === "split" && !editorHostedInRightPanel
                     ? "flex min-h-0 min-w-0 flex-1 overflow-hidden"
                     : "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
                 )}
@@ -7429,12 +7800,12 @@ export default function ChatView({
                   </div>
 
                   <ChatConversationExtras
-                    branchToolbarProps={isChatThread ? null : branchToolbarProps}
-                    gitHubIssueDialogProps={isChatThread ? null : gitHubIssueDialogProps}
+                    branchToolbarProps={branchToolbarProps}
+                    gitHubIssueDialogProps={gitHubIssueDialogProps}
                     pullRequestDialogKey={pullRequestDialogState?.key ?? null}
-                    pullRequestDialogProps={isChatThread ? null : pullRequestDialogProps}
+                    pullRequestDialogProps={pullRequestDialogProps}
                   />
-                  {!isChatThread && issuePreviewNumber !== null ? (
+                  {issuePreviewNumber !== null ? (
                     <GitHubIssuePreviewDialog
                       open
                       issueNumber={issuePreviewNumber}
@@ -7445,7 +7816,7 @@ export default function ChatView({
                     />
                   ) : null}
                 </div>
-                {workspaceMode === "split" ? (
+                {workspaceMode === "split" && !editorHostedInRightPanel ? (
                   <motion.div
                     key="workspace-split-editor"
                     className="flex h-full min-h-0 shrink-0 overflow-hidden"
@@ -7508,26 +7879,106 @@ export default function ChatView({
         {/* end chat column */}
 
         <AnimatePresence initial={false}>
-          {splitPane && localDiffState.open ? (
+          {activeRightSidePanelMode ? (
             <motion.div
-              key="split-pane-diff-panel"
-              className="flex h-full min-h-0 shrink-0 overflow-hidden border-l border-border/70 bg-background shadow-[-20px_0_44px_-36px_rgba(0,0,0,0.45)]"
-              initial={{ width: 0, opacity: 0, x: 18 }}
-              animate={{ width: SPLIT_PANE_DIFF_PANEL_WIDTH, opacity: 1, x: 0 }}
-              exit={{ width: 0, opacity: 0, x: 18 }}
-              transition={WORKSPACE_SIDE_PANEL_TRANSITION}
+              key="thread-right-side-panel"
+              className="flex h-full min-h-0 shrink-0 transform-gpu overflow-hidden bg-background shadow-[-20px_0_44px_-36px_rgba(0,0,0,0.45)] will-change-[width,transform,opacity]"
+              initial={{ width: 0, opacity: 0, x: 24 }}
+              animate={{ width: rightSidePanelWidth, opacity: 1, x: 0 }}
+              exit={{ width: 0, opacity: 0, x: 24 }}
+              transition={RIGHT_SIDE_PANEL_TRANSITION}
             >
-              <LocalDiffPanel
-                threadId={activeThread.id}
-                diffState={localDiffState}
-                onDiffStateChange={setLocalDiffState}
-              />
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize right side panel"
+                tabIndex={0}
+                className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none outline-none"
+                onKeyDown={handleRightSidePanelResizeKeyDown}
+                onPointerDown={handleRightSidePanelResizePointerDown}
+              >
+                <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 scale-y-[0.985] bg-border/80 transition-[background-color,transform] duration-200 ease-out group-hover:scale-y-100 group-hover:bg-primary/55 group-focus-visible:scale-y-100 group-focus-visible:bg-primary/55" />
+                <div className="absolute inset-y-1 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-[background-color,transform] duration-200 ease-out group-hover:scale-x-100 group-hover:bg-primary/10 group-focus-visible:scale-x-100 group-focus-visible:bg-primary/10" />
+              </div>
+              <motion.div
+                className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+                initial={{ opacity: 0, x: 8 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 6 }}
+                transition={RIGHT_SIDE_PANEL_CONTENT_TRANSITION}
+              >
+                <RightSidePanelTabStrip
+                  activeMode={activeRightSidePanelMode}
+                  browserAvailable={isElectron}
+                  diffAvailable={isGitRepo}
+                  onSelectMode={onSelectRightSidePanelMode}
+                />
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.div
+                    key={`thread-right-side-panel-content-${activeRightSidePanelMode}`}
+                    className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
+                    initial={{ opacity: 0, x: 8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -6 }}
+                    transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                  >
+                    {activeRightSidePanelMode === "diff" && splitPane ? (
+                      <LocalDiffPanel
+                        threadId={activeThread.id}
+                        diffState={localDiffState}
+                        onDiffStateChange={setLocalDiffState}
+                      />
+                    ) : activeRightSidePanelMode === "diff" ? (
+                      <RouteDiffPanel threadId={activeThread.id} />
+                    ) : activeRightSidePanelMode === "editor" ? (
+                      <Suspense
+                        fallback={
+                          <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+                            <div className="border-b border-border/60 px-4 py-3">
+                              <div className="h-5 w-44 rounded bg-foreground/6" />
+                            </div>
+                            <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
+                              <div className="border-r border-border/60 bg-foreground/3" />
+                              <div className="bg-background" />
+                            </div>
+                          </div>
+                        }
+                      >
+                        <ThreadWorkspaceEditor
+                          availableEditors={availableEditors}
+                          branch={activeThreadBranchName}
+                          connectionUrl={activeServerConnectionUrl}
+                          gitCwd={gitCwd}
+                          lspCwd={activeProject?.cwd ?? null}
+                          keybindings={keybindings}
+                          browserOpen={browserOpen}
+                          workspaceMode="split"
+                          onWorkspaceModeChange={onWorkspaceModeChange}
+                          terminalOpen={terminalState.terminalOpen}
+                          threadId={activeThread.id}
+                          worktreePath={activeThread.worktreePath ?? null}
+                        />
+                      </Suspense>
+                    ) : browserPanel ? (
+                      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+                        {browserPanel.instances.map((instance) => (
+                          <InAppBrowser
+                            key={instance.key}
+                            {...instance.inAppBrowserProps}
+                            mode="split"
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                  </motion.div>
+                </AnimatePresence>
+              </motion.div>
             </motion.div>
           ) : null}
         </AnimatePresence>
 
         <ChatViewPanels
-          browserPanel={browserPanel}
+          browserPanel={null}
           expandedImageOverlay={expandedImageOverlay}
           planSidebarProps={planSidebarProps}
         />

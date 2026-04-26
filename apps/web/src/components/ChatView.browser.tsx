@@ -297,7 +297,6 @@ function createSnapshotForTargetUser(options: {
       {
         id: threadId,
         projectId: PROJECT_ID,
-        kind: "coding",
         title: threadTitle,
         modelSelection: {
           provider: "codex",
@@ -432,7 +431,6 @@ function addThreadToSnapshot(
       {
         id: threadId,
         projectId: PROJECT_ID,
-        kind: "coding",
         title: "New thread",
         modelSelection: {
           provider: "codex",
@@ -483,7 +481,6 @@ function createThreadCreatedEvent(threadId: ThreadId, sequence: number): Orchest
     payload: {
       threadId,
       projectId: PROJECT_ID,
-      kind: "coding",
       title: "New thread",
       modelSelection: {
         provider: "codex",
@@ -558,7 +555,6 @@ function setDraftThreadWithoutWorktree(): void {
     draftThreadsByThreadId: {
       [THREAD_ID]: {
         projectId: PROJECT_ID,
-        kind: "coding",
         createdAt: NOW_ISO,
         runtimeMode: "full-access",
         interactionMode: "default",
@@ -2078,7 +2074,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           projectId: PROJECT_ID,
-          kind: "coding",
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           interactionMode: "default",
@@ -2155,7 +2150,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           projectId: PROJECT_ID,
-          kind: "coding",
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           interactionMode: "default",
@@ -2219,7 +2213,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           projectId: PROJECT_ID,
-          kind: "coding",
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           interactionMode: "default",

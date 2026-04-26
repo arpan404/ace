@@ -7,7 +7,6 @@ import {
   MAC_TITLEBAR_LEFT_INSET_STYLE,
 } from "../lib/desktopChrome";
 import { cn } from "../lib/utils";
-import { HEADER_PILL_ICON_TRIGGER_CLASS_NAME } from "./thread/TopBarCluster";
 import { SidebarTrigger, useSidebar } from "./ui/sidebar";
 
 interface AppPageTopBarProps {
@@ -45,13 +44,7 @@ export function AppPageTopBar({
         )}
       >
         {showHeaderSidebarTrigger ? (
-          <SidebarTrigger
-            className={cn(
-              "shrink-0",
-              DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-              HEADER_PILL_ICON_TRIGGER_CLASS_NAME,
-            )}
-          />
+          <SidebarTrigger className={cn("shrink-0", DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME)} />
         ) : null}
         {children}
       </div>

@@ -108,7 +108,6 @@ const makeDefaultOrchestrationReadModel = (): OrchestrationReadModel => {
       {
         id: defaultThreadId,
         projectId: defaultProjectId,
-        kind: "coding" as const,
         title: "Default Thread",
         modelSelection: defaultModelSelection,
         interactionMode: "default" as const,
@@ -2035,7 +2034,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           {
             id: ThreadId.makeUnsafe("thread-1"),
             projectId: ProjectId.makeUnsafe("project-a"),
-            kind: "coding" as const,
             title: "Thread A",
             modelSelection: defaultModelSelection,
             interactionMode: "default" as const,
@@ -2223,7 +2221,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             {
               id: threadId,
               projectId: defaultProjectId,
-              kind: "coding",
               title: "Hydrated Thread",
               modelSelection: defaultModelSelection,
               interactionMode: "default" as const,

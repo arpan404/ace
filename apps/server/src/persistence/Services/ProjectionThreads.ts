@@ -16,7 +16,6 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
   ThreadId,
-  ThreadKind,
   ThreadHandoffMode,
   TurnId,
 } from "@ace/contracts";
@@ -28,7 +27,6 @@ import type { ProjectionRepositoryError } from "../Errors.ts";
 export const ProjectionThread = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
-  kind: ThreadKind.pipe(Schema.withDecodingDefault(() => "coding" as const)),
   title: Schema.String,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,

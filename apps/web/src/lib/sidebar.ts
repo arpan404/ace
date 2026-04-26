@@ -17,7 +17,6 @@ type SidebarThreadSortInput = Pick<Thread, "createdAt" | "updatedAt"> & {
   latestUserMessageAt?: string | null;
   messages?: Pick<Thread["messages"][number], "createdAt" | "role">[];
 };
-type SidebarThreadKindInput = Pick<SidebarThreadSummary, "kind">;
 const EMPTY_SIDEBAR_THREADS: readonly SidebarThreadSortInput[] = [];
 
 export type ThreadTraversalDirection = "previous" | "next";
@@ -589,10 +588,6 @@ export function getFallbackThreadIdAfterDelete<
       sortOrder,
     )[0]?.id ?? null
   );
-}
-
-export function isCodingSidebarThread<T extends SidebarThreadKindInput>(thread: T): boolean {
-  return thread.kind !== "chat";
 }
 
 export function getProjectSortTimestamp(

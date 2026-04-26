@@ -48,12 +48,7 @@ interface UseSidebarCommandPaletteInput {
   readonly threadSortOrder: SidebarThreadSortOrder;
   readonly onStartAddProject: () => void;
   readonly onStartNewThreadForProject: (projectId: ProjectId) => void;
-  readonly onStartNewChatForProject: (projectId: ProjectId) => void;
   readonly onStartNewThreadForRemoteProject: (input: {
-    connectionUrl: string;
-    project: RemoteSidebarProjectEntry;
-  }) => void;
-  readonly onStartNewChatForRemoteProject: (input: {
     connectionUrl: string;
     project: RemoteSidebarProjectEntry;
   }) => void;
@@ -229,12 +224,6 @@ export function useSidebarCommandPalette(
   const searchPaletteItems = useMemo<SearchPaletteItem[]>(() => {
     const actionItems: SearchPaletteItem[] = [
       {
-        id: "action-new-chat",
-        type: "action.new-chat",
-        label: "New chat in...",
-        description: "Choose a project folder for a new chat.",
-      },
-      {
         id: "action-new-thread",
         type: "action.new-thread",
         label: "New thread in...",
@@ -281,7 +270,7 @@ export function useSidebarCommandPalette(
     const matchesQuery = (value: string): boolean =>
       value.toLowerCase().includes(normalizedSearchPaletteQuery);
 
-    if (searchPaletteMode === "new-thread-project" || searchPaletteMode === "new-chat-project") {
+    if (searchPaletteMode === "new-thread-project") {
       if (normalizedSearchPaletteQuery.length === 0) {
         return allProjectItems.slice(0, 12);
       }
@@ -316,7 +305,6 @@ export function useSidebarCommandPalette(
       searchPaletteItems.filter(
         (item) =>
           item.type === "action.new-thread" ||
-          item.type === "action.new-chat" ||
           item.type === "action.new-project" ||
           item.type === "action.open-settings",
       ),
@@ -377,12 +365,6 @@ export function useSidebarCommandPalette(
         setSearchPaletteActiveIndex(0);
         return;
       }
-      if (item.type === "action.new-chat") {
-        setSearchPaletteMode("new-chat-project");
-        setSearchPaletteQuery("");
-        setSearchPaletteActiveIndex(0);
-        return;
-      }
       if (item.type === "action.new-project") {
         closeSearchPalette();
         input.onStartAddProject();
@@ -397,10 +379,7 @@ export function useSidebarCommandPalette(
         const isRemoteProject =
           item.connectionUrl !== undefined && item.connectionUrl !== input.activeWsUrl;
         closeSearchPalette();
-        if (
-          searchPaletteMode === "new-thread-project" ||
-          searchPaletteMode === "new-chat-project"
-        ) {
+        if (searchPaletteMode === "new-thread-project") {
           if (isRemoteProject && item.connectionUrl) {
             const remoteProject = input.remoteSidebarHosts
               .find((entry) => entry.connectionUrl === item.connectionUrl)
@@ -408,18 +387,10 @@ export function useSidebarCommandPalette(
             if (!remoteProject) {
               return;
             }
-            const startRemoteProject =
-              searchPaletteMode === "new-chat-project"
-                ? input.onStartNewChatForRemoteProject
-                : input.onStartNewThreadForRemoteProject;
-            startRemoteProject({
+            input.onStartNewThreadForRemoteProject({
               connectionUrl: item.connectionUrl,
               project: remoteProject,
             });
-            return;
-          }
-          if (searchPaletteMode === "new-chat-project") {
-            input.onStartNewChatForProject(item.projectId);
             return;
           }
           input.onStartNewThreadForProject(item.projectId);
@@ -507,7 +478,7 @@ export function useSidebarCommandPalette(
       }
       if (
         event.key === "Backspace" &&
-        (searchPaletteMode === "new-thread-project" || searchPaletteMode === "new-chat-project") &&
+        searchPaletteMode === "new-thread-project" &&
         searchPaletteQuery.trim().length === 0
       ) {
         event.preventDefault();
