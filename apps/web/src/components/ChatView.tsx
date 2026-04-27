@@ -24,7 +24,7 @@ import {
   TerminalOpenInput,
 } from "@ace/contracts";
 import * as Schema from "effect/Schema";
-import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/model";
+import { buildProviderModelSelection } from "@ace/shared/model";
 import { truncate } from "@ace/shared/String";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -160,7 +160,7 @@ import { reportBackgroundError, runAsyncTask } from "~/lib/async";
 import { deriveTerminalTitleFromCommand } from "~/lib/terminalPresentation";
 import { getProviderModels, resolveSelectableProvider } from "../providerModels";
 import { useSetting } from "../hooks/useSettings";
-import { getCustomModelOptionsByProvider, resolveAppModelSelection } from "../modelSelection";
+import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
   type ComposerImageAttachment,
@@ -168,7 +168,6 @@ import {
   type PersistedComposerImageAttachment,
   deriveEffectiveComposerModelState,
   useComposerDraftStore,
-  useEffectiveComposerModelState,
   useComposerThreadDraft,
 } from "../composerDraftStore";
 import {
@@ -230,6 +229,7 @@ import {
   RightSidePanelTabStrip,
   RouteDiffPanel,
 } from "./chat/ChatViewRightSidePanels";
+import { useChatViewModelState } from "./chat/useChatViewModelState";
 import {
   getComposerProviderState,
   renderProviderTraitsMenuContent,
@@ -1466,53 +1466,38 @@ export default function ChatView({
     serverThread?.id,
   ]);
 
-  const sessionProvider = activeThread?.session?.provider ?? null;
-  const selectedProviderByThreadId = composerDraft.activeProvider ?? null;
-  const threadProvider =
-    activeThread?.modelSelection.provider ?? activeProject?.defaultModelSelection?.provider ?? null;
   const hasThreadStarted = threadHasStarted(activeThread);
-  const lockedProvider: ProviderKind | null = hasThreadStarted
-    ? (sessionProvider ?? threadProvider ?? selectedProviderByThreadId ?? null)
-    : null;
-  const unlockedSelectedProvider = resolveSelectableProvider(
-    providerStatuses,
-    selectedProviderByThreadId ?? threadProvider ?? "codex",
-  );
-  const selectedProvider: ProviderKind = lockedProvider ?? unlockedSelectedProvider;
-  const { modelOptions: composerModelOptions, selectedModel } = useEffectiveComposerModelState({
-    threadId,
-    providers: providerStatuses,
+  const {
+    activeProviderStatus,
+    composerModelOptions,
+    composerProviderState,
+    handoffTargetProviders,
+    lockedProvider,
+    modelOptionsByProvider,
+    selectedModel,
+    selectedModelForPickerWithCustomFallback,
+    selectedModelSelection,
+    selectedPromptEffort,
     selectedProvider,
-    threadModelSelection: activeThread?.modelSelection,
+    selectedProviderModels,
+  } = useChatViewModelState({
+    hasThreadStarted,
+    isServerThread,
+    modelSettings,
     projectModelSelection: activeProject?.defaultModelSelection,
-    settings: modelSettings,
+    prompt,
+    providers: providerStatuses,
+    selectedProviderByThreadId: composerDraft.activeProvider ?? null,
+    sessionProvider: activeThread?.session?.provider ?? null,
+    threadId,
+    threadModelSelection: activeThread?.modelSelection,
   });
-  const selectedProviderModels = getProviderModels(providerStatuses, selectedProvider);
-  const composerProviderState = useMemo(
-    () =>
-      getComposerProviderState({
-        provider: selectedProvider,
-        model: selectedModel,
-        models: selectedProviderModels,
-        prompt,
-        modelOptions: composerModelOptions,
-      }),
-    [composerModelOptions, prompt, selectedModel, selectedProvider, selectedProviderModels],
-  );
-  const selectedPromptEffort = composerProviderState.promptEffort;
-  const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
-  const selectedModelSelection = useMemo<ModelSelection>(
-    () =>
-      buildProviderModelSelection(selectedProvider, selectedModel, selectedModelOptionsForDispatch),
-    [selectedModel, selectedModelOptionsForDispatch, selectedProvider],
-  );
   const activeContextWindow = useMemo(() => {
     if (!hasThreadStarted) {
       return null;
     }
     return deriveLatestContextWindowSnapshot(activeThread?.activities ?? []);
   }, [activeThread?.activities, hasThreadStarted]);
-  const selectedModelForPicker = selectedModel;
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const activityVisibilitySettings = useMemo(
@@ -1956,36 +1941,6 @@ export default function ChatView({
     null;
   const keybindings = useServerKeybindings();
   const availableEditors = useServerAvailableEditors();
-  const modelOptionsByProvider = useMemo(
-    () =>
-      getCustomModelOptionsByProvider(
-        modelSettings,
-        providerStatuses,
-        selectedProvider,
-        selectedModelForPicker,
-      ),
-    [modelSettings, providerStatuses, selectedModelForPicker, selectedProvider],
-  );
-  const selectedModelForPickerWithCustomFallback = useMemo(() => {
-    const currentOptions = modelOptionsByProvider[selectedProvider];
-    return currentOptions.some((option) => option.slug === selectedModelForPicker)
-      ? selectedModelForPicker
-      : (normalizeModelSlug(selectedModelForPicker, selectedProvider) ?? selectedModelForPicker);
-  }, [modelOptionsByProvider, selectedModelForPicker, selectedProvider]);
-  const handoffTargetProviders = useMemo<ProviderKind[]>(() => {
-    if (!activeThread || !isServerThread) {
-      return [];
-    }
-    const fromProvider = activeThread.modelSelection.provider;
-    const enabledProviders = new Set(
-      providerStatuses
-        .filter((provider) => provider.enabled && provider.status !== "disabled")
-        .map((provider) => provider.provider),
-    );
-    return AVAILABLE_PROVIDER_OPTIONS.map((option) => option.value).filter(
-      (provider) => provider !== fromProvider && enabledProviders.has(provider),
-    );
-  }, [activeThread, isServerThread, providerStatuses]);
   const handoffDisabledReason = useMemo(() => {
     if (!activeThread || !isServerThread) {
       return "Handoff is only available for saved threads.";
@@ -2138,10 +2093,6 @@ export default function ChatView({
   const nonPersistedComposerImageIdSet = useMemo(
     () => new Set(nonPersistedComposerImageIds),
     [nonPersistedComposerImageIds],
-  );
-  const activeProviderStatus = useMemo(
-    () => providerStatuses.find((status) => status.provider === selectedProvider) ?? null,
-    [selectedProvider, providerStatuses],
   );
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;

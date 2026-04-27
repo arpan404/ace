@@ -11,10 +11,8 @@ import {
   ArrowUpIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  Columns2Icon,
   FolderIcon,
   LaptopIcon,
-  PlusIcon,
   SettingsIcon,
   SquarePenIcon,
   TriangleAlertIcon,
@@ -89,6 +87,7 @@ import {
 } from "./ProjectAvatar";
 import { toastManager } from "./ui/toast";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
+import { SidebarBoardsSection, type SidebarSplitSortOrder } from "./sidebar/SidebarBoardsSection";
 import {
   getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
@@ -215,9 +214,9 @@ import {
 } from "../lib/chatThreadBoardRouteSearch";
 import { buildThreadBoardLayoutOptions, getCurrentLayoutColumns } from "../lib/threadBoardLayout";
 import {
+  type ChatThreadBoardSplitState,
   type ChatThreadBoardPaneState,
   type ChatThreadBoardRowState,
-  type ChatThreadBoardSplitState,
   useChatThreadBoardStore,
 } from "../chatThreadBoardStore";
 const THREAD_REVEAL_STEP = 5;
@@ -228,18 +227,10 @@ const REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS = 1_500;
 const REMOTE_SIDEBAR_SNAPSHOT_FETCH_CONCURRENCY = 2;
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_TIMEOUT_MS = 600;
 
-type SidebarSplitSortOrder = "updated_at" | "created_at" | "name" | "pane_count";
 type SplitPickerSortOrder = "recent" | "project" | "title";
 type SplitContextMenuState = {
   position: { x: number; y: number };
   splitId: string;
-};
-
-const SIDEBAR_SPLIT_SORT_LABELS: Record<SidebarSplitSortOrder, string> = {
-  updated_at: "Recent activity",
-  created_at: "Created at",
-  name: "Name",
-  pane_count: "Thread count",
 };
 const SPLIT_PICKER_SORT_LABELS: Record<SplitPickerSortOrder, string> = {
   recent: "Recent activity",
@@ -5951,201 +5942,35 @@ export default function Sidebar() {
               </SidebarGroup>
             ) : null}
             {savedBoards.length > 0 || splitPickerThreadOptions.length >= 2 ? (
-              <SidebarGroup className="order-last px-2.5 pt-1 pb-2">
-                <div className="mb-1.5 flex items-center justify-between pl-2 pr-1.5">
-                  <button
-                    type="button"
-                    className="group/section-header flex h-5 min-w-0 flex-1 cursor-pointer items-center gap-1.5 bg-transparent text-left"
-                    aria-expanded={boardsSectionExpanded}
-                    onClick={() => {
-                      setBoardsSectionExpanded(!boardsSectionExpanded);
-                    }}
-                  >
-                    <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors group-hover/section-header:text-foreground">
-                      Boards
-                    </span>
-                    <ChevronRightIcon
-                      className={`size-4 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
-                        boardsSectionExpanded ? "rotate-90" : ""
-                      }`}
-                    />
-                  </button>
-                  <div className="flex items-center gap-1">
-                    {savedBoards.length > 0 ? (
-                      <Menu>
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <MenuTrigger className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground" />
-                            }
-                          >
-                            <IconFilter2 className="size-4" />
-                          </TooltipTrigger>
-                          <TooltipPopup side="right">Sort boards</TooltipPopup>
-                        </Tooltip>
-                        <MenuPopup align="end" side="bottom" className="min-w-40">
-                          <MenuGroup>
-                            <div className="px-2 py-1 font-medium text-muted-foreground sm:text-xs">
-                              Sort boards
-                            </div>
-                            <MenuRadioGroup
-                              value={splitSortOrder}
-                              onValueChange={(value) => {
-                                setSplitSortOrder(value as SidebarSplitSortOrder);
-                              }}
-                            >
-                              {(
-                                Object.entries(SIDEBAR_SPLIT_SORT_LABELS) as Array<
-                                  [SidebarSplitSortOrder, string]
-                                >
-                              ).map(([value, label]) => (
-                                <MenuRadioItem
-                                  key={value}
-                                  value={value}
-                                  className="min-h-7 py-1 sm:text-xs"
-                                >
-                                  {label}
-                                </MenuRadioItem>
-                              ))}
-                            </MenuRadioGroup>
-                          </MenuGroup>
-                        </MenuPopup>
-                      </Menu>
-                    ) : null}
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <button
-                            type="button"
-                            aria-label="New board"
-                            className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
-                            disabled={splitPickerThreadOptions.length < 2}
-                            onClick={openSplitPicker}
-                          />
-                        }
-                      >
-                        <PlusIcon className="size-4" />
-                      </TooltipTrigger>
-                      <TooltipPopup side="right">New board</TooltipPopup>
-                    </Tooltip>
-                  </div>
-                </div>
-                <div
-                  aria-hidden={!boardsSectionExpanded}
-                  className={cn(
-                    "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
-                    boardsSectionExpanded
-                      ? "grid-rows-[1fr] opacity-100"
-                      : "pointer-events-none grid-rows-[0fr] opacity-0",
-                  )}
-                >
-                  <div className="min-h-0 overflow-hidden">
-                    <SidebarMenu>
-                      {visibleSavedBoards.map((split) => {
-                        const paneCount = split.panes.length;
-                        const isActiveSplit = activeRouteSplitId === split.id;
-                        return (
-                          <SidebarMenuItem
-                            key={split.id}
-                            className="rounded-md"
-                            onContextMenu={(event) => {
-                              event.preventDefault();
-                              openSplitContextMenu(split, {
-                                x: event.clientX,
-                                y: event.clientY,
-                              });
-                            }}
-                          >
-                            {renamingSplitId === split.id ? (
-                              <form
-                                className="flex h-7 min-w-0 items-center px-2"
-                                onSubmit={(event) => {
-                                  event.preventDefault();
-                                  commitSplitRename(split);
-                                }}
-                              >
-                                <Input
-                                  value={renamingSplitTitle}
-                                  onChange={(event) => {
-                                    setRenamingSplitTitle(event.target.value);
-                                  }}
-                                  onBlur={() => {
-                                    commitSplitRename(split);
-                                  }}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Escape") {
-                                      event.preventDefault();
-                                      cancelSplitRename();
-                                    }
-                                  }}
-                                  className="h-6 bg-transparent px-1.5 text-xs"
-                                  autoFocus
-                                />
-                              </form>
-                            ) : (
-                              <SidebarMenuButton
-                                render={<button type="button" />}
-                                size="sm"
-                                className={cn(
-                                  "h-7 w-full cursor-pointer gap-2 px-2 text-left text-xs transition-colors duration-150 focus-visible:!ring-1 focus-visible:!ring-ring/35 focus-visible:ring-inset",
-                                  isActiveSplit
-                                    ? "!bg-foreground/[0.06] !text-pill-foreground"
-                                    : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-pill-foreground",
-                                )}
-                                title={split.title}
-                                onClick={() => {
-                                  restoreSavedSplit(split);
-                                }}
-                              >
-                                <Columns2Icon className="size-3.5 shrink-0" />
-                                <span className="min-w-0 flex-1 truncate">{split.title}</span>
-                                <span className="ml-auto shrink-0 text-[9px] text-muted-foreground/60">
-                                  {paneCount}
-                                </span>
-                              </SidebarMenuButton>
-                            )}
-                          </SidebarMenuItem>
-                        );
-                      })}
-                      {savedBoards.length === 0 ? (
-                        <SidebarMenuItem>
-                          <div className="h-7 px-2 text-xs text-muted-foreground/60">
-                            No boards yet
-                          </div>
-                        </SidebarMenuItem>
-                      ) : null}
-                      {hiddenSavedSplitCount > 0 ? (
-                        <SidebarMenuItem className="rounded-md">
-                          <button
-                            type="button"
-                            className="flex h-6 w-full cursor-pointer items-center justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 outline-none transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 focus-visible:text-foreground/90 dark:hover:text-foreground dark:hover:brightness-125"
-                            onClick={() => {
-                              setSplitRevealCount((current) =>
-                                Math.min(savedBoards.length, current + SPLIT_REVEAL_STEP),
-                              );
-                            }}
-                          >
-                            <span>
-                              Show {Math.min(SPLIT_REVEAL_STEP, hiddenSavedSplitCount)} more
-                            </span>
-                          </button>
-                        </SidebarMenuItem>
-                      ) : null}
-                      {canCollapseSplitList ? (
-                        <SidebarMenuItem className="rounded-md">
-                          <button
-                            type="button"
-                            className="flex h-6 w-full cursor-pointer items-center justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 outline-none transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 focus-visible:text-foreground/90 dark:hover:text-foreground dark:hover:brightness-125"
-                            onClick={() => setSplitRevealCount(SPLIT_REVEAL_STEP)}
-                          >
-                            <span>Show less</span>
-                          </button>
-                        </SidebarMenuItem>
-                      ) : null}
-                    </SidebarMenu>
-                  </div>
-                </div>
-              </SidebarGroup>
+              <SidebarBoardsSection
+                activeRouteSplitId={activeRouteSplitId}
+                boardsSectionExpanded={boardsSectionExpanded}
+                canCollapseSplitList={canCollapseSplitList}
+                canCreateBoard={splitPickerThreadOptions.length >= 2}
+                hiddenSavedSplitCount={hiddenSavedSplitCount}
+                renamingSplitId={renamingSplitId}
+                renamingSplitTitle={renamingSplitTitle}
+                savedBoards={savedBoards}
+                showMoreCount={Math.min(SPLIT_REVEAL_STEP, hiddenSavedSplitCount)}
+                splitSortOrder={splitSortOrder}
+                visibleSavedBoards={visibleSavedBoards}
+                onBoardsSectionToggle={() => {
+                  setBoardsSectionExpanded(!boardsSectionExpanded);
+                }}
+                onCancelSplitRename={cancelSplitRename}
+                onCommitSplitRename={commitSplitRename}
+                onOpenSplitContextMenu={openSplitContextMenu}
+                onOpenSplitPicker={openSplitPicker}
+                onRestoreSavedSplit={restoreSavedSplit}
+                onShowLess={() => setSplitRevealCount(SPLIT_REVEAL_STEP)}
+                onShowMore={() => {
+                  setSplitRevealCount((current) =>
+                    Math.min(savedBoards.length, current + SPLIT_REVEAL_STEP),
+                  );
+                }}
+                onSplitRenameChange={setRenamingSplitTitle}
+                onSplitSortOrderChange={setSplitSortOrder}
+              />
             ) : null}
             <SidebarGroup className="px-2.5 pt-2.5 pb-5">
               <SidebarProjectsSectionHeader
