@@ -9,6 +9,8 @@ import { registerWorkspaceEditorLanguages } from "./workspaceLanguages";
 
 let monacoConfigured = false;
 
+type MonacoThemeMode = "light" | "dark";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -176,15 +178,36 @@ function resolveMonacoThemePalette() {
   };
 }
 
-function resolveActiveMonacoThemeName(): "ace-carbon" | "ace-paper" {
+function resolveActiveMonacoThemeMode(): MonacoThemeMode {
   if (typeof document === "undefined") {
-    return "ace-carbon";
+    return "dark";
   }
-  return document.documentElement.classList.contains("dark") ? "ace-carbon" : "ace-paper";
+  return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
 
-export function ensureMonacoConfigured(): void {
+export function resolveMonacoThemeName(input?: {
+  resolvedTheme?: MonacoThemeMode;
+  themePreset?: string | null | undefined;
+}): string {
+  const resolvedTheme = input?.resolvedTheme ?? resolveActiveMonacoThemeMode();
+  const normalizedPreset = (input?.themePreset ?? "default")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `ace-${resolvedTheme}-${normalizedPreset || "default"}`;
+}
+
+export function ensureMonacoConfigured(input?: {
+  resolvedTheme?: MonacoThemeMode;
+  themePreset?: string | null | undefined;
+}): string {
   const palette = resolveMonacoThemePalette();
+  const resolvedTheme = input?.resolvedTheme ?? resolveActiveMonacoThemeMode();
+  const themeName = resolveMonacoThemeName({
+    resolvedTheme,
+    themePreset: input?.themePreset,
+  });
 
   if (!monacoConfigured) {
     const environment = {
@@ -280,123 +303,166 @@ export function ensureMonacoConfigured(): void {
     monacoConfigured = true;
   }
 
-  monaco.editor.defineTheme("ace-carbon", {
-    base: "vs-dark",
+  const rules =
+    resolvedTheme === "dark"
+      ? [
+          { token: "comment", foreground: "6A9955" },
+          { token: "comment.doc", foreground: "7FA36B" },
+          { token: "keyword", foreground: "569CD6" },
+          { token: "keyword.control", foreground: "C586C0" },
+          { token: "annotation", foreground: "D7BA7D" },
+          { token: "attribute.name", foreground: "9CDCFE" },
+          { token: "attribute.value", foreground: "CE9178" },
+          { token: "class-name", foreground: "4EC9B0" },
+          { token: "constant", foreground: "4FC1FF" },
+          { token: "constructor", foreground: "DCDCAA" },
+          { token: "function", foreground: "DCDCAA" },
+          { token: "function.call", foreground: "DCDCAA" },
+          { token: "invalid", foreground: "F44747" },
+          { token: "key", foreground: "9CDCFE" },
+          { token: "key.identifier", foreground: "9CDCFE" },
+          { token: "namespace", foreground: "4EC9B0" },
+          { token: "regexp", foreground: "D16969" },
+          { token: "predefined", foreground: "DCDCAA" },
+          { token: "string", foreground: "CE9178" },
+          { token: "string.escape", foreground: "D7BA7D" },
+          { token: "tag", foreground: "569CD6" },
+          { token: "tag.name", foreground: "569CD6" },
+          { token: "number", foreground: "B5CEA8" },
+          { token: "type", foreground: "4EC9B0" },
+          { token: "type.identifier", foreground: "4EC9B0" },
+          { token: "variable", foreground: "C586C0" },
+          { token: "variable.parameter", foreground: "9CDCFE" },
+          { token: "delimiter", foreground: "D4D4D4" },
+          { token: "delimiter.bracket", foreground: "D4D4D4" },
+          { token: "operator", foreground: "D4D4D4" },
+        ]
+      : [
+          { token: "comment", foreground: "008000" },
+          { token: "comment.doc", foreground: "4F8A10" },
+          { token: "keyword", foreground: "0000FF" },
+          { token: "keyword.control", foreground: "AF00DB" },
+          { token: "annotation", foreground: "795E26" },
+          { token: "attribute.name", foreground: "FF0000" },
+          { token: "attribute.value", foreground: "A31515" },
+          { token: "class-name", foreground: "267F99" },
+          { token: "constant", foreground: "0070C1" },
+          { token: "constructor", foreground: "795E26" },
+          { token: "function", foreground: "795E26" },
+          { token: "function.call", foreground: "795E26" },
+          { token: "invalid", foreground: "CD3131" },
+          { token: "key", foreground: "0451A5" },
+          { token: "key.identifier", foreground: "0451A5" },
+          { token: "namespace", foreground: "267F99" },
+          { token: "regexp", foreground: "811F3F" },
+          { token: "predefined", foreground: "AF00DB" },
+          { token: "string", foreground: "A31515" },
+          { token: "string.escape", foreground: "EE0000" },
+          { token: "tag", foreground: "800000" },
+          { token: "tag.name", foreground: "800000" },
+          { token: "number", foreground: "098658" },
+          { token: "type", foreground: "267F99" },
+          { token: "type.identifier", foreground: "267F99" },
+          { token: "variable", foreground: "7A3E9D" },
+          { token: "variable.parameter", foreground: "001080" },
+          { token: "delimiter", foreground: "000000" },
+          { token: "delimiter.bracket", foreground: "000000" },
+          { token: "operator", foreground: "000000" },
+        ];
+  const modePalette = resolvedTheme === "dark" ? palette.dark : palette.light;
+  monaco.editor.defineTheme(themeName, {
+    base: resolvedTheme === "dark" ? "vs-dark" : "vs",
     inherit: true,
-    rules: [
-      { token: "comment", foreground: "6A9955" },
-      { token: "comment.doc", foreground: "7FA36B" },
-      { token: "keyword", foreground: "569CD6" },
-      { token: "keyword.control", foreground: "C586C0" },
-      { token: "annotation", foreground: "D7BA7D" },
-      { token: "attribute.name", foreground: "9CDCFE" },
-      { token: "attribute.value", foreground: "CE9178" },
-      { token: "class-name", foreground: "4EC9B0" },
-      { token: "constant", foreground: "4FC1FF" },
-      { token: "constructor", foreground: "DCDCAA" },
-      { token: "function", foreground: "DCDCAA" },
-      { token: "function.call", foreground: "DCDCAA" },
-      { token: "invalid", foreground: "F44747" },
-      { token: "key", foreground: "9CDCFE" },
-      { token: "key.identifier", foreground: "9CDCFE" },
-      { token: "namespace", foreground: "4EC9B0" },
-      { token: "regexp", foreground: "D16969" },
-      { token: "predefined", foreground: "DCDCAA" },
-      { token: "string", foreground: "CE9178" },
-      { token: "string.escape", foreground: "D7BA7D" },
-      { token: "tag", foreground: "569CD6" },
-      { token: "tag.name", foreground: "569CD6" },
-      { token: "number", foreground: "B5CEA8" },
-      { token: "type", foreground: "4EC9B0" },
-      { token: "type.identifier", foreground: "4EC9B0" },
-      { token: "variable", foreground: "C586C0" },
-      { token: "variable.parameter", foreground: "9CDCFE" },
-      { token: "delimiter", foreground: "D4D4D4" },
-      { token: "delimiter.bracket", foreground: "D4D4D4" },
-      { token: "operator", foreground: "D4D4D4" },
-    ],
+    rules,
     colors: {
-      "editor.background": palette.dark.background,
-      "editor.foreground": palette.dark.foreground,
-      "editor.lineHighlightBackground": withAlpha(palette.dark.accent, 0.5),
-      "editor.selectionBackground": withAlpha(palette.dark.primary, 0.34),
-      "editor.selectionHighlightBackground": withAlpha(palette.dark.primary, 0.2),
-      "editor.selectionHighlightBorder": withAlpha(palette.dark.primary, 0.32),
-      "editor.inactiveSelectionBackground": withAlpha(palette.dark.primary, 0.18),
-      "editorCursor.foreground": palette.dark.foreground,
-      "editorWhitespace.foreground": withAlpha(palette.dark.foreground, 0.2),
-      "editorIndentGuide.background1": withAlpha(palette.dark.foreground, 0.16),
-      "editorIndentGuide.activeBackground1": withAlpha(palette.dark.foreground, 0.32),
-      "editorLineNumber.foreground": withAlpha(palette.dark.mutedForeground, 0.74),
-      "editorLineNumber.activeForeground": withAlpha(palette.dark.foreground, 0.9),
-      "editor.wordHighlightBackground": withAlpha(palette.dark.primary, 0.16),
-      "editor.wordHighlightBorder": withAlpha(palette.dark.primary, 0.46),
-      "editor.wordHighlightStrongBackground": withAlpha(palette.dark.primary, 0.26),
-      "editor.wordHighlightStrongBorder": withAlpha(palette.dark.primary, 0.62),
-      "editorHoverWidget.background": palette.dark.background,
-      "editorHoverWidget.border": withAlpha(palette.dark.border, 0.9),
+      "editor.background": modePalette.background,
+      "editor.foreground": modePalette.foreground,
+      "editor.lineHighlightBackground": withAlpha(
+        modePalette.accent,
+        resolvedTheme === "dark" ? 0.5 : 0.55,
+      ),
+      "editor.selectionBackground": withAlpha(
+        modePalette.primary,
+        resolvedTheme === "dark" ? 0.34 : 0.3,
+      ),
+      "editor.selectionHighlightBackground": withAlpha(
+        modePalette.primary,
+        resolvedTheme === "dark" ? 0.2 : 0.18,
+      ),
+      "editor.selectionHighlightBorder": withAlpha(
+        modePalette.primary,
+        resolvedTheme === "dark" ? 0.32 : 0.3,
+      ),
+      "editor.inactiveSelectionBackground": withAlpha(
+        modePalette.primary,
+        resolvedTheme === "dark" ? 0.18 : 0.14,
+      ),
+      "editorCursor.foreground": modePalette.foreground,
+      "editorWhitespace.foreground": withAlpha(
+        modePalette.foreground,
+        resolvedTheme === "dark" ? 0.2 : 0.22,
+      ),
+      "editorIndentGuide.background1": withAlpha(
+        modePalette.foreground,
+        resolvedTheme === "dark" ? 0.16 : 0.18,
+      ),
+      "editorIndentGuide.activeBackground1": withAlpha(
+        modePalette.foreground,
+        resolvedTheme === "dark" ? 0.32 : 0.34,
+      ),
+      "editorLineNumber.foreground": withAlpha(
+        modePalette.mutedForeground,
+        resolvedTheme === "dark" ? 0.74 : 0.84,
+      ),
+      "editorLineNumber.activeForeground": withAlpha(
+        modePalette.foreground,
+        resolvedTheme === "dark" ? 0.9 : 0.92,
+      ),
+      "editor.wordHighlightBackground": withAlpha(modePalette.primary, 0.16),
+      "editor.wordHighlightBorder": withAlpha(
+        modePalette.primary,
+        resolvedTheme === "dark" ? 0.46 : 0.4,
+      ),
+      "editor.wordHighlightStrongBackground": withAlpha(
+        modePalette.primary,
+        resolvedTheme === "dark" ? 0.26 : 0.24,
+      ),
+      "editor.wordHighlightStrongBorder": withAlpha(
+        modePalette.primary,
+        resolvedTheme === "dark" ? 0.62 : 0.58,
+      ),
+      "editorHoverWidget.background": modePalette.background,
+      "editorHoverWidget.border": withAlpha(
+        modePalette.border,
+        resolvedTheme === "dark" ? 0.9 : 0.92,
+      ),
+      "editorGutter.background": modePalette.background,
+      "editorWidget.background": modePalette.background,
+      "editorSuggestWidget.background": modePalette.background,
+      "editorSuggestWidget.selectedBackground": withAlpha(
+        modePalette.accent,
+        resolvedTheme === "dark" ? 0.8 : 0.85,
+      ),
+      "minimap.background": modePalette.background,
+      "scrollbarSlider.background": withAlpha(
+        modePalette.foreground,
+        resolvedTheme === "dark" ? 0.14 : 0.12,
+      ),
+      "scrollbarSlider.hoverBackground": withAlpha(
+        modePalette.foreground,
+        resolvedTheme === "dark" ? 0.24 : 0.2,
+      ),
+      "scrollbarSlider.activeBackground": withAlpha(
+        modePalette.foreground,
+        resolvedTheme === "dark" ? 0.32 : 0.28,
+      ),
       "editorBracketMatch.background": "#0064001A",
-      "editorBracketMatch.border": withAlpha(palette.dark.foreground, 0.36),
+      "editorBracketMatch.border": withAlpha(
+        modePalette.foreground,
+        resolvedTheme === "dark" ? 0.36 : 0.35,
+      ),
     },
   });
-  monaco.editor.defineTheme("ace-paper", {
-    base: "vs",
-    inherit: true,
-    rules: [
-      { token: "comment", foreground: "008000" },
-      { token: "comment.doc", foreground: "4F8A10" },
-      { token: "keyword", foreground: "0000FF" },
-      { token: "keyword.control", foreground: "AF00DB" },
-      { token: "annotation", foreground: "795E26" },
-      { token: "attribute.name", foreground: "FF0000" },
-      { token: "attribute.value", foreground: "A31515" },
-      { token: "class-name", foreground: "267F99" },
-      { token: "constant", foreground: "0070C1" },
-      { token: "constructor", foreground: "795E26" },
-      { token: "function", foreground: "795E26" },
-      { token: "function.call", foreground: "795E26" },
-      { token: "invalid", foreground: "CD3131" },
-      { token: "key", foreground: "0451A5" },
-      { token: "key.identifier", foreground: "0451A5" },
-      { token: "namespace", foreground: "267F99" },
-      { token: "regexp", foreground: "811F3F" },
-      { token: "predefined", foreground: "AF00DB" },
-      { token: "string", foreground: "A31515" },
-      { token: "string.escape", foreground: "EE0000" },
-      { token: "tag", foreground: "800000" },
-      { token: "tag.name", foreground: "800000" },
-      { token: "number", foreground: "098658" },
-      { token: "type", foreground: "267F99" },
-      { token: "type.identifier", foreground: "267F99" },
-      { token: "variable", foreground: "7A3E9D" },
-      { token: "variable.parameter", foreground: "001080" },
-      { token: "delimiter", foreground: "000000" },
-      { token: "delimiter.bracket", foreground: "000000" },
-      { token: "operator", foreground: "000000" },
-    ],
-    colors: {
-      "editor.background": palette.light.background,
-      "editor.foreground": palette.light.foreground,
-      "editor.lineHighlightBackground": withAlpha(palette.light.accent, 0.55),
-      "editor.selectionBackground": withAlpha(palette.light.primary, 0.3),
-      "editor.selectionHighlightBackground": withAlpha(palette.light.primary, 0.18),
-      "editor.selectionHighlightBorder": withAlpha(palette.light.primary, 0.3),
-      "editor.inactiveSelectionBackground": withAlpha(palette.light.primary, 0.14),
-      "editorCursor.foreground": palette.light.foreground,
-      "editorWhitespace.foreground": withAlpha(palette.light.foreground, 0.22),
-      "editorIndentGuide.background1": withAlpha(palette.light.foreground, 0.18),
-      "editorIndentGuide.activeBackground1": withAlpha(palette.light.foreground, 0.34),
-      "editorLineNumber.foreground": withAlpha(palette.light.mutedForeground, 0.84),
-      "editorLineNumber.activeForeground": withAlpha(palette.light.foreground, 0.92),
-      "editor.wordHighlightBackground": withAlpha(palette.light.primary, 0.16),
-      "editor.wordHighlightBorder": withAlpha(palette.light.primary, 0.4),
-      "editor.wordHighlightStrongBackground": withAlpha(palette.light.primary, 0.24),
-      "editor.wordHighlightStrongBorder": withAlpha(palette.light.primary, 0.58),
-      "editorHoverWidget.background": palette.light.background,
-      "editorHoverWidget.border": withAlpha(palette.light.border, 0.92),
-      "editorBracketMatch.background": "#0064001A",
-      "editorBracketMatch.border": withAlpha(palette.light.foreground, 0.35),
-    },
-  });
-  monaco.editor.setTheme(resolveActiveMonacoThemeName());
+  monaco.editor.setTheme(themeName);
+  return themeName;
 }

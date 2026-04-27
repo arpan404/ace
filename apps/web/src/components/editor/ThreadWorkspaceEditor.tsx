@@ -659,7 +659,7 @@ function ThreadWorkspaceEditor(inputProps: {
   const props = { ...inputProps, threadId: editorStateScopeId as ThreadId };
 
   const { resolvedTheme } = useTheme();
-  const { themePreset: _themePreset } = useAppearancePrefs();
+  const { themePreset } = useAppearancePrefs();
   const { updateSettings } = useUpdateSettings();
   const editorSettings = useSettings((settings) => ({
     lineNumbers: settings.editorLineNumbers,
@@ -771,7 +771,10 @@ function ThreadWorkspaceEditor(inputProps: {
     [editorSettings],
   );
   const diffEditorOptions = useMemo(() => createWorkspaceDiffEditorOptions(), []);
-  ensureMonacoConfigured();
+  const monacoTheme = ensureMonacoConfigured({
+    resolvedTheme,
+    themePreset,
+  });
 
   useEffect(() => {
     const previous = previousWorkspaceBufferStateRef.current;
@@ -2418,6 +2421,7 @@ function ThreadWorkspaceEditor(inputProps: {
                             onUpdateDraft={(filePath, contents) =>
                               updateDraft(props.threadId, filePath, contents)
                             }
+                            monacoTheme={monacoTheme}
                             pane={pane}
                             paneIndex={paneIndex}
                             resolvedTheme={resolvedTheme}
@@ -2489,7 +2493,7 @@ function ThreadWorkspaceEditor(inputProps: {
                   height={WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT}
                   original={saveConflict.currentContents}
                   modified={saveConflict.localContents}
-                  theme={resolvedTheme === "dark" ? "ace-carbon" : "ace-paper"}
+                  theme={monacoTheme}
                   options={diffEditorOptions}
                 />
               </div>

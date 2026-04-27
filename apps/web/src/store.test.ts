@@ -1615,6 +1615,50 @@ describe("incremental orchestration updates", () => {
     );
   });
 
+  it("preserves diff summary identity when an assistant message is already authoritatively bound", () => {
+    const turnId = TurnId.makeUnsafe("turn-1");
+    const turnDiffSummaries: Thread["turnDiffSummaries"] = [
+      {
+        turnId,
+        completedAt: "2026-02-27T00:00:02.000Z",
+        status: "ready",
+        checkpointTurnCount: 1,
+        checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
+        assistantMessageId: MessageId.makeUnsafe("assistant-real"),
+        files: [{ path: "src/app.ts", additions: 1, deletions: 0 }],
+      },
+    ];
+    const state = makeState(
+      makeThread({
+        latestTurn: {
+          turnId,
+          state: "completed",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: "2026-02-27T00:00:02.000Z",
+          assistantMessageId: MessageId.makeUnsafe("assistant-real"),
+        },
+        turnDiffSummaries,
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.message-sent", {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId: MessageId.makeUnsafe("assistant-real"),
+        role: "assistant",
+        text: "final answer",
+        turnId,
+        streaming: false,
+        createdAt: "2026-02-27T00:00:03.000Z",
+        updatedAt: "2026-02-27T00:00:03.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.turnDiffSummaries).toBe(turnDiffSummaries);
+  });
+
   it("reverts messages, plans, activities, and checkpoints by retained turns", () => {
     const state = makeState(
       makeThread({

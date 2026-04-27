@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { OrchestrationEvent } from "@ace/contracts";
 
@@ -22,7 +22,10 @@ import {
   type AgentAttentionNotificationPermission,
 } from "../lib/agentAttentionNotifications";
 import { resolveLocalConnectionUrl } from "../lib/connectionRouting";
-import { buildSingleThreadRouteSearch } from "../lib/chatThreadBoardRouteSearch";
+import {
+  buildSingleThreadRouteHref,
+  buildSingleThreadRouteSearch,
+} from "../lib/chatThreadBoardRouteSearch";
 import {
   closeBrowserNotificationsByTag,
   showBrowserNotification,
@@ -54,6 +57,7 @@ type ScopedAgentAttentionRequest = ReturnType<typeof deriveAgentAttentionRequest
 
 const REMOTE_NOTIFICATION_WARMUP_DELAY_MS = 1_500;
 const REMOTE_ATTENTION_REFRESH_DEBOUNCE_MS = 450;
+const PERMISSION_OFFER_DISMISS_MS = 12_000;
 const REMOTE_ATTENTION_REFRESH_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "thread.activity-appended",
   "thread.archived",
@@ -109,10 +113,13 @@ export function AgentAttentionNotificationBridge() {
     );
   const activeBrowserNotificationsRef = useRef(new Map<string, Notification>());
   const activeDesktopNotificationIdsRef = useRef(new Set<string>());
+  const failedBrowserNotificationRequestKeysRef = useRef(new Set<string>());
   const failedDesktopNotificationRequestKeysRef = useRef(new Set<string>());
   const notifiedRequestKeysRef = useRef(new Set<string>());
   const attentionRequestByKeyRef = useRef(attentionRequestByKey);
   const hasPromptedForPermissionRef = useRef(false);
+  const permissionOfferToastIdRef = useRef<ReturnType<typeof toastManager.add> | null>(null);
+  const permissionOfferResetTimerRef = useRef<number | null>(null);
   const notificationSessionStartedAtRef = useRef(new Date().toISOString());
   const lastKnownFocusStateRef = useRef(isAppFocused);
   const connectionUnsubscribeByUrlRef = useRef(new Map<string, () => void>());
@@ -332,6 +339,24 @@ export function AgentAttentionNotificationBridge() {
     },
     [localConnectionUrl, navigate],
   );
+  const buildRequestThreadHref = useMemo(
+    () =>
+      (
+        threadId: ScopedAgentAttentionRequest["threadId"],
+        connectionUrl: ScopedAgentAttentionRequest["connectionUrl"],
+      ) =>
+        buildSingleThreadRouteHref(threadId, {
+          connectionUrl: connectionUrl !== localConnectionUrl ? connectionUrl : null,
+        }),
+    [localConnectionUrl],
+  );
+  const resetPermissionOfferTracking = useCallback(() => {
+    if (permissionOfferResetTimerRef.current !== null) {
+      window.clearTimeout(permissionOfferResetTimerRef.current);
+      permissionOfferResetTimerRef.current = null;
+    }
+    permissionOfferToastIdRef.current = null;
+  }, []);
 
   useEffect(() => {
     attentionRequestByKeyRef.current = attentionRequestByKey;
@@ -389,6 +414,11 @@ export function AgentAttentionNotificationBridge() {
     for (const requestKey of failedDesktopNotificationRequestKeysRef.current) {
       if (!activeRequestKeys.has(requestKey)) {
         failedDesktopNotificationRequestKeysRef.current.delete(requestKey);
+      }
+    }
+    for (const requestKey of failedBrowserNotificationRequestKeysRef.current) {
+      if (!activeRequestKeys.has(requestKey)) {
+        failedBrowserNotificationRequestKeysRef.current.delete(requestKey);
       }
     }
 
@@ -592,20 +622,31 @@ export function AgentAttentionNotificationBridge() {
         body,
         tag,
         requireInteraction: true,
-        data: { deepLink: request.deepLink },
+        data: {
+          deepLink: request.deepLink,
+          targetUrl: buildRequestThreadHref(request.threadId, request.connectionUrl),
+        },
         onClick: () => {
           window.focus();
           navigateToRequestThread(request.threadId, request.connectionUrl);
         },
       })
-        .then((shown) => {
+        .then(({ notification, shown }) => {
           if (canceled) {
             return;
           }
           if (shown) {
+            if (notification) {
+              activeBrowserNotificationsRef.current.set(request.key, notification);
+            }
             notifiedRequestKeysRef.current.add(request.key);
+            failedBrowserNotificationRequestKeysRef.current.delete(request.key);
             return;
           }
+          if (failedBrowserNotificationRequestKeysRef.current.has(request.key)) {
+            return;
+          }
+          failedBrowserNotificationRequestKeysRef.current.add(request.key);
           toastManager.add({
             type: "warning",
             title: "Unable to send browser notification",
@@ -617,6 +658,10 @@ export function AgentAttentionNotificationBridge() {
           if (canceled) {
             return;
           }
+          if (failedBrowserNotificationRequestKeysRef.current.has(request.key)) {
+            return;
+          }
+          failedBrowserNotificationRequestKeysRef.current.add(request.key);
           toastManager.add({
             type: "error",
             title: "Unable to send agent notification",
@@ -632,6 +677,7 @@ export function AgentAttentionNotificationBridge() {
     };
   }, [
     attentionRequests,
+    buildRequestThreadHref,
     desktopNotificationBridge,
     isAppFocused,
     navigateToRequestThread,
@@ -653,15 +699,21 @@ export function AgentAttentionNotificationBridge() {
     ) {
       return;
     }
-
-    hasPromptedForPermissionRef.current = true;
-    toastManager.add({
+    if (permissionOfferToastIdRef.current !== null) {
+      return;
+    }
+    const toastId = toastManager.add({
       type: "info",
       title: "Enable agent notifications",
       description: `${APP_DISPLAY_NAME} can alert you when agent work finishes or needs input while this window is in the background.`,
+      data: {
+        dismissAfterVisibleMs: PERMISSION_OFFER_DISMISS_MS,
+      },
       actionProps: {
         children: "Enable notifications",
         onClick: () => {
+          resetPermissionOfferTracking();
+          hasPromptedForPermissionRef.current = true;
           void requestAgentAttentionNotificationPermission()
             .then((nextPermission) => {
               setNotificationPermission(nextPermission);
@@ -673,6 +725,9 @@ export function AgentAttentionNotificationBridge() {
                 });
                 return;
               }
+              if (nextPermission === "default") {
+                hasPromptedForPermissionRef.current = false;
+              }
 
               toastManager.add({
                 type: "warning",
@@ -681,6 +736,7 @@ export function AgentAttentionNotificationBridge() {
               });
             })
             .catch((error) => {
+              hasPromptedForPermissionRef.current = false;
               toastManager.add({
                 type: "error",
                 title: "Unable to enable notifications",
@@ -693,7 +749,20 @@ export function AgentAttentionNotificationBridge() {
         },
       },
     });
-  }, [attentionRequests.length, desktopNotificationBridge, isAppFocused, notificationPermission]);
+    permissionOfferToastIdRef.current = toastId;
+    permissionOfferResetTimerRef.current = window.setTimeout(() => {
+      permissionOfferResetTimerRef.current = null;
+      if (permissionOfferToastIdRef.current === toastId) {
+        permissionOfferToastIdRef.current = null;
+      }
+    }, PERMISSION_OFFER_DISMISS_MS);
+  }, [
+    attentionRequests.length,
+    desktopNotificationBridge,
+    isAppFocused,
+    notificationPermission,
+    resetPermissionOfferTracking,
+  ]);
 
   useEffect(() => {
     const activeBrowserNotifications = activeBrowserNotificationsRef.current;
@@ -712,6 +781,19 @@ export function AgentAttentionNotificationBridge() {
       activeDesktopNotificationIds.clear();
     };
   }, [desktopNotificationBridge]);
+
+  useEffect(() => {
+    if (notificationPermission !== "default") {
+      resetPermissionOfferTracking();
+    }
+  }, [notificationPermission, resetPermissionOfferTracking]);
+
+  useEffect(
+    () => () => {
+      resetPermissionOfferTracking();
+    },
+    [resetPermissionOfferTracking],
+  );
 
   return null;
 }

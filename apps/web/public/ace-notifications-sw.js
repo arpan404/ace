@@ -1,9 +1,15 @@
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
+  const rawTargetUrl = event.notification.data && event.notification.data.targetUrl;
   const rawDeepLink = event.notification.data && event.notification.data.deepLink;
-  const deepLink = typeof rawDeepLink === "string" && rawDeepLink.length > 0 ? rawDeepLink : "/";
-  const targetUrl = new URL(deepLink, self.location.origin).href;
+  const navigationTarget =
+    typeof rawTargetUrl === "string" && rawTargetUrl.length > 0
+      ? rawTargetUrl
+      : typeof rawDeepLink === "string" && rawDeepLink.length > 0
+        ? rawDeepLink
+        : "/";
+  const targetUrl = new URL(navigationTarget, self.location.origin).href;
 
   event.waitUntil(
     (async () => {

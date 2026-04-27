@@ -1,6 +1,7 @@
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
+  ChevronDownIcon,
   CircleDotIcon,
   CropIcon,
   ExternalLinkIcon,
@@ -35,6 +36,14 @@ import { cn } from "~/lib/utils";
 import type { BrowserSessionStorage } from "~/lib/browser/session";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import {
+  Menu,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuShortcut,
+  MenuTrigger,
+} from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { BrowserNewTabPanel, BrowserSuggestionList } from "./browser/BrowserChrome";
 import { BrowserTabWebview } from "./browser/BrowserWebviewSurface";
@@ -139,6 +148,7 @@ const DESIGNER_TOOL_BUTTONS: ReadonlyArray<{
   { tool: "draw-comment", label: "Draw comment", Icon: SquarePenIcon },
   { tool: "element-comment", label: "Element comment", Icon: CircleDotIcon },
 ];
+const FALLBACK_DESIGNER_TOOL_BUTTON = DESIGNER_TOOL_BUTTONS[0]!;
 
 export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps) {
   const {
@@ -209,9 +219,13 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   }, [browserSession, onBrowserSessionChange]);
   const browserShellRef = useRef<HTMLElement | null>(null);
   const browserViewportRef = useRef<HTMLDivElement | null>(null);
+  const browserToolbarRef = useRef<HTMLDivElement | null>(null);
+  const designerToolMeasureRef = useRef<HTMLDivElement | null>(null);
+  const designerToolSlotRef = useRef<HTMLDivElement | null>(null);
   const designerToolListRef = useRef<HTMLDivElement | null>(null);
   const designerToolButtonRefs = useRef(new Map<BrowserDesignerTool, HTMLButtonElement>());
   const [addressFieldExpanded, setAddressFieldExpanded] = useState(false);
+  const [designerToolsCollapsed, setDesignerToolsCollapsed] = useState(false);
   const [designerToolHighlightFrame, setDesignerToolHighlightFrame] = useState<{
     height: number;
     left: number;
@@ -234,6 +248,12 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       : addressPresentation.security === "insecure"
         ? LockOpenIcon
         : null;
+  const activeDesignerToolButton = useMemo(
+    () =>
+      DESIGNER_TOOL_BUTTONS.find((item) => item.tool === designerState.tool) ??
+      FALLBACK_DESIGNER_TOOL_BUTTON,
+    [designerState.tool],
+  );
 
   useEffect(() => {
     if (!open) {
@@ -397,7 +417,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   useLayoutEffect(() => {
     const toolList = designerToolListRef.current;
     const activeButton = designerToolButtonRefs.current.get(designerState.tool);
-    if (!designerState.active || !toolList || !activeButton) {
+    if (designerToolsCollapsed || !designerState.active || !toolList || !activeButton) {
       setDesignerToolHighlightFrame(null);
       return;
     }
@@ -436,7 +456,53 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       resizeObserver?.disconnect();
       window.removeEventListener("resize", syncHighlightFrame);
     };
-  }, [designerState.active, designerState.tool]);
+  }, [designerState.active, designerState.tool, designerToolsCollapsed]);
+  useLayoutEffect(() => {
+    if (!designerModeAvailable) {
+      setDesignerToolsCollapsed(false);
+      return;
+    }
+    const toolbar = browserToolbarRef.current;
+    const toolMeasure = designerToolMeasureRef.current;
+    const toolSlot = designerToolSlotRef.current;
+    if (!toolbar || !toolMeasure || !toolSlot) {
+      return;
+    }
+    const syncDesignerOverflow = () => {
+      const toolbarWidth = toolbar.getBoundingClientRect().width;
+      const expandedToolsWidth = toolMeasure.getBoundingClientRect().width;
+      const computedStyle = window.getComputedStyle(toolbar);
+      const gapValue = Number.parseFloat(computedStyle.columnGap || computedStyle.gap || "0");
+      const toolbarChildren = Array.from(toolbar.children);
+      const siblingWidths = toolbarChildren.reduce((total, child) => {
+        if (child === toolSlot) {
+          return total;
+        }
+        return total + child.getBoundingClientRect().width;
+      }, 0);
+      const totalGapWidth =
+        toolbarChildren.length > 1 && Number.isFinite(gapValue)
+          ? gapValue * (toolbarChildren.length - 1)
+          : 0;
+      const availableWidth = toolbarWidth - siblingWidths - totalGapWidth;
+      setDesignerToolsCollapsed(expandedToolsWidth > availableWidth + 1);
+    };
+    syncDesignerOverflow();
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            syncDesignerOverflow();
+          })
+        : null;
+    resizeObserver?.observe(toolbar);
+    resizeObserver?.observe(toolMeasure);
+    resizeObserver?.observe(toolSlot);
+    window.addEventListener("resize", syncDesignerOverflow);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", syncDesignerOverflow);
+    };
+  }, [designerModeAvailable]);
   const handleBrowserSectionKeyDownCapture = useCallback(
     (event: ReactKeyboardEvent<HTMLElement>) => {
       const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
@@ -520,7 +586,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
         )}
       >
         <>
-          <div className="flex h-12 items-center gap-2.5 border-b border-border bg-card px-3 sm:px-4">
+          <div
+            ref={browserToolbarRef}
+            className="flex h-12 items-center gap-2.5 border-b border-border bg-card px-3 sm:px-4"
+          >
             <div className="flex shrink-0 items-center gap-0.5">
               <Tooltip>
                 <TooltipTrigger
@@ -695,64 +764,121 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
               ) : null}
             </form>
             {designerModeAvailable ? (
-              <div ref={designerToolListRef} className="relative flex shrink-0 items-center gap-1">
+              <div
+                ref={designerToolSlotRef}
+                className="relative flex shrink-0 items-center justify-end"
+              >
                 <div
-                  className="pointer-events-none absolute z-0 rounded-md bg-primary/14 transition-[top,left,width,height,opacity] duration-200 ease-out"
-                  style={
-                    designerToolHighlightFrame
-                      ? {
-                          height: `${designerToolHighlightFrame.height}px`,
-                          left: `${designerToolHighlightFrame.left}px`,
-                          top: `${designerToolHighlightFrame.top}px`,
-                          width: `${designerToolHighlightFrame.width}px`,
+                  ref={designerToolMeasureRef}
+                  aria-hidden="true"
+                  className="pointer-events-none invisible absolute right-0 top-0 flex items-center gap-1 opacity-0"
+                >
+                  {DESIGNER_TOOL_BUTTONS.map(({ Icon, tool }) => (
+                    <span
+                      key={`measure:${tool}`}
+                      className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border/60"
+                    >
+                      <Icon className="size-3.5" />
+                    </span>
+                  ))}
+                </div>
+                {designerToolsCollapsed ? (
+                  <Menu>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <MenuTrigger className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border/60 bg-background/90 px-2 text-muted-foreground transition-[border-color,color,background-color] duration-150 hover:border-border hover:bg-accent/40 hover:text-foreground data-[popup-open]:border-primary/40 data-[popup-open]:text-primary">
+                            <activeDesignerToolButton.Icon className="size-3.5" />
+                            <ChevronDownIcon className="size-3 opacity-70" />
+                          </MenuTrigger>
                         }
-                      : { opacity: 0 }
-                  }
-                />
-                {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
-                  <Tooltip key={tool}>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          ref={(node) => {
-                            setDesignerToolButtonRef(tool, node);
-                          }}
-                          type="button"
-                          className={cn(
-                            "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color] duration-150",
-                            designerState.tool === tool
-                              ? "border-primary/40 text-primary"
-                              : "border-border/60 bg-background/90 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
-                          )}
-                          onPointerDown={(event) => {
-                            handleDesignerToolPointerDown(event, tool);
-                          }}
-                          onKeyDown={(event) => {
-                            handleDesignerToolKeyDown(event, tool);
-                          }}
-                          aria-label={label}
-                        >
-                          <Icon className="size-3.5" />
-                          {showDesignerToolShortcutHints && designerShortcutLabelByTool[tool] ? (
-                            <span
-                              className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-3.5 items-center justify-center rounded-full border border-border/70 bg-background px-0.5 font-mono text-[8px] font-medium leading-none text-foreground shadow-sm"
-                              title={designerShortcutLabelByTool[tool] ?? undefined}
-                            >
-                              {resolveDesignerShortcutHintLabel(
-                                designerShortcutLabelByTool[tool] ?? "",
-                              )}
-                            </span>
-                          ) : null}
-                        </button>
+                      />
+                      <TooltipPopup side="bottom">{activeDesignerToolButton.label}</TooltipPopup>
+                    </Tooltip>
+                    <MenuPopup align="end" side="bottom" className="min-w-52">
+                      <MenuRadioGroup
+                        value={designerState.tool}
+                        onValueChange={(value) => {
+                          selectDesignerTool(value as BrowserDesignerTool);
+                        }}
+                      >
+                        {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
+                          <MenuRadioItem key={tool} value={tool}>
+                            <Icon className="size-4" />
+                            <span>{label}</span>
+                            {designerShortcutLabelByTool[tool] ? (
+                              <MenuShortcut>{designerShortcutLabelByTool[tool]}</MenuShortcut>
+                            ) : null}
+                          </MenuRadioItem>
+                        ))}
+                      </MenuRadioGroup>
+                    </MenuPopup>
+                  </Menu>
+                ) : (
+                  <div
+                    ref={designerToolListRef}
+                    className="relative flex shrink-0 items-center gap-1"
+                  >
+                    <div
+                      className="pointer-events-none absolute z-0 rounded-md bg-primary/14 transition-[top,left,width,height,opacity] duration-200 ease-out"
+                      style={
+                        designerToolHighlightFrame
+                          ? {
+                              height: `${designerToolHighlightFrame.height}px`,
+                              left: `${designerToolHighlightFrame.left}px`,
+                              top: `${designerToolHighlightFrame.top}px`,
+                              width: `${designerToolHighlightFrame.width}px`,
+                            }
+                          : { opacity: 0 }
                       }
                     />
-                    <TooltipPopup side="bottom">
-                      {designerShortcutLabelByTool[tool]
-                        ? `${label} (${designerShortcutLabelByTool[tool]})`
-                        : label}
-                    </TooltipPopup>
-                  </Tooltip>
-                ))}
+                    {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
+                      <Tooltip key={tool}>
+                        <TooltipTrigger
+                          render={
+                            <button
+                              ref={(node) => {
+                                setDesignerToolButtonRef(tool, node);
+                              }}
+                              type="button"
+                              className={cn(
+                                "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color] duration-150",
+                                designerState.tool === tool
+                                  ? "border-primary/40 text-primary"
+                                  : "border-border/60 bg-background/90 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
+                              )}
+                              onPointerDown={(event) => {
+                                handleDesignerToolPointerDown(event, tool);
+                              }}
+                              onKeyDown={(event) => {
+                                handleDesignerToolKeyDown(event, tool);
+                              }}
+                              aria-label={label}
+                            >
+                              <Icon className="size-3.5" />
+                              {showDesignerToolShortcutHints &&
+                              designerShortcutLabelByTool[tool] ? (
+                                <span
+                                  className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-3.5 items-center justify-center rounded-full border border-border/70 bg-background px-0.5 font-mono text-[8px] font-medium leading-none text-foreground shadow-sm"
+                                  title={designerShortcutLabelByTool[tool] ?? undefined}
+                                >
+                                  {resolveDesignerShortcutHintLabel(
+                                    designerShortcutLabelByTool[tool] ?? "",
+                                  )}
+                                </span>
+                              ) : null}
+                            </button>
+                          }
+                        />
+                        <TooltipPopup side="bottom">
+                          {designerShortcutLabelByTool[tool]
+                            ? `${label} (${designerShortcutLabelByTool[tool]})`
+                            : label}
+                        </TooltipPopup>
+                      </Tooltip>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : null}
           </div>

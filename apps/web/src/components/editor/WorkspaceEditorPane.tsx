@@ -81,6 +81,7 @@ interface WorkspaceEditorPaneProps {
   onSplitPane: (paneId: string) => void;
   onSplitPaneDown: (paneId: string) => void;
   onUpdateDraft: (filePath: string, contents: string) => void;
+  monacoTheme: string;
   pane: ThreadEditorPaneState;
   paneIndex: number;
   resolvedTheme: "light" | "dark";
@@ -372,6 +373,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const [editorMountVersion, setEditorMountVersion] = useState(0);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<MonacoApi | null>(null);
+  const tabStripRef = useRef<HTMLDivElement | null>(null);
   const syncRequestIdRef = useRef(0);
   const diagnosticsUnavailableRetryAtRef = useRef(0);
   const activePreviewKind = useMemo<WorkspacePreviewKind | null>(
@@ -1097,6 +1099,27 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const readDraggedExplorerEntry = useCallback((event: ReactDragEvent<HTMLElement>) => {
     return readExplorerEntryTransfer(event.dataTransfer);
   }, []);
+  const autoScrollTabStripOnDragOver = useCallback((clientX: number) => {
+    const tabStrip = tabStripRef.current;
+    if (!tabStrip) {
+      return;
+    }
+    const bounds = tabStrip.getBoundingClientRect();
+    if (bounds.width <= 0) {
+      return;
+    }
+    const edgeThreshold = Math.min(72, bounds.width / 3);
+    const maxStep = 20;
+    if (clientX < bounds.left + edgeThreshold) {
+      const intensity = (bounds.left + edgeThreshold - clientX) / edgeThreshold;
+      tabStrip.scrollLeft -= Math.ceil(maxStep * Math.min(1, intensity));
+      return;
+    }
+    if (clientX > bounds.right - edgeThreshold) {
+      const intensity = (clientX - (bounds.right - edgeThreshold)) / edgeThreshold;
+      tabStrip.scrollLeft += Math.ceil(maxStep * Math.min(1, intensity));
+    }
+  }, []);
 
   const handleTabDrop = useCallback(
     (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
@@ -1128,6 +1151,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       if (draggedTab) {
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
+        autoScrollTabStripOnDragOver(event.clientX);
         setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
         return;
       }
@@ -1137,9 +1161,15 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       }
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
+      autoScrollTabStripOnDragOver(event.clientX);
       setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
     },
-    [pane.openFilePaths.length, readDraggedExplorerEntry, readDraggedTab],
+    [
+      autoScrollTabStripOnDragOver,
+      pane.openFilePaths.length,
+      readDraggedExplorerEntry,
+      readDraggedTab,
+    ],
   );
 
   const clearDropTarget = useCallback(() => {
@@ -1283,7 +1313,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     >
       <div
         className={cn(
-          "flex h-[35px] shrink-0 items-center overflow-x-auto border-b border-border/60 bg-card/78 scrollbar-none",
+          "flex h-[35px] shrink-0 items-center overflow-hidden border-b border-border/60 bg-card/78 scrollbar-none",
         )}
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -1294,7 +1324,10 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         onDragOver={(event) => handleTabDragOver(event)}
         onDrop={(event) => handleTabDrop(event)}
       >
-        <div className="flex min-w-0 flex-1 items-center overflow-x-auto scrollbar-none">
+        <div
+          ref={tabStripRef}
+          className="flex min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden scrollbar-none"
+        >
           {props.pane.openFilePaths.map((filePath) => {
             const isActive = filePath === props.pane.activeFilePath;
             const isDirty = props.dirtyFilePaths.has(filePath);
@@ -1550,10 +1583,10 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         ) : (
           <div className="h-full min-h-0 min-w-0 overflow-hidden">
             <Editor
-              key={`${props.pane.id}:${props.pane.activeFilePath ?? "empty"}:${props.resolvedTheme}`}
+              key={`${props.pane.id}:${props.pane.activeFilePath ?? "empty"}:${props.monacoTheme}`}
               height="100%"
               value={activeFileContents}
-              theme={props.resolvedTheme === "dark" ? "ace-carbon" : "ace-paper"}
+              theme={props.monacoTheme}
               onMount={handleEditorMount}
               onChange={(value) => {
                 if (!props.pane.activeFilePath || value === undefined) {

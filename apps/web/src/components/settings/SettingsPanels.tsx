@@ -67,6 +67,12 @@ import {
   requestAgentAttentionNotificationPermission,
   type AgentAttentionNotificationPermission,
 } from "../../lib/agentAttentionNotifications";
+import {
+  buildAgentAttentionNotificationSettingsPatch,
+  buildScopedAgentAttentionNotificationSettingsPatch,
+  resolveNotificationToggleChangeIntent,
+  type AgentAttentionNotificationSettingKey,
+} from "../../lib/notificationSettings";
 import { showBrowserNotification } from "../../lib/browserNotifications";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -868,11 +874,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     settings.notifyOnUserInputRequired;
   const setAgentAttentionNotificationToggles = useCallback(
     (enabled: boolean) => {
-      updateSettings({
-        notifyOnAgentCompletion: enabled,
-        notifyOnApprovalRequired: enabled,
-        notifyOnUserInputRequired: enabled,
-      });
+      updateSettings(buildAgentAttentionNotificationSettingsPatch(enabled));
     },
     [updateSettings],
   );
@@ -954,7 +956,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       title: "ace notifications",
       body: "You'll get alerts when agent work completes or needs input.",
       tag: probeId,
-    });
+    }).then((result) => result.shown);
   }, []);
 
   const handleSendNotificationTest = useCallback(() => {
@@ -1002,66 +1004,74 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       });
   }, [refreshNotificationPermission, sendNotificationProbe]);
 
-  const enableNotifications = useCallback(() => {
-    setIsUpdatingNotificationPermission(true);
-    const permissionRequest =
-      isElectron && typeof window.desktopBridge?.requestNotificationPermission === "function"
-        ? window.desktopBridge.requestNotificationPermission()
-        : requestAgentAttentionNotificationPermission();
+  const enableNotifications = useCallback(
+    (enabledKeys?: readonly AgentAttentionNotificationSettingKey[]) => {
+      setIsUpdatingNotificationPermission(true);
+      const permissionRequest =
+        isElectron && typeof window.desktopBridge?.requestNotificationPermission === "function"
+          ? window.desktopBridge.requestNotificationPermission()
+          : requestAgentAttentionNotificationPermission();
 
-    void permissionRequest
-      .then(async (permission) => {
-        setNotificationPermission(permission);
-        if (permission === "granted") {
-          await sendNotificationProbe();
-          setAgentAttentionNotificationToggles(true);
-          return;
-        }
-        if (permission === "denied") {
+      void permissionRequest
+        .then(async (permission) => {
+          setNotificationPermission(permission);
+          if (permission === "granted") {
+            await sendNotificationProbe();
+            if (enabledKeys && enabledKeys.length > 0) {
+              updateSettings(buildScopedAgentAttentionNotificationSettingsPatch(enabledKeys, true));
+            } else {
+              setAgentAttentionNotificationToggles(true);
+            }
+            return;
+          }
+          if (permission === "denied") {
+            toastManager.add({
+              type: "warning",
+              title: isElectron
+                ? "Notifications blocked by system settings"
+                : "Notifications blocked",
+              description: canOpenNotificationSystemSettings
+                ? "Open system settings and allow notifications for ace."
+                : "Allow notifications for ace in your browser or operating system settings.",
+            });
+            return;
+          }
+          if (permission === "default") {
+            toastManager.add({
+              type: "warning",
+              title: "Notification permission still pending",
+              description:
+                "If no prompt appeared, open notification settings and allow ace manually.",
+            });
+            return;
+          }
           toastManager.add({
             type: "warning",
-            title: isElectron
-              ? "Notifications blocked by system settings"
-              : "Notifications blocked",
-            description: canOpenNotificationSystemSettings
-              ? "Open system settings and allow notifications for ace."
-              : "Allow notifications for ace in your browser or operating system settings.",
+            title: "Notifications unavailable",
+            description: "This runtime does not support desktop notifications.",
           });
-          return;
-        }
-        if (permission === "default") {
+        })
+        .catch((error: unknown) => {
           toastManager.add({
-            type: "warning",
-            title: "Notification permission still pending",
+            type: "error",
+            title: "Unable to request notification permission",
             description:
-              "If no prompt appeared, open notification settings and allow ace manually.",
+              error instanceof Error ? error.message : "Unknown notification permission error.",
           });
-          return;
-        }
-        toastManager.add({
-          type: "warning",
-          title: "Notifications unavailable",
-          description: "This runtime does not support desktop notifications.",
+        })
+        .finally(() => {
+          void refreshNotificationPermission();
+          setIsUpdatingNotificationPermission(false);
         });
-      })
-      .catch((error: unknown) => {
-        toastManager.add({
-          type: "error",
-          title: "Unable to request notification permission",
-          description:
-            error instanceof Error ? error.message : "Unknown notification permission error.",
-        });
-      })
-      .finally(() => {
-        void refreshNotificationPermission();
-        setIsUpdatingNotificationPermission(false);
-      });
-  }, [
-    canOpenNotificationSystemSettings,
-    refreshNotificationPermission,
-    sendNotificationProbe,
-    setAgentAttentionNotificationToggles,
-  ]);
+    },
+    [
+      canOpenNotificationSystemSettings,
+      refreshNotificationPermission,
+      sendNotificationProbe,
+      setAgentAttentionNotificationToggles,
+      updateSettings,
+    ],
+  );
 
   const disableNotifications = useCallback(() => {
     setAgentAttentionNotificationToggles(false);
@@ -1097,18 +1107,17 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   }, [refreshNotificationPermission]);
 
   const handleNotificationToggleChange = useCallback(
-    (
-      key: "notifyOnAgentCompletion" | "notifyOnApprovalRequired" | "notifyOnUserInputRequired",
-      checked: boolean,
-    ) => {
-      updateSettings({ [key]: checked });
-      if (
-        checked &&
-        notificationPermission !== "granted" &&
-        notificationPermission !== "unsupported"
-      ) {
-        enableNotifications();
+    (key: AgentAttentionNotificationSettingKey, checked: boolean) => {
+      const intent = resolveNotificationToggleChangeIntent({
+        checked,
+        key,
+        permission: notificationPermission,
+      });
+      if (intent.kind === "request-permission") {
+        enableNotifications(intent.keys);
+        return;
       }
+      updateSettings(intent.patch);
     },
     [enableNotifications, notificationPermission, updateSettings],
   );
@@ -1982,7 +1991,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                       onClick={
                         hasAnyAgentAttentionNotificationsEnabled
                           ? disableNotifications
-                          : enableNotifications
+                          : () => enableNotifications()
                       }
                     >
                       {isUpdatingNotificationPermission
@@ -1997,7 +2006,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     size="sm"
                     variant="outline"
                     disabled={isUpdatingNotificationPermission}
-                    onClick={enableNotifications}
+                    onClick={() => enableNotifications()}
                   >
                     {isUpdatingNotificationPermission ? "Requesting..." : "Request permission"}
                   </Button>
@@ -2007,7 +2016,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                       size="sm"
                       variant="outline"
                       disabled={isUpdatingNotificationPermission}
-                      onClick={enableNotifications}
+                      onClick={() => enableNotifications()}
                     >
                       Request again
                     </Button>
@@ -2025,7 +2034,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     size="sm"
                     variant="outline"
                     disabled={isUpdatingNotificationPermission}
-                    onClick={enableNotifications}
+                    onClick={() => enableNotifications()}
                   >
                     {isUpdatingNotificationPermission ? "Requesting..." : "Request again"}
                   </Button>
