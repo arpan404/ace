@@ -20,17 +20,36 @@ export const HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME = cn(
 );
 
 export const HEADER_ACTION_GROUP_CLASS_NAME =
-  "flex h-8 min-w-0 items-center gap-px overflow-hidden rounded-lg border border-border/55 bg-background/38 p-0.5 shadow-none supports-[backdrop-filter]:bg-background/32 supports-[backdrop-filter]:backdrop-blur-md";
+  "flex h-8 min-w-0 items-center gap-px overflow-hidden rounded-lg border border-pill-border/72 bg-pill/92 p-0.5 shadow-none supports-[backdrop-filter]:bg-pill/84 supports-[backdrop-filter]:backdrop-blur-lg";
 
 export const HEADER_ACTION_CONTROL_CLASS_NAME =
-  "!h-7 !rounded-md !border !border-transparent !bg-transparent !shadow-none gap-1.5 px-2.25 sm:px-2.75 text-[11px]/none font-medium text-foreground/72 transition-[background-color,color,border-color,opacity] duration-150 ease-out hover:!bg-accent hover:text-foreground active:!bg-accent/80 aria-expanded:!bg-accent aria-expanded:text-foreground disabled:text-foreground/35 disabled:hover:!bg-transparent";
+  "!h-7 !rounded-md !border !border-transparent !bg-transparent !shadow-none gap-1.5 px-2.25 sm:px-2.75 text-[11px]/none font-medium text-pill-foreground/76 transition-[background-color,color,border-color,opacity] duration-150 ease-out hover:!bg-foreground/[0.06] hover:text-pill-foreground active:!bg-foreground/[0.08] aria-expanded:!bg-foreground/[0.08] aria-expanded:text-pill-foreground disabled:text-pill-foreground/35 disabled:hover:!bg-transparent";
 
 export const HEADER_ACTION_ICON_CONTROL_CLASS_NAME = cn(
   HEADER_ACTION_CONTROL_CLASS_NAME,
   "!size-7 !px-0",
 );
 
-export const HEADER_ACTION_DIVIDER_CLASS_NAME = "mx-0.5 h-4 w-px bg-border/60";
+export const HEADER_ACTION_DIVIDER_CLASS_NAME = "mx-0.5 h-4 w-px bg-pill-border/55";
+
+export const HEADER_ACTION_DIALOG_POPUP_CLASS_NAME =
+  "overflow-hidden border-border/60 bg-popover/96 shadow-[0_36px_96px_-48px_rgba(0,0,0,0.72)] supports-[backdrop-filter]:bg-popover/90 supports-[backdrop-filter]:backdrop-blur-2xl";
+
+export const HEADER_ACTION_DIALOG_HEADER_CLASS_NAME =
+  "border-b border-border/35 bg-gradient-to-b from-muted/18 to-transparent px-5 py-4 sm:px-6 sm:py-5";
+
+export const HEADER_ACTION_DIALOG_PANEL_CLASS_NAME = "space-y-4 px-5 py-4 sm:px-6 sm:py-5";
+
+export const HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME =
+  "border-t border-border/45 bg-background/42 px-5 py-3 sm:px-6 sm:py-3.5";
+
+export const HEADER_ACTION_FIELD_LABEL_CLASS_NAME = "text-[12px] font-medium text-foreground/86";
+
+export const HEADER_ACTION_FIELD_CONTROL_CLASS_NAME =
+  "border-border/55 bg-background/72 shadow-none transition-colors placeholder:text-muted-foreground/50 focus-visible:border-primary/55";
+
+export const HEADER_ACTION_FIELD_CARD_CLASS_NAME =
+  "rounded-xl border border-border/50 bg-background/45";
 
 export const HEADER_PILL_TRIGGER_CLASS_NAME = cn(
   HEADER_PILL_SURFACE_CLASS_NAME,
