@@ -121,10 +121,10 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
-    "diff.toggle": {
+    "rightPanel.review.open": {
       category: "Right Panel",
-      label: "Toggle Review tab",
-      description: "Open or close the Review tab in the right side panel.",
+      label: "Open Review tab",
+      description: "Open and focus the Review tab in the right side panel.",
       defaultShortcut: {
         key: "d",
         modKey: true,
@@ -136,10 +136,18 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
-    "browser.toggle": {
-      category: "Browser",
-      label: "Toggle in-app browser",
-      description: "Open or close the in-app browser.",
+    "rightPanel.browser.open": {
+      category: "Right Panel",
+      label: "Open Browser tab",
+      description: "Open and focus the Browser tab in the right side panel.",
+      defaultShortcut: {
+        key: "b",
+        modKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+      },
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
@@ -277,10 +285,10 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
-    "rightPanel.editor.toggle": {
+    "rightPanel.editor.open": {
       category: "Right Panel",
-      label: "Toggle Editor tab",
-      description: "Open or close the Editor tab in the right side panel.",
+      label: "Open Editor tab",
+      description: "Open and focus the Editor tab in the right side panel.",
       defaultShortcut: {
         key: "e",
         modKey: true,

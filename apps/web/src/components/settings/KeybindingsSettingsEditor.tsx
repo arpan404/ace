@@ -35,7 +35,7 @@ const CATEGORY_PREVIEW_COUNT = 3;
 type KeybindingCategory = (typeof CATEGORY_ORDER)[number];
 
 const CATEGORY_DESCRIPTIONS: Partial<Record<KeybindingCategory, string>> = {
-  "Right Panel": "Add and toggle the Browser, Review, and Editor tabs in the right side panel.",
+  "Right Panel": "Open and focus Browser, Review, and Editor tabs in the right side panel.",
 };
 
 function shortcutRuleFingerprint(

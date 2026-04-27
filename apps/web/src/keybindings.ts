@@ -437,12 +437,12 @@ export function isTerminalCloseShortcut(
   return matchesCommandShortcut(event, keybindings, "terminal.close", options);
 }
 
-export function isDiffToggleShortcut(
+export function isRightPanelReviewOpenShortcut(
   event: ShortcutEventLike,
   keybindings: ResolvedKeybindingsConfig,
   options?: ShortcutMatchOptions,
 ): boolean {
-  return matchesCommandShortcut(event, keybindings, "diff.toggle", options);
+  return matchesCommandShortcut(event, keybindings, "rightPanel.review.open", options);
 }
 
 export function isChatNewShortcut(

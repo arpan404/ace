@@ -99,8 +99,8 @@ export function buildApplicationMenuTemplate({
       label: "View",
       submenu: [
         menuActionItem({ action: "toggle-terminal", label: "Toggle Terminal" }),
-        menuActionItem({ action: "toggle-browser", label: "Toggle Browser" }),
-        menuActionItem({ action: "toggle-diff", label: "Toggle Diff" }),
+        menuActionItem({ action: "toggle-browser", label: "Open Browser Tab" }),
+        menuActionItem({ action: "toggle-diff", label: "Open Review Tab" }),
         { type: "separator" },
         { role: "reload" },
         { role: "forceReload" },

@@ -54,6 +54,7 @@ describe("PlanSummaryPanel", () => {
     expect(markup).toContain("Live todo state");
     expect(markup).toContain("Audit summary surface");
     expect(markup).toContain("Ship embedded summary content");
+    expect(markup).toContain("01/02");
     expect(markup).toContain("1/2 done");
   });
 });

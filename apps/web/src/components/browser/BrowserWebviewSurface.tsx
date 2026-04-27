@@ -377,6 +377,10 @@ export function shouldSubmitDesignDraftFromTextareaKey(
   );
 }
 
+export function normalizeDesignCommentToSingleLine(value: string): string {
+  return value.replace(/[\r\n]+/g, " ");
+}
+
 export function shouldRunElementHoverInspection(input: {
   active: boolean;
   designerModeActive: boolean;
@@ -1146,7 +1150,7 @@ function buildElementCommentScrollScript(input: {
   let target = document.elementFromPoint(point.x, point.y);
   while (target && target !== document.body && target !== document.documentElement) {
     if (canScroll(target, dominantAxis)) {
-      target.scrollBy({ left: delta.left, top: delta.top, behavior: "auto" });
+      target.scrollBy({ left: delta.left, top: delta.top, behavior: "smooth" });
       return;
     }
     target = target.parentElement;
@@ -1154,7 +1158,7 @@ function buildElementCommentScrollScript(input: {
   window.scrollBy({
     left: delta.left,
     top: delta.top,
-    behavior: "auto",
+    behavior: "smooth",
   });
 })();`;
 }
@@ -2330,7 +2334,7 @@ export function BrowserTabWebview(props: {
     if (!designDraft || !onDesignCaptureSubmit || isSubmittingDesignRequest) {
       return;
     }
-    const trimmedInstructions = designInstructions.trim();
+    const trimmedInstructions = normalizeDesignCommentToSingleLine(designInstructions).trim();
     const allowsEmptyComment = designDraft.tool === "draw-comment" && hasAnnotationStrokes;
     if (trimmedInstructions.length === 0 && !allowsEmptyComment) {
       return;
@@ -2952,7 +2956,9 @@ export function BrowserTabWebview(props: {
                 </button>
                 <input
                   value={designInstructions}
-                  onChange={(event) => setDesignInstructions(event.target.value)}
+                  onChange={(event) =>
+                    setDesignInstructions(normalizeDesignCommentToSingleLine(event.target.value))
+                  }
                   placeholder="Comment for the agent"
                   className="h-full min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] outline-none placeholder:text-muted-foreground/55"
                   autoFocus

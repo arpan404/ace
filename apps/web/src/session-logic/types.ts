@@ -71,6 +71,14 @@ export interface ActivePlanState {
   }>;
 }
 
+export interface ActivePlanProgressState {
+  total: number;
+  completed: number;
+  currentIndex: number | null;
+  currentStep: string | null;
+  currentStatus: "pending" | "inProgress" | null;
+}
+
 export interface LatestProposedPlanState {
   id: OrchestrationProposedPlanId;
   createdAt: string;

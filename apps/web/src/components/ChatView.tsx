@@ -101,6 +101,7 @@ import {
   hasLiveTurn,
   hasActionableProposedPlan,
   isLatestTurnSettled,
+  summarizeActivePlan,
   formatElapsed,
 } from "../session-logic";
 import {
@@ -2032,6 +2033,7 @@ export default function ChatView({
     () => deriveActivePlanState(threadActivities, activeWorkTurnId),
     [activeWorkTurnId, threadActivities],
   );
+  const activePlanProgress = useMemo(() => summarizeActivePlan(activePlan), [activePlan]);
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
     interactionMode === "plan" &&
@@ -2632,23 +2634,31 @@ export default function ChatView({
       defaultShortcutLabelForCommand("rightPanel.toggle"),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
-  const diffPanelShortcutLabel = useMemo(
+  const reviewPanelShortcutLabel = useMemo(
     () =>
-      shortcutLabelForCommand(keybindings, "diff.toggle", nonTerminalShortcutLabelOptions) ??
-      defaultShortcutLabelForCommand("diff.toggle"),
+      shortcutLabelForCommand(
+        keybindings,
+        "rightPanel.review.open",
+        nonTerminalShortcutLabelOptions,
+      ) ?? defaultShortcutLabelForCommand("rightPanel.review.open"),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
-  const browserToggleShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "browser.toggle", nonTerminalShortcutLabelOptions),
+  const rightPanelBrowserShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        keybindings,
+        "rightPanel.browser.open",
+        nonTerminalShortcutLabelOptions,
+      ) ?? defaultShortcutLabelForCommand("rightPanel.browser.open"),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const rightPanelEditorShortcutLabel = useMemo(
     () =>
       shortcutLabelForCommand(
         keybindings,
-        "rightPanel.editor.toggle",
+        "rightPanel.editor.open",
         nonTerminalShortcutLabelOptions,
-      ) ?? defaultShortcutLabelForCommand("rightPanel.editor.toggle"),
+      ) ?? defaultShortcutLabelForCommand("rightPanel.editor.open"),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const browserActionShortcutLabelOptions = useMemo(
@@ -2683,8 +2693,8 @@ export default function ChatView({
     () =>
       shortcutLabelForCommand(keybindings, "browser.newTab", nonTerminalShortcutLabelOptions) ??
       defaultShortcutLabelForCommand("browser.newTab") ??
-      browserToggleShortcutLabel,
-    [browserToggleShortcutLabel, keybindings, nonTerminalShortcutLabelOptions],
+      rightPanelBrowserShortcutLabel,
+    [rightPanelBrowserShortcutLabel, keybindings, nonTerminalShortcutLabelOptions],
   );
   const browserDesignerCursorShortcutLabel = useMemo(
     () =>
@@ -2952,42 +2962,54 @@ export default function ChatView({
   const toggleHeaderVisibility = useCallback(() => {
     setIsHeaderHidden((previous) => !previous);
   }, []);
+  const setRightSidePanelDiffOpen = useCallback(
+    (nextDiffOpen: boolean) => {
+      setRightSidePanelReviewOpen(nextDiffOpen);
+      if (splitPane) {
+        setLocalDiffState((previous) => ({
+          ...previous,
+          open: nextDiffOpen,
+        }));
+        setRightSidePanelMode(nextDiffOpen ? "diff" : "summary");
+        return;
+      }
+      if (nextDiffOpen) {
+        setRightSidePanelMode("diff");
+      } else if (rightSidePanelMode === "diff") {
+        setRightSidePanelMode("summary");
+      }
+      startTransition(() => {
+        void navigate({
+          to: "/$threadId",
+          params: { threadId },
+          replace: true,
+          search: (previous) => {
+            const rest = stripDiffSearchParams(previous);
+            return nextDiffOpen ? { ...rest, diff: "1" } : { ...rest, diff: undefined };
+          },
+        });
+      });
+    },
+    [
+      navigate,
+      rightSidePanelMode,
+      setRightSidePanelMode,
+      setRightSidePanelReviewOpen,
+      splitPane,
+      threadId,
+    ],
+  );
   const onToggleDiff = useCallback(() => {
-    const nextDiffOpen = !diffOpen;
-    setRightSidePanelReviewOpen(nextDiffOpen);
-    if (splitPane) {
-      setLocalDiffState((previous) => ({
-        ...previous,
-        open: nextDiffOpen,
-      }));
-      setRightSidePanelMode(nextDiffOpen ? "diff" : "summary");
+    setRightSidePanelDiffOpen(!diffOpen);
+  }, [diffOpen, setRightSidePanelDiffOpen]);
+  const onOpenRightSidePanelDiff = useCallback(() => {
+    if (diffOpen) {
+      setRightSidePanelReviewOpen(true);
+      setRightSidePanelMode("diff");
       return;
     }
-    if (nextDiffOpen) {
-      setRightSidePanelMode("diff");
-    } else if (rightSidePanelMode === "diff") {
-      setRightSidePanelMode("summary");
-    }
-    startTransition(() => {
-      void navigate({
-        to: "/$threadId",
-        params: { threadId },
-        replace: true,
-        search: (previous) => {
-          const rest = stripDiffSearchParams(previous);
-          return nextDiffOpen ? { ...rest, diff: "1" } : { ...rest, diff: undefined };
-        },
-      });
-    });
-  }, [
-    diffOpen,
-    navigate,
-    rightSidePanelMode,
-    setRightSidePanelMode,
-    setRightSidePanelReviewOpen,
-    splitPane,
-    threadId,
-  ]);
+    setRightSidePanelDiffOpen(true);
+  }, [diffOpen, setRightSidePanelDiffOpen, setRightSidePanelMode, setRightSidePanelReviewOpen]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3671,17 +3693,6 @@ export default function ChatView({
     setBrowserDevToolsOpen(false);
     setRightSidePanelMode((current) => (current === "browser" ? null : current));
   }, [setBrowserMode, setRightSidePanelMode]);
-  const toggleBrowserVisibility = useCallback(() => {
-    if (!isElectron) return;
-    setBrowserMode((current) => {
-      if (current === "closed") {
-        setRightSidePanelMode("browser");
-        return "split";
-      }
-      setRightSidePanelMode((mode) => (mode === "browser" ? null : mode));
-      return "closed";
-    });
-  }, [setBrowserMode, setRightSidePanelMode]);
   const onToggleRightSidePanel = useCallback(() => {
     if (rightSidePanelOpen) {
       setRightSidePanelMode(null);
@@ -3702,6 +3713,10 @@ export default function ChatView({
     rightSidePanelOpen,
     setRightSidePanelMode,
   ]);
+  const onOpenRightSidePanelEditor = useCallback(() => {
+    setRightSidePanelEditorOpen(true);
+    setRightSidePanelMode("editor");
+  }, [setRightSidePanelEditorOpen, setRightSidePanelMode]);
   const onSelectRightSidePanelMode = useCallback(
     (mode: RightSidePanelMode) => {
       if (mode === "summary") {
@@ -3713,23 +3728,16 @@ export default function ChatView({
         return;
       }
       if (mode === "diff") {
-        setRightSidePanelReviewOpen(true);
-        setRightSidePanelMode("diff");
-        if (!diffOpen) {
-          onToggleDiff();
-        }
+        onOpenRightSidePanelDiff();
         return;
       }
-      setRightSidePanelEditorOpen(true);
-      setRightSidePanelMode("editor");
+      onOpenRightSidePanelEditor();
     },
     [
-      diffOpen,
-      onToggleDiff,
+      onOpenRightSidePanelDiff,
+      onOpenRightSidePanelEditor,
       openBrowser,
-      setRightSidePanelEditorOpen,
       setRightSidePanelMode,
-      setRightSidePanelReviewOpen,
     ],
   );
   const onOpenRightSidePanelBrowserTab = useCallback(() => {
@@ -3782,13 +3790,6 @@ export default function ChatView({
       setRightSidePanelMode("summary");
     }
   }, [rightSidePanelMode, setRightSidePanelEditorOpen, setRightSidePanelMode]);
-  const onToggleRightSidePanelEditor = useCallback(() => {
-    setRightSidePanelEditorOpen((current) => {
-      const nextOpen = !current;
-      setRightSidePanelMode(nextOpen ? "editor" : "summary");
-      return nextOpen;
-    });
-  }, [setRightSidePanelEditorOpen, setRightSidePanelMode]);
   const onCloseRightSidePanelDiff = useCallback(() => {
     setRightSidePanelReviewOpen(false);
     setRightSidePanelMode("summary");
@@ -3917,11 +3918,6 @@ export default function ChatView({
       return;
     }
 
-    if (request.action === "toggle" && !request.url) {
-      toggleBrowserVisibility();
-      return;
-    }
-
     if (request.url) {
       openBrowserUrl(
         request.url,
@@ -3931,7 +3927,7 @@ export default function ChatView({
     }
 
     openBrowser();
-  }, [openBrowser, openBrowserUrl, toggleBrowserVisibility]);
+  }, [openBrowser, openBrowserUrl]);
 
   useEffect(() => {
     if (!isElectron) return;
@@ -5019,7 +5015,7 @@ export default function ChatView({
       }
 
       if (action === "toggle-diff") {
-        onToggleDiff();
+        onOpenRightSidePanelDiff();
         return;
       }
 
@@ -5029,7 +5025,7 @@ export default function ChatView({
     });
   }, [
     activeThreadId,
-    onToggleDiff,
+    onOpenRightSidePanelDiff,
     shortcutsEnabled,
     toggleInteractionMode,
     toggleTerminalVisibility,
@@ -5706,10 +5702,10 @@ export default function ChatView({
         return;
       }
 
-      if (command === "diff.toggle") {
+      if (command === "rightPanel.review.open") {
         event.preventDefault();
         event.stopPropagation();
-        onToggleDiff();
+        onOpenRightSidePanelDiff();
         return;
       }
 
@@ -5720,10 +5716,10 @@ export default function ChatView({
         return;
       }
 
-      if (command === "browser.toggle") {
+      if (command === "rightPanel.browser.open") {
         event.preventDefault();
         event.stopPropagation();
-        toggleBrowserVisibility();
+        openBrowser();
         return;
       }
 
@@ -5836,10 +5832,10 @@ export default function ChatView({
         return;
       }
 
-      if (command === "rightPanel.editor.toggle") {
+      if (command === "rightPanel.editor.open") {
         event.preventDefault();
         event.stopPropagation();
-        onToggleRightSidePanelEditor();
+        onOpenRightSidePanelEditor();
         return;
       }
 
@@ -5866,7 +5862,7 @@ export default function ChatView({
     terminalState.terminalOpen,
     terminalState.activeTerminalId,
     activeThreadId,
-    toggleBrowserVisibility,
+    openBrowser,
     closeTerminal,
     createNewTerminal,
     setTerminalOpen,
@@ -5875,8 +5871,8 @@ export default function ChatView({
     keybindings,
     onOpenRightSidePanelBrowserTab,
     onToggleRightSidePanel,
-    onToggleRightSidePanelEditor,
-    onToggleDiff,
+    onOpenRightSidePanelEditor,
+    onOpenRightSidePanelDiff,
     shortcutsEnabled,
     toggleInteractionMode,
     toggleWorkspaceMode,
@@ -7897,14 +7893,9 @@ export default function ChatView({
             terminalOpen={terminalState.terminalOpen}
             terminalToggleShortcutLabel={terminalToggleShortcutLabel}
             rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
-            diffToggleShortcutLabel={diffPanelShortcutLabel}
-            browserToggleShortcutLabel={browserToggleShortcutLabel}
-            browserAvailable={isElectron}
-            browserOpen={browserOpen}
-            browserDevToolsOpen={browserDevToolsOpen}
             gitCwd={gitCwd}
+            activePlanProgress={activePlanProgress}
             workspaceChangeStat={workspaceChangeStat}
-            diffOpen={diffOpen}
             rightSidePanelOpen={rightSidePanelOpen}
             workspaceMode={headerWorkspaceMode}
             onRunProjectScript={(script) => {
@@ -7913,11 +7904,8 @@ export default function ChatView({
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
             onDeleteProjectScript={deleteProjectScript}
-            onOpenBrowser={openBrowser}
-            onCloseBrowser={closeBrowser}
             onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
             onToggleTerminal={toggleTerminalVisibility}
-            onToggleDiff={onToggleDiff}
             onToggleRightSidePanel={onToggleRightSidePanel}
             onWorkspaceModeChange={onWorkspaceModeChange}
           />
@@ -8502,7 +8490,7 @@ export default function ChatView({
                   editorShortcutLabel={rightPanelEditorShortcutLabel}
                   editorOpen={rightSidePanelEditorOpen}
                   fullscreen={rightSidePanelFullscreen}
-                  reviewShortcutLabel={diffPanelShortcutLabel}
+                  reviewShortcutLabel={reviewPanelShortcutLabel}
                   reviewOpen={rightSidePanelReviewOpen}
                   onBrowserTabClose={onCloseRightSidePanelBrowserTab}
                   onBrowserTabReorder={onReorderRightSidePanelBrowserTab}

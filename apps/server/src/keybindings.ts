@@ -65,8 +65,8 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
   { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
   { key: "mod+alt+b", command: "rightPanel.toggle", when: "!terminalFocus" },
-  { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
-  { key: "mod+b", command: "browser.toggle", when: "!terminalFocus" },
+  { key: "mod+d", command: "rightPanel.review.open", when: "!terminalFocus" },
+  { key: "mod+b", command: "rightPanel.browser.open", when: "!terminalFocus" },
   { key: "mod+[", command: "browser.back", when: "browserOpen && !terminalFocus" },
   { key: "mod+]", command: "browser.forward", when: "browserOpen && !terminalFocus" },
   { key: "mod+t", command: "browser.newTab", when: "!terminalFocus" },
@@ -97,7 +97,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
   { key: "mod+shift+a", command: "project.add", when: "!terminalFocus" },
   { key: "mod+shift++", command: "project.add", when: "!terminalFocus" },
-  { key: "mod+e", command: "rightPanel.editor.toggle", when: "!terminalFocus" },
+  { key: "mod+e", command: "rightPanel.editor.open", when: "!terminalFocus" },
   { key: "mod+shift+p", command: "chat.togglePlanMode", when: "!terminalFocus" },
   { key: "mod+shift+h", command: "chat.toggleHeader", when: "!terminalFocus" },
   { key: "mod+o", command: "editor.openFavorite" },
@@ -468,9 +468,12 @@ const KeybindingsConfigPrettyJson = KeybindingsConfigJson.pipe(
 );
 
 const OBSOLETE_KEYBINDING_COMMANDS = new Set([
+  "browser.toggle",
   "browser.duplicateTab",
   "browser.moveTabLeft",
   "browser.moveTabRight",
+  "diff.toggle",
+  "rightPanel.editor.toggle",
 ]);
 
 const isObsoleteKeybindingEntry = (entry: unknown) => {

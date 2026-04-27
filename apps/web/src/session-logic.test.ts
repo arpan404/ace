@@ -24,6 +24,7 @@ import {
   hasActionableProposedPlan,
   hasToolActivityForTurn,
   isLatestTurnSettled,
+  summarizeActivePlan,
 } from "./session-logic";
 
 function makeActivity(overrides: {
@@ -651,6 +652,44 @@ describe("findLatestProposedPlan", () => {
     );
 
     expect(latestPlan?.planMarkdown).toBe("# Latest");
+  });
+});
+
+describe("summarizeActivePlan", () => {
+  it("prefers the in-progress step for current progress", () => {
+    expect(
+      summarizeActivePlan({
+        steps: [
+          { step: "Audit", status: "completed" },
+          { step: "Implement", status: "inProgress" },
+          { step: "Verify", status: "pending" },
+        ],
+      }),
+    ).toEqual({
+      total: 3,
+      completed: 1,
+      currentIndex: 2,
+      currentStep: "Implement",
+      currentStatus: "inProgress",
+    });
+  });
+
+  it("falls back to the first pending step when work is ready but not started", () => {
+    expect(
+      summarizeActivePlan({
+        steps: [
+          { step: "Audit", status: "completed" },
+          { step: "Implement", status: "pending" },
+          { step: "Verify", status: "pending" },
+        ],
+      }),
+    ).toEqual({
+      total: 3,
+      completed: 1,
+      currentIndex: 2,
+      currentStep: "Implement",
+      currentStatus: "pending",
+    });
   });
 });
 

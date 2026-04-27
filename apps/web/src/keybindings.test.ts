@@ -12,8 +12,8 @@ import {
   formatShortcutLabel,
   isChatNewShortcut,
   isChatNewLocalShortcut,
-  isDiffToggleShortcut,
   isOpenFavoriteEditorShortcut,
+  isRightPanelReviewOpenShortcut,
   isTerminalClearShortcut,
   isTerminalCloseShortcut,
   isTerminalNewShortcut,
@@ -106,12 +106,12 @@ const DEFAULT_BINDINGS = compile([
   },
   {
     shortcut: modShortcut("d"),
-    command: "diff.toggle",
+    command: "rightPanel.review.open",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   {
     shortcut: modShortcut("b"),
-    command: "browser.toggle",
+    command: "rightPanel.browser.open",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   {
@@ -470,9 +470,9 @@ describe("shortcutLabelForCommand", () => {
       shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.toggleHeader", "MacIntel"),
       "⇧⌘H",
     );
-    assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
+    assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.review.open", "Linux"), "Ctrl+D");
     assert.strictEqual(
-      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.toggle", "Linux"),
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.browser.open", "Linux"),
       "Ctrl+B",
     );
     assert.strictEqual(
@@ -582,7 +582,7 @@ describe("shortcutLabelForCommand", () => {
 
   it("respects when-context while resolving labels", () => {
     const bindings = compile([
-      { shortcut: modShortcut("d"), command: "diff.toggle" },
+      { shortcut: modShortcut("d"), command: "rightPanel.review.open" },
       {
         shortcut: modShortcut("d"),
         command: "terminal.split",
@@ -591,14 +591,14 @@ describe("shortcutLabelForCommand", () => {
     ]);
 
     assert.strictEqual(
-      shortcutLabelForCommand(bindings, "diff.toggle", {
+      shortcutLabelForCommand(bindings, "rightPanel.review.open", {
         platform: "Linux",
         context: { terminalFocus: false },
       }),
       "Ctrl+D",
     );
     assert.isNull(
-      shortcutLabelForCommand(bindings, "diff.toggle", {
+      shortcutLabelForCommand(bindings, "rightPanel.review.open", {
         platform: "Linux",
         context: { terminalFocus: true },
       }),
@@ -721,15 +721,15 @@ describe("chat/editor shortcuts", () => {
     );
   });
 
-  it("matches diff.toggle shortcut outside terminal focus", () => {
+  it("matches rightPanel.review.open shortcut outside terminal focus", () => {
     assert.isTrue(
-      isDiffToggleShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
+      isRightPanelReviewOpenShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
         context: { terminalFocus: false },
       }),
     );
     assert.isFalse(
-      isDiffToggleShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
+      isRightPanelReviewOpenShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
         context: { terminalFocus: true },
       }),
@@ -742,7 +742,7 @@ describe("chat/editor shortcuts", () => {
         platform: "Linux",
         context: { browserOpen: false, terminalFocus: false },
       }),
-      "browser.toggle",
+      "rightPanel.browser.open",
     );
     assert.strictEqual(
       resolveShortcutCommand(event({ key: "[", ctrlKey: true }), DEFAULT_BINDINGS, {
