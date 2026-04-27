@@ -18,6 +18,7 @@ import { type ThreadId } from "@ace/contracts";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
   Fragment,
+  memo,
   type MouseEventHandler,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -1170,7 +1171,7 @@ const TERMINAL_HEADER_ACTION_BUTTON_CLASS_NAME = cn(
   "!size-6 !rounded-[var(--control-radius)] inline-flex items-center justify-center leading-none text-pill-foreground/78 hover:text-pill-foreground [&_svg]:shrink-0",
 );
 
-export default function ThreadTerminalDrawer({
+export default memo(function ThreadTerminalDrawer({
   threadId,
   cwd,
   runtimeEnv,
@@ -2429,4 +2430,4 @@ export default function ThreadTerminalDrawer({
       </div>
     </aside>
   );
-}
+});

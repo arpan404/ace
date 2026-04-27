@@ -1,6 +1,4 @@
 import {
-  IconArrowsSort,
-  IconFilter2,
   IconPin,
   IconPinFilled,
   IconPinnedOff,
@@ -13,7 +11,6 @@ import {
   ChevronRightIcon,
   FolderIcon,
   LaptopIcon,
-  SettingsIcon,
   SquarePenIcon,
   TriangleAlertIcon,
 } from "lucide-react";
@@ -87,7 +84,12 @@ import {
 } from "./ProjectAvatar";
 import { toastManager } from "./ui/toast";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
+import { SidebarSearchPaletteDialog } from "./sidebar/SidebarSearchPaletteDialog";
 import { SidebarBoardsSection, type SidebarSplitSortOrder } from "./sidebar/SidebarBoardsSection";
+import {
+  SidebarSplitPickerDialog,
+  type SplitPickerSortOrder,
+} from "./sidebar/SidebarSplitPickerDialog";
 import {
   getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
@@ -99,7 +101,6 @@ import {
 } from "../lib/desktopUpdate";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
-import { Checkbox } from "./ui/checkbox";
 import {
   Dialog,
   DialogDescription,
@@ -113,11 +114,8 @@ import { CommandDialog, CommandDialogPopup } from "./ui/command";
 import { Input } from "./ui/input";
 import {
   Menu,
-  MenuGroup,
   MenuItem,
   MenuPopup,
-  MenuRadioGroup,
-  MenuRadioItem,
   MenuSub,
   MenuSubPopup,
   MenuSubTrigger,
@@ -227,15 +225,9 @@ const REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS = 1_500;
 const REMOTE_SIDEBAR_SNAPSHOT_FETCH_CONCURRENCY = 2;
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_TIMEOUT_MS = 600;
 
-type SplitPickerSortOrder = "recent" | "project" | "title";
 type SplitContextMenuState = {
   position: { x: number; y: number };
   splitId: string;
-};
-const SPLIT_PICKER_SORT_LABELS: Record<SplitPickerSortOrder, string> = {
-  recent: "Recent activity",
-  project: "Project",
-  title: "Thread title",
 };
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_DELAY_MS = 120;
 const EMPTY_SIDEBAR_THREADS: SidebarThreadSummary[] = [];
@@ -5103,8 +5095,16 @@ export default function Sidebar() {
           </DialogFooter>
         </DialogPopup>
       </Dialog>
-      <Dialog
+      <SidebarSplitPickerDialog
         open={splitPickerOpen}
+        availableThreadCount={splitPickerThreadOptions.length}
+        query={splitPickerQuery}
+        projectFilter={splitPickerProjectFilter}
+        projectFilterOptions={splitPickerProjectFilterOptions}
+        sortOrder={splitPickerSortOrder}
+        visibleThreads={visibleSplitPickerThreadOptions}
+        selectedThreadIds={splitPickerSelectedThreadIds}
+        selectedThreadCount={selectedSplitThreadCount}
         onOpenChange={(open) => {
           setSplitPickerOpen(open);
           if (!open) {
@@ -5114,171 +5114,19 @@ export default function Sidebar() {
             setSplitPickerSelectedThreadIds(new Set());
           }
         }}
-      >
-        <DialogPopup className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>New board</DialogTitle>
-            <DialogDescription>
-              Choose two or more threads to open together in a saved board.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogPanel>
-            {splitPickerThreadOptions.length < 2 ? (
-              <p className="rounded-md border border-border/50 px-3 py-4 text-center text-sm text-muted-foreground">
-                Add at least two active threads before creating a board.
-              </p>
-            ) : (
-              <div className="space-y-2.5">
-                <div className="flex items-center gap-1.5">
-                  <div className="relative min-w-0 flex-1">
-                    <IconSearch className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-2.5 size-4 text-muted-foreground/60" />
-                    <Input
-                      value={splitPickerQuery}
-                      onChange={(event) => setSplitPickerQuery(event.target.value)}
-                      placeholder="Search threads or projects"
-                      className="h-9 bg-background/60 pl-8 text-sm"
-                      autoFocus
-                    />
-                  </div>
-                  <Menu>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <MenuTrigger className="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-foreground/[0.06] hover:text-foreground" />
-                        }
-                      >
-                        <IconFilter2 className="size-4" />
-                      </TooltipTrigger>
-                      <TooltipPopup>Filter threads</TooltipPopup>
-                    </Tooltip>
-                    <MenuPopup align="end" side="bottom" className="min-w-44">
-                      <MenuGroup>
-                        <div className="px-2 py-1 font-medium text-muted-foreground sm:text-xs">
-                          Filter by project
-                        </div>
-                        <MenuRadioGroup
-                          value={splitPickerProjectFilter}
-                          onValueChange={setSplitPickerProjectFilter}
-                        >
-                          <MenuRadioItem value="all" className="min-h-7 py-1 sm:text-xs">
-                            All projects
-                          </MenuRadioItem>
-                          {splitPickerProjectFilterOptions.map((project) => (
-                            <MenuRadioItem
-                              key={project.projectId}
-                              value={project.projectId}
-                              className="min-h-7 py-1 sm:text-xs"
-                            >
-                              {project.projectName}
-                            </MenuRadioItem>
-                          ))}
-                        </MenuRadioGroup>
-                      </MenuGroup>
-                    </MenuPopup>
-                  </Menu>
-                  <Menu>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <MenuTrigger className="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-foreground/[0.06] hover:text-foreground" />
-                        }
-                      >
-                        <IconArrowsSort className="size-4" />
-                      </TooltipTrigger>
-                      <TooltipPopup>Sort threads</TooltipPopup>
-                    </Tooltip>
-                    <MenuPopup align="end" side="bottom" className="min-w-40">
-                      <MenuGroup>
-                        <div className="px-2 py-1 font-medium text-muted-foreground sm:text-xs">
-                          Sort by
-                        </div>
-                        <MenuRadioGroup
-                          value={splitPickerSortOrder}
-                          onValueChange={(value) =>
-                            setSplitPickerSortOrder(value as SplitPickerSortOrder)
-                          }
-                        >
-                          {(
-                            Object.entries(SPLIT_PICKER_SORT_LABELS) as Array<
-                              [SplitPickerSortOrder, string]
-                            >
-                          ).map(([value, label]) => (
-                            <MenuRadioItem
-                              key={value}
-                              value={value}
-                              className="min-h-7 py-1 sm:text-xs"
-                            >
-                              {label}
-                            </MenuRadioItem>
-                          ))}
-                        </MenuRadioGroup>
-                      </MenuGroup>
-                    </MenuPopup>
-                  </Menu>
-                </div>
-                <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
-                  {visibleSplitPickerThreadOptions.length > 0 ? (
-                    visibleSplitPickerThreadOptions.map((thread) => {
-                      const selected = splitPickerSelectedThreadIds.has(thread.id);
-                      return (
-                        <button
-                          key={thread.id}
-                          type="button"
-                          role="checkbox"
-                          aria-checked={selected}
-                          className={cn(
-                            "flex w-full cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm outline-none transition-colors focus-visible:bg-foreground/[0.06] focus-visible:text-foreground",
-                            selected
-                              ? "bg-foreground/[0.06] text-foreground"
-                              : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
-                          )}
-                          onClick={() => toggleSplitPickerThread(thread.id)}
-                        >
-                          <Checkbox
-                            checked={selected}
-                            tabIndex={-1}
-                            className="pointer-events-none"
-                          />
-                          <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-                          <span className="max-w-32 shrink-0 truncate text-xs text-muted-foreground/70">
-                            {thread.projectName}
-                          </span>
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <p className="rounded-md px-3 py-6 text-center text-sm text-muted-foreground/60">
-                      No matching threads
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-          </DialogPanel>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setSplitPickerOpen(false);
-                setSplitPickerQuery("");
-                setSplitPickerProjectFilter("all");
-                setSplitPickerSortOrder("recent");
-                setSplitPickerSelectedThreadIds(new Set());
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              disabled={selectedSplitThreadCount < 2}
-              onClick={createSelectedSplit}
-            >
-              Create board
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
+        onQueryChange={setSplitPickerQuery}
+        onProjectFilterChange={setSplitPickerProjectFilter}
+        onSortOrderChange={setSplitPickerSortOrder}
+        onToggleThread={toggleSplitPickerThread}
+        onCancel={() => {
+          setSplitPickerOpen(false);
+          setSplitPickerQuery("");
+          setSplitPickerProjectFilter("all");
+          setSplitPickerSortOrder("recent");
+          setSplitPickerSelectedThreadIds(new Set());
+        }}
+        onCreate={createSelectedSplit}
+      />
       {splitContextMenuState && contextMenuSplit ? (
         <Menu
           key={`${contextMenuSplit.id}:${splitContextMenuState.position.x}:${splitContextMenuState.position.y}`}
@@ -5356,209 +5204,27 @@ export default function Sidebar() {
         </Menu>
       ) : null}
 
-      <CommandDialog open={searchPaletteOpen} onOpenChange={handleSearchPaletteOpenChange}>
-        <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden border border-border/50 bg-popover/98 p-0 shadow-lg rounded-xl">
-          <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3 bg-gradient-to-b from-popover/50 to-popover/20">
-            {searchPaletteMode === "new-thread-project" ? (
-              <button
-                type="button"
-                className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent/80 hover:text-foreground active:scale-95"
-                onClick={handleSearchPaletteBack}
-                aria-label="Back to search"
-              >
-                <ChevronLeftIcon className="size-5" strokeWidth={2.5} />
-              </button>
-            ) : (
-              <IconSearch className="size-5 shrink-0 text-muted-foreground/60" strokeWidth={2} />
-            )}
-            <input
-              ref={searchPaletteInputRef}
-              className="h-9 min-w-0 flex-1 rounded-lg border border-border/50 bg-background/60 px-3 text-sm font-medium text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all"
-              placeholder={
-                searchPaletteMode === "new-thread-project"
-                  ? "Select project for a new thread..."
-                  : "Search commands, projects, and threads..."
-              }
-              value={searchPaletteQuery}
-              onChange={(event) => handleSearchPaletteQueryChange(event.target.value)}
-              onKeyDown={handleSearchPaletteInputKeyDown}
-              autoFocus
-            />
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3" ref={searchPaletteListRef}>
-            {searchPaletteItems.length === 0 ? (
-              <p className="px-0 py-6 text-center text-sm text-muted-foreground/60">
-                No matching results
-              </p>
-            ) : (
-              <div className="py-1">
-                {searchPaletteMode === "root" &&
-                  normalizedSearchPaletteQuery.length === 0 &&
-                  searchPaletteActionItems.length > 0 && (
-                    <p className="px-0 pt-0 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
-                      Actions
-                    </p>
-                  )}
-                {searchPaletteActionItems.map((item) => {
-                  const itemIndex = searchPaletteIndexById.get(item.id) ?? -1;
-                  const isActive = itemIndex === searchPaletteActiveIndex;
-                  const icon =
-                    item.type === "action.new-thread" ? (
-                      <SquarePenIcon className="size-4 shrink-0" strokeWidth={2} />
-                    ) : item.type === "action.new-project" ? (
-                      <FolderIcon className="size-4 shrink-0" strokeWidth={2} />
-                    ) : (
-                      <SettingsIcon className="size-4 shrink-0" strokeWidth={2} />
-                    );
-
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      data-search-palette-index={itemIndex}
-                      className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium transition-all duration-150 rounded-md ${
-                        isActive
-                          ? "bg-primary/15 text-foreground"
-                          : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
-                      }`}
-                      onMouseMove={() => handleSearchPaletteItemHover(item.id)}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => handleSearchPaletteSelect(item)}
-                    >
-                      <span
-                        className={`text-muted-foreground ${isActive ? "text-primary/70" : ""}`}
-                      >
-                        {icon}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                    </button>
-                  );
-                })}
-
-                {searchPaletteProjectItems.length > 0 && (
-                  <>
-                    <p className="px-0 pt-3 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
-                      {searchPaletteMode === "new-thread-project"
-                        ? "Projects"
-                        : normalizedSearchPaletteQuery.length === 0
-                          ? "Recent Projects"
-                          : "Projects"}
-                    </p>
-                    {searchPaletteProjectItems.map((item) => {
-                      if (item.type !== "project") {
-                        return null;
-                      }
-                      const itemIndex = searchPaletteIndexById.get(item.id) ?? -1;
-                      const isActive = itemIndex === searchPaletteActiveIndex;
-                      const project =
-                        item.connectionUrl === undefined
-                          ? projectById.get(item.projectId)
-                          : undefined;
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          data-search-palette-index={itemIndex}
-                          className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-all duration-150 rounded-md ${
-                            isActive
-                              ? "bg-primary/15 text-foreground"
-                              : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
-                          }`}
-                          onMouseMove={() => handleSearchPaletteItemHover(item.id)}
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => handleSearchPaletteSelect(item)}
-                        >
-                          {project ? (
-                            <ProjectAvatar project={project} className="size-5" />
-                          ) : (
-                            <FolderIcon
-                              className="size-4 shrink-0 text-muted-foreground/60"
-                              strokeWidth={2}
-                            />
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <span className="block truncate font-medium text-sm">{item.label}</span>
-                            <span className="block truncate text-muted-foreground text-xs font-normal">
-                              {item.description}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </>
-                )}
-
-                {searchPaletteMode === "root" && searchPaletteThreadItems.length > 0 && (
-                  <>
-                    <p className="px-0 pt-3 pb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">
-                      {normalizedSearchPaletteQuery.length === 0 ? "Recent Threads" : "Threads"}
-                    </p>
-                    {searchPaletteThreadItems.map((item) => {
-                      const itemIndex = searchPaletteIndexById.get(item.id) ?? -1;
-                      const isActive = itemIndex === searchPaletteActiveIndex;
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          data-search-palette-index={itemIndex}
-                          className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-all duration-150 rounded-md ${
-                            isActive
-                              ? "bg-primary/15 text-foreground"
-                              : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
-                          }`}
-                          onMouseMove={() => handleSearchPaletteItemHover(item.id)}
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => handleSearchPaletteSelect(item)}
-                        >
-                          <SquarePenIcon
-                            className="size-4 shrink-0 text-muted-foreground/60"
-                            strokeWidth={2}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <span className="block truncate font-medium text-sm">{item.label}</span>
-                            <span className="block truncate text-muted-foreground text-xs font-normal">
-                              {item.description}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between border-t border-border/40 bg-muted/30 px-4 py-2.5 text-muted-foreground text-xs gap-4">
-            <div className="flex flex-wrap items-center gap-4">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-flex gap-0.5">
-                  <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
-                    ↑
-                  </span>
-                  <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
-                    ↓
-                  </span>
-                </span>
-                <span className="font-medium">Navigate</span>
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="rounded border border-border/50 bg-background/50 px-2 py-0.5 text-[10px] font-medium text-foreground/70">
-                  Enter
-                </span>
-                <span className="font-medium">Select</span>
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
-                  Esc
-                </span>
-                <span className="font-medium">Close</span>
-              </span>
-            </div>
-          </div>
-        </CommandDialogPopup>
-      </CommandDialog>
+      <SidebarSearchPaletteDialog
+        open={searchPaletteOpen}
+        mode={searchPaletteMode}
+        query={searchPaletteQuery}
+        normalizedQuery={normalizedSearchPaletteQuery}
+        activeIndex={searchPaletteActiveIndex}
+        inputRef={searchPaletteInputRef}
+        listRef={searchPaletteListRef}
+        items={searchPaletteItems}
+        actionItems={searchPaletteActionItems}
+        projectItems={searchPaletteProjectItems}
+        threadItems={searchPaletteThreadItems}
+        indexById={searchPaletteIndexById}
+        projectById={projectById}
+        onOpenChange={handleSearchPaletteOpenChange}
+        onBack={handleSearchPaletteBack}
+        onQueryChange={handleSearchPaletteQueryChange}
+        onInputKeyDown={handleSearchPaletteInputKeyDown}
+        onHoverItem={handleSearchPaletteItemHover}
+        onSelectItem={handleSearchPaletteSelect}
+      />
 
       <CommandDialog
         open={shouldShowProjectPathEntry}

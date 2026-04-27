@@ -1,6 +1,6 @@
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import type { ComponentProps } from "react";
+import { memo, type ComponentProps } from "react";
 
 import { InAppBrowser, type InAppBrowserMode } from "../InAppBrowser";
 import { Button } from "../ui/button";
@@ -110,7 +110,7 @@ function ExpandedImageOverlay({
   );
 }
 
-export function ChatViewPanels({
+export const ChatViewPanels = memo(function ChatViewPanels({
   browserPanel,
   expandedImageOverlay,
 }: {
@@ -174,4 +174,4 @@ export function ChatViewPanels({
       {expandedImageOverlay ? <ExpandedImageOverlay {...expandedImageOverlay} /> : null}
     </>
   );
-}
+});
