@@ -17,6 +17,7 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
+import { SIDEBAR_RESIZE_END_EVENT, SIDEBAR_RESIZING_CLASS_NAME } from "~/lib/desktopChrome";
 import { Schema } from "effect";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
@@ -49,6 +50,7 @@ type SidebarResizableOptions = {
     side: "left" | "right";
     sidebarRoot: HTMLElement;
     wrapper: HTMLElement;
+    wrapperWidth: number;
   }) => boolean;
   storageKey?: string;
 };
@@ -64,6 +66,7 @@ type SidebarResolvedResizableOptions = {
     side: "left" | "right";
     sidebarRoot: HTMLElement;
     wrapper: HTMLElement;
+    wrapperWidth: number;
   }) => boolean;
   storageKey: string | null;
 };
@@ -371,6 +374,7 @@ function SidebarRail({
     transitionTargets: HTMLElement[];
     width: number;
     wrapper: HTMLElement;
+    wrapperWidth: number;
   } | null>(null);
   const resolvedResizable = sidebarInstance?.resizable ?? null;
   const canResize = resolvedResizable !== null && open;
@@ -397,6 +401,8 @@ function SidebarRail({
       if (resizeState.rail.hasPointerCapture(pointerId)) {
         resizeState.rail.releasePointerCapture(pointerId);
       }
+      document.documentElement.classList.remove(SIDEBAR_RESIZING_CLASS_NAME);
+      window.dispatchEvent(new Event(SIDEBAR_RESIZE_END_EVENT));
       document.body.style.removeProperty("cursor");
       document.body.style.removeProperty("user-select");
       for (const element of resizeState.transitionTargets) {
@@ -450,9 +456,11 @@ function SidebarRail({
         transitionTargets,
         width: initialWidth,
         wrapper,
+        wrapperWidth: wrapper.clientWidth,
       };
       wrapper.style.setProperty("--sidebar-width", `${initialWidth}px`);
       event.currentTarget.setPointerCapture(event.pointerId);
+      document.documentElement.classList.add(SIDEBAR_RESIZING_CLASS_NAME);
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
     },
@@ -496,6 +504,7 @@ function SidebarRail({
             side: activeResizeState.side,
             sidebarRoot: activeResizeState.sidebarRoot,
             wrapper: activeResizeState.wrapper,
+            wrapperWidth: activeResizeState.wrapperWidth,
           }) ?? true;
         if (!accepted) {
           return;
@@ -579,6 +588,13 @@ function SidebarRail({
       resizeState?.transitionTargets.forEach((element) => {
         element.style.removeProperty("transition-duration");
       });
+      const hadSidebarResizeClass = document.documentElement.classList.contains(
+        SIDEBAR_RESIZING_CLASS_NAME,
+      );
+      document.documentElement.classList.remove(SIDEBAR_RESIZING_CLASS_NAME);
+      if (hadSidebarResizeClass) {
+        window.dispatchEvent(new Event(SIDEBAR_RESIZE_END_EVENT));
+      }
       document.body.style.removeProperty("cursor");
       document.body.style.removeProperty("user-select");
     };

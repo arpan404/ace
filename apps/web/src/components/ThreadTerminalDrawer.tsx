@@ -66,6 +66,7 @@ import {
 } from "../types";
 import { readNativeApi } from "~/nativeApi";
 import { reportBackgroundError, runAsyncTask } from "~/lib/async";
+import { SIDEBAR_RESIZE_END_EVENT, isLayoutResizeInProgress } from "~/lib/desktopChrome";
 import {
   TERMINAL_COLOR_OPTIONS,
   TERMINAL_ICON_OPTIONS,
@@ -608,7 +609,7 @@ function TerminalViewport({
     };
 
     const scheduleFitToViewport = () => {
-      if (document.documentElement.classList.contains("native-window-resizing")) {
+      if (isLayoutResizeInProgress()) {
         pendingNativeWindowResizeFit = true;
         return;
       }
@@ -971,6 +972,7 @@ function TerminalViewport({
       scheduleFitToViewport();
     };
     window.addEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+    window.addEventListener(SIDEBAR_RESIZE_END_EVENT, handleNativeWindowResizeEnd);
     void openTerminal();
 
     return () => {
@@ -981,6 +983,7 @@ function TerminalViewport({
       }
       resizeObserver?.disconnect();
       window.removeEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+      window.removeEventListener(SIDEBAR_RESIZE_END_EVENT, handleNativeWindowResizeEnd);
       unsubscribe();
       inputDisposable.dispose();
       selectionDisposable.dispose();

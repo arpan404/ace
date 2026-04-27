@@ -99,9 +99,6 @@ function resolveDesignerShortcutHintLabel(shortcutLabel: string): string {
   return stripped.length > 0 ? stripped : shortcutLabel;
 }
 
-const DESIGNER_PILL_WIDTH_PX = 60;
-const DESIGNER_PILL_HEIGHT_PX = 238;
-const DESIGNER_PILL_MARGIN_PX = 14;
 const BROWSER_SHELL_TRANSITION = {
   duration: 0.18,
   ease: [0.16, 1, 0.3, 1],
@@ -117,66 +114,6 @@ const DESIGNER_TOOL_BUTTONS: ReadonlyArray<{
   { tool: "draw-comment", label: "Draw comment", Icon: SquarePenIcon },
   { tool: "element-comment", label: "Element comment", Icon: CircleDotIcon },
 ];
-
-interface DesignerViewportSize {
-  width: number;
-  height: number;
-}
-
-function clampDesignerPillPosition(
-  position: { x: number; y: number } | null | undefined,
-  viewport: DesignerViewportSize | null,
-): { x: number; y: number } {
-  const maxX = Math.max(
-    DESIGNER_PILL_MARGIN_PX,
-    (viewport?.width ?? 0) - DESIGNER_PILL_WIDTH_PX - DESIGNER_PILL_MARGIN_PX,
-  );
-  const maxY = Math.max(
-    DESIGNER_PILL_MARGIN_PX,
-    (viewport?.height ?? 0) - DESIGNER_PILL_HEIGHT_PX - DESIGNER_PILL_MARGIN_PX,
-  );
-  const fallbackX = Math.max(DESIGNER_PILL_MARGIN_PX, maxX);
-  const fallbackY = Math.max(DESIGNER_PILL_MARGIN_PX, maxY);
-  return {
-    x: Math.min(maxX, Math.max(DESIGNER_PILL_MARGIN_PX, position?.x ?? fallbackX)),
-    y: Math.min(maxY, Math.max(DESIGNER_PILL_MARGIN_PX, position?.y ?? fallbackY)),
-  };
-}
-
-function resolveAnchoredDesignerPillPosition(
-  position: { x: number; y: number },
-  previousViewport: DesignerViewportSize,
-  nextViewport: DesignerViewportSize,
-): { x: number; y: number } {
-  const previousMaxX = Math.max(
-    DESIGNER_PILL_MARGIN_PX,
-    previousViewport.width - DESIGNER_PILL_WIDTH_PX - DESIGNER_PILL_MARGIN_PX,
-  );
-  const previousMaxY = Math.max(
-    DESIGNER_PILL_MARGIN_PX,
-    previousViewport.height - DESIGNER_PILL_HEIGHT_PX - DESIGNER_PILL_MARGIN_PX,
-  );
-  const nextMaxX = Math.max(
-    DESIGNER_PILL_MARGIN_PX,
-    nextViewport.width - DESIGNER_PILL_WIDTH_PX - DESIGNER_PILL_MARGIN_PX,
-  );
-  const nextMaxY = Math.max(
-    DESIGNER_PILL_MARGIN_PX,
-    nextViewport.height - DESIGNER_PILL_HEIGHT_PX - DESIGNER_PILL_MARGIN_PX,
-  );
-  const leftOffset = Math.max(0, position.x - DESIGNER_PILL_MARGIN_PX);
-  const rightOffset = Math.max(0, previousMaxX - position.x);
-  const topOffset = Math.max(0, position.y - DESIGNER_PILL_MARGIN_PX);
-  const bottomOffset = Math.max(0, previousMaxY - position.y);
-
-  return clampDesignerPillPosition(
-    {
-      x: rightOffset <= leftOffset ? nextMaxX - rightOffset : DESIGNER_PILL_MARGIN_PX + leftOffset,
-      y: bottomOffset <= topOffset ? nextMaxY - bottomOffset : DESIGNER_PILL_MARGIN_PX + topOffset,
-    },
-    nextViewport,
-  );
-}
 
 export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps) {
   const {
@@ -227,7 +164,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     selectedSuggestionIndex,
     setDraftUrl,
     setDesignerModeActive,
-    setDesignerPillPosition,
     setIsAddressBarFocused,
     setSelectedSuggestionIndex,
     showAddressBarSuggestions,
@@ -248,23 +184,14 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   }, [browserSession, onBrowserSessionChange]);
   const browserShellRef = useRef<HTMLElement | null>(null);
   const browserViewportRef = useRef<HTMLDivElement | null>(null);
-  const previousDesignerViewportSizeRef = useRef<DesignerViewportSize | null>(null);
   const designerToolListRef = useRef<HTMLDivElement | null>(null);
   const designerToolButtonRefs = useRef(new Map<BrowserDesignerTool, HTMLButtonElement>());
-  const designerPillDragStateRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-  } | null>(null);
   const [designerToolHighlightFrame, setDesignerToolHighlightFrame] = useState<{
     height: number;
     left: number;
     top: number;
     width: number;
   } | null>(null);
-  const [browserViewportSize, setBrowserViewportSize] = useState<DesignerViewportSize | null>(null);
   const {
     showThreadJumpHints: showDesignerToolShortcutHints,
     updateThreadJumpHintsVisibility: updateDesignerToolShortcutHintsVisibility,
@@ -344,82 +271,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       window.removeEventListener("blur", onWindowBlur);
     };
   }, [designerModeAvailable, updateDesignerToolShortcutHintsVisibility, visible]);
-  useEffect(() => {
-    if (!designerState.active) {
-      setBrowserViewportSize(null);
-      return;
-    }
-    const viewport = browserViewportRef.current;
-    if (!viewport) {
-      return;
-    }
-    let frameId: number | null = null;
-    let pendingNativeResizeSync = false;
-    const syncBrowserViewportSize = () => {
-      pendingNativeResizeSync = false;
-      const nextViewportSize = {
-        width: Math.max(1, Math.round(viewport.clientWidth)),
-        height: Math.max(1, Math.round(viewport.clientHeight)),
-      };
-      setBrowserViewportSize((current) => {
-        if (
-          current?.width === nextViewportSize.width &&
-          current?.height === nextViewportSize.height
-        ) {
-          return current;
-        }
-        return nextViewportSize;
-      });
-    };
-    const scheduleBrowserViewportSizeSync = () => {
-      if (document.documentElement.classList.contains("native-window-resizing")) {
-        pendingNativeResizeSync = true;
-        return;
-      }
-      if (frameId !== null) {
-        return;
-      }
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
-        syncBrowserViewportSize();
-      });
-    };
-    syncBrowserViewportSize();
-    const observer =
-      typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(scheduleBrowserViewportSizeSync)
-        : null;
-    observer?.observe(viewport);
-    const handleNativeWindowResizeEnd = () => {
-      if (pendingNativeResizeSync) {
-        scheduleBrowserViewportSizeSync();
-      }
-    };
-    window.addEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
-      }
-      window.removeEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
-      observer?.disconnect();
-    };
-  }, [designerState.active]);
-  const designerViewport = useMemo<DesignerViewportSize | null>(() => {
-    if (browserViewportSize) {
-      return browserViewportSize;
-    }
-    const viewport = browserViewportRef.current;
-    if (!viewport) {
-      return null;
-    }
-    return {
-      width: Math.max(1, viewport.clientWidth),
-      height: Math.max(1, viewport.clientHeight),
-    };
-  }, [browserViewportSize]);
-  const designerPillPosition = useMemo(() => {
-    return clampDesignerPillPosition(designerState.pillPosition, designerViewport);
-  }, [designerState.pillPosition, designerViewport]);
   const designerShortcutLabelByTool = useMemo<Record<BrowserDesignerTool, string | null>>(
     () => ({
       cursor: designerCursorShortcutLabel ?? null,
@@ -464,7 +315,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
         designerToolButtonRefs.current.get(nextTool)?.focus();
       };
 
-      if (event.key === "ArrowUp") {
+      if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
         event.preventDefault();
         const previous =
           DESIGNER_TOOL_BUTTONS[
@@ -475,7 +326,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
         }
         return;
       }
-      if (event.key === "ArrowDown") {
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
         event.preventDefault();
         const next = DESIGNER_TOOL_BUTTONS[(toolIndex + 1) % DESIGNER_TOOL_BUTTONS.length]?.tool;
         if (next) {
@@ -501,82 +352,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     },
     [selectDesignerTool],
   );
-  const handleDesignerPillPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (event.button !== 0) {
-        return;
-      }
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest("button, [data-designer-pill-control]")) {
-        return;
-      }
-      event.preventDefault();
-      const currentPosition = designerPillPosition;
-      designerPillDragStateRef.current = {
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        originX: currentPosition.x,
-        originY: currentPosition.y,
-      };
-      event.currentTarget.setPointerCapture(event.pointerId);
-    },
-    [designerPillPosition],
-  );
-  const handleDesignerPillPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const dragState = designerPillDragStateRef.current;
-      if (!dragState || dragState.pointerId !== event.pointerId) {
-        return;
-      }
-      event.preventDefault();
-      setDesignerPillPosition(
-        clampDesignerPillPosition(
-          {
-            x: dragState.originX + (event.clientX - dragState.startX),
-            y: dragState.originY + (event.clientY - dragState.startY),
-          },
-          designerViewport,
-        ),
-      );
-    },
-    [designerViewport, setDesignerPillPosition],
-  );
-  const handleDesignerPillPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const dragState = designerPillDragStateRef.current;
-    if (!dragState || dragState.pointerId !== event.pointerId) {
-      return;
-    }
-    designerPillDragStateRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
-  useEffect(() => {
-    if (!designerViewport || !designerState.pillPosition) {
-      previousDesignerViewportSizeRef.current = designerViewport;
-      return;
-    }
-    const previousViewport = previousDesignerViewportSizeRef.current;
-    previousDesignerViewportSizeRef.current = designerViewport;
-    const nextPosition =
-      previousViewport &&
-      (previousViewport.width !== designerViewport.width ||
-        previousViewport.height !== designerViewport.height)
-        ? resolveAnchoredDesignerPillPosition(
-            designerState.pillPosition,
-            previousViewport,
-            designerViewport,
-          )
-        : clampDesignerPillPosition(designerState.pillPosition, designerViewport);
-    if (
-      nextPosition.x === designerState.pillPosition.x &&
-      nextPosition.y === designerState.pillPosition.y
-    ) {
-      return;
-    }
-    setDesignerPillPosition(nextPosition);
-  }, [designerState.pillPosition, designerViewport, setDesignerPillPosition]);
   useLayoutEffect(() => {
     const toolList = designerToolListRef.current;
     const activeButton = designerToolButtonRefs.current.get(designerState.tool);
@@ -619,7 +394,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       resizeObserver?.disconnect();
       window.removeEventListener("resize", syncHighlightFrame);
     };
-  }, [designerPillPosition.x, designerPillPosition.y, designerState.active, designerState.tool]);
+  }, [designerState.active, designerState.tool]);
   const handleBrowserSectionKeyDownCapture = useCallback(
     (event: ReactKeyboardEvent<HTMLElement>) => {
       const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
@@ -704,19 +479,19 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       >
         <>
           <div className="flex h-12 items-center gap-2.5 border-b border-border bg-card px-3 sm:px-4">
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-0.5">
               <Tooltip>
                 <TooltipTrigger
                   render={
                     <Button
                       variant="ghost"
-                      size="icon-lg"
+                      size="icon-sm"
                       className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
                       onClick={goBack}
                       disabled={activeTabIsInternal || !activeRuntime.canGoBack}
                       aria-label="Go back"
                     >
-                      <ArrowLeftIcon className="size-5" />
+                      <ArrowLeftIcon className="size-4" />
                     </Button>
                   }
                 />
@@ -729,13 +504,13 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   render={
                     <Button
                       variant="ghost"
-                      size="icon-lg"
+                      size="icon-sm"
                       className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
                       onClick={goForward}
                       disabled={activeTabIsInternal || !activeRuntime.canGoForward}
                       aria-label="Go forward"
                     >
-                      <ArrowRightIcon className="size-5" />
+                      <ArrowRightIcon className="size-4" />
                     </Button>
                   }
                 />
@@ -748,16 +523,16 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   render={
                     <Button
                       variant="ghost"
-                      size="icon-lg"
+                      size="icon-sm"
                       className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
                       onClick={reload}
                       disabled={activeTabIsInternal}
                       aria-label={activeRuntime.loading ? "Stop loading" : "Reload page"}
                     >
                       {activeRuntime.loading ? (
-                        <LoaderCircleIcon className="size-5 animate-spin" />
+                        <LoaderCircleIcon className="size-4 animate-spin" />
                       ) : (
-                        <RefreshCwIcon className="size-5" />
+                        <RefreshCwIcon className="size-4" />
                       )}
                     </Button>
                   }
@@ -771,7 +546,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 </TooltipPopup>
               </Tooltip>
             </div>
-
             <form
               className="relative mx-auto flex min-w-0 flex-1 items-center gap-2"
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -803,19 +577,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   spellCheck={false}
                   title={draftUrl}
                 />
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  type="button"
-                  className="size-5 shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
-                  onClick={() => {
-                    openActiveTabExternally();
-                  }}
-                  disabled={!activeTab || activeTabIsInternal}
-                  aria-label="Open current page externally"
-                >
-                  <ExternalLinkIcon className="size-3.5" />
-                </Button>
               </div>
               {showAddressBarSuggestions ? (
                 <BrowserSuggestionList
@@ -826,6 +587,89 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 />
               ) : null}
             </form>
+            {designerModeAvailable ? (
+              <div ref={designerToolListRef} className="relative flex shrink-0 items-center gap-1">
+                <div
+                  className="pointer-events-none absolute z-0 rounded-md bg-primary/14 transition-[top,left,width,height,opacity] duration-200 ease-out"
+                  style={
+                    designerToolHighlightFrame
+                      ? {
+                          height: `${designerToolHighlightFrame.height}px`,
+                          left: `${designerToolHighlightFrame.left}px`,
+                          top: `${designerToolHighlightFrame.top}px`,
+                          width: `${designerToolHighlightFrame.width}px`,
+                        }
+                      : { opacity: 0 }
+                  }
+                />
+                {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
+                  <Tooltip key={tool}>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          ref={(node) => {
+                            setDesignerToolButtonRef(tool, node);
+                          }}
+                          type="button"
+                          className={cn(
+                            "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color] duration-150",
+                            designerState.tool === tool
+                              ? "border-primary/40 text-primary"
+                              : "border-border/60 bg-background/90 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
+                          )}
+                          onPointerDown={(event) => {
+                            handleDesignerToolPointerDown(event, tool);
+                          }}
+                          onKeyDown={(event) => {
+                            handleDesignerToolKeyDown(event, tool);
+                          }}
+                          aria-label={label}
+                        >
+                          <Icon className="size-3.5" />
+                          {showDesignerToolShortcutHints && designerShortcutLabelByTool[tool] ? (
+                            <span
+                              className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-3.5 items-center justify-center rounded-full border border-border/70 bg-background px-0.5 font-mono text-[8px] font-medium leading-none text-foreground shadow-sm"
+                              title={designerShortcutLabelByTool[tool] ?? undefined}
+                            >
+                              {resolveDesignerShortcutHintLabel(
+                                designerShortcutLabelByTool[tool] ?? "",
+                              )}
+                            </span>
+                          ) : null}
+                        </button>
+                      }
+                    />
+                    <TooltipPopup side="bottom">
+                      {designerShortcutLabelByTool[tool]
+                        ? `${label} (${designerShortcutLabelByTool[tool]})`
+                        : label}
+                    </TooltipPopup>
+                  </Tooltip>
+                ))}
+              </div>
+            ) : null}
+            <div className="flex shrink-0 items-center gap-0.5">
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      type="button"
+                      className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
+                      onClick={() => {
+                        openActiveTabExternally();
+                      }}
+                      disabled={!activeTab || activeTabIsInternal}
+                      aria-label="Open current page externally"
+                    >
+                      <ExternalLinkIcon className="size-4" />
+                    </Button>
+                  }
+                />
+                <TooltipPopup side="bottom">Open externally</TooltipPopup>
+              </Tooltip>
+            </div>
           </div>
         </>
 
@@ -875,87 +719,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 onSnapshotChange={handleTabSnapshotChange}
               />
             ))}
-          {designerModeAvailable ? (
-            <div
-              className="absolute z-30 select-none"
-              style={{
-                left: `${designerPillPosition.x}px`,
-                top: `${designerPillPosition.y}px`,
-              }}
-            >
-              <div
-                className="flex w-[60px] flex-col items-center gap-1.5 rounded-2xl border border-border/60 bg-background/90 px-1.5 py-2 shadow-[0_24px_80px_-42px_rgba(0,0,0,0.72)] backdrop-blur-xl"
-                onPointerDown={handleDesignerPillPointerDown}
-                onPointerMove={handleDesignerPillPointerMove}
-                onPointerUp={handleDesignerPillPointerEnd}
-                onPointerCancel={handleDesignerPillPointerEnd}
-              >
-                <div className="h-1 w-4 rounded-full bg-border/70" />
-                <div className="h-px w-5 rounded-full bg-border/60" />
-                <div ref={designerToolListRef} className="relative flex flex-col gap-1.5">
-                  <div
-                    className="pointer-events-none absolute z-0 rounded-xl bg-primary/14 shadow-[0_14px_30px_-20px_rgba(91,106,255,0.9)] transition-[top,left,width,height,opacity] duration-200 ease-out"
-                    style={
-                      designerToolHighlightFrame
-                        ? {
-                            height: `${designerToolHighlightFrame.height}px`,
-                            left: `${designerToolHighlightFrame.left}px`,
-                            top: `${designerToolHighlightFrame.top}px`,
-                            width: `${designerToolHighlightFrame.width}px`,
-                          }
-                        : { opacity: 0 }
-                    }
-                    data-designer-tool-highlight
-                  />
-                  {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
-                    <Tooltip key={tool}>
-                      <TooltipTrigger
-                        render={
-                          <button
-                            ref={(node) => {
-                              setDesignerToolButtonRef(tool, node);
-                            }}
-                            type="button"
-                            className={cn(
-                              "relative z-10 inline-flex size-10 items-center justify-center rounded-xl border transition-[border-color,color,transform] duration-200",
-                              designerState.tool === tool
-                                ? "border-primary/35 text-primary"
-                                : "border-border/60 bg-background/85 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground",
-                            )}
-                            onPointerDown={(event) => {
-                              handleDesignerToolPointerDown(event, tool);
-                            }}
-                            onKeyDown={(event) => {
-                              handleDesignerToolKeyDown(event, tool);
-                            }}
-                            aria-label={label}
-                            data-designer-pill-control
-                          >
-                            <Icon className="size-4" />
-                            {showDesignerToolShortcutHints && designerShortcutLabelByTool[tool] ? (
-                              <span
-                                className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full border border-border/70 bg-background px-1 font-mono text-[9px] font-medium leading-none text-foreground shadow-sm"
-                                title={designerShortcutLabelByTool[tool] ?? undefined}
-                              >
-                                {resolveDesignerShortcutHintLabel(
-                                  designerShortcutLabelByTool[tool] ?? "",
-                                )}
-                              </span>
-                            ) : null}
-                          </button>
-                        }
-                      />
-                      <TooltipPopup side="right">
-                        {designerShortcutLabelByTool[tool]
-                          ? `${label} (${designerShortcutLabelByTool[tool]})`
-                          : label}
-                      </TooltipPopup>
-                    </Tooltip>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : null}
         </div>
       </section>
     </motion.div>
