@@ -6,7 +6,13 @@ import type {
 } from "@ace/contracts";
 
 import { compareActivitiesByOrder } from "./shared";
-import type { ActivePlanState, LatestProposedPlanState, ProposedPlan, Thread } from "./types";
+import type {
+  ActivePlanProgressState,
+  ActivePlanState,
+  LatestProposedPlanState,
+  ProposedPlan,
+  Thread,
+} from "./types";
 
 function toLatestProposedPlanState(proposedPlan: ProposedPlan): LatestProposedPlanState {
   return {
@@ -77,6 +83,50 @@ export function deriveActivePlanState(
       ? { explanation: payload.explanation as string | null }
       : {}),
     steps,
+  };
+}
+
+export function summarizeActivePlan(
+  activePlan: Pick<ActivePlanState, "steps"> | null,
+): ActivePlanProgressState | null {
+  if (!activePlan || activePlan.steps.length === 0) {
+    return null;
+  }
+
+  const completed = activePlan.steps.filter((step) => step.status === "completed").length;
+  const currentStepIndex = activePlan.steps.findIndex((step) => step.status === "inProgress");
+  const nextPendingStepIndex =
+    currentStepIndex >= 0
+      ? currentStepIndex
+      : activePlan.steps.findIndex((step) => step.status === "pending");
+
+  if (nextPendingStepIndex < 0) {
+    return {
+      total: activePlan.steps.length,
+      completed,
+      currentIndex: null,
+      currentStep: null,
+      currentStatus: null,
+    };
+  }
+
+  const currentStep = activePlan.steps[nextPendingStepIndex];
+  if (!currentStep || currentStep.status === "completed") {
+    return {
+      total: activePlan.steps.length,
+      completed,
+      currentIndex: null,
+      currentStep: null,
+      currentStatus: null,
+    };
+  }
+
+  return {
+    total: activePlan.steps.length,
+    completed,
+    currentIndex: nextPendingStepIndex + 1,
+    currentStep: currentStep.step,
+    currentStatus: currentStep.status,
   };
 }
 

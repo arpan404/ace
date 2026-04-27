@@ -96,7 +96,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const previousActiveThreadId = useUiStateStore((store) => store.previousActiveThreadId);
 
   const openBrowserFromShell = useCallback(
-    async (action: "open" | "toggle") => {
+    async () => {
       await requestInAppBrowserFromShell({
         routeThreadId,
         fallbackThreadId: activeThreadId ?? previousActiveThreadId,
@@ -128,7 +128,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             search: buildSingleThreadRouteSearch(),
           });
         },
-        request: { action },
+        request: { action: "open" },
         onMissingProject: () => {
           toastManager.add({
             type: "error",
@@ -160,7 +160,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       }
 
       if (action === "toggle-browser") {
-        void openBrowserFromShell("toggle");
+        void openBrowserFromShell();
         return;
       }
 

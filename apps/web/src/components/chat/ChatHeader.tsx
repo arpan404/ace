@@ -13,9 +13,11 @@ import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
+import type { ActivePlanProgressState } from "../../session-logic";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 import { DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME } from "~/lib/desktopChrome";
 import { cn } from "~/lib/utils";
@@ -33,25 +35,17 @@ interface ChatHeaderProps {
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
   rightSidePanelToggleShortcutLabel: string | null;
-  diffToggleShortcutLabel: string | null;
-  browserToggleShortcutLabel: string | null;
-  browserAvailable: boolean;
-  browserOpen: boolean;
-  browserDevToolsOpen: boolean;
   gitCwd: string | null;
+  activePlanProgress: ActivePlanProgressState | null;
   workspaceChangeStat: { additions: number; deletions: number } | null;
-  diffOpen: boolean;
   rightSidePanelOpen: boolean;
   workspaceMode: ThreadWorkspaceMode;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
-  onOpenBrowser: () => void;
-  onCloseBrowser: () => void;
   onActiveProjectChange?: ((projectId: ProjectId) => void) | null;
   onToggleTerminal: () => void;
-  onToggleDiff: () => void;
   onToggleRightSidePanel: () => void;
   onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
 }
@@ -85,6 +79,23 @@ function WorkspaceChangeStatText(props: { stat: { additions: number; deletions: 
   );
 }
 
+function formatPlanProgressValue(value: number, width: number): string {
+  return String(value).padStart(width, "0");
+}
+
+function PlanProgressText(props: { progress: ActivePlanProgressState & { currentIndex: number } }) {
+  const width = Math.max(2, String(props.progress.total).length);
+  return (
+    <span className="inline-flex min-w-0 shrink items-center gap-1.5 overflow-hidden text-[13px] leading-none font-semibold tabular-nums text-foreground">
+      <Spinner className="size-3.5 text-blue-400" />
+      <span>
+        {formatPlanProgressValue(props.progress.currentIndex, width)}/
+        {formatPlanProgressValue(props.progress.total, width)}
+      </span>
+    </span>
+  );
+}
+
 export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   activeThreadTitle,
@@ -100,6 +111,7 @@ export const ChatHeader = memo(function ChatHeader({
   rightSidePanelToggleShortcutLabel,
   rightSidePanelOpen,
   gitCwd,
+  activePlanProgress,
   workspaceChangeStat,
   workspaceMode,
   onRunProjectScript,
@@ -146,6 +158,22 @@ export const ChatHeader = memo(function ChatHeader({
     rightSidePanelToggleShortcutLabel ? ` (${rightSidePanelToggleShortcutLabel})` : ""
   }`;
   const hasWorkspaceChanges = hasWorkspaceChangeStat(workspaceChangeStat);
+  const actionablePlanProgress: (ActivePlanProgressState & { currentIndex: number }) | null =
+    activePlanProgress && activePlanProgress.currentIndex !== null
+      ? { ...activePlanProgress, currentIndex: activePlanProgress.currentIndex }
+      : null;
+  const rightSidePanelButtonLabel = actionablePlanProgress
+    ? `Toggle right side panel. Active todo ${actionablePlanProgress.currentIndex} of ${actionablePlanProgress.total}${
+        actionablePlanProgress.currentStep ? `: ${actionablePlanProgress.currentStep}` : ""
+      }`
+    : hasWorkspaceChanges
+      ? `Toggle right side panel. Workspace changes: ${workspaceChangeStat.additions} additions, ${workspaceChangeStat.deletions} deletions`
+      : rightSidePanelToggleShortcutLabel
+        ? `Toggle right side panel (${rightSidePanelToggleShortcutLabel})`
+        : "Toggle right side panel";
+  const rightSidePanelTooltipCopy = actionablePlanProgress
+    ? `${rightSidePanelTooltipLabel} - todo ${actionablePlanProgress.currentIndex}/${actionablePlanProgress.total}`
+    : rightSidePanelTooltipLabel;
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
@@ -231,22 +259,22 @@ export const ChatHeader = memo(function ChatHeader({
                   size="icon-lg"
                   className={cn(
                     DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-                    hasWorkspaceChanges && "w-auto max-w-36 gap-1.5 px-1.5",
+                    (hasWorkspaceChanges || actionablePlanProgress) &&
+                      "w-auto max-w-40 gap-1.5 px-1.5",
                     rightSidePanelOpen && "!bg-accent text-foreground hover:text-foreground",
                   )}
                   onClick={onToggleRightSidePanel}
                   aria-pressed={rightSidePanelOpen}
-                  aria-label={
-                    hasWorkspaceChanges
-                      ? `Toggle right side panel. Workspace changes: ${workspaceChangeStat.additions} additions, ${workspaceChangeStat.deletions} deletions`
-                      : rightSidePanelToggleShortcutLabel
-                        ? `Toggle right side panel (${rightSidePanelToggleShortcutLabel})`
-                        : "Toggle right side panel"
-                  }
+                  aria-label={rightSidePanelButtonLabel}
                 />
               }
             >
-              {hasWorkspaceChanges ? <WorkspaceChangeStatText stat={workspaceChangeStat} /> : null}
+              {actionablePlanProgress ? (
+                <PlanProgressText progress={actionablePlanProgress} />
+              ) : null}
+              {!actionablePlanProgress && hasWorkspaceChanges ? (
+                <WorkspaceChangeStatText stat={workspaceChangeStat} />
+              ) : null}
               {rightSidePanelOpen ? (
                 <IconLayoutSidebarRightFilled className="size-[18px]" />
               ) : (
@@ -254,7 +282,7 @@ export const ChatHeader = memo(function ChatHeader({
               )}
             </TooltipTrigger>
             <TooltipPopup side="bottom" align="end">
-              {rightSidePanelTooltipLabel}
+              {rightSidePanelTooltipCopy}
             </TooltipPopup>
           </Tooltip>
         </div>
