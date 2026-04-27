@@ -60,6 +60,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "chat.toggleWorkspaceMode",
   "chat.togglePlanMode",
   "chat.toggleHeader",
+  "rightPanel.editor.toggle",
   "editor.openFavorite",
   "editor.newFile",
   "editor.newFolder",

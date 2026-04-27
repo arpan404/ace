@@ -163,7 +163,7 @@ import { AppPageTopBar } from "./AppPageTopBar";
 import { Button } from "./ui/button";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Separator } from "./ui/separator";
-import { cn, randomUUID } from "~/lib/utils";
+import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { toastManager } from "./ui/toast";
@@ -2504,13 +2504,13 @@ export default function ChatView({
     () => shortcutLabelForCommand(keybindings, "browser.toggle", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
-  const workspaceToggleShortcutLabel = useMemo(
+  const rightPanelEditorShortcutLabel = useMemo(
     () =>
       shortcutLabelForCommand(
         keybindings,
-        "chat.toggleWorkspaceMode",
+        "rightPanel.editor.toggle",
         nonTerminalShortcutLabelOptions,
-      ),
+      ) ?? (isMacPlatform(navigator.platform) ? "\u2318E" : "Ctrl+E"),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const browserActionShortcutLabelOptions = useMemo(
@@ -2543,9 +2543,9 @@ export default function ChatView({
   );
   const browserNewTabShortcutLabel = useMemo(
     () =>
-      shortcutLabelForCommand(keybindings, "browser.newTab", browserActionShortcutLabelOptions) ??
+      shortcutLabelForCommand(keybindings, "browser.newTab", nonTerminalShortcutLabelOptions) ??
       browserToggleShortcutLabel,
-    [browserActionShortcutLabelOptions, browserToggleShortcutLabel, keybindings],
+    [browserToggleShortcutLabel, keybindings, nonTerminalShortcutLabelOptions],
   );
   const browserDesignerCursorShortcutLabel = useMemo(
     () =>
@@ -3612,6 +3612,13 @@ export default function ChatView({
       setRightSidePanelMode("summary");
     }
   }, [rightSidePanelMode]);
+  const onToggleRightSidePanelEditor = useCallback(() => {
+    setRightSidePanelEditorOpen((current) => {
+      const nextOpen = !current;
+      setRightSidePanelMode(nextOpen ? "editor" : "summary");
+      return nextOpen;
+    });
+  }, []);
   const onCloseRightSidePanelDiff = useCallback(() => {
     setRightSidePanelReviewOpen(false);
     setRightSidePanelMode("summary");
@@ -5561,6 +5568,13 @@ export default function ChatView({
         return;
       }
 
+      if (command === "rightPanel.editor.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        onToggleRightSidePanelEditor();
+        return;
+      }
+
       if (command === "chat.toggleHeader") {
         event.preventDefault();
         event.stopPropagation();
@@ -5592,6 +5606,7 @@ export default function ChatView({
     splitTerminal,
     keybindings,
     onOpenRightSidePanelBrowserTab,
+    onToggleRightSidePanelEditor,
     onToggleDiff,
     shortcutsEnabled,
     toggleInteractionMode,
@@ -8236,7 +8251,7 @@ export default function ChatView({
                   browserAvailable={isElectron}
                   browserShortcutLabel={browserNewTabShortcutLabel}
                   diffAvailable={isGitRepo}
-                  editorShortcutLabel={workspaceToggleShortcutLabel}
+                  editorShortcutLabel={rightPanelEditorShortcutLabel}
                   editorOpen={rightSidePanelEditorOpen}
                   fullscreen={rightSidePanelFullscreen}
                   reviewShortcutLabel={diffPanelShortcutLabel}
