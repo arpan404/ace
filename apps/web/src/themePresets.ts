@@ -62,12 +62,12 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
   {
     id: "glass",
     label: "Glass",
-    description: "Charcoal translucent chrome with blue focus accents.",
+    description: "Translucent chrome with blue focus accents.",
     preview: {
-      panel: "oklch(0.26 0.003 250)",
-      panelDeep: "oklch(0.18 0.003 250)",
-      accent: "oklch(0.68 0.12 252)",
-      accentMuted: "oklch(0.42 0.04 252)",
+      panel: "oklch(0.99 0.006 248 / 0.72)",
+      panelDeep: "oklch(0.93 0.018 248 / 0.72)",
+      accent: "oklch(0.56 0.18 252)",
+      accentMuted: "oklch(0.76 0.026 248 / 0.6)",
     },
   },
   /* ── Accents ── */

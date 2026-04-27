@@ -233,7 +233,6 @@ import { ComposerQueuedMessages } from "./chat/ComposerQueuedMessages";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
-import { ComposerLiveTurnDiffBanner } from "./chat/ComposerLiveTurnDiffBanner";
 import {
   getComposerProviderState,
   renderProviderTraitsMenuContent,
@@ -2041,77 +2040,22 @@ export default function ChatView({
   const [rightPanelFileTabs, setRightPanelFileTabs] = useState<readonly string[]>([]);
   const [rightPanelActiveFilePath, setRightPanelActiveFilePath] = useState<string | null>(null);
   const codingGitCwd = gitCwd;
-  const liveTurnDiffSummary = useMemo(() => {
-    if (!liveTurnInProgress || !activeLatestTurn?.turnId) {
-      return null;
-    }
-    return turnDiffSummaries.find((summary) => summary.turnId === activeLatestTurn.turnId) ?? null;
-  }, [activeLatestTurn?.turnId, liveTurnInProgress, turnDiffSummaries]);
-  const liveTurnDiffMode = activeThread?.session?.capabilities?.liveTurnDiffMode;
-  const liveTurnDiffStat = useMemo(() => {
-    if (!liveTurnInProgress || !activeLatestTurn?.turnId || !liveTurnDiffSummary) {
-      return null;
-    }
-    const totals = liveTurnDiffSummary.files.reduce(
-      (acc, file) => ({
-        additions: acc.additions + (typeof file.additions === "number" ? file.additions : 0),
-        deletions: acc.deletions + (typeof file.deletions === "number" ? file.deletions : 0),
-      }),
-      { additions: 0, deletions: 0 },
-    );
-    if (totals.additions === 0 && totals.deletions === 0) {
-      return null;
-    }
-    return {
-      turnId: activeLatestTurn.turnId,
-      additions: totals.additions,
-      deletions: totals.deletions,
-      fileCount: liveTurnDiffSummary.files.length,
-    };
-  }, [activeLatestTurn?.turnId, liveTurnDiffSummary, liveTurnInProgress]);
-  const liveWorkspaceStatusQuery = useQuery({
+  const workspaceStatusQuery = useQuery({
     ...gitStatusQueryOptions(codingGitCwd),
-    enabled:
-      liveTurnInProgress &&
-      codingGitCwd !== null &&
-      (liveTurnDiffMode === undefined || liveTurnDiffMode === "workspace"),
+    enabled: codingGitCwd !== null,
     staleTime: 0,
     refetchInterval: 1_000,
   });
-  const composerDiffBanner = useMemo(() => {
-    if (liveTurnDiffStat) {
-      return {
-        turnId: liveTurnDiffStat.turnId,
-        additions: liveTurnDiffStat.additions,
-        deletions: liveTurnDiffStat.deletions,
-        fileCount: liveTurnDiffStat.fileCount,
-        prefixLabel: undefined,
-      };
-    }
-    if (!liveTurnInProgress || !activeLatestTurn?.turnId) {
-      return null;
-    }
-    const workingTree = liveWorkspaceStatusQuery.data?.workingTree;
-    if (
-      !workingTree ||
-      (workingTree.insertions === 0 && workingTree.deletions === 0) ||
-      workingTree.files.length === 0
-    ) {
+  const workspaceChangeStat = useMemo(() => {
+    const workingTree = workspaceStatusQuery.data?.workingTree;
+    if (!workingTree || (workingTree.insertions === 0 && workingTree.deletions === 0)) {
       return null;
     }
     return {
-      turnId: activeLatestTurn.turnId,
       additions: workingTree.insertions,
       deletions: workingTree.deletions,
-      fileCount: workingTree.files.length,
-      prefixLabel: "Workspace changes:",
     };
-  }, [
-    activeLatestTurn?.turnId,
-    liveTurnDiffStat,
-    liveTurnInProgress,
-    liveWorkspaceStatusQuery.data,
-  ]);
+  }, [workspaceStatusQuery.data?.workingTree]);
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
   const issueTriggerQuery = composerTrigger?.kind === "issue" ? composerTrigger.query : "";
@@ -7480,6 +7424,7 @@ export default function ChatView({
             browserOpen={browserOpen}
             browserDevToolsOpen={browserDevToolsOpen}
             gitCwd={gitCwd}
+            workspaceChangeStat={workspaceChangeStat}
             diffOpen={diffOpen}
             rightSidePanelOpen={rightSidePanelOpen}
             workspaceMode={headerWorkspaceMode}
@@ -7589,17 +7534,6 @@ export default function ChatView({
                       className="mx-auto w-full min-w-0 max-w-208"
                       data-chat-composer-form="true"
                     >
-                      {composerDiffBanner ? (
-                        <ComposerLiveTurnDiffBanner
-                          additions={composerDiffBanner.additions}
-                          deletions={composerDiffBanner.deletions}
-                          fileCount={composerDiffBanner.fileCount}
-                          {...(composerDiffBanner.prefixLabel
-                            ? { prefixLabel: composerDiffBanner.prefixLabel }
-                            : {})}
-                          onReviewChanges={() => onOpenTurnDiff(composerDiffBanner.turnId)}
-                        />
-                      ) : null}
                       <div
                         className={cn(
                           "group rounded-xl p-px transition-colors duration-200",

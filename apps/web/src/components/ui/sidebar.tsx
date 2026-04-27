@@ -631,7 +631,7 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
 function SidebarInput({ className, ...props }: React.ComponentProps<typeof Input>) {
   return (
     <Input
-      className={cn("h-8 w-full bg-background shadow-none", className)}
+      className={cn("h-8 w-full bg-sidebar-accent shadow-none", className)}
       data-sidebar="input"
       data-slot="sidebar-input"
       {...props}
@@ -790,7 +790,7 @@ const sidebarMenuButtonVariants = cva(
       variant: {
         default: "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
         outline:
-          "bg-background shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]",
+          "bg-sidebar shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]",
       },
     },
   },

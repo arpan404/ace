@@ -310,7 +310,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
           )}
           {threadStatus && <ThreadStatusLabel status={threadStatus} />}
           {canPin && props.isPinned && showPinnedIndicator && (
-            <IconPinFilled className="size-3 shrink-0 text-foreground" />
+            <IconPinFilled className="size-3 shrink-0 text-sidebar-accent-foreground" />
           )}
           {props.renamingThreadId === thread.id ? (
             <input
@@ -400,8 +400,8 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                       aria-label={`${props.isPinned ? "Unpin" : "Pin"} ${thread.title}`}
                       className={`group/thread-pin inline-flex size-5 cursor-pointer items-center justify-center transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring ${
                         props.isPinned
-                          ? "text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
+                          ? "text-sidebar-accent-foreground"
+                          : "text-sidebar-foreground/60 hover:text-sidebar-accent-foreground"
                       }`}
                       onPointerDown={(event) => {
                         event.stopPropagation();
@@ -431,7 +431,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                         data-thread-selection-safe
                         data-testid={`thread-archive-${thread.id}`}
                         aria-label={`Archive ${thread.title}`}
-                        className="inline-flex size-5 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                        className="inline-flex size-5 cursor-pointer items-center justify-center text-sidebar-foreground/60 transition-colors hover:text-sidebar-accent-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                         onPointerDown={(event) => {
                           event.stopPropagation();
                         }}
@@ -457,7 +457,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                               data-thread-selection-safe
                               data-testid={`thread-archive-${thread.id}`}
                               aria-label={`Archive ${thread.title}`}
-                              className="inline-flex size-5 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                              className="inline-flex size-5 cursor-pointer items-center justify-center text-sidebar-foreground/60 transition-colors hover:text-sidebar-accent-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                               onPointerDown={(event) => {
                                 event.stopPropagation();
                               }}
@@ -481,7 +481,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
             <span className={threadMetaClassName}>
               {props.showThreadJumpHints && props.jumpLabel ? (
                 <span
-                  className="inline-flex h-5 items-center rounded-full border border-border/50 bg-background/80 px-1.5 font-mono text-[10px] font-medium tracking-tight text-foreground shadow-sm"
+                  className="inline-flex h-5 items-center rounded-full border border-sidebar-border bg-sidebar-accent px-1.5 font-mono text-[10px] font-medium tracking-tight text-sidebar-accent-foreground shadow-sm"
                   title={props.jumpLabel}
                 >
                   {props.jumpLabel}
@@ -489,7 +489,9 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
               ) : (
                 <span
                   className={`text-[10px] ${
-                    isHighlighted ? "text-foreground/60" : "text-muted-foreground/50"
+                    isHighlighted
+                      ? "text-sidebar-accent-foreground/70"
+                      : "text-sidebar-foreground/50"
                   }`}
                 >
                   {formatRelativeTimeLabel(thread.updatedAt ?? thread.createdAt)}

@@ -309,7 +309,7 @@ function ComboboxChips({
   return (
     <ComboboxPrimitive.Chips
       className={cn(
-        "relative inline-flex min-h-9 w-full flex-wrap gap-1 rounded-lg border border-input bg-background p-[calc(--spacing(1)-1px)] text-base outline-none transition-colors *:min-h-7 focus-within:border-ring has-disabled:pointer-events-none has-data-[size=lg]:min-h-10 has-data-[size=sm]:min-h-8 has-aria-invalid:border-destructive/36 has-autofill:bg-foreground/4 has-disabled:opacity-64 focus-within:has-aria-invalid:border-destructive/64 has-data-[size=lg]:*:min-h-8 has-data-[size=sm]:*:min-h-6 sm:min-h-8 sm:text-sm sm:has-data-[size=lg]:min-h-9 sm:has-data-[size=sm]:min-h-7 sm:*:min-h-6 sm:has-data-[size=lg]:*:min-h-7 sm:has-data-[size=sm]:*:min-h-5 dark:not-has-disabled:bg-input/32 dark:has-autofill:bg-foreground/8",
+        "relative inline-flex min-h-9 w-full flex-wrap gap-1 rounded-lg border border-input bg-input p-[calc(--spacing(1)-1px)] text-base outline-none transition-colors *:min-h-7 focus-within:border-ring has-disabled:pointer-events-none has-data-[size=lg]:min-h-10 has-data-[size=sm]:min-h-8 has-aria-invalid:border-destructive/36 has-autofill:bg-foreground/4 has-disabled:opacity-64 focus-within:has-aria-invalid:border-destructive/64 has-data-[size=lg]:*:min-h-8 has-data-[size=sm]:*:min-h-6 sm:min-h-8 sm:text-sm sm:has-data-[size=lg]:min-h-9 sm:has-data-[size=sm]:min-h-7 sm:*:min-h-6 sm:has-data-[size=lg]:*:min-h-7 sm:has-data-[size=sm]:*:min-h-5 dark:not-has-disabled:bg-input/32 dark:has-autofill:bg-foreground/8",
         className,
       )}
       data-slot="combobox-chips"

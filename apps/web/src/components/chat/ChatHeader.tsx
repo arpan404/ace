@@ -41,6 +41,7 @@ interface ChatHeaderProps {
   browserOpen: boolean;
   browserDevToolsOpen: boolean;
   gitCwd: string | null;
+  workspaceChangeStat: { additions: number; deletions: number } | null;
   diffOpen: boolean;
   rightSidePanelOpen: boolean;
   workspaceMode: ThreadWorkspaceMode;
@@ -56,6 +57,35 @@ interface ChatHeaderProps {
   onToggleDiff: () => void;
   onToggleRightSidePanel: () => void;
   onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
+}
+
+const diffCountFormatter = new Intl.NumberFormat();
+
+function formatDiffCount(value: number) {
+  return diffCountFormatter.format(value);
+}
+
+function hasWorkspaceChangeStat(
+  stat: { additions: number; deletions: number } | null,
+): stat is { additions: number; deletions: number } {
+  return stat !== null && (stat.additions > 0 || stat.deletions > 0);
+}
+
+function WorkspaceChangeStatText(props: { stat: { additions: number; deletions: number } }) {
+  return (
+    <span className="inline-flex min-w-0 max-w-25 shrink items-center gap-1.5 overflow-hidden text-[13px] leading-none font-semibold tabular-nums">
+      {props.stat.additions > 0 ? (
+        <span className="inline-block max-w-12 truncate text-success">
+          +{formatDiffCount(props.stat.additions)}
+        </span>
+      ) : null}
+      {props.stat.deletions > 0 ? (
+        <span className="inline-block max-w-12 truncate text-destructive">
+          -{formatDiffCount(props.stat.deletions)}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -74,6 +104,7 @@ export const ChatHeader = memo(function ChatHeader({
   terminalToggleShortcutLabel,
   rightSidePanelOpen,
   gitCwd,
+  workspaceChangeStat,
   workspaceMode,
   workspaceName,
   onRunProjectScript,
@@ -121,6 +152,7 @@ export const ChatHeader = memo(function ChatHeader({
   const rightSidePanelTooltipLabel = rightSidePanelOpen
     ? "Close right side panel"
     : "Open right side panel";
+  const hasWorkspaceChanges = hasWorkspaceChangeStat(workspaceChangeStat);
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
@@ -239,14 +271,20 @@ export const ChatHeader = memo(function ChatHeader({
                   size="icon-lg"
                   className={cn(
                     DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+                    hasWorkspaceChanges && "w-auto max-w-36 gap-1.5 px-1.5",
                     rightSidePanelOpen && "!bg-accent text-foreground hover:text-foreground",
                   )}
                   onClick={onToggleRightSidePanel}
                   aria-pressed={rightSidePanelOpen}
-                  aria-label="Toggle right side panel"
+                  aria-label={
+                    hasWorkspaceChanges
+                      ? `Toggle right side panel. Workspace changes: ${workspaceChangeStat.additions} additions, ${workspaceChangeStat.deletions} deletions`
+                      : "Toggle right side panel"
+                  }
                 />
               }
             >
+              {hasWorkspaceChanges ? <WorkspaceChangeStatText stat={workspaceChangeStat} /> : null}
               {rightSidePanelOpen ? (
                 <IconLayoutSidebarRightFilled className="size-[18px]" />
               ) : (
