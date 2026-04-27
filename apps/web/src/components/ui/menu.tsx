@@ -57,7 +57,7 @@ function MenuPopup({
       >
         <MenuPrimitive.Popup
           className={cn(
-            "relative flex not-[class*='w-']:min-w-32 origin-(--transform-origin) rounded-[var(--panel-radius)] border border-border/72 bg-popover/96 shadow-[0_20px_44px_-30px_rgba(0,0,0,0.35)] supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl outline-none focus:outline-none",
+            "relative flex not-[class*='w-']:min-w-32 origin-(--transform-origin) rounded-[var(--panel-radius)] border border-border/72 bg-popover/96 shadow-[0_20px_44px_-30px_color-mix(in_oklch,var(--foreground)_35%,transparent)] supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl outline-none focus:outline-none",
             className,
           )}
           data-slot="menu-popup"

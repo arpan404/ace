@@ -4876,7 +4876,7 @@ export default function Sidebar() {
     <Tooltip>
       <TooltipTrigger
         render={
-          <div className="group/sidebar-brand flex h-7 min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 text-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30">
+          <div className="group/sidebar-brand flex h-7 min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 text-sidebar-foreground outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/30">
             <span className="min-w-0 truncate text-[15px] font-semibold tracking-tight">
               {sidebarWordmarkLabel}
             </span>
@@ -4897,7 +4897,7 @@ export default function Sidebar() {
     </Tooltip>
   ) : null;
   const sidebarHeaderNavButtonClassName =
-    "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/65 outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30 active:bg-accent/80 active:text-foreground disabled:pointer-events-none disabled:opacity-40";
+    "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground/65 outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/30 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-40";
   const sidebarHeaderChrome = (
     <div
       ref={sidebarHeaderRowRef}
@@ -5853,24 +5853,24 @@ export default function Sidebar() {
             <div className="flex flex-col gap-1">
               <button
                 type="button"
-                className="group/sidebar-new-chat flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+                className="group/sidebar-new-chat flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
                 onClick={handleStartSidebarNewChat}
                 disabled={!sidebarNewThreadProjectId}
                 aria-label="New chat"
               >
-                <SquarePenIcon className="size-3.5 shrink-0 transition-colors group-hover/sidebar-new-chat:text-foreground" />
+                <SquarePenIcon className="size-3.5 shrink-0 transition-colors group-hover/sidebar-new-chat:text-sidebar-accent-foreground" />
                 <span className="min-w-0 flex-1 truncate">New chat</span>
               </button>
               <button
                 type="button"
-                className="group/sidebar-search flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="group/sidebar-search flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 onClick={openSearchPalette}
                 aria-label="Open search"
               >
-                <IconSearch className="size-3.5 shrink-0 transition-colors group-hover/sidebar-search:text-foreground" />
+                <IconSearch className="size-3.5 shrink-0 transition-colors group-hover/sidebar-search:text-sidebar-accent-foreground" />
                 <span className="min-w-0 flex-1 truncate">Search</span>
                 {searchShortcutLabel ? (
-                  <span className="rounded-md bg-background/70 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground/80 transition-colors group-hover/sidebar-search:text-foreground/80 dark:bg-background/25">
+                  <span className="rounded-md bg-sidebar-accent px-1.5 py-0.5 text-[10px] font-semibold text-sidebar-foreground/70 transition-colors group-hover/sidebar-search:text-sidebar-accent-foreground">
                     {searchShortcutLabel}
                   </span>
                 ) : null}
@@ -6292,7 +6292,7 @@ export default function Sidebar() {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  className="h-8 gap-1.5 px-2.5 text-[13px] font-medium text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground active:bg-accent active:text-foreground"
+                  className="h-8 gap-1.5 px-2.5 text-[13px] font-medium text-sidebar-foreground/70 transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground"
                   onClick={() => void navigate({ to: "/settings" })}
                 >
                   <IconSettings className="size-4" />

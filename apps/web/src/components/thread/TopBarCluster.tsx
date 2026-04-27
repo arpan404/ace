@@ -33,7 +33,7 @@ export const HEADER_ACTION_ICON_CONTROL_CLASS_NAME = cn(
 export const HEADER_ACTION_DIVIDER_CLASS_NAME = "mx-0.5 h-4 w-px bg-pill-border/55";
 
 export const HEADER_ACTION_DIALOG_POPUP_CLASS_NAME =
-  "overflow-hidden border-border/60 bg-popover/96 shadow-[0_36px_96px_-48px_rgba(0,0,0,0.72)] supports-[backdrop-filter]:bg-popover/90 supports-[backdrop-filter]:backdrop-blur-2xl";
+  "overflow-hidden border-border/60 bg-popover/96 shadow-[0_36px_96px_-48px_color-mix(in_oklch,var(--foreground)_48%,transparent)] supports-[backdrop-filter]:bg-popover/90 supports-[backdrop-filter]:backdrop-blur-2xl";
 
 export const HEADER_ACTION_DIALOG_HEADER_CLASS_NAME =
   "border-b border-border/35 bg-gradient-to-b from-muted/18 to-transparent px-5 py-4 sm:px-6 sm:py-5";
