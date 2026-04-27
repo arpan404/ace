@@ -430,21 +430,18 @@ label {
   background-color: color-mix(in oklch, var(--accent) 45%, transparent);
 }
 
-.thread-terminal-drawer .terminal-split-divider,
-.thread-terminal-drawer .terminal-sidebar-resize-handle {
+.thread-terminal-drawer .terminal-split-divider {
   background-color: transparent;
   transition:
     background-color 150ms ease,
     opacity 150ms ease;
 }
 
-.thread-terminal-drawer .terminal-split-divider:hover,
-.thread-terminal-drawer .terminal-sidebar-resize-handle:hover {
+.thread-terminal-drawer .terminal-split-divider:hover {
   background-color: color-mix(in oklch, var(--accent) 35%, transparent);
 }
 
-.thread-terminal-drawer .terminal-split-divider:active,
-.thread-terminal-drawer .terminal-sidebar-resize-handle:active {
+.thread-terminal-drawer .terminal-split-divider:active {
   background-color: color-mix(in oklch, var(--accent) 48%, transparent);
 }
 
