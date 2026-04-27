@@ -222,10 +222,12 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     showThreadJumpHints: showDesignerToolShortcutHints,
     updateThreadJumpHintsVisibility: updateDesignerToolShortcutHintsVisibility,
   } = useThreadJumpHintVisibility();
+  const forceExpandedAddressField = activeTabIsInternal || activeTabIsNewTab;
   const addressPresentation = useMemo(
     () => resolveAddressFieldPresentation(activeTab?.url ?? draftUrl),
     [activeTab?.url, draftUrl],
   );
+  const shouldShowExpandedAddressField = forceExpandedAddressField || addressFieldExpanded;
   const SecurityIcon =
     addressPresentation.security === "secure"
       ? LockIcon
@@ -596,7 +598,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
               <div
                 className={cn(
                   "group/address flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2.5 transition-colors duration-150",
-                  addressFieldExpanded
+                  shouldShowExpandedAddressField
                     ? "border border-border bg-background focus-within:border-primary focus-within:bg-background"
                     : "border border-transparent bg-transparent hover:border-border/70 hover:bg-background/55",
                 )}
@@ -607,7 +609,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     aria-label={addressPresentation.securityLabel ?? undefined}
                   />
                 ) : null}
-                {addressFieldExpanded ? (
+                {shouldShowExpandedAddressField ? (
                   <Input
                     ref={addressInputRef}
                     className="min-w-0 w-full flex-1 border-0 bg-transparent text-sm font-medium text-foreground shadow-none placeholder:text-muted-foreground/70"
@@ -616,13 +618,17 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     onChange={(event) => setDraftUrl(event.target.value)}
                     onFocus={(event) => event.currentTarget.select()}
                     onBlur={() => {
-                      setAddressFieldExpanded(false);
+                      if (!forceExpandedAddressField) {
+                        setAddressFieldExpanded(false);
+                      }
                       window.setTimeout(() => {
                         setIsAddressBarFocused(false);
                       }, 100);
                     }}
                     onFocusCapture={() => {
-                      setAddressFieldExpanded(true);
+                      if (!forceExpandedAddressField) {
+                        setAddressFieldExpanded(true);
+                      }
                       setIsAddressBarFocused(true);
                     }}
                     onKeyDown={handleAddressBarKeyDown}
@@ -663,6 +669,8 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                           "pointer-events-none opacity-0 transition-opacity duration-150",
                           "group-hover/address:pointer-events-auto group-hover/address:opacity-100",
                           "group-focus-within/address:pointer-events-auto group-focus-within/address:opacity-100",
+                          forceExpandedAddressField &&
+                            "pointer-events-auto opacity-100 group-hover/address:opacity-100",
                         )}
                         onClick={() => {
                           openActiveTabExternally();

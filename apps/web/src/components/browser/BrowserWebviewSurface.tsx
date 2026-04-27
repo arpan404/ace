@@ -1,4 +1,4 @@
-import { CheckIcon, GlobeIcon, RotateCcwIcon, XIcon } from "lucide-react";
+import { ArrowUpRightIcon, GlobeIcon, XIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -2939,60 +2939,32 @@ export function BrowserTabWebview(props: {
                   </div>
                 </div>
               ) : null}
-              <textarea
-                value={designInstructions}
-                onChange={(event) => setDesignInstructions(event.target.value)}
-                onKeyDown={(event) => {
-                  if (
-                    !shouldSubmitDesignDraftFromTextareaKey({
-                      altKey: event.altKey,
-                      ctrlKey: event.ctrlKey,
-                      isComposing: event.nativeEvent.isComposing,
-                      key: event.key,
-                      metaKey: event.metaKey,
-                      shiftKey: event.shiftKey,
-                    })
-                  ) {
-                    return;
-                  }
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void submitDesignDraft();
-                }}
-                placeholder="Comment for the agent"
-                className="h-[78px] w-full resize-none rounded-[var(--control-radius)] border border-border/60 bg-background/92 px-3 py-2.5 text-[13px] outline-none transition-colors placeholder:text-muted-foreground/55 focus:border-primary/45"
-                autoFocus
-              />
-              <div className="mt-2.5 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={clearAnnotationCanvas}
-                    className="inline-flex size-8 items-center justify-center rounded-xl border border-border/60 bg-background/80 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                    disabled={!hasAnnotationStrokes}
-                    aria-label="Clear drawing"
-                    title="Clear drawing"
-                  >
-                    <RotateCcwIcon className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={cancelDesignCapture}
-                    className="inline-flex size-8 items-center justify-center rounded-xl border border-border/60 bg-background/80 text-muted-foreground transition-colors hover:text-foreground"
-                    disabled={isSubmittingDesignRequest}
-                    aria-label="Cancel comment"
-                    title="Cancel comment"
-                  >
-                    <XIcon className="size-3.5" />
-                  </button>
-                </div>
+              <div className="mt-2 flex h-10 items-center rounded-[var(--control-radius)] border border-border/60 bg-background/92">
+                <button
+                  type="button"
+                  onClick={cancelDesignCapture}
+                  className="inline-flex h-full w-10 shrink-0 items-center justify-center border-r border-border/60 text-muted-foreground transition-colors hover:text-foreground"
+                  disabled={isSubmittingDesignRequest}
+                  aria-label="Cancel comment"
+                  title="Cancel comment"
+                >
+                  <XIcon className="size-3.5" />
+                </button>
+                <input
+                  value={designInstructions}
+                  onChange={(event) => setDesignInstructions(event.target.value)}
+                  placeholder="Comment for the agent"
+                  className="h-full min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] outline-none placeholder:text-muted-foreground/55"
+                  autoFocus
+                />
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-1.5 text-[13px] font-medium text-primary-foreground transition-opacity disabled:opacity-50"
+                  className="inline-flex h-full w-10 shrink-0 items-center justify-center border-l border-border/60 text-primary transition-colors hover:text-primary/85 disabled:opacity-40"
                   disabled={isSubmittingDesignRequest || !canSubmitDesignDraft}
+                  aria-label="Submit comment"
+                  title="Submit comment"
                 >
-                  <CheckIcon className="size-3.5" />
-                  Comment
+                  <ArrowUpRightIcon className="size-3.5" />
                 </button>
               </div>
             </form>
