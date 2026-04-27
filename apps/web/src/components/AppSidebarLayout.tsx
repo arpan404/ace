@@ -247,8 +247,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         }}
         resizable={{
           minWidth: THREAD_SIDEBAR_MIN_WIDTH,
-          shouldAcceptWidth: ({ nextWidth, wrapper }) =>
-            wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
+          shouldAcceptWidth: ({ nextWidth, wrapperWidth }) =>
+            wrapperWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
           storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
         }}
       >

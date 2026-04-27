@@ -209,6 +209,7 @@ import {
 } from "../lib/terminalContext";
 import { deriveLatestContextWindowSnapshot } from "../lib/contextWindow";
 import { buildGitHubIssueSelectionPayload } from "~/lib/chat/githubIssueSelection";
+import { SIDEBAR_RESIZE_END_EVENT, isLayoutResizeInProgress } from "~/lib/desktopChrome";
 import {
   deriveThreadActivityRenderState,
   deriveThreadTimelineRenderState,
@@ -239,6 +240,7 @@ import {
   InAppBrowser,
   type ActiveBrowserRuntimeState,
   type InAppBrowserController,
+  type InAppBrowserMode,
 } from "./InAppBrowser";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
@@ -2765,13 +2767,16 @@ export default function ChatView({
     );
   }, [activeThreadId]);
   useEffect(() => {
-    if (!isElectron || !browserOpen || !activeThreadId) {
+    if (!isElectron || !activeThreadId) {
       browserControllerByThreadRef.current.clear();
       browserRuntimeStateByThreadRef.current.clear();
       browserControllerChangeHandlerByThreadRef.current.clear();
       browserRuntimeStateChangeHandlerByThreadRef.current.clear();
       browserControllerRef.current = null;
       setMountedBrowserThreadIds([]);
+      return;
+    }
+    if (!browserOpen) {
       return;
     }
     setMountedBrowserThreadIds((current) =>
@@ -3973,7 +3978,7 @@ export default function ChatView({
       }
     };
     const scheduleViewportWidthSync = () => {
-      if (document.documentElement.classList.contains("native-window-resizing")) {
+      if (isLayoutResizeInProgress()) {
         pendingNativeResizeSync = true;
         return;
       }
@@ -4003,11 +4008,13 @@ export default function ChatView({
       }
     };
     window.addEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+    window.addEventListener(SIDEBAR_RESIZE_END_EVENT, handleNativeWindowResizeEnd);
     return () => {
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId);
       }
       window.removeEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+      window.removeEventListener(SIDEBAR_RESIZE_END_EVENT, handleNativeWindowResizeEnd);
       resizeObserver?.disconnect();
       if (!resizeObserver) {
         window.removeEventListener("resize", scheduleViewportWidthSync);
@@ -4126,7 +4133,7 @@ export default function ChatView({
       }
     };
     const scheduleViewportWidthSync = () => {
-      if (document.documentElement.classList.contains("native-window-resizing")) {
+      if (isLayoutResizeInProgress()) {
         pendingNativeResizeSync = true;
         return;
       }
@@ -4156,11 +4163,13 @@ export default function ChatView({
       }
     };
     window.addEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+    window.addEventListener(SIDEBAR_RESIZE_END_EVENT, handleNativeWindowResizeEnd);
     return () => {
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId);
       }
       window.removeEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+      window.removeEventListener(SIDEBAR_RESIZE_END_EVENT, handleNativeWindowResizeEnd);
       resizeObserver?.disconnect();
       if (!resizeObserver) {
         window.removeEventListener("resize", scheduleViewportWidthSync);
@@ -4307,7 +4316,7 @@ export default function ChatView({
       }
     };
     const scheduleViewportWidthSync = () => {
-      if (document.documentElement.classList.contains("native-window-resizing")) {
+      if (isLayoutResizeInProgress()) {
         pendingNativeResizeSync = true;
         return;
       }
@@ -4337,11 +4346,13 @@ export default function ChatView({
       }
     };
     window.addEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+    window.addEventListener(SIDEBAR_RESIZE_END_EVENT, handleNativeWindowResizeEnd);
     return () => {
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId);
       }
       window.removeEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+      window.removeEventListener(SIDEBAR_RESIZE_END_EVENT, handleNativeWindowResizeEnd);
       resizeObserver?.disconnect();
       if (!resizeObserver) {
         window.removeEventListener("resize", scheduleViewportWidthSync);
@@ -5232,6 +5243,7 @@ export default function ChatView({
 
     let pendingComposerHeight: number | null = null;
     let frameId: number | null = null;
+    let pendingDeferredComposerMeasurement = false;
     const applyComposerMeasurement = () => {
       frameId = null;
       const nextCompactness = measureFooterCompactness();
@@ -5256,11 +5268,24 @@ export default function ChatView({
       scheduleStickToBottom();
     };
     const scheduleComposerMeasurement = (nextHeight: number) => {
+      if (isLayoutResizeInProgress()) {
+        pendingDeferredComposerMeasurement = true;
+        pendingComposerHeight = nextHeight;
+        return;
+      }
       pendingComposerHeight = nextHeight;
       if (frameId !== null) {
         return;
       }
       frameId = window.requestAnimationFrame(applyComposerMeasurement);
+    };
+    const handleLayoutResizeEnd = () => {
+      if (!pendingDeferredComposerMeasurement) {
+        return;
+      }
+      pendingDeferredComposerMeasurement = false;
+      const nextHeight = composerForm.getBoundingClientRect().height;
+      scheduleComposerMeasurement(nextHeight);
     };
 
     const observer = new ResizeObserver((entries) => {
@@ -5270,8 +5295,12 @@ export default function ChatView({
     });
 
     observer.observe(composerForm);
+    window.addEventListener("ace:native-window-resize-end", handleLayoutResizeEnd);
+    window.addEventListener(SIDEBAR_RESIZE_END_EVENT, handleLayoutResizeEnd);
     return () => {
       observer.disconnect();
+      window.removeEventListener("ace:native-window-resize-end", handleLayoutResizeEnd);
+      window.removeEventListener(SIDEBAR_RESIZE_END_EVENT, handleLayoutResizeEnd);
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId);
       }
@@ -7645,53 +7674,62 @@ export default function ChatView({
         }
       : null;
   const browserPanel =
-    browserOpen && isElectron && activeThreadId
-      ? {
-          mode: browserMode,
-          splitWidth: browserSplitWidth,
-          onResizeKeyDown: handleBrowserSplitResizeKeyDown,
-          onResizePointerDown: handleBrowserSplitResizePointerDown,
-          instances: [
-            activeThreadId,
+    isElectron && activeThreadId
+      ? (() => {
+          const orderedBrowserThreadIds = [
+            ...(browserOpen || mountedBrowserThreadIds.includes(activeThreadId)
+              ? [activeThreadId]
+              : []),
             ...mountedBrowserThreadIds.filter(
               (mountedThreadId) => mountedThreadId !== activeThreadId,
             ),
-          ].map((browserThreadId) => {
-            const isActiveBrowserThread = browserThreadId === activeThreadId;
-            const browserConnectionUrl = resolveBrowserThreadConnectionUrl(browserThreadId);
-            return {
-              key: browserThreadId,
-              inAppBrowserProps: {
-                open: browserOpen,
-                activeInstance: isActiveBrowserThread,
-                connectionUrl: browserConnectionUrl,
-                visible: isActiveBrowserThread,
-                mode: browserMode,
-                onClose: closeBrowser,
-                onBrowserSessionChange: (session: BrowserSessionStorage) => {
-                  onBrowserSessionChange(browserThreadId, session);
+          ];
+          if (orderedBrowserThreadIds.length === 0) {
+            return null;
+          }
+          const browserViewMode: InAppBrowserMode = browserMode === "full" ? "full" : "split";
+          return {
+            mode: browserViewMode,
+            splitWidth: browserSplitWidth,
+            onResizeKeyDown: handleBrowserSplitResizeKeyDown,
+            onResizePointerDown: handleBrowserSplitResizePointerDown,
+            instances: orderedBrowserThreadIds.map((browserThreadId) => {
+              const isActiveBrowserThread = browserThreadId === activeThreadId;
+              const browserConnectionUrl = resolveBrowserThreadConnectionUrl(browserThreadId);
+              return {
+                key: browserThreadId,
+                inAppBrowserProps: {
+                  open: true,
+                  activeInstance: isActiveBrowserThread,
+                  connectionUrl: browserConnectionUrl,
+                  visible: isActiveBrowserThread && browserOpen,
+                  mode: browserViewMode,
+                  onClose: closeBrowser,
+                  onBrowserSessionChange: (session: BrowserSessionStorage) => {
+                    onBrowserSessionChange(browserThreadId, session);
+                  },
+                  ...(isActiveBrowserThread
+                    ? {
+                        onControllerChange: getBrowserControllerChangeHandler(browserThreadId),
+                        onActiveRuntimeStateChange:
+                          getBrowserRuntimeStateChangeHandler(browserThreadId),
+                      }
+                    : {}),
+                  backShortcutLabel: browserBackShortcutLabel,
+                  designerAreaCommentShortcutLabel: browserDesignerAreaCommentShortcutLabel,
+                  designerCursorShortcutLabel: browserDesignerCursorShortcutLabel,
+                  designerDrawCommentShortcutLabel: browserDesignerDrawCommentShortcutLabel,
+                  designerElementCommentShortcutLabel: browserDesignerElementCommentShortcutLabel,
+                  devToolsShortcutLabel: browserDevToolsShortcutLabel,
+                  forwardShortcutLabel: browserForwardShortcutLabel,
+                  reloadShortcutLabel: browserReloadShortcutLabel,
+                  scopeId: browserThreadId,
+                  onQueueDesignRequest: queueBrowserDesignRequest,
                 },
-                ...(isActiveBrowserThread
-                  ? {
-                      onControllerChange: getBrowserControllerChangeHandler(browserThreadId),
-                      onActiveRuntimeStateChange:
-                        getBrowserRuntimeStateChangeHandler(browserThreadId),
-                    }
-                  : {}),
-                backShortcutLabel: browserBackShortcutLabel,
-                designerAreaCommentShortcutLabel: browserDesignerAreaCommentShortcutLabel,
-                designerCursorShortcutLabel: browserDesignerCursorShortcutLabel,
-                designerDrawCommentShortcutLabel: browserDesignerDrawCommentShortcutLabel,
-                designerElementCommentShortcutLabel: browserDesignerElementCommentShortcutLabel,
-                devToolsShortcutLabel: browserDevToolsShortcutLabel,
-                forwardShortcutLabel: browserForwardShortcutLabel,
-                reloadShortcutLabel: browserReloadShortcutLabel,
-                scopeId: browserThreadId,
-                onQueueDesignRequest: queueBrowserDesignRequest,
-              },
-            };
-          }),
-        }
+              };
+            }),
+          };
+        })()
       : null;
   const terminalDrawerProps =
     terminalState.terminalOpen && activeProject
@@ -8423,88 +8461,96 @@ export default function ChatView({
                   onSelectMode={onSelectRightSidePanelMode}
                   onToggleFullscreen={onToggleRightSidePanelFullscreen}
                 />
-                <AnimatePresence mode="wait" initial={false}>
-                  <motion.div
-                    key={`thread-right-side-panel-content-${activeRightSidePanelMode}`}
-                    className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
-                    initial={{ opacity: 0, x: 8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -6 }}
-                    transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                  >
-                    {activeRightSidePanelMode === "summary" ? (
-                      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
-                        <div className="rounded-lg border border-border/70 bg-card/60 p-3">
-                          <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                            Plan
-                          </div>
-                          <div className="mt-2 text-sm text-foreground">
-                            {activePlan
-                              ? "A plan is active for this thread."
-                              : sidebarProposedPlan
-                                ? (proposedPlanTitle(sidebarProposedPlan.planMarkdown) ??
-                                  "Proposed plan")
-                                : "No active plan."}
-                          </div>
-                        </div>
-                        <div className="rounded-lg border border-border/70 bg-card/60 p-3">
-                          <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                            Todos
-                          </div>
-                          <div className="mt-2 text-sm text-muted-foreground">
-                            Todo summary will appear here when the thread has actionable tasks.
-                          </div>
-                        </div>
-                      </div>
-                    ) : activeRightSidePanelMode === "diff" && splitPane ? (
-                      <LocalDiffPanel
-                        threadId={activeThread.id}
-                        diffState={localDiffState}
-                        onDiffStateChange={setLocalDiffState}
-                      />
-                    ) : activeRightSidePanelMode === "diff" ? (
-                      <RouteDiffPanel threadId={activeThread.id} />
-                    ) : activeRightSidePanelMode === "editor" ? (
-                      <Suspense
-                        fallback={
-                          <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-                            <div className="border-b border-border/60 px-4 py-3">
-                              <div className="h-5 w-44 rounded bg-foreground/6" />
-                            </div>
-                            <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
-                              <div className="border-r border-border/60 bg-foreground/3" />
-                              <div className="bg-background" />
-                            </div>
-                          </div>
-                        }
+                <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                  <AnimatePresence mode="wait" initial={false}>
+                    {activeRightSidePanelMode !== "browser" ? (
+                      <motion.div
+                        key={`thread-right-side-panel-content-${activeRightSidePanelMode}`}
+                        className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
+                        initial={{ opacity: 0, x: 8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -6 }}
+                        transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
                       >
-                        <ThreadWorkspaceEditor
-                          availableEditors={availableEditors}
-                          branch={activeThreadBranchName}
-                          connectionUrl={activeServerConnectionUrl}
-                          gitCwd={gitCwd}
-                          lspCwd={activeProject?.cwd ?? null}
-                          keybindings={keybindings}
-                          browserOpen={browserOpen}
-                          workspaceMode="split"
-                          terminalOpen={terminalState.terminalOpen}
-                          threadId={activeThread.id}
-                          worktreePath={activeThread.worktreePath ?? null}
-                        />
-                      </Suspense>
-                    ) : browserPanel ? (
-                      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-                        {browserPanel.instances.map((instance) => (
-                          <InAppBrowser
-                            key={instance.key}
-                            {...instance.inAppBrowserProps}
-                            mode="split"
+                        {activeRightSidePanelMode === "summary" ? (
+                          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
+                            <div className="rounded-lg border border-border/70 bg-card/60 p-3">
+                              <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                                Plan
+                              </div>
+                              <div className="mt-2 text-sm text-foreground">
+                                {activePlan
+                                  ? "A plan is active for this thread."
+                                  : sidebarProposedPlan
+                                    ? (proposedPlanTitle(sidebarProposedPlan.planMarkdown) ??
+                                      "Proposed plan")
+                                    : "No active plan."}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border border-border/70 bg-card/60 p-3">
+                              <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                                Todos
+                              </div>
+                              <div className="mt-2 text-sm text-muted-foreground">
+                                Todo summary will appear here when the thread has actionable tasks.
+                              </div>
+                            </div>
+                          </div>
+                        ) : activeRightSidePanelMode === "diff" && splitPane ? (
+                          <LocalDiffPanel
+                            threadId={activeThread.id}
+                            diffState={localDiffState}
+                            onDiffStateChange={setLocalDiffState}
                           />
-                        ))}
-                      </div>
+                        ) : activeRightSidePanelMode === "diff" ? (
+                          <RouteDiffPanel threadId={activeThread.id} />
+                        ) : activeRightSidePanelMode === "editor" ? (
+                          <Suspense
+                            fallback={
+                              <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+                                <div className="border-b border-border/60 px-4 py-3">
+                                  <div className="h-5 w-44 rounded bg-foreground/6" />
+                                </div>
+                                <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
+                                  <div className="border-r border-border/60 bg-foreground/3" />
+                                  <div className="bg-background" />
+                                </div>
+                              </div>
+                            }
+                          >
+                            <ThreadWorkspaceEditor
+                              availableEditors={availableEditors}
+                              branch={activeThreadBranchName}
+                              connectionUrl={activeServerConnectionUrl}
+                              gitCwd={gitCwd}
+                              lspCwd={activeProject?.cwd ?? null}
+                              keybindings={keybindings}
+                              browserOpen={browserOpen}
+                              workspaceMode="split"
+                              terminalOpen={terminalState.terminalOpen}
+                              threadId={activeThread.id}
+                              worktreePath={activeThread.worktreePath ?? null}
+                            />
+                          </Suspense>
+                        ) : null}
+                      </motion.div>
                     ) : null}
-                  </motion.div>
-                </AnimatePresence>
+                  </AnimatePresence>
+                  {browserPanel ? (
+                    <div
+                      className={cn(
+                        "absolute inset-0 min-h-0 min-w-0",
+                        activeRightSidePanelMode === "browser"
+                          ? "z-10"
+                          : "pointer-events-none invisible z-0",
+                      )}
+                    >
+                      {browserPanel.instances.map((instance) => (
+                        <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </motion.div>
             </motion.div>
           ) : null}
