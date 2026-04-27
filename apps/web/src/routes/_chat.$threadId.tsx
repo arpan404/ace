@@ -1,39 +1,16 @@
 import { ThreadId } from "@ace/contracts";
 import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
-import {
-  Suspense,
-  lazy,
-  startTransition,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 
 import { ThreadBoard } from "../components/chat/ThreadBoard";
-import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
-import {
-  DiffPanelHeaderSkeleton,
-  DiffPanelLoadingState,
-  DiffPanelShell,
-  type DiffPanelMode,
-} from "../components/DiffPanelShell";
 import { useComposerDraftStore } from "../composerDraftStore";
-import {
-  type DiffRouteSearch,
-  parseDiffRouteSearch,
-  stripDiffSearchParams,
-} from "../diffRouteSearch";
-import { useMediaQuery } from "../hooks/useMediaQuery";
+import { type DiffRouteSearch, parseDiffRouteSearch } from "../diffRouteSearch";
 import {
   hydrateThreadFromCache,
   readCachedHydratedThread,
   resolveThreadHydrationRetryDelayMs,
 } from "../lib/threadHydrationCache";
 import { getThreadById, useStore } from "../store";
-import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { getWsRpcClient } from "../wsRpcClient";
 import { normalizeWsUrl } from "../lib/remoteHosts";
@@ -46,9 +23,6 @@ import {
   parseThreadBoardRoutePanes,
 } from "../lib/chatThreadBoardRouteSearch";
 import { useHostConnectionStore } from "../hostConnectionStore";
-
-const DiffPanel = lazy(() => import("../components/DiffPanel"));
-const DIFF_INLINE_LAYOUT_MEDIA_QUERY = "(max-width: 1180px)";
 
 export interface ChatThreadRouteSearch extends DiffRouteSearch {
   readonly active?: string;
@@ -94,49 +68,6 @@ function parseChatThreadRouteSearch(search: Record<string, unknown>): ChatThread
   }
 }
 
-const DiffPanelSheet = (props: {
-  children: ReactNode;
-  diffOpen: boolean;
-  onCloseDiff: () => void;
-}) => {
-  return (
-    <Sheet
-      open={props.diffOpen}
-      onOpenChange={(open) => {
-        if (!open) {
-          props.onCloseDiff();
-        }
-      }}
-    >
-      <SheetPopup
-        side="right"
-        showCloseButton={false}
-        className="w-[min(88vw,820px)] max-w-[820px] p-0"
-      >
-        {props.children}
-      </SheetPopup>
-    </Sheet>
-  );
-};
-
-const DiffLoadingFallback = (props: { mode: DiffPanelMode }) => {
-  return (
-    <DiffPanelShell mode={props.mode} header={<DiffPanelHeaderSkeleton />}>
-      <DiffPanelLoadingState label="Loading diff viewer..." />
-    </DiffPanelShell>
-  );
-};
-
-const LazyDiffPanel = (props: { mode: DiffPanelMode }) => {
-  return (
-    <DiffWorkerPoolProvider>
-      <Suspense fallback={<DiffLoadingFallback mode={props.mode} />}>
-        <DiffPanel mode={props.mode} />
-      </Suspense>
-    </DiffWorkerPoolProvider>
-  );
-};
-
 function ChatThreadRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
@@ -165,28 +96,14 @@ function ChatThreadRouteView() {
     Object.hasOwn(store.draftThreadsByThreadId, threadId),
   );
   const routeThreadExists = threadExists || draftThreadExists;
-  const splitModeOpen = routeBoardPanes.length > 1;
-  const diffOpen = !splitModeOpen && search.diff === "1";
-  const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY);
   const threadHydrationInFlightRef = useRef<ThreadId | null>(null);
   const threadHydrationRequestIdRef = useRef(0);
   const threadHydrationFailureCountRef = useRef(0);
   const [threadHydrationRetryAt, setThreadHydrationRetryAt] = useState<number | null>(null);
-  const [hasOpenedDiffPanel, setHasOpenedDiffPanel] = useState(diffOpen);
   const cachedHydratedThread =
     serverThread?.historyLoaded === false && serverThread.updatedAt
       ? readCachedHydratedThread(threadId, serverThread.updatedAt)
       : null;
-  const closeDiff = useCallback(() => {
-    startTransition(() => {
-      void navigate({
-        to: "/$threadId",
-        params: { threadId },
-        search: (previous) => stripDiffSearchParams(previous),
-      });
-    });
-  }, [navigate, threadId]);
-
   useEffect(() => {
     const preloadTimer = window.setTimeout(() => {
       void import("../components/DiffPanel");
@@ -195,13 +112,6 @@ function ChatThreadRouteView() {
       window.clearTimeout(preloadTimer);
     };
   }, []);
-
-  useEffect(() => {
-    if (!diffOpen) {
-      return;
-    }
-    setHasOpenedDiffPanel(true);
-  }, [diffOpen]);
 
   useEffect(() => {
     threadHydrationFailureCountRef.current = 0;
@@ -367,37 +277,16 @@ function ChatThreadRouteView() {
     return null;
   }
 
-  if (!shouldUseDiffSheet) {
-    return (
-      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-        <ThreadBoard
-          threadId={threadId}
-          connectionUrl={routeConnectionUrl ?? null}
-          inlineDiffPanelEnabled
-          routeActiveThread={routeActiveBoardPane ?? routePathBoardPane}
-          routeSplitId={search.split ?? null}
-          routeThreads={routeBoardPanes}
-        />
-      </SidebarInset>
-    );
-  }
-
   return (
-    <>
-      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-        <ThreadBoard
-          threadId={threadId}
-          connectionUrl={routeConnectionUrl ?? null}
-          inlineDiffPanelEnabled={false}
-          routeActiveThread={routeActiveBoardPane ?? routePathBoardPane}
-          routeSplitId={search.split ?? null}
-          routeThreads={routeBoardPanes}
-        />
-      </SidebarInset>
-      <DiffPanelSheet diffOpen={diffOpen} onCloseDiff={closeDiff}>
-        {hasOpenedDiffPanel ? <LazyDiffPanel mode="sheet" /> : null}
-      </DiffPanelSheet>
-    </>
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+      <ThreadBoard
+        threadId={threadId}
+        connectionUrl={routeConnectionUrl ?? null}
+        routeActiveThread={routeActiveBoardPane ?? routePathBoardPane}
+        routeSplitId={search.split ?? null}
+        routeThreads={routeBoardPanes}
+      />
+    </SidebarInset>
   );
 }
 

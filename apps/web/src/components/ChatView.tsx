@@ -371,8 +371,16 @@ function clampRightSidePanelWidth(width: number, viewportWidth: number): number 
   return Math.min(maxWidth, Math.max(MIN_RIGHT_SIDE_PANEL_WIDTH, normalizedWidth));
 }
 
-function constrainedPanelWidth(width: number, minimumRemainingWidth: number): string {
-  return `min(${Math.round(width)}px, calc(100vw - ${minimumRemainingWidth}px))`;
+function constrainedPanelWidth(
+  width: number,
+  minimumRemainingWidth: number,
+  minimumPanelWidth = 0,
+): string {
+  const roundedWidth = Math.round(width);
+  if (minimumPanelWidth > 0) {
+    return `min(100vw, clamp(${minimumPanelWidth}px, ${roundedWidth}px, calc(100vw - ${minimumRemainingWidth}px)))`;
+  }
+  return `min(${roundedWidth}px, calc(100vw - ${minimumRemainingWidth}px))`;
 }
 
 const DiffPanel = lazy(() => import("./DiffPanel"));
@@ -382,7 +390,6 @@ type RightSidePanelMode = "browser" | "diff" | "editor" | "summary";
 
 interface ChatViewProps {
   connectionUrl?: string | null;
-  inlineDiffPanelEnabled?: boolean;
   shortcutsEnabled?: boolean;
   showSidebarTrigger?: boolean;
   splitPane?: boolean;
@@ -824,7 +831,6 @@ function RightSidePanelTabStrip(props: {
 
 export default function ChatView({
   connectionUrl = null,
-  inlineDiffPanelEnabled = true,
   shortcutsEnabled = true,
   showSidebarTrigger = true,
   splitPane = false,
@@ -1265,8 +1271,7 @@ export default function ChatView({
       ? rawSearch.mode
       : "chat";
   const diffOpen = splitPane ? localDiffState.open : rawSearch.diff === "1";
-  const rightSidePanelOpen =
-    (splitPane || inlineDiffPanelEnabled) && (diffOpen || rightSidePanelMode !== null);
+  const rightSidePanelOpen = diffOpen || rightSidePanelMode !== null;
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
@@ -8365,7 +8370,11 @@ export default function ChatView({
               animate={{
                 width: rightSidePanelFullscreen
                   ? "100%"
-                  : constrainedPanelWidth(rightSidePanelWidth, MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH),
+                  : constrainedPanelWidth(
+                      rightSidePanelWidth,
+                      MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH,
+                      MIN_RIGHT_SIDE_PANEL_WIDTH,
+                    ),
                 opacity: 1,
                 x: 0,
               }}
