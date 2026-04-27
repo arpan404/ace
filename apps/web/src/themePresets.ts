@@ -12,7 +12,7 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
     | "obsidian"
     | "neutral"
     | "ember"
-    | "terminal"
+    | "glass"
     | "midnight"
     | "aurora"
     | "nebula"
@@ -60,14 +60,14 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
     },
   },
   {
-    id: "terminal",
-    label: "Terminal",
-    description: "Clean neutral with retro green accents.",
+    id: "glass",
+    label: "Glass",
+    description: "Charcoal translucent chrome with blue focus accents.",
     preview: {
-      panel: "oklch(0.17 0 0)",
-      panelDeep: "oklch(0.13 0 0)",
-      accent: "oklch(0.68 0.16 150)",
-      accentMuted: "oklch(0.5 0.08 150)",
+      panel: "oklch(0.26 0.003 250)",
+      panelDeep: "oklch(0.18 0.003 250)",
+      accent: "oklch(0.68 0.12 252)",
+      accentMuted: "oklch(0.42 0.04 252)",
     },
   },
   /* ── Accents ── */
@@ -172,6 +172,9 @@ export function isThemePresetId(value: string): value is ThemePresetId {
 }
 
 export function parseThemePresetId(raw: string | null): ThemePresetId {
+  if (raw === "terminal") {
+    return "glass";
+  }
   if (raw && isThemePresetId(raw)) {
     return raw;
   }
