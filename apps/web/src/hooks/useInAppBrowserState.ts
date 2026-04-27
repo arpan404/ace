@@ -82,6 +82,7 @@ export interface InAppBrowserController {
   openNewTab: () => void;
   openDevTools: () => void;
   openUrl: (rawUrl: string, options?: { newTab?: boolean }) => void;
+  reorderTabs: (draggedTabId: string, targetTabId: string) => void;
   reload: () => void;
   setActiveTabByIndex: (index: number) => void;
   toggleDesignerTool: (tool: BrowserDesignerTool) => void;
@@ -891,6 +892,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const moveTabSelectionEvent = useEffectEvent(moveTabSelection);
   const openDevToolsEvent = useEffectEvent(openDevTools);
   const openNewTabEvent = useEffectEvent(openNewTab);
+  const reorderTabsEvent = useEffectEvent(reorderTabs);
   const openUrlEvent = useEffectEvent(openUrl);
   const reloadEvent = useEffectEvent(reload);
   const setActiveTabByIndexEvent = useEffectEvent(setActiveTabByIndex);
@@ -915,6 +917,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       openDevTools: () => openDevToolsEvent(),
       openNewTab: () => openNewTabEvent(),
       openUrl: (rawUrl, options) => openUrlEvent(rawUrl, options),
+      reorderTabs: (draggedTabId, targetTabId) => reorderTabsEvent(draggedTabId, targetTabId),
       reload: () => reloadEvent(),
       setActiveTabByIndex: (index) => setActiveTabByIndexEvent(index),
       toggleDesignerTool: (tool) => toggleDesignerToolEvent(tool),

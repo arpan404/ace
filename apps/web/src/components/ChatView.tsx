@@ -1,4 +1,16 @@
 import {
+  closestCenter,
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragCancelEvent,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   type ApprovalRequestId,
   type ClientOrchestrationCommand,
   type CommandId,
@@ -28,6 +40,7 @@ import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/mod
 import { truncate } from "@ace/shared/String";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
+  type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
   Suspense,
   lazy,
@@ -54,7 +67,6 @@ import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import {
   normalizeThreadWorkspaceLayoutMode,
-  normalizeThreadWorkspaceMode,
   THREAD_WORKSPACE_LAYOUT_BY_THREAD_ID_STORAGE_KEY,
   THREAD_WORKSPACE_MODE_BY_THREAD_ID_STORAGE_KEY,
   ThreadWorkspaceLayoutByThreadIdSchema,
@@ -138,6 +150,8 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import {
   BotIcon,
   CircleAlertIcon,
+  Code2Icon,
+  GitCompareIcon,
   GlobeIcon,
   ListTodoIcon,
   Maximize2Icon,
@@ -147,7 +161,7 @@ import {
 } from "lucide-react";
 import { AppPageTopBar } from "./AppPageTopBar";
 import { Button } from "./ui/button";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Separator } from "./ui/separator";
 import { cn, randomUUID } from "~/lib/utils";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
@@ -278,7 +292,7 @@ import {
   WORKSPACE_EDITOR_SPLIT_WIDTH_STORAGE_KEY,
   clampWorkspaceEditorSplitWidth,
 } from "~/lib/chat/workspaceSplit";
-import type { BrowserSessionStorage } from "~/lib/browser/session";
+import type { BrowserSessionStorage, BrowserTabState } from "~/lib/browser/session";
 import { buildHandoffTimeline, resolveHandoffLineage } from "~/lib/chat/handoff";
 import {
   subscribeToBrowserLaunchRequests,
@@ -356,7 +370,7 @@ function clampRightSidePanelWidth(width: number, viewportWidth: number): number 
 const DiffPanel = lazy(() => import("./DiffPanel"));
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
-type RightSidePanelMode = "browser" | "diff" | "editor" | "file" | "summary";
+type RightSidePanelMode = "browser" | "diff" | "editor" | "summary";
 
 interface ChatViewProps {
   connectionUrl?: string | null;
@@ -423,36 +437,217 @@ function RouteDiffPanel(props: { threadId: ThreadId }) {
   );
 }
 
+function RightSidePanelBrowserTab(props: {
+  active: boolean;
+  className: (active: boolean, dragging?: boolean, over?: boolean) => string;
+  onClose: (tabId: string) => void;
+  onSelect: (tabId: string) => void;
+  suppressClickAfterDragRef: MutableRefObject<boolean>;
+  tab: BrowserTabState;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } =
+    useSortable({ id: props.tab.id });
+
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={props.className(props.active, isDragging, isOver)}
+      {...attributes}
+      aria-pressed={props.active}
+      title={props.tab.title}
+      onClick={() => {
+        if (props.suppressClickAfterDragRef.current) {
+          return;
+        }
+        props.onSelect(props.tab.id);
+      }}
+      {...listeners}
+    >
+      <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+        <GlobeIcon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+        <span
+          role="button"
+          tabIndex={-1}
+          className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+          aria-label={`Close ${props.tab.title}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            props.onClose(props.tab.id);
+          }}
+        >
+          <XIcon className="size-3" />
+        </span>
+      </span>
+      <span className="max-w-48 truncate">{props.tab.title}</span>
+    </button>
+  );
+}
+
+function RightSidePanelAddTabMenu(props: {
+  browserAvailable: boolean;
+  browserShortcutLabel: string | null;
+  diffAvailable: boolean;
+  editorShortcutLabel: string | null;
+  editorOpen: boolean;
+  reviewShortcutLabel: string | null;
+  reviewOpen: boolean;
+  onNewBrowserTab: () => void;
+  onSelectMode: (mode: RightSidePanelMode) => void;
+}) {
+  return (
+    <Menu>
+      <MenuTrigger
+        className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        aria-label="Open side panel tab"
+      >
+        <PlusIcon className="size-4" />
+      </MenuTrigger>
+      <MenuPopup align="end" side="bottom" className="min-w-52">
+        <MenuItem
+          disabled={!props.browserAvailable}
+          onClick={() => {
+            props.onNewBrowserTab();
+          }}
+        >
+          <GlobeIcon className="size-4" />
+          <span>Browser</span>
+          {props.browserShortcutLabel ? (
+            <MenuShortcut>{props.browserShortcutLabel}</MenuShortcut>
+          ) : null}
+        </MenuItem>
+        <MenuItem
+          disabled={!props.diffAvailable || props.reviewOpen}
+          onClick={() => {
+            props.onSelectMode("diff");
+          }}
+        >
+          <GitCompareIcon className="size-4" />
+          <span>Review</span>
+          {props.reviewShortcutLabel ? (
+            <MenuShortcut>{props.reviewShortcutLabel}</MenuShortcut>
+          ) : null}
+        </MenuItem>
+        <MenuItem
+          disabled={props.editorOpen}
+          onClick={() => {
+            props.onSelectMode("editor");
+          }}
+        >
+          <Code2Icon className="size-4" />
+          <span>Editor</span>
+          {props.editorShortcutLabel ? (
+            <MenuShortcut>{props.editorShortcutLabel}</MenuShortcut>
+          ) : null}
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
+  );
+}
+
 function RightSidePanelTabStrip(props: {
   activeMode: RightSidePanelMode;
   activeBrowserTabId: string | null;
-  activeFilePath: string | null;
   browserSession: BrowserSessionStorage | null;
   browserAvailable: boolean;
+  browserShortcutLabel: string | null;
   diffAvailable: boolean;
-  fileTabs: readonly string[];
+  editorShortcutLabel: string | null;
+  editorOpen: boolean;
   fullscreen: boolean;
+  reviewShortcutLabel: string | null;
+  reviewOpen: boolean;
   onBrowserTabClose: (tabId: string) => void;
+  onBrowserTabReorder: (draggedTabId: string, targetTabId: string) => void;
   onBrowserTabSelect: (tabId: string) => void;
   onDiffClose: () => void;
-  onFileTabClose: (filePath: string) => void;
-  onFileTabSelect: (filePath: string) => void;
+  onEditorClose: () => void;
   onNewBrowserTab: () => void;
   onSelectMode: (mode: RightSidePanelMode) => void;
   onToggleFullscreen: () => void;
 }) {
+  const { onBrowserTabReorder } = props;
+  const tabStripRef = useRef<HTMLDivElement | null>(null);
+  const [tabsOverflow, setTabsOverflow] = useState(false);
+  const browserTabSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
+  );
+  const suppressBrowserTabClickAfterDragRef = useRef(false);
   const tabClassName = (active: boolean, disabled = false) =>
     cn(
-      "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors",
+      "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors",
       active
-        ? "border-border bg-background text-foreground shadow-[0_0_0_1px_rgba(96,165,250,0.26)]"
-        : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+        ? "bg-accent text-foreground"
+        : "text-muted-foreground hover:bg-accent hover:text-foreground",
       disabled && "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground",
     );
+  const browserTabClassName = (active: boolean, dragging = false, over = false) =>
+    cn(
+      tabClassName(active),
+      "touch-none",
+      dragging && "z-20 opacity-70",
+      over && !dragging && "bg-accent/70",
+    );
+  const handleBrowserTabDragStart = useCallback((_event: DragStartEvent) => {
+    suppressBrowserTabClickAfterDragRef.current = true;
+  }, []);
+  const handleBrowserTabDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (over && active.id !== over.id) {
+        onBrowserTabReorder(String(active.id), String(over.id));
+      }
+      window.setTimeout(() => {
+        suppressBrowserTabClickAfterDragRef.current = false;
+      }, 0);
+    },
+    [onBrowserTabReorder],
+  );
+  const handleBrowserTabDragCancel = useCallback((_event: DragCancelEvent) => {
+    window.setTimeout(() => {
+      suppressBrowserTabClickAfterDragRef.current = false;
+    }, 0);
+  }, []);
+  const syncTabsOverflow = useCallback(() => {
+    const tabStrip = tabStripRef.current;
+    if (!tabStrip) {
+      setTabsOverflow(false);
+      return;
+    }
+    const nextOverflow = tabStrip.scrollWidth - tabStrip.clientWidth > 1;
+    setTabsOverflow((current) => (current === nextOverflow ? current : nextOverflow));
+  }, []);
+  useLayoutEffect(() => {
+    syncTabsOverflow();
+    const tabStrip = tabStripRef.current;
+    if (!tabStrip || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const resizeObserver = new ResizeObserver(() => {
+      syncTabsOverflow();
+    });
+    resizeObserver.observe(tabStrip);
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [
+    props.activeBrowserTabId,
+    props.activeMode,
+    props.browserSession?.tabs.length,
+    props.editorOpen,
+    props.reviewOpen,
+    syncTabsOverflow,
+  ]);
 
   return (
     <div className="flex h-11 shrink-0 items-center gap-2 bg-card/80 px-3">
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div
+        ref={tabStripRef}
+        className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
         <button
           type="button"
           className={tabClassName(props.activeMode === "summary")}
@@ -461,123 +656,115 @@ function RightSidePanelTabStrip(props: {
         >
           <span className="truncate">Summary</span>
         </button>
-        <span className="h-5 w-px shrink-0 bg-border/70" />
-        <button
-          type="button"
-          className={tabClassName(props.activeMode === "diff", !props.diffAvailable)}
-          disabled={!props.diffAvailable}
-          aria-pressed={props.activeMode === "diff"}
-          onClick={() => props.onSelectMode("diff")}
-        >
-          <span
-            role="button"
-            tabIndex={-1}
-            className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-muted-foreground/80 text-background transition-colors hover:bg-foreground"
-            aria-label="Close review tab"
-            onClick={(event) => {
-              event.stopPropagation();
-              props.onDiffClose();
-            }}
-          >
-            <XIcon className="size-3" />
-          </span>
-          <span className="truncate">Review</span>
-        </button>
-        <span className="h-5 w-px shrink-0 bg-border/70" />
-        <button
-          type="button"
-          className={tabClassName(props.activeMode === "editor")}
-          aria-pressed={props.activeMode === "editor"}
-          onClick={() => props.onSelectMode("editor")}
-        >
-          <span className="truncate">Editor</span>
-        </button>
-        {props.fileTabs.length > 0 ? <span className="h-5 w-px shrink-0 bg-border/70" /> : null}
-        {props.fileTabs.map((filePath) => {
-          const active = props.activeMode === "file" && props.activeFilePath === filePath;
-          return (
-            <button
-              key={filePath}
-              type="button"
-              className={tabClassName(active)}
-              aria-pressed={active}
-              title={filePath}
-              onClick={() => props.onFileTabSelect(filePath)}
-            >
-              <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-                <span className="rounded-sm bg-muted px-1 py-0.5 font-mono text-[10px] leading-none text-muted-foreground transition-opacity group-hover/tab:opacity-0">
-                  {basenameOfPath(filePath).split(".").pop()?.slice(0, 2).toUpperCase() ?? "F"}
-                </span>
-                <span
-                  role="button"
-                  tabIndex={-1}
-                  className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                  aria-label={`Close ${basenameOfPath(filePath)}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    props.onFileTabClose(filePath);
-                  }}
-                >
-                  <XIcon className="size-3" />
-                </span>
-              </span>
-              <span className="max-w-36 truncate">{basenameOfPath(filePath)}</span>
-            </button>
-          );
-        })}
+        {props.reviewOpen ? (
+          <>
+            <span className="h-5 w-px shrink-0 bg-border/70" />
+            <div className={tabClassName(props.activeMode === "diff", !props.diffAvailable)}>
+              <button
+                type="button"
+                className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-muted-foreground/80 text-background transition-colors hover:bg-foreground"
+                aria-label="Close review tab"
+                onClick={() => {
+                  props.onDiffClose();
+                }}
+              >
+                <XIcon className="size-3" />
+              </button>
+              <button
+                type="button"
+                className="min-w-0 truncate text-left"
+                disabled={!props.diffAvailable}
+                aria-pressed={props.activeMode === "diff"}
+                onClick={() => props.onSelectMode("diff")}
+              >
+                Review
+              </button>
+            </div>
+          </>
+        ) : null}
+        {props.editorOpen ? (
+          <>
+            <span className="h-5 w-px shrink-0 bg-border/70" />
+            <div className={tabClassName(props.activeMode === "editor")}>
+              <button
+                type="button"
+                className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-muted-foreground/80 text-background transition-colors hover:bg-foreground"
+                aria-label="Close editor tab"
+                onClick={() => {
+                  props.onEditorClose();
+                }}
+              >
+                <XIcon className="size-3" />
+              </button>
+              <button
+                type="button"
+                className="min-w-0 truncate text-left"
+                aria-pressed={props.activeMode === "editor"}
+                onClick={() => props.onSelectMode("editor")}
+              >
+                Editor
+              </button>
+            </div>
+          </>
+        ) : null}
         {props.browserSession?.tabs.length ? (
           <span className="h-5 w-px shrink-0 bg-border/70" />
         ) : null}
-        {props.browserSession?.tabs.map((tab) => {
-          const active = props.activeMode === "browser" && props.activeBrowserTabId === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              className={tabClassName(active)}
-              aria-pressed={active}
-              title={tab.title}
-              onClick={() => props.onBrowserTabSelect(tab.id)}
-            >
-              <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-                <GlobeIcon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                <span
-                  role="button"
-                  tabIndex={-1}
-                  className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                  aria-label={`Close ${tab.title}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    props.onBrowserTabClose(tab.id);
-                  }}
-                >
-                  <XIcon className="size-3" />
-                </span>
-              </span>
-              <span className="max-w-48 truncate">{tab.title}</span>
-            </button>
-          );
-        })}
-        <Menu>
-          <MenuTrigger
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={!props.browserAvailable}
-            aria-label="Open side panel tab"
+        {props.browserSession?.tabs.length ? (
+          <DndContext
+            sensors={browserTabSensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleBrowserTabDragStart}
+            onDragEnd={handleBrowserTabDragEnd}
+            onDragCancel={handleBrowserTabDragCancel}
           >
-            <PlusIcon className="size-4" />
-          </MenuTrigger>
-          <MenuPopup align="start" side="bottom" className="min-w-40">
-            <MenuItem
-              onClick={() => {
-                props.onNewBrowserTab();
-              }}
+            <SortableContext
+              items={props.browserSession.tabs.map((tab) => tab.id)}
+              strategy={horizontalListSortingStrategy}
             >
-              <PlusIcon className="size-4" />
-              New browser tab
-            </MenuItem>
-          </MenuPopup>
-        </Menu>
+              {props.browserSession.tabs.map((tab) => (
+                <RightSidePanelBrowserTab
+                  key={tab.id}
+                  active={props.activeMode === "browser" && props.activeBrowserTabId === tab.id}
+                  className={browserTabClassName}
+                  onClose={props.onBrowserTabClose}
+                  onSelect={props.onBrowserTabSelect}
+                  suppressClickAfterDragRef={suppressBrowserTabClickAfterDragRef}
+                  tab={tab}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+        ) : null}
+        {tabsOverflow ? (
+          <span className="size-8 shrink-0" aria-hidden="true" />
+        ) : (
+          <RightSidePanelAddTabMenu
+            browserAvailable={props.browserAvailable}
+            browserShortcutLabel={props.browserShortcutLabel}
+            diffAvailable={props.diffAvailable}
+            editorShortcutLabel={props.editorShortcutLabel}
+            editorOpen={props.editorOpen}
+            reviewShortcutLabel={props.reviewShortcutLabel}
+            reviewOpen={props.reviewOpen}
+            onNewBrowserTab={props.onNewBrowserTab}
+            onSelectMode={props.onSelectMode}
+          />
+        )}
       </div>
+      {tabsOverflow ? (
+        <RightSidePanelAddTabMenu
+          browserAvailable={props.browserAvailable}
+          browserShortcutLabel={props.browserShortcutLabel}
+          diffAvailable={props.diffAvailable}
+          editorShortcutLabel={props.editorShortcutLabel}
+          editorOpen={props.editorOpen}
+          reviewShortcutLabel={props.reviewShortcutLabel}
+          reviewOpen={props.reviewOpen}
+          onNewBrowserTab={props.onNewBrowserTab}
+          onSelectMode={props.onSelectMode}
+        />
+      ) : null}
       <button
         type="button"
         className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -641,6 +828,8 @@ export default function ChatView({
   const [rightSidePanelMode, setRightSidePanelMode] = useState<RightSidePanelMode | null>(
     rawSearch.diff === "1" ? "diff" : null,
   );
+  const [rightSidePanelReviewOpen, setRightSidePanelReviewOpen] = useState(rawSearch.diff === "1");
+  const [rightSidePanelEditorOpen, setRightSidePanelEditorOpen] = useState(false);
   const [rightSidePanelFullscreen, setRightSidePanelFullscreen] = useState(false);
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
@@ -2037,8 +2226,6 @@ export default function ChatView({
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
-  const [rightPanelFileTabs, setRightPanelFileTabs] = useState<readonly string[]>([]);
-  const [rightPanelActiveFilePath, setRightPanelActiveFilePath] = useState<string | null>(null);
   const codingGitCwd = gitCwd;
   const workspaceStatusQuery = useQuery({
     ...gitStatusQueryOptions(codingGitCwd),
@@ -2317,6 +2504,15 @@ export default function ChatView({
     () => shortcutLabelForCommand(keybindings, "browser.toggle", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
+  const workspaceToggleShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(
+        keybindings,
+        "chat.toggleWorkspaceMode",
+        nonTerminalShortcutLabelOptions,
+      ),
+    [keybindings, nonTerminalShortcutLabelOptions],
+  );
   const browserActionShortcutLabelOptions = useMemo(
     () => ({
       context: {
@@ -2344,6 +2540,12 @@ export default function ChatView({
     () =>
       shortcutLabelForCommand(keybindings, "browser.devtools", browserActionShortcutLabelOptions),
     [browserActionShortcutLabelOptions, keybindings],
+  );
+  const browserNewTabShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(keybindings, "browser.newTab", browserActionShortcutLabelOptions) ??
+      browserToggleShortcutLabel,
+    [browserActionShortcutLabelOptions, browserToggleShortcutLabel, keybindings],
   );
   const browserDesignerCursorShortcutLabel = useMemo(
     () =>
@@ -2409,7 +2611,7 @@ export default function ChatView({
     DEFAULT_RIGHT_SIDE_PANEL_WIDTH,
     Schema.Number,
   );
-  const [workspaceModeByThreadId, setWorkspaceModeByThreadId] = useLocalStorage(
+  const [, setWorkspaceModeByThreadId] = useLocalStorage(
     THREAD_WORKSPACE_MODE_BY_THREAD_ID_STORAGE_KEY,
     {},
     ThreadWorkspaceModeByThreadIdSchema,
@@ -2468,13 +2670,11 @@ export default function ChatView({
   const lastSyncedRightSidePanelWidthRef = useRef(rightSidePanelWidth);
   const defaultWorkspaceMode: ThreadWorkspaceMode =
     settings.workspaceEditorOpenMode === "split" ? "split" : "editor";
-  const persistedWorkspaceMode = normalizeThreadWorkspaceMode(workspaceModeByThreadId[threadId]);
   const persistedWorkspaceLayout = normalizeThreadWorkspaceLayoutMode(
     workspaceLayoutByThreadId[threadId],
     defaultWorkspaceMode,
   );
-  const workspaceMode: ThreadWorkspaceMode =
-    routeWorkspaceMode === "chat" ? persistedWorkspaceMode : routeWorkspaceMode;
+  const workspaceMode: ThreadWorkspaceMode = routeWorkspaceMode;
   const editorHostedInRightPanel =
     rightSidePanelMode === "editor" || workspaceMode === "editor" || workspaceMode === "split";
   const headerWorkspaceMode: ThreadWorkspaceMode = editorHostedInRightPanel
@@ -2483,6 +2683,7 @@ export default function ChatView({
   const browserOpen = browserMode !== "closed";
   useEffect(() => {
     if (diffOpen) {
+      setRightSidePanelReviewOpen(true);
       setRightSidePanelMode("diff");
     }
   }, [diffOpen]);
@@ -2493,6 +2694,7 @@ export default function ChatView({
   }, [browserOpen, diffOpen, rightSidePanelMode]);
   useEffect(() => {
     if (!splitPane && (routeWorkspaceMode === "editor" || routeWorkspaceMode === "split")) {
+      setRightSidePanelEditorOpen(true);
       setRightSidePanelMode("editor");
     }
   }, [routeWorkspaceMode, splitPane]);
@@ -2555,6 +2757,7 @@ export default function ChatView({
       const nextMode =
         mode === "editor" && workspaceMode === "chat" ? persistedWorkspaceLayout : mode;
       if (nextMode === "editor" || nextMode === "split") {
+        setRightSidePanelEditorOpen(true);
         setRightSidePanelMode("editor");
         setWorkspaceLayoutByThreadId((previous) => ({
           ...previous,
@@ -2565,6 +2768,7 @@ export default function ChatView({
       if (rightSidePanelMode === "editor") {
         setRightSidePanelMode(null);
       }
+      setRightSidePanelEditorOpen(false);
       if (nextMode === workspaceMode) {
         return;
       }
@@ -2609,16 +2813,20 @@ export default function ChatView({
     setIsHeaderHidden((previous) => !previous);
   }, []);
   const onToggleDiff = useCallback(() => {
+    const nextDiffOpen = !diffOpen;
+    setRightSidePanelReviewOpen(nextDiffOpen);
     if (splitPane) {
       setLocalDiffState((previous) => ({
         ...previous,
-        open: !previous.open,
+        open: nextDiffOpen,
       }));
-      setRightSidePanelMode("diff");
+      setRightSidePanelMode(nextDiffOpen ? "diff" : "summary");
       return;
     }
-    if (!diffOpen) {
+    if (nextDiffOpen) {
       setRightSidePanelMode("diff");
+    } else if (rightSidePanelMode === "diff") {
+      setRightSidePanelMode("summary");
     }
     startTransition(() => {
       void navigate({
@@ -2627,11 +2835,11 @@ export default function ChatView({
         replace: true,
         search: (previous) => {
           const rest = stripDiffSearchParams(previous);
-          return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
+          return nextDiffOpen ? { ...rest, diff: "1" } : { ...rest, diff: undefined };
         },
       });
     });
-  }, [diffOpen, navigate, splitPane, threadId]);
+  }, [diffOpen, navigate, rightSidePanelMode, splitPane, threadId]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3355,12 +3563,14 @@ export default function ChatView({
         return;
       }
       if (mode === "diff") {
+        setRightSidePanelReviewOpen(true);
         setRightSidePanelMode("diff");
         if (!diffOpen) {
           onToggleDiff();
         }
         return;
       }
+      setRightSidePanelEditorOpen(true);
       setRightSidePanelMode("editor");
     },
     [diffOpen, onToggleDiff, openBrowser],
@@ -3390,27 +3600,20 @@ export default function ChatView({
     },
     [activeThreadId, browserSessionByThreadId, rightSidePanelMode],
   );
-  const onSelectRightSidePanelFileTab = useCallback((filePath: string) => {
-    setRightPanelActiveFilePath(filePath);
-    setRightSidePanelMode("file");
-  }, []);
-  const onCloseRightSidePanelFileTab = useCallback(
-    (filePath: string) => {
-      setRightPanelFileTabs((current) => current.filter((path) => path !== filePath));
-      setRightPanelActiveFilePath((current) => {
-        if (current !== filePath) {
-          return current;
-        }
-        const nextTab = rightPanelFileTabs.find((path) => path !== filePath) ?? null;
-        if (!nextTab && rightSidePanelMode === "file") {
-          setRightSidePanelMode("summary");
-        }
-        return nextTab;
-      });
+  const onReorderRightSidePanelBrowserTab = useCallback(
+    (draggedTabId: string, targetTabId: string) => {
+      browserControllerRef.current?.reorderTabs(draggedTabId, targetTabId);
     },
-    [rightPanelFileTabs, rightSidePanelMode],
+    [],
   );
+  const onCloseRightSidePanelEditor = useCallback(() => {
+    setRightSidePanelEditorOpen(false);
+    if (rightSidePanelMode === "editor") {
+      setRightSidePanelMode("summary");
+    }
+  }, [rightSidePanelMode]);
   const onCloseRightSidePanelDiff = useCallback(() => {
+    setRightSidePanelReviewOpen(false);
     setRightSidePanelMode("summary");
     if (splitPane) {
       setLocalDiffState((previous) => ({ ...previous, open: false }));
@@ -5266,7 +5469,11 @@ export default function ChatView({
       if (command === "browser.newTab") {
         event.preventDefault();
         event.stopPropagation();
-        browserControllerRef.current?.openNewTab();
+        if (!browserOpen || !browserControllerRef.current) {
+          onOpenRightSidePanelBrowserTab();
+          return;
+        }
+        browserControllerRef.current.openNewTab();
         return;
       }
 
@@ -5384,6 +5591,7 @@ export default function ChatView({
     runProjectScript,
     splitTerminal,
     keybindings,
+    onOpenRightSidePanelBrowserTab,
     onToggleDiff,
     shortcutsEnabled,
     toggleInteractionMode,
@@ -7021,6 +7229,7 @@ export default function ChatView({
   const expandedImageItem = expandedImage ? expandedImage.images[expandedImage.index] : null;
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
+      setRightSidePanelReviewOpen(true);
       setRightSidePanelMode("diff");
       if (splitPane) {
         setLocalDiffState({ open: true, turnId, filePath: filePath ?? null });
@@ -8023,17 +8232,20 @@ export default function ChatView({
                 <RightSidePanelTabStrip
                   activeMode={activeRightSidePanelMode}
                   activeBrowserTabId={activeRightPanelBrowserTabId}
-                  activeFilePath={rightPanelActiveFilePath}
                   browserSession={activeRightPanelBrowserSession}
                   browserAvailable={isElectron}
+                  browserShortcutLabel={browserNewTabShortcutLabel}
                   diffAvailable={isGitRepo}
-                  fileTabs={rightPanelFileTabs}
+                  editorShortcutLabel={workspaceToggleShortcutLabel}
+                  editorOpen={rightSidePanelEditorOpen}
                   fullscreen={rightSidePanelFullscreen}
+                  reviewShortcutLabel={diffPanelShortcutLabel}
+                  reviewOpen={rightSidePanelReviewOpen}
                   onBrowserTabClose={onCloseRightSidePanelBrowserTab}
+                  onBrowserTabReorder={onReorderRightSidePanelBrowserTab}
                   onBrowserTabSelect={onSelectRightSidePanelBrowserTab}
                   onDiffClose={onCloseRightSidePanelDiff}
-                  onFileTabClose={onCloseRightSidePanelFileTab}
-                  onFileTabSelect={onSelectRightSidePanelFileTab}
+                  onEditorClose={onCloseRightSidePanelEditor}
                   onNewBrowserTab={onOpenRightSidePanelBrowserTab}
                   onSelectMode={onSelectRightSidePanelMode}
                   onToggleFullscreen={onToggleRightSidePanelFullscreen}
@@ -8107,12 +8319,6 @@ export default function ChatView({
                           worktreePath={activeThread.worktreePath ?? null}
                         />
                       </Suspense>
-                    ) : activeRightSidePanelMode === "file" ? (
-                      <div className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">
-                        {rightPanelActiveFilePath
-                          ? `Single-file view: ${rightPanelActiveFilePath}`
-                          : "No file selected."}
-                      </div>
                     ) : browserPanel ? (
                       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
                         {browserPanel.instances.map((instance) => (
