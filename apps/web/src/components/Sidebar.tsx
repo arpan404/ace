@@ -4903,7 +4903,14 @@ export default function Sidebar() {
       ref={sidebarHeaderRowRef}
       className="grid h-7 min-w-0 grid-cols-[1fr_auto_1fr] items-center"
     >
-      <div className="flex min-w-0 items-center">{sidebarHeaderToggle}</div>
+      <div
+        className={cn(
+          "flex min-w-0 items-center",
+          isElectron && "pl-[max(0px,calc(var(--desktop-titlebar-left-inset)-0.875rem))]",
+        )}
+      >
+        {sidebarHeaderToggle}
+      </div>
       <div className="flex min-w-0 items-center justify-center">{wordmark}</div>
       <div className="flex min-w-0 items-center justify-end gap-1.5">
         <Tooltip>

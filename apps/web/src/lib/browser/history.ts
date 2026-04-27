@@ -6,7 +6,6 @@ import {
   resolveBrowserHomeUrl,
   resolveBrowserInputTarget,
 } from "~/lib/browser/url";
-import type { BrowserPinnedPage } from "~/lib/browser/pinnedPages";
 import type { BrowserTabState } from "~/lib/browser/session";
 
 export const BROWSER_HISTORY_STORAGE_KEY = "ace:browser:history:v1";
@@ -26,7 +25,7 @@ export type BrowserHistory = typeof BrowserHistorySchema.Type;
 
 export type BrowserSuggestion = {
   id: string;
-  kind: "history" | "home" | "navigate" | "pinned" | "search" | "tab";
+  kind: "history" | "home" | "navigate" | "search" | "tab";
   subtitle: string;
   tabId?: string;
   title: string;
@@ -41,10 +40,9 @@ type RankedBrowserSuggestion = BrowserSuggestion & {
 const SUGGESTION_KIND_PRIORITY: Record<BrowserSuggestion["kind"], number> = {
   navigate: 0,
   tab: 1,
-  pinned: 2,
-  history: 3,
-  search: 4,
-  home: 5,
+  history: 2,
+  search: 3,
+  home: 4,
 };
 
 function normalizeSuggestionText(value: string): string {
@@ -165,15 +163,6 @@ function scoreOpenTab(
   );
 }
 
-function scorePinnedPage(input: string, page: BrowserPinnedPage, activePageUrl?: string): number {
-  return (
-    scoreSuggestionTextMatch(input, page.title, page.url) +
-    scoreDomainAffinity(page.url, activePageUrl) +
-    150 +
-    (input.trim().length === 0 ? 72 : 16)
-  );
-}
-
 function sortRankedSuggestions(
   left: RankedBrowserSuggestion,
   right: RankedBrowserSuggestion,
@@ -228,7 +217,6 @@ export function buildBrowserSuggestions(
     history: BrowserHistory;
     now?: number;
     openTabs?: readonly Pick<BrowserTabState, "id" | "title" | "url">[];
-    pinnedPages?: readonly BrowserPinnedPage[];
     searchEngine: BrowserSearchEngine;
   },
 ): BrowserSuggestion[] {
@@ -294,24 +282,6 @@ export function buildBrowserSuggestions(
       tabId: tab.id,
       title: tab.title,
       url: tab.url,
-    });
-  }
-
-  for (const page of options.pinnedPages ?? []) {
-    if (
-      normalizedInput.length > 0 &&
-      scoreSuggestionTextMatch(trimmedInput, page.title, page.url) === 0
-    ) {
-      continue;
-    }
-    rankedSuggestions.push({
-      dedupeKey: page.url,
-      id: `pinned:${page.url}`,
-      kind: "pinned",
-      score: scorePinnedPage(trimmedInput, page, options.activePageUrl),
-      subtitle: "Pinned page",
-      title: page.title,
-      url: page.url,
     });
   }
 

@@ -503,7 +503,6 @@ interface TerminalViewportProps {
   onAutoTerminalTitleChange: (title: string | null) => void;
   focusRequestId: number;
   autoFocus: boolean;
-  resizeEpoch: number;
   drawerHeight: number;
 }
 
@@ -518,7 +517,6 @@ function TerminalViewport({
   onAutoTerminalTitleChange,
   focusRequestId,
   autoFocus,
-  resizeEpoch,
   drawerHeight,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -578,8 +576,10 @@ function TerminalViewport({
     if (!api) return;
     let resizeFrame: number | null = null;
     let lastObservedSize: `${number}x${number}` | null = null;
+    let pendingNativeWindowResizeFit = false;
 
     const fitToViewport = () => {
+      pendingNativeWindowResizeFit = false;
       const activeTerminal = terminalRef.current;
       const activeFitAddon = fitAddonRef.current;
       const mountElement = containerRef.current;
@@ -608,6 +608,10 @@ function TerminalViewport({
     };
 
     const scheduleFitToViewport = () => {
+      if (document.documentElement.classList.contains("native-window-resizing")) {
+        pendingNativeWindowResizeFit = true;
+        return;
+      }
       if (resizeFrame !== null) {
         window.cancelAnimationFrame(resizeFrame);
       }
@@ -959,6 +963,14 @@ function TerminalViewport({
             scheduleFitToViewport();
           });
     resizeObserver?.observe(mount);
+    const handleNativeWindowResizeEnd = () => {
+      if (!pendingNativeWindowResizeFit) {
+        return;
+      }
+      lastObservedSize = null;
+      scheduleFitToViewport();
+    };
+    window.addEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
     void openTerminal();
 
     return () => {
@@ -968,6 +980,7 @@ function TerminalViewport({
         window.cancelAnimationFrame(resizeFrame);
       }
       resizeObserver?.disconnect();
+      window.removeEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
       unsubscribe();
       inputDisposable.dispose();
       selectionDisposable.dispose();
@@ -1023,7 +1036,7 @@ function TerminalViewport({
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [drawerHeight, resizeEpoch, terminalId, threadId]);
+  }, [drawerHeight, terminalId, threadId]);
   return (
     <div ref={containerRef} className="terminal-viewport relative h-full w-full overflow-hidden" />
   );
@@ -1173,7 +1186,6 @@ export default function ThreadTerminalDrawer({
   const [sidebarPanelWidth, setSidebarPanelWidth] = useState(() =>
     clampTerminalSidebarWidth(sidebarWidth),
   );
-  const [resizeEpoch, setResizeEpoch] = useState(0);
   const [editingTerminalId, setEditingTerminalId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [draggedTerminalId, setDraggedTerminalId] = useState<string | null>(null);
@@ -1593,7 +1605,6 @@ export default function ThreadTerminalDrawer({
         return;
       }
       syncHeight(drawerHeightRef.current);
-      setResizeEpoch((value) => value + 1);
     },
     [syncHeight],
   );
@@ -1638,28 +1649,44 @@ export default function ThreadTerminalDrawer({
   );
 
   useEffect(() => {
-    const onWindowResize = () => {
+    let resizeFrame: number | null = null;
+    const syncWindowBounds = () => {
+      resizeFrame = null;
       const clampedHeight = clampDrawerHeight(drawerHeightRef.current);
-      const changed = clampedHeight !== drawerHeightRef.current;
+      const heightChanged = clampedHeight !== drawerHeightRef.current;
       const clampedSidebarWidth = clampTerminalSidebarWidth(sidebarWidthRef.current);
-      if (changed) {
+      const sidebarWidthChanged = clampedSidebarWidth !== sidebarWidthRef.current;
+
+      if (!heightChanged && !sidebarWidthChanged) {
+        return;
+      }
+
+      if (heightChanged) {
         setDrawerHeight(clampedHeight);
         drawerHeightRef.current = clampedHeight;
       }
-      if (clampedSidebarWidth !== sidebarWidthRef.current) {
+      if (sidebarWidthChanged) {
         setSidebarPanelWidth(clampedSidebarWidth);
         sidebarWidthRef.current = clampedSidebarWidth;
       }
-      if (!resizeStateRef.current) {
+      if (heightChanged && !resizeStateRef.current) {
         syncHeight(clampedHeight);
       }
-      if (!sidebarResizeStateRef.current) {
+      if (sidebarWidthChanged && !sidebarResizeStateRef.current) {
         syncSidebarWidth(clampedSidebarWidth);
       }
-      setResizeEpoch((value) => value + 1);
+    };
+    const onWindowResize = () => {
+      if (resizeFrame !== null) {
+        return;
+      }
+      resizeFrame = window.requestAnimationFrame(syncWindowBounds);
     };
     window.addEventListener("resize", onWindowResize);
     return () => {
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
       window.removeEventListener("resize", onWindowResize);
     };
   }, [syncHeight, syncSidebarWidth]);
@@ -1700,7 +1727,6 @@ export default function ThreadTerminalDrawer({
         containerWidthPx: container.clientWidth,
       });
       onSplitRatiosChange(visibleTerminalGroupId, nextRatios);
-      setResizeEpoch((value) => value + 1);
     },
     [onSplitRatiosChange, visibleTerminalGroupId],
   );
@@ -1709,7 +1735,6 @@ export default function ThreadTerminalDrawer({
     const resizeState = splitResizeStateRef.current;
     if (!resizeState || (event && resizeState.pointerId !== event.pointerId)) return;
     splitResizeStateRef.current = null;
-    setResizeEpoch((value) => value + 1);
   }, []);
 
   useEffect(() => {
@@ -2027,7 +2052,6 @@ export default function ThreadTerminalDrawer({
                           }
                           focusRequestId={focusRequestId}
                           autoFocus={terminalId === resolvedActiveTerminalId}
-                          resizeEpoch={resizeEpoch}
                           drawerHeight={drawerHeight}
                         />
                       </div>
@@ -2060,7 +2084,6 @@ export default function ThreadTerminalDrawer({
                   }
                   focusRequestId={focusRequestId}
                   autoFocus
-                  resizeEpoch={resizeEpoch}
                   drawerHeight={drawerHeight}
                 />
               </div>

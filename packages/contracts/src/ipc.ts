@@ -260,6 +260,7 @@ export interface DesktopBridge {
   getIsDevelopmentBuild?: () => boolean;
   getWindowShownAt?: () => number | null;
   getTitlebarLeftInset?: () => number | null;
+  onTitlebarLeftInsetChange?: (listener: (inset: number) => void) => () => void;
   getNotificationPermission?: () => Promise<DesktopNotificationPermission>;
   requestNotificationPermission?: () => Promise<DesktopNotificationPermission>;
   pickFolder: (options?: PickFolderOptions) => Promise<string | null>;

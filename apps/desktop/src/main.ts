@@ -103,6 +103,7 @@ const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
 const GET_IS_DEVELOPMENT_BUILD_CHANNEL = "desktop:get-is-development-build";
 const GET_WINDOW_SHOWN_AT_CHANNEL = "desktop:get-window-shown-at";
 const GET_TITLEBAR_LEFT_INSET_CHANNEL = "desktop:get-titlebar-left-inset";
+const TITLEBAR_LEFT_INSET_CHANGED_CHANNEL = "desktop:titlebar-left-inset-changed";
 const GET_NOTIFICATION_PERMISSION_CHANNEL = "desktop:get-notification-permission";
 const REQUEST_NOTIFICATION_PERMISSION_CHANNEL = "desktop:request-notification-permission";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
@@ -114,7 +115,7 @@ const APP_ZOOM_STEP = 0.1;
 const MIN_APP_ZOOM_FACTOR = 0.5;
 const MAX_APP_ZOOM_FACTOR = 2;
 const MAC_TRAFFIC_LIGHT_POSITION = { x: 16, y: 18 };
-const MAC_TITLEBAR_LEFT_INSET_PX = 90;
+const MAC_TITLEBAR_LEFT_INSET_PX = 78;
 const isSourceCheckoutRun = process.env.ACE_LOCAL_DESKTOP_RUN === "1";
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL) || isSourceCheckoutRun;
 const devServerUrl = process.env.VITE_DEV_SERVER_URL?.trim();
@@ -821,6 +822,10 @@ function resolveTitlebarLeftInset(window: BrowserWindow | null | undefined): num
   }
 
   return MAC_TITLEBAR_LEFT_INSET_PX;
+}
+
+function emitTitlebarLeftInsetChanged(window: BrowserWindow): void {
+  safelySendToWindow(window, TITLEBAR_LEFT_INSET_CHANGED_CHANNEL, resolveTitlebarLeftInset(window));
 }
 
 function getDesktopCliUnavailableMessage(): string {
@@ -2612,8 +2617,9 @@ function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1100,
     height: 780,
-    minWidth: 840,
-    minHeight: 620,
+    minWidth: 720,
+    minHeight: 520,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#111313" : "#f4f7f6",
     show: false,
     autoHideMenuBar: true,
     ...getIconOption(),
@@ -2643,8 +2649,13 @@ function createWindow(): BrowserWindow {
     event.preventDefault();
     window.setTitle(APP_DISPLAY_NAME);
   });
+  window.on("enter-full-screen", () => emitTitlebarLeftInsetChanged(window));
+  window.on("leave-full-screen", () => emitTitlebarLeftInsetChanged(window));
+  window.on("enter-html-full-screen", () => emitTitlebarLeftInsetChanged(window));
+  window.on("leave-html-full-screen", () => emitTitlebarLeftInsetChanged(window));
   window.webContents.on("did-finish-load", () => {
     window.setTitle(APP_DISPLAY_NAME);
+    emitTitlebarLeftInsetChanged(window);
     emitUpdateState();
   });
   const revealWindow = () => {

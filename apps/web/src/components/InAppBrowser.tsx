@@ -1,16 +1,4 @@
 import {
-  closestCenter,
-  DndContext,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragCancelEvent,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
-import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import {
   ArrowLeftIcon,
   ArrowRightIcon,
   CircleDotIcon,
@@ -18,18 +6,13 @@ import {
   ExternalLinkIcon,
   LoaderCircleIcon,
   MousePointer2Icon,
-  PlusIcon,
   RefreshCwIcon,
   SquarePenIcon,
-  XIcon,
 } from "lucide-react";
 import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
-  type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
   memo,
   useCallback,
   useEffect,
@@ -45,15 +28,15 @@ import {
   type InAppBrowserController,
   type InAppBrowserMode,
 } from "~/hooks/useInAppBrowserState";
-import { isContextMenuPointerDown, useThreadJumpHintVisibility } from "~/lib/sidebar";
+import { useThreadJumpHintVisibility } from "~/lib/sidebar";
 import { cn } from "~/lib/utils";
-import type { BrowserSessionStorage, BrowserTabState } from "~/lib/browser/session";
+import type { BrowserSessionStorage } from "~/lib/browser/session";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { BrowserNewTabPanel, BrowserSuggestionList } from "./browser/BrowserChrome";
-import { BrowserFavicon, BrowserTabWebview } from "./browser/BrowserWebviewSurface";
-import { isBrowserInternalTabUrl, isBrowserNewTabUrl } from "~/lib/browser/session";
+import { BrowserTabWebview } from "./browser/BrowserWebviewSurface";
+import { isBrowserInternalTabUrl } from "~/lib/browser/session";
 import type { BrowserDesignRequestSubmission } from "~/lib/browser/types";
 import type { BrowserDesignerTool } from "~/lib/browser/designer";
 import { toastManager } from "./ui/toast";
@@ -64,164 +47,12 @@ export type {
   InAppBrowserMode,
 } from "~/hooks/useInAppBrowserState";
 
-const SortableBrowserTab = memo(function SortableBrowserTab(props: {
-  active: boolean;
-  icon: ReactNode;
-  onActivate: (tabId: string) => void;
-  onClose: (tabId: string) => void;
-  onContextMenuRequest: (tabId: string, position: { x: number; y: number }) => void;
-  onFocusAdjacentTab: (tabId: string, direction: -1 | 1) => void;
-  onFocusBoundaryTab: (boundary: "first" | "last") => void;
-  onTabNodeChange?: (tabId: string, node: HTMLDivElement | null) => void;
-  suppressClickAfterDragRef: MutableRefObject<boolean>;
-  suppressClickForContextMenuRef: MutableRefObject<boolean>;
-  tab: BrowserTabState;
-}) {
-  const {
-    active,
-    icon,
-    onActivate,
-    onClose,
-    onFocusAdjacentTab,
-    onFocusBoundaryTab,
-    onContextMenuRequest,
-    onTabNodeChange,
-    suppressClickAfterDragRef,
-    suppressClickForContextMenuRef,
-    tab,
-  } = props;
-  const {
-    attributes,
-    listeners,
-    setActivatorNodeRef,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-    isOver,
-  } = useSortable({ id: tab.id });
-  const setTabNodeRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      setNodeRef(node);
-      onTabNodeChange?.(tab.id, node);
-    },
-    [onTabNodeChange, setNodeRef, tab.id],
-  );
-
-  return (
-    <div
-      ref={setTabNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={cn(
-        "group flex min-w-0 max-w-56 items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors duration-150",
-        active
-          ? "border-border bg-background text-foreground"
-          : "border-transparent bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
-        isDragging && "z-20 opacity-70",
-        isOver && !isDragging && "ring-1 ring-primary/15",
-      )}
-    >
-      <button
-        ref={setActivatorNodeRef}
-        type="button"
-        className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-left"
-        {...attributes}
-        role="tab"
-        aria-selected={active}
-        tabIndex={active ? 0 : -1}
-        onPointerDownCapture={(event) => {
-          suppressClickForContextMenuRef.current = false;
-          if (
-            isContextMenuPointerDown({
-              button: event.button,
-              ctrlKey: event.ctrlKey,
-              isMac: /mac/i.test(navigator.platform),
-            })
-          ) {
-            suppressClickForContextMenuRef.current = true;
-            event.stopPropagation();
-          }
-        }}
-        onClick={() => {
-          if (suppressClickAfterDragRef.current) {
-            suppressClickAfterDragRef.current = false;
-            return;
-          }
-          if (suppressClickForContextMenuRef.current) {
-            suppressClickForContextMenuRef.current = false;
-            return;
-          }
-          onActivate(tab.id);
-        }}
-        onAuxClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
-          if (event.button !== 1) {
-            return;
-          }
-          event.preventDefault();
-          onClose(tab.id);
-        }}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          suppressClickForContextMenuRef.current = true;
-          onContextMenuRequest(tab.id, { x: event.clientX, y: event.clientY });
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowLeft") {
-            event.preventDefault();
-            onFocusAdjacentTab(tab.id, -1);
-            return;
-          }
-          if (event.key === "ArrowRight") {
-            event.preventDefault();
-            onFocusAdjacentTab(tab.id, 1);
-            return;
-          }
-          if (event.key === "Home") {
-            event.preventDefault();
-            onFocusBoundaryTab("first");
-            return;
-          }
-          if (event.key === "End") {
-            event.preventDefault();
-            onFocusBoundaryTab("last");
-            return;
-          }
-          if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
-            event.preventDefault();
-            const bounds = event.currentTarget.getBoundingClientRect();
-            onContextMenuRequest(tab.id, {
-              x: Math.round(bounds.left + Math.min(bounds.width / 2, 24)),
-              y: Math.round(bounds.bottom),
-            });
-          }
-        }}
-        title={tab.title}
-        {...listeners}
-      >
-        {icon}
-        <span className="truncate">{tab.title}</span>
-      </button>
-      <button
-        type="button"
-        className="rounded-md p-0.5 text-muted-foreground opacity-0 transition-all duration-150 group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100"
-        aria-label={`Close ${tab.title}`}
-        onClick={() => {
-          onClose(tab.id);
-        }}
-      >
-        <XIcon className="size-3" />
-      </button>
-    </div>
-  );
-});
-
 interface InAppBrowserProps {
   open: boolean;
   activeInstance?: boolean;
   connectionUrl?: string | null | undefined;
   mode: InAppBrowserMode;
   scopeId?: string;
-  showTabStrip?: boolean;
   visible?: boolean;
   onClose: () => void;
   onBrowserSessionChange?: (session: BrowserSessionStorage) => void;
@@ -354,8 +185,8 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     connectionUrl,
     mode,
     scopeId,
-    showTabStrip = true,
     visible = activeInstance,
+    onClose,
     onBrowserSessionChange,
     onControllerChange,
     onActiveRuntimeStateChange,
@@ -369,7 +200,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     onQueueDesignRequest,
   } = props;
   const {
-    activateTab,
     activeRuntime,
     activeTab,
     activeTabIsInternal,
@@ -381,7 +211,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     browserSearchEngine,
     browserSession,
     browserShellStyle,
-    closeTab,
     designerState,
     draftUrl,
     goBack,
@@ -391,12 +220,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     handleTabSnapshotChange,
     handleWebviewContextMenuFallbackRequest,
     openActiveTabExternally,
-    openNewTab,
-    openPinnedPage,
-    openTabContextMenu,
     openUrl,
-    pinnedPages,
-    reorderTabs,
     registerWebviewHandle,
     reload,
     selectDesignerTool,
@@ -414,6 +238,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     designerModeEnabled: Boolean(onQueueDesignRequest),
     mode,
     open: open && activeInstance,
+    onClose,
     ...(scopeId ? { scopeId } : {}),
     ...(onActiveRuntimeStateChange ? { onActiveRuntimeStateChange } : {}),
     ...(onControllerChange ? { onControllerChange } : {}),
@@ -422,16 +247,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     onBrowserSessionChange?.(browserSession);
   }, [browserSession, onBrowserSessionChange]);
   const browserShellRef = useRef<HTMLElement | null>(null);
-
-  const tabDnDSensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    }),
-  );
-  const suppressTabClickAfterDragRef = useRef(false);
-  const suppressTabClickForContextMenuRef = useRef(false);
-  const tabStripRef = useRef<HTMLDivElement | null>(null);
-  const tabNodeMapRef = useRef(new Map<string, HTMLDivElement>());
   const browserViewportRef = useRef<HTMLDivElement | null>(null);
   const previousDesignerViewportSizeRef = useRef<DesignerViewportSize | null>(null);
   const designerToolListRef = useRef<HTMLDivElement | null>(null);
@@ -454,137 +269,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     showThreadJumpHints: showDesignerToolShortcutHints,
     updateThreadJumpHintsVisibility: updateDesignerToolShortcutHintsVisibility,
   } = useThreadJumpHintVisibility();
-  const [canScrollTabsLeft, setCanScrollTabsLeft] = useState(false);
-  const [canScrollTabsRight, setCanScrollTabsRight] = useState(false);
-  const handleTabDragStart = useCallback((_event: DragStartEvent) => {
-    suppressTabClickAfterDragRef.current = true;
-  }, []);
-  const handleTabDragCancel = useCallback((_event: DragCancelEvent) => {}, []);
-  const handleTabDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) {
-        return;
-      }
-      reorderTabs(String(active.id), String(over.id));
-    },
-    [reorderTabs],
-  );
-  const registerTabNode = useCallback((tabId: string, node: HTMLDivElement | null) => {
-    if (node) {
-      tabNodeMapRef.current.set(tabId, node);
-      return;
-    }
-    tabNodeMapRef.current.delete(tabId);
-  }, []);
-  const focusTabById = useCallback(
-    (tabId: string) => {
-      const node = tabNodeMapRef.current.get(tabId);
-      const button = node?.querySelector<HTMLButtonElement>('[role="tab"]');
-      if (!button) {
-        return;
-      }
-      button.focus();
-      activateTab(tabId);
-    },
-    [activateTab],
-  );
-  const focusAdjacentTab = useCallback(
-    (tabId: string, direction: -1 | 1) => {
-      const currentIndex = browserSession.tabs.findIndex((tab) => tab.id === tabId);
-      if (currentIndex < 0 || browserSession.tabs.length === 0) {
-        return;
-      }
-      const nextIndex =
-        (currentIndex + direction + browserSession.tabs.length) % browserSession.tabs.length;
-      const nextTabId = browserSession.tabs[nextIndex]?.id;
-      if (nextTabId) {
-        focusTabById(nextTabId);
-      }
-    },
-    [browserSession.tabs, focusTabById],
-  );
-  const focusBoundaryTab = useCallback(
-    (boundary: "first" | "last") => {
-      const targetTab =
-        boundary === "first"
-          ? browserSession.tabs[0]
-          : browserSession.tabs[browserSession.tabs.length - 1];
-      if (targetTab) {
-        focusTabById(targetTab.id);
-      }
-    },
-    [browserSession.tabs, focusTabById],
-  );
-  const syncTabStripOverflow = useCallback(() => {
-    const tabStrip = tabStripRef.current;
-    if (!tabStrip) {
-      setCanScrollTabsLeft(false);
-      setCanScrollTabsRight(false);
-      return;
-    }
-
-    const maxScrollLeft = Math.max(0, tabStrip.scrollWidth - tabStrip.clientWidth);
-    setCanScrollTabsLeft(tabStrip.scrollLeft > 1);
-    setCanScrollTabsRight(maxScrollLeft - tabStrip.scrollLeft > 1);
-  }, []);
-  const scrollTabsBy = useCallback((direction: -1 | 1) => {
-    const tabStrip = tabStripRef.current;
-    if (!tabStrip) {
-      return;
-    }
-
-    const delta = Math.max(tabStrip.clientWidth * 0.65, 180) * direction;
-    tabStrip.scrollBy({ left: delta, behavior: "smooth" });
-  }, []);
-
-  useEffect(() => {
-    syncTabStripOverflow();
-    const tabStrip = tabStripRef.current;
-    if (!tabStrip) {
-      return;
-    }
-
-    const handleScroll = () => {
-      syncTabStripOverflow();
-    };
-    tabStrip.addEventListener("scroll", handleScroll, { passive: true });
-    const resizeObserver =
-      typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => {
-            syncTabStripOverflow();
-          })
-        : null;
-    resizeObserver?.observe(tabStrip);
-
-    return () => {
-      tabStrip.removeEventListener("scroll", handleScroll);
-      resizeObserver?.disconnect();
-    };
-  }, [syncTabStripOverflow]);
-
-  useEffect(() => {
-    syncTabStripOverflow();
-  }, [browserSession.tabs, syncTabStripOverflow]);
-
-  useEffect(() => {
-    if (!activeTab) {
-      return;
-    }
-
-    tabNodeMapRef.current.get(activeTab.id)?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
-      inline: "nearest",
-    });
-
-    const animationFrame = window.requestAnimationFrame(() => {
-      syncTabStripOverflow();
-    });
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-    };
-  }, [activeTab, syncTabStripOverflow]);
 
   useEffect(() => {
     if (!open) {
@@ -661,11 +345,18 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     };
   }, [designerModeAvailable, updateDesignerToolShortcutHintsVisibility, visible]);
   useEffect(() => {
+    if (!designerState.active) {
+      setBrowserViewportSize(null);
+      return;
+    }
     const viewport = browserViewportRef.current;
     if (!viewport) {
       return;
     }
+    let frameId: number | null = null;
+    let pendingNativeResizeSync = false;
     const syncBrowserViewportSize = () => {
+      pendingNativeResizeSync = false;
       const nextViewportSize = {
         width: Math.max(1, Math.round(viewport.clientWidth)),
         height: Math.max(1, Math.round(viewport.clientHeight)),
@@ -680,18 +371,39 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
         return nextViewportSize;
       });
     };
+    const scheduleBrowserViewportSizeSync = () => {
+      if (document.documentElement.classList.contains("native-window-resizing")) {
+        pendingNativeResizeSync = true;
+        return;
+      }
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        syncBrowserViewportSize();
+      });
+    };
     syncBrowserViewportSize();
     const observer =
       typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => {
-            syncBrowserViewportSize();
-          })
+        ? new ResizeObserver(scheduleBrowserViewportSizeSync)
         : null;
     observer?.observe(viewport);
+    const handleNativeWindowResizeEnd = () => {
+      if (pendingNativeResizeSync) {
+        scheduleBrowserViewportSizeSync();
+      }
+    };
+    window.addEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
     return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
       observer?.disconnect();
     };
-  }, []);
+  }, [designerState.active]);
   const designerViewport = useMemo<DesignerViewportSize | null>(() => {
     if (browserViewportSize) {
       return browserViewportSize;
@@ -991,112 +703,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
         )}
       >
         <>
-          {showTabStrip ? (
-            <div className="flex items-center gap-2 border-b border-border bg-card px-3 py-1.5 sm:px-5">
-              <div className="relative flex min-w-0 flex-1 items-center">
-                {canScrollTabsLeft ? (
-                  <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-linear-to-r from-card to-transparent" />
-                ) : null}
-                {canScrollTabsRight ? (
-                  <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-linear-to-l from-card to-transparent" />
-                ) : null}
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className={cn(
-                    "pointer-events-auto absolute top-1/2 left-0 z-20 -translate-y-1/2 rounded-full border border-border bg-background transition-opacity",
-                    canScrollTabsLeft ? "opacity-100" : "pointer-events-none opacity-0",
-                  )}
-                  onClick={() => scrollTabsBy(-1)}
-                  aria-label="Scroll tabs left"
-                >
-                  <ArrowLeftIcon className="size-3.5" />
-                </Button>
-                <DndContext
-                  sensors={tabDnDSensors}
-                  collisionDetection={closestCenter}
-                  onDragStart={handleTabDragStart}
-                  onDragEnd={handleTabDragEnd}
-                  onDragCancel={handleTabDragCancel}
-                >
-                  <SortableContext
-                    items={browserSession.tabs.map((tab) => tab.id)}
-                    strategy={horizontalListSortingStrategy}
-                  >
-                    <div
-                      ref={tabStripRef}
-                      className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto px-8 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                      role="tablist"
-                      aria-label="Browser tabs"
-                      data-testid="browser-tab-strip"
-                    >
-                      {browserSession.tabs.map((tab) => {
-                        const isActive = activeTab?.id === tab.id;
-                        const icon = isBrowserNewTabUrl(tab.url) ? (
-                          <PlusIcon className="size-3 text-muted-foreground" />
-                        ) : (
-                          <BrowserFavicon
-                            url={tab.url}
-                            title={tab.title}
-                            className="size-3"
-                            fallbackClassName="size-3 text-muted-foreground"
-                          />
-                        );
-
-                        return (
-                          <SortableBrowserTab
-                            key={tab.id}
-                            active={isActive}
-                            icon={icon}
-                            onActivate={activateTab}
-                            onClose={closeTab}
-                            onFocusAdjacentTab={focusAdjacentTab}
-                            onFocusBoundaryTab={focusBoundaryTab}
-                            onContextMenuRequest={(tabId, position) => {
-                              void openTabContextMenu(tabId, position);
-                            }}
-                            onTabNodeChange={registerTabNode}
-                            suppressClickAfterDragRef={suppressTabClickAfterDragRef}
-                            suppressClickForContextMenuRef={suppressTabClickForContextMenuRef}
-                            tab={tab}
-                          />
-                        );
-                      })}
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                              onClick={openNewTab}
-                              aria-label="Open a new browser tab"
-                            >
-                              <PlusIcon className="size-4" />
-                            </Button>
-                          }
-                        />
-                        <TooltipPopup side="bottom">New tab</TooltipPopup>
-                      </Tooltip>
-                    </div>
-                  </SortableContext>
-                </DndContext>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className={cn(
-                    "pointer-events-auto absolute top-1/2 right-0 z-20 -translate-y-1/2 rounded-full border border-border bg-background transition-opacity",
-                    canScrollTabsRight ? "opacity-100" : "pointer-events-none opacity-0",
-                  )}
-                  onClick={() => scrollTabsBy(1)}
-                  aria-label="Scroll tabs right"
-                >
-                  <ArrowRightIcon className="size-3.5" />
-                </Button>
-              </div>
-            </div>
-          ) : null}
-
           <div className="flex h-12 items-center gap-2.5 border-b border-border bg-card px-3 sm:px-4">
             <div className="flex shrink-0 items-center gap-2">
               <Tooltip>
@@ -1225,12 +831,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
 
         <div ref={browserViewportRef} className="relative min-h-0 flex-1 bg-background">
           {activeTabIsNewTab ? (
-            <BrowserNewTabPanel
-              browserSearchEngine={browserSearchEngine}
-              pinnedPages={pinnedPages}
-              onOpenPinnedPage={openPinnedPage}
-              onSubmitQuery={openUrl}
-            />
+            <BrowserNewTabPanel browserSearchEngine={browserSearchEngine} onSubmitQuery={openUrl} />
           ) : null}
           {browserSession.tabs
             .filter((tab) => !isBrowserInternalTabUrl(tab.url))

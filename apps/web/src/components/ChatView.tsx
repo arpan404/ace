@@ -147,6 +147,7 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
+import { defaultShortcutLabelForCommand } from "~/lib/keybindingRegistry";
 import {
   BotIcon,
   CircleAlertIcon,
@@ -163,7 +164,7 @@ import { AppPageTopBar } from "./AppPageTopBar";
 import { Button } from "./ui/button";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Separator } from "./ui/separator";
-import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { toastManager } from "./ui/toast";
@@ -289,6 +290,7 @@ import {
 } from "~/lib/chat/browserSplit";
 import {
   DEFAULT_WORKSPACE_EDITOR_SPLIT_WIDTH,
+  MIN_WORKSPACE_CHAT_SPLIT_WIDTH,
   WORKSPACE_EDITOR_SPLIT_WIDTH_STORAGE_KEY,
   clampWorkspaceEditorSplitWidth,
 } from "~/lib/chat/workspaceSplit";
@@ -317,12 +319,14 @@ import {
 const ThreadWorkspaceEditor = lazy(() => import("./editor/ThreadWorkspaceEditor"));
 
 const WORKSPACE_SIDE_PANEL_TRANSITION = {
-  duration: 0.22,
-  ease: [0.16, 1, 0.3, 1],
+  opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+  width: { duration: 0 },
+  x: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
 } as const;
 const RIGHT_SIDE_PANEL_TRANSITION = {
-  duration: 0.3,
-  ease: [0.16, 1, 0.3, 1],
+  opacity: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
+  width: { duration: 0 },
+  x: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
 } as const;
 const RIGHT_SIDE_PANEL_CONTENT_TRANSITION = {
   delay: 0.06,
@@ -365,6 +369,10 @@ function clampRightSidePanelWidth(width: number, viewportWidth: number): number 
     ? Math.round(width)
     : DEFAULT_RIGHT_SIDE_PANEL_WIDTH;
   return Math.min(maxWidth, Math.max(MIN_RIGHT_SIDE_PANEL_WIDTH, normalizedWidth));
+}
+
+function constrainedPanelWidth(width: number, minimumRemainingWidth: number): string {
+  return `min(${Math.round(width)}px, calc(100vw - ${minimumRemainingWidth}px))`;
 }
 
 const DiffPanel = lazy(() => import("./DiffPanel"));
@@ -472,7 +480,12 @@ function RightSidePanelBrowserTab(props: {
           tabIndex={-1}
           className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
           aria-label={`Close ${props.tab.title}`}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
           onClick={(event) => {
+            event.preventDefault();
             event.stopPropagation();
             props.onClose(props.tab.id);
           }}
@@ -626,11 +639,22 @@ function RightSidePanelTabStrip(props: {
     if (!tabStrip || typeof ResizeObserver === "undefined") {
       return;
     }
-    const resizeObserver = new ResizeObserver(() => {
-      syncTabsOverflow();
-    });
+    let frameId: number | null = null;
+    const scheduleTabsOverflowSync = () => {
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        syncTabsOverflow();
+      });
+    };
+    const resizeObserver = new ResizeObserver(scheduleTabsOverflowSync);
     resizeObserver.observe(tabStrip);
     return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
       resizeObserver.disconnect();
     };
   }, [
@@ -654,57 +678,74 @@ function RightSidePanelTabStrip(props: {
           aria-pressed={props.activeMode === "summary"}
           onClick={() => props.onSelectMode("summary")}
         >
+          <ListTodoIcon className="size-4 shrink-0 text-muted-foreground" />
           <span className="truncate">Summary</span>
         </button>
         {props.reviewOpen ? (
           <>
             <span className="h-5 w-px shrink-0 bg-border/70" />
-            <div className={tabClassName(props.activeMode === "diff", !props.diffAvailable)}>
-              <button
-                type="button"
-                className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-muted-foreground/80 text-background transition-colors hover:bg-foreground"
-                aria-label="Close review tab"
-                onClick={() => {
-                  props.onDiffClose();
-                }}
-              >
-                <XIcon className="size-3" />
-              </button>
-              <button
-                type="button"
-                className="min-w-0 truncate text-left"
-                disabled={!props.diffAvailable}
-                aria-pressed={props.activeMode === "diff"}
-                onClick={() => props.onSelectMode("diff")}
-              >
-                Review
-              </button>
-            </div>
+            <button
+              type="button"
+              className={tabClassName(props.activeMode === "diff", !props.diffAvailable)}
+              disabled={!props.diffAvailable}
+              aria-pressed={props.activeMode === "diff"}
+              onClick={() => props.onSelectMode("diff")}
+            >
+              <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+                <GitCompareIcon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                  aria-label="Close review tab"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    props.onDiffClose();
+                  }}
+                >
+                  <XIcon className="size-3" />
+                </span>
+              </span>
+              <span className="min-w-0 truncate text-left">Review</span>
+            </button>
           </>
         ) : null}
         {props.editorOpen ? (
           <>
             <span className="h-5 w-px shrink-0 bg-border/70" />
-            <div className={tabClassName(props.activeMode === "editor")}>
-              <button
-                type="button"
-                className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-muted-foreground/80 text-background transition-colors hover:bg-foreground"
-                aria-label="Close editor tab"
-                onClick={() => {
-                  props.onEditorClose();
-                }}
-              >
-                <XIcon className="size-3" />
-              </button>
-              <button
-                type="button"
-                className="min-w-0 truncate text-left"
-                aria-pressed={props.activeMode === "editor"}
-                onClick={() => props.onSelectMode("editor")}
-              >
-                Editor
-              </button>
-            </div>
+            <button
+              type="button"
+              className={tabClassName(props.activeMode === "editor")}
+              aria-pressed={props.activeMode === "editor"}
+              onClick={() => props.onSelectMode("editor")}
+            >
+              <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+                <Code2Icon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                  aria-label="Close editor tab"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    props.onEditorClose();
+                  }}
+                >
+                  <XIcon className="size-3" />
+                </span>
+              </span>
+              <span className="min-w-0 truncate text-left">Editor</span>
+            </button>
           </>
         ) : null}
         {props.browserSession?.tabs.length ? (
@@ -2496,8 +2537,16 @@ export default function ChatView({
     () => shortcutLabelForCommand(keybindings, "terminal.close", terminalShortcutLabelOptions),
     [keybindings, terminalShortcutLabelOptions],
   );
+  const rightSidePanelToggleShortcutLabel = useMemo(
+    () =>
+      shortcutLabelForCommand(keybindings, "rightPanel.toggle", nonTerminalShortcutLabelOptions) ??
+      defaultShortcutLabelForCommand("rightPanel.toggle"),
+    [keybindings, nonTerminalShortcutLabelOptions],
+  );
   const diffPanelShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "diff.toggle", nonTerminalShortcutLabelOptions),
+    () =>
+      shortcutLabelForCommand(keybindings, "diff.toggle", nonTerminalShortcutLabelOptions) ??
+      defaultShortcutLabelForCommand("diff.toggle"),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const browserToggleShortcutLabel = useMemo(
@@ -2510,7 +2559,7 @@ export default function ChatView({
         keybindings,
         "rightPanel.editor.toggle",
         nonTerminalShortcutLabelOptions,
-      ) ?? (isMacPlatform(navigator.platform) ? "\u2318E" : "Ctrl+E"),
+      ) ?? defaultShortcutLabelForCommand("rightPanel.editor.toggle"),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
   const browserActionShortcutLabelOptions = useMemo(
@@ -2544,6 +2593,7 @@ export default function ChatView({
   const browserNewTabShortcutLabel = useMemo(
     () =>
       shortcutLabelForCommand(keybindings, "browser.newTab", nonTerminalShortcutLabelOptions) ??
+      defaultShortcutLabelForCommand("browser.newTab") ??
       browserToggleShortcutLabel,
     [browserToggleShortcutLabel, keybindings, nonTerminalShortcutLabelOptions],
   );
@@ -3518,11 +3568,6 @@ export default function ChatView({
     setRightSidePanelMode("browser");
     setBrowserMode("split");
   }, [setBrowserMode]);
-  const openSplitBrowser = useCallback(() => {
-    if (!isElectron) return;
-    setRightSidePanelMode("browser");
-    setBrowserMode("split");
-  }, [setBrowserMode]);
   const closeBrowser = useCallback(() => {
     setBrowserMode("closed");
     setBrowserDevToolsOpen(false);
@@ -3592,13 +3637,20 @@ export default function ChatView({
   );
   const onCloseRightSidePanelBrowserTab = useCallback(
     (tabId: string) => {
-      browserControllerRef.current?.closeTab(tabId);
       const session = activeThreadId ? browserSessionByThreadId[activeThreadId] : null;
+      if (session?.tabs.length === 1) {
+        closeBrowser();
+        if (rightSidePanelMode === "browser") {
+          setRightSidePanelMode("summary");
+        }
+        return;
+      }
+      browserControllerRef.current?.closeTab(tabId);
       if (rightSidePanelMode === "browser" && session?.tabs.length === 1) {
         setRightSidePanelMode("summary");
       }
     },
-    [activeThreadId, browserSessionByThreadId, rightSidePanelMode],
+    [activeThreadId, browserSessionByThreadId, closeBrowser, rightSidePanelMode],
   );
   const onReorderRightSidePanelBrowserTab = useCallback(
     (draggedTabId: string, targetTabId: string) => {
@@ -3747,7 +3799,7 @@ export default function ChatView({
       return;
     }
 
-    if (request.action === "toggle" && !request.url && request.mode !== "split") {
+    if (request.action === "toggle" && !request.url) {
       toggleBrowserVisibility();
       return;
     }
@@ -3757,18 +3809,11 @@ export default function ChatView({
         request.url,
         request.newTab === undefined ? undefined : { newTab: request.newTab },
       );
-      if (request.mode === "split") {
-        openSplitBrowser();
-      }
       return;
     }
 
-    if (request.mode === "split") {
-      openSplitBrowser();
-    } else {
-      openBrowser();
-    }
-  }, [openBrowser, openBrowserUrl, openSplitBrowser, toggleBrowserVisibility]);
+    openBrowser();
+  }, [openBrowser, openBrowserUrl, toggleBrowserVisibility]);
 
   useEffect(() => {
     if (!isElectron) return;
@@ -3904,7 +3949,14 @@ export default function ChatView({
   }, [storedBrowserSplitWidth]);
 
   useEffect(() => {
+    if (browserMode !== "split") {
+      return;
+    }
+
+    let frameId: number | null = null;
+    let pendingNativeResizeSync = false;
     const syncViewportWidth = () => {
+      pendingNativeResizeSync = false;
       const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
       const clampedWidth = clampBrowserSplitWidth(browserSplitWidthRef.current, viewportWidth);
       if (browserSplitWidthRef.current !== clampedWidth) {
@@ -3915,24 +3967,48 @@ export default function ChatView({
         syncBrowserSplitWidth(clampedWidth);
       }
     };
+    const scheduleViewportWidthSync = () => {
+      if (document.documentElement.classList.contains("native-window-resizing")) {
+        pendingNativeResizeSync = true;
+        return;
+      }
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        syncViewportWidth();
+      });
+    };
 
     syncViewportWidth();
     const viewportElement = chatViewportRef.current;
     const resizeObserver =
       typeof ResizeObserver === "undefined" || !viewportElement
         ? null
-        : new ResizeObserver(() => {
-            syncViewportWidth();
-          });
+        : new ResizeObserver(scheduleViewportWidthSync);
     if (resizeObserver && viewportElement) {
       resizeObserver.observe(viewportElement);
+    } else {
+      window.addEventListener("resize", scheduleViewportWidthSync);
     }
-    window.addEventListener("resize", syncViewportWidth);
-    return () => {
-      resizeObserver?.disconnect();
-      window.removeEventListener("resize", syncViewportWidth);
+    const handleNativeWindowResizeEnd = () => {
+      if (pendingNativeResizeSync) {
+        scheduleViewportWidthSync();
+      }
     };
-  }, [syncBrowserSplitWidth]);
+    window.addEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+      resizeObserver?.disconnect();
+      if (!resizeObserver) {
+        window.removeEventListener("resize", scheduleViewportWidthSync);
+      }
+    };
+  }, [browserMode, syncBrowserSplitWidth]);
 
   const syncWorkspaceEditorSplitWidth = useCallback(
     (nextWidth: number) => {
@@ -4023,7 +4099,14 @@ export default function ChatView({
   }, [storedWorkspaceEditorSplitWidth]);
 
   useEffect(() => {
+    if (workspaceMode !== "split" || editorHostedInRightPanel) {
+      return;
+    }
+
+    let frameId: number | null = null;
+    let pendingNativeResizeSync = false;
     const syncViewportWidth = () => {
+      pendingNativeResizeSync = false;
       const viewportWidth = workspaceViewportRef.current?.clientWidth ?? window.innerWidth;
       const clampedWidth = clampWorkspaceEditorSplitWidth(
         workspaceEditorSplitWidthRef.current,
@@ -4037,24 +4120,48 @@ export default function ChatView({
         syncWorkspaceEditorSplitWidth(clampedWidth);
       }
     };
+    const scheduleViewportWidthSync = () => {
+      if (document.documentElement.classList.contains("native-window-resizing")) {
+        pendingNativeResizeSync = true;
+        return;
+      }
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        syncViewportWidth();
+      });
+    };
 
     syncViewportWidth();
     const viewportElement = workspaceViewportRef.current;
     const resizeObserver =
       typeof ResizeObserver === "undefined" || !viewportElement
         ? null
-        : new ResizeObserver(() => {
-            syncViewportWidth();
-          });
+        : new ResizeObserver(scheduleViewportWidthSync);
     if (resizeObserver && viewportElement) {
       resizeObserver.observe(viewportElement);
+    } else {
+      window.addEventListener("resize", scheduleViewportWidthSync);
     }
-    window.addEventListener("resize", syncViewportWidth);
-    return () => {
-      resizeObserver?.disconnect();
-      window.removeEventListener("resize", syncViewportWidth);
+    const handleNativeWindowResizeEnd = () => {
+      if (pendingNativeResizeSync) {
+        scheduleViewportWidthSync();
+      }
     };
-  }, [syncWorkspaceEditorSplitWidth]);
+    window.addEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+      resizeObserver?.disconnect();
+      if (!resizeObserver) {
+        window.removeEventListener("resize", scheduleViewportWidthSync);
+      }
+    };
+  }, [editorHostedInRightPanel, syncWorkspaceEditorSplitWidth, workspaceMode]);
 
   const syncRightSidePanelWidth = useCallback(
     (nextWidth: number) => {
@@ -4176,7 +4283,14 @@ export default function ChatView({
   }, [storedRightSidePanelWidth]);
 
   useEffect(() => {
+    if (!rightSidePanelOpen || rightSidePanelFullscreen) {
+      return;
+    }
+
+    let frameId: number | null = null;
+    let pendingNativeResizeSync = false;
     const syncViewportWidth = () => {
+      pendingNativeResizeSync = false;
       const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
       const clampedWidth = clampRightSidePanelWidth(rightSidePanelWidthRef.current, viewportWidth);
       if (rightSidePanelWidthRef.current !== clampedWidth) {
@@ -4187,24 +4301,48 @@ export default function ChatView({
         syncRightSidePanelWidth(clampedWidth);
       }
     };
+    const scheduleViewportWidthSync = () => {
+      if (document.documentElement.classList.contains("native-window-resizing")) {
+        pendingNativeResizeSync = true;
+        return;
+      }
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        syncViewportWidth();
+      });
+    };
 
     syncViewportWidth();
     const viewportElement = chatViewportRef.current;
     const resizeObserver =
       typeof ResizeObserver === "undefined" || !viewportElement
         ? null
-        : new ResizeObserver(() => {
-            syncViewportWidth();
-          });
+        : new ResizeObserver(scheduleViewportWidthSync);
     if (resizeObserver && viewportElement) {
       resizeObserver.observe(viewportElement);
+    } else {
+      window.addEventListener("resize", scheduleViewportWidthSync);
     }
-    window.addEventListener("resize", syncViewportWidth);
-    return () => {
-      resizeObserver?.disconnect();
-      window.removeEventListener("resize", syncViewportWidth);
+    const handleNativeWindowResizeEnd = () => {
+      if (pendingNativeResizeSync) {
+        scheduleViewportWidthSync();
+      }
     };
-  }, [syncRightSidePanelWidth]);
+    window.addEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+      resizeObserver?.disconnect();
+      if (!resizeObserver) {
+        window.removeEventListener("resize", scheduleViewportWidthSync);
+      }
+    };
+  }, [rightSidePanelFullscreen, rightSidePanelOpen, syncRightSidePanelWidth]);
 
   const splitTerminal = useCallback(() => {
     if (!activeThreadId || hasReachedSplitLimit) return;
@@ -5087,10 +5225,10 @@ export default function ChatView({
     setIsComposerFooterCompact(initialCompactness.footerCompact);
     if (typeof ResizeObserver === "undefined") return;
 
-    const observer = new ResizeObserver((entries) => {
-      const [entry] = entries;
-      if (!entry) return;
-
+    let pendingComposerHeight: number | null = null;
+    let frameId: number | null = null;
+    const applyComposerMeasurement = () => {
+      frameId = null;
       const nextCompactness = measureFooterCompactness();
       setIsComposerPrimaryActionsCompact((previous) =>
         previous === nextCompactness.primaryActionsCompact
@@ -5101,18 +5239,37 @@ export default function ChatView({
         previous === nextCompactness.footerCompact ? previous : nextCompactness.footerCompact,
       );
 
-      const nextHeight = entry.contentRect.height;
+      const nextHeight = pendingComposerHeight;
+      pendingComposerHeight = null;
+      if (nextHeight === null) return;
+
       const previousHeight = composerFormHeightRef.current;
       composerFormHeightRef.current = nextHeight;
 
       if (previousHeight > 0 && Math.abs(nextHeight - previousHeight) < 0.5) return;
       if (!shouldAutoScrollRef.current) return;
       scheduleStickToBottom();
+    };
+    const scheduleComposerMeasurement = (nextHeight: number) => {
+      pendingComposerHeight = nextHeight;
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(applyComposerMeasurement);
+    };
+
+    const observer = new ResizeObserver((entries) => {
+      const [entry] = entries;
+      if (!entry) return;
+      scheduleComposerMeasurement(entry.contentRect.height);
     });
 
     observer.observe(composerForm);
     return () => {
       observer.disconnect();
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
     };
   }, [
     activeThread?.id,
@@ -5431,6 +5588,13 @@ export default function ChatView({
         return;
       }
 
+      if (command === "rightPanel.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        onToggleRightSidePanel();
+        return;
+      }
+
       if (command === "browser.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -5463,13 +5627,6 @@ export default function ChatView({
         event.preventDefault();
         event.stopPropagation();
         browserControllerRef.current?.toggleDevTools();
-        return;
-      }
-
-      if (command === "browser.duplicateTab") {
-        event.preventDefault();
-        event.stopPropagation();
-        browserControllerRef.current?.duplicateActiveTab();
         return;
       }
 
@@ -5509,20 +5666,6 @@ export default function ChatView({
         event.preventDefault();
         event.stopPropagation();
         browserControllerRef.current?.goToNextTab();
-        return;
-      }
-
-      if (command === "browser.moveTabLeft") {
-        event.preventDefault();
-        event.stopPropagation();
-        browserControllerRef.current?.moveActiveTabLeft();
-        return;
-      }
-
-      if (command === "browser.moveTabRight") {
-        event.preventDefault();
-        event.stopPropagation();
-        browserControllerRef.current?.moveActiveTabRight();
         return;
       }
 
@@ -5606,6 +5749,7 @@ export default function ChatView({
     splitTerminal,
     keybindings,
     onOpenRightSidePanelBrowserTab,
+    onToggleRightSidePanel,
     onToggleRightSidePanelEditor,
     onToggleDiff,
     shortcutsEnabled,
@@ -7603,9 +7747,8 @@ export default function ChatView({
     : null;
   const activeRightSidePanelMode =
     requestedRightSidePanelMode === "browser" && !browserPanel ? null : requestedRightSidePanelMode;
-  const activeRightPanelBrowserSession = activeThreadId
-    ? (browserSessionByThreadId[activeThreadId] ?? null)
-    : null;
+  const activeRightPanelBrowserSession =
+    browserOpen && activeThreadId ? (browserSessionByThreadId[activeThreadId] ?? null) : null;
   const activeRightPanelBrowserTabId = activeRightPanelBrowserSession?.activeTabId ?? null;
 
   return (
@@ -7628,8 +7771,6 @@ export default function ChatView({
         >
           <ChatHeader
             activeThreadId={activeThread.id}
-            activeThreadBranch={activeThreadBranchName}
-            activeThreadWorktreePath={activeThread.worktreePath ?? null}
             activeThreadTitle={activeThread.title}
             activeProjectId={activeProject?.id ?? null}
             activeProjectName={activeProject?.name}
@@ -7642,6 +7783,7 @@ export default function ChatView({
             terminalAvailable={activeProject !== undefined}
             terminalOpen={terminalState.terminalOpen}
             terminalToggleShortcutLabel={terminalToggleShortcutLabel}
+            rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
             diffToggleShortcutLabel={diffPanelShortcutLabel}
             browserToggleShortcutLabel={browserToggleShortcutLabel}
             browserAvailable={isElectron}
@@ -7652,7 +7794,6 @@ export default function ChatView({
             diffOpen={diffOpen}
             rightSidePanelOpen={rightSidePanelOpen}
             workspaceMode={headerWorkspaceMode}
-            workspaceName={activeProject?.name}
             onRunProjectScript={(script) => {
               void runProjectScript(script);
             }}
@@ -8166,8 +8307,14 @@ export default function ChatView({
                     <div
                       className="flex h-full min-h-0 min-w-0 shrink-0 flex-col overflow-hidden"
                       style={{
-                        width: `${workspaceEditorSplitWidth}px`,
-                        minWidth: `${workspaceEditorSplitWidth}px`,
+                        width: constrainedPanelWidth(
+                          workspaceEditorSplitWidth,
+                          MIN_WORKSPACE_CHAT_SPLIT_WIDTH,
+                        ),
+                        minWidth: constrainedPanelWidth(
+                          workspaceEditorSplitWidth,
+                          MIN_WORKSPACE_CHAT_SPLIT_WIDTH,
+                        ),
                       }}
                     >
                       <Suspense
@@ -8216,7 +8363,9 @@ export default function ChatView({
               )}
               initial={{ width: 0, opacity: 0, x: 24 }}
               animate={{
-                width: rightSidePanelFullscreen ? "100%" : rightSidePanelWidth,
+                width: rightSidePanelFullscreen
+                  ? "100%"
+                  : constrainedPanelWidth(rightSidePanelWidth, MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH),
                 opacity: 1,
                 x: 0,
               }}
@@ -8341,7 +8490,6 @@ export default function ChatView({
                             key={instance.key}
                             {...instance.inAppBrowserProps}
                             mode="split"
-                            showTabStrip={false}
                           />
                         ))}
                       </div>

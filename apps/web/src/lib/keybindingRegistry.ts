@@ -1,5 +1,9 @@
-import { STATIC_KEYBINDING_COMMANDS, type StaticKeybindingCommand } from "@ace/contracts";
-import type { ShortcutMatchContext } from "~/keybindings";
+import {
+  STATIC_KEYBINDING_COMMANDS,
+  type KeybindingShortcut,
+  type StaticKeybindingCommand,
+} from "@ace/contracts";
+import { formatShortcutLabel, type ShortcutMatchContext } from "~/keybindings";
 
 type KeybindingCategory =
   | "Sidebar"
@@ -14,6 +18,7 @@ interface KeybindingDefinitionMeta {
   readonly category: KeybindingCategory;
   readonly label: string;
   readonly description: string;
+  readonly defaultShortcut?: KeybindingShortcut;
   readonly when?: string;
   readonly context?: Partial<ShortcutMatchContext>;
 }
@@ -101,10 +106,33 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       when: "terminalFocus",
       context: TERMINAL_FOCUS_CONTEXT,
     },
+    "rightPanel.toggle": {
+      category: "Right Panel",
+      label: "Toggle right side panel",
+      description: "Show or hide the right side panel without selecting a Review tab.",
+      defaultShortcut: {
+        key: "b",
+        modKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: true,
+        shiftKey: false,
+      },
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
     "diff.toggle": {
       category: "Right Panel",
       label: "Toggle Review tab",
       description: "Open or close the Review tab in the right side panel.",
+      defaultShortcut: {
+        key: "d",
+        modKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+      },
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
@@ -133,6 +161,14 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       category: "Right Panel",
       label: "Add Browser tab",
       description: "Open a Browser tab in the right side panel.",
+      defaultShortcut: {
+        key: "t",
+        modKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+      },
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
@@ -175,27 +211,6 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       category: "Browser",
       label: "Next browser tab",
       description: "Activate the next browser tab.",
-      when: "browserOpen && !terminalFocus",
-      context: BROWSER_CONTEXT,
-    },
-    "browser.duplicateTab": {
-      category: "Browser",
-      label: "Duplicate browser tab",
-      description: "Duplicate the active browser tab.",
-      when: "browserOpen && !terminalFocus",
-      context: BROWSER_CONTEXT,
-    },
-    "browser.moveTabLeft": {
-      category: "Browser",
-      label: "Move browser tab left",
-      description: "Move the active browser tab to the left.",
-      when: "browserOpen && !terminalFocus",
-      context: BROWSER_CONTEXT,
-    },
-    "browser.moveTabRight": {
-      category: "Browser",
-      label: "Move browser tab right",
-      description: "Move the active browser tab to the right.",
       when: "browserOpen && !terminalFocus",
       context: BROWSER_CONTEXT,
     },
@@ -266,6 +281,14 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       category: "Right Panel",
       label: "Toggle Editor tab",
       description: "Open or close the Editor tab in the right side panel.",
+      defaultShortcut: {
+        key: "e",
+        modKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+      },
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
@@ -454,3 +477,11 @@ export const KEYBINDING_COMMAND_DEFINITIONS: readonly KeybindingCommandDefinitio
   STATIC_KEYBINDING_COMMANDS.map((command) =>
     Object.assign({ command }, KEYBINDING_DEFINITION_BY_COMMAND[command]),
   );
+
+export function defaultShortcutLabelForCommand(
+  command: StaticKeybindingCommand,
+  platform?: string,
+): string | null {
+  const shortcut = KEYBINDING_DEFINITION_BY_COMMAND[command].defaultShortcut;
+  return shortcut ? formatShortcutLabel(shortcut, platform) : null;
+}

@@ -12,7 +12,6 @@
 import { useCallback, useMemo } from "react";
 import { ServerSettings, ServerSettingsPatch, ModelSelection, ThreadEnvMode } from "@ace/contracts";
 import {
-  BrowserOpenMode,
   BrowserSearchEngine,
   type ClientSettings,
   ClientSettingsSchema,
@@ -42,7 +41,6 @@ const OLD_SETTINGS_KEY = "ace:app-settings:v1";
 const JsonObjectSchema = Schema.Record(Schema.String, Schema.Unknown);
 const decodeJsonObject = Schema.decodeSync(Schema.fromJsonString(JsonObjectSchema));
 const ClientSettingsPatchSchema = Schema.Struct({
-  browserOpenMode: Schema.optionalKey(ClientSettingsSchema.fields.browserOpenMode),
   browserSearchEngine: Schema.optionalKey(ClientSettingsSchema.fields.browserSearchEngine),
   confirmThreadArchive: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadArchive),
   confirmThreadDelete: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadDelete),
@@ -244,10 +242,6 @@ export function buildLegacyClientSettingsMigrationPatch(
   legacySettings: Record<string, unknown>,
 ): Partial<DeepMutable<ClientSettings>> {
   const patch: Partial<DeepMutable<ClientSettings>> = {};
-
-  if (Schema.is(BrowserOpenMode)(legacySettings.browserOpenMode)) {
-    patch.browserOpenMode = legacySettings.browserOpenMode;
-  }
 
   if (Schema.is(BrowserSearchEngine)(legacySettings.browserSearchEngine)) {
     patch.browserSearchEngine = legacySettings.browserSearchEngine;

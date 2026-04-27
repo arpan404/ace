@@ -5,7 +5,6 @@ import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 import { cn } from "~/lib/utils";
 import { Input } from "~/components/ui/input";
-import { ScrollArea } from "~/components/ui/scroll-area";
 import { Separator } from "~/components/ui/separator";
 import {
   Sheet,
@@ -678,17 +677,22 @@ function SidebarContent({
   ...props
 }: React.ComponentProps<"div"> & { scrollFade?: boolean }) {
   return (
-    <ScrollArea hideScrollbars scrollFade={scrollFade} className="h-auto min-h-0 flex-1">
+    <div
+      className="h-auto min-h-0 flex-1 overflow-hidden"
+      data-scroll-fade={scrollFade ? "true" : undefined}
+      data-slot="sidebar-content-frame"
+    >
       <div
         className={cn(
-          "flex w-full min-w-0 flex-col gap-2 group-data-[collapsible=icon]:overflow-hidden",
+          "h-full min-h-0 w-full min-w-0 overflow-y-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          "flex flex-col gap-2 group-data-[collapsible=icon]:overflow-hidden",
           className,
         )}
         data-sidebar="content"
         data-slot="sidebar-content"
         {...props}
       />
-    </ScrollArea>
+    </div>
   );
 }
 

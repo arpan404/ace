@@ -182,14 +182,11 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("browser.devtools"), "mod+shift+i");
       assert.equal(defaultsByCommand.get("browser.previousTab"), "mod+shift+[");
       assert.equal(defaultsByCommand.get("browser.nextTab"), "mod+shift+]");
-      assert.equal(defaultsByCommand.get("browser.duplicateTab"), "mod+shift+d");
-      assert.equal(defaultsByCommand.get("browser.moveTabLeft"), "mod+alt+[");
-      assert.equal(defaultsByCommand.get("browser.moveTabRight"), "mod+alt+]");
       assert.equal(defaultsByCommand.get("browser.designer.cursor"), "mod+alt+1");
       assert.equal(defaultsByCommand.get("browser.designer.areaComment"), "mod+alt+2");
       assert.equal(defaultsByCommand.get("browser.designer.drawComment"), "mod+alt+3");
       assert.equal(defaultsByCommand.get("browser.designer.elementComment"), "mod+alt+4");
-      assert.equal(defaultsByCommand.get("chat.toggleWorkspaceMode"), "mod+e");
+      assert.equal(defaultsByCommand.get("rightPanel.editor.toggle"), "mod+e");
       assert.equal(defaultsByCommand.get("chat.toggleHeader"), "mod+shift+h");
       assert.equal(defaultsByCommand.get("thread.previous"), "mod+shift+[");
       assert.equal(defaultsByCommand.get("thread.next"), "mod+shift+]");
@@ -257,6 +254,42 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
           message: configState.issues[1]?.message ?? "",
         },
       ]);
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("drops obsolete browser keybindings without reporting config issues", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const { keybindingsConfigPath } = yield* ServerConfig;
+      yield* fs.writeFileString(
+        keybindingsConfigPath,
+        JSON.stringify([
+          { key: "mod+j", command: "terminal.toggle" },
+          { key: "mod+shift+arrowleft", command: "browser.moveTabLeft" },
+          { key: "mod+shift+arrowright", command: "browser.moveTabRight" },
+          { key: "mod+shift+d", command: "browser.duplicateTab" },
+        ]),
+      );
+
+      const configState = yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        return yield* keybindings.loadConfigState;
+      });
+
+      assert.isTrue(configState.keybindings.some((entry) => entry.command === "terminal.toggle"));
+      assert.deepEqual(configState.issues, []);
+
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isFalse(
+        persisted.some((entry) => String(entry.command).startsWith("browser.moveTab")),
+      );
+      assert.isFalse(persisted.some((entry) => String(entry.command) === "browser.duplicateTab"));
+      assert.isTrue(persisted.some((entry) => entry.command === "terminal.toggle"));
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 

@@ -18,11 +18,10 @@ describe("browser launcher", () => {
   });
 
   it("queues and consumes browser launch requests", () => {
-    queueBrowserLaunchRequest({ action: "open", mode: "split", url: "https://example.com" });
+    queueBrowserLaunchRequest({ action: "open", url: "https://example.com" });
 
     expect(takePendingBrowserLaunchRequest()).toEqual({
       action: "open",
-      mode: "split",
       url: "https://example.com",
     });
     expect(takePendingBrowserLaunchRequest()).toBeNull();

@@ -105,9 +105,30 @@
 .no-transitions,
 .no-transitions *,
 .no-transitions *::before,
-.no-transitions *::after {
+.no-transitions *::after,
+html.native-window-resizing,
+html.native-window-resizing *,
+html.native-window-resizing *::before,
+html.native-window-resizing *::after {
   transition-duration: 0s !important;
   animation-duration: 0s !important;
+}
+
+[data-slot="sidebar-container"],
+[data-slot="sidebar-inset"] {
+  contain: layout paint style;
+}
+
+[data-slot="sidebar-inner"],
+[data-slot="sidebar-content-frame"],
+[data-slot="sidebar-content"] {
+  contain: layout paint;
+}
+
+[data-slot="sidebar-content"] [data-slot="sidebar-menu-item"],
+[data-slot="sidebar-content"] [data-slot="sidebar-menu-sub-item"] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 32px;
 }
 
 :root {
@@ -265,6 +286,7 @@
 
 html {
   font-size: var(--ui-font-size);
+  background-color: var(--background);
 }
 
 body {
@@ -292,6 +314,7 @@ body,
   overflow-x: hidden;
   overflow-x: clip;
   overscroll-behavior-y: none;
+  background-color: var(--background);
 }
 
 pre,
