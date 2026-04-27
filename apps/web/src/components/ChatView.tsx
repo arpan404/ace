@@ -350,8 +350,12 @@ const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
-const BROWSER_PANEL_MODE_STORAGE_KEY = "ace:chat:browser-panel-mode:v1";
+const BROWSER_PANEL_MODE_STORAGE_KEY = "ace:chat:browser-panel-mode:v2";
 const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
+const RIGHT_SIDE_PANEL_MODE_STORAGE_KEY = "ace:chat:right-side-panel-mode:v1";
+const RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-review-open:v1";
+const RIGHT_SIDE_PANEL_EDITOR_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-editor-open:v1";
+const RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY = "ace:chat:right-side-panel-fullscreen:v1";
 
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
@@ -389,6 +393,9 @@ const DiffPanel = lazy(() => import("./DiffPanel"));
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 type RightSidePanelMode = "browser" | "diff" | "editor" | "summary";
+const RightSidePanelModeStorageSchema = Schema.NullOr(
+  Schema.Literals(["browser", "diff", "editor", "summary"]),
+);
 
 interface ChatViewProps {
   connectionUrl?: string | null;
@@ -874,12 +881,46 @@ export default function ChatView({
     open: false,
     turnId: null,
   });
-  const [rightSidePanelMode, setRightSidePanelMode] = useState<RightSidePanelMode | null>(
-    rawSearch.diff === "1" ? "diff" : null,
+  const rightSidePanelModeStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_MODE_STORAGE_KEY, threadId),
+    [threadId],
   );
-  const [rightSidePanelReviewOpen, setRightSidePanelReviewOpen] = useState(rawSearch.diff === "1");
-  const [rightSidePanelEditorOpen, setRightSidePanelEditorOpen] = useState(false);
-  const [rightSidePanelFullscreen, setRightSidePanelFullscreen] = useState(false);
+  const rightSidePanelReviewOpenStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY, threadId),
+    [threadId],
+  );
+  const rightSidePanelEditorOpenStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_EDITOR_OPEN_STORAGE_KEY, threadId),
+    [threadId],
+  );
+  const rightSidePanelFullscreenStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY, threadId),
+    [threadId],
+  );
+  const browserPanelModeStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(BROWSER_PANEL_MODE_STORAGE_KEY, threadId),
+    [threadId],
+  );
+  const [rightSidePanelMode, setRightSidePanelMode] = useLocalStorage(
+    rightSidePanelModeStorageKey,
+    rawSearch.diff === "1" ? "diff" : null,
+    RightSidePanelModeStorageSchema,
+  );
+  const [rightSidePanelReviewOpen, setRightSidePanelReviewOpen] = useLocalStorage(
+    rightSidePanelReviewOpenStorageKey,
+    rawSearch.diff === "1",
+    Schema.Boolean,
+  );
+  const [rightSidePanelEditorOpen, setRightSidePanelEditorOpen] = useLocalStorage(
+    rightSidePanelEditorOpenStorageKey,
+    false,
+    Schema.Boolean,
+  );
+  const [rightSidePanelFullscreen, setRightSidePanelFullscreen] = useLocalStorage(
+    rightSidePanelFullscreenStorageKey,
+    false,
+    Schema.Boolean,
+  );
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
   const createWorktreeMutation = useMutation(gitCreateWorktreeMutationOptions({ queryClient }));
@@ -2640,12 +2681,8 @@ export default function ChatView({
       ),
     [browserActionShortcutLabelOptions, keybindings],
   );
-  const browserModeStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(BROWSER_PANEL_MODE_STORAGE_KEY, threadId),
-    [threadId],
-  );
   const [browserMode, setBrowserMode] = useLocalStorage(
-    browserModeStorageKey,
+    browserPanelModeStorageKey,
     "closed" as const,
     BrowserPanelModeSchema,
   );
@@ -2743,18 +2780,18 @@ export default function ChatView({
       setRightSidePanelReviewOpen(true);
       setRightSidePanelMode("diff");
     }
-  }, [diffOpen]);
+  }, [diffOpen, setRightSidePanelMode, setRightSidePanelReviewOpen]);
   useEffect(() => {
     if (browserOpen && isElectron && !diffOpen && rightSidePanelMode === null) {
       setRightSidePanelMode("browser");
     }
-  }, [browserOpen, diffOpen, rightSidePanelMode]);
+  }, [browserOpen, diffOpen, rightSidePanelMode, setRightSidePanelMode]);
   useEffect(() => {
     if (!splitPane && (routeWorkspaceMode === "editor" || routeWorkspaceMode === "split")) {
       setRightSidePanelEditorOpen(true);
       setRightSidePanelMode("editor");
     }
-  }, [routeWorkspaceMode, splitPane]);
+  }, [routeWorkspaceMode, setRightSidePanelEditorOpen, setRightSidePanelMode, splitPane]);
   useEffect(() => {
     activeBrowserThreadIdRef.current = activeThreadId;
     browserControllerRef.current = activeThreadId
@@ -2859,6 +2896,8 @@ export default function ChatView({
       navigate,
       persistedWorkspaceLayout,
       rightSidePanelMode,
+      setRightSidePanelEditorOpen,
+      setRightSidePanelMode,
       setWorkspaceLayoutByThreadId,
       setWorkspaceModeByThreadId,
       splitPane,
@@ -2899,7 +2938,15 @@ export default function ChatView({
         },
       });
     });
-  }, [diffOpen, navigate, rightSidePanelMode, splitPane, threadId]);
+  }, [
+    diffOpen,
+    navigate,
+    rightSidePanelMode,
+    setRightSidePanelMode,
+    setRightSidePanelReviewOpen,
+    splitPane,
+    threadId,
+  ]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3577,12 +3624,12 @@ export default function ChatView({
     if (!isElectron) return;
     setRightSidePanelMode("browser");
     setBrowserMode("split");
-  }, [setBrowserMode]);
+  }, [setBrowserMode, setRightSidePanelMode]);
   const closeBrowser = useCallback(() => {
     setBrowserMode("closed");
     setBrowserDevToolsOpen(false);
     setRightSidePanelMode((current) => (current === "browser" ? null : current));
-  }, [setBrowserMode]);
+  }, [setBrowserMode, setRightSidePanelMode]);
   const toggleBrowserVisibility = useCallback(() => {
     if (!isElectron) return;
     setBrowserMode((current) => {
@@ -3593,7 +3640,7 @@ export default function ChatView({
       setRightSidePanelMode((mode) => (mode === "browser" ? null : mode));
       return "closed";
     });
-  }, [setBrowserMode]);
+  }, [setBrowserMode, setRightSidePanelMode]);
   const onToggleRightSidePanel = useCallback(() => {
     if (rightSidePanelOpen) {
       setRightSidePanelMode(null);
@@ -3606,7 +3653,14 @@ export default function ChatView({
       return;
     }
     setRightSidePanelMode("summary");
-  }, [browserOpen, closeBrowser, diffOpen, onToggleDiff, rightSidePanelOpen]);
+  }, [
+    browserOpen,
+    closeBrowser,
+    diffOpen,
+    onToggleDiff,
+    rightSidePanelOpen,
+    setRightSidePanelMode,
+  ]);
   const onSelectRightSidePanelMode = useCallback(
     (mode: RightSidePanelMode) => {
       if (mode === "summary") {
@@ -3628,7 +3682,14 @@ export default function ChatView({
       setRightSidePanelEditorOpen(true);
       setRightSidePanelMode("editor");
     },
-    [diffOpen, onToggleDiff, openBrowser],
+    [
+      diffOpen,
+      onToggleDiff,
+      openBrowser,
+      setRightSidePanelEditorOpen,
+      setRightSidePanelMode,
+      setRightSidePanelReviewOpen,
+    ],
   );
   const onOpenRightSidePanelBrowserTab = useCallback(() => {
     openBrowser();
@@ -3660,7 +3721,13 @@ export default function ChatView({
         setRightSidePanelMode("summary");
       }
     },
-    [activeThreadId, browserSessionByThreadId, closeBrowser, rightSidePanelMode],
+    [
+      activeThreadId,
+      browserSessionByThreadId,
+      closeBrowser,
+      rightSidePanelMode,
+      setRightSidePanelMode,
+    ],
   );
   const onReorderRightSidePanelBrowserTab = useCallback(
     (draggedTabId: string, targetTabId: string) => {
@@ -3673,14 +3740,14 @@ export default function ChatView({
     if (rightSidePanelMode === "editor") {
       setRightSidePanelMode("summary");
     }
-  }, [rightSidePanelMode]);
+  }, [rightSidePanelMode, setRightSidePanelEditorOpen, setRightSidePanelMode]);
   const onToggleRightSidePanelEditor = useCallback(() => {
     setRightSidePanelEditorOpen((current) => {
       const nextOpen = !current;
       setRightSidePanelMode(nextOpen ? "editor" : "summary");
       return nextOpen;
     });
-  }, []);
+  }, [setRightSidePanelEditorOpen, setRightSidePanelMode]);
   const onCloseRightSidePanelDiff = useCallback(() => {
     setRightSidePanelReviewOpen(false);
     setRightSidePanelMode("summary");
@@ -3697,10 +3764,10 @@ export default function ChatView({
       replace: true,
       search: (previous) => stripDiffSearchParams(previous),
     });
-  }, [diffOpen, navigate, splitPane, threadId]);
+  }, [diffOpen, navigate, setRightSidePanelMode, setRightSidePanelReviewOpen, splitPane, threadId]);
   const onToggleRightSidePanelFullscreen = useCallback(() => {
     setRightSidePanelFullscreen((current) => !current);
-  }, []);
+  }, [setRightSidePanelFullscreen]);
   const onBrowserSessionChange = useCallback(
     (browserThreadId: ThreadId, session: BrowserSessionStorage) => {
       setBrowserSessionByThreadId((current) =>
@@ -3790,7 +3857,7 @@ export default function ChatView({
       }
       controller.openUrl(url, options);
     },
-    [setBrowserMode],
+    [setBrowserMode, setRightSidePanelMode],
   );
   const openBrowserUrlInNewTab = useCallback(
     (url: string) => {
@@ -7439,7 +7506,7 @@ export default function ChatView({
         },
       });
     },
-    [navigate, splitPane, threadId],
+    [navigate, setRightSidePanelMode, setRightSidePanelReviewOpen, splitPane, threadId],
   );
   const onRevertUserMessage = useCallback(
     (messageId: MessageId) => {
@@ -8401,7 +8468,7 @@ export default function ChatView({
             <motion.div
               key="thread-right-side-panel"
               className={cn(
-                "flex h-full min-h-0 transform-gpu overflow-hidden bg-background shadow-[-20px_0_44px_-36px_rgba(0,0,0,0.45)] will-change-[width,transform,opacity]",
+                "flex h-full min-h-0 transform-gpu overflow-hidden bg-background will-change-[width,transform,opacity]",
                 rightSidePanelFullscreen ? "absolute inset-y-0 right-0 z-40" : "relative shrink-0",
               )}
               initial={{ width: 0, opacity: 0, x: 24 }}
@@ -8429,8 +8496,8 @@ export default function ChatView({
                   onKeyDown={handleRightSidePanelResizeKeyDown}
                   onPointerDown={handleRightSidePanelResizePointerDown}
                 >
-                  <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 scale-y-[0.985] bg-border/80 transition-[background-color,transform] duration-200 ease-out group-hover:scale-y-100 group-hover:bg-primary/55 group-focus-visible:scale-y-100 group-focus-visible:bg-primary/55" />
-                  <div className="absolute inset-y-1 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-[background-color,transform] duration-200 ease-out group-hover:scale-x-100 group-hover:bg-primary/10 group-focus-visible:scale-x-100 group-focus-visible:bg-primary/10" />
+                  <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75 transition-colors duration-200 ease-out group-hover:bg-border group-focus-visible:bg-border" />
+                  <div className="absolute inset-y-1 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-[background-color,transform] duration-200 ease-out group-hover:scale-x-100 group-hover:bg-foreground/5 group-focus-visible:scale-x-100 group-focus-visible:bg-foreground/5" />
                 </div>
               ) : null}
               <motion.div

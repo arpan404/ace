@@ -2096,10 +2096,13 @@ export default function ThreadTerminalDrawer({
           {hasTerminalSidebar && (
             <>
               <div
-                className="terminal-sidebar-resize-handle relative w-2 shrink-0 cursor-col-resize"
+                className="terminal-sidebar-resize-handle group relative w-3 shrink-0 cursor-col-resize"
                 onPointerDown={handleSidebarResizePointerDown}
                 aria-hidden="true"
-              />
+              >
+                <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75 transition-colors duration-200 ease-out group-hover:bg-border" />
+                <div className="absolute inset-y-1 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-[background-color,transform] duration-200 ease-out group-hover:scale-x-100 group-hover:bg-foreground/5" />
+              </div>
 
               <aside
                 className="terminal-sidebar flex shrink-0 flex-col overflow-hidden"

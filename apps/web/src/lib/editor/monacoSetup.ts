@@ -99,101 +99,187 @@ function readEnumValue(container: unknown, key: string): unknown {
   return Reflect.get(container, key);
 }
 
-export function ensureMonacoConfigured(): void {
-  if (monacoConfigured) {
-    return;
-  }
+function rgbChannelToHex(value: number): string {
+  return Math.max(0, Math.min(255, Math.round(value)))
+    .toString(16)
+    .padStart(2, "0");
+}
 
-  const environment = {
-    getWorker(_: string, label: string) {
-      switch (label) {
-        case "css":
-        case "scss":
-        case "less":
-          return new cssWorker();
-        case "html":
-        case "handlebars":
-        case "razor":
-          return new htmlWorker();
-        case "json":
-          return new jsonWorker();
-        case "typescript":
-        case "javascript":
-          return new tsWorker();
-        default:
-          return new editorWorker();
-      }
+function alphaToHex(alpha: number): string {
+  return Math.max(0, Math.min(255, Math.round(alpha * 255)))
+    .toString(16)
+    .padStart(2, "0");
+}
+
+function normalizeResolvedColorToHex(value: string): string | null {
+  const match = value
+    .trim()
+    .match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\s*\)$/i);
+  if (!match) {
+    return null;
+  }
+  const red = Number.parseFloat(match[1] ?? "0");
+  const green = Number.parseFloat(match[2] ?? "0");
+  const blue = Number.parseFloat(match[3] ?? "0");
+  const alpha = Number.parseFloat(match[4] ?? "1");
+  const base = `#${rgbChannelToHex(red)}${rgbChannelToHex(green)}${rgbChannelToHex(blue)}`;
+  return alpha >= 1 ? base : `${base}${alphaToHex(alpha)}`;
+}
+
+function withAlpha(hexColor: string, alpha: number): string {
+  const trimmed = hexColor.trim();
+  const base = trimmed.match(/^#[0-9a-f]{6}$/i) ? trimmed : "#000000";
+  return `${base}${alphaToHex(alpha)}`;
+}
+
+function resolveThemeCssColor(cssVariableName: string, fallbackHex: string): string {
+  if (typeof document === "undefined") {
+    return fallbackHex;
+  }
+  const host = document.body ?? document.documentElement;
+  const probe = document.createElement("span");
+  probe.style.color = `var(${cssVariableName})`;
+  probe.style.position = "absolute";
+  probe.style.opacity = "0";
+  probe.style.pointerEvents = "none";
+  host.appendChild(probe);
+  const computed = window.getComputedStyle(probe).color;
+  probe.remove();
+  return normalizeResolvedColorToHex(computed) ?? fallbackHex;
+}
+
+function resolveMonacoThemePalette() {
+  const background = resolveThemeCssColor("--background", "#1E1E1E");
+  const foreground = resolveThemeCssColor("--foreground", "#D4D4D4");
+  const accent = resolveThemeCssColor("--accent", "#2A2D2E");
+  const border = resolveThemeCssColor("--border", "#454545");
+  const primary = resolveThemeCssColor("--primary", "#4A84CC");
+  const mutedForeground = resolveThemeCssColor("--muted-foreground", "#858585");
+
+  return {
+    dark: {
+      accent,
+      background,
+      border,
+      foreground,
+      mutedForeground,
+      primary,
+    },
+    light: {
+      accent,
+      background,
+      border,
+      foreground,
+      mutedForeground,
+      primary,
     },
   };
+}
 
-  Object.assign(globalThis as object, {
-    MonacoEnvironment: environment,
-  });
-  loader.config({ monaco });
-  registerWorkspaceEditorLanguages(monaco);
-  const typescriptNamespace = Reflect.get(monaco.languages, "typescript");
-  const jsonNamespace = Reflect.get(monaco.languages, "json");
-  const cssNamespace = Reflect.get(monaco.languages, "css");
-  const moduleKind = readEnumValue(typescriptNamespace, "ModuleKind");
-  const moduleResolutionKind = readEnumValue(typescriptNamespace, "ModuleResolutionKind");
-  const scriptTarget = readEnumValue(typescriptNamespace, "ScriptTarget");
-  const jsxEmit = readEnumValue(typescriptNamespace, "JsxEmit");
+function resolveActiveMonacoThemeName(): "ace-carbon" | "ace-paper" {
+  if (typeof document === "undefined") {
+    return "ace-carbon";
+  }
+  return document.documentElement.classList.contains("dark") ? "ace-carbon" : "ace-paper";
+}
 
-  updateLanguageDiagnosticsOptions(typescriptNamespace, "javascriptDefaults", (current) => ({
-    ...current,
-    noSemanticValidation: true,
-    noSuggestionDiagnostics: true,
-    noSyntaxValidation: true,
-  }));
-  updateLanguageDiagnosticsOptions(typescriptNamespace, "typescriptDefaults", (current) => ({
-    ...current,
-    noSemanticValidation: true,
-    noSuggestionDiagnostics: true,
-    noSyntaxValidation: true,
-  }));
-  updateLanguageCompilerOptions(typescriptNamespace, "javascriptDefaults", (current) => ({
-    ...current,
-    allowJs: true,
-    allowNonTsExtensions: true,
-    checkJs: true,
-    jsx: readEnumValue(jsxEmit, "ReactJSX") ?? current.jsx,
-    module: readEnumValue(moduleKind, "ESNext") ?? current.module,
-    moduleResolution: readEnumValue(moduleResolutionKind, "NodeJs") ?? current.moduleResolution,
-    noEmit: true,
-    resolveJsonModule: true,
-    target: readEnumValue(scriptTarget, "ESNext") ?? current.target,
-  }));
-  updateLanguageCompilerOptions(typescriptNamespace, "typescriptDefaults", (current) => ({
-    ...current,
-    allowJs: true,
-    allowNonTsExtensions: true,
-    jsx: readEnumValue(jsxEmit, "ReactJSX") ?? current.jsx,
-    module: readEnumValue(moduleKind, "ESNext") ?? current.module,
-    moduleResolution: readEnumValue(moduleResolutionKind, "NodeJs") ?? current.moduleResolution,
-    noEmit: true,
-    resolveJsonModule: true,
-    target: readEnumValue(scriptTarget, "ESNext") ?? current.target,
-  }));
-  setLanguageEagerModelSync(typescriptNamespace, "javascriptDefaults", true);
-  setLanguageEagerModelSync(typescriptNamespace, "typescriptDefaults", true);
-  updateLanguageDiagnosticsOptions(jsonNamespace, "jsonDefaults", (current) => ({
-    ...current,
-    schemaRequest: "ignore",
-    schemaValidation: "ignore",
-    validate: false,
-  }));
-  updateLanguageOptions(cssNamespace, "cssDefaults", (current) => ({
-    ...current,
-    validate: false,
-  }));
-  updateLanguageOptions(cssNamespace, "scssDefaults", (current) => ({
-    ...current,
-    validate: false,
-  }));
-  updateLanguageOptions(cssNamespace, "lessDefaults", (current) => ({
-    ...current,
-    validate: false,
-  }));
+export function ensureMonacoConfigured(): void {
+  const palette = resolveMonacoThemePalette();
+
+  if (!monacoConfigured) {
+    const environment = {
+      getWorker(_: string, label: string) {
+        switch (label) {
+          case "css":
+          case "scss":
+          case "less":
+            return new cssWorker();
+          case "html":
+          case "handlebars":
+          case "razor":
+            return new htmlWorker();
+          case "json":
+            return new jsonWorker();
+          case "typescript":
+          case "javascript":
+            return new tsWorker();
+          default:
+            return new editorWorker();
+        }
+      },
+    };
+
+    Object.assign(globalThis as object, {
+      MonacoEnvironment: environment,
+    });
+    loader.config({ monaco });
+    registerWorkspaceEditorLanguages(monaco);
+    const typescriptNamespace = Reflect.get(monaco.languages, "typescript");
+    const jsonNamespace = Reflect.get(monaco.languages, "json");
+    const cssNamespace = Reflect.get(monaco.languages, "css");
+    const moduleKind = readEnumValue(typescriptNamespace, "ModuleKind");
+    const moduleResolutionKind = readEnumValue(typescriptNamespace, "ModuleResolutionKind");
+    const scriptTarget = readEnumValue(typescriptNamespace, "ScriptTarget");
+    const jsxEmit = readEnumValue(typescriptNamespace, "JsxEmit");
+
+    updateLanguageDiagnosticsOptions(typescriptNamespace, "javascriptDefaults", (current) => ({
+      ...current,
+      noSemanticValidation: true,
+      noSuggestionDiagnostics: true,
+      noSyntaxValidation: true,
+    }));
+    updateLanguageDiagnosticsOptions(typescriptNamespace, "typescriptDefaults", (current) => ({
+      ...current,
+      noSemanticValidation: true,
+      noSuggestionDiagnostics: true,
+      noSyntaxValidation: true,
+    }));
+    updateLanguageCompilerOptions(typescriptNamespace, "javascriptDefaults", (current) => ({
+      ...current,
+      allowJs: true,
+      allowNonTsExtensions: true,
+      checkJs: true,
+      jsx: readEnumValue(jsxEmit, "ReactJSX") ?? current.jsx,
+      module: readEnumValue(moduleKind, "ESNext") ?? current.module,
+      moduleResolution: readEnumValue(moduleResolutionKind, "NodeJs") ?? current.moduleResolution,
+      noEmit: true,
+      resolveJsonModule: true,
+      target: readEnumValue(scriptTarget, "ESNext") ?? current.target,
+    }));
+    updateLanguageCompilerOptions(typescriptNamespace, "typescriptDefaults", (current) => ({
+      ...current,
+      allowJs: true,
+      allowNonTsExtensions: true,
+      jsx: readEnumValue(jsxEmit, "ReactJSX") ?? current.jsx,
+      module: readEnumValue(moduleKind, "ESNext") ?? current.module,
+      moduleResolution: readEnumValue(moduleResolutionKind, "NodeJs") ?? current.moduleResolution,
+      noEmit: true,
+      resolveJsonModule: true,
+      target: readEnumValue(scriptTarget, "ESNext") ?? current.target,
+    }));
+    setLanguageEagerModelSync(typescriptNamespace, "javascriptDefaults", true);
+    setLanguageEagerModelSync(typescriptNamespace, "typescriptDefaults", true);
+    updateLanguageDiagnosticsOptions(jsonNamespace, "jsonDefaults", (current) => ({
+      ...current,
+      schemaRequest: "ignore",
+      schemaValidation: "ignore",
+      validate: false,
+    }));
+    updateLanguageOptions(cssNamespace, "cssDefaults", (current) => ({
+      ...current,
+      validate: false,
+    }));
+    updateLanguageOptions(cssNamespace, "scssDefaults", (current) => ({
+      ...current,
+      validate: false,
+    }));
+    updateLanguageOptions(cssNamespace, "lessDefaults", (current) => ({
+      ...current,
+      validate: false,
+    }));
+    monacoConfigured = true;
+  }
+
   monaco.editor.defineTheme("ace-carbon", {
     base: "vs-dark",
     inherit: true,
@@ -230,27 +316,27 @@ export function ensureMonacoConfigured(): void {
       { token: "operator", foreground: "D4D4D4" },
     ],
     colors: {
-      "editor.background": "#1E1E1E",
-      "editor.foreground": "#D4D4D4",
-      "editor.lineHighlightBackground": "#2A2D2E",
-      "editor.selectionBackground": "#264F78",
-      "editor.selectionHighlightBackground": "#335A7A66",
-      "editor.selectionHighlightBorder": "#74A9E833",
-      "editor.inactiveSelectionBackground": "#3A3D41",
-      "editorCursor.foreground": "#AEAFAD",
-      "editorWhitespace.foreground": "#3B3B3B",
-      "editorIndentGuide.background1": "#404040",
-      "editorIndentGuide.activeBackground1": "#707070",
-      "editorLineNumber.foreground": "#858585",
-      "editorLineNumber.activeForeground": "#C6C6C6",
-      "editor.wordHighlightBackground": "#2F5D8C4D",
-      "editor.wordHighlightBorder": "#5C93D1AA",
-      "editor.wordHighlightStrongBackground": "#3D7AAC66",
-      "editor.wordHighlightStrongBorder": "#8BBEF4CC",
-      "editorHoverWidget.background": "#252526",
-      "editorHoverWidget.border": "#454545",
+      "editor.background": palette.dark.background,
+      "editor.foreground": palette.dark.foreground,
+      "editor.lineHighlightBackground": withAlpha(palette.dark.accent, 0.5),
+      "editor.selectionBackground": withAlpha(palette.dark.primary, 0.34),
+      "editor.selectionHighlightBackground": withAlpha(palette.dark.primary, 0.2),
+      "editor.selectionHighlightBorder": withAlpha(palette.dark.primary, 0.32),
+      "editor.inactiveSelectionBackground": withAlpha(palette.dark.primary, 0.18),
+      "editorCursor.foreground": palette.dark.foreground,
+      "editorWhitespace.foreground": withAlpha(palette.dark.foreground, 0.2),
+      "editorIndentGuide.background1": withAlpha(palette.dark.foreground, 0.16),
+      "editorIndentGuide.activeBackground1": withAlpha(palette.dark.foreground, 0.32),
+      "editorLineNumber.foreground": withAlpha(palette.dark.mutedForeground, 0.74),
+      "editorLineNumber.activeForeground": withAlpha(palette.dark.foreground, 0.9),
+      "editor.wordHighlightBackground": withAlpha(palette.dark.primary, 0.16),
+      "editor.wordHighlightBorder": withAlpha(palette.dark.primary, 0.46),
+      "editor.wordHighlightStrongBackground": withAlpha(palette.dark.primary, 0.26),
+      "editor.wordHighlightStrongBorder": withAlpha(palette.dark.primary, 0.62),
+      "editorHoverWidget.background": palette.dark.background,
+      "editorHoverWidget.border": withAlpha(palette.dark.border, 0.9),
       "editorBracketMatch.background": "#0064001A",
-      "editorBracketMatch.border": "#888888",
+      "editorBracketMatch.border": withAlpha(palette.dark.foreground, 0.36),
     },
   });
   monaco.editor.defineTheme("ace-paper", {
@@ -289,28 +375,28 @@ export function ensureMonacoConfigured(): void {
       { token: "operator", foreground: "000000" },
     ],
     colors: {
-      "editor.background": "#FFFFFF",
-      "editor.foreground": "#000000",
-      "editor.lineHighlightBackground": "#F7F7F7",
-      "editor.selectionBackground": "#ADD6FF",
-      "editor.selectionHighlightBackground": "#C7DCF180",
-      "editor.selectionHighlightBorder": "#5A91D633",
-      "editor.inactiveSelectionBackground": "#E5EBF1",
-      "editorCursor.foreground": "#000000",
-      "editorWhitespace.foreground": "#D0D0D0",
-      "editorIndentGuide.background1": "#D3D3D3",
-      "editorIndentGuide.activeBackground1": "#939393",
-      "editorLineNumber.foreground": "#237893",
-      "editorLineNumber.activeForeground": "#0B216F",
-      "editor.wordHighlightBackground": "#9CC2F04D",
-      "editor.wordHighlightBorder": "#4A84CC99",
-      "editor.wordHighlightStrongBackground": "#7BAEEB73",
-      "editor.wordHighlightStrongBorder": "#2D6FB8CC",
-      "editorHoverWidget.background": "#FFFFFF",
-      "editorHoverWidget.border": "#C8CDD4",
+      "editor.background": palette.light.background,
+      "editor.foreground": palette.light.foreground,
+      "editor.lineHighlightBackground": withAlpha(palette.light.accent, 0.55),
+      "editor.selectionBackground": withAlpha(palette.light.primary, 0.3),
+      "editor.selectionHighlightBackground": withAlpha(palette.light.primary, 0.18),
+      "editor.selectionHighlightBorder": withAlpha(palette.light.primary, 0.3),
+      "editor.inactiveSelectionBackground": withAlpha(palette.light.primary, 0.14),
+      "editorCursor.foreground": palette.light.foreground,
+      "editorWhitespace.foreground": withAlpha(palette.light.foreground, 0.22),
+      "editorIndentGuide.background1": withAlpha(palette.light.foreground, 0.18),
+      "editorIndentGuide.activeBackground1": withAlpha(palette.light.foreground, 0.34),
+      "editorLineNumber.foreground": withAlpha(palette.light.mutedForeground, 0.84),
+      "editorLineNumber.activeForeground": withAlpha(palette.light.foreground, 0.92),
+      "editor.wordHighlightBackground": withAlpha(palette.light.primary, 0.16),
+      "editor.wordHighlightBorder": withAlpha(palette.light.primary, 0.4),
+      "editor.wordHighlightStrongBackground": withAlpha(palette.light.primary, 0.24),
+      "editor.wordHighlightStrongBorder": withAlpha(palette.light.primary, 0.58),
+      "editorHoverWidget.background": palette.light.background,
+      "editorHoverWidget.border": withAlpha(palette.light.border, 0.92),
       "editorBracketMatch.background": "#0064001A",
-      "editorBracketMatch.border": "#B9B9B9",
+      "editorBracketMatch.border": withAlpha(palette.light.foreground, 0.35),
     },
   });
-  monacoConfigured = true;
+  monaco.editor.setTheme(resolveActiveMonacoThemeName());
 }

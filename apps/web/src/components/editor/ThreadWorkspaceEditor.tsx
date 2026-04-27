@@ -38,6 +38,7 @@ import {
   useEditorStateStore,
 } from "~/editorStateStore";
 import { usePreferredEditor } from "~/editorPreferences";
+import { useAppearancePrefs } from "~/appearancePrefs";
 import { useSettings } from "~/hooks/useSettings";
 import { useUpdateSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
@@ -651,7 +652,6 @@ function ThreadWorkspaceEditor(inputProps: {
   worktreePath?: string | null;
   workspaceMode?: ThreadWorkspaceMode | undefined;
 }) {
-  ensureMonacoConfigured();
   const editorStateScopeId = useMemo(
     () => resolveEditorStateScopeId({ gitCwd: inputProps.gitCwd, threadId: inputProps.threadId }),
     [inputProps.gitCwd, inputProps.threadId],
@@ -659,6 +659,7 @@ function ThreadWorkspaceEditor(inputProps: {
   const props = { ...inputProps, threadId: editorStateScopeId as ThreadId };
 
   const { resolvedTheme } = useTheme();
+  const { themePreset: _themePreset } = useAppearancePrefs();
   const { updateSettings } = useUpdateSettings();
   const editorSettings = useSettings((settings) => ({
     lineNumbers: settings.editorLineNumbers,
@@ -770,6 +771,7 @@ function ThreadWorkspaceEditor(inputProps: {
     [editorSettings],
   );
   const diffEditorOptions = useMemo(() => createWorkspaceDiffEditorOptions(), []);
+  ensureMonacoConfigured();
 
   useEffect(() => {
     const previous = previousWorkspaceBufferStateRef.current;

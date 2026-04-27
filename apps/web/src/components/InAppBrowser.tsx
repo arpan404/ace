@@ -4,6 +4,8 @@ import {
   CircleDotIcon,
   CropIcon,
   ExternalLinkIcon,
+  LockIcon,
+  LockOpenIcon,
   LoaderCircleIcon,
   MousePointer2Icon,
   RefreshCwIcon,
@@ -99,6 +101,29 @@ function resolveDesignerShortcutHintLabel(shortcutLabel: string): string {
   return stripped.length > 0 ? stripped : shortcutLabel;
 }
 
+function resolveAddressFieldPresentation(currentUrl: string | null): {
+  hostOnlyLabel: string;
+  security: "secure" | "insecure" | "none";
+  securityLabel: string | null;
+} {
+  if (!currentUrl || currentUrl.trim().length === 0) {
+    return { hostOnlyLabel: "", security: "none", securityLabel: null };
+  }
+  try {
+    const parsedUrl = new URL(currentUrl);
+    const host = parsedUrl.host.replace(/^www\./i, "");
+    if (parsedUrl.protocol === "https:") {
+      return { hostOnlyLabel: host, security: "secure", securityLabel: "Secure connection" };
+    }
+    if (parsedUrl.protocol === "http:") {
+      return { hostOnlyLabel: host, security: "insecure", securityLabel: "Not secure" };
+    }
+    return { hostOnlyLabel: host, security: "none", securityLabel: null };
+  } catch {
+    return { hostOnlyLabel: currentUrl, security: "none", securityLabel: null };
+  }
+}
+
 const BROWSER_SHELL_TRANSITION = {
   duration: 0.18,
   ease: [0.16, 1, 0.3, 1],
@@ -173,7 +198,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   } = useInAppBrowserState({
     designerModeEnabled: Boolean(onQueueDesignRequest),
     mode,
-    open: open && activeInstance,
+    open,
     onClose,
     ...(scopeId ? { scopeId } : {}),
     ...(onActiveRuntimeStateChange ? { onActiveRuntimeStateChange } : {}),
@@ -186,6 +211,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   const browserViewportRef = useRef<HTMLDivElement | null>(null);
   const designerToolListRef = useRef<HTMLDivElement | null>(null);
   const designerToolButtonRefs = useRef(new Map<BrowserDesignerTool, HTMLButtonElement>());
+  const [addressFieldExpanded, setAddressFieldExpanded] = useState(false);
   const [designerToolHighlightFrame, setDesignerToolHighlightFrame] = useState<{
     height: number;
     left: number;
@@ -196,12 +222,26 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     showThreadJumpHints: showDesignerToolShortcutHints,
     updateThreadJumpHintsVisibility: updateDesignerToolShortcutHintsVisibility,
   } = useThreadJumpHintVisibility();
+  const addressPresentation = useMemo(
+    () => resolveAddressFieldPresentation(activeTab?.url ?? draftUrl),
+    [activeTab?.url, draftUrl],
+  );
+  const SecurityIcon =
+    addressPresentation.security === "secure"
+      ? LockIcon
+      : addressPresentation.security === "insecure"
+        ? LockOpenIcon
+        : null;
 
   useEffect(() => {
     if (!open) {
       setDesignerModeActive(false);
+      setAddressFieldExpanded(false);
     }
   }, [open, setDesignerModeActive]);
+  useEffect(() => {
+    setAddressFieldExpanded(false);
+  }, [activeTab?.id]);
 
   useEffect(() => {
     if (!window.desktopBridge?.onMenuAction) {
@@ -547,36 +587,95 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
               </Tooltip>
             </div>
             <form
-              className="relative mx-auto flex min-w-0 flex-1 items-center gap-2"
+              className="relative mx-auto flex w-full min-w-[16rem] max-w-[56rem] flex-[1_1_42rem] items-center gap-2"
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
                 openUrl(draftUrl);
               }}
             >
-              <div className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 transition-colors duration-150 focus-within:border-primary focus-within:bg-background">
-                <Input
-                  ref={addressInputRef}
-                  className="min-w-0 w-full flex-1 border-0 bg-transparent text-sm font-medium text-foreground shadow-none placeholder:text-muted-foreground/70"
-                  unstyled
-                  value={draftUrl}
-                  onChange={(event) => setDraftUrl(event.target.value)}
-                  onFocus={(event) => event.currentTarget.select()}
-                  onBlur={() => {
-                    window.setTimeout(() => {
-                      setIsAddressBarFocused(false);
-                    }, 100);
-                  }}
-                  onFocusCapture={() => {
-                    setIsAddressBarFocused(true);
-                  }}
-                  onKeyDown={handleAddressBarKeyDown}
-                  placeholder="Enter a URL or search the web"
-                  aria-label="Browser address bar"
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  title={draftUrl}
-                />
+              <div
+                className={cn(
+                  "group/address flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2.5 transition-colors duration-150",
+                  addressFieldExpanded
+                    ? "border border-border bg-background focus-within:border-primary focus-within:bg-background"
+                    : "border border-transparent bg-transparent hover:border-border/70 hover:bg-background/55",
+                )}
+              >
+                {SecurityIcon ? (
+                  <SecurityIcon
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                    aria-label={addressPresentation.securityLabel ?? undefined}
+                  />
+                ) : null}
+                {addressFieldExpanded ? (
+                  <Input
+                    ref={addressInputRef}
+                    className="min-w-0 w-full flex-1 border-0 bg-transparent text-sm font-medium text-foreground shadow-none placeholder:text-muted-foreground/70"
+                    unstyled
+                    value={draftUrl}
+                    onChange={(event) => setDraftUrl(event.target.value)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onBlur={() => {
+                      setAddressFieldExpanded(false);
+                      window.setTimeout(() => {
+                        setIsAddressBarFocused(false);
+                      }, 100);
+                    }}
+                    onFocusCapture={() => {
+                      setAddressFieldExpanded(true);
+                      setIsAddressBarFocused(true);
+                    }}
+                    onKeyDown={handleAddressBarKeyDown}
+                    placeholder="Enter a URL or search the web"
+                    aria-label="Browser address bar"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    title={draftUrl}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="min-w-0 w-full flex-1 truncate text-left text-sm font-medium text-foreground"
+                    onClick={() => {
+                      setAddressFieldExpanded(true);
+                      setIsAddressBarFocused(true);
+                      window.requestAnimationFrame(() => {
+                        addressInputRef.current?.focus();
+                        addressInputRef.current?.select();
+                      });
+                    }}
+                    aria-label="Expand address bar"
+                    title={activeTab?.url ?? draftUrl}
+                  >
+                    {addressPresentation.hostOnlyLabel || "Enter a URL or search the web"}
+                  </button>
+                )}
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        type="button"
+                        className={cn(
+                          "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35",
+                          "pointer-events-none opacity-0 transition-opacity duration-150",
+                          "group-hover/address:pointer-events-auto group-hover/address:opacity-100",
+                          "group-focus-within/address:pointer-events-auto group-focus-within/address:opacity-100",
+                        )}
+                        onClick={() => {
+                          openActiveTabExternally();
+                        }}
+                        disabled={!activeTab || activeTabIsInternal}
+                        aria-label="Open current page externally"
+                      >
+                        <ExternalLinkIcon className="size-3.5" />
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="bottom">Open externally</TooltipPopup>
+                </Tooltip>
               </div>
               {showAddressBarSuggestions ? (
                 <BrowserSuggestionList
@@ -648,28 +747,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 ))}
               </div>
             ) : null}
-            <div className="flex shrink-0 items-center gap-0.5">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      type="button"
-                      className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
-                      onClick={() => {
-                        openActiveTabExternally();
-                      }}
-                      disabled={!activeTab || activeTabIsInternal}
-                      aria-label="Open current page externally"
-                    >
-                      <ExternalLinkIcon className="size-4" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">Open externally</TooltipPopup>
-              </Tooltip>
-            </div>
           </div>
         </>
 
