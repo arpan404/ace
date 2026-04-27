@@ -56,10 +56,10 @@ interface PlanSummaryPanelProps {
   workspaceRoot: string | undefined;
 }
 
-const SECTION_CLASS_NAME =
-  "rounded-2xl border border-border/70 bg-linear-to-br from-card via-card/95 to-card/80 p-4 shadow-[0_18px_42px_-30px_rgba(0,0,0,0.6)]";
-const SECTION_LABEL_CLASS_NAME =
-  "text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase";
+const SECTION_CLASS_NAME = "rounded-xl border border-border/60 bg-card/70";
+const SECTION_HEADER_BUTTON_CLASS_NAME =
+  "group/section-header flex h-9 w-full items-center gap-1.5 bg-transparent px-3 text-left";
+const SECTION_CONTENT_WRAPPER_CLASS_NAME = "border-t border-border/60 px-3 py-3";
 
 export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   activePlan,
@@ -69,6 +69,8 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   onOpenBrowserUrl = null,
   workspaceRoot,
 }: PlanSummaryPanelProps) {
+  const [planSectionExpanded, setPlanSectionExpanded] = useState(true);
+  const [todoSectionExpanded, setTodoSectionExpanded] = useState(true);
   const [proposedPlanExpanded, setProposedPlanExpanded] = useState(false);
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
   const { copyToClipboard, isCopied } = useCopyToClipboard();
@@ -185,183 +187,241 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
       <section className={SECTION_CLASS_NAME}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 space-y-2">
-            <p className={SECTION_LABEL_CLASS_NAME}>Plan</p>
-            {planMarkdown ? (
-              <>
-                <div className="flex flex-wrap items-center gap-2">
-                  {planMeta ? (
-                    <Badge
-                      variant="secondary"
-                      className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
-                    >
-                      {planMeta.badge}
-                    </Badge>
-                  ) : null}
-                  <p className="text-sm font-medium tracking-tight text-foreground">
-                    {planTitle ?? "Proposed plan"}
-                  </p>
+        <button
+          type="button"
+          className={SECTION_HEADER_BUTTON_CLASS_NAME}
+          aria-expanded={planSectionExpanded}
+          onClick={() => setPlanSectionExpanded((value) => !value)}
+        >
+          <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase transition-colors group-hover/section-header:text-foreground">
+            Plan
+          </span>
+          <ChevronRightIcon
+            className={cn(
+              "size-4 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100",
+              planSectionExpanded && "rotate-90",
+            )}
+          />
+        </button>
+        <div
+          aria-hidden={!planSectionExpanded}
+          className={cn(
+            "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
+            planSectionExpanded
+              ? "grid-rows-[1fr] opacity-100"
+              : "pointer-events-none grid-rows-[0fr] opacity-0",
+          )}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className={SECTION_CONTENT_WRAPPER_CLASS_NAME}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-2">
+                  {planMarkdown ? (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {planMeta ? (
+                          <Badge
+                            variant="secondary"
+                            className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
+                          >
+                            {planMeta.badge}
+                          </Badge>
+                        ) : null}
+                        <p className="text-sm font-medium tracking-tight text-foreground">
+                          {planTitle ?? "Proposed plan"}
+                        </p>
+                      </div>
+                      {planMeta?.detail ? (
+                        <p className="max-w-[52ch] text-xs leading-relaxed text-muted-foreground">
+                          {planMeta.detail}
+                        </p>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
+                      Proposed plans will appear here when the thread has a draft ready for review.
+                    </p>
+                  )}
                 </div>
-                {planMeta?.detail ? (
-                  <p className="max-w-[52ch] text-xs leading-relaxed text-muted-foreground">
-                    {planMeta.detail}
-                  </p>
+                {planMarkdown ? (
+                  <Menu>
+                    <MenuTrigger
+                      render={
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-foreground"
+                          aria-label="Plan actions"
+                        />
+                      }
+                    >
+                      <EllipsisIcon className="size-3.5" />
+                    </MenuTrigger>
+                    <MenuPopup align="end">
+                      <MenuItem onClick={handleCopyPlan}>
+                        {isCopied ? "Copied!" : "Copy to clipboard"}
+                      </MenuItem>
+                      <MenuItem onClick={handleDownload}>Download as markdown</MenuItem>
+                      <MenuItem
+                        onClick={handleSaveToWorkspace}
+                        disabled={!workspaceRoot || isSavingToWorkspace}
+                      >
+                        Save to workspace
+                      </MenuItem>
+                    </MenuPopup>
+                  </Menu>
                 ) : null}
-              </>
-            ) : (
-              <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
-                Proposed plans will appear here when the thread has a draft ready for review.
-              </p>
-            )}
-          </div>
-          {planMarkdown ? (
-            <Menu>
-              <MenuTrigger
-                render={
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    className="text-muted-foreground hover:text-foreground"
-                    aria-label="Plan actions"
-                  />
-                }
-              >
-                <EllipsisIcon className="size-3.5" />
-              </MenuTrigger>
-              <MenuPopup align="end">
-                <MenuItem onClick={handleCopyPlan}>
-                  {isCopied ? "Copied!" : "Copy to clipboard"}
-                </MenuItem>
-                <MenuItem onClick={handleDownload}>Download as markdown</MenuItem>
-                <MenuItem
-                  onClick={handleSaveToWorkspace}
-                  disabled={!workspaceRoot || isSavingToWorkspace}
-                >
-                  Save to workspace
-                </MenuItem>
-              </MenuPopup>
-            </Menu>
-          ) : null}
-        </div>
+              </div>
 
-        {planMarkdown ? (
-          <div className="mt-4 overflow-hidden rounded-xl border border-border/60 bg-background/80">
-            {canCollapsePlan ? (
-              <button
-                type="button"
-                className="group flex w-full items-center gap-1.5 px-3 py-2.5 text-left"
-                onClick={() => setProposedPlanExpanded((value) => !value)}
-              >
-                {proposedPlanExpanded ? (
-                  <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform" />
-                ) : (
-                  <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform" />
-                )}
-                <span className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase group-hover:text-foreground/80">
-                  {proposedPlanExpanded ? "Hide plan preview" : "Open plan preview"}
-                </span>
-              </button>
-            ) : null}
-            {!canCollapsePlan || proposedPlanExpanded ? (
-              <div className={cn("p-3", canCollapsePlan && "border-t border-border/60")}>
-                <ChatMarkdown
-                  text={displayedPlanMarkdown ?? ""}
-                  cwd={markdownCwd}
-                  isStreaming={false}
-                  onOpenBrowserUrl={onOpenBrowserUrl}
-                />
-              </div>
-            ) : (
-              <div className="border-t border-border/60 px-3 py-2.5">
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  Keep the summary focused while the full plan stays one click away.
-                </p>
-              </div>
-            )}
+              {planMarkdown ? (
+                <div className="mt-3 overflow-hidden rounded-lg border border-border/60 bg-background/80">
+                  {canCollapsePlan ? (
+                    <button
+                      type="button"
+                      className="group flex w-full items-center gap-1.5 px-3 py-2.5 text-left"
+                      onClick={() => setProposedPlanExpanded((value) => !value)}
+                    >
+                      {proposedPlanExpanded ? (
+                        <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform" />
+                      ) : (
+                        <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform" />
+                      )}
+                      <span className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase group-hover:text-foreground/80">
+                        {proposedPlanExpanded ? "Hide plan preview" : "Open plan preview"}
+                      </span>
+                    </button>
+                  ) : null}
+                  {!canCollapsePlan || proposedPlanExpanded ? (
+                    <div className={cn("p-3", canCollapsePlan && "border-t border-border/60")}>
+                      <ChatMarkdown
+                        text={displayedPlanMarkdown ?? ""}
+                        cwd={markdownCwd}
+                        isStreaming={false}
+                        onOpenBrowserUrl={onOpenBrowserUrl}
+                      />
+                    </div>
+                  ) : (
+                    <div className="border-t border-border/60 px-3 py-2.5">
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        Keep the summary focused while the full plan stays one click away.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
           </div>
-        ) : null}
+        </div>
       </section>
 
       <section className={SECTION_CLASS_NAME}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 space-y-2">
-            <p className={SECTION_LABEL_CLASS_NAME}>Todos</p>
-            {activePlan && activePlan.steps.length > 0 ? (
-              <>
-                <div className="flex flex-wrap items-center gap-2">
-                  {todoMeta ? (
-                    <Badge
-                      variant="secondary"
-                      className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
-                    >
-                      {todoMeta.badge}
-                    </Badge>
-                  ) : null}
-                  <p className="text-sm font-medium tracking-tight text-foreground">
-                    {todoMeta?.label ?? "Current plan"}
-                  </p>
-                </div>
-                {todoMeta?.detail ? (
-                  <p className="max-w-[52ch] text-xs leading-relaxed text-muted-foreground">
-                    {todoMeta.detail}
-                  </p>
-                ) : null}
-                {activePlan.explanation ? (
-                  <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
-                    {activePlan.explanation}
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
-                Todo summary will appear here when the thread has actionable tasks.
-              </p>
+        <button
+          type="button"
+          className={SECTION_HEADER_BUTTON_CLASS_NAME}
+          aria-expanded={todoSectionExpanded}
+          onClick={() => setTodoSectionExpanded((value) => !value)}
+        >
+          <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase transition-colors group-hover/section-header:text-foreground">
+            Todos
+          </span>
+          <ChevronRightIcon
+            className={cn(
+              "size-4 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100",
+              todoSectionExpanded && "rotate-90",
             )}
-          </div>
-          {planStepSummary ? (
-            <p className="shrink-0 rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-[11px] text-muted-foreground">
-              {planStepSummary.completed}/{planStepSummary.total} done
-            </p>
-          ) : null}
-        </div>
-
-        {activePlan && activePlan.steps.length > 0 ? (
-          <div className="mt-4 space-y-2">
-            {(() => {
-              const stepOccurrenceByText = new Map<string, number>();
-              return activePlan.steps.map((step) => {
-                const seenCount = stepOccurrenceByText.get(step.step) ?? 0;
-                stepOccurrenceByText.set(step.step, seenCount + 1);
-                const stepKey = seenCount === 0 ? step.step : `${step.step}:${seenCount}`;
-                return (
-                  <div
-                    key={stepKey}
-                    className={cn(
-                      "flex items-start gap-2.5 rounded-xl border border-border/50 bg-background/75 px-3 py-2.5 transition-colors duration-200",
-                      step.status === "inProgress" && "border-blue-500/20 bg-blue-500/5",
-                      step.status === "completed" && "border-emerald-500/20 bg-emerald-500/5",
-                    )}
-                  >
-                    <div className="mt-0.5">{stepStatusIcon(step.status)}</div>
-                    <p
-                      className={cn(
-                        "text-[13px] leading-snug",
-                        step.status === "completed"
-                          ? "text-muted-foreground line-through decoration-muted-foreground"
-                          : step.status === "inProgress"
-                            ? "text-foreground"
-                            : "text-muted-foreground",
-                      )}
-                    >
-                      {step.step}
+          />
+        </button>
+        <div
+          aria-hidden={!todoSectionExpanded}
+          className={cn(
+            "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
+            todoSectionExpanded
+              ? "grid-rows-[1fr] opacity-100"
+              : "pointer-events-none grid-rows-[0fr] opacity-0",
+          )}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className={SECTION_CONTENT_WRAPPER_CLASS_NAME}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-2">
+                  {activePlan && activePlan.steps.length > 0 ? (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {todoMeta ? (
+                          <Badge
+                            variant="secondary"
+                            className="rounded-md border border-border/50 bg-background/70 px-1.5 py-0 text-[10px] font-medium text-foreground/80"
+                          >
+                            {todoMeta.badge}
+                          </Badge>
+                        ) : null}
+                        <p className="text-sm font-medium tracking-tight text-foreground">
+                          {todoMeta?.label ?? "Current plan"}
+                        </p>
+                      </div>
+                      {todoMeta?.detail ? (
+                        <p className="max-w-[52ch] text-xs leading-relaxed text-muted-foreground">
+                          {todoMeta.detail}
+                        </p>
+                      ) : null}
+                      {activePlan.explanation ? (
+                        <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
+                          {activePlan.explanation}
+                        </p>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
+                      Todo summary will appear here when the thread has actionable tasks.
                     </p>
-                  </div>
-                );
-              });
-            })()}
+                  )}
+                </div>
+                {planStepSummary ? (
+                  <p className="shrink-0 rounded-full border border-border/60 bg-background/80 px-2.5 py-1 text-[11px] text-muted-foreground">
+                    {planStepSummary.completed}/{planStepSummary.total} done
+                  </p>
+                ) : null}
+              </div>
+
+              {activePlan && activePlan.steps.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {(() => {
+                    const stepOccurrenceByText = new Map<string, number>();
+                    return activePlan.steps.map((step) => {
+                      const seenCount = stepOccurrenceByText.get(step.step) ?? 0;
+                      stepOccurrenceByText.set(step.step, seenCount + 1);
+                      const stepKey = seenCount === 0 ? step.step : `${step.step}:${seenCount}`;
+                      return (
+                        <div
+                          key={stepKey}
+                          className={cn(
+                            "flex items-start gap-2.5 rounded-lg border border-border/55 bg-background/75 px-3 py-2.5 transition-colors duration-200",
+                            step.status === "inProgress" && "border-blue-500/30",
+                            step.status === "completed" && "border-emerald-500/30",
+                          )}
+                        >
+                          <div className="mt-0.5">{stepStatusIcon(step.status)}</div>
+                          <p
+                            className={cn(
+                              "text-[13px] leading-snug",
+                              step.status === "completed"
+                                ? "text-muted-foreground line-through decoration-muted-foreground"
+                                : step.status === "inProgress"
+                                  ? "text-foreground"
+                                  : "text-muted-foreground",
+                            )}
+                          >
+                            {step.step}
+                          </p>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              ) : null}
+            </div>
           </div>
-        ) : null}
+        </div>
       </section>
     </div>
   );
