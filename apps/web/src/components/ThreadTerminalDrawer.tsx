@@ -56,6 +56,7 @@ import {
   extractTerminalLinks,
   isTerminalLinkActivation,
   resolvePathLinkTarget,
+  type TerminalLinkMatch,
 } from "../terminal-links";
 import { isTerminalClearShortcut, terminalNavigationShortcutData } from "../keybindings";
 import {
@@ -84,6 +85,7 @@ const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
 const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
 const TERMINAL_FONT_LOAD_TIMEOUT_MS = 140;
+const TERMINAL_LINK_LINE_CACHE_LIMIT = 512;
 
 function maxDrawerHeight(): number {
   if (typeof window === "undefined") return DEFAULT_THREAD_TERMINAL_HEIGHT;
@@ -629,6 +631,29 @@ function TerminalViewport({
         selectionActionTimerRef.current = null;
       }
     };
+    const terminalLinkMatchCache = new Map<
+      number,
+      { lineText: string; matches: readonly TerminalLinkMatch[] }
+    >();
+    const readCachedTerminalLinkMatches = (
+      bufferLineNumber: number,
+      lineText: string,
+    ): readonly TerminalLinkMatch[] => {
+      const cached = terminalLinkMatchCache.get(bufferLineNumber);
+      if (cached && cached.lineText === lineText) {
+        return cached.matches;
+      }
+
+      const matches = extractTerminalLinks(lineText);
+      terminalLinkMatchCache.set(bufferLineNumber, { lineText, matches });
+      if (terminalLinkMatchCache.size > TERMINAL_LINK_LINE_CACHE_LIMIT) {
+        const oldestLineNumber = terminalLinkMatchCache.keys().next().value;
+        if (typeof oldestLineNumber === "number") {
+          terminalLinkMatchCache.delete(oldestLineNumber);
+        }
+      }
+      return matches;
+    };
 
     const readSelectionAction = (): {
       position: { x: number; y: number };
@@ -741,7 +766,7 @@ function TerminalViewport({
         }
 
         const lineText = line.translateToString(true);
-        const matches = extractTerminalLinks(lineText);
+        const matches = readCachedTerminalLinkMatches(bufferLineNumber, lineText);
         if (matches.length === 0) {
           callback(undefined);
           return;
@@ -900,6 +925,7 @@ function TerminalViewport({
       if (event.type === "started" || event.type === "restarted") {
         hasHandledExitRef.current = false;
         commandBufferRef.current = "";
+        terminalLinkMatchCache.clear();
         clearSelectionAction();
         activeTerminal.reset();
         onAutoTerminalTitleChangeRef.current(event.snapshot.title);
@@ -916,6 +942,7 @@ function TerminalViewport({
 
       if (event.type === "cleared") {
         commandBufferRef.current = "";
+        terminalLinkMatchCache.clear();
         clearSelectionAction();
         activeTerminal.clear();
         activeTerminal.write("\u001bc");

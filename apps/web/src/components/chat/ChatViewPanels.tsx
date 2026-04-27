@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from "motion/react";
 import type { ComponentProps } from "react";
 
 import { InAppBrowser, type InAppBrowserMode } from "../InAppBrowser";
-import PlanSidebar from "../PlanSidebar";
 import { Button } from "../ui/button";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 import { MIN_CHAT_SPLIT_WIDTH } from "~/lib/chat/browserSplit";
@@ -114,15 +113,12 @@ function ExpandedImageOverlay({
 export function ChatViewPanels({
   browserPanel,
   expandedImageOverlay,
-  planSidebarProps,
 }: {
   browserPanel: BrowserPanelProps | null;
   expandedImageOverlay: ExpandedImageOverlayProps | null;
-  planSidebarProps: ComponentProps<typeof PlanSidebar> | null;
 }) {
   return (
     <>
-      {planSidebarProps ? <PlanSidebar {...planSidebarProps} /> : null}
       <AnimatePresence initial={false}>
         {browserPanel ? (
           browserPanel.mode === "split" ? (

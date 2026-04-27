@@ -714,7 +714,7 @@ function buildLatestTurn(params: {
 }
 
 function rebindTurnDiffSummariesForAssistantMessage(
-  turnDiffSummaries: ReadonlyArray<Thread["turnDiffSummaries"][number]>,
+  turnDiffSummaries: Thread["turnDiffSummaries"],
   turnId: Thread["turnDiffSummaries"][number]["turnId"],
   assistantMessageId: NonNullable<Thread["latestTurn"]>["assistantMessageId"],
 ): Thread["turnDiffSummaries"] {
@@ -729,7 +729,7 @@ function rebindTurnDiffSummariesForAssistantMessage(
       assistantMessageId: assistantMessageId ?? undefined,
     };
   });
-  return changed ? nextSummaries : [...turnDiffSummaries];
+  return changed ? nextSummaries : turnDiffSummaries;
 }
 
 function retainThreadMessagesAfterRevert(

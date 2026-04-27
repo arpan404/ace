@@ -974,10 +974,17 @@ export const useEditorStateStore = create<EditorStoreState>()(
               return state;
             }
             const nextPaths = sourcePane.openFilePaths.filter((path) => path !== normalizedPath);
-            const targetIndex =
-              typeof input.targetIndex === "number" && Number.isFinite(input.targetIndex)
-                ? Math.max(0, Math.min(nextPaths.length, Math.trunc(input.targetIndex)))
-                : nextPaths.length;
+            const explicitTargetIndex = input.targetIndex;
+            const hasExplicitTargetIndex =
+              typeof explicitTargetIndex === "number" && Number.isFinite(explicitTargetIndex);
+            let targetIndex = hasExplicitTargetIndex
+              ? Math.max(0, Math.min(nextPaths.length, Math.trunc(explicitTargetIndex)))
+              : nextPaths.length;
+            // UI drops onto tab indexes in the pre-removal array. When dragging forward,
+            // compensate for the removed source tab so insertion stays at the intended slot.
+            if (hasExplicitTargetIndex && currentIndex < targetIndex) {
+              targetIndex = Math.max(0, targetIndex - 1);
+            }
             nextPaths.splice(targetIndex, 0, normalizedPath);
             const nextThreadState = {
               ...current,

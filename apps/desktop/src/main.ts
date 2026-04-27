@@ -544,12 +544,22 @@ async function requestDesktopNotificationPermission(): Promise<DesktopNotificati
     title: "ace notifications",
     body: "Enable notifications to get alerts when agent work completes or needs input.",
   });
+  const permissionWaitDeadlineMs = Date.now() + 10_000;
 
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, 1_000);
-  });
-  closeDesktopNotification(probeNotificationId);
-  return getDesktopNotificationPermission();
+  try {
+    while (Date.now() < permissionWaitDeadlineMs) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 250);
+      });
+      const nextPermission = getDesktopNotificationPermission();
+      if (nextPermission !== "default") {
+        return nextPermission;
+      }
+    }
+    return getDesktopNotificationPermission();
+  } finally {
+    closeDesktopNotification(probeNotificationId);
+  }
 }
 
 function writeDesktopStreamChunk(

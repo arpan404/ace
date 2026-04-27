@@ -7,6 +7,11 @@ export interface BrowserNotificationInput {
   readonly title: string;
 }
 
+export interface BrowserNotificationResult {
+  readonly notification?: Notification;
+  readonly shown: boolean;
+}
+
 const BROWSER_NOTIFICATION_SERVICE_WORKER_URL = "/ace-notifications-sw.js";
 
 function canUseServiceWorkerNotifications(): boolean {
@@ -38,12 +43,14 @@ async function resolveNotificationServiceWorkerRegistration(): Promise<ServiceWo
   }
 }
 
-export async function showBrowserNotification(input: BrowserNotificationInput): Promise<boolean> {
+export async function showBrowserNotification(
+  input: BrowserNotificationInput,
+): Promise<BrowserNotificationResult> {
   if (typeof window === "undefined" || !("Notification" in window)) {
-    return false;
+    return { shown: false };
   }
   if (window.Notification.permission !== "granted") {
-    return false;
+    return { shown: false };
   }
 
   const options: NotificationOptions = {
@@ -58,7 +65,7 @@ export async function showBrowserNotification(input: BrowserNotificationInput): 
   if (registration) {
     try {
       await registration.showNotification(input.title, options);
-      return true;
+      return { shown: true };
     } catch {
       // Fall back to page notifications below.
     }
@@ -75,9 +82,12 @@ export async function showBrowserNotification(input: BrowserNotificationInput): 
     if (!input.requireInteraction) {
       window.setTimeout(() => notification.close(), 3_500);
     }
-    return true;
+    return {
+      notification,
+      shown: true,
+    };
   } catch {
-    return false;
+    return { shown: false };
   }
 }
 

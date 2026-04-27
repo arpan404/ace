@@ -118,3 +118,17 @@ export function buildSingleThreadRouteSearch(
     [THREAD_ROUTE_CONNECTION_SEARCH_PARAM]: connectionUrl ?? undefined,
   };
 }
+
+export function buildSingleThreadRouteHref(
+  threadId: ThreadId,
+  input?: { connectionUrl?: string | null } | null,
+): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(buildSingleThreadRouteSearch(input))) {
+    if (typeof value === "string" && value.length > 0) {
+      search.set(key, value);
+    }
+  }
+  const serializedSearch = search.toString();
+  return serializedSearch ? `/${threadId}?${serializedSearch}` : `/${threadId}`;
+}

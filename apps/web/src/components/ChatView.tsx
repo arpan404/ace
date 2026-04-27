@@ -8,6 +8,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import { restrictToFirstScrollableAncestor, restrictToHorizontalAxis } from "@dnd-kit/modifiers";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -115,7 +116,7 @@ import {
   setPendingUserInputCustomAnswer,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
-import { getThreadById, useStore } from "../store";
+import { type AppState, getThreadById, useStore } from "../store";
 import { useProjectById, useThreadById } from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";
 import { useHostConnectionStore } from "../hostConnectionStore";
@@ -228,6 +229,7 @@ import { ChatConversationExtras } from "./chat/ChatConversationExtras";
 import { GitHubIssuePreviewDialog } from "./GitHubIssuePreviewDialog";
 import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
+import { PlanSummaryPanel } from "./PlanSummaryPanel";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
 import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
@@ -297,7 +299,11 @@ import {
   clampWorkspaceEditorSplitWidth,
 } from "~/lib/chat/workspaceSplit";
 import type { BrowserSessionStorage, BrowserTabState } from "~/lib/browser/session";
-import { buildHandoffTimeline, resolveHandoffLineage } from "~/lib/chat/handoff";
+import {
+  buildHandoffTimeline,
+  type HandoffLineageResult,
+  resolveHandoffLineage,
+} from "~/lib/chat/handoff";
 import {
   subscribeToBrowserLaunchRequests,
   takePendingBrowserLaunchRequest,
@@ -403,6 +409,49 @@ interface ChatViewProps {
   showSidebarTrigger?: boolean;
   splitPane?: boolean;
   threadId: ThreadId;
+}
+
+function handoffLineageResultsEqual(
+  left: HandoffLineageResult | null,
+  right: HandoffLineageResult | null,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left === null || right === null) {
+    return false;
+  }
+  if (left.hasCycle !== right.hasCycle || left.missingThreadId !== right.missingThreadId) {
+    return false;
+  }
+  if (left.threads.length !== right.threads.length) {
+    return false;
+  }
+  for (let index = 0; index < left.threads.length; index += 1) {
+    if (left.threads[index] !== right.threads[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function createHandoffLineageSelector(sourceThreadId: ThreadId | null) {
+  let previousResult: HandoffLineageResult | null = null;
+  return (state: AppState): HandoffLineageResult | null => {
+    if (!sourceThreadId) {
+      previousResult = null;
+      return null;
+    }
+    const nextResult = resolveHandoffLineage({
+      sourceThreadId,
+      threads: state.threads,
+    });
+    if (handoffLineageResultsEqual(previousResult, nextResult)) {
+      return previousResult;
+    }
+    previousResult = nextResult;
+    return nextResult;
+  };
 }
 
 interface LocalDiffState {
@@ -686,7 +735,7 @@ function RightSidePanelTabStrip(props: {
     <div className="flex h-11 shrink-0 items-center gap-2 bg-card/80 px-3">
       <div
         ref={tabStripRef}
-        className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         <button
           type="button"
@@ -771,6 +820,7 @@ function RightSidePanelTabStrip(props: {
           <DndContext
             sensors={browserTabSensors}
             collisionDetection={closestCenter}
+            modifiers={[restrictToHorizontalAxis, restrictToFirstScrollableAncestor]}
             onDragStart={handleBrowserTabDragStart}
             onDragEnd={handleBrowserTabDragEnd}
             onDragCancel={handleBrowserTabDragCancel}
@@ -846,7 +896,6 @@ export default function ChatView({
   threadId,
 }: ChatViewProps) {
   const serverThread = useThreadById(threadId);
-  const threads = useStore((store) => store.threads);
   const setStoreThreadError = useStore((store) => store.setError);
   const dismissStoreThreadError = useStore((store) => store.dismissThreadError);
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
@@ -1005,15 +1054,10 @@ export default function ChatView({
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
-  const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const [isHeaderHidden, setIsHeaderHidden] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
-  // Tracks whether the user explicitly dismissed the sidebar for the active turn.
-  const planSidebarDismissedForTurnRef = useRef<string | null>(null);
-  // When set, the thread-change reset effect will open the sidebar instead of closing it.
-  // Used by "Implement in a new thread" to carry the sidebar-open intent across navigation.
-  const planSidebarOpenOnNextThreadRef = useRef(false);
+  const openSummaryOnNextThreadRef = useRef(false);
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
   const [gitHubIssueDialogOpen, setGitHubIssueDialogOpen] = useState(false);
@@ -1240,7 +1284,7 @@ export default function ChatView({
       const browserThread =
         browserThreadId === threadId
           ? (serverThread ?? draftThread ?? null)
-          : (threads.find((candidate) => candidate.id === browserThreadId) ?? null);
+          : (getThreadById(useStore.getState().threads, browserThreadId) ?? null);
       return resolveThreadOriginConnectionUrl({
         threadId: browserThreadId,
         explicitConnectionUrl: browserThreadId === threadId ? connectionUrl : null,
@@ -1258,7 +1302,6 @@ export default function ChatView({
       serverThread,
       threadConnectionById,
       threadId,
-      threads,
     ],
   );
   const fallbackDraftProject = useProjectById(draftThread?.projectId);
@@ -1292,15 +1335,14 @@ export default function ChatView({
     composerDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
-  const handoffLineage = useMemo(() => {
-    if (!activeThread?.handoff || !isServerThread) {
-      return null;
-    }
-    return resolveHandoffLineage({
-      sourceThreadId: activeThread.handoff.sourceThreadId,
-      threads,
-    });
-  }, [activeThread?.handoff, isServerThread, threads]);
+  const handoffLineageSelector = useMemo(
+    () =>
+      createHandoffLineageSelector(
+        isServerThread ? (activeThread?.handoff?.sourceThreadId ?? null) : null,
+      ),
+    [activeThread?.handoff?.sourceThreadId, isServerThread],
+  );
+  const handoffLineage = useStore(handoffLineageSelector);
   const handoffSourceThreadIds = useMemo(
     () => handoffLineage?.threads.map((thread) => thread.id) ?? [],
     [handoffLineage],
@@ -1611,7 +1653,7 @@ export default function ChatView({
     }
 
     for (const threadIdToHydrate of pendingThreadIds) {
-      const thread = getThreadById(threads, threadIdToHydrate);
+      const thread = getThreadById(useStore.getState().threads, threadIdToHydrate);
       if (thread && thread.historyLoaded !== false) {
         continue;
       }
@@ -1663,7 +1705,6 @@ export default function ChatView({
     handoffSourceThreadIds,
     hydrateThreadFromReadModel,
     isServerThread,
-    threads,
   ]);
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
   const liveTurnInProgress = hasLiveTurn(activeLatestTurn, activeThread?.session ?? null);
@@ -4993,19 +5034,9 @@ export default function ChatView({
     toggleInteractionMode,
     toggleTerminalVisibility,
   ]);
-  const togglePlanSidebar = useCallback(() => {
-    setPlanSidebarOpen((open) => {
-      if (open) {
-        const turnKey = activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? null;
-        if (turnKey) {
-          planSidebarDismissedForTurnRef.current = turnKey;
-        }
-      } else {
-        planSidebarDismissedForTurnRef.current = null;
-      }
-      return !open;
-    });
-  }, [activePlan?.turnId, sidebarProposedPlan?.turnId]);
+  const togglePlanSummaryPanel = useCallback(() => {
+    setRightSidePanelMode((current) => (current === "summary" ? null : "summary"));
+  }, [setRightSidePanelMode]);
 
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
@@ -5394,15 +5425,12 @@ export default function ChatView({
     setGitHubIssueDialogInitialIssueNumber(null);
     setGitHubIssueDialogInitialSelectedIssueNumbers([]);
     setPullRequestDialogState(null);
-    if (planSidebarOpenOnNextThreadRef.current) {
-      planSidebarOpenOnNextThreadRef.current = false;
-      setPlanSidebarOpen(true);
-    } else {
-      setPlanSidebarOpen(false);
+    if (openSummaryOnNextThreadRef.current) {
+      openSummaryOnNextThreadRef.current = false;
+      setRightSidePanelMode("summary");
     }
-    planSidebarDismissedForTurnRef.current = null;
     dismissedComposerTriggerRef.current = null;
-  }, [activeThread?.id]);
+  }, [activeThread?.id, setRightSidePanelMode]);
 
   useEffect(() => {
     if (!composerMenuOpen) {
@@ -6804,12 +6832,10 @@ export default function ChatView({
             : {}),
           createdAt: messageCreatedAt,
         });
-        // Optimistically open the plan sidebar when implementing (not refining).
-        // "default" mode here means the agent is executing the plan, which produces
-        // step-tracking activities that the sidebar will display.
+        // Switch to the summary surface when implementing so live plan and todo updates
+        // stay in the same right-panel destination.
         if (nextInteractionMode === "default") {
-          planSidebarDismissedForTurnRef.current = null;
-          setPlanSidebarOpen(true);
+          setRightSidePanelMode("summary");
         }
         sendInFlightRef.current = false;
       } catch (err) {
@@ -6840,6 +6866,7 @@ export default function ChatView({
       selectedProvider,
       selectedProviderModels,
       setComposerDraftInteractionMode,
+      setRightSidePanelMode,
       setThreadError,
       selectedModel,
     ],
@@ -6921,8 +6948,7 @@ export default function ChatView({
         return waitForStartedServerThread(nextThreadId);
       })
       .then(() => {
-        // Signal that the plan sidebar should open on the new thread.
-        planSidebarOpenOnNextThreadRef.current = true;
+        openSummaryOnNextThreadRef.current = true;
         return navigate({
           to: "/$threadId",
           params: { threadId: nextThreadId },
@@ -7721,25 +7747,6 @@ export default function ChatView({
         onPrepared: handlePreparedPullRequestThread,
       }
     : null;
-  const planSidebarProps =
-    workspaceMode !== "editor" && planSidebarOpen
-      ? {
-          activePlan,
-          activeProposedPlan: sidebarProposedPlan,
-          activeProvider: activeThread?.session?.provider ?? null,
-          markdownCwd: gitCwd ?? undefined,
-          onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
-          workspaceRoot: activeProject?.cwd ?? undefined,
-          timestampFormat,
-          onClose: () => {
-            setPlanSidebarOpen(false);
-            const turnKey = activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? null;
-            if (turnKey) {
-              planSidebarDismissedForTurnRef.current = turnKey;
-            }
-          },
-        }
-      : null;
   const browserPanel =
     isElectron && activeThreadId
       ? (() => {
@@ -7975,19 +7982,23 @@ export default function ChatView({
                 )}
               >
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                  {activePlan || sidebarProposedPlan || planSidebarOpen ? (
+                  {activePlan || sidebarProposedPlan || rightSidePanelMode === "summary" ? (
                     <div className="pointer-events-none absolute bottom-3 right-3 z-30">
                       <Button
                         size="icon-sm"
                         variant="outline"
                         className={cn(
                           "pointer-events-auto h-8 w-8 rounded-full border-border bg-card",
-                          planSidebarOpen
+                          rightSidePanelMode === "summary"
                             ? "text-primary hover:text-primary"
                             : "text-muted-foreground hover:text-foreground",
                         )}
-                        onClick={togglePlanSidebar}
-                        aria-label={planSidebarOpen ? "Hide plan sidebar" : "Show plan sidebar"}
+                        onClick={togglePlanSummaryPanel}
+                        aria-label={
+                          rightSidePanelMode === "summary"
+                            ? "Hide summary panel"
+                            : "Show summary panel"
+                        }
                       >
                         <ListTodoIcon className="size-4" />
                       </Button>
@@ -8540,29 +8551,14 @@ export default function ChatView({
                         transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
                       >
                         {activeRightSidePanelMode === "summary" ? (
-                          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
-                            <div className="rounded-lg border border-border/70 bg-card/60 p-3">
-                              <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                                Plan
-                              </div>
-                              <div className="mt-2 text-sm text-foreground">
-                                {activePlan
-                                  ? "A plan is active for this thread."
-                                  : sidebarProposedPlan
-                                    ? (proposedPlanTitle(sidebarProposedPlan.planMarkdown) ??
-                                      "Proposed plan")
-                                    : "No active plan."}
-                              </div>
-                            </div>
-                            <div className="rounded-lg border border-border/70 bg-card/60 p-3">
-                              <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                                Todos
-                              </div>
-                              <div className="mt-2 text-sm text-muted-foreground">
-                                Todo summary will appear here when the thread has actionable tasks.
-                              </div>
-                            </div>
-                          </div>
+                          <PlanSummaryPanel
+                            activePlan={activePlan}
+                            activeProposedPlan={sidebarProposedPlan}
+                            activeProvider={activeThread?.session?.provider ?? null}
+                            markdownCwd={gitCwd ?? undefined}
+                            onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
+                            workspaceRoot={activeProject?.cwd ?? undefined}
+                          />
                         ) : activeRightSidePanelMode === "diff" && splitPane ? (
                           <LocalDiffPanel
                             threadId={activeThread.id}
@@ -8623,11 +8619,7 @@ export default function ChatView({
           ) : null}
         </AnimatePresence>
 
-        <ChatViewPanels
-          browserPanel={null}
-          expandedImageOverlay={expandedImageOverlay}
-          planSidebarProps={planSidebarProps}
-        />
+        <ChatViewPanels browserPanel={null} expandedImageOverlay={expandedImageOverlay} />
       </div>
       {/* end horizontal flex container */}
 
