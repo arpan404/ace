@@ -1,14 +1,19 @@
 import { lazy, Suspense, type ComponentType } from "react";
 
-function createLazySettingsPanel(loader: () => Promise<{ default: ComponentType }>) {
-  const Panel = lazy(loader);
-  const LazySettingsPanel = () => (
+function LazySettingsRoute({ panel: Panel }: { panel: ComponentType }) {
+  return (
     <Suspense fallback={null}>
       <Panel />
     </Suspense>
   );
+}
 
-  return LazySettingsPanel;
+function createLazySettingsPanel(loader: () => Promise<{ default: ComponentType }>) {
+  const Panel = lazy(loader);
+
+  return function LazySettingsPanelRoute() {
+    return <LazySettingsRoute panel={Panel} />;
+  };
 }
 
 export const AboutSettingsPanelRoute = createLazySettingsPanel(() =>
