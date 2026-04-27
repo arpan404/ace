@@ -5034,10 +5034,6 @@ export default function ChatView({
     toggleInteractionMode,
     toggleTerminalVisibility,
   ]);
-  const togglePlanSummaryPanel = useCallback(() => {
-    setRightSidePanelMode((current) => (current === "summary" ? null : "summary"));
-  }, [setRightSidePanelMode]);
-
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
       threadId: ThreadId;
@@ -7982,28 +7978,6 @@ export default function ChatView({
                 )}
               >
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                  {activePlan || sidebarProposedPlan || rightSidePanelMode === "summary" ? (
-                    <div className="pointer-events-none absolute bottom-3 right-3 z-30">
-                      <Button
-                        size="icon-sm"
-                        variant="outline"
-                        className={cn(
-                          "pointer-events-auto h-8 w-8 rounded-full border-border bg-card",
-                          rightSidePanelMode === "summary"
-                            ? "text-primary hover:text-primary"
-                            : "text-muted-foreground hover:text-foreground",
-                        )}
-                        onClick={togglePlanSummaryPanel}
-                        aria-label={
-                          rightSidePanelMode === "summary"
-                            ? "Hide summary panel"
-                            : "Show summary panel"
-                        }
-                      >
-                        <ListTodoIcon className="size-4" />
-                      </Button>
-                    </div>
-                  ) : null}
                   {/* Messages Wrapper */}
                   <ChatMessagesPane {...chatMessagesPaneProps} />
 
