@@ -22,8 +22,21 @@ import { toastManager } from "../ui/toast";
 type DraftShortcutByCommand = Partial<Record<StaticKeybindingCommand, KeybindingShortcut | null>>;
 type DraftWhenByCommand = Partial<Record<StaticKeybindingCommand, string | undefined>>;
 
-const CATEGORY_ORDER = ["Sidebar", "Chat", "Terminal", "Browser", "Editor", "Threads"] as const;
+const CATEGORY_ORDER = [
+  "Sidebar",
+  "Chat",
+  "Right Panel",
+  "Terminal",
+  "Browser",
+  "Editor",
+  "Threads",
+] as const;
 const CATEGORY_PREVIEW_COUNT = 3;
+type KeybindingCategory = (typeof CATEGORY_ORDER)[number];
+
+const CATEGORY_DESCRIPTIONS: Partial<Record<KeybindingCategory, string>> = {
+  "Right Panel": "Add and toggle the Browser, Review, and Editor tabs in the right side panel.",
+};
 
 function shortcutRuleFingerprint(
   shortcut: KeybindingShortcut,
@@ -44,7 +57,7 @@ export function KeybindingsSettingsEditor() {
   const [draftShortcuts, setDraftShortcuts] = useState<DraftShortcutByCommand>({});
   const [draftWhenByCommand, setDraftWhenByCommand] = useState<DraftWhenByCommand>({});
   const [expandedGroups, setExpandedGroups] = useState<
-    Partial<Record<(typeof CATEGORY_ORDER)[number], boolean>>
+    Partial<Record<KeybindingCategory, boolean>>
   >({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -249,9 +262,16 @@ export function KeybindingsSettingsEditor() {
 
       {categoryGroups.map((group) => (
         <section key={group.category} className="space-y-2">
-          <h4 className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-            {group.category}
-          </h4>
+          <div className="space-y-0.5">
+            <h4 className="text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+              {group.category}
+            </h4>
+            {CATEGORY_DESCRIPTIONS[group.category] ? (
+              <p className="text-xs text-muted-foreground">
+                {CATEGORY_DESCRIPTIONS[group.category]}
+              </p>
+            ) : null}
+          </div>
           <div className="space-y-2 rounded-md border border-border/60 p-2.5">
             {(expandedGroups[group.category]
               ? group.items

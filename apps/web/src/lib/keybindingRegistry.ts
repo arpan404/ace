@@ -1,7 +1,14 @@
 import { STATIC_KEYBINDING_COMMANDS, type StaticKeybindingCommand } from "@ace/contracts";
 import type { ShortcutMatchContext } from "~/keybindings";
 
-type KeybindingCategory = "Sidebar" | "Chat" | "Terminal" | "Browser" | "Editor" | "Threads";
+type KeybindingCategory =
+  | "Sidebar"
+  | "Chat"
+  | "Right Panel"
+  | "Terminal"
+  | "Browser"
+  | "Editor"
+  | "Threads";
 
 interface KeybindingDefinitionMeta {
   readonly category: KeybindingCategory;
@@ -95,9 +102,9 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       context: TERMINAL_FOCUS_CONTEXT,
     },
     "diff.toggle": {
-      category: "Chat",
-      label: "Toggle diff panel",
-      description: "Show or hide the diff panel.",
+      category: "Right Panel",
+      label: "Toggle Review tab",
+      description: "Open or close the Review tab in the right side panel.",
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
@@ -123,11 +130,11 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       context: BROWSER_CONTEXT,
     },
     "browser.newTab": {
-      category: "Browser",
-      label: "New browser tab",
-      description: "Open a new browser tab.",
-      when: "browserOpen && !terminalFocus",
-      context: BROWSER_CONTEXT,
+      category: "Right Panel",
+      label: "Add Browser tab",
+      description: "Open a Browser tab in the right side panel.",
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
     },
     "browser.closeTab": {
       category: "Browser",
@@ -252,6 +259,13 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       category: "Chat",
       label: "Toggle top header",
       description: "Show or hide the chat top header.",
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
+    "rightPanel.editor.toggle": {
+      category: "Right Panel",
+      label: "Toggle Editor tab",
+      description: "Open or close the Editor tab in the right side panel.",
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
