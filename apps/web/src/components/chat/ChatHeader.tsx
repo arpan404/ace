@@ -14,6 +14,7 @@ import GitActionsControl from "../GitActionsControl";
 import { FolderIcon, GitBranchIcon, GitForkIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
@@ -112,6 +113,14 @@ export const ChatHeader = memo(function ChatHeader({
   const workspaceActionNodes = workspaceActionItems.filter(
     (item): item is NonNullable<ReactNode> => item !== null,
   );
+  const terminalTooltipLabel = !terminalAvailable
+    ? "Terminal is unavailable until this thread has an active project."
+    : terminalToggleShortcutLabel
+      ? `Toggle terminal (${terminalToggleShortcutLabel})`
+      : "Toggle terminal";
+  const rightSidePanelTooltipLabel = rightSidePanelOpen
+    ? "Close right side panel"
+    : "Open right side panel";
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
@@ -193,51 +202,61 @@ export const ChatHeader = memo(function ChatHeader({
           </>
         ) : null}
         <div className="flex shrink-0 items-center gap-1.5">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-lg"
-            className={cn(
-              DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-              terminalOpen && "!bg-accent text-foreground hover:text-foreground",
-            )}
-            onClick={onToggleTerminal}
-            disabled={!terminalAvailable}
-            aria-pressed={terminalOpen}
-            aria-label={
-              terminalToggleShortcutLabel
-                ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
-                : "Toggle terminal drawer"
-            }
-            title={
-              !terminalAvailable
-                ? "Terminal is unavailable until this thread has an active project."
-                : terminalToggleShortcutLabel
-                  ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
-                  : "Toggle terminal drawer"
-            }
-          >
-            <IconTerminal className="size-[18px]" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-lg"
-            className={cn(
-              DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-              rightSidePanelOpen && "!bg-accent text-foreground hover:text-foreground",
-            )}
-            onClick={onToggleRightSidePanel}
-            aria-pressed={rightSidePanelOpen}
-            aria-label="Toggle right side panel"
-            title={rightSidePanelOpen ? "Close right side panel" : "Open right side panel"}
-          >
-            {rightSidePanelOpen ? (
-              <IconLayoutSidebarRightFilled className="size-[18px]" />
-            ) : (
-              <IconLayoutSidebarRight className="size-[18px]" strokeWidth={2} />
-            )}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-lg"
+                  className={cn(
+                    DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+                    terminalOpen && "!bg-accent text-foreground hover:text-foreground",
+                  )}
+                  onClick={onToggleTerminal}
+                  disabled={!terminalAvailable}
+                  aria-pressed={terminalOpen}
+                  aria-label={
+                    terminalToggleShortcutLabel
+                      ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
+                      : "Toggle terminal drawer"
+                  }
+                />
+              }
+            >
+              <IconTerminal className="size-[18px]" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom" align="end">
+              {terminalTooltipLabel}
+            </TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-lg"
+                  className={cn(
+                    DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+                    rightSidePanelOpen && "!bg-accent text-foreground hover:text-foreground",
+                  )}
+                  onClick={onToggleRightSidePanel}
+                  aria-pressed={rightSidePanelOpen}
+                  aria-label="Toggle right side panel"
+                />
+              }
+            >
+              {rightSidePanelOpen ? (
+                <IconLayoutSidebarRightFilled className="size-[18px]" />
+              ) : (
+                <IconLayoutSidebarRight className="size-[18px]" strokeWidth={2} />
+              )}
+            </TooltipTrigger>
+            <TooltipPopup side="bottom" align="end">
+              {rightSidePanelTooltipLabel}
+            </TooltipPopup>
+          </Tooltip>
         </div>
       </div>
     </div>

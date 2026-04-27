@@ -10,9 +10,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDownIcon,
   CloudUploadIcon,
+  GitBranchPlusIcon,
   GitCommitIcon,
   InfoIcon,
   KeyRoundIcon,
+  LoaderCircleIcon,
 } from "lucide-react";
 import { GitHubIcon } from "./Icons";
 import { runAsyncTask } from "../lib/async";
@@ -50,7 +52,14 @@ import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast";
 import {
   HEADER_ACTION_CONTROL_CLASS_NAME,
+  HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME,
+  HEADER_ACTION_DIALOG_HEADER_CLASS_NAME,
+  HEADER_ACTION_DIALOG_PANEL_CLASS_NAME,
+  HEADER_ACTION_DIALOG_POPUP_CLASS_NAME,
   HEADER_ACTION_DIVIDER_CLASS_NAME,
+  HEADER_ACTION_FIELD_CARD_CLASS_NAME,
+  HEADER_ACTION_FIELD_CONTROL_CLASS_NAME,
+  HEADER_ACTION_FIELD_LABEL_CLASS_NAME,
   HEADER_ACTION_GROUP_CLASS_NAME,
   HEADER_ACTION_ICON_CONTROL_CLASS_NAME,
   TopBarCluster,
@@ -861,14 +870,34 @@ export default function GitActionsControl({
   return (
     <>
       {!isRepo ? (
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={initMutation.isPending}
-          onClick={() => initMutation.mutate()}
+        <TopBarCluster
+          aria-label="Git actions"
+          className={`${HEADER_ACTION_GROUP_CLASS_NAME} shrink-0`}
         >
-          {initMutation.isPending ? "Initializing..." : "Initialize Git"}
-        </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className={HEADER_ACTION_ICON_CONTROL_CLASS_NAME}
+                  disabled={initMutation.isPending}
+                  onClick={() => initMutation.mutate()}
+                  aria-label={initMutation.isPending ? "Initializing Git" : "Initialize Git"}
+                />
+              }
+            >
+              {initMutation.isPending ? (
+                <LoaderCircleIcon className="size-4 animate-spin" />
+              ) : (
+                <GitBranchPlusIcon className="size-4" />
+              )}
+            </TooltipTrigger>
+            <TooltipPopup side="bottom" align="end">
+              {initMutation.isPending ? "Initializing Git..." : "Initialize Git"}
+            </TooltipPopup>
+          </Tooltip>
+        </TopBarCluster>
       ) : (
         <TopBarCluster
           aria-label="Git actions"
@@ -1038,21 +1067,23 @@ export default function GitActionsControl({
           }
         }}
       >
-        <DialogPopup>
-          <DialogHeader>
+        <DialogPopup className={`${HEADER_ACTION_DIALOG_POPUP_CLASS_NAME} max-w-2xl`}>
+          <DialogHeader className={HEADER_ACTION_DIALOG_HEADER_CLASS_NAME}>
             <DialogTitle>{COMMIT_DIALOG_TITLE}</DialogTitle>
-            <DialogDescription>{COMMIT_DIALOG_DESCRIPTION}</DialogDescription>
+            <DialogDescription className="max-w-xl">{COMMIT_DIALOG_DESCRIPTION}</DialogDescription>
           </DialogHeader>
-          <DialogPanel className="space-y-4">
-            <div className="space-y-3 rounded-lg border border-input bg-muted/40 p-3 text-xs">
+          <DialogPanel className={HEADER_ACTION_DIALOG_PANEL_CLASS_NAME}>
+            <div className={`${HEADER_ACTION_FIELD_CARD_CLASS_NAME} space-y-3 p-3 text-xs`}>
               <div className="grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1">
                 <span className="text-muted-foreground">Branch</span>
                 <span className="flex items-center justify-between gap-2">
-                  <span className="font-medium">
+                  <span className="font-medium text-foreground/88">
                     {gitStatusForActions?.branch ?? "(detached HEAD)"}
                   </span>
                   {isDefaultBranch && (
-                    <span className="text-right text-warning text-xs">Warning: default branch</span>
+                    <span className="rounded-md bg-warning/10 px-1.5 py-0.5 text-right text-warning text-xs">
+                      Default branch
+                    </span>
                   )}
                 </span>
               </div>
@@ -1081,6 +1112,7 @@ export default function GitActionsControl({
                     <Button
                       variant="ghost"
                       size="xs"
+                      className="text-foreground/72 hover:bg-accent hover:text-foreground"
                       onClick={() => setIsEditingFiles((prev) => !prev)}
                     >
                       {isEditingFiles ? "Done" : "Edit"}
@@ -1091,14 +1123,14 @@ export default function GitActionsControl({
                   <p className="font-medium">none</p>
                 ) : (
                   <div className="space-y-2">
-                    <ScrollArea className="h-44 rounded-md border border-input bg-background">
+                    <ScrollArea className="h-44 rounded-lg border border-border/45 bg-background/66">
                       <div className="space-y-1 p-1">
                         {allFiles.map((file) => {
                           const isExcluded = excludedFiles.has(file.path);
                           return (
                             <div
                               key={file.path}
-                              className="flex w-full items-center gap-2 rounded-md px-2 py-1 font-mono text-xs transition-colors hover:bg-accent/50"
+                              className="flex w-full items-center gap-2 rounded-md px-2 py-1 font-mono text-xs transition-colors hover:bg-accent"
                             >
                               {isEditingFiles && (
                                 <Checkbox
@@ -1157,16 +1189,17 @@ export default function GitActionsControl({
               </div>
             </div>
             <div className="space-y-1">
-              <p className="text-xs font-medium">Commit message (optional)</p>
+              <p className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>Commit message (optional)</p>
               <Textarea
                 value={dialogCommitMessage}
                 onChange={(event) => setDialogCommitMessage(event.target.value)}
                 placeholder="Leave empty to auto-generate"
                 size="sm"
+                className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} min-h-24`}
               />
             </div>
           </DialogPanel>
-          <DialogFooter>
+          <DialogFooter className={HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME}>
             <Button
               variant="outline"
               size="sm"
@@ -1202,19 +1235,20 @@ export default function GitActionsControl({
           }
         }}
       >
-        <DialogPopup className="max-w-md">
-          <DialogHeader>
+        <DialogPopup className={`${HEADER_ACTION_DIALOG_POPUP_CLASS_NAME} max-w-md`}>
+          <DialogHeader className={HEADER_ACTION_DIALOG_HEADER_CLASS_NAME}>
             <DialogTitle>SSH key passphrase</DialogTitle>
             <DialogDescription>
               Saved for git SSH fetch, push, and pull request checkout.
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel className="space-y-2">
+          <DialogPanel className={HEADER_ACTION_DIALOG_PANEL_CLASS_NAME}>
             <label className="grid gap-1.5">
-              <span className="text-xs font-medium text-foreground">Passphrase</span>
+              <span className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>Passphrase</span>
               <Input
                 type="password"
                 value={sshPassphraseDraft}
+                className={HEADER_ACTION_FIELD_CONTROL_CLASS_NAME}
                 onChange={(event) => setSshPassphraseDraft(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key !== "Enter") {
@@ -1234,7 +1268,7 @@ export default function GitActionsControl({
               {configuredGitSshKeyPassphrase.trim().length > 0 ? "Configured" : "Not set"}
             </p>
           </DialogPanel>
-          <DialogFooter>
+          <DialogFooter className={HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME}>
             <Button
               type="button"
               variant="ghost"
@@ -1273,14 +1307,22 @@ export default function GitActionsControl({
           }
         }}
       >
-        <DialogPopup className="max-w-xl">
-          <DialogHeader>
+        <DialogPopup className={`${HEADER_ACTION_DIALOG_POPUP_CLASS_NAME} max-w-xl`}>
+          <DialogHeader className={HEADER_ACTION_DIALOG_HEADER_CLASS_NAME}>
             <DialogTitle>
               {pendingDefaultBranchActionCopy?.title ?? "Run action on default branch?"}
             </DialogTitle>
             <DialogDescription>{pendingDefaultBranchActionCopy?.description}</DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+          <DialogPanel className={HEADER_ACTION_DIALOG_PANEL_CLASS_NAME}>
+            <div
+              className={`${HEADER_ACTION_FIELD_CARD_CLASS_NAME} p-3 text-sm text-muted-foreground`}
+            >
+              Running Git actions on the default branch can change the main project history. Use a
+              feature branch when the work should stay isolated.
+            </div>
+          </DialogPanel>
+          <DialogFooter className={HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME}>
             <Button variant="outline" size="sm" onClick={() => setPendingDefaultBranchAction(null)}>
               Abort
             </Button>
