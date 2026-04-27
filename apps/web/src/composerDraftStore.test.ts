@@ -1198,6 +1198,16 @@ describe("composerDraftStore cursor selections", () => {
     resetComposerDraftStore();
   });
 
+  it("preserves explicit Cursor fast-variant model slugs", () => {
+    const store = useComposerDraftStore.getState();
+
+    store.setModelSelection(threadId, modelSelection("cursor", "composer-2-fast"));
+
+    expect(
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.cursor,
+    ).toEqual(modelSelection("cursor", "composer-2-fast"));
+  });
+
   it("preserves cursor options on explicit model selections", () => {
     const store = useComposerDraftStore.getState();
 
