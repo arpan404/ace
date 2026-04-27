@@ -71,7 +71,6 @@ function parseChatThreadRouteSearch(search: Record<string, unknown>): ChatThread
 function ChatThreadRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
-  const store = useStore();
   const navigate = useNavigate();
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
@@ -235,11 +234,14 @@ function ChatThreadRouteView() {
   ]);
 
   const handoffSourceThreadId = serverThread?.handoff?.sourceThreadId;
+  const handoffSourceThread = useStore((store) =>
+    handoffSourceThreadId ? getThreadById(store.threads, handoffSourceThreadId) : undefined,
+  );
   useEffect(() => {
     if (!bootstrapComplete || !handoffSourceThreadId) {
       return;
     }
-    const sourceThread = getThreadById(store.threads, handoffSourceThreadId);
+    const sourceThread = handoffSourceThread;
     if (sourceThread && sourceThread.historyLoaded !== false) {
       return;
     }
@@ -271,7 +273,7 @@ function ChatThreadRouteView() {
     return () => {
       canceled = true;
     };
-  }, [bootstrapComplete, handoffSourceThreadId, store.threads, hydrateThreadFromReadModel]);
+  }, [bootstrapComplete, handoffSourceThread, handoffSourceThreadId, hydrateThreadFromReadModel]);
 
   if (!bootstrapComplete || !routeThreadExists) {
     return null;

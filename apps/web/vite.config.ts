@@ -55,5 +55,33 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     sourcemap: buildSourcemap,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (
+            id.includes("monaco-editor") ||
+            id.includes("@monaco-editor") ||
+            id.includes("@codingame")
+          ) {
+            return "monaco";
+          }
+
+          if (
+            id.includes("react-markdown") ||
+            id.includes("remark-gfm") ||
+            id.includes("remark-breaks") ||
+            id.includes("mermaid")
+          ) {
+            return "markdown";
+          }
+
+          if (id.includes("/src/components/settings/") || id.includes("/src/routes/settings.")) {
+            return "settings";
+          }
+
+          return undefined;
+        },
+      },
+    },
   },
 });

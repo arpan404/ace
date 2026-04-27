@@ -77,8 +77,6 @@ import {
   type DesktopBackgroundNotificationService,
 } from "./backgroundNotificationService";
 
-syncShellEnvironment();
-
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
 const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
@@ -99,10 +97,8 @@ const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
-const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
-const GET_IS_DEVELOPMENT_BUILD_CHANNEL = "desktop:get-is-development-build";
-const GET_WINDOW_SHOWN_AT_CHANNEL = "desktop:get-window-shown-at";
-const GET_TITLEBAR_LEFT_INSET_CHANNEL = "desktop:get-titlebar-left-inset";
+const GET_RENDERER_BOOTSTRAP_CHANNEL = "desktop:get-renderer-bootstrap";
+const WINDOW_SHOWN_AT_CHANGED_CHANNEL = "desktop:window-shown-at-changed";
 const TITLEBAR_LEFT_INSET_CHANGED_CHANNEL = "desktop:titlebar-left-inset-changed";
 const GET_NOTIFICATION_PERMISSION_CHANNEL = "desktop:get-notification-permission";
 const REQUEST_NOTIFICATION_PERMISSION_CHANNEL = "desktop:request-notification-permission";
@@ -173,6 +169,13 @@ interface DaemonStatusOutput {
 interface DaemonStopOutput {
   readonly status: "already-stopped" | "cleared-stale-state" | "stopped";
   readonly pid?: number;
+}
+
+interface DesktopRendererBootstrapPayload {
+  readonly isDevelopmentBuild: boolean;
+  readonly titlebarLeftInset: number | null;
+  readonly windowShownAt: number | null;
+  readonly wsUrl: string | null;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -836,6 +839,10 @@ function resolveTitlebarLeftInset(window: BrowserWindow | null | undefined): num
 
 function emitTitlebarLeftInsetChanged(window: BrowserWindow): void {
   safelySendToWindow(window, TITLEBAR_LEFT_INSET_CHANGED_CHANNEL, resolveTitlebarLeftInset(window));
+}
+
+function emitWindowShownAtChanged(window: BrowserWindow): void {
+  safelySendToWindow(window, WINDOW_SHOWN_AT_CHANGED_CHANNEL, mainWindowShownAtMs);
 }
 
 function getDesktopCliUnavailableMessage(): string {
@@ -2187,26 +2194,16 @@ async function stopBackendAndWaitForExit(timeoutMs = 5_000): Promise<void> {
 }
 
 function registerIpcHandlers(): void {
-  ipcMain.removeAllListeners(GET_WS_URL_CHANNEL);
-  ipcMain.on(GET_WS_URL_CHANNEL, (event) => {
-    event.returnValue = backendWsUrl;
-  });
-
-  ipcMain.removeAllListeners(GET_IS_DEVELOPMENT_BUILD_CHANNEL);
-  ipcMain.on(GET_IS_DEVELOPMENT_BUILD_CHANNEL, (event) => {
-    event.returnValue = isDevelopmentBuild;
-  });
-
-  ipcMain.removeAllListeners(GET_WINDOW_SHOWN_AT_CHANNEL);
-  ipcMain.on(GET_WINDOW_SHOWN_AT_CHANNEL, (event) => {
-    event.returnValue = mainWindowShownAtMs;
-  });
-
-  ipcMain.removeAllListeners(GET_TITLEBAR_LEFT_INSET_CHANNEL);
-  ipcMain.on(GET_TITLEBAR_LEFT_INSET_CHANNEL, (event) => {
+  ipcMain.removeAllListeners(GET_RENDERER_BOOTSTRAP_CHANNEL);
+  ipcMain.on(GET_RENDERER_BOOTSTRAP_CHANNEL, (event) => {
     const owner =
       BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? mainWindow;
-    event.returnValue = resolveTitlebarLeftInset(owner);
+    event.returnValue = {
+      isDevelopmentBuild,
+      titlebarLeftInset: resolveTitlebarLeftInset(owner),
+      windowShownAt: mainWindowShownAtMs,
+      wsUrl: backendWsUrl,
+    } satisfies DesktopRendererBootstrapPayload;
   });
 
   ipcMain.removeHandler(GET_NOTIFICATION_PERMISSION_CHANNEL);
@@ -2674,6 +2671,7 @@ function createWindow(): BrowserWindow {
     }
     if (mainWindowShownAtMs === null) {
       mainWindowShownAtMs = Date.now();
+      emitWindowShownAtChanged(window);
     }
     if (!window.isVisible()) {
       window.show();
@@ -2767,7 +2765,7 @@ app
   .whenReady()
   .then(() => {
     writeDesktopLogHeader("app ready");
-    configureAppIdentity();
+    syncShellEnvironment();
     if (useDaemonBackend) {
       ensureDaemonAutostartRegistration();
     }

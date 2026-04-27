@@ -5,7 +5,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { requestInAppBrowserFromShell } from "../lib/browser/launcher";
 import { buildSingleThreadRouteSearch } from "../lib/chatThreadBoardRouteSearch";
-import { useSettings } from "../hooks/useSettings";
+import { useSetting } from "../hooks/useSettings";
 import { resolveDesktopMenuSettingsRoute } from "../lib/desktopMenu";
 import { resolveSidebarNewThreadEnvMode } from "../lib/sidebar";
 import { resolveThreadCreationOptions } from "../lib/threadCreation";
@@ -91,7 +91,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const { activeDraftThread, activeThread, defaultProjectId, handleNewThread, routeThreadId } =
     useHandleNewThread();
-  const appSettings = useSettings();
+  const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const activeThreadId = useUiStateStore((store) => store.activeThreadId);
   const previousActiveThreadId = useUiStateStore((store) => store.previousActiveThreadId);
 
@@ -117,7 +117,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         : null,
       defaultProjectId,
       defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
-        defaultEnvMode: appSettings.defaultThreadEnvMode,
+        defaultEnvMode: defaultThreadEnvMode,
       }),
       handleNewThread,
       navigateToThread: async (threadId) => {
@@ -140,7 +140,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     activeDraftThread,
     activeThread,
     activeThreadId,
-    appSettings.defaultThreadEnvMode,
+    defaultThreadEnvMode,
     defaultProjectId,
     handleNewThread,
     navigate,
@@ -199,7 +199,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
               }
             : null,
           defaultNewThreadEnvMode: resolveSidebarNewThreadEnvMode({
-            defaultEnvMode: appSettings.defaultThreadEnvMode,
+            defaultEnvMode: defaultThreadEnvMode,
           }),
         }),
       );
@@ -207,7 +207,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     [
       activeDraftThread,
       activeThread,
-      appSettings.defaultThreadEnvMode,
+      defaultThreadEnvMode,
       defaultProjectId,
       handleNewThread,
       navigate,

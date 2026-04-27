@@ -39,8 +39,7 @@ import {
 } from "~/editorStateStore";
 import { usePreferredEditor } from "~/editorPreferences";
 import { useAppearancePrefs } from "~/appearancePrefs";
-import { useSettings } from "~/hooks/useSettings";
-import { useUpdateSettings } from "~/hooks/useSettings";
+import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { isTerminalFocused } from "~/lib/terminalFocus";
 import {
@@ -661,14 +660,30 @@ function ThreadWorkspaceEditor(inputProps: {
   const { resolvedTheme } = useTheme();
   const { themePreset } = useAppearancePrefs();
   const { updateSettings } = useUpdateSettings();
-  const editorSettings = useSettings((settings) => ({
-    lineNumbers: settings.editorLineNumbers,
-    minimap: settings.editorMinimap,
-    renderWhitespace: settings.editorRenderWhitespace,
-    stickyScroll: settings.editorStickyScroll,
-    suggestions: settings.editorSuggestions,
-    wordWrap: settings.editorWordWrap,
-  }));
+  const editorLineNumbers = useSetting("editorLineNumbers");
+  const editorMinimap = useSetting("editorMinimap");
+  const editorRenderWhitespace = useSetting("editorRenderWhitespace");
+  const editorStickyScroll = useSetting("editorStickyScroll");
+  const editorSuggestions = useSetting("editorSuggestions");
+  const editorWordWrap = useSetting("editorWordWrap");
+  const editorSettings = useMemo(
+    () => ({
+      lineNumbers: editorLineNumbers,
+      minimap: editorMinimap,
+      renderWhitespace: editorRenderWhitespace,
+      stickyScroll: editorStickyScroll,
+      suggestions: editorSuggestions,
+      wordWrap: editorWordWrap,
+    }),
+    [
+      editorLineNumbers,
+      editorMinimap,
+      editorRenderWhitespace,
+      editorStickyScroll,
+      editorSuggestions,
+      editorWordWrap,
+    ],
+  );
   const queryClient = useQueryClient();
   const api = readNativeApi();
   const [treeSearch, setTreeSearch] = useState("");

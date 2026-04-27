@@ -38,7 +38,7 @@ import { buildPatchCacheKey } from "../lib/diffRendering";
 import { resolveDiffThemeName } from "../lib/diffRendering";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useStore } from "../store";
-import { useSettings } from "../hooks/useSettings";
+import { useSetting } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
@@ -198,9 +198,10 @@ export default function DiffPanel({
 }: DiffPanelProps) {
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
-  const settings = useSettings();
+  const diffWordWrapSetting = useSetting("diffWordWrap");
+  const timestampFormat = useSetting("timestampFormat");
   const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("stacked");
-  const [diffWordWrap, setDiffWordWrap] = useState(settings.diffWordWrap);
+  const [diffWordWrap, setDiffWordWrap] = useState(diffWordWrapSetting);
   const patchViewportRef = useRef<HTMLDivElement>(null);
   const turnStripRef = useRef<HTMLDivElement>(null);
   const previousDiffOpenRef = useRef(false);
@@ -453,10 +454,10 @@ export default function DiffPanel({
 
   useEffect(() => {
     if (diffOpen && !previousDiffOpenRef.current) {
-      setDiffWordWrap(settings.diffWordWrap);
+      setDiffWordWrap(diffWordWrapSetting);
     }
     previousDiffOpenRef.current = diffOpen;
-  }, [diffOpen, settings.diffWordWrap]);
+  }, [diffOpen, diffWordWrapSetting]);
 
   useEffect(() => {
     if (!selectedFilePath || !patchViewportRef.current) {
@@ -655,7 +656,7 @@ export default function DiffPanel({
                       "?"}
                   </span>
                   <span className="text-[9px] leading-tight opacity-70">
-                    {formatShortTimestamp(summary.completedAt, settings.timestampFormat)}
+                    {formatShortTimestamp(summary.completedAt, timestampFormat)}
                   </span>
                 </div>
               </div>

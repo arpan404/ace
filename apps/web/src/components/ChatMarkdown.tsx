@@ -37,7 +37,7 @@ import { normalizeBrowserHttpUrl } from "../lib/browser/url";
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
 import type { ChatMessageStreamingTextState } from "../types";
-import MermaidDiagram from "./MermaidDiagram";
+const MermaidDiagram = React.lazy(() => import("./MermaidDiagram"));
 
 class CodeHighlightErrorBoundary extends React.Component<
   { fallback: ReactNode; children: ReactNode },
@@ -477,11 +477,13 @@ function ChatMarkdown({
         if (language === "mermaid") {
           return (
             <MarkdownCodeBlock code={codeBlock.code}>
-              <MermaidDiagram
-                source={codeBlock.code}
-                theme={resolvedTheme}
-                className="chat-markdown-mermaid"
-              />
+              <Suspense fallback={<pre {...props}>{children}</pre>}>
+                <MermaidDiagram
+                  source={codeBlock.code}
+                  theme={resolvedTheme}
+                  className="chat-markdown-mermaid"
+                />
+              </Suspense>
             </MarkdownCodeBlock>
           );
         }

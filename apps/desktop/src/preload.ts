@@ -21,10 +21,8 @@ const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
-const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
-const GET_IS_DEVELOPMENT_BUILD_CHANNEL = "desktop:get-is-development-build";
-const GET_WINDOW_SHOWN_AT_CHANNEL = "desktop:get-window-shown-at";
-const GET_TITLEBAR_LEFT_INSET_CHANNEL = "desktop:get-titlebar-left-inset";
+const GET_RENDERER_BOOTSTRAP_CHANNEL = "desktop:get-renderer-bootstrap";
+const WINDOW_SHOWN_AT_CHANGED_CHANNEL = "desktop:window-shown-at-changed";
 const TITLEBAR_LEFT_INSET_CHANGED_CHANNEL = "desktop:titlebar-left-inset-changed";
 const GET_NOTIFICATION_PERMISSION_CHANNEL = "desktop:get-notification-permission";
 const REQUEST_NOTIFICATION_PERMISSION_CHANNEL = "desktop:request-notification-permission";
@@ -34,23 +32,57 @@ const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
 const ORCHESTRATION_EVENT_CHANNEL = "desktop:orchestration-event";
 const SERVER_CONFIG_EVENT_CHANNEL = "desktop:server-config-event";
 
+interface DesktopRendererBootstrapPayload {
+  readonly isDevelopmentBuild: boolean;
+  readonly titlebarLeftInset: number | null;
+  readonly windowShownAt: number | null;
+  readonly wsUrl: string | null;
+}
+
+function readDesktopRendererBootstrap(): DesktopRendererBootstrapPayload {
+  const payload = ipcRenderer.sendSync(GET_RENDERER_BOOTSTRAP_CHANNEL) as
+    | Partial<DesktopRendererBootstrapPayload>
+    | null
+    | undefined;
+
+  return {
+    isDevelopmentBuild: payload?.isDevelopmentBuild === true,
+    titlebarLeftInset:
+      typeof payload?.titlebarLeftInset === "number" &&
+      Number.isFinite(payload.titlebarLeftInset) &&
+      payload.titlebarLeftInset >= 0
+        ? payload.titlebarLeftInset
+        : null,
+    windowShownAt:
+      typeof payload?.windowShownAt === "number" && Number.isFinite(payload.windowShownAt)
+        ? payload.windowShownAt
+        : null,
+    wsUrl: typeof payload?.wsUrl === "string" ? payload.wsUrl : null,
+  };
+}
+
+const desktopRendererBootstrap = readDesktopRendererBootstrap();
+let cachedTitlebarLeftInset = desktopRendererBootstrap.titlebarLeftInset;
+let cachedWindowShownAt = desktopRendererBootstrap.windowShownAt;
+
+ipcRenderer.on(WINDOW_SHOWN_AT_CHANGED_CHANNEL, (_event, value: unknown) => {
+  cachedWindowShownAt = typeof value === "number" && Number.isFinite(value) ? value : null;
+});
+
+ipcRenderer.on(TITLEBAR_LEFT_INSET_CHANGED_CHANNEL, (_event, value: unknown) => {
+  cachedTitlebarLeftInset =
+    typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+});
+
 contextBridge.exposeInMainWorld("desktopBridge", {
-  getWsUrl: () => {
-    const result = ipcRenderer.sendSync(GET_WS_URL_CHANNEL);
-    return typeof result === "string" ? result : null;
-  },
-  getIsDevelopmentBuild: () => ipcRenderer.sendSync(GET_IS_DEVELOPMENT_BUILD_CHANNEL) === true,
-  getWindowShownAt: () => {
-    const result = ipcRenderer.sendSync(GET_WINDOW_SHOWN_AT_CHANNEL);
-    return typeof result === "number" && Number.isFinite(result) ? result : null;
-  },
-  getTitlebarLeftInset: () => {
-    const result = ipcRenderer.sendSync(GET_TITLEBAR_LEFT_INSET_CHANNEL);
-    return typeof result === "number" && Number.isFinite(result) && result >= 0 ? result : null;
-  },
+  getWsUrl: () => desktopRendererBootstrap.wsUrl,
+  getIsDevelopmentBuild: () => desktopRendererBootstrap.isDevelopmentBuild,
+  getWindowShownAt: () => cachedWindowShownAt,
+  getTitlebarLeftInset: () => cachedTitlebarLeftInset,
   onTitlebarLeftInsetChange: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, inset: unknown) => {
       if (typeof inset !== "number" || !Number.isFinite(inset) || inset < 0) return;
+      cachedTitlebarLeftInset = inset;
       listener(inset);
     };
 

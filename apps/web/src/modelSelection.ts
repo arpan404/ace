@@ -113,7 +113,7 @@ export function normalizeCustomModelSlugs(
 }
 
 export function getAppModelOptions(
-  settings: UnifiedSettings,
+  settings: Pick<UnifiedSettings, "providers">,
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderKind,
   selectedModel?: string | null,
@@ -165,7 +165,7 @@ export function getAppModelOptions(
 
 export function resolveAppModelSelection(
   provider: ProviderKind,
-  settings: UnifiedSettings,
+  settings: Pick<UnifiedSettings, "providers">,
   providers: ReadonlyArray<ServerProvider>,
   selectedModel: string | null | undefined,
 ): string {
@@ -187,7 +187,7 @@ export function resolveAppModelSelection(
 }
 
 export function getCustomModelOptionsByProvider(
-  settings: UnifiedSettings,
+  settings: Pick<UnifiedSettings, "providers">,
   providers: ReadonlyArray<ServerProvider>,
   selectedProvider?: ProviderKind | null,
   selectedModel?: string | null,

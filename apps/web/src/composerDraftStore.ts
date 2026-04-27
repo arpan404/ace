@@ -790,7 +790,7 @@ export function deriveEffectiveComposerModelState(input: {
   selectedProvider: ProviderKind;
   threadModelSelection: ModelSelection | null | undefined;
   projectModelSelection: ModelSelection | null | undefined;
-  settings: UnifiedSettings;
+  settings: Pick<UnifiedSettings, "providers">;
 }): EffectiveComposerModelState {
   const baseModelCandidate =
     input.threadModelSelection?.provider === input.selectedProvider
@@ -2249,7 +2249,7 @@ export function useEffectiveComposerModelState(input: {
   selectedProvider: ProviderKind;
   threadModelSelection: ModelSelection | null | undefined;
   projectModelSelection: ModelSelection | null | undefined;
-  settings: UnifiedSettings;
+  settings: Pick<UnifiedSettings, "providers">;
 }): EffectiveComposerModelState {
   const draft = useComposerThreadDraft(input.threadId);
 

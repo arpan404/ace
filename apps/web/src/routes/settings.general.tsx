@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { GeneralSettingsPanel } from "../components/settings/SettingsPanels";
+import { GeneralSettingsPanelRoute } from "../components/settings/LazySettingsPanels";
 
 export const Route = createFileRoute("/settings/general")({
-  component: GeneralSettingsPanel,
+  component: GeneralSettingsPanelRoute,
 });
