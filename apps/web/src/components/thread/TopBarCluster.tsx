@@ -19,6 +19,19 @@ export const HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME = cn(
   "data-[pressed]:!border-pill-border data-[pressed]:!bg-foreground/[0.08] data-[pressed]:!text-pill-foreground data-[pressed]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--foreground)_8%,transparent)] data-[pressed]:[&_svg]:scale-110 [&_svg]:transition-transform [&_svg]:duration-200",
 );
 
+export const HEADER_ACTION_GROUP_CLASS_NAME =
+  "flex h-8 min-w-0 items-center gap-px overflow-hidden rounded-lg border border-border/55 bg-background/38 p-0.5 shadow-none supports-[backdrop-filter]:bg-background/32 supports-[backdrop-filter]:backdrop-blur-md";
+
+export const HEADER_ACTION_CONTROL_CLASS_NAME =
+  "!h-7 !rounded-md !border !border-transparent !bg-transparent !shadow-none gap-1.5 px-2.25 sm:px-2.75 text-[11px]/none font-medium text-foreground/72 transition-[background-color,color,border-color,opacity] duration-150 ease-out hover:!bg-accent hover:text-foreground active:!bg-accent/80 aria-expanded:!bg-accent aria-expanded:text-foreground disabled:text-foreground/35 disabled:hover:!bg-transparent";
+
+export const HEADER_ACTION_ICON_CONTROL_CLASS_NAME = cn(
+  HEADER_ACTION_CONTROL_CLASS_NAME,
+  "!size-7 !px-0",
+);
+
+export const HEADER_ACTION_DIVIDER_CLASS_NAME = "mx-0.5 h-4 w-px bg-border/60";
+
 export const HEADER_PILL_TRIGGER_CLASS_NAME = cn(
   HEADER_PILL_SURFACE_CLASS_NAME,
   "h-6.5 sm:h-7 rounded-[var(--control-radius)] px-2.25 sm:px-2.75 text-[10px]/none font-medium text-pill-foreground transition-[transform,border-color,background-color,color] duration-150 ease-out hover:!bg-pill hover:border-pill-border hover:text-pill-foreground active:!bg-foreground/[0.06] disabled:pointer-events-none disabled:opacity-50",

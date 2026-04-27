@@ -11,14 +11,12 @@ import { IconLayoutSidebar, IconLayoutSidebarFilled } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  Columns2Icon,
   ChevronDownIcon,
   ChevronRightIcon,
   FilePlus2Icon,
   FolderPlusIcon,
   GitBranchIcon,
   GitForkIcon,
-  Maximize2Icon,
   SearchIcon,
 } from "lucide-react";
 import {
@@ -648,8 +646,6 @@ function ThreadWorkspaceEditor(inputProps: {
   gitCwd: string | null;
   keybindings: ResolvedKeybindingsConfig;
   lspCwd?: string | null;
-  onWorkspaceModeChange?: ((mode: ThreadWorkspaceMode) => void) | undefined;
-  showWorkspaceModeControl?: boolean | undefined;
   terminalOpen: boolean;
   threadId: ThreadId;
   worktreePath?: string | null;
@@ -714,10 +710,6 @@ function ThreadWorkspaceEditor(inputProps: {
         : null;
   const [dragTargetParentPath, setDragTargetParentPath] = useState<string | null>(null);
   const [saveConflict, setSaveConflict] = useState<SaveConflictState | null>(null);
-  const onWorkspaceModeChange = props.onWorkspaceModeChange;
-  const showWorkspaceModeControl = inputProps.showWorkspaceModeControl ?? true;
-  const editorWorkspaceMode: ThreadWorkspaceMode =
-    props.workspaceMode === "split" ? "split" : "editor";
   const hasRecentlyClosedFiles = useEditorStateStore(
     useCallback(
       (state) =>
@@ -2148,33 +2140,6 @@ function ThreadWorkspaceEditor(inputProps: {
                   >
                     <IconLayoutSidebarFilled className="size-3.5" />
                   </Button>
-                  {onWorkspaceModeChange && showWorkspaceModeControl ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      className="size-6 shrink-0 text-muted-foreground/76 hover:bg-foreground/6 hover:text-foreground"
-                      aria-label={
-                        editorWorkspaceMode === "split"
-                          ? "Switch to full editor"
-                          : "Switch to split editor"
-                      }
-                      onClick={() =>
-                        onWorkspaceModeChange(editorWorkspaceMode === "split" ? "editor" : "split")
-                      }
-                      title={
-                        editorWorkspaceMode === "split"
-                          ? "Show editor in full-screen mode"
-                          : "Show editor side-by-side with chat"
-                      }
-                    >
-                      {editorWorkspaceMode === "split" ? (
-                        <Maximize2Icon className="size-3.5" />
-                      ) : (
-                        <Columns2Icon className="size-3.5" />
-                      )}
-                    </Button>
-                  ) : null}
                   <Button
                     variant="ghost"
                     size="icon-xs"
@@ -2426,30 +2391,6 @@ function ThreadWorkspaceEditor(inputProps: {
                                       <IconLayoutSidebar className="size-3" />
                                     )}
                                   </Button>
-                                  {onWorkspaceModeChange ? (
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon-xs"
-                                      className="size-5 text-muted-foreground/72 hover:bg-foreground/6 hover:text-foreground"
-                                      onClick={() =>
-                                        onWorkspaceModeChange(
-                                          editorWorkspaceMode === "split" ? "editor" : "split",
-                                        )
-                                      }
-                                      title={
-                                        editorWorkspaceMode === "split"
-                                          ? "Show editor in full-screen mode"
-                                          : "Show editor side-by-side with chat"
-                                      }
-                                    >
-                                      {editorWorkspaceMode === "split" ? (
-                                        <Maximize2Icon className="size-3" />
-                                      ) : (
-                                        <Columns2Icon className="size-3" />
-                                      )}
-                                    </Button>
-                                  ) : null}
                                 </>
                               ) : undefined
                             }

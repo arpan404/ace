@@ -13,14 +13,11 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
-  BugIcon,
   CircleDotIcon,
-  Columns2Icon,
   CropIcon,
   ExternalLinkIcon,
   LoaderCircleIcon,
   MousePointer2Icon,
-  PinIcon,
   PlusIcon,
   RefreshCwIcon,
   SquarePenIcon,
@@ -50,7 +47,7 @@ import {
 } from "~/hooks/useInAppBrowserState";
 import { isContextMenuPointerDown, useThreadJumpHintVisibility } from "~/lib/sidebar";
 import { cn } from "~/lib/utils";
-import type { BrowserTabState } from "~/lib/browser/session";
+import type { BrowserSessionStorage, BrowserTabState } from "~/lib/browser/session";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -224,11 +221,10 @@ interface InAppBrowserProps {
   connectionUrl?: string | null | undefined;
   mode: InAppBrowserMode;
   scopeId?: string;
-  showLayoutControls?: boolean;
+  showTabStrip?: boolean;
   visible?: boolean;
   onClose: () => void;
-  onRestore: () => void;
-  onSplit: () => void;
+  onBrowserSessionChange?: (session: BrowserSessionStorage) => void;
   onControllerChange?: (controller: InAppBrowserController | null) => void;
   onActiveRuntimeStateChange?: (state: ActiveBrowserRuntimeState) => void;
   backShortcutLabel?: string | null;
@@ -358,11 +354,9 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     connectionUrl,
     mode,
     scopeId,
-    showLayoutControls = true,
+    showTabStrip = true,
     visible = activeInstance,
-    onClose,
-    onRestore,
-    onSplit,
+    onBrowserSessionChange,
     onControllerChange,
     onActiveRuntimeStateChange,
     backShortcutLabel,
@@ -370,7 +364,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     designerAreaCommentShortcutLabel,
     designerDrawCommentShortcutLabel,
     designerElementCommentShortcutLabel,
-    devToolsShortcutLabel,
     forwardShortcutLabel,
     reloadShortcutLabel,
     onQueueDesignRequest,
@@ -381,7 +374,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     activeTab,
     activeTabIsInternal,
     activeTabIsNewTab,
-    activeTabIsPinned,
     addressBarSuggestions,
     addressInputRef,
     applySuggestion,
@@ -415,8 +407,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     setIsAddressBarFocused,
     setSelectedSuggestionIndex,
     showAddressBarSuggestions,
-    toggleDevTools,
-    togglePinnedActivePage,
     zoomIn,
     zoomOut,
     zoomReset,
@@ -428,20 +418,11 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     ...(onActiveRuntimeStateChange ? { onActiveRuntimeStateChange } : {}),
     ...(onControllerChange ? { onControllerChange } : {}),
   });
+  useEffect(() => {
+    onBrowserSessionChange?.(browserSession);
+  }, [browserSession, onBrowserSessionChange]);
   const browserShellRef = useRef<HTMLElement | null>(null);
 
-  const activeTabFavicon = activeTab ? (
-    <BrowserFavicon
-      url={activeTab.url}
-      title={activeTab.title}
-      className="size-3.5"
-      fallbackClassName="size-3.5 text-muted-foreground"
-    />
-  ) : null;
-  const devToolsButtonClassName = cn(
-    activeRuntime.devToolsOpen &&
-      "border-amber-500/40 bg-amber-500/[0.08] text-amber-800 hover:bg-amber-500/[0.12] dark:text-amber-200",
-  );
   const tabDnDSensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -1010,149 +991,126 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
         )}
       >
         <>
-          <div className="flex items-center gap-2 border-b border-border bg-card px-3 py-1.5 sm:px-5">
-            <div className="relative flex min-w-0 flex-1 items-center">
-              {canScrollTabsLeft ? (
-                <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-linear-to-r from-card to-transparent" />
-              ) : null}
-              {canScrollTabsRight ? (
-                <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-linear-to-l from-card to-transparent" />
-              ) : null}
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className={cn(
-                  "pointer-events-auto absolute top-1/2 left-0 z-20 -translate-y-1/2 rounded-full border border-border bg-background transition-opacity",
-                  canScrollTabsLeft ? "opacity-100" : "pointer-events-none opacity-0",
-                )}
-                onClick={() => scrollTabsBy(-1)}
-                aria-label="Scroll tabs left"
-              >
-                <ArrowLeftIcon className="size-3.5" />
-              </Button>
-              <DndContext
-                sensors={tabDnDSensors}
-                collisionDetection={closestCenter}
-                onDragStart={handleTabDragStart}
-                onDragEnd={handleTabDragEnd}
-                onDragCancel={handleTabDragCancel}
-              >
-                <SortableContext
-                  items={browserSession.tabs.map((tab) => tab.id)}
-                  strategy={horizontalListSortingStrategy}
+          {showTabStrip ? (
+            <div className="flex items-center gap-2 border-b border-border bg-card px-3 py-1.5 sm:px-5">
+              <div className="relative flex min-w-0 flex-1 items-center">
+                {canScrollTabsLeft ? (
+                  <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-linear-to-r from-card to-transparent" />
+                ) : null}
+                {canScrollTabsRight ? (
+                  <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-linear-to-l from-card to-transparent" />
+                ) : null}
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className={cn(
+                    "pointer-events-auto absolute top-1/2 left-0 z-20 -translate-y-1/2 rounded-full border border-border bg-background transition-opacity",
+                    canScrollTabsLeft ? "opacity-100" : "pointer-events-none opacity-0",
+                  )}
+                  onClick={() => scrollTabsBy(-1)}
+                  aria-label="Scroll tabs left"
                 >
-                  <div
-                    ref={tabStripRef}
-                    className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto px-8 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                    role="tablist"
-                    aria-label="Browser tabs"
-                    data-testid="browser-tab-strip"
+                  <ArrowLeftIcon className="size-3.5" />
+                </Button>
+                <DndContext
+                  sensors={tabDnDSensors}
+                  collisionDetection={closestCenter}
+                  onDragStart={handleTabDragStart}
+                  onDragEnd={handleTabDragEnd}
+                  onDragCancel={handleTabDragCancel}
+                >
+                  <SortableContext
+                    items={browserSession.tabs.map((tab) => tab.id)}
+                    strategy={horizontalListSortingStrategy}
                   >
-                    {browserSession.tabs.map((tab) => {
-                      const isActive = activeTab?.id === tab.id;
-                      const icon = isBrowserNewTabUrl(tab.url) ? (
-                        <PlusIcon className="size-3 text-muted-foreground" />
-                      ) : (
-                        <BrowserFavicon
-                          url={tab.url}
-                          title={tab.title}
-                          className="size-3"
-                          fallbackClassName="size-3 text-muted-foreground"
-                        />
-                      );
-
-                      return (
-                        <SortableBrowserTab
-                          key={tab.id}
-                          active={isActive}
-                          icon={icon}
-                          onActivate={activateTab}
-                          onClose={closeTab}
-                          onFocusAdjacentTab={focusAdjacentTab}
-                          onFocusBoundaryTab={focusBoundaryTab}
-                          onContextMenuRequest={(tabId, position) => {
-                            void openTabContextMenu(tabId, position);
-                          }}
-                          onTabNodeChange={registerTabNode}
-                          suppressClickAfterDragRef={suppressTabClickAfterDragRef}
-                          suppressClickForContextMenuRef={suppressTabClickForContextMenuRef}
-                          tab={tab}
-                        />
-                      );
-                    })}
-                  </div>
-                </SortableContext>
-              </DndContext>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className={cn(
-                  "pointer-events-auto absolute top-1/2 right-0 z-20 -translate-y-1/2 rounded-full border border-border bg-background transition-opacity",
-                  canScrollTabsRight ? "opacity-100" : "pointer-events-none opacity-0",
-                )}
-                onClick={() => scrollTabsBy(1)}
-                aria-label="Scroll tabs right"
-              >
-                <ArrowRightIcon className="size-3.5" />
-              </Button>
-            </div>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="outline"
-                    size="icon-xs"
-                    onClick={openNewTab}
-                    aria-label="Open a new browser tab"
-                  >
-                    <PlusIcon className="size-3.5" />
-                  </Button>
-                }
-              />
-              <TooltipPopup side="bottom">New tab</TooltipPopup>
-            </Tooltip>
-          </div>
-
-          <div className="flex items-center gap-2 border-b border-border bg-card px-3 py-1.5 sm:px-5">
-            <div className="flex shrink-0 items-center gap-1.5">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
-                      className={devToolsButtonClassName}
-                      onClick={toggleDevTools}
-                      disabled={activeTabIsInternal}
-                      aria-label={
-                        activeRuntime.devToolsOpen
-                          ? "Close Chrome DevTools"
-                          : "Open Chrome DevTools"
-                      }
+                    <div
+                      ref={tabStripRef}
+                      className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto px-8 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                      role="tablist"
+                      aria-label="Browser tabs"
+                      data-testid="browser-tab-strip"
                     >
-                      <BugIcon className="size-3.5" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">
-                  {devToolsShortcutLabel
-                    ? `${activeRuntime.devToolsOpen ? "Close Chrome DevTools" : "Open Chrome DevTools"} (${devToolsShortcutLabel})`
-                    : activeRuntime.devToolsOpen
-                      ? "Close Chrome DevTools"
-                      : "Open Chrome DevTools"}
-                </TooltipPopup>
-              </Tooltip>
+                      {browserSession.tabs.map((tab) => {
+                        const isActive = activeTab?.id === tab.id;
+                        const icon = isBrowserNewTabUrl(tab.url) ? (
+                          <PlusIcon className="size-3 text-muted-foreground" />
+                        ) : (
+                          <BrowserFavicon
+                            url={tab.url}
+                            title={tab.title}
+                            className="size-3"
+                            fallbackClassName="size-3 text-muted-foreground"
+                          />
+                        );
+
+                        return (
+                          <SortableBrowserTab
+                            key={tab.id}
+                            active={isActive}
+                            icon={icon}
+                            onActivate={activateTab}
+                            onClose={closeTab}
+                            onFocusAdjacentTab={focusAdjacentTab}
+                            onFocusBoundaryTab={focusBoundaryTab}
+                            onContextMenuRequest={(tabId, position) => {
+                              void openTabContextMenu(tabId, position);
+                            }}
+                            onTabNodeChange={registerTabNode}
+                            suppressClickAfterDragRef={suppressTabClickAfterDragRef}
+                            suppressClickForContextMenuRef={suppressTabClickForContextMenuRef}
+                            tab={tab}
+                          />
+                        );
+                      })}
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                              onClick={openNewTab}
+                              aria-label="Open a new browser tab"
+                            >
+                              <PlusIcon className="size-4" />
+                            </Button>
+                          }
+                        />
+                        <TooltipPopup side="bottom">New tab</TooltipPopup>
+                      </Tooltip>
+                    </div>
+                  </SortableContext>
+                </DndContext>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className={cn(
+                    "pointer-events-auto absolute top-1/2 right-0 z-20 -translate-y-1/2 rounded-full border border-border bg-background transition-opacity",
+                    canScrollTabsRight ? "opacity-100" : "pointer-events-none opacity-0",
+                  )}
+                  onClick={() => scrollTabsBy(1)}
+                  aria-label="Scroll tabs right"
+                >
+                  <ArrowRightIcon className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="flex h-12 items-center gap-2.5 border-b border-border bg-card px-3 sm:px-4">
+            <div className="flex shrink-0 items-center gap-2">
               <Tooltip>
                 <TooltipTrigger
                   render={
                     <Button
-                      variant="outline"
-                      size="icon-xs"
+                      variant="ghost"
+                      size="icon-lg"
+                      className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
                       onClick={goBack}
                       disabled={activeTabIsInternal || !activeRuntime.canGoBack}
                       aria-label="Go back"
                     >
-                      <ArrowLeftIcon className="size-3.5" />
+                      <ArrowLeftIcon className="size-5" />
                     </Button>
                   }
                 />
@@ -1164,13 +1122,14 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 <TooltipTrigger
                   render={
                     <Button
-                      variant="outline"
-                      size="icon-xs"
+                      variant="ghost"
+                      size="icon-lg"
+                      className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
                       onClick={goForward}
                       disabled={activeTabIsInternal || !activeRuntime.canGoForward}
                       aria-label="Go forward"
                     >
-                      <ArrowRightIcon className="size-3.5" />
+                      <ArrowRightIcon className="size-5" />
                     </Button>
                   }
                 />
@@ -1182,16 +1141,17 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 <TooltipTrigger
                   render={
                     <Button
-                      variant="outline"
-                      size="icon-xs"
+                      variant="ghost"
+                      size="icon-lg"
+                      className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
                       onClick={reload}
                       disabled={activeTabIsInternal}
                       aria-label={activeRuntime.loading ? "Stop loading" : "Reload page"}
                     >
                       {activeRuntime.loading ? (
-                        <LoaderCircleIcon className="size-3.5 animate-spin" />
+                        <LoaderCircleIcon className="size-5 animate-spin" />
                       ) : (
-                        <RefreshCwIcon className="size-3.5" />
+                        <RefreshCwIcon className="size-5" />
                       )}
                     </Button>
                   }
@@ -1207,17 +1167,16 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
             </div>
 
             <form
-              className="relative flex min-w-0 flex-1 items-center gap-2"
+              className="relative mx-auto flex min-w-0 flex-1 items-center gap-2"
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
                 openUrl(draftUrl);
               }}
             >
-              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-background px-2 transition-colors duration-150 focus-within:border-primary focus-within:bg-background">
-                {activeTabFavicon}
+              <div className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 transition-colors duration-150 focus-within:border-primary focus-within:bg-background">
                 <Input
                   ref={addressInputRef}
-                  className="min-w-0 w-full flex-1 border-0 bg-transparent text-sm shadow-none"
+                  className="min-w-0 w-full flex-1 border-0 bg-transparent text-sm font-medium text-foreground shadow-none placeholder:text-muted-foreground/70"
                   unstyled
                   value={draftUrl}
                   onChange={(event) => setDraftUrl(event.target.value)}
@@ -1238,6 +1197,19 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   spellCheck={false}
                   title={draftUrl}
                 />
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  type="button"
+                  className="size-5 shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
+                  onClick={() => {
+                    openActiveTabExternally();
+                  }}
+                  disabled={!activeTab || activeTabIsInternal}
+                  aria-label="Open current page externally"
+                >
+                  <ExternalLinkIcon className="size-3.5" />
+                </Button>
               </div>
               {showAddressBarSuggestions ? (
                 <BrowserSuggestionList
@@ -1248,83 +1220,6 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 />
               ) : null}
             </form>
-
-            <div className="flex shrink-0 items-center gap-1.5">
-              {showLayoutControls ? (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="outline"
-                        size="icon-xs"
-                        onClick={mode === "split" ? onRestore : onSplit}
-                        aria-label={mode === "split" ? "Expand browser" : "Open split view"}
-                      >
-                        <Columns2Icon className="size-3.5" />
-                      </Button>
-                    }
-                  />
-                  <TooltipPopup side="bottom">
-                    {mode === "split" ? "Expand to full browser" : "Open split view"}
-                  </TooltipPopup>
-                </Tooltip>
-              ) : null}
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
-                      onClick={togglePinnedActivePage}
-                      disabled={activeTabIsInternal || !activeTab}
-                      aria-label={activeTabIsPinned ? "Unpin current page" : "Pin current page"}
-                      className={cn(
-                        activeTabIsPinned &&
-                          "border-sky-500/40 bg-sky-500/[0.08] text-sky-700 hover:bg-sky-500/[0.12] dark:text-sky-200",
-                      )}
-                    >
-                      <PinIcon className="size-3.5" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">
-                  {activeTabIsPinned ? "Unpin current page" : "Pin current page"}
-                </TooltipPopup>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
-                      onClick={() => {
-                        openActiveTabExternally();
-                      }}
-                      disabled={!activeTab || activeTabIsInternal}
-                      aria-label="Open current page externally"
-                    >
-                      <ExternalLinkIcon className="size-3.5" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">Open externally</TooltipPopup>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
-                      onClick={onClose}
-                      aria-label="Close in-app browser"
-                    >
-                      <XIcon className="size-3.5" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">Close browser</TooltipPopup>
-              </Tooltip>
-            </div>
           </div>
         </>
 

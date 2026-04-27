@@ -52,10 +52,11 @@ import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
 import {
-  HEADER_PILL_CONTROL_CLASS_NAME,
-  HEADER_PILL_ICON_CONTROL_CLASS_NAME,
+  HEADER_ACTION_CONTROL_CLASS_NAME,
+  HEADER_ACTION_DIVIDER_CLASS_NAME,
+  HEADER_ACTION_GROUP_CLASS_NAME,
+  HEADER_ACTION_ICON_CONTROL_CLASS_NAME,
   TopBarCluster,
-  TopBarClusterDivider,
 } from "./thread/TopBarCluster";
 
 const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
@@ -130,7 +131,7 @@ export default function ProjectScriptsControl({
   }, [preferredScriptId, scripts]);
   const isEditing = editingScriptId !== null;
   const dropdownItemClassName =
-    "data-highlighted:bg-transparent data-highlighted:text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground data-highlighted:hover:bg-accent data-highlighted:hover:text-accent-foreground data-highlighted:focus-visible:bg-accent data-highlighted:focus-visible:text-accent-foreground";
+    "min-h-8 rounded-lg px-2.5 text-[13px] data-highlighted:bg-accent data-highlighted:text-foreground hover:bg-accent hover:text-foreground";
 
   const captureKeybinding = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Tab") return;
@@ -222,32 +223,40 @@ export default function ProjectScriptsControl({
   return (
     <>
       {primaryScript ? (
-        <TopBarCluster aria-label="Project scripts" className="shrink-0">
+        <TopBarCluster
+          aria-label="Project scripts"
+          className={`${HEADER_ACTION_GROUP_CLASS_NAME} shrink-0`}
+        >
           <Button
             size="xs"
             variant="ghost"
-            className={HEADER_PILL_CONTROL_CLASS_NAME}
+            className={HEADER_ACTION_CONTROL_CLASS_NAME}
             onClick={() => onRunScript(primaryScript)}
             title={`Run ${primaryScript.name}`}
           >
             <ScriptIcon icon={primaryScript.icon} />
             <span className="sr-only md:not-sr-only md:ml-0.5">{primaryScript.name}</span>
           </Button>
-          <TopBarClusterDivider />
+          <div className={HEADER_ACTION_DIVIDER_CLASS_NAME} aria-hidden="true" />
           <Menu highlightItemOnHover={false}>
             <MenuTrigger
               render={
                 <Button
                   size="icon-xs"
                   variant="ghost"
-                  className={HEADER_PILL_ICON_CONTROL_CLASS_NAME}
+                  className={HEADER_ACTION_ICON_CONTROL_CLASS_NAME}
                   aria-label="Script actions"
                 />
               }
             >
               <ChevronDownIcon className="size-4" />
             </MenuTrigger>
-            <MenuPopup align="end">
+            <MenuPopup align="end" className="min-w-64 border-border/65 bg-popover/96 p-0">
+              <div className="border-b border-border/40 px-2.5 py-2">
+                <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                  Project actions
+                </div>
+              </div>
               {scripts.map((script) => {
                 const shortcutLabel = shortcutLabelForCommand(
                   keybindings,
@@ -273,7 +282,7 @@ export default function ProjectScriptsControl({
                         type="button"
                         variant="ghost"
                         size="icon-xs"
-                        className="absolute right-0 top-1/2 size-6 -translate-y-1/2 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-visible:opacity-100 group-focus-visible:pointer-events-auto"
+                        className="pointer-events-none absolute top-1/2 right-0 size-6 -translate-y-1/2 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-visible:pointer-events-auto group-focus-visible:opacity-100"
                         aria-label={`Edit ${script.name}`}
                         onPointerDown={(event) => {
                           event.preventDefault();
@@ -299,11 +308,14 @@ export default function ProjectScriptsControl({
           </Menu>
         </TopBarCluster>
       ) : (
-        <TopBarCluster aria-label="Project scripts" className="shrink-0">
+        <TopBarCluster
+          aria-label="Project scripts"
+          className={`${HEADER_ACTION_GROUP_CLASS_NAME} shrink-0`}
+        >
           <Button
             size="xs"
             variant="ghost"
-            className={HEADER_PILL_CONTROL_CLASS_NAME}
+            className={HEADER_ACTION_CONTROL_CLASS_NAME}
             onClick={openAddDialog}
             title="Add action"
           >

@@ -4,29 +4,21 @@ import {
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@ace/contracts";
-import { IconLayoutSidebarRight, IconTerminal } from "@tabler/icons-react";
+import {
+  IconLayoutSidebarRight,
+  IconLayoutSidebarRightFilled,
+  IconTerminal,
+} from "@tabler/icons-react";
 import { memo, type ReactNode } from "react";
 import GitActionsControl from "../GitActionsControl";
-import {
-  BugIcon,
-  DiffIcon,
-  FolderIcon,
-  GitBranchIcon,
-  GitForkIcon,
-  GlobeIcon,
-  SquarePenIcon,
-} from "lucide-react";
+import { FolderIcon, GitBranchIcon, GitForkIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Button } from "../ui/button";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
-import { Toggle } from "../ui/toggle";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
-import {
-  HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME,
-  TopBarCluster,
-  interleaveTopBarItems,
-} from "../thread/TopBarCluster";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
+import { DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME } from "~/lib/desktopChrome";
+import { cn } from "~/lib/utils";
 
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
@@ -79,25 +71,16 @@ export const ChatHeader = memo(function ChatHeader({
   terminalAvailable,
   terminalOpen,
   terminalToggleShortcutLabel,
-  diffToggleShortcutLabel,
-  browserToggleShortcutLabel,
-  browserAvailable,
-  browserOpen,
-  browserDevToolsOpen,
-  gitCwd,
-  diffOpen,
   rightSidePanelOpen,
+  gitCwd,
   workspaceMode,
   workspaceName,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
-  onOpenBrowser,
-  onCloseBrowser,
   onActiveProjectChange,
   onToggleTerminal,
-  onToggleDiff,
   onToggleRightSidePanel,
   onWorkspaceModeChange,
 }: ChatHeaderProps) {
@@ -129,123 +112,6 @@ export const ChatHeader = memo(function ChatHeader({
   const workspaceActionNodes = workspaceActionItems.filter(
     (item): item is NonNullable<ReactNode> => item !== null,
   );
-  const utilityToggleClassName = `shrink-0 ${HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME}`;
-  const sidePanelToggleClassName =
-    "group/right-panel shrink-0 !size-8 !rounded-lg !border !border-transparent !bg-transparent !p-0 !text-foreground/45 !shadow-none transition-all hover:!bg-accent hover:!text-foreground active:!bg-accent/80";
-  const utilityItems = interleaveTopBarItems([
-    <Tooltip key="editor-workspace">
-      <TooltipTrigger
-        render={
-          <Toggle
-            className={utilityToggleClassName}
-            pressed={editorWorkspaceActive}
-            onPressedChange={(pressed) => {
-              onWorkspaceModeChange(pressed ? "editor" : "chat");
-            }}
-            aria-pressed={editorWorkspaceActive}
-            aria-label="Editor workspace"
-            variant="default"
-            size="xs"
-          >
-            <SquarePenIcon className="size-3.5" />
-          </Toggle>
-        }
-      />
-      <TooltipPopup side="bottom">
-        {editorWorkspaceActive ? "Leave editor — return to chat" : "Open editor workspace"}
-      </TooltipPopup>
-    </Tooltip>,
-    browserAvailable ? (
-      <Tooltip key="browser">
-        <TooltipTrigger
-          render={
-            <Toggle
-              className={utilityToggleClassName}
-              pressed={browserOpen}
-              onPressedChange={(pressed) => {
-                if (pressed) {
-                  onOpenBrowser();
-                  return;
-                }
-                onCloseBrowser();
-              }}
-              aria-label={browserOpen ? "Close in-app browser" : "Open in-app browser"}
-              variant="default"
-              size="xs"
-            >
-              <span className="relative flex items-center justify-center">
-                <GlobeIcon className="size-3.5" />
-                {browserOpen && browserDevToolsOpen ? (
-                  <span className="absolute -top-1 -right-1 flex size-2 items-center justify-center rounded-full bg-amber-500">
-                    <BugIcon className="size-1.5 text-amber-950" />
-                  </span>
-                ) : null}
-              </span>
-            </Toggle>
-          }
-        />
-        <TooltipPopup side="bottom">
-          {browserOpen
-            ? browserToggleShortcutLabel
-              ? `${browserDevToolsOpen ? "Close in-app browser · DevTools open" : "Close in-app browser"} (${browserToggleShortcutLabel})`
-              : browserDevToolsOpen
-                ? "Close in-app browser · DevTools open"
-                : "Close in-app browser"
-            : browserToggleShortcutLabel
-              ? `Open in-app browser (${browserToggleShortcutLabel})`
-              : "Open in-app browser"}
-        </TooltipPopup>
-      </Tooltip>
-    ) : null,
-    <Tooltip key="terminal">
-      <TooltipTrigger
-        render={
-          <Toggle
-            className={utilityToggleClassName}
-            pressed={terminalOpen}
-            onPressedChange={onToggleTerminal}
-            aria-label="Toggle terminal drawer"
-            variant="default"
-            size="xs"
-            disabled={!terminalAvailable}
-          >
-            <IconTerminal className="size-3.5" />
-          </Toggle>
-        }
-      />
-      <TooltipPopup side="bottom">
-        {!terminalAvailable
-          ? "Terminal is unavailable until this thread has an active project."
-          : terminalToggleShortcutLabel
-            ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
-            : "Toggle terminal drawer"}
-      </TooltipPopup>
-    </Tooltip>,
-    <Tooltip key="diff">
-      <TooltipTrigger
-        render={
-          <Toggle
-            className={utilityToggleClassName}
-            pressed={diffOpen}
-            onPressedChange={onToggleDiff}
-            aria-label="Toggle diff panel"
-            variant="default"
-            size="xs"
-            disabled={!isGitRepo}
-          >
-            <DiffIcon className="size-3.5" />
-          </Toggle>
-        }
-      />
-      <TooltipPopup side="bottom">
-        {!isGitRepo
-          ? "Diff panel is unavailable because this project is not a git repository."
-          : diffToggleShortcutLabel
-            ? `Toggle diff panel (${diffToggleShortcutLabel})`
-            : "Toggle diff panel"}
-      </TooltipPopup>
-    </Tooltip>,
-  ]);
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
@@ -317,33 +183,62 @@ export const ChatHeader = memo(function ChatHeader({
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-0.75 overflow-x-auto sm:gap-1">
+      <div className="flex shrink-0 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {workspaceActionNodes.length > 0 ? (
-          <div className="flex min-w-0 items-center gap-0.75 sm:gap-1">{workspaceActionNodes}</div>
+          <>
+            <div className="flex min-w-0 items-center gap-0.75 sm:gap-1">
+              {workspaceActionNodes}
+            </div>
+            <div className="mx-3 h-4 w-0.5 shrink-0 rounded-full bg-border/80" aria-hidden="true" />
+          </>
         ) : null}
-        <TopBarCluster>{utilityItems}</TopBarCluster>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                className={sidePanelToggleClassName}
-                pressed={rightSidePanelOpen}
-                onPressedChange={onToggleRightSidePanel}
-                aria-label="Toggle right side panel"
-                variant="default"
-                size="xs"
-              >
-                <IconLayoutSidebarRight
-                  className="size-[18px] opacity-70 brightness-90 transition-[filter,opacity] duration-150 group-hover/right-panel:opacity-100 group-hover/right-panel:brightness-125"
-                  strokeWidth={2}
-                />
-              </Toggle>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-lg"
+            className={cn(
+              DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+              terminalOpen && "!bg-accent text-foreground hover:text-foreground",
+            )}
+            onClick={onToggleTerminal}
+            disabled={!terminalAvailable}
+            aria-pressed={terminalOpen}
+            aria-label={
+              terminalToggleShortcutLabel
+                ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
+                : "Toggle terminal drawer"
             }
-          />
-          <TooltipPopup side="bottom">
-            {rightSidePanelOpen ? "Close right side panel" : "Open right side panel"}
-          </TooltipPopup>
-        </Tooltip>
+            title={
+              !terminalAvailable
+                ? "Terminal is unavailable until this thread has an active project."
+                : terminalToggleShortcutLabel
+                  ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
+                  : "Toggle terminal drawer"
+            }
+          >
+            <IconTerminal className="size-[18px]" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-lg"
+            className={cn(
+              DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+              rightSidePanelOpen && "!bg-accent text-foreground hover:text-foreground",
+            )}
+            onClick={onToggleRightSidePanel}
+            aria-pressed={rightSidePanelOpen}
+            aria-label="Toggle right side panel"
+            title={rightSidePanelOpen ? "Close right side panel" : "Open right side panel"}
+          >
+            {rightSidePanelOpen ? (
+              <IconLayoutSidebarRightFilled className="size-[18px]" />
+            ) : (
+              <IconLayoutSidebarRight className="size-[18px]" strokeWidth={2} />
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   );

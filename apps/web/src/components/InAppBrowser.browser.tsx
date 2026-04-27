@@ -154,13 +154,7 @@ describe("InAppBrowser tab strip", () => {
 
     await render(
       <div style={{ position: "relative", width: "720px", height: "560px" }}>
-        <InAppBrowser
-          open
-          mode="full"
-          onClose={() => undefined}
-          onRestore={() => undefined}
-          onSplit={() => undefined}
-        />
+        <InAppBrowser open mode="full" onClose={() => undefined} />
       </div>,
     );
 
@@ -191,13 +185,7 @@ describe("InAppBrowser tab strip", () => {
 
     const screen = await render(
       <div style={{ position: "relative", width: "360px", height: "560px" }}>
-        <InAppBrowser
-          open
-          mode="full"
-          onClose={() => undefined}
-          onRestore={() => undefined}
-          onSplit={() => undefined}
-        />
+        <InAppBrowser open mode="full" onClose={() => undefined} />
       </div>,
     );
 
@@ -243,13 +231,7 @@ describe("InAppBrowser tab strip", () => {
 
     await render(
       <div style={{ position: "relative", width: "720px", height: "560px" }}>
-        <InAppBrowser
-          open
-          mode="full"
-          onClose={() => undefined}
-          onRestore={() => undefined}
-          onSplit={() => undefined}
-        />
+        <InAppBrowser open mode="full" onClose={() => undefined} />
       </div>,
     );
 
