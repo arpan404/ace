@@ -138,17 +138,16 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import {
   BotIcon,
   CircleAlertIcon,
-  DiffIcon,
   GlobeIcon,
   ListTodoIcon,
   Maximize2Icon,
   Minimize2Icon,
   PlusIcon,
-  SquarePenIcon,
   XIcon,
 } from "lucide-react";
 import { AppPageTopBar } from "./AppPageTopBar";
 import { Button } from "./ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Separator } from "./ui/separator";
 import { cn, randomUUID } from "~/lib/utils";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
@@ -280,6 +279,7 @@ import {
   WORKSPACE_EDITOR_SPLIT_WIDTH_STORAGE_KEY,
   clampWorkspaceEditorSplitWidth,
 } from "~/lib/chat/workspaceSplit";
+import type { BrowserSessionStorage } from "~/lib/browser/session";
 import { buildHandoffTimeline, resolveHandoffLineage } from "~/lib/chat/handoff";
 import {
   subscribeToBrowserLaunchRequests,
@@ -357,17 +357,7 @@ function clampRightSidePanelWidth(width: number, viewportWidth: number): number 
 const DiffPanel = lazy(() => import("./DiffPanel"));
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
-type RightSidePanelMode = "browser" | "diff" | "editor";
-
-const RIGHT_SIDE_PANEL_TABS: ReadonlyArray<{
-  icon: typeof DiffIcon;
-  label: string;
-  mode: RightSidePanelMode;
-}> = [
-  { icon: DiffIcon, label: "Diff", mode: "diff" },
-  { icon: SquarePenIcon, label: "Editor", mode: "editor" },
-  { icon: GlobeIcon, label: "Browser", mode: "browser" },
-];
+type RightSidePanelMode = "browser" | "diff" | "editor" | "file" | "summary";
 
 interface ChatViewProps {
   connectionUrl?: string | null;
@@ -436,52 +426,158 @@ function RouteDiffPanel(props: { threadId: ThreadId }) {
 
 function RightSidePanelTabStrip(props: {
   activeMode: RightSidePanelMode;
+  activeBrowserTabId: string | null;
+  activeFilePath: string | null;
+  browserSession: BrowserSessionStorage | null;
   browserAvailable: boolean;
   diffAvailable: boolean;
+  fileTabs: readonly string[];
   fullscreen: boolean;
+  onBrowserTabClose: (tabId: string) => void;
+  onBrowserTabSelect: (tabId: string) => void;
+  onDiffClose: () => void;
+  onFileTabClose: (filePath: string) => void;
+  onFileTabSelect: (filePath: string) => void;
   onNewBrowserTab: () => void;
   onSelectMode: (mode: RightSidePanelMode) => void;
   onToggleFullscreen: () => void;
 }) {
+  const tabClassName = (active: boolean, disabled = false) =>
+    cn(
+      "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors",
+      active
+        ? "border-border bg-background text-foreground shadow-[0_0_0_1px_rgba(96,165,250,0.26)]"
+        : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+      disabled && "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground",
+    );
+
   return (
-    <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/70 bg-card/80 px-2.5">
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {RIGHT_SIDE_PANEL_TABS.map((tab) => {
-          const Icon = tab.icon;
-          const active = tab.mode === props.activeMode;
-          const disabled =
-            (tab.mode === "diff" && !props.diffAvailable) ||
-            (tab.mode === "browser" && !props.browserAvailable);
+    <div className="flex h-11 shrink-0 items-center gap-2 bg-card/80 px-3">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <button
+          type="button"
+          className={tabClassName(props.activeMode === "summary")}
+          aria-pressed={props.activeMode === "summary"}
+          onClick={() => props.onSelectMode("summary")}
+        >
+          <span className="truncate">Summary</span>
+        </button>
+        <span className="h-5 w-px shrink-0 bg-border/70" />
+        <button
+          type="button"
+          className={tabClassName(props.activeMode === "diff", !props.diffAvailable)}
+          disabled={!props.diffAvailable}
+          aria-pressed={props.activeMode === "diff"}
+          onClick={() => props.onSelectMode("diff")}
+        >
+          <span
+            role="button"
+            tabIndex={-1}
+            className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-muted-foreground/80 text-background transition-colors hover:bg-foreground"
+            aria-label="Close review tab"
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onDiffClose();
+            }}
+          >
+            <XIcon className="size-3" />
+          </span>
+          <span className="truncate">Review</span>
+        </button>
+        <span className="h-5 w-px shrink-0 bg-border/70" />
+        <button
+          type="button"
+          className={tabClassName(props.activeMode === "editor")}
+          aria-pressed={props.activeMode === "editor"}
+          onClick={() => props.onSelectMode("editor")}
+        >
+          <span className="truncate">Editor</span>
+        </button>
+        {props.fileTabs.length > 0 ? <span className="h-5 w-px shrink-0 bg-border/70" /> : null}
+        {props.fileTabs.map((filePath) => {
+          const active = props.activeMode === "file" && props.activeFilePath === filePath;
           return (
             <button
-              key={tab.mode}
+              key={filePath}
               type="button"
-              className={cn(
-                "inline-flex h-8 min-w-0 shrink-0 items-center gap-2 rounded-lg border px-2.5 text-[13px] font-medium transition-colors",
-                active
-                  ? "border-border bg-background text-foreground shadow-[0_0_0_1px_rgba(96,165,250,0.26)]"
-                  : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
-                disabled &&
-                  "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground",
-              )}
-              disabled={disabled}
+              className={tabClassName(active)}
               aria-pressed={active}
-              onClick={() => props.onSelectMode(tab.mode)}
+              title={filePath}
+              onClick={() => props.onFileTabSelect(filePath)}
             >
-              <Icon className="size-4 shrink-0" />
-              <span className="truncate">{tab.label}</span>
+              <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+                <span className="rounded-sm bg-muted px-1 py-0.5 font-mono text-[10px] leading-none text-muted-foreground transition-opacity group-hover/tab:opacity-0">
+                  {basenameOfPath(filePath).split(".").pop()?.slice(0, 2).toUpperCase() ?? "F"}
+                </span>
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                  aria-label={`Close ${basenameOfPath(filePath)}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    props.onFileTabClose(filePath);
+                  }}
+                >
+                  <XIcon className="size-3" />
+                </span>
+              </span>
+              <span className="max-w-36 truncate">{basenameOfPath(filePath)}</span>
             </button>
           );
         })}
-        <button
-          type="button"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={!props.browserAvailable}
-          aria-label="Open browser tab"
-          onClick={props.onNewBrowserTab}
-        >
-          <PlusIcon className="size-4" />
-        </button>
+        {props.browserSession?.tabs.length ? (
+          <span className="h-5 w-px shrink-0 bg-border/70" />
+        ) : null}
+        {props.browserSession?.tabs.map((tab) => {
+          const active = props.activeMode === "browser" && props.activeBrowserTabId === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              className={tabClassName(active)}
+              aria-pressed={active}
+              title={tab.title}
+              onClick={() => props.onBrowserTabSelect(tab.id)}
+            >
+              <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+                <GlobeIcon className="size-4 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                  aria-label={`Close ${tab.title}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    props.onBrowserTabClose(tab.id);
+                  }}
+                >
+                  <XIcon className="size-3" />
+                </span>
+              </span>
+              <span className="max-w-48 truncate">{tab.title}</span>
+            </button>
+          );
+        })}
+        <Menu>
+          <MenuTrigger
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={!props.browserAvailable}
+            aria-label="Open side panel tab"
+          >
+            <PlusIcon className="size-4" />
+          </MenuTrigger>
+          <MenuPopup align="start" side="bottom" className="min-w-40">
+            <MenuItem
+              onClick={() => {
+                props.onNewBrowserTab();
+              }}
+            >
+              <PlusIcon className="size-4" />
+              New browser tab
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
       </div>
       <button
         type="button"
@@ -1942,6 +2038,8 @@ export default function ChatView({
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
+  const [rightPanelFileTabs, setRightPanelFileTabs] = useState<readonly string[]>([]);
+  const [rightPanelActiveFilePath, setRightPanelActiveFilePath] = useState<string | null>(null);
   const codingGitCwd = gitCwd;
   const liveTurnDiffSummary = useMemo(() => {
     if (!liveTurnInProgress || !activeLatestTurn?.turnId) {
@@ -2386,6 +2484,9 @@ export default function ChatView({
   const browserControllerRef = useRef<InAppBrowserController | null>(null);
   const browserControllerByThreadRef = useRef(new Map<ThreadId, InAppBrowserController>());
   const browserRuntimeStateByThreadRef = useRef(new Map<ThreadId, { devToolsOpen: boolean }>());
+  const [browserSessionByThreadId, setBrowserSessionByThreadId] = useState<
+    Record<string, BrowserSessionStorage>
+  >({});
   const browserControllerChangeHandlerByThreadRef = useRef(
     new Map<ThreadId, (controller: InAppBrowserController | null) => void>(),
   );
@@ -3275,11 +3376,6 @@ export default function ChatView({
     setBrowserDevToolsOpen(false);
     setRightSidePanelMode((current) => (current === "browser" ? null : current));
   }, [setBrowserMode]);
-  const restoreBrowser = useCallback(() => {
-    if (!isElectron) return;
-    setRightSidePanelMode("browser");
-    setBrowserMode("split");
-  }, [setBrowserMode]);
   const toggleBrowserVisibility = useCallback(() => {
     if (!isElectron) return;
     setBrowserMode((current) => {
@@ -3302,13 +3398,14 @@ export default function ChatView({
       }
       return;
     }
-    setRightSidePanelMode("diff");
-    if (!diffOpen) {
-      onToggleDiff();
-    }
+    setRightSidePanelMode("summary");
   }, [browserOpen, closeBrowser, diffOpen, onToggleDiff, rightSidePanelOpen]);
   const onSelectRightSidePanelMode = useCallback(
     (mode: RightSidePanelMode) => {
+      if (mode === "summary") {
+        setRightSidePanelMode("summary");
+        return;
+      }
       if (mode === "browser") {
         openBrowser();
         return;
@@ -3328,9 +3425,79 @@ export default function ChatView({
     openBrowser();
     browserControllerRef.current?.openNewTab();
   }, [openBrowser]);
+  const onSelectRightSidePanelBrowserTab = useCallback(
+    (tabId: string) => {
+      openBrowser();
+      const session = activeThreadId ? browserSessionByThreadId[activeThreadId] : null;
+      const index = session?.tabs.findIndex((tab) => tab.id === tabId) ?? -1;
+      if (index >= 0) {
+        browserControllerRef.current?.setActiveTabByIndex(index);
+      }
+    },
+    [activeThreadId, browserSessionByThreadId, openBrowser],
+  );
+  const onCloseRightSidePanelBrowserTab = useCallback(
+    (tabId: string) => {
+      browserControllerRef.current?.closeTab(tabId);
+      const session = activeThreadId ? browserSessionByThreadId[activeThreadId] : null;
+      if (rightSidePanelMode === "browser" && session?.tabs.length === 1) {
+        setRightSidePanelMode("summary");
+      }
+    },
+    [activeThreadId, browserSessionByThreadId, rightSidePanelMode],
+  );
+  const onSelectRightSidePanelFileTab = useCallback((filePath: string) => {
+    setRightPanelActiveFilePath(filePath);
+    setRightSidePanelMode("file");
+  }, []);
+  const onCloseRightSidePanelFileTab = useCallback(
+    (filePath: string) => {
+      setRightPanelFileTabs((current) => current.filter((path) => path !== filePath));
+      setRightPanelActiveFilePath((current) => {
+        if (current !== filePath) {
+          return current;
+        }
+        const nextTab = rightPanelFileTabs.find((path) => path !== filePath) ?? null;
+        if (!nextTab && rightSidePanelMode === "file") {
+          setRightSidePanelMode("summary");
+        }
+        return nextTab;
+      });
+    },
+    [rightPanelFileTabs, rightSidePanelMode],
+  );
+  const onCloseRightSidePanelDiff = useCallback(() => {
+    setRightSidePanelMode("summary");
+    if (splitPane) {
+      setLocalDiffState((previous) => ({ ...previous, open: false }));
+      return;
+    }
+    if (!diffOpen) {
+      return;
+    }
+    void navigate({
+      to: "/$threadId",
+      params: { threadId },
+      replace: true,
+      search: (previous) => stripDiffSearchParams(previous),
+    });
+  }, [diffOpen, navigate, splitPane, threadId]);
   const onToggleRightSidePanelFullscreen = useCallback(() => {
     setRightSidePanelFullscreen((current) => !current);
   }, []);
+  const onBrowserSessionChange = useCallback(
+    (browserThreadId: ThreadId, session: BrowserSessionStorage) => {
+      setBrowserSessionByThreadId((current) =>
+        current[browserThreadId] === session
+          ? current
+          : {
+              ...current,
+              [browserThreadId]: session,
+            },
+      );
+    },
+    [],
+  );
   const setBrowserController = useCallback(
     (browserThreadId: ThreadId, controller: InAppBrowserController | null) => {
       if (controller) {
@@ -7184,8 +7351,9 @@ export default function ChatView({
                 visible: isActiveBrowserThread,
                 mode: browserMode,
                 onClose: closeBrowser,
-                onRestore: restoreBrowser,
-                onSplit: openSplitBrowser,
+                onBrowserSessionChange: (session: BrowserSessionStorage) => {
+                  onBrowserSessionChange(browserThreadId, session);
+                },
                 ...(isActiveBrowserThread
                   ? {
                       onControllerChange: getBrowserControllerChangeHandler(browserThreadId),
@@ -7267,6 +7435,10 @@ export default function ChatView({
     : null;
   const activeRightSidePanelMode =
     requestedRightSidePanelMode === "browser" && !browserPanel ? null : requestedRightSidePanelMode;
+  const activeRightPanelBrowserSession = activeThreadId
+    ? (browserSessionByThreadId[activeThreadId] ?? null)
+    : null;
+  const activeRightPanelBrowserTabId = activeRightPanelBrowserSession?.activeTabId ?? null;
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
@@ -7368,7 +7540,6 @@ export default function ChatView({
                     keybindings={keybindings}
                     browserOpen={browserOpen}
                     workspaceMode={workspaceMode}
-                    onWorkspaceModeChange={onWorkspaceModeChange}
                     terminalOpen={terminalState.terminalOpen}
                     threadId={activeThread.id}
                     worktreePath={activeThread.worktreePath ?? null}
@@ -7863,7 +8034,6 @@ export default function ChatView({
                           keybindings={keybindings}
                           browserOpen={browserOpen}
                           workspaceMode={workspaceMode}
-                          onWorkspaceModeChange={onWorkspaceModeChange}
                           terminalOpen={terminalState.terminalOpen}
                           threadId={activeThread.id}
                           worktreePath={activeThread.worktreePath ?? null}
@@ -7882,24 +8052,33 @@ export default function ChatView({
           {activeRightSidePanelMode ? (
             <motion.div
               key="thread-right-side-panel"
-              className="flex h-full min-h-0 shrink-0 transform-gpu overflow-hidden bg-background shadow-[-20px_0_44px_-36px_rgba(0,0,0,0.45)] will-change-[width,transform,opacity]"
+              className={cn(
+                "flex h-full min-h-0 transform-gpu overflow-hidden bg-background shadow-[-20px_0_44px_-36px_rgba(0,0,0,0.45)] will-change-[width,transform,opacity]",
+                rightSidePanelFullscreen ? "absolute inset-y-0 right-0 z-40" : "relative shrink-0",
+              )}
               initial={{ width: 0, opacity: 0, x: 24 }}
-              animate={{ width: rightSidePanelWidth, opacity: 1, x: 0 }}
+              animate={{
+                width: rightSidePanelFullscreen ? "100%" : rightSidePanelWidth,
+                opacity: 1,
+                x: 0,
+              }}
               exit={{ width: 0, opacity: 0, x: 24 }}
               transition={RIGHT_SIDE_PANEL_TRANSITION}
             >
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize right side panel"
-                tabIndex={0}
-                className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none outline-none"
-                onKeyDown={handleRightSidePanelResizeKeyDown}
-                onPointerDown={handleRightSidePanelResizePointerDown}
-              >
-                <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 scale-y-[0.985] bg-border/80 transition-[background-color,transform] duration-200 ease-out group-hover:scale-y-100 group-hover:bg-primary/55 group-focus-visible:scale-y-100 group-focus-visible:bg-primary/55" />
-                <div className="absolute inset-y-1 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-[background-color,transform] duration-200 ease-out group-hover:scale-x-100 group-hover:bg-primary/10 group-focus-visible:scale-x-100 group-focus-visible:bg-primary/10" />
-              </div>
+              {!rightSidePanelFullscreen ? (
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Resize right side panel"
+                  tabIndex={0}
+                  className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none outline-none"
+                  onKeyDown={handleRightSidePanelResizeKeyDown}
+                  onPointerDown={handleRightSidePanelResizePointerDown}
+                >
+                  <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 scale-y-[0.985] bg-border/80 transition-[background-color,transform] duration-200 ease-out group-hover:scale-y-100 group-hover:bg-primary/55 group-focus-visible:scale-y-100 group-focus-visible:bg-primary/55" />
+                  <div className="absolute inset-y-1 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-[background-color,transform] duration-200 ease-out group-hover:scale-x-100 group-hover:bg-primary/10 group-focus-visible:scale-x-100 group-focus-visible:bg-primary/10" />
+                </div>
+              ) : null}
               <motion.div
                 className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
                 initial={{ opacity: 0, x: 8 }}
@@ -7909,9 +8088,21 @@ export default function ChatView({
               >
                 <RightSidePanelTabStrip
                   activeMode={activeRightSidePanelMode}
+                  activeBrowserTabId={activeRightPanelBrowserTabId}
+                  activeFilePath={rightPanelActiveFilePath}
+                  browserSession={activeRightPanelBrowserSession}
                   browserAvailable={isElectron}
                   diffAvailable={isGitRepo}
+                  fileTabs={rightPanelFileTabs}
+                  fullscreen={rightSidePanelFullscreen}
+                  onBrowserTabClose={onCloseRightSidePanelBrowserTab}
+                  onBrowserTabSelect={onSelectRightSidePanelBrowserTab}
+                  onDiffClose={onCloseRightSidePanelDiff}
+                  onFileTabClose={onCloseRightSidePanelFileTab}
+                  onFileTabSelect={onSelectRightSidePanelFileTab}
+                  onNewBrowserTab={onOpenRightSidePanelBrowserTab}
                   onSelectMode={onSelectRightSidePanelMode}
+                  onToggleFullscreen={onToggleRightSidePanelFullscreen}
                 />
                 <AnimatePresence mode="wait" initial={false}>
                   <motion.div
@@ -7922,7 +8113,31 @@ export default function ChatView({
                     exit={{ opacity: 0, x: -6 }}
                     transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
                   >
-                    {activeRightSidePanelMode === "diff" && splitPane ? (
+                    {activeRightSidePanelMode === "summary" ? (
+                      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
+                        <div className="rounded-lg border border-border/70 bg-card/60 p-3">
+                          <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                            Plan
+                          </div>
+                          <div className="mt-2 text-sm text-foreground">
+                            {activePlan
+                              ? "A plan is active for this thread."
+                              : sidebarProposedPlan
+                                ? (proposedPlanTitle(sidebarProposedPlan.planMarkdown) ??
+                                  "Proposed plan")
+                                : "No active plan."}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-border/70 bg-card/60 p-3">
+                          <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                            Todos
+                          </div>
+                          <div className="mt-2 text-sm text-muted-foreground">
+                            Todo summary will appear here when the thread has actionable tasks.
+                          </div>
+                        </div>
+                      </div>
+                    ) : activeRightSidePanelMode === "diff" && splitPane ? (
                       <LocalDiffPanel
                         threadId={activeThread.id}
                         diffState={localDiffState}
@@ -7953,12 +8168,17 @@ export default function ChatView({
                           keybindings={keybindings}
                           browserOpen={browserOpen}
                           workspaceMode="split"
-                          onWorkspaceModeChange={onWorkspaceModeChange}
                           terminalOpen={terminalState.terminalOpen}
                           threadId={activeThread.id}
                           worktreePath={activeThread.worktreePath ?? null}
                         />
                       </Suspense>
+                    ) : activeRightSidePanelMode === "file" ? (
+                      <div className="flex min-h-0 flex-1 items-center justify-center p-4 text-sm text-muted-foreground">
+                        {rightPanelActiveFilePath
+                          ? `Single-file view: ${rightPanelActiveFilePath}`
+                          : "No file selected."}
+                      </div>
                     ) : browserPanel ? (
                       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
                         {browserPanel.instances.map((instance) => (
@@ -7966,6 +8186,7 @@ export default function ChatView({
                             key={instance.key}
                             {...instance.inAppBrowserProps}
                             mode="split"
+                            showTabStrip={false}
                           />
                         ))}
                       </div>

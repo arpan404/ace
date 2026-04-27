@@ -49,10 +49,11 @@ import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast";
 import {
-  HEADER_PILL_CONTROL_CLASS_NAME,
-  HEADER_PILL_ICON_CONTROL_CLASS_NAME,
+  HEADER_ACTION_CONTROL_CLASS_NAME,
+  HEADER_ACTION_DIVIDER_CLASS_NAME,
+  HEADER_ACTION_GROUP_CLASS_NAME,
+  HEADER_ACTION_ICON_CONTROL_CLASS_NAME,
   TopBarCluster,
-  TopBarClusterDivider,
 } from "~/components/thread/TopBarCluster";
 import {
   gitBranchesQueryOptions,
@@ -209,6 +210,9 @@ function GitActionItemIcon({ icon }: { icon: GitActionIconName }) {
   if (icon === "push") return <CloudUploadIcon />;
   return <GitHubIcon />;
 }
+
+const gitMenuItemClassName =
+  "min-h-8 rounded-lg px-2.5 text-[13px] data-highlighted:bg-accent data-highlighted:text-foreground hover:bg-accent hover:text-foreground";
 
 function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   const iconClassName = "size-3.5";
@@ -866,7 +870,10 @@ export default function GitActionsControl({
           {initMutation.isPending ? "Initializing..." : "Initialize Git"}
         </Button>
       ) : (
-        <TopBarCluster aria-label="Git actions" className="shrink-0">
+        <TopBarCluster
+          aria-label="Git actions"
+          className={`${HEADER_ACTION_GROUP_CLASS_NAME} shrink-0`}
+        >
           {quickActionDisabledReason ? (
             <Popover>
               <PopoverTrigger
@@ -874,7 +881,7 @@ export default function GitActionsControl({
                 render={
                   <Button
                     aria-disabled="true"
-                    className={`${HEADER_PILL_CONTROL_CLASS_NAME} cursor-not-allowed opacity-64`}
+                    className={`${HEADER_ACTION_CONTROL_CLASS_NAME} cursor-not-allowed opacity-64`}
                     size="xs"
                     variant="ghost"
                   />
@@ -891,7 +898,7 @@ export default function GitActionsControl({
             <Button
               variant="ghost"
               size="xs"
-              className={HEADER_PILL_CONTROL_CLASS_NAME}
+              className={HEADER_ACTION_CONTROL_CLASS_NAME}
               disabled={isGitActionRunning || quickAction.disabled}
               onClick={runQuickAction}
             >
@@ -899,7 +906,7 @@ export default function GitActionsControl({
               <span className="sr-only md:not-sr-only md:ml-0.5">{quickAction.label}</span>
             </Button>
           )}
-          <TopBarClusterDivider />
+          <div className={HEADER_ACTION_DIVIDER_CLASS_NAME} aria-hidden="true" />
           <Menu
             onOpenChange={(open) => {
               if (open) void invalidateGitStatusQuery(queryClient, gitCwd);
@@ -914,7 +921,7 @@ export default function GitActionsControl({
                         aria-label="More Git actions"
                         size="icon-xs"
                         variant="ghost"
-                        className={HEADER_PILL_ICON_CONTROL_CLASS_NAME}
+                        className={HEADER_ACTION_ICON_CONTROL_CLASS_NAME}
                       />
                     }
                     disabled={isGitActionRunning}
@@ -927,7 +934,22 @@ export default function GitActionsControl({
                 More Git actions: commit, push, create PR, and related options.
               </TooltipPopup>
             </Tooltip>
-            <MenuPopup align="end" className="w-full">
+            <MenuPopup align="end" className="min-w-64 border-border/65 bg-popover/96 p-0">
+              <div className="border-b border-border/40 px-2.5 py-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                    Git actions
+                  </div>
+                  {gitStatusForActions?.branch ? (
+                    <div
+                      className="max-w-32 truncate rounded-md bg-muted/45 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+                      title={gitStatusForActions.branch}
+                    >
+                      {gitStatusForActions.branch}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
               {gitActionMenuItems.map((item) => {
                 const disabledReason = getMenuActionDisabledReason({
                   item,
@@ -943,7 +965,7 @@ export default function GitActionsControl({
                         nativeButton={false}
                         render={<span className="block w-max cursor-not-allowed" />}
                       >
-                        <MenuItem className="w-full" disabled>
+                        <MenuItem className={`${gitMenuItemClassName} w-full`} disabled>
                           <GitActionItemIcon icon={item.icon} />
                           {item.label}
                         </MenuItem>
@@ -958,6 +980,7 @@ export default function GitActionsControl({
                 return (
                   <MenuItem
                     key={`${item.id}-${item.label}`}
+                    className={gitMenuItemClassName}
                     disabled={item.disabled}
                     onClick={() => {
                       openDialogForMenuItem(item);
@@ -969,6 +992,7 @@ export default function GitActionsControl({
                 );
               })}
               <MenuItem
+                className={gitMenuItemClassName}
                 onClick={() => {
                   setIsSshPassphraseDialogOpen(true);
                 }}

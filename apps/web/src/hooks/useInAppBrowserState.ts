@@ -69,6 +69,7 @@ import { toastManager } from "~/components/ui/toast";
 
 export interface InAppBrowserController {
   closeActiveTab: () => void;
+  closeTab: (tabId: string) => void;
   closeDevTools: () => void;
   duplicateActiveTab: () => void;
   focusAddressBar: () => void;
@@ -879,6 +880,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   );
 
   const closeActiveTabEvent = useEffectEvent(closeActiveTab);
+  const closeTabEvent = useEffectEvent(closeTab);
   const closeDevToolsEvent = useEffectEvent(closeDevTools);
   const duplicateActiveTabEvent = useEffectEvent(duplicateActiveTab);
   const focusAddressBarEvent = useEffectEvent(focusAddressBar);
@@ -900,6 +902,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const browserController = useMemo<InAppBrowserController>(
     () => ({
       closeActiveTab: () => closeActiveTabEvent(),
+      closeTab: (tabId) => closeTabEvent(tabId),
       closeDevTools: () => closeDevToolsEvent(),
       duplicateActiveTab: () => duplicateActiveTabEvent(),
       focusAddressBar: () => focusAddressBarEvent(),
