@@ -3,7 +3,7 @@ import { ArrowRightIcon, HammerIcon, PlusIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useHandleNewThread } from "~/hooks/useHandleNewThread";
-import { useSettings } from "~/hooks/useSettings";
+import { useSetting } from "~/hooks/useSettings";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
 import { useStore } from "~/store";
 
@@ -18,7 +18,7 @@ export function NewThreadLanding() {
     [projects],
   );
   const { defaultProjectId, handleNewThread } = useHandleNewThread();
-  const settings = useSettings();
+  const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const [selectedProjectId, setSelectedProjectId] = useState<ProjectId | null>(defaultProjectId);
   const activeProjectId = useMemo(() => {
     if (
@@ -42,10 +42,10 @@ export function NewThreadLanding() {
       activeProjectId,
       resolveSidebarNewThreadOptions({
         projectId: activeProjectId,
-        defaultEnvMode: settings.defaultThreadEnvMode,
+        defaultEnvMode: defaultThreadEnvMode,
       }),
     );
-  }, [activeProjectId, handleNewThread, settings.defaultThreadEnvMode]);
+  }, [activeProjectId, defaultThreadEnvMode, handleNewThread]);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">

@@ -40,7 +40,7 @@ import {
 } from "../lib/remoteHosts";
 import { getRouteRpcClient, routeOrchestrationGetSnapshotFromRemote } from "../lib/remoteWsRouter";
 import { newCommandId } from "../lib/utils";
-import { useSettings } from "../hooks/useSettings";
+import { useSetting } from "../hooks/useSettings";
 import { toastManager } from "./ui/toast";
 
 function closeNotification(notification: Notification | undefined): void {
@@ -77,11 +77,17 @@ export function AgentAttentionNotificationBridge() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
   const [remoteConnectionsReady, setRemoteConnectionsReady] = useState(false);
-  const notificationSettings = useSettings((settings) => ({
-    notifyOnAgentCompletion: settings.notifyOnAgentCompletion,
-    notifyOnApprovalRequired: settings.notifyOnApprovalRequired,
-    notifyOnUserInputRequired: settings.notifyOnUserInputRequired,
-  }));
+  const notifyOnAgentCompletion = useSetting("notifyOnAgentCompletion");
+  const notifyOnApprovalRequired = useSetting("notifyOnApprovalRequired");
+  const notifyOnUserInputRequired = useSetting("notifyOnUserInputRequired");
+  const notificationSettings = useMemo(
+    () => ({
+      notifyOnAgentCompletion,
+      notifyOnApprovalRequired,
+      notifyOnUserInputRequired,
+    }),
+    [notifyOnAgentCompletion, notifyOnApprovalRequired, notifyOnUserInputRequired],
+  );
   const [attentionRequestsByConnection, setAttentionRequestsByConnection] = useState<
     Record<string, ReadonlyArray<ScopedAgentAttentionRequest>>
   >({});

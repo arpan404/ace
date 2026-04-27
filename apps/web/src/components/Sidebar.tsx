@@ -1,8 +1,6 @@
 import {
-  IconArrowsDiagonalMinimize2,
   IconArrowsSort,
   IconFilter2,
-  IconFolderPlus,
   IconPin,
   IconPinFilled,
   IconPinnedOff,
@@ -166,7 +164,7 @@ import {
   useThreadJumpHintVisibility,
 } from "../lib/sidebar";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
-import { ProjectSortMenu } from "./sidebar/ProjectSortMenu";
+import { SidebarProjectsSectionHeader } from "./sidebar/SidebarProjectsSectionHeader";
 import {
   SortableProjectItem,
   type SortableProjectHandleProps,
@@ -201,7 +199,7 @@ import {
 } from "../lib/remoteWsRouter";
 import { LEAN_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
+import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings, useServerProviders } from "../rpc/serverState";
 import type { Project, SidebarThreadSummary } from "../types";
 import { useHostConnectionStore } from "../hostConnectionStore";
@@ -937,7 +935,12 @@ export default function Sidebar() {
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const locationSearch = useLocation({ select: (loc) => loc.searchStr });
   const isOnSettings = pathname.startsWith("/settings");
-  const appSettings = useSettings();
+  const configuredAddProjectBaseDirectory = useSetting("addProjectBaseDirectory");
+  const confirmThreadArchive = useSetting("confirmThreadArchive");
+  const confirmThreadDelete = useSetting("confirmThreadDelete");
+  const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
+  const sidebarProjectSortOrder = useSetting("sidebarProjectSortOrder");
+  const sidebarThreadSortOrder = useSetting("sidebarThreadSortOrder");
   const { updateSettings } = useUpdateSettings();
   const pinnedProjectIds = useMemo(
     () => pinnedItems.flatMap((item) => (item.kind === "project" ? [item.id] : [])),
@@ -1635,10 +1638,7 @@ export default function Sidebar() {
             } else if (previousEntry) {
               return previousEntry;
             }
-            const mappedProjects = mapRemoteProjectsFromSnapshot(
-              snapshot,
-              appSettings.sidebarProjectSortOrder,
-            );
+            const mappedProjects = mapRemoteProjectsFromSnapshot(snapshot, sidebarProjectSortOrder);
             const projects = previousEntry
               ? reuseRemoteProjectEntries(previousEntry.projects, mappedProjects)
               : mappedProjects;
@@ -1695,7 +1695,7 @@ export default function Sidebar() {
       }
     }
   }, [
-    appSettings.sidebarProjectSortOrder,
+    sidebarProjectSortOrder,
     clearRemoteSnapshotMergeHandle,
     localDeviceConnectionUrl,
     reconcileThreadDerivedState,
@@ -1762,9 +1762,9 @@ export default function Sidebar() {
     };
   }, [bootstrapComplete, clearRemoteSnapshotMergeHandle, refreshRemoteSidebarHosts]);
   const addProjectBaseDirectory = useMemo(() => {
-    const configuredBaseDirectory = appSettings.addProjectBaseDirectory.trim();
+    const configuredBaseDirectory = configuredAddProjectBaseDirectory.trim();
     return configuredBaseDirectory.length > 0 ? configuredBaseDirectory : "~";
-  }, [appSettings.addProjectBaseDirectory]);
+  }, [configuredAddProjectBaseDirectory]);
   const editingProject = useMemo(
     () =>
       editingProjectId
@@ -1892,9 +1892,7 @@ export default function Sidebar() {
   const focusMostRecentThreadForProject = useCallback(
     (projectId: ProjectId) => {
       const sortOrder =
-        appSettings.sidebarThreadSortOrder === "manual"
-          ? "last_user_message"
-          : appSettings.sidebarThreadSortOrder;
+        sidebarThreadSortOrder === "manual" ? "last_user_message" : sidebarThreadSortOrder;
       const sortedThreads = sortThreadsForSidebar(
         (threadIdsByProjectId[projectId] ?? [])
           .map((threadId) => sidebarThreadsById[threadId])
@@ -1903,7 +1901,7 @@ export default function Sidebar() {
         sortOrder,
       );
       const latestThread =
-        appSettings.sidebarThreadSortOrder === "manual"
+        sidebarThreadSortOrder === "manual"
           ? orderItemsByPreferredIds({
               items: sortedThreads,
               preferredIds: threadOrderByProjectId[projectId] ?? [],
@@ -1918,7 +1916,7 @@ export default function Sidebar() {
       });
     },
     [
-      appSettings.sidebarThreadSortOrder,
+      sidebarThreadSortOrder,
       navigate,
       sidebarThreadsById,
       threadIdsByProjectId,
@@ -2061,7 +2059,7 @@ export default function Sidebar() {
           });
         } else {
           handleNewThread(projectId, {
-            envMode: appSettings.defaultThreadEnvMode,
+            envMode: defaultThreadEnvMode,
           }).catch((error) => {
             reportBackgroundError(
               "Failed to create the initial thread for the new project.",
@@ -2084,7 +2082,7 @@ export default function Sidebar() {
     },
     [
       addProjectBaseDirectory,
-      appSettings.defaultThreadEnvMode,
+      defaultThreadEnvMode,
       focusMostRecentThreadForProject,
       handleNewThread,
       isAddingProject,
@@ -2546,7 +2544,7 @@ export default function Sidebar() {
         return;
       }
       if (clicked !== "delete") return;
-      if (appSettings.confirmThreadDelete) {
+      if (confirmThreadDelete) {
         const confirmed = await api.dialogs.confirm(
           [
             `Delete thread "${thread.title}"?`,
@@ -2560,7 +2558,7 @@ export default function Sidebar() {
       await deleteThread(threadId);
     },
     [
-      appSettings.confirmThreadDelete,
+      confirmThreadDelete,
       copyPathToClipboard,
       copyThreadIdToClipboard,
       deleteThread,
@@ -2611,7 +2609,7 @@ export default function Sidebar() {
 
       if (clicked !== "delete") return;
 
-      if (appSettings.confirmThreadDelete) {
+      if (confirmThreadDelete) {
         const confirmed = await api.dialogs.confirm(
           [
             `Delete ${count} thread${count === 1 ? "" : "s"}?`,
@@ -2628,7 +2626,7 @@ export default function Sidebar() {
       removeFromSelection(ids);
     },
     [
-      appSettings.confirmThreadDelete,
+      confirmThreadDelete,
       clearSelection,
       deleteThread,
       markThreadUnread,
@@ -3052,7 +3050,7 @@ export default function Sidebar() {
         return;
       }
       if (clicked !== "delete") return;
-      if (appSettings.confirmThreadDelete) {
+      if (confirmThreadDelete) {
         const confirmed = await api.dialogs.confirm(
           [
             `Delete thread "${input.thread.title}"?`,
@@ -3083,7 +3081,7 @@ export default function Sidebar() {
       }
     },
     [
-      appSettings.confirmThreadDelete,
+      confirmThreadDelete,
       copyPathToClipboard,
       copyThreadIdToClipboard,
       openThreadInSplit,
@@ -3228,12 +3226,12 @@ export default function Sidebar() {
       const activeProject = orderedProjects.find((project) => project.id === active.id);
       const overProject = orderedProjects.find((project) => project.id === over.id);
       if (!activeProject || !overProject) return;
-      if (appSettings.sidebarProjectSortOrder !== "manual") {
+      if (sidebarProjectSortOrder !== "manual") {
         updateSettings({ sidebarProjectSortOrder: "manual" });
       }
       reorderProjects(activeProject.id, overProject.id);
     },
-    [appSettings.sidebarProjectSortOrder, orderedProjects, reorderProjects, updateSettings],
+    [orderedProjects, reorderProjects, sidebarProjectSortOrder, updateSettings],
   );
 
   const handleProjectDragStart = useCallback((_event: DragStartEvent) => {
@@ -3250,7 +3248,7 @@ export default function Sidebar() {
       if (!over || active.id === over.id) {
         return;
       }
-      if (appSettings.sidebarThreadSortOrder !== "manual") {
+      if (sidebarThreadSortOrder !== "manual") {
         updateSettings({ sidebarThreadSortOrder: "manual" });
       }
       reorderThreadsInProject(
@@ -3259,7 +3257,7 @@ export default function Sidebar() {
         ThreadId.makeUnsafe(String(over.id)),
       );
     },
-    [appSettings.sidebarThreadSortOrder, reorderThreadsInProject, updateSettings],
+    [reorderThreadsInProject, sidebarThreadSortOrder, updateSettings],
   );
   const handlePinnedThreadDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -3326,7 +3324,7 @@ export default function Sidebar() {
     return next;
   }, [pinnedThreadIdSet, visibleProjectThreadsByProjectId]);
   const sortedProjects = useMemo(() => {
-    const sortOrder = appSettings.sidebarProjectSortOrder;
+    const sortOrder = sidebarProjectSortOrder;
     const baseProjects =
       sortOrder === "manual"
         ? orderItemsByPreferredIds({
@@ -3342,7 +3340,7 @@ export default function Sidebar() {
     return prioritizePinnedItems(baseProjects, (project) => pinnedProjectIdSet.has(project.id));
   }, [
     activeProjects,
-    appSettings.sidebarProjectSortOrder,
+    sidebarProjectSortOrder,
     projectOrder,
     pinnedProjectIdSet,
     visibleProjectThreadsByProjectId,
@@ -3363,10 +3361,10 @@ export default function Sidebar() {
         const visibleThreadCount = threadRevealCountByProject[project.id] ?? THREAD_REVEAL_STEP;
         const sortedProjectThreads = getCachedSortedSidebarThreads(
           projectListThreads,
-          appSettings.sidebarThreadSortOrder,
+          sidebarThreadSortOrder,
         );
         const projectThreads =
-          appSettings.sidebarThreadSortOrder === "manual"
+          sidebarThreadSortOrder === "manual"
             ? orderItemsByPreferredIds({
                 items: getCachedSortedSidebarThreads(projectListThreads, "last_user_message"),
                 preferredIds: threadOrderByProjectId[project.id] ?? [],
@@ -3427,7 +3425,7 @@ export default function Sidebar() {
       }),
     [
       activeWsUrl,
-      appSettings.sidebarThreadSortOrder,
+      sidebarThreadSortOrder,
       threadRevealCountByProject,
       projectExpandedById,
       sortedProjects,
@@ -3610,7 +3608,7 @@ export default function Sidebar() {
       timestamp: getProjectSortTimestamp(
         project.project,
         visibleProjectThreadsByProjectId.get(project.project.id) ?? EMPTY_SIDEBAR_THREADS,
-        appSettings.sidebarProjectSortOrder === "created_at" ? "created_at" : "updated_at",
+        sidebarProjectSortOrder === "created_at" ? "created_at" : "updated_at",
       ),
       projectName: project.project.name,
       projectId: project.project.id,
@@ -3618,7 +3616,7 @@ export default function Sidebar() {
     }));
     const remoteProjects = renderedRemoteProjects.map((project) => {
       const timestamp =
-        appSettings.sidebarProjectSortOrder === "created_at"
+        sidebarProjectSortOrder === "created_at"
           ? resolveIsoTimestamp(project.project.createdAt)
           : Math.max(
               project.project.threads.reduce(
@@ -3647,7 +3645,7 @@ export default function Sidebar() {
       return left.projectId.localeCompare(right.projectId);
     });
   }, [
-    appSettings.sidebarProjectSortOrder,
+    sidebarProjectSortOrder,
     filteredRenderedProjects,
     renderedRemoteProjects,
     visibleProjectThreadsByProjectId,
@@ -3832,7 +3830,7 @@ export default function Sidebar() {
         resolveSidebarNewThreadOptions({
           projectId,
           defaultEnvMode: resolveSidebarNewThreadEnvMode({
-            defaultEnvMode: appSettings.defaultThreadEnvMode,
+            defaultEnvMode: defaultThreadEnvMode,
           }),
           activeThread:
             activeThread && activeThread.projectId === projectId
@@ -3854,7 +3852,7 @@ export default function Sidebar() {
         }),
       );
     },
-    [activeDraftThread, activeThread, appSettings.defaultThreadEnvMode, handleNewThread],
+    [activeDraftThread, activeThread, defaultThreadEnvMode, handleNewThread],
   );
   const handleStartSidebarNewChat = useCallback(() => {
     if (!sidebarNewThreadProjectId) {
@@ -3869,7 +3867,7 @@ export default function Sidebar() {
         ...resolveSidebarNewThreadOptions({
           projectId: input.project.id,
           defaultEnvMode: resolveSidebarNewThreadEnvMode({
-            defaultEnvMode: appSettings.defaultThreadEnvMode,
+            defaultEnvMode: defaultThreadEnvMode,
           }),
           activeThread:
             activeThread && activeThread.projectId === input.project.id
@@ -3892,7 +3890,7 @@ export default function Sidebar() {
         connectionUrl: input.connectionUrl,
       });
     },
-    [activeDraftThread, activeThread, appSettings.defaultThreadEnvMode, handleNewThread],
+    [activeDraftThread, activeThread, defaultThreadEnvMode, handleNewThread],
   );
   const {
     searchPaletteOpen,
@@ -3922,8 +3920,8 @@ export default function Sidebar() {
     projectById,
     activeWsUrl,
     localDeviceConnectionUrl,
-    projectSortOrder: appSettings.sidebarProjectSortOrder,
-    threadSortOrder: appSettings.sidebarThreadSortOrder,
+    projectSortOrder: sidebarProjectSortOrder,
+    threadSortOrder: sidebarThreadSortOrder,
     onStartAddProject: handleStartAddProject,
     onStartNewThreadForProject: handleStartNewThreadForProject,
     onStartNewThreadForRemoteProject: (input) => {
@@ -4134,7 +4132,7 @@ export default function Sidebar() {
         selectedThreadIds={selectedThreadIds}
         showThreadJumpHints={showThreadJumpHints}
         jumpLabel={threadJumpLabelById.get(threadId) ?? null}
-        appSettingsConfirmThreadArchive={appSettings.confirmThreadArchive}
+        appSettingsConfirmThreadArchive={confirmThreadArchive}
         isPinned
         sortableHandleProps={sortableHandleProps ?? null}
         showPinnedIndicator={false}
@@ -4215,7 +4213,7 @@ export default function Sidebar() {
         selectedThreadIds={selectedThreadIds}
         showThreadJumpHints={showThreadJumpHints}
         jumpLabel={threadJumpLabelById.get(threadId) ?? null}
-        appSettingsConfirmThreadArchive={appSettings.confirmThreadArchive}
+        appSettingsConfirmThreadArchive={confirmThreadArchive}
         isPinned={pinnedThreadIdSet.has(threadId)}
         sortableHandleProps={sortableHandleProps ?? null}
         renamingThreadId={renamingThreadId}
@@ -4525,7 +4523,7 @@ export default function Sidebar() {
                     selectedThreadIds={selectedThreadIds}
                     showThreadJumpHints={showThreadJumpHints}
                     jumpLabel={null}
-                    appSettingsConfirmThreadArchive={appSettings.confirmThreadArchive}
+                    appSettingsConfirmThreadArchive={confirmThreadArchive}
                     isPinned={false}
                     pinEnabled={false}
                     renamingThreadId={renamingThreadId}
@@ -6150,76 +6148,23 @@ export default function Sidebar() {
               </SidebarGroup>
             ) : null}
             <SidebarGroup className="px-2.5 pt-2.5 pb-5">
-              <div className="mb-1.5 flex items-center justify-between pl-2 pr-1.5">
-                <button
-                  type="button"
-                  className="group/section-header flex h-5 min-w-0 flex-1 cursor-pointer items-center gap-1.5 bg-transparent text-left"
-                  aria-expanded={projectsSectionExpanded}
-                  onClick={() => setProjectsSectionExpanded(!projectsSectionExpanded)}
-                >
-                  <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors group-hover/section-header:text-foreground">
-                    Projects
-                  </span>
-                  <ChevronRightIcon
-                    className={`size-4 text-muted-foreground/45 opacity-0 transition-[opacity,transform,color] duration-150 group-hover/section-header:text-foreground group-hover/section-header:opacity-100 ${
-                      projectsSectionExpanded ? "rotate-90" : ""
-                    }`}
-                  />
-                </button>
-                <div className="flex items-center gap-1">
-                  {canCollapseVisibleProjects ? (
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <button
-                            type="button"
-                            aria-label="Collapse open projects"
-                            className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
-                            onClick={collapseVisibleProjects}
-                          />
-                        }
-                      >
-                        <IconArrowsDiagonalMinimize2 className="size-4" />
-                      </TooltipTrigger>
-                      <TooltipPopup side="right">Collapse open projects</TooltipPopup>
-                    </Tooltip>
-                  ) : null}
-                  <ProjectSortMenu
-                    projectSortOrder={appSettings.sidebarProjectSortOrder}
-                    threadSortOrder={appSettings.sidebarThreadSortOrder}
-                    onProjectSortOrderChange={(sortOrder) => {
-                      updateSettings({ sidebarProjectSortOrder: sortOrder });
-                    }}
-                    onThreadSortOrderChange={(sortOrder) => {
-                      updateSettings({ sidebarThreadSortOrder: sortOrder });
-                    }}
-                  />
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          aria-label={
-                            shouldShowProjectPathEntry ? "Cancel add project" : "Add project"
-                          }
-                          aria-pressed={shouldShowProjectPathEntry}
-                          className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
-                          onClick={handleStartAddProject}
-                        />
-                      }
-                    >
-                      <IconFolderPlus className="size-4" />
-                    </TooltipTrigger>
-                    <TooltipPopup side="right">
-                      {shouldShowProjectPathEntry
-                        ? "Cancel add project"
-                        : addProjectShortcutLabel
-                          ? `Add project (${addProjectShortcutLabel})`
-                          : "Add project"}
-                    </TooltipPopup>
-                  </Tooltip>
-                </div>
-              </div>
+              <SidebarProjectsSectionHeader
+                addProjectShortcutLabel={addProjectShortcutLabel}
+                canCollapseVisibleProjects={canCollapseVisibleProjects}
+                projectSortOrder={sidebarProjectSortOrder}
+                projectsSectionExpanded={projectsSectionExpanded}
+                shouldShowProjectPathEntry={shouldShowProjectPathEntry}
+                threadSortOrder={sidebarThreadSortOrder}
+                onCollapseVisibleProjects={collapseVisibleProjects}
+                onProjectSortOrderChange={(sortOrder) => {
+                  updateSettings({ sidebarProjectSortOrder: sortOrder });
+                }}
+                onThreadSortOrderChange={(sortOrder) => {
+                  updateSettings({ sidebarThreadSortOrder: sortOrder });
+                }}
+                onToggleAddProject={handleStartAddProject}
+                onToggleProjectsSection={() => setProjectsSectionExpanded(!projectsSectionExpanded)}
+              />
               <div
                 aria-hidden={!projectsSectionExpanded}
                 className={cn(

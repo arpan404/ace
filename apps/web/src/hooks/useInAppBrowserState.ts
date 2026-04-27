@@ -11,7 +11,7 @@ import {
 
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
-import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
+import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import {
   BROWSER_HISTORY_STORAGE_KEY,
   BrowserHistorySchema,
@@ -132,9 +132,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     scopeId,
   } = options;
   const api = readNativeApi();
-  const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
-  const browserSearchEngine = settings.browserSearchEngine;
+  const browserSearchEngine = useSetting("browserSearchEngine");
   const browserSessionStorageKey = resolveBrowserSessionStorageKey(scopeId);
   const browserDesignerStorageKey = resolveBrowserDesignerStateStorageKey(scopeId);
   const addressInputRef = useRef<HTMLInputElement | null>(null);

@@ -14,9 +14,6 @@ import {
   normalizeThreadNotificationTitle,
 } from "@ace/shared/notifications";
 
-const THREAD_REFRESH_DEBOUNCE_MS = 120;
-const SNAPSHOT_REFRESH_INTERVAL_MS = 45_000;
-const FOCUS_STATE_POLL_INTERVAL_MS = 1_000;
 const ATTENTION_ACTIVITY_KINDS = new Set([
   "approval.requested",
   "approval.resolved",
@@ -482,10 +479,6 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
   private notificationSessionStartedAt = new Date().toISOString();
   private lastKnownFocusState: boolean | null = null;
   private readonly threadStateById = new Map<string, ThreadAttentionState>();
-  private pendingRefreshThreadIds = new Set<string>();
-  private queuedRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private periodicSnapshotTimer: ReturnType<typeof setInterval> | null = null;
-  private focusStatePollTimer: ReturnType<typeof setInterval> | null = null;
   private settings: BackgroundNotificationSettings = {
     notifyOnAgentCompletion: true,
     notifyOnApprovalRequired: true,
@@ -509,18 +502,6 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
 
     this.log("notification service starting");
     this.syncNotificationSessionFromFocus(new Date().toISOString());
-
-    this.periodicSnapshotTimer = setInterval(() => {
-      if (this.stopped) {
-        return;
-      }
-    }, SNAPSHOT_REFRESH_INTERVAL_MS);
-    this.focusStatePollTimer = setInterval(() => {
-      if (this.stopped) {
-        return;
-      }
-      this.syncNotificationSessionFromFocus(new Date().toISOString());
-    }, FOCUS_STATE_POLL_INTERVAL_MS);
   }
 
   async stop(): Promise<void> {
@@ -528,19 +509,6 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
       return;
     }
     this.stopped = true;
-    if (this.queuedRefreshTimer) {
-      clearTimeout(this.queuedRefreshTimer);
-      this.queuedRefreshTimer = null;
-    }
-    if (this.periodicSnapshotTimer) {
-      clearInterval(this.periodicSnapshotTimer);
-      this.periodicSnapshotTimer = null;
-    }
-    if (this.focusStatePollTimer) {
-      clearInterval(this.focusStatePollTimer);
-      this.focusStatePollTimer = null;
-    }
-    this.pendingRefreshThreadIds = new Set<string>();
     this.lastKnownFocusState = null;
     this.log("notification service stopped");
   }
@@ -591,13 +559,11 @@ class DesktopBackgroundNotificationServiceImpl implements DesktopBackgroundNotif
   }
 
   private queueThreadRefresh(threadId: string): void {
-    this.pendingRefreshThreadIds.add(threadId);
-    if (this.queuedRefreshTimer !== null) {
+    if (threadId.length === 0) {
       return;
     }
-    this.queuedRefreshTimer = setTimeout(() => {
-      this.queuedRefreshTimer = null;
-    }, THREAD_REFRESH_DEBOUNCE_MS);
+
+    this.syncNotificationSessionFromFocus(new Date().toISOString());
   }
 
   private syncNotificationSessionFromFocus(nowIso: string): boolean {

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { ChatSettingsPanel } from "../components/settings/SettingsPanels";
+import { ChatSettingsPanelRoute } from "../components/settings/LazySettingsPanels";
 
 export const Route = createFileRoute("/settings/chat")({
-  component: ChatSettingsPanel,
+  component: ChatSettingsPanelRoute,
 });
