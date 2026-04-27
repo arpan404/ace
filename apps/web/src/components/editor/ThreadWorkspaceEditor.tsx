@@ -894,17 +894,6 @@ function ThreadWorkspaceEditor(inputProps: {
     );
   }, [props.threadId, syncTree, treeEntries]);
 
-  const hasAnyOpenFile = panes.some((pane) => pane.openFilePaths.length > 0);
-  useEffect(() => {
-    if (hasAnyOpenFile || treeEntries.length === 0 || activePane?.id === undefined) {
-      return;
-    }
-    const firstFile = treeEntries.find((entry) => entry.kind === "file");
-    if (firstFile) {
-      openFile(props.threadId, firstFile.path, activePane.id);
-    }
-  }, [activePane?.id, hasAnyOpenFile, openFile, props.threadId, treeEntries]);
-
   useEffect(() => {
     if (selectedEntryPath && entryByPath.has(selectedEntryPath)) {
       return;

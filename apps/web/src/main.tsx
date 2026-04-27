@@ -30,15 +30,33 @@ const routerPhase = beginLoadPhase("main", "Creating router");
 const router = getRouter(history);
 routerPhase.success("Router created");
 
-const syncDesktopTitlebarLeftInset = () => {
-  const titlebarLeftInset =
-    window.desktopBridge?.getTitlebarLeftInset?.() ?? (isElectron ? MAC_TITLEBAR_LEFT_INSET_PX : 0);
-  if (Number.isFinite(titlebarLeftInset) && titlebarLeftInset >= 0) {
-    document.documentElement.style.setProperty(
-      DESKTOP_TITLEBAR_LEFT_INSET_CSS_VARIABLE,
-      `${Math.round(titlebarLeftInset)}px`,
-    );
+let currentDesktopTitlebarLeftInset: number | null = null;
+
+const applyDesktopTitlebarLeftInset = (titlebarLeftInset: number | null | undefined) => {
+  if (
+    typeof titlebarLeftInset !== "number" ||
+    !Number.isFinite(titlebarLeftInset) ||
+    titlebarLeftInset < 0
+  ) {
+    return;
   }
+
+  const nextInset = Math.round(titlebarLeftInset);
+  if (nextInset === currentDesktopTitlebarLeftInset) {
+    return;
+  }
+
+  currentDesktopTitlebarLeftInset = nextInset;
+  document.documentElement.style.setProperty(
+    DESKTOP_TITLEBAR_LEFT_INSET_CSS_VARIABLE,
+    `${nextInset}px`,
+  );
+};
+
+const syncDesktopTitlebarLeftInset = () => {
+  applyDesktopTitlebarLeftInset(
+    window.desktopBridge?.getTitlebarLeftInset?.() ?? (isElectron ? MAC_TITLEBAR_LEFT_INSET_PX : 0),
+  );
 };
 
 syncDesktopTitlebarLeftInset();
@@ -55,8 +73,31 @@ if (isElectron && typeof window.desktopBridge?.getTitlebarLeftInset === "functio
     });
   };
 
-  window.addEventListener("resize", scheduleInsetSync);
   window.addEventListener("focus", scheduleInsetSync);
+  window.desktopBridge.onTitlebarLeftInsetChange?.(applyDesktopTitlebarLeftInset);
+}
+
+if (isElectron) {
+  let isNativeWindowResizing = false;
+  let resizeSettleTimer = 0;
+  const markNativeWindowResizing = () => {
+    if (!isNativeWindowResizing) {
+      isNativeWindowResizing = true;
+      document.documentElement.classList.add("native-window-resizing");
+      window.dispatchEvent(new CustomEvent("ace:native-window-resize-start"));
+    }
+    if (resizeSettleTimer !== 0) {
+      window.clearTimeout(resizeSettleTimer);
+    }
+    resizeSettleTimer = window.setTimeout(() => {
+      resizeSettleTimer = 0;
+      isNativeWindowResizing = false;
+      document.documentElement.classList.remove("native-window-resizing");
+      window.dispatchEvent(new CustomEvent("ace:native-window-resize-end"));
+    }, 140);
+  };
+
+  window.addEventListener("resize", markNativeWindowResizing, { passive: true });
 }
 
 document.title = APP_DISPLAY_NAME;

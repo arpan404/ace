@@ -5,7 +5,6 @@ import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
 
 export interface BrowserLaunchRequest {
   readonly action?: "open" | "toggle";
-  readonly mode?: "full" | "split";
   readonly newTab?: boolean;
   readonly url?: string;
 }

@@ -194,22 +194,49 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       return;
     }
 
-    const updateWidth = () => {
-      const nextWidth = timelineRootElement.getBoundingClientRect().width;
+    let pendingWidth: number | null = null;
+    let frameId: number | null = null;
+
+    const updateWidth = (nextWidth: number) => {
       setTimelineWidthPx((current) =>
         current !== null && Math.abs(current - nextWidth) < 0.5 ? current : nextWidth,
       );
     };
+    const scheduleWidthUpdate = (nextWidth: number) => {
+      pendingWidth = nextWidth;
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        const width = pendingWidth;
+        pendingWidth = null;
+        if (width !== null) {
+          updateWidth(width);
+        }
+      });
+    };
 
-    updateWidth();
+    updateWidth(timelineRootElement.clientWidth);
 
     if (typeof ResizeObserver === "undefined") {
       return;
     }
 
-    const observer = new ResizeObserver(() => updateWidth());
+    const observer = new ResizeObserver((entries) => {
+      const [entry] = entries;
+      if (!entry) {
+        return;
+      }
+      scheduleWidthUpdate(entry.contentRect.width);
+    });
     observer.observe(timelineRootElement);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
   }, [timelineRootElement]);
 
   const firstUnvirtualizedRowIndex = useMemo(

@@ -44,10 +44,6 @@ export const WorkspaceEditorOpenMode = Schema.Literals(["split", "full"]);
 export type WorkspaceEditorOpenMode = typeof WorkspaceEditorOpenMode.Type;
 export const DEFAULT_WORKSPACE_EDITOR_OPEN_MODE: WorkspaceEditorOpenMode = "split";
 
-export const BrowserOpenMode = Schema.Literals(["split", "full"]);
-export type BrowserOpenMode = typeof BrowserOpenMode.Type;
-export const DEFAULT_BROWSER_OPEN_MODE: BrowserOpenMode = "split";
-
 export const EditorLineNumbers = Schema.Literals(["off", "on", "relative"]);
 export type EditorLineNumbers = typeof EditorLineNumbers.Type;
 export const DEFAULT_EDITOR_LINE_NUMBERS: EditorLineNumbers = "on";
@@ -85,9 +81,6 @@ export type UiLetterSpacing = typeof UiLetterSpacing.Type;
 export const DEFAULT_UI_LETTER_SPACING: UiLetterSpacing = "normal";
 
 export const ClientSettingsSchema = Schema.Struct({
-  browserOpenMode: BrowserOpenMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_BROWSER_OPEN_MODE),
-  ),
   browserSearchEngine: BrowserSearchEngine.pipe(
     Schema.withDecodingDefault(() => DEFAULT_BROWSER_SEARCH_ENGINE),
   ),

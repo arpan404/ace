@@ -64,6 +64,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
   { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
   { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
+  { key: "mod+alt+b", command: "rightPanel.toggle", when: "!terminalFocus" },
   { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
   { key: "mod+b", command: "browser.toggle", when: "!terminalFocus" },
   { key: "mod+[", command: "browser.back", when: "browserOpen && !terminalFocus" },
@@ -75,9 +76,6 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+i", command: "browser.devtools", when: "browserOpen && !terminalFocus" },
   { key: "mod+shift+[", command: "browser.previousTab", when: "browserOpen && !terminalFocus" },
   { key: "mod+shift+]", command: "browser.nextTab", when: "browserOpen && !terminalFocus" },
-  { key: "mod+shift+d", command: "browser.duplicateTab", when: "browserOpen && !terminalFocus" },
-  { key: "mod+alt+[", command: "browser.moveTabLeft", when: "browserOpen && !terminalFocus" },
-  { key: "mod+alt+]", command: "browser.moveTabRight", when: "browserOpen && !terminalFocus" },
   { key: "mod+alt+1", command: "browser.designer.cursor", when: "browserOpen && !terminalFocus" },
   {
     key: "mod+alt+2",
@@ -469,6 +467,20 @@ const KeybindingsConfigPrettyJson = KeybindingsConfigJson.pipe(
   }),
 );
 
+const OBSOLETE_KEYBINDING_COMMANDS = new Set([
+  "browser.duplicateTab",
+  "browser.moveTabLeft",
+  "browser.moveTabRight",
+]);
+
+const isObsoleteKeybindingEntry = (entry: unknown) => {
+  if (typeof entry !== "object" || entry === null || !("command" in entry)) {
+    return false;
+  }
+  const command = (entry as { readonly command?: unknown }).command;
+  return typeof command === "string" && OBSOLETE_KEYBINDING_COMMANDS.has(command);
+};
+
 export interface KeybindingsConfigState {
   readonly keybindings: ResolvedKeybindingsConfig;
   readonly issues: readonly ServerConfigIssue[];
@@ -635,6 +647,13 @@ const makeKeybindings = Effect.gen(function* () {
 
     return yield* Effect.forEach(rawConfig, (entry) =>
       Effect.gen(function* () {
+        if (isObsoleteKeybindingEntry(entry)) {
+          yield* Effect.logWarning("dropping obsolete keybinding entry", {
+            path: keybindingsConfigPath,
+            entry,
+          });
+          return null;
+        }
         const decodedRule = Schema.decodeUnknownExit(KeybindingRule)(entry);
         if (decodedRule._tag === "Failure") {
           yield* Effect.logWarning("ignoring invalid keybinding entry", {
@@ -662,11 +681,12 @@ const makeKeybindings = Effect.gen(function* () {
     {
       readonly keybindings: readonly KeybindingRule[];
       readonly issues: readonly ServerConfigIssue[];
+      readonly obsoleteEntryCount: number;
     },
     KeybindingsConfigError
   > {
     if (!(yield* readConfigExists)) {
-      return { keybindings: [], issues: [] };
+      return { keybindings: [], issues: [], obsoleteEntryCount: 0 };
     }
 
     const rawConfig = yield* readRawConfig;
@@ -676,12 +696,24 @@ const makeKeybindings = Effect.gen(function* () {
       return {
         keybindings: [],
         issues: [malformedConfigIssue(detail)],
+        obsoleteEntryCount: 0,
       };
     }
 
     const keybindings: KeybindingRule[] = [];
     const issues: ServerConfigIssue[] = [];
+    let obsoleteEntryCount = 0;
     for (const [index, entry] of decodedEntries.value.entries()) {
+      if (isObsoleteKeybindingEntry(entry)) {
+        obsoleteEntryCount += 1;
+        yield* Effect.logWarning("dropping obsolete keybinding entry", {
+          path: keybindingsConfigPath,
+          index,
+          entry,
+        });
+        continue;
+      }
+
       const decodedRule = Schema.decodeUnknownExit(KeybindingRule)(entry);
       if (decodedRule._tag === "Failure") {
         const detail = Cause.pretty(decodedRule.cause);
@@ -710,7 +742,7 @@ const makeKeybindings = Effect.gen(function* () {
       keybindings.push(decodedRule.value);
     }
 
-    return { keybindings, issues };
+    return { keybindings, issues, obsoleteEntryCount };
   });
 
   const writeConfigAtomically = (rules: readonly KeybindingRule[]) => {
@@ -817,7 +849,7 @@ const makeKeybindings = Effect.gen(function* () {
           reason: "shortcut context already used by existing rule",
         });
       }
-      if (missingDefaults.length === 0) {
+      if (missingDefaults.length === 0 && runtimeConfig.obsoleteEntryCount === 0) {
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }

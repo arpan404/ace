@@ -1,5 +1,5 @@
 export const DESKTOP_TITLEBAR_LEFT_INSET_CSS_VARIABLE = "--desktop-titlebar-left-inset";
-export const MAC_TITLEBAR_LEFT_INSET_PX = 90;
+export const MAC_TITLEBAR_LEFT_INSET_PX = 78;
 export const MAC_TITLEBAR_LEFT_INSET_STYLE = {
   paddingLeft: `var(${DESKTOP_TITLEBAR_LEFT_INSET_CSS_VARIABLE})`,
 } as const;

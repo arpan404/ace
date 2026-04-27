@@ -6,11 +6,17 @@ import { InAppBrowser, type InAppBrowserMode } from "../InAppBrowser";
 import PlanSidebar from "../PlanSidebar";
 import { Button } from "../ui/button";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
+import { MIN_CHAT_SPLIT_WIDTH } from "~/lib/chat/browserSplit";
 
 const BROWSER_PANEL_TRANSITION = {
-  duration: 0.22,
-  ease: [0.16, 1, 0.3, 1],
+  opacity: { duration: 0.16, ease: [0.16, 1, 0.3, 1] },
+  width: { duration: 0 },
+  x: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
 } as const;
+
+function constrainedBrowserPanelWidth(width: number): string {
+  return `min(${Math.round(width)}px, calc(100vw - ${MIN_CHAT_SPLIT_WIDTH}px))`;
+}
 
 interface BrowserPanelProps {
   mode: InAppBrowserMode;
@@ -144,8 +150,8 @@ export function ChatViewPanels({
               <div
                 className="relative z-0 min-h-0 shrink-0 overflow-hidden"
                 style={{
-                  width: `${browserPanel.splitWidth}px`,
-                  minWidth: `${browserPanel.splitWidth}px`,
+                  width: constrainedBrowserPanelWidth(browserPanel.splitWidth),
+                  minWidth: constrainedBrowserPanelWidth(browserPanel.splitWidth),
                 }}
               >
                 {browserPanel.instances.map((instance) => (
