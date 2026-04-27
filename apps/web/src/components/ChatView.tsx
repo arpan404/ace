@@ -2737,7 +2737,7 @@ export default function ChatView({
     "closed" as const,
     BrowserPanelModeSchema,
   );
-  const [browserDevToolsOpen, setBrowserDevToolsOpen] = useState(false);
+  const [, setBrowserDevToolsOpen] = useState(false);
   const [storedBrowserSplitWidth, setStoredBrowserSplitWidth] = useLocalStorage(
     BROWSER_SPLIT_WIDTH_STORAGE_KEY,
     DEFAULT_BROWSER_SPLIT_WIDTH,
@@ -3733,12 +3733,7 @@ export default function ChatView({
       }
       onOpenRightSidePanelEditor();
     },
-    [
-      onOpenRightSidePanelDiff,
-      onOpenRightSidePanelEditor,
-      openBrowser,
-      setRightSidePanelMode,
-    ],
+    [onOpenRightSidePanelDiff, onOpenRightSidePanelEditor, openBrowser, setRightSidePanelMode],
   );
   const onOpenRightSidePanelBrowserTab = useCallback(() => {
     openBrowser();
@@ -5014,7 +5009,7 @@ export default function ChatView({
         return;
       }
 
-      if (action === "toggle-diff") {
+      if (action === "open-review-tab") {
         onOpenRightSidePanelDiff();
         return;
       }
