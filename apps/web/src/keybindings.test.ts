@@ -470,7 +470,10 @@ describe("shortcutLabelForCommand", () => {
       shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.toggleHeader", "MacIntel"),
       "⇧⌘H",
     );
-    assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.review.open", "Linux"), "Ctrl+D");
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.review.open", "Linux"),
+      "Ctrl+D",
+    );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.browser.open", "Linux"),
       "Ctrl+B",

@@ -95,61 +95,58 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const activeThreadId = useUiStateStore((store) => store.activeThreadId);
   const previousActiveThreadId = useUiStateStore((store) => store.previousActiveThreadId);
 
-  const openBrowserFromShell = useCallback(
-    async () => {
-      await requestInAppBrowserFromShell({
-        routeThreadId,
-        fallbackThreadId: activeThreadId ?? previousActiveThreadId,
-        activeProjectId: activeThread?.projectId ?? activeDraftThread?.projectId ?? null,
-        activeThread: activeThread
-          ? {
-              projectId: activeThread.projectId,
-              branch: activeThread.branch,
-              worktreePath: activeThread.worktreePath,
-            }
-          : null,
-        activeDraftThread: activeDraftThread
-          ? {
-              projectId: activeDraftThread.projectId,
-              branch: activeDraftThread.branch,
-              worktreePath: activeDraftThread.worktreePath,
-              envMode: activeDraftThread.envMode,
-            }
-          : null,
-        defaultProjectId,
-        defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
-          defaultEnvMode: appSettings.defaultThreadEnvMode,
-        }),
-        handleNewThread,
-        navigateToThread: async (threadId) => {
-          await navigate({
-            to: "/$threadId",
-            params: { threadId },
-            search: buildSingleThreadRouteSearch(),
-          });
-        },
-        request: { action: "open" },
-        onMissingProject: () => {
-          toastManager.add({
-            type: "error",
-            title: "Add a project to open the browser",
-            description: "The in-app browser opens from an active workspace thread.",
-          });
-        },
-      });
-    },
-    [
-      activeDraftThread,
-      activeThread,
-      activeThreadId,
-      appSettings.defaultThreadEnvMode,
-      defaultProjectId,
-      handleNewThread,
-      navigate,
-      previousActiveThreadId,
+  const openBrowserFromShell = useCallback(async () => {
+    await requestInAppBrowserFromShell({
       routeThreadId,
-    ],
-  );
+      fallbackThreadId: activeThreadId ?? previousActiveThreadId,
+      activeProjectId: activeThread?.projectId ?? activeDraftThread?.projectId ?? null,
+      activeThread: activeThread
+        ? {
+            projectId: activeThread.projectId,
+            branch: activeThread.branch,
+            worktreePath: activeThread.worktreePath,
+          }
+        : null,
+      activeDraftThread: activeDraftThread
+        ? {
+            projectId: activeDraftThread.projectId,
+            branch: activeDraftThread.branch,
+            worktreePath: activeDraftThread.worktreePath,
+            envMode: activeDraftThread.envMode,
+          }
+        : null,
+      defaultProjectId,
+      defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
+        defaultEnvMode: appSettings.defaultThreadEnvMode,
+      }),
+      handleNewThread,
+      navigateToThread: async (threadId) => {
+        await navigate({
+          to: "/$threadId",
+          params: { threadId },
+          search: buildSingleThreadRouteSearch(),
+        });
+      },
+      request: { action: "open" },
+      onMissingProject: () => {
+        toastManager.add({
+          type: "error",
+          title: "Add a project to open the browser",
+          description: "The in-app browser opens from an active workspace thread.",
+        });
+      },
+    });
+  }, [
+    activeDraftThread,
+    activeThread,
+    activeThreadId,
+    appSettings.defaultThreadEnvMode,
+    defaultProjectId,
+    handleNewThread,
+    navigate,
+    previousActiveThreadId,
+    routeThreadId,
+  ]);
 
   const handleDesktopMenuAction = useCallback(
     (action: DesktopMenuAction) => {
@@ -159,7 +156,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (action === "toggle-browser") {
+      if (action === "open-browser-tab") {
         void openBrowserFromShell();
         return;
       }
