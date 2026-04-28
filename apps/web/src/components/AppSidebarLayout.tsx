@@ -19,6 +19,7 @@ import { toastManager } from "./ui/toast";
 
 const THREAD_SIDEBAR_WIDTH_STORAGE_KEY = "chat_thread_sidebar_width";
 const THREAD_SIDEBAR_MIN_WIDTH = 13 * 16;
+const THREAD_SIDEBAR_MAX_WIDTH = 24 * 16;
 const THREAD_MAIN_CONTENT_MIN_WIDTH = 40 * 16;
 
 function isEditableHotkeyTarget(target: EventTarget | null): boolean {
@@ -244,6 +245,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         }}
         resizable={{
           minWidth: THREAD_SIDEBAR_MIN_WIDTH,
+          maxWidth: THREAD_SIDEBAR_MAX_WIDTH,
           shouldAcceptWidth: ({ nextWidth, wrapperWidth }) =>
             wrapperWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
           storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,

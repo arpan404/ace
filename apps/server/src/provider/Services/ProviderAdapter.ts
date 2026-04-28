@@ -66,6 +66,15 @@ export interface ProviderAdapterShape<TError> {
   ) => Effect.Effect<ProviderTurnStartResult, TError>;
 
   /**
+   * Steer an in-flight turn without starting a new turn.
+   *
+   * Providers that do not support native same-turn steering may omit this.
+   */
+  readonly steerTurn?: (
+    input: ProviderSendTurnInput,
+  ) => Effect.Effect<ProviderTurnStartResult, TError>;
+
+  /**
    * Interrupt an active turn.
    */
   readonly interruptTurn: (threadId: ThreadId, turnId?: TurnId) => Effect.Effect<void, TError>;

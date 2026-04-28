@@ -1,7 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ActivePlanState, LatestProposedPlanState } from "../session-logic";
 import { PlanSummaryPanel } from "./PlanSummaryPanel";
 
 vi.mock("../hooks/useTheme", () => ({
@@ -17,44 +16,28 @@ vi.mock("../nativeApi", () => ({
 }));
 
 describe("PlanSummaryPanel", () => {
-  it("renders the proposed plan and live todo state inside the summary surface", () => {
-    const activePlan: ActivePlanState = {
-      createdAt: "2026-04-27T10:00:00.000Z",
-      turnId: null,
-      source: "plan-update",
-      explanation: "Keep the implementation thread focused on the summary tab.",
-      steps: [
-        { step: "Ship embedded summary content", status: "inProgress" },
-        { step: "Remove the dedicated plan sidebar", status: "completed" },
-      ],
-    };
-    const activeProposedPlan: LatestProposedPlanState = {
-      id: "plan-1",
-      createdAt: "2026-04-27T09:58:00.000Z",
-      updatedAt: "2026-04-27T10:00:00.000Z",
-      turnId: null,
-      planMarkdown: "## Proposed plan\n\n- Audit summary surface\n- Embed plan and todo details",
-      implementedAt: null,
-      implementationThreadId: null,
-    };
-
-    const markup = renderToStaticMarkup(
+  it("renders only one active in-progress todo when multiple rows are marked in progress", () => {
+    const html = renderToStaticMarkup(
       <PlanSummaryPanel
-        activePlan={activePlan}
-        activeProposedPlan={activeProposedPlan}
-        activeProvider="githubCopilot"
+        activePlan={{
+          createdAt: "2026-04-28T12:00:00.000Z",
+          turnId: null,
+          source: "plan-update",
+          steps: [
+            { step: "Create todo doc", status: "inProgress" },
+            { step: "Wire persistence", status: "inProgress" },
+            { step: "Add task graph", status: "pending" },
+          ],
+        }}
+        activeProposedPlan={null}
+        activeProvider="codex"
         markdownCwd={undefined}
         workspaceRoot={undefined}
       />,
     );
 
-    expect(markup).toContain("Plan");
-    expect(markup).toContain("Todos");
-    expect(markup).toContain("plan.md");
-    expect(markup).toContain("Live todo state");
-    expect(markup).toContain("Audit summary surface");
-    expect(markup).toContain("Ship embedded summary content");
-    expect(markup).toContain("01/02");
-    expect(markup).toContain("1/2 done");
+    expect(html).toContain(">In progress<");
+    expect(html.match(/>In progress</g)?.length ?? 0).toBe(1);
+    expect(html).not.toContain(">Ready<");
   });
 });

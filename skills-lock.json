@@ -6,6 +6,12 @@
       "sourceType": "github",
       "computedHash": "9d1e82c5c409d2b0247245a005bc0f7e4447c0999b78dcea60f568c1ba4a6694"
     },
+    "designx": {
+      "source": "arpan404/skills",
+      "sourceType": "github",
+      "skillPath": "designx/SKILL.md",
+      "computedHash": "d276a8b256b68a8ecfb481c368548b8ee183ed4e8f9eef9123e4eccf057f6758"
+    },
     "gpt-taste": {
       "source": "Leonxlnx/taste-skill",
       "sourceType": "github",
