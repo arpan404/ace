@@ -27,7 +27,6 @@ const IGNORED_DIRECTORY_NAMES = new Set([
   ".git",
   ".convex",
   "node_modules",
-  ".next",
   ".turbo",
   "dist",
   "build",

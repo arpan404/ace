@@ -1,6 +1,6 @@
 # ace
 
-ace is a fast, minimal GUI for coding agents (Codex, Claude, GitHub Copilot, Cursor, Gemini, and OpenCode).
+ace is a fast, minimal GUI for coding agents.
 
 > **Attribution:** ace is a fork of **T3 Code** by **T3 Tools Inc.** and is released under the MIT License, copyright (c) 2026 **arpan404**.
 
@@ -33,11 +33,20 @@ Useful commands:
 - `bun dev` – web app + mobile app + local backend + contracts
 - `bun dev:web` – web app + local backend (paired dev flow)
 - `bun dev:server` – server only
+- `bun dev:marketing` – Astro marketing site
 - `bun dev:desktop` – desktop app
 - `bun dev:mobile` – mobile app (Expo) + server + contracts
 - `bun fmt` / `bun lint` / `bun typecheck` – repo quality gates
 
 Dev runner modes (`bun dev`, `bun dev:web`, `bun dev:server`, `bun dev:mobile`, `bun dev:desktop`) default to `~/.ace-dev` for local development data isolation.
+
+Before considering a change complete, run:
+
+```bash
+bun fmt
+bun lint
+bun typecheck
+```
 
 OpenCode model behavior:
 
@@ -105,8 +114,13 @@ Default host behavior:
 - `apps/mobile` – React Native/Expo mobile app
 - `apps/server` – WebSocket server and provider/session orchestration
 - `apps/desktop` – Electron shell
+- `apps/marketing` – Astro marketing site
 - `packages/contracts` – shared schemas and protocol types
 - `packages/shared` – shared runtime utilities
+
+## Keybindings
+
+Keybinding commands, parsing, defaults, and UI metadata are documented in [KEYBINDINGS.md](./KEYBINDINGS.md).
 
 ## Project status
 
