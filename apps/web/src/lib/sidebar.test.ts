@@ -30,16 +30,21 @@ import {
 } from "../types";
 
 function makeLatestTurn(overrides?: {
+  state?: OrchestrationLatestTurn["state"];
   completedAt?: string | null;
   startedAt?: string | null;
 }): OrchestrationLatestTurn {
+  const hasStartedAtOverride = overrides && "startedAt" in overrides;
+  const hasCompletedAtOverride = overrides && "completedAt" in overrides;
   return {
     turnId: "turn-1" as never,
-    state: "completed",
+    state: overrides?.state ?? "completed",
     assistantMessageId: null,
     requestedAt: "2026-03-09T10:00:00.000Z",
-    startedAt: overrides?.startedAt ?? "2026-03-09T10:00:00.000Z",
-    completedAt: overrides?.completedAt ?? "2026-03-09T10:05:00.000Z",
+    startedAt: hasStartedAtOverride ? (overrides?.startedAt ?? null) : "2026-03-09T10:00:00.000Z",
+    completedAt: hasCompletedAtOverride
+      ? (overrides?.completedAt ?? null)
+      : "2026-03-09T10:05:00.000Z",
   };
 }
 
@@ -516,6 +521,25 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Working", pulse: true });
   });
 
+  it("keeps working status while the latest turn is still running", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          latestTurn: makeLatestTurn({
+            state: "running",
+            completedAt: null,
+          }),
+          session: {
+            ...baseThread.session,
+            status: "ready",
+            orchestrationStatus: "ready",
+          },
+        },
+      }),
+    ).toMatchObject({ label: "Working", pulse: true });
+  });
+
   it("prioritizes an active retry over a stale session lastError", () => {
     expect(
       resolveThreadStatusPill({
@@ -588,24 +612,23 @@ describe("resolveThreadStatusPill", () => {
 describe("resolveThreadRowClassName", () => {
   it("uses the darker selected palette when a thread is both selected and active", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: true });
-    expect(className).toContain("bg-primary/22");
-    expect(className).toContain("hover:bg-primary/26");
-    expect(className).toContain("dark:bg-primary/30");
-    expect(className).not.toContain("bg-accent/85");
+    expect(className).toContain("!bg-foreground/[0.06]");
+    expect(className).toContain("!text-pill-foreground");
+    expect(className).toContain("hover:!bg-foreground/[0.06]");
   });
 
   it("uses selected hover colors for selected threads", () => {
     const className = resolveThreadRowClassName({ isActive: false, isSelected: true });
-    expect(className).toContain("bg-primary/15");
-    expect(className).toContain("hover:bg-primary/19");
-    expect(className).toContain("dark:bg-primary/22");
-    expect(className).not.toContain("hover:bg-accent");
+    expect(className).toContain("!bg-foreground/[0.06]");
+    expect(className).toContain("!text-pill-foreground");
+    expect(className).toContain("hover:!text-pill-foreground");
   });
 
   it("keeps the accent palette for active-only threads", () => {
     const className = resolveThreadRowClassName({ isActive: true, isSelected: false });
-    expect(className).toContain("bg-accent/85");
-    expect(className).toContain("hover:bg-accent");
+    expect(className).toContain("!bg-foreground/[0.06]");
+    expect(className).toContain("!text-pill-foreground");
+    expect(className).toContain("hover:!bg-foreground/[0.06]");
   });
 });
 

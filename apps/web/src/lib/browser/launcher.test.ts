@@ -18,11 +18,10 @@ describe("browser launcher", () => {
   });
 
   it("queues and consumes browser launch requests", () => {
-    queueBrowserLaunchRequest({ action: "open", mode: "split", url: "https://example.com" });
+    queueBrowserLaunchRequest({ action: "open", url: "https://example.com" });
 
     expect(takePendingBrowserLaunchRequest()).toEqual({
       action: "open",
-      mode: "split",
       url: "https://example.com",
     });
     expect(takePendingBrowserLaunchRequest()).toBeNull();
@@ -65,13 +64,13 @@ describe("browser launcher", () => {
       defaultThreadEnvMode: "local",
       handleNewThread,
       navigateToThread,
-      request: { action: "toggle" },
+      request: { action: "open" },
     });
 
     expect(launched).toBe(true);
     expect(navigateToThread).toHaveBeenCalledWith(FALLBACK_THREAD_ID);
     expect(handleNewThread).not.toHaveBeenCalled();
-    expect(takePendingBrowserLaunchRequest()).toEqual({ action: "toggle" });
+    expect(takePendingBrowserLaunchRequest()).toEqual({ action: "open" });
   });
 
   it("creates a thread when the shell needs a browser host route", async () => {

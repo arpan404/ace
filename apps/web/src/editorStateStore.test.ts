@@ -229,6 +229,35 @@ describe("editorStateStore actions", () => {
     ]);
   });
 
+  it("keeps before-target ordering when reordering a tab forward within a pane", () => {
+    const store = useEditorStateStore.getState();
+    store.openFile(THREAD_ID, "src/main.ts");
+    store.openFile(THREAD_ID, "src/utils.ts");
+    store.openFile(THREAD_ID, "src/sidebar.ts");
+
+    store.moveFile(THREAD_ID, {
+      filePath: "src/main.ts",
+      sourcePaneId: "pane-1",
+      targetPaneId: "pane-1",
+      targetIndex: 2,
+    });
+
+    const editorState = selectThreadEditorState(
+      useEditorStateStore.getState().threadStateByThreadId,
+      useEditorStateStore.getState().runtimeStateByThreadId,
+      THREAD_ID,
+    );
+
+    expect(editorState.activePaneId).toBe("pane-1");
+    expect(editorState.panes).toEqual([
+      {
+        activeFilePath: "src/main.ts",
+        id: "pane-1",
+        openFilePaths: ["src/utils.ts", "src/main.ts", "src/sidebar.ts"],
+      },
+    ]);
+  });
+
   it("moves tabs across panes and repairs source-pane selection", () => {
     const store = useEditorStateStore.getState();
     store.openFile(THREAD_ID, "src/main.ts");

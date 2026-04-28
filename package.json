@@ -41,6 +41,7 @@
     "typecheck": "turbo run typecheck",
     "lint": "oxlint --report-unused-disable-directives",
     "test": "turbo run test",
+    "set-version": "bun run scripts/set-version.ts",
     "test:desktop-smoke": "turbo run smoke-test --filter=@ace/desktop",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",

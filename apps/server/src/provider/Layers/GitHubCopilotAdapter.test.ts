@@ -6,7 +6,7 @@ import type {
   SessionEvent,
   SessionConfig,
 } from "@github/copilot-sdk";
-import { ThreadId } from "@ace/contracts";
+import { ApprovalRequestId, ThreadId } from "@ace/contracts";
 import { assert, it } from "@effect/vitest";
 import { afterEach, vi } from "vitest";
 import { Effect, Fiber, Layer, Stream } from "effect";
@@ -162,6 +162,175 @@ const fastTimeoutLayer = it.layer(
 );
 
 layer("GitHubCopilotAdapterLive startSession", (it) => {
+  it.effect("drops pending approval requests once the turn completes", () =>
+    Effect.gen(function* () {
+      const fakeClient = makeFakeClient({
+        models: [],
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const threadId = asThreadId("thread-copilot-stale-approval");
+      const openedRequestFiber = yield* Stream.runCollect(
+        Stream.take(
+          Stream.filter(
+            adapter.streamEvents,
+            (event) => event.threadId === threadId && event.type === "request.opened",
+          ),
+          1,
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        cwd: "/repo",
+        runtimeMode: "approval-required",
+      });
+      yield* adapter.sendTurn({
+        threadId,
+        input: "Run a shell command that needs approval.",
+      });
+
+      const createConfig = fakeClient.createSession.mock.calls[0]?.[0];
+      assert.equal(typeof createConfig?.onPermissionRequest, "function");
+
+      const permissionRequestPromise = createConfig?.onPermissionRequest(
+        {
+          kind: "shell",
+          fullCommandText: "ls -la",
+          intention: "List repository files.",
+          canOfferSessionApproval: true,
+          commands: [{ identifier: "ls", readOnly: true }],
+          hasWriteFileRedirection: false,
+          possiblePaths: [],
+          possibleUrls: [],
+        } as SessionEvent["data"] extends { permissionRequest: infer T } ? T : never,
+        { sessionId: "copilot-session-1" },
+      );
+
+      const openedRequests = Array.from(yield* Fiber.join(openedRequestFiber));
+      const openedRequest = openedRequests[0];
+      assert.equal(openedRequest?.type, "request.opened");
+      if (!openedRequest || openedRequest.type !== "request.opened") {
+        return;
+      }
+      if (!openedRequest.requestId) {
+        return;
+      }
+
+      fakeClient.emitSessionEvent({
+        id: "event-session-idle-stale-approval",
+        type: "session.idle",
+        timestamp: "2024-01-01T00:00:05.000Z",
+        parentId: null,
+        ephemeral: true,
+        data: {},
+      });
+
+      const responseExit = yield* Effect.exit(
+        adapter.respondToRequest(
+          threadId,
+          ApprovalRequestId.makeUnsafe(openedRequest.requestId),
+          "accept",
+        ),
+      );
+      assert.equal(responseExit._tag, "Failure");
+
+      if (permissionRequestPromise) {
+        void Promise.resolve(permissionRequestPromise).catch(() => undefined);
+      }
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect("round-trips structured user input requests through the adapter", () =>
+    Effect.gen(function* () {
+      const fakeClient = makeFakeClient({
+        models: [],
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const threadId = asThreadId("thread-copilot-user-input");
+      const userInputRequestedFiber = yield* Stream.runCollect(
+        Stream.take(
+          Stream.filter(
+            adapter.streamEvents,
+            (event) => event.threadId === threadId && event.type === "user-input.requested",
+          ),
+          1,
+        ),
+      ).pipe(Effect.forkChild);
+      const userInputResolvedFiber = yield* Stream.runCollect(
+        Stream.take(
+          Stream.filter(
+            adapter.streamEvents,
+            (event) => event.threadId === threadId && event.type === "user-input.resolved",
+          ),
+          1,
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        cwd: "/repo",
+        runtimeMode: "approval-required",
+      });
+      yield* adapter.sendTurn({
+        threadId,
+        input: "Ask the user how to proceed.",
+      });
+
+      const createConfig = fakeClient.createSession.mock.calls[0]?.[0];
+      assert.equal(typeof createConfig?.onUserInputRequest, "function");
+
+      const userInputPromise = Promise.resolve(
+        createConfig?.onUserInputRequest?.(
+          {
+            question: "How should we proceed?",
+            choices: ["Retry reading files", "Show local commands", "Stop"],
+            allowFreeform: true,
+          },
+          { sessionId: "copilot-session-1" },
+        ),
+      );
+
+      const requested = Array.from(yield* Fiber.join(userInputRequestedFiber))[0];
+      assert.equal(requested?.type, "user-input.requested");
+      if (!requested || requested.type !== "user-input.requested") {
+        return;
+      }
+      if (!requested.requestId) {
+        return;
+      }
+
+      yield* adapter.respondToUserInput(
+        threadId,
+        ApprovalRequestId.makeUnsafe(requested.requestId),
+        { response: "Retry reading files" },
+      );
+
+      const resolved = Array.from(yield* Fiber.join(userInputResolvedFiber))[0];
+      assert.equal(resolved?.type, "user-input.resolved");
+      if (!resolved || resolved.type !== "user-input.resolved") {
+        return;
+      }
+
+      const response = yield* Effect.promise(() => userInputPromise);
+      assert.deepEqual(response, {
+        answer: "Retry reading files",
+        wasFreeform: false,
+      });
+      assert.deepEqual(resolved.payload.answers, {
+        response: "Retry reading files",
+      });
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect(
     "passes reasoning effort during startup when the selected Copilot model supports it",
     () =>

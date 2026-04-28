@@ -24,6 +24,10 @@ import {
   buildThreadBoardRouteSearch,
   type ChatThreadBoardRoutePane,
 } from "../../lib/chatThreadBoardRouteSearch";
+import {
+  buildThreadBoardLayoutOptions,
+  getCurrentLayoutColumns,
+} from "../../lib/threadBoardLayout";
 import { useSidebarThreadSummaryById } from "../../storeSelectors";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
@@ -41,13 +45,6 @@ const BOARD_MIN_COLUMN_WIDTH_PX = 360;
 const BOARD_MIN_ROW_HEIGHT_PX = 240;
 const EMPTY_ROUTE_THREADS: readonly ChatThreadBoardRoutePane[] = [];
 
-interface ThreadBoardLayoutOption {
-  columns: number;
-  label: string;
-  rows: number;
-  value: string;
-}
-
 function isSameRoutePane(left: ChatThreadBoardRoutePane, right: ChatThreadBoardRoutePane): boolean {
   return left.threadId === right.threadId && left.connectionUrl === right.connectionUrl;
 }
@@ -61,32 +58,6 @@ function isThreadBoardInteractiveTarget(target: EventTarget | null): boolean {
       "button, a, input, textarea, select, summary, [contenteditable='true'], [role='button'], [role='textbox'], [data-chat-composer-form], [data-scroll-anchor-target]",
     ) !== null
   );
-}
-
-function buildThreadBoardLayoutOptions(paneCount: number): ThreadBoardLayoutOption[] {
-  if (paneCount <= 1) {
-    return [];
-  }
-
-  const columns = new Set<number>();
-  for (let columnCount = 1; columnCount <= Math.min(4, paneCount); columnCount += 1) {
-    columns.add(columnCount);
-  }
-  columns.add(paneCount);
-
-  return [...columns].map((columnCount) => {
-    const rows = Math.ceil(paneCount / columnCount);
-    return {
-      columns: columnCount,
-      label: `${columnCount} x ${rows}`,
-      rows,
-      value: String(columnCount),
-    };
-  });
-}
-
-function getCurrentLayoutColumns(rows: readonly { paneIds: readonly string[] }[]): number {
-  return rows.reduce((max, row) => Math.max(max, row.paneIds.length), 1);
 }
 
 function ThreadBoardPane(props: {
@@ -119,6 +90,7 @@ function ThreadBoardPane(props: {
       }}
     >
       <ChatView
+        connectionUrl={pane.connectionUrl}
         threadId={pane.threadId}
         shortcutsEnabled={props.shortcutsEnabled}
         showSidebarTrigger={props.showSidebarTrigger}
@@ -416,7 +388,7 @@ export function ThreadBoard(props: {
   }, []);
 
   if (!boardVisible || !primaryPane) {
-    return <ChatView threadId={props.threadId} />;
+    return <ChatView connectionUrl={props.connectionUrl ?? null} threadId={props.threadId} />;
   }
 
   return (
@@ -428,14 +400,14 @@ export function ThreadBoard(props: {
         <Menu>
           <MenuTrigger
             className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-background/90 px-2 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label="Change split layout"
+            aria-label="Change board layout"
           >
             <LayoutGridIcon className="size-3.5" />
             <span>{currentLayoutColumns} col</span>
           </MenuTrigger>
           <MenuPopup align="end" side="top" className="min-w-44">
             <MenuGroup>
-              <MenuGroupLabel>Split layout</MenuGroupLabel>
+              <MenuGroupLabel>Board layout</MenuGroupLabel>
               <MenuRadioGroup
                 value={String(currentLayoutColumns)}
                 onValueChange={(value) => {

@@ -14,6 +14,7 @@ import {
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -23,6 +24,7 @@ import {
 
 import { openInPreferredEditor } from "~/editorPreferences";
 import type { ThreadEditorPaneState } from "~/editorStateStore";
+import { withRpcRouteConnection } from "~/lib/connectionRouting";
 import { resolveMonacoLanguageFromFilePath } from "~/lib/editor/workspaceLanguageMapping";
 import { projectReadFileQueryOptions } from "~/lib/projectReactQuery";
 import { cn } from "~/lib/utils";
@@ -52,6 +54,7 @@ interface WorkspaceEditorPaneProps {
   canReopenClosedTab: boolean;
   canSplitPane: boolean;
   chromeActions?: ReactNode;
+  connectionUrl?: string | null | undefined;
   diagnosticsCwd: string | null;
   dirtyFilePaths: ReadonlySet<string>;
   draftsByFilePath: Record<string, { draftContents: string; savedContents: string }>;
@@ -79,6 +82,7 @@ interface WorkspaceEditorPaneProps {
   onSplitPane: (paneId: string) => void;
   onSplitPaneDown: (paneId: string) => void;
   onUpdateDraft: (filePath: string, contents: string) => void;
+  monacoTheme: string;
   pane: ThreadEditorPaneState;
   paneIndex: number;
   resolvedTheme: "light" | "dark";
@@ -99,7 +103,7 @@ const WORKSPACE_EDITOR_MARKER_OWNER = "ace-workspace-editor";
 const MONACO_DIAGNOSTIC_OWNERS = [WORKSPACE_EDITOR_MARKER_OWNER] as const;
 const DIAGNOSTIC_SYNC_DEBOUNCE_MS = 250;
 const DIAGNOSTIC_UNAVAILABLE_RETRY_MS = 3_000;
-const WORKSPACE_FILE_REFETCH_INTERVAL_MS = 1_200;
+const WORKSPACE_FILE_REFETCH_INTERVAL_MS = 5_000;
 const COMPLETION_TRIGGER_CHARACTERS = [".", "/", '"', "'", ":", "<", "@"] as const;
 const WORKSPACE_MODEL_URI_SCHEME = "ace-workspace";
 
@@ -346,7 +350,7 @@ function runEditorAction(
   return action.run();
 }
 
-export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
+function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const api = readNativeApi();
   const pane = props.pane;
   const canReopenClosedTab = props.canReopenClosedTab;
@@ -370,6 +374,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const [editorMountVersion, setEditorMountVersion] = useState(0);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<MonacoApi | null>(null);
+  const tabStripRef = useRef<HTMLDivElement | null>(null);
   const syncRequestIdRef = useRef(0);
   const diagnosticsUnavailableRetryAtRef = useRef(0);
   const activePreviewKind = useMemo<WorkspacePreviewKind | null>(
@@ -389,8 +394,9 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const hasUnsavedBufferEdits = activeDraftInStore
     ? activeDraftInStore.draftContents !== activeDraftInStore.savedContents
     : false;
-  const activeFileQuery = useQuery(
-    projectReadFileQueryOptions({
+  const activeFileQuery = useQuery({
+    ...projectReadFileQueryOptions({
+      connectionUrl: props.connectionUrl,
       cwd: props.gitCwd,
       relativePath: pane.activeFilePath,
       enabled:
@@ -398,9 +404,10 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         props.gitCwd !== null &&
         (!isPreviewMode || isTextPreviewMode),
       refetchInterval: hasUnsavedBufferEdits ? false : WORKSPACE_FILE_REFETCH_INTERVAL_MS,
-      staleTime: 0,
     }),
-  );
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+  });
 
   useEffect(() => {
     if (isPreviewMode || !pane.activeFilePath || activeFileQuery.data?.contents === undefined) {
@@ -514,10 +521,15 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       const draft = draftsByFilePathRef.current[relativePath];
       let contents = draft?.draftContents;
       if (contents === undefined) {
-        const result = await api.projects.readFile({
-          cwd: workspaceCwd,
-          relativePath,
-        });
+        const result = await api.projects.readFile(
+          withRpcRouteConnection(
+            {
+              cwd: workspaceCwd,
+              relativePath,
+            },
+            props.connectionUrl,
+          ),
+        );
         contents = result.contents;
         onHydrateFile(relativePath, result.contents);
       }
@@ -532,7 +544,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         uri,
       );
     },
-    [api, onHydrateFile, workspaceCwd],
+    [api, onHydrateFile, props.connectionUrl, workspaceCwd],
   );
 
   const toMonacoLocations = useCallback(
@@ -590,13 +602,18 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       }
       try {
         setActionError(null);
-        const result = await api.workspaceEditor.definition({
-          cwd: props.diagnosticsCwd,
-          relativePath: input.relativePath,
-          contents: input.contents,
-          line: input.line,
-          column: input.column,
-        });
+        const result = await api.workspaceEditor.definition(
+          withRpcRouteConnection(
+            {
+              cwd: props.diagnosticsCwd,
+              relativePath: input.relativePath,
+              contents: input.contents,
+              line: input.line,
+              column: input.column,
+            },
+            props.connectionUrl,
+          ),
+        );
         return result.locations;
       } catch (error) {
         const message = toErrorMessage(error);
@@ -609,7 +626,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         return [];
       }
     },
-    [api, props.diagnosticsCwd],
+    [api, props.connectionUrl, props.diagnosticsCwd],
   );
 
   const navigateToDefinitionAtPosition = useCallback(
@@ -794,11 +811,16 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
 
     const timeoutId = window.setTimeout(() => {
       void api.workspaceEditor
-        .syncBuffer({
-          cwd: props.diagnosticsCwd!,
-          relativePath: activeFilePath,
-          contents: activeFileContents,
-        })
+        .syncBuffer(
+          withRpcRouteConnection(
+            {
+              cwd: props.diagnosticsCwd!,
+              relativePath: activeFilePath,
+              contents: activeFileContents,
+            },
+            props.connectionUrl,
+          ),
+        )
         .then((result) => {
           if (syncRequestIdRef.current !== requestId) {
             return;
@@ -861,6 +883,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     editorMountVersion,
     isPreviewMode,
     pane.activeFilePath,
+    props.connectionUrl,
     props.diagnosticsCwd,
     props.gitCwd,
     syncProblemState,
@@ -902,13 +925,18 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           return { suggestions: [] };
         }
         try {
-          const result = await api.workspaceEditor.complete({
-            cwd: props.diagnosticsCwd,
-            relativePath: pane.activeFilePath,
-            contents: model.getValue(),
-            line: Math.max(0, position.lineNumber - 1),
-            column: Math.max(0, position.column - 1),
-          });
+          const result = await api.workspaceEditor.complete(
+            withRpcRouteConnection(
+              {
+                cwd: props.diagnosticsCwd,
+                relativePath: pane.activeFilePath,
+                contents: model.getValue(),
+                line: Math.max(0, position.lineNumber - 1),
+                column: Math.max(0, position.column - 1),
+              },
+              props.connectionUrl,
+            ),
+          );
           const word = model.getWordUntilPosition(position);
           const range = {
             startLineNumber: position.lineNumber,
@@ -967,6 +995,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     editorMountVersion,
     isPreviewMode,
     pane.activeFilePath,
+    props.connectionUrl,
     props.diagnosticsCwd,
   ]);
 
@@ -1020,13 +1049,18 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
           return [];
         }
         try {
-          const result = await api.workspaceEditor.references({
-            cwd: props.diagnosticsCwd,
-            relativePath,
-            contents: model.getValue(),
-            line: Math.max(0, position.lineNumber - 1),
-            column: Math.max(0, position.column - 1),
-          });
+          const result = await api.workspaceEditor.references(
+            withRpcRouteConnection(
+              {
+                cwd: props.diagnosticsCwd,
+                relativePath,
+                contents: model.getValue(),
+                line: Math.max(0, position.lineNumber - 1),
+                column: Math.max(0, position.column - 1),
+              },
+              props.connectionUrl,
+            ),
+          );
           if (token.isCancellationRequested) {
             return [];
           }
@@ -1048,6 +1082,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     editorMountVersion,
     isPreviewMode,
     pane.activeFilePath,
+    props.connectionUrl,
     props.diagnosticsCwd,
     toMonacoLocations,
   ]);
@@ -1065,6 +1100,27 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   }, []);
   const readDraggedExplorerEntry = useCallback((event: ReactDragEvent<HTMLElement>) => {
     return readExplorerEntryTransfer(event.dataTransfer);
+  }, []);
+  const autoScrollTabStripOnDragOver = useCallback((clientX: number) => {
+    const tabStrip = tabStripRef.current;
+    if (!tabStrip) {
+      return;
+    }
+    const bounds = tabStrip.getBoundingClientRect();
+    if (bounds.width <= 0) {
+      return;
+    }
+    const edgeThreshold = Math.min(72, bounds.width / 3);
+    const maxStep = 20;
+    if (clientX < bounds.left + edgeThreshold) {
+      const intensity = (bounds.left + edgeThreshold - clientX) / edgeThreshold;
+      tabStrip.scrollLeft -= Math.ceil(maxStep * Math.min(1, intensity));
+      return;
+    }
+    if (clientX > bounds.right - edgeThreshold) {
+      const intensity = (clientX - (bounds.right - edgeThreshold)) / edgeThreshold;
+      tabStrip.scrollLeft += Math.ceil(maxStep * Math.min(1, intensity));
+    }
   }, []);
 
   const handleTabDrop = useCallback(
@@ -1097,6 +1153,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       if (draggedTab) {
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
+        autoScrollTabStripOnDragOver(event.clientX);
         setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
         return;
       }
@@ -1106,9 +1163,15 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
       }
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
+      autoScrollTabStripOnDragOver(event.clientX);
       setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
     },
-    [pane.openFilePaths.length, readDraggedExplorerEntry, readDraggedTab],
+    [
+      autoScrollTabStripOnDragOver,
+      pane.openFilePaths.length,
+      readDraggedExplorerEntry,
+      readDraggedTab,
+    ],
   );
 
   const clearDropTarget = useCallback(() => {
@@ -1252,7 +1315,7 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     >
       <div
         className={cn(
-          "flex h-[35px] shrink-0 items-center overflow-x-auto border-b border-border/60 bg-card/78 scrollbar-none",
+          "flex h-[35px] shrink-0 items-center overflow-hidden border-b border-border/60 bg-card/78 scrollbar-none",
         )}
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -1263,7 +1326,10 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         onDragOver={(event) => handleTabDragOver(event)}
         onDrop={(event) => handleTabDrop(event)}
       >
-        <div className="flex min-w-0 flex-1 items-center overflow-x-auto scrollbar-none">
+        <div
+          ref={tabStripRef}
+          className="flex min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden scrollbar-none"
+        >
           {props.pane.openFilePaths.map((filePath) => {
             const isActive = filePath === props.pane.activeFilePath;
             const isDirty = props.dirtyFilePaths.has(filePath);
@@ -1519,10 +1585,10 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         ) : (
           <div className="h-full min-h-0 min-w-0 overflow-hidden">
             <Editor
-              key={`${props.pane.id}:${props.pane.activeFilePath ?? "empty"}:${props.resolvedTheme}`}
+              key={`${props.pane.id}:${props.pane.activeFilePath ?? "empty"}:${props.monacoTheme}`}
               height="100%"
               value={activeFileContents}
-              theme={props.resolvedTheme === "dark" ? "ace-carbon" : "ace-paper"}
+              theme={props.monacoTheme}
               onMount={handleEditorMount}
               onChange={(value) => {
                 if (!props.pane.activeFilePath || value === undefined) {
@@ -1669,3 +1735,8 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     </section>
   );
 }
+
+const MemoizedWorkspaceEditorPane = memo(WorkspaceEditorPane);
+MemoizedWorkspaceEditorPane.displayName = "WorkspaceEditorPane";
+
+export default MemoizedWorkspaceEditorPane;

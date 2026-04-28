@@ -35,11 +35,11 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedClose.command, "terminal.close");
 
-    const parsedDiffToggle = yield* decode(KeybindingRule, {
+    const parsedReviewOpen = yield* decode(KeybindingRule, {
       key: "mod+d",
-      command: "diff.toggle",
+      command: "rightPanel.review.open",
     });
-    assert.strictEqual(parsedDiffToggle.command, "diff.toggle");
+    assert.strictEqual(parsedReviewOpen.command, "rightPanel.review.open");
 
     const parsedSidebarToggle = yield* decode(KeybindingRule, {
       key: "mod+shift+b",
@@ -53,11 +53,11 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedSearchOpen.command, "search.open");
 
-    const parsedBrowserToggle = yield* decode(KeybindingRule, {
+    const parsedBrowserOpen = yield* decode(KeybindingRule, {
       key: "mod+b",
-      command: "browser.toggle",
+      command: "rightPanel.browser.open",
     });
-    assert.strictEqual(parsedBrowserToggle.command, "browser.toggle");
+    assert.strictEqual(parsedBrowserOpen.command, "rightPanel.browser.open");
 
     const parsedBrowserReload = yield* decode(KeybindingRule, {
       key: "mod+r",

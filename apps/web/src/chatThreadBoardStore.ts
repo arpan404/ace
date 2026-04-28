@@ -66,6 +66,7 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
   setActivePane: (paneId: string | null) => void;
   setActiveSplit: (splitId: string | null) => void;
   setGridLayout: (input: { columns: number }) => void;
+  setSplitGridLayout: (splitId: string, input: { columns: number }) => void;
   setPaneRatios: (rowId: string, ratios: readonly number[]) => void;
   setRowRatios: (ratios: readonly number[]) => void;
   syncRouteThread: (input: { connectionUrl?: string | null; threadId: ThreadId }) => string;
@@ -135,7 +136,7 @@ function createTimestamp(): string {
 }
 
 function createSplitTitle(index: number): string {
-  return `Split ${index}`;
+  return `Board ${index}`;
 }
 
 function normalizeBoardState(input: BoardStateFields): BoardStateFields {
@@ -214,7 +215,7 @@ function normalizeSplitState(input: ChatThreadBoardSplitState): ChatThreadBoardS
     archivedAt: input.archivedAt ?? null,
     createdAt: input.createdAt || now,
     id: input.id || `split-${randomUUID()}`,
-    title: input.title.trim() || "Untitled split",
+    title: input.title.trim() || "Untitled board",
     updatedAt: input.updatedAt || now,
   };
 }
@@ -242,7 +243,7 @@ function normalizePersistedState(
     const migratedSplit = createSplitFromBoard({
       board,
       splitId: `split-${randomUUID()}`,
-      title: "Previous split",
+      title: "Previous board",
     });
     if (migratedSplit) {
       splits.push(migratedSplit);
@@ -317,7 +318,7 @@ function createSplitFromBoard(input: {
     archivedAt: null,
     createdAt: now,
     id: input.splitId ?? `split-${randomUUID()}`,
-    title: input.title.trim() || "Untitled split",
+    title: input.title.trim() || "Untitled board",
     updatedAt: now,
   };
 }
@@ -771,6 +772,45 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
       },
       setGridLayout: (input) => {
         set((state) => saveBoardToActiveSplit(state, applyGridLayout(state, input)));
+      },
+      setSplitGridLayout: (splitId, input) => {
+        set((state) => {
+          const split = state.splits.find((candidate) => candidate.id === splitId);
+          if (!split || split.archivedAt) {
+            return state;
+          }
+          const nextSplitBoard = applyGridLayout(
+            {
+              activePaneId: split.activePaneId,
+              paneRatios: split.paneRatios,
+              panes: split.panes,
+              rows: split.rows,
+            },
+            input,
+          );
+          const now = createTimestamp();
+          const splits = state.splits.map((candidate) =>
+            candidate.id === splitId
+              ? {
+                  ...candidate,
+                  activePaneId: nextSplitBoard.activePaneId,
+                  paneRatios: nextSplitBoard.paneRatios,
+                  panes: nextSplitBoard.panes,
+                  rows: nextSplitBoard.rows,
+                  updatedAt: now,
+                }
+              : candidate,
+          );
+          if (state.activeSplitId !== splitId) {
+            return { splits };
+          }
+          return {
+            ...state,
+            ...nextSplitBoard,
+            activeSplitId: splitId,
+            splits,
+          };
+        });
       },
       setPaneRatios: (rowId, ratios) => {
         set((state) =>

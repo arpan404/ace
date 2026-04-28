@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { ProvidersSettingsPanel } from "../components/settings/SettingsPanels";
+import { ProvidersSettingsPanelRoute } from "../components/settings/LazySettingsPanels";
 
 export const Route = createFileRoute("/settings/providers")({
-  component: ProvidersSettingsPanel,
+  component: ProvidersSettingsPanelRoute,
 });

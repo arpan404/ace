@@ -191,18 +191,51 @@ function markTurnRuntimeActivity(context: GitHubCopilotSessionContext) {
   clearTurnWatchdog(context);
 }
 
+function getPermissionRequestStringProperty(
+  request: PermissionRequest,
+  key: string,
+): string | undefined {
+  const record = recordValue(request);
+  if (!record) {
+    return undefined;
+  }
+  return stringValue(getObjectProperty(record, key));
+}
+
+function permissionRequestCommandIdentifiers(request: PermissionRequest): ReadonlyArray<string> {
+  const record = recordValue(request);
+  if (!record) {
+    return [];
+  }
+  const commands = getObjectProperty(record, "commands");
+  if (!Array.isArray(commands)) {
+    return [];
+  }
+  return commands
+    .map((command) => stringValue(getObjectProperty(recordValue(command) ?? {}, "identifier")))
+    .filter((identifier): identifier is string => identifier !== undefined);
+}
+
 function summarizePermissionRequest(request: PermissionRequest): string | undefined {
-  if (typeof request.fullCommandText === "string" && request.fullCommandText.trim().length > 0) {
-    return request.fullCommandText.trim();
+  const fullCommandText = getPermissionRequestStringProperty(request, "fullCommandText");
+  if (fullCommandText) {
+    return fullCommandText.trim();
   }
-  if (typeof request.fileName === "string" && request.fileName.trim().length > 0) {
-    return request.fileName.trim();
+  const fileName = getPermissionRequestStringProperty(request, "fileName");
+  if (fileName) {
+    return fileName.trim();
   }
-  if (typeof request.toolName === "string" && request.toolName.trim().length > 0) {
-    return request.toolName.trim();
+  const path = getPermissionRequestStringProperty(request, "path");
+  if (path) {
+    return path.trim();
   }
-  if (typeof request.url === "string" && request.url.trim().length > 0) {
-    return request.url.trim();
+  const toolName = getPermissionRequestStringProperty(request, "toolName");
+  if (toolName) {
+    return toolName.trim();
+  }
+  const url = getPermissionRequestStringProperty(request, "url");
+  if (url) {
+    return url.trim();
   }
   return undefined;
 }
@@ -224,16 +257,65 @@ function classifyPermissionRequest(request: PermissionRequest): CanonicalRequest
   }
 }
 
-function mapApprovalDecision(decision: ProviderApprovalDecision): PermissionRequestResult {
+function mapSessionApprovalDecision(
+  request: PermissionRequest,
+): PermissionRequestResult | undefined {
+  switch (request.kind) {
+    case "shell": {
+      const commandIdentifiers = permissionRequestCommandIdentifiers(request);
+      return commandIdentifiers.length > 0
+        ? {
+            kind: "approve-for-session",
+            approval: {
+              kind: "commands",
+              commandIdentifiers: [...commandIdentifiers],
+            },
+          }
+        : undefined;
+    }
+    case "read":
+      return { kind: "approve-for-session", approval: { kind: "read" } };
+    case "write":
+      return { kind: "approve-for-session", approval: { kind: "write" } };
+    case "mcp":
+      return {
+        kind: "approve-for-session",
+        approval: {
+          kind: "mcp",
+          serverName: getPermissionRequestStringProperty(request, "serverName") ?? "",
+          toolName: getPermissionRequestStringProperty(request, "toolName") ?? null,
+        },
+      };
+    case "memory":
+      return { kind: "approve-for-session", approval: { kind: "memory" } };
+    case "custom-tool": {
+      const toolName = getPermissionRequestStringProperty(request, "toolName");
+      return toolName
+        ? {
+            kind: "approve-for-session",
+            approval: { kind: "custom-tool", toolName },
+          }
+        : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+function mapApprovalDecision(
+  decision: ProviderApprovalDecision,
+  request: PermissionRequest,
+): PermissionRequestResult {
   switch (decision) {
     case "accept":
+      return { kind: "approve-once" };
     case "acceptForSession":
-      return { kind: "approved" };
+      return mapSessionApprovalDecision(request) ?? { kind: "approve-once" };
     case "decline":
-      return { kind: "denied-interactively-by-user" };
+      return { kind: "reject" };
     case "cancel":
     default:
-      return { kind: "denied-no-approval-rule-and-could-not-request-from-user" };
+      return { kind: "user-not-available" };
   }
 }
 
@@ -1184,6 +1266,16 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         : {}),
     });
     context.turnState = undefined;
+    // Pending interactive requests belong to the completed turn and must not
+    // be answerable after the turn boundary.
+    for (const pending of context.pendingApprovals.values()) {
+      pending.resolve("cancel");
+    }
+    for (const pending of context.pendingUserInputs.values()) {
+      pending.resolve({});
+    }
+    context.pendingApprovals.clear();
+    context.pendingUserInputs.clear();
     context.session = {
       ...withoutActiveTurn(context.session),
       status: "ready",
@@ -2242,15 +2334,15 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         request: PermissionRequest,
       ): Promise<PermissionRequestResult> => {
         if (!context) {
-          return { kind: "denied-no-approval-rule-and-could-not-request-from-user" };
+          return { kind: "user-not-available" };
         }
-        if (isFullAccessRuntimeMode(input.runtimeMode)) {
-          return { kind: "approved" };
+        if (isFullAccessRuntimeMode(context.session.runtimeMode)) {
+          return { kind: "approve-once" };
         }
 
         const fingerprint = permissionRequestFingerprint(request);
         if (fingerprint && context.approvalFingerprints.has(fingerprint)) {
-          return { kind: "approved" };
+          return { kind: "approve-once" };
         }
 
         markTurnRuntimeActivity(context);
@@ -2302,7 +2394,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             rawPayload: { request, decision },
           }),
         );
-        return mapApprovalDecision(decision);
+        return mapApprovalDecision(decision, request);
       };
 
       const userInputHandler = async (request: UserInputRequest): Promise<UserInputResponse> => {
@@ -2672,6 +2764,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           detail: `Unknown pending approval request: ${requestId}`,
         });
       }
+      context.pendingApprovals.delete(requestId);
       pending.resolve(decision);
     });
 
@@ -2696,6 +2789,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           detail: `Unknown pending user input request: ${requestId}`,
         });
       }
+      context.pendingUserInputs.delete(requestId);
       pending.resolve(answers);
     });
 

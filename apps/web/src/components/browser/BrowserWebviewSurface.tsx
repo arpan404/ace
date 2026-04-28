@@ -1,4 +1,4 @@
-import { CheckIcon, GlobeIcon, RotateCcwIcon, XIcon } from "lucide-react";
+import { ArrowUpRightIcon, GlobeIcon, XIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -26,7 +26,12 @@ import {
   type BrowserWebview,
   IN_APP_BROWSER_PARTITION,
 } from "~/lib/browser/types";
-import { normalizeBrowserHttpUrl } from "~/lib/browser/url";
+import {
+  normalizeBrowserHttpUrl,
+  resolveBrowserDisplayUrl,
+  resolveBrowserRelayUrl,
+} from "~/lib/browser/url";
+import { resolveLocalConnectionUrl } from "~/lib/connectionRouting";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 
 const BROWSER_ZOOM_STEP = 0.1;
@@ -370,6 +375,10 @@ export function shouldSubmitDesignDraftFromTextareaKey(
     !event.metaKey &&
     event.isComposing !== true
   );
+}
+
+export function normalizeDesignCommentToSingleLine(value: string): string {
+  return value.replace(/[\r\n]+/g, " ");
 }
 
 export function shouldRunElementHoverInspection(input: {
@@ -1141,7 +1150,7 @@ function buildElementCommentScrollScript(input: {
   let target = document.elementFromPoint(point.x, point.y);
   while (target && target !== document.body && target !== document.documentElement) {
     if (canScroll(target, dominantAxis)) {
-      target.scrollBy({ left: delta.left, top: delta.top, behavior: "auto" });
+      target.scrollBy({ left: delta.left, top: delta.top, behavior: "smooth" });
       return;
     }
     target = target.parentElement;
@@ -1149,7 +1158,7 @@ function buildElementCommentScrollScript(input: {
   window.scrollBy({
     left: delta.left,
     top: delta.top,
-    behavior: "auto",
+    behavior: "smooth",
   });
 })();`;
 }
@@ -1295,6 +1304,7 @@ export function BrowserFavicon(props: {
 
 export function BrowserTabWebview(props: {
   active: boolean;
+  connectionUrl?: string | null | undefined;
   designerModeActive?: boolean;
   designerTool?: BrowserDesignerTool;
   onBrowserLoadError?: (message: string) => void;
@@ -1316,6 +1326,7 @@ export function BrowserTabWebview(props: {
 }) {
   const {
     active,
+    connectionUrl,
     designerModeActive = false,
     designerTool = "area-comment",
     onBrowserLoadError,
@@ -1368,6 +1379,7 @@ export function BrowserTabWebview(props: {
     tool: AnnotationTool;
   } | null>(null);
   const requestedUrlRef = useRef(tab.url);
+  const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
   const activeRef = useRef(active);
   activeRef.current = active;
   const [selectionRect, setSelectionRect] = useState<BrowserDesignSelectionRect | null>(null);
@@ -1438,8 +1450,19 @@ export function BrowserTabWebview(props: {
     commitHoveredElementCapture(null, null);
   }, [commitHoveredElementCapture]);
 
+  const resolveLoadUrl = useCallback(
+    (url: string) =>
+      resolveBrowserRelayUrl({
+        url,
+        ownerConnectionUrl: connectionUrl,
+        localConnectionUrl,
+      }),
+    [connectionUrl, localConnectionUrl],
+  );
+
   const resolveSnapshotUrl = useCallback((currentUrl: string) => {
-    return normalizeBrowserHttpUrl(currentUrl) ?? requestedUrlRef.current;
+    const displayUrl = resolveBrowserDisplayUrl(currentUrl);
+    return normalizeBrowserHttpUrl(displayUrl) ?? requestedUrlRef.current;
   }, []);
 
   const emitSnapshotNow = useCallback(
@@ -1505,15 +1528,15 @@ export function BrowserTabWebview(props: {
         pendingUrlRef.current = url;
         return;
       }
-      const currentUrl = normalizeBrowserHttpUrl(webview.getURL());
+      const currentUrl = normalizeBrowserHttpUrl(resolveBrowserDisplayUrl(webview.getURL()));
       if (currentUrl === normalizeBrowserHttpUrl(url)) {
         scheduleEmitSnapshot({ persistTab: true });
         return;
       }
 
-      loadWebviewUrl(webview, url, reportBrowserLoadError);
+      loadWebviewUrl(webview, resolveLoadUrl(url), reportBrowserLoadError);
     },
-    [scheduleEmitSnapshot],
+    [resolveLoadUrl, scheduleEmitSnapshot],
   );
 
   const inspectBrowserPoint = useCallback(
@@ -1661,7 +1684,7 @@ export function BrowserTabWebview(props: {
     const webview = document.createElement("webview") as BrowserWebview;
     webview.className = "size-full bg-background";
     webview.setAttribute("partition", IN_APP_BROWSER_PARTITION);
-    webview.setAttribute("src", requestedUrlRef.current);
+    webview.setAttribute("src", resolveLoadUrl(requestedUrlRef.current));
 
     const handleDomReady = () => {
       readyRef.current = true;
@@ -1669,9 +1692,10 @@ export function BrowserTabWebview(props: {
       pendingUrlRef.current = null;
       if (
         pendingUrl &&
-        normalizeBrowserHttpUrl(pendingUrl) !== normalizeBrowserHttpUrl(webview.getURL())
+        normalizeBrowserHttpUrl(pendingUrl) !==
+          normalizeBrowserHttpUrl(resolveBrowserDisplayUrl(webview.getURL()))
       ) {
-        loadWebviewUrl(webview, pendingUrl, reportBrowserLoadError);
+        loadWebviewUrl(webview, resolveLoadUrl(pendingUrl), reportBrowserLoadError);
         return;
       }
       scheduleEmitSnapshot({ persistTab: true });
@@ -1775,7 +1799,7 @@ export function BrowserTabWebview(props: {
       readyRef.current = false;
       cancelScheduledSnapshot();
     };
-  }, [cancelScheduledSnapshot, resolveSnapshotUrl, scheduleEmitSnapshot]);
+  }, [cancelScheduledSnapshot, resolveLoadUrl, resolveSnapshotUrl, scheduleEmitSnapshot]);
 
   useEffect(() => {
     navigate(tab.url);
@@ -2310,7 +2334,7 @@ export function BrowserTabWebview(props: {
     if (!designDraft || !onDesignCaptureSubmit || isSubmittingDesignRequest) {
       return;
     }
-    const trimmedInstructions = designInstructions.trim();
+    const trimmedInstructions = normalizeDesignCommentToSingleLine(designInstructions).trim();
     const allowsEmptyComment = designDraft.tool === "draw-comment" && hasAnnotationStrokes;
     if (trimmedInstructions.length === 0 && !allowsEmptyComment) {
       return;
@@ -2919,60 +2943,34 @@ export function BrowserTabWebview(props: {
                   </div>
                 </div>
               ) : null}
-              <textarea
-                value={designInstructions}
-                onChange={(event) => setDesignInstructions(event.target.value)}
-                onKeyDown={(event) => {
-                  if (
-                    !shouldSubmitDesignDraftFromTextareaKey({
-                      altKey: event.altKey,
-                      ctrlKey: event.ctrlKey,
-                      isComposing: event.nativeEvent.isComposing,
-                      key: event.key,
-                      metaKey: event.metaKey,
-                      shiftKey: event.shiftKey,
-                    })
-                  ) {
-                    return;
+              <div className="mt-2 flex h-10 items-center rounded-[var(--control-radius)] border border-border/60 bg-background/92">
+                <button
+                  type="button"
+                  onClick={cancelDesignCapture}
+                  className="inline-flex h-full w-10 shrink-0 items-center justify-center border-r border-border/60 text-muted-foreground transition-colors hover:text-foreground"
+                  disabled={isSubmittingDesignRequest}
+                  aria-label="Cancel comment"
+                  title="Cancel comment"
+                >
+                  <XIcon className="size-3.5" />
+                </button>
+                <input
+                  value={designInstructions}
+                  onChange={(event) =>
+                    setDesignInstructions(normalizeDesignCommentToSingleLine(event.target.value))
                   }
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void submitDesignDraft();
-                }}
-                placeholder="Comment for the agent"
-                className="h-[78px] w-full resize-none rounded-[var(--control-radius)] border border-border/60 bg-background/92 px-3 py-2.5 text-[13px] outline-none transition-colors placeholder:text-muted-foreground/55 focus:border-primary/45"
-                autoFocus
-              />
-              <div className="mt-2.5 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={clearAnnotationCanvas}
-                    className="inline-flex size-8 items-center justify-center rounded-xl border border-border/60 bg-background/80 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                    disabled={!hasAnnotationStrokes}
-                    aria-label="Clear drawing"
-                    title="Clear drawing"
-                  >
-                    <RotateCcwIcon className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={cancelDesignCapture}
-                    className="inline-flex size-8 items-center justify-center rounded-xl border border-border/60 bg-background/80 text-muted-foreground transition-colors hover:text-foreground"
-                    disabled={isSubmittingDesignRequest}
-                    aria-label="Cancel comment"
-                    title="Cancel comment"
-                  >
-                    <XIcon className="size-3.5" />
-                  </button>
-                </div>
+                  placeholder="Comment for the agent"
+                  className="h-full min-w-0 flex-1 border-0 bg-transparent px-3 text-[13px] outline-none placeholder:text-muted-foreground/55"
+                  autoFocus
+                />
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-1.5 text-[13px] font-medium text-primary-foreground transition-opacity disabled:opacity-50"
+                  className="inline-flex h-full w-10 shrink-0 items-center justify-center border-l border-border/60 text-primary transition-colors hover:text-primary/85 disabled:opacity-40"
                   disabled={isSubmittingDesignRequest || !canSubmitDesignDraft}
+                  aria-label="Submit comment"
+                  title="Submit comment"
                 >
-                  <CheckIcon className="size-3.5" />
-                  Comment
+                  <ArrowUpRightIcon className="size-3.5" />
                 </button>
               </div>
             </form>

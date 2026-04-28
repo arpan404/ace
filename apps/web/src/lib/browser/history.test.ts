@@ -77,33 +77,4 @@ describe("browser history", () => {
     });
     expect(suggestions.some((suggestion) => suggestion.kind === "history")).toBe(false);
   });
-
-  it("includes pinned pages and boosts pages from the current site", () => {
-    const suggestions = buildBrowserSuggestions("", {
-      activePageUrl: "https://github.com/ace/ace",
-      history: [
-        {
-          title: "Example Docs",
-          url: "https://example.com/docs",
-          visitedAt: 100,
-          visitCount: 1,
-        },
-      ],
-      now: 1000,
-      pinnedPages: [
-        {
-          pinnedAt: 900,
-          title: "GitHub Issues",
-          url: "https://github.com/ace/ace/issues",
-        },
-      ],
-      searchEngine: "duckduckgo",
-    });
-
-    expect(suggestions[0]).toMatchObject({
-      kind: "pinned",
-      title: "GitHub Issues",
-      url: "https://github.com/ace/ace/issues",
-    });
-  });
 });
