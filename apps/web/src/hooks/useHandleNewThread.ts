@@ -19,6 +19,7 @@ import {
 } from "../lib/connectionRouting";
 import { buildSingleThreadRouteSearch } from "../lib/chatThreadBoardRouteSearch";
 import { normalizeWsUrl } from "../lib/remoteHosts";
+import { resetThreadRightSidePanelState } from "../lib/rightSidePanelState";
 
 export function useHandleNewThread() {
   const projectIds = useStore(
@@ -98,6 +99,7 @@ export function useHandleNewThread() {
           if (routeThreadId === storedDraftThread.threadId) {
             return;
           }
+          resetThreadRightSidePanelState(storedDraftThread.threadId);
           await navigate({
             to: "/$threadId",
             params: { threadId: storedDraftThread.threadId },
@@ -135,6 +137,7 @@ export function useHandleNewThread() {
           runtimeMode: DEFAULT_RUNTIME_MODE,
         });
         applyStickyState(threadId);
+        resetThreadRightSidePanelState(threadId);
 
         await navigate({
           to: "/$threadId",

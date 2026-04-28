@@ -268,7 +268,25 @@ import {
   subscribeToBrowserLaunchRequests,
   takePendingBrowserLaunchRequest,
 } from "~/lib/browser/launcher";
+import {
+  removeRecentBrowserInstanceId,
+  touchRecentBrowserInstanceId,
+} from "~/lib/browser/liveInstanceCache";
 import { resolveScopedBrowserStorageKey } from "~/lib/browser/storage";
+import {
+  BROWSER_PANEL_MODE_STORAGE_KEY,
+  RIGHT_SIDE_PANEL_DIFF_OPEN_STORAGE_KEY,
+  RIGHT_SIDE_PANEL_EDITOR_OPEN_STORAGE_KEY,
+  RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY,
+  RIGHT_SIDE_PANEL_LAST_NON_DIFF_MODE_STORAGE_KEY,
+  RIGHT_SIDE_PANEL_MODE_STORAGE_KEY,
+  RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY,
+  RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY,
+  RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY,
+  RightSidePanelModeStorageSchema,
+  resolveRightSidePanelModeAfterDiffClose,
+  type RightSidePanelMode,
+} from "~/lib/rightSidePanelState";
 import { type BrowserDesignRequestSubmission } from "~/lib/browser/types";
 import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
@@ -316,22 +334,15 @@ const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
-const BROWSER_PANEL_MODE_STORAGE_KEY = "ace:chat:browser-panel-mode:v2";
 const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
-const RIGHT_SIDE_PANEL_MODE_STORAGE_KEY = "ace:chat:right-side-panel-mode:v1";
-const RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-review-open:v1";
-const RIGHT_SIDE_PANEL_EDITOR_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-editor-open:v1";
-const RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY = "ace:chat:right-side-panel-fullscreen:v1";
-const RIGHT_SIDE_PANEL_DIFF_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-diff-open:v1";
-const RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY = "ace:chat:right-side-panel-visible:v1";
 
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
-const RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY = "ace:chat:right-side-panel-width:v1";
 const DEFAULT_RIGHT_SIDE_PANEL_WIDTH = 512;
 const MIN_RIGHT_SIDE_PANEL_WIDTH = 416;
 const MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH = 420;
+const MAX_CACHED_BROWSER_INSTANCES = 3;
 
 function clampRightSidePanelWidth(width: number, viewportWidth: number): number {
   const safeViewportWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
@@ -358,10 +369,6 @@ function constrainedPanelWidth(
 }
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
-type RightSidePanelMode = "browser" | "diff" | "editor" | "summary";
-const RightSidePanelModeStorageSchema = Schema.NullOr(
-  Schema.Literals(["browser", "diff", "editor", "summary"]),
-);
 
 interface ChatViewProps {
   connectionUrl?: string | null;
@@ -483,6 +490,10 @@ export default function ChatView({
     () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_MODE_STORAGE_KEY, threadId),
     [threadId],
   );
+  const rightSidePanelLastNonDiffModeStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_LAST_NON_DIFF_MODE_STORAGE_KEY, threadId),
+    [threadId],
+  );
   const rightSidePanelReviewOpenStorageKey = useMemo(
     () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY, threadId),
     [threadId],
@@ -515,6 +526,11 @@ export default function ChatView({
     rightSidePanelModeStorageKey,
     null,
     RightSidePanelModeStorageSchema,
+  );
+  const [rightSidePanelLastNonDiffMode, setRightSidePanelLastNonDiffMode] = useLocalStorage(
+    rightSidePanelLastNonDiffModeStorageKey,
+    "summary" satisfies Exclude<RightSidePanelMode, "diff">,
+    Schema.Literals(["browser", "editor", "summary"]),
   );
   const [rightSidePanelDiffOpen, setRightSidePanelDiffOpenState] = useLocalStorage(
     rightSidePanelDiffOpenStorageKey,
@@ -2346,6 +2362,7 @@ export default function ChatView({
   const didResizeBrowserSplitDuringDragRef = useRef(false);
   const lastSyncedBrowserSplitWidthRef = useRef(browserSplitWidth);
   const [mountedBrowserThreadIds, setMountedBrowserThreadIds] = useState<readonly ThreadId[]>([]);
+  const previousMountedBrowserThreadIdsRef = useRef<readonly ThreadId[]>([]);
   const workspaceEditorSplitWidthRef = useRef(workspaceEditorSplitWidth);
   const workspaceEditorSplitResizePointerIdRef = useRef<number | null>(null);
   const workspaceEditorSplitResizeStateRef = useRef<{
@@ -2392,9 +2409,17 @@ export default function ChatView({
   useEffect(() => {
     if (diffOpen) {
       setRightSidePanelReviewOpen(true);
-      setRightSidePanelMode("diff");
     }
-  }, [diffOpen, setRightSidePanelMode, setRightSidePanelReviewOpen]);
+  }, [diffOpen, setRightSidePanelReviewOpen]);
+  useEffect(() => {
+    if (!rightSidePanelMode || rightSidePanelMode === "diff") {
+      return;
+    }
+    if (rightSidePanelLastNonDiffMode === rightSidePanelMode) {
+      return;
+    }
+    setRightSidePanelLastNonDiffMode(rightSidePanelMode);
+  }, [rightSidePanelLastNonDiffMode, rightSidePanelMode, setRightSidePanelLastNonDiffMode]);
   useEffect(() => {
     if (browserOpen && isElectron && !diffOpen && rightSidePanelMode === null) {
       setRightSidePanelMode("browser");
@@ -2434,13 +2459,30 @@ export default function ChatView({
       setMountedBrowserThreadIds([]);
       return;
     }
-    if (!browserOpen) {
-      return;
-    }
     setMountedBrowserThreadIds((current) =>
-      current.includes(activeThreadId) ? current : [...current, activeThreadId],
+      browserOpen
+        ? touchRecentBrowserInstanceId(current, activeThreadId, MAX_CACHED_BROWSER_INSTANCES)
+        : removeRecentBrowserInstanceId(current, activeThreadId),
     );
   }, [activeThreadId, browserOpen]);
+  useEffect(() => {
+    const previousThreadIds = previousMountedBrowserThreadIdsRef.current;
+    previousMountedBrowserThreadIdsRef.current = mountedBrowserThreadIds;
+
+    for (const previousThreadId of previousThreadIds) {
+      if (mountedBrowserThreadIds.includes(previousThreadId)) {
+        continue;
+      }
+      browserControllerByThreadRef.current.delete(previousThreadId);
+      browserRuntimeStateByThreadRef.current.delete(previousThreadId);
+      browserControllerChangeHandlerByThreadRef.current.delete(previousThreadId);
+      browserRuntimeStateChangeHandlerByThreadRef.current.delete(previousThreadId);
+      if (activeBrowserThreadIdRef.current === previousThreadId) {
+        browserControllerRef.current = null;
+        setBrowserDevToolsOpen(false);
+      }
+    }
+  }, [mountedBrowserThreadIds]);
   useEffect(() => {
     if (splitPane || routeWorkspaceMode === "chat") {
       return;
@@ -2552,10 +2594,16 @@ export default function ChatView({
       if (nextDiffOpen) {
         setRightSidePanelMode("diff");
       } else if (rightSidePanelMode === "diff") {
-        setRightSidePanelMode("summary");
+        setRightSidePanelMode(
+          resolveRightSidePanelModeAfterDiffClose({
+            activeMode: rightSidePanelMode,
+            lastNonDiffMode: rightSidePanelLastNonDiffMode,
+          }),
+        );
       }
     },
     [
+      rightSidePanelLastNonDiffMode,
       rightSidePanelMode,
       setLocalDiffState,
       setRightSidePanelDiffOpenState,
@@ -3364,9 +3412,15 @@ export default function ChatView({
   const onCloseRightSidePanelDiff = useCallback(() => {
     setRightSidePanelDiffOpenState(false);
     setRightSidePanelReviewOpen(false);
-    setRightSidePanelMode("summary");
+    setRightSidePanelMode((current) =>
+      resolveRightSidePanelModeAfterDiffClose({
+        activeMode: current,
+        lastNonDiffMode: rightSidePanelLastNonDiffMode,
+      }),
+    );
     setLocalDiffState((previous) => ({ ...previous, open: false }));
   }, [
+    rightSidePanelLastNonDiffMode,
     setLocalDiffState,
     setRightSidePanelDiffOpenState,
     setRightSidePanelMode,
@@ -7292,13 +7346,11 @@ export default function ChatView({
     isElectron && activeThreadId
       ? (() => {
           const orderedBrowserThreadIds = [
-            ...(browserOpen || mountedBrowserThreadIds.includes(activeThreadId)
-              ? [activeThreadId]
-              : []),
+            ...(browserOpen ? [activeThreadId] : []),
             ...mountedBrowserThreadIds.filter(
-              (mountedThreadId) => mountedThreadId !== activeThreadId,
+              (browserThreadId) => browserThreadId !== activeThreadId,
             ),
-          ];
+          ].slice(0, MAX_CACHED_BROWSER_INSTANCES);
           if (orderedBrowserThreadIds.length === 0) {
             return null;
           }
@@ -7315,7 +7367,7 @@ export default function ChatView({
                 key: browserThreadId,
                 inAppBrowserProps: {
                   open: true,
-                  activeInstance: isActiveBrowserThread,
+                  activeInstance: isActiveBrowserThread && browserOpen,
                   connectionUrl: browserConnectionUrl,
                   visible: isActiveBrowserThread && browserOpen,
                   mode: browserViewMode,
@@ -7323,13 +7375,8 @@ export default function ChatView({
                   onBrowserSessionChange: (session: BrowserSessionStorage) => {
                     onBrowserSessionChange(browserThreadId, session);
                   },
-                  ...(isActiveBrowserThread
-                    ? {
-                        onControllerChange: getBrowserControllerChangeHandler(browserThreadId),
-                        onActiveRuntimeStateChange:
-                          getBrowserRuntimeStateChangeHandler(browserThreadId),
-                      }
-                    : {}),
+                  onControllerChange: getBrowserControllerChangeHandler(browserThreadId),
+                  onActiveRuntimeStateChange: getBrowserRuntimeStateChangeHandler(browserThreadId),
                   backShortcutLabel: browserBackShortcutLabel,
                   designerAreaCommentShortcutLabel: browserDesignerAreaCommentShortcutLabel,
                   designerCursorShortcutLabel: browserDesignerCursorShortcutLabel,

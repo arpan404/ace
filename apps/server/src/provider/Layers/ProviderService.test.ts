@@ -116,6 +116,26 @@ function makeFakeCodexAdapter(
     },
   );
 
+  const steerTurn = vi.fn(
+    (
+      input: ProviderSendTurnInput,
+    ): Effect.Effect<ProviderTurnStartResult, ProviderAdapterError> => {
+      if (!sessions.has(input.threadId)) {
+        return Effect.fail(
+          new ProviderAdapterSessionNotFoundError({
+            provider,
+            threadId: input.threadId,
+          }),
+        );
+      }
+
+      return Effect.succeed({
+        threadId: input.threadId,
+        turnId: TurnId.makeUnsafe(`turn-${String(input.threadId)}`),
+      });
+    },
+  );
+
   const interruptTurn = vi.fn(
     (_threadId: ThreadId, _turnId?: TurnId): Effect.Effect<void, ProviderAdapterError> =>
       Effect.void,
@@ -192,6 +212,7 @@ function makeFakeCodexAdapter(
     },
     startSession,
     sendTurn,
+    steerTurn,
     interruptTurn,
     respondToRequest,
     respondToUserInput,
@@ -225,6 +246,7 @@ function makeFakeCodexAdapter(
     updateSession,
     startSession,
     sendTurn,
+    steerTurn,
     interruptTurn,
     respondToRequest,
     respondToUserInput,
@@ -694,6 +716,13 @@ routing.layer("ProviderServiceLive routing", (it) => {
       });
       assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
 
+      yield* provider.steerTurn({
+        threadId: session.threadId,
+        input: "actually do this first",
+        attachments: [],
+      });
+      assert.equal(routing.codex.steerTurn.mock.calls.length, 1);
+
       yield* provider.interruptTurn({ threadId: session.threadId });
       assert.deepEqual(routing.codex.interruptTurn.mock.calls, [[session.threadId, undefined]]);
 
@@ -786,6 +815,35 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.equal(routing.cursor.sendTurn.mock.calls.length, 2);
       assert.equal(routing.cursor.sendTurn.mock.calls[0]?.[0]?.input, "first");
       assert.equal(routing.cursor.sendTurn.mock.calls[1]?.[0]?.input, "second");
+
+      yield* provider.stopSession({ threadId: session.threadId });
+    }),
+  );
+
+  it.effect("rejects steerTurn for providers without native steering", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const session = yield* provider.startSession(asThreadId("thread-queued-steer"), {
+        provider: "cursor",
+        threadId: asThreadId("thread-queued-steer"),
+        runtimeMode: "full-access",
+      });
+
+      const result = yield* Effect.result(
+        provider.steerTurn({
+          threadId: session.threadId,
+          input: "steer",
+          attachments: [],
+        }),
+      );
+      assertFailure(
+        result,
+        new ProviderValidationError({
+          operation: "ProviderService.steerTurn",
+          issue: "Provider 'cursor' does not support native turn steering.",
+        }),
+      );
+      assert.equal(routing.cursor.steerTurn.mock.calls.length, 0);
 
       yield* provider.stopSession({ threadId: session.threadId });
     }),

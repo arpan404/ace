@@ -50,6 +50,13 @@ export interface ProviderServiceShape {
   ) => Effect.Effect<ProviderTurnStartResult, ProviderServiceError>;
 
   /**
+   * Steer an in-flight provider turn for providers that support native turn steering.
+   */
+  readonly steerTurn: (
+    input: ProviderSendTurnInput,
+  ) => Effect.Effect<ProviderTurnStartResult, ProviderServiceError>;
+
+  /**
    * Interrupt a running provider turn.
    */
   readonly interruptTurn: (

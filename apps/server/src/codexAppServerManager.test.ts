@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ApprovalRequestId, ThreadId } from "@ace/contracts";
+import { ApprovalRequestId, ThreadId, TurnId } from "@ace/contracts";
 
 import {
   buildCodexInitializeParams,
@@ -18,6 +18,7 @@ import {
 } from "./codexAppServerManager";
 
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
+const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 
 function createSendTurnHarness() {
   const manager = new CodexAppServerManager();
@@ -28,6 +29,7 @@ function createSendTurnHarness() {
       threadId: "thread_1",
       runtimeMode: "full-access",
       model: "gpt-5.3-codex",
+      activeTurnId: undefined,
       resumeCursor: { threadId: "thread_1" },
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
@@ -72,6 +74,7 @@ function createThreadControlHarness() {
       threadId: "thread_1",
       runtimeMode: "full-access",
       model: "gpt-5.3-codex",
+      activeTurnId: undefined,
       resumeCursor: { threadId: "thread_1" },
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
@@ -105,6 +108,7 @@ function createPendingUserInputHarness() {
       threadId: "thread_1",
       runtimeMode: "full-access",
       model: "gpt-5.3-codex",
+      activeTurnId: undefined,
       resumeCursor: { threadId: "thread_1" },
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
@@ -685,6 +689,70 @@ describe("sendTurn", () => {
         threadId: asThreadId("thread_1"),
       }),
     ).rejects.toThrow("Turn input must include text or attachments.");
+  });
+});
+
+describe("steerTurn", () => {
+  it("sends steer input to turn/steer with expectedTurnId", async () => {
+    const { manager, context, sendRequest, updateSession } = createSendTurnHarness();
+    (
+      context as unknown as {
+        session: {
+          activeTurnId?: TurnId;
+        };
+      }
+    ).session.activeTurnId = asTurnId("turn_active");
+    sendRequest.mockResolvedValue({
+      turnId: "turn_active",
+    });
+
+    const result = await manager.steerTurn({
+      threadId: asThreadId("thread_1"),
+      input: "Actually focus on failing tests first",
+      attachments: [
+        {
+          type: "image",
+          url: "data:image/png;base64,AAAA",
+        },
+      ],
+    });
+
+    expect(sendRequest).toHaveBeenCalledWith(context, "turn/steer", {
+      threadId: "thread_1",
+      input: [
+        {
+          type: "text",
+          text: "Actually focus on failing tests first",
+          text_elements: [],
+        },
+        {
+          type: "image",
+          url: "data:image/png;base64,AAAA",
+        },
+      ],
+      expectedTurnId: "turn_active",
+    });
+    expect(updateSession).toHaveBeenCalledWith(context, {
+      status: "running",
+      activeTurnId: "turn_active",
+      resumeCursor: { threadId: "thread_1" },
+    });
+    expect(result).toEqual({
+      threadId: "thread_1",
+      turnId: "turn_active",
+      resumeCursor: { threadId: "thread_1" },
+    });
+  });
+
+  it("requires an active turn before steering", async () => {
+    const { manager } = createSendTurnHarness();
+
+    await expect(
+      manager.steerTurn({
+        threadId: asThreadId("thread_1"),
+        input: "steer",
+      }),
+    ).rejects.toThrow("Session has no active turn to steer.");
   });
 });
 

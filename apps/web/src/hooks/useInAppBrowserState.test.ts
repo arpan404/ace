@@ -4,6 +4,7 @@ import {
   resolveBrowserSuggestionDraftValue,
   resolveNextBrowserSuggestionIndex,
   shouldAutoFocusBrowserAddressBarOnOpen,
+  shouldShowBrowserAddressBarSuggestions,
 } from "./useInAppBrowserState";
 
 describe("shouldAutoFocusBrowserAddressBarOnOpen", () => {
@@ -71,5 +72,30 @@ describe("resolveNextBrowserSuggestionIndex", () => {
 
   it("returns no selection when there are no suggestions", () => {
     expect(resolveNextBrowserSuggestionIndex(0, 0, 1)).toBe(-1);
+  });
+});
+
+describe("shouldShowBrowserAddressBarSuggestions", () => {
+  it("only shows suggestions while the address bar is focused and not dismissed", () => {
+    expect(
+      shouldShowBrowserAddressBarSuggestions({
+        isAddressBarFocused: true,
+        suggestionsDismissed: false,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldShowBrowserAddressBarSuggestions({
+        isAddressBarFocused: false,
+        suggestionsDismissed: false,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldShowBrowserAddressBarSuggestions({
+        isAddressBarFocused: true,
+        suggestionsDismissed: true,
+      }),
+    ).toBe(false);
   });
 });

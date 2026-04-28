@@ -139,14 +139,45 @@ const BROWSER_SHELL_TRANSITION = {
 } as const;
 
 const DESIGNER_TOOL_BUTTONS: ReadonlyArray<{
+  accent: string;
+  collapsedLabel: string;
+  description: string;
   tool: BrowserDesignerTool;
   label: string;
   Icon: typeof MousePointer2Icon;
 }> = [
-  { tool: "cursor", label: "Normal cursor", Icon: MousePointer2Icon },
-  { tool: "area-comment", label: "Area comment", Icon: CropIcon },
-  { tool: "draw-comment", label: "Draw comment", Icon: SquarePenIcon },
-  { tool: "element-comment", label: "Element comment", Icon: CircleDotIcon },
+  {
+    accent: "from-zinc-500/16 via-zinc-500/8 to-transparent",
+    collapsedLabel: "Cursor",
+    description: "Browse normally without leaving comment mode active.",
+    tool: "cursor",
+    label: "Normal cursor",
+    Icon: MousePointer2Icon,
+  },
+  {
+    accent: "from-sky-500/18 via-sky-500/10 to-transparent",
+    collapsedLabel: "Area",
+    description: "Capture a rectangular region and leave focused layout feedback.",
+    tool: "area-comment",
+    label: "Area comment",
+    Icon: CropIcon,
+  },
+  {
+    accent: "from-amber-500/18 via-amber-500/10 to-transparent",
+    collapsedLabel: "Draw",
+    description: "Sketch directly on the page to call out visual changes.",
+    tool: "draw-comment",
+    label: "Draw comment",
+    Icon: SquarePenIcon,
+  },
+  {
+    accent: "from-emerald-500/18 via-emerald-500/10 to-transparent",
+    collapsedLabel: "Element",
+    description: "Target a specific element and attach precise implementation notes.",
+    tool: "element-comment",
+    label: "Element comment",
+    Icon: CircleDotIcon,
+  },
 ];
 const FALLBACK_DESIGNER_TOOL_BUTTON = DESIGNER_TOOL_BUTTONS[0]!;
 
@@ -201,6 +232,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     setDesignerModeActive,
     setIsAddressBarFocused,
     setSelectedSuggestionIndex,
+    showAddressBarSuggestionOverlay,
     showAddressBarSuggestions,
     zoomIn,
     zoomOut,
@@ -254,6 +286,8 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       FALLBACK_DESIGNER_TOOL_BUTTON,
     [designerState.tool],
   );
+  const collapsedDesignerSelectorActive =
+    designerState.active && activeDesignerToolButton.tool !== "cursor";
 
   useEffect(() => {
     if (!open) {
@@ -684,7 +718,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     className="min-w-0 w-full flex-1 border-0 bg-transparent text-sm font-medium text-foreground shadow-none placeholder:text-muted-foreground/70"
                     unstyled
                     value={draftUrl}
-                    onChange={(event) => setDraftUrl(event.target.value)}
+                    onChange={(event) => {
+                      showAddressBarSuggestionOverlay();
+                      setDraftUrl(event.target.value);
+                    }}
                     onFocus={(event) => event.currentTarget.select()}
                     onBlur={() => {
                       if (!forceExpandedAddressField) {
@@ -698,6 +735,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                       if (!forceExpandedAddressField) {
                         setAddressFieldExpanded(true);
                       }
+                      showAddressBarSuggestionOverlay();
                       setIsAddressBarFocused(true);
                     }}
                     onKeyDown={handleAddressBarKeyDown}
@@ -787,31 +825,133 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                     <Tooltip>
                       <TooltipTrigger
                         render={
-                          <MenuTrigger className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border/60 bg-background/90 px-2 text-muted-foreground transition-[border-color,color,background-color] duration-150 hover:border-border hover:bg-accent/40 hover:text-foreground data-[popup-open]:border-primary/40 data-[popup-open]:text-primary">
-                            <activeDesignerToolButton.Icon className="size-3.5" />
-                            <ChevronDownIcon className="size-3 opacity-70" />
+                          <MenuTrigger
+                            className={cn(
+                              "group inline-flex h-9 max-w-[11.5rem] shrink-0 items-center gap-2 rounded-xl border px-2.5 text-left transition-[border-color,background-color,color,box-shadow] duration-150",
+                              "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_94%,transparent),color-mix(in_srgb,var(--background)_88%,transparent))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+                              collapsedDesignerSelectorActive
+                                ? "border-primary/32 text-foreground hover:border-primary/45 hover:bg-primary/[0.08] data-[popup-open]:border-primary/48 data-[popup-open]:bg-primary/[0.1]"
+                                : "border-border/60 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground data-[popup-open]:border-border/90 data-[popup-open]:bg-accent/55 data-[popup-open]:text-foreground",
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "relative inline-flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-colors duration-150",
+                                collapsedDesignerSelectorActive
+                                  ? "border-primary/28 bg-primary/[0.12] text-primary"
+                                  : "border-border/60 bg-background/80 text-muted-foreground group-hover:text-foreground",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "absolute inset-0 bg-linear-to-br opacity-100",
+                                  activeDesignerToolButton.accent,
+                                )}
+                              />
+                              <activeDesignerToolButton.Icon className="relative size-3.5" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[11px] font-medium leading-none text-foreground/92">
+                                {activeDesignerToolButton.label}
+                              </span>
+                              <span className="mt-0.5 block truncate text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/72">
+                                {collapsedDesignerSelectorActive ? "Comment tool" : "Browse mode"}
+                              </span>
+                            </span>
+                            {designerShortcutLabelByTool[activeDesignerToolButton.tool] ? (
+                              <span className="hidden shrink-0 rounded-md border border-border/55 bg-background/70 px-1.5 py-0.5 font-mono text-[9px] font-medium leading-none text-muted-foreground/85 sm:inline-flex">
+                                {resolveDesignerShortcutHintLabel(
+                                  designerShortcutLabelByTool[activeDesignerToolButton.tool] ?? "",
+                                )}
+                              </span>
+                            ) : null}
+                            <ChevronDownIcon className="size-3.5 shrink-0 opacity-72 transition-transform duration-150 group-data-[popup-open]:rotate-180" />
                           </MenuTrigger>
                         }
                       />
                       <TooltipPopup side="bottom">{activeDesignerToolButton.label}</TooltipPopup>
                     </Tooltip>
-                    <MenuPopup align="end" side="bottom" className="min-w-52">
+                    <MenuPopup
+                      align="end"
+                      side="bottom"
+                      sideOffset={8}
+                      className="min-w-[18.5rem] border-border/70 bg-popover/96 shadow-[0_16px_44px_rgba(0,0,0,0.28)] supports-[backdrop-filter]:bg-popover/92"
+                    >
+                      <div className="px-1.5 pb-1 pt-0.5">
+                        <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_96%,transparent),color-mix(in_srgb,var(--background)_90%,transparent))] px-3 py-2.5">
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/62">
+                              Designer tools
+                            </p>
+                            <p className="mt-1 truncate text-sm font-medium text-foreground/92">
+                              {activeDesignerToolButton.label}
+                            </p>
+                          </div>
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]",
+                              collapsedDesignerSelectorActive
+                                ? "border-primary/26 bg-primary/[0.09] text-primary"
+                                : "border-border/60 bg-background/70 text-muted-foreground/82",
+                            )}
+                          >
+                            {collapsedDesignerSelectorActive ? "Commenting" : "Idle"}
+                          </span>
+                        </div>
+                      </div>
                       <MenuRadioGroup
                         value={designerState.tool}
                         onValueChange={(value) => {
                           selectDesignerTool(value as BrowserDesignerTool);
                         }}
                       >
-                        {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
-                          <MenuRadioItem key={tool} value={tool}>
-                            <Icon className="size-4" />
-                            <span>{label}</span>
-                            {designerShortcutLabelByTool[tool] ? (
-                              <MenuShortcut>{designerShortcutLabelByTool[tool]}</MenuShortcut>
-                            ) : null}
-                          </MenuRadioItem>
-                        ))}
+                        {DESIGNER_TOOL_BUTTONS.map(
+                          ({ Icon, accent, collapsedLabel, description, label, tool }) => (
+                            <MenuRadioItem
+                              key={tool}
+                              value={tool}
+                              className="min-h-[3.6rem] items-start rounded-xl py-2 ps-2.5 pe-2.5 data-highlighted:bg-accent/75"
+                            >
+                              <div className="flex min-w-0 items-start gap-3">
+                                <span
+                                  className={cn(
+                                    "relative mt-0.5 inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-background/85 text-foreground/88 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
+                                  )}
+                                >
+                                  <span
+                                    className={cn(
+                                      "absolute inset-0 bg-linear-to-br opacity-100",
+                                      accent,
+                                    )}
+                                  />
+                                  <Icon className="relative size-4" />
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="flex items-center gap-2">
+                                    <span className="truncate text-sm font-medium text-foreground/92">
+                                      {label}
+                                    </span>
+                                    <span className="rounded-full border border-border/55 bg-background/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/74">
+                                      {collapsedLabel}
+                                    </span>
+                                  </span>
+                                  <span className="mt-1 block text-[11px] leading-4 text-muted-foreground/74">
+                                    {description}
+                                  </span>
+                                </span>
+                                {designerShortcutLabelByTool[tool] ? (
+                                  <MenuShortcut className="mt-0.5 shrink-0 rounded-md border border-border/55 bg-background/70 px-1.5 py-0.5 font-mono text-[10px] tracking-normal text-muted-foreground/86">
+                                    {designerShortcutLabelByTool[tool]}
+                                  </MenuShortcut>
+                                ) : null}
+                              </div>
+                            </MenuRadioItem>
+                          ),
+                        )}
                       </MenuRadioGroup>
+                      <div className="px-3 pb-1.5 pt-1 text-[10px] text-muted-foreground/48">
+                        Switch tools without leaving the embedded browser context.
+                      </div>
                     </MenuPopup>
                   </Menu>
                 ) : (

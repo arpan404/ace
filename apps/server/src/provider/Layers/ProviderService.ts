@@ -933,9 +933,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     return queue;
   });
 
-  const sendTurn: ProviderServiceShape["sendTurn"] = Effect.fn("sendTurn")(function* (rawInput) {
+  const parseTurnInput = Effect.fn("parseTurnInput")(function* (
+    operation: string,
+    rawInput: unknown,
+  ) {
     const parsed = yield* decodeInputOrValidationError({
-      operation: "ProviderService.sendTurn",
+      operation,
       schema: ProviderSendTurnInput,
       payload: rawInput,
     });
@@ -946,15 +949,68 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     };
     if (!input.input && input.attachments.length === 0) {
       return yield* toValidationError(
-        "ProviderService.sendTurn",
+        operation,
         "Either input text or at least one attachment is required",
       );
     }
+    return input;
+  });
+
+  const sendTurn: ProviderServiceShape["sendTurn"] = Effect.fn("sendTurn")(function* (rawInput) {
+    const input = yield* parseTurnInput("ProviderService.sendTurn", rawInput);
 
     const result = yield* Deferred.make<ProviderTurnStartResult, ProviderServiceError>();
     const queue = yield* getTurnQueue(input.threadId);
     yield* Queue.offer(queue, { input, result }).pipe(Effect.asVoid);
     return yield* Deferred.await(result);
+  });
+
+  const steerTurn: ProviderServiceShape["steerTurn"] = Effect.fn("steerTurn")(function* (rawInput) {
+    const input = yield* parseTurnInput("ProviderService.steerTurn", rawInput);
+    const routed = yield* resolveRoutableSession({
+      threadId: input.threadId,
+      operation: "ProviderService.steerTurn",
+      allowRecovery: true,
+    });
+    const capabilities = resolveProviderIntegrationCapabilities(
+      routed.adapter.provider,
+      routed.adapter.capabilities,
+    );
+    if (capabilities.turnSteeringMode !== "native") {
+      return yield* toValidationError(
+        "ProviderService.steerTurn",
+        `Provider '${routed.adapter.provider}' does not support native turn steering.`,
+      );
+    }
+    if (routed.adapter.steerTurn === undefined) {
+      return yield* toValidationError(
+        "ProviderService.steerTurn",
+        `Provider '${routed.adapter.provider}' has no native steering implementation.`,
+      );
+    }
+
+    const turn = yield* routed.adapter.steerTurn(input);
+    markTurnStarted(input.threadId, routed.adapter.provider);
+    yield* directory.upsert({
+      threadId: input.threadId,
+      provider: routed.adapter.provider,
+      status: "running",
+      ...(turn.resumeCursor !== undefined ? { resumeCursor: turn.resumeCursor } : {}),
+      runtimePayload: {
+        ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+        activeTurnId: turn.turnId,
+        lastRuntimeEvent: "provider.steerTurn",
+        lastRuntimeEventAt: new Date().toISOString(),
+      },
+    });
+    yield* analytics.record("provider.turn.steered", {
+      provider: routed.adapter.provider,
+      model: input.modelSelection?.model,
+      interactionMode: input.interactionMode,
+      attachmentCount: input.attachments?.length ?? 0,
+      hasInput: typeof input.input === "string" && input.input.trim().length > 0,
+    });
+    return turn;
   });
 
   const interruptTurn: ProviderServiceShape["interruptTurn"] = Effect.fn("interruptTurn")(
@@ -1182,6 +1238,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   return {
     startSession,
     sendTurn,
+    steerTurn,
     interruptTurn,
     respondToRequest,
     respondToUserInput,
