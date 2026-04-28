@@ -205,8 +205,8 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   }, [planMarkdown, workspaceRoot]);
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.09),transparent_36%)] p-4">
-      <section className="flex min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-[1.25rem] bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]">
+    <div className="flex min-h-0 flex-1 overflow-hidden p-4">
+      <section className="flex min-h-0 w-full min-w-0 flex-col overflow-hidden">
         <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
           <div className="flex min-h-full flex-col gap-6 px-4 py-4 sm:px-5">
             <div>
@@ -273,7 +273,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
               </div>
 
               {planMarkdown ? (
-                <div className="mt-4 overflow-hidden rounded-2xl border border-border/50 bg-background/[0.72] shadow-[0_18px_50px_-42px_rgba(0,0,0,0.92),inset_0_1px_0_rgba(255,255,255,0.04)]">
+                <div className="mt-4 overflow-hidden rounded-none bg-transparent">
                   {canCollapsePlan ? (
                     <button
                       type="button"
@@ -291,12 +291,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                     </button>
                   ) : null}
                   {!canCollapsePlan || proposedPlanExpanded ? (
-                    <div
-                      className={cn(
-                        "px-4 pb-4",
-                        canCollapsePlan && "border-t border-border/50 pt-3.5",
-                      )}
-                    >
+                    <div className={cn("pb-4", canCollapsePlan && "pt-3.5")}>
                       <ChatMarkdown
                         text={displayedPlanMarkdown ?? ""}
                         cwd={markdownCwd}
@@ -305,7 +300,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                       />
                     </div>
                   ) : (
-                    <div className="border-t border-border/50 px-4 py-3">
+                    <div className="py-3">
                       <p className="text-xs leading-relaxed text-muted-foreground">
                         Keep the summary focused while the full plan stays one click away.
                       </p>
@@ -372,7 +367,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
               </div>
 
               {planProgress ? (
-                <div className="mt-4 rounded-2xl border border-border/50 bg-background/[0.58] p-3.5 shadow-[0_18px_50px_-42px_rgba(0,0,0,0.92)]">
+                <div className="mt-4 p-0">
                   <div className="flex items-center justify-between gap-3">
                     <div className="space-y-1">
                       <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">
@@ -414,12 +409,12 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                         <div
                           key={stepKey}
                           className={cn(
-                            "flex items-start gap-3 rounded-2xl border border-border/50 bg-background/[0.62] px-3.5 py-3 transition-colors duration-200 shadow-[0_14px_34px_-32px_rgba(0,0,0,0.92)]",
-                            step.status === "inProgress" && "border-blue-500/30 bg-blue-500/5",
-                            step.status === "completed" && "border-emerald-500/30 bg-emerald-500/5",
+                            "flex items-start gap-3 px-0 py-2.5 transition-colors duration-200",
+                            step.status === "inProgress" && "bg-transparent",
+                            step.status === "completed" && "bg-transparent",
                             isCurrentActionableStep &&
                               step.status === "pending" &&
-                              "border-blue-500/20 bg-blue-500/[0.03]",
+                              "bg-transparent",
                           )}
                         >
                           <div className="mt-0.5">{stepStatusIcon(step.status)}</div>
