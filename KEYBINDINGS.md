@@ -1,18 +1,26 @@
 # Keybindings
 
-ace reads keybindings from:
+ace keybindings are defined in three layers:
+
+- `packages/contracts/src/keybindings.ts`: shared command list, schema, limits, and resolved AST types
+- `apps/server/src/keybindings.ts`: default bindings, parsing, validation, persistence, and config issue reporting
+- `apps/web/src/lib/keybindingRegistry.ts`: user-facing labels, categories, descriptions, and example contexts for the Settings UI
+
+The user-editable source of truth is:
 
 - `~/.ace/keybindings.json`
 
-You can manage shortcuts directly in **Settings → Advanced → Keybindings**. Changes are saved to
-the same `keybindings.json` file.
+You can manage shortcuts directly in **Settings → Advanced → Keybindings**. Edits are persisted to
+that same file.
 
-The file must be a JSON array of rules:
+## File Format
+
+The file is a JSON array of rules:
 
 ```json
 [
-  { "key": "mod+g", "command": "terminal.toggle" },
-  { "key": "mod+shift+g", "command": "terminal.new", "when": "terminalFocus" },
+  { "key": "mod+j", "command": "terminal.toggle" },
+  { "key": "mod+d", "command": "terminal.split", "when": "terminalFocus" },
   { "key": "mod+\\", "command": "editor.split", "when": "editorFocus" }
 ]
 ```
@@ -21,37 +29,39 @@ See the full schema for more details: [`packages/contracts/src/keybindings.ts`](
 
 ## Defaults
 
+Defaults are owned by [`DEFAULT_KEYBINDINGS` in `apps/server/src/keybindings.ts`](apps/server/src/keybindings.ts).
+That server-side list is the canonical runtime source.
+
+Current default coverage includes:
+
+- Sidebar: `search.open`, `sidebar.toggle`, `navigation.back`, `navigation.forward`, `project.add`
+- Terminal: `terminal.toggle`, `terminal.split`, `terminal.new`, `terminal.close`
+- Right panel: `rightPanel.toggle`, `rightPanel.review.open`, `rightPanel.browser.open`, `rightPanel.editor.open`
+- Browser: `browser.back`, `browser.forward`, `browser.newTab`, `browser.closeTab`, `browser.focusAddressBar`, `browser.reload`, `browser.devtools`, `browser.previousTab`, `browser.nextTab`, `browser.designer.cursor`, `browser.designer.areaComment`, `browser.designer.drawComment`, `browser.designer.elementComment`
+- Chat: `chat.new`, `chat.newLocal`, `chat.togglePlanMode`, `chat.toggleHeader`
+- Editor: `editor.openFavorite`, `editor.newFile`, `editor.newFolder`, `editor.rename`, `editor.split`, `editor.splitDown`, `editor.toggleWordWrap`, `editor.closeTab`, `editor.closeOtherTabs`, `editor.closeTabsToRight`, `editor.reopenClosedTab`, `editor.closeWindow`, `editor.focusNextWindow`, `editor.focusPreviousWindow`, `editor.nextTab`, `editor.previousTab`, `editor.moveTabLeft`, `editor.moveTabRight`
+- Threads: `thread.previous`, `thread.next`, `thread.jump.1` through `thread.jump.9`
+
+Selected defaults:
+
 ```json
 [
   { "key": "mod+k", "command": "search.open", "when": "!terminalFocus" },
-  { "key": "mod+shift+b", "command": "sidebar.toggle" },
   { "key": "mod+j", "command": "terminal.toggle" },
-  { "key": "mod+d", "command": "terminal.split", "when": "terminalFocus" },
-  { "key": "mod+n", "command": "terminal.new", "when": "terminalFocus" },
-  { "key": "mod+w", "command": "terminal.close", "when": "terminalFocus" },
-  { "key": "mod+n", "command": "chat.new", "when": "!terminalFocus" },
-  { "key": "mod+shift+o", "command": "chat.new", "when": "!terminalFocus" },
-  { "key": "mod+shift+n", "command": "chat.newLocal", "when": "!terminalFocus" },
-  { "key": "mod+shift+a", "command": "project.add", "when": "!terminalFocus" },
-  { "key": "mod+shift++", "command": "project.add", "when": "!terminalFocus" },
-  { "key": "mod+e", "command": "chat.toggleWorkspaceMode", "when": "!terminalFocus" },
+  { "key": "mod+d", "command": "rightPanel.review.open", "when": "!terminalFocus" },
+  { "key": "mod+b", "command": "rightPanel.browser.open", "when": "!terminalFocus" },
+  { "key": "mod+e", "command": "rightPanel.editor.open", "when": "!terminalFocus" },
+  { "key": "mod+shift+p", "command": "chat.togglePlanMode", "when": "!terminalFocus" },
   { "key": "mod+shift+h", "command": "chat.toggleHeader", "when": "!terminalFocus" },
-  { "key": "mod+o", "command": "editor.openFavorite" },
-  { "key": "mod+\\", "command": "editor.split", "when": "editorFocus" },
-  { "key": "mod+alt+arrowleft", "command": "editor.focusPreviousWindow", "when": "editorFocus" },
-  { "key": "mod+alt+arrowright", "command": "editor.focusNextWindow", "when": "editorFocus" },
-  { "key": "alt+shift+arrowleft", "command": "editor.previousTab", "when": "editorFocus" },
-  { "key": "alt+shift+arrowright", "command": "editor.nextTab", "when": "editorFocus" },
-  { "key": "mod+alt+shift+arrowleft", "command": "editor.moveTabLeft", "when": "editorFocus" },
-  { "key": "mod+alt+shift+arrowright", "command": "editor.moveTabRight", "when": "editorFocus" }
+  { "key": "mod+[", "command": "browser.back", "when": "browserOpen && !terminalFocus" },
+  { "key": "mod+]", "command": "browser.forward", "when": "browserOpen && !terminalFocus" },
+  { "key": "mod+shift+[", "command": "thread.previous", "when": "!browserOpen" },
+  { "key": "mod+shift+]", "command": "thread.next", "when": "!browserOpen" },
+  { "key": "mod+1", "command": "thread.jump.1" }
 ]
 ```
 
-For most up to date defaults, see [`DEFAULT_KEYBINDINGS` in `apps/server/src/keybindings.ts`](apps/server/src/keybindings.ts)
-
 ## Configuration
-
-### Rule Shape
 
 Each entry supports:
 
@@ -59,23 +69,58 @@ Each entry supports:
 - `command` (required): action ID
 - `when` (optional): boolean expression controlling when the shortcut is active
 
-Invalid rules are ignored. Invalid config files are ignored. Warnings are logged by the server.
+The server parses each rule into a resolved form:
+
+- `key` becomes a structured `shortcut`
+- `when` becomes a boolean-expression AST (`whenAst`)
+
+Invalid files fall back to defaults without overwriting the file. Invalid entries are skipped
+individually and reported as config issues.
 
 ### Available Commands
 
+- `search.open`: open the command search panel
+- `sidebar.toggle`: collapse or expand the main sidebar
+- `navigation.back`: navigate back in app history
+- `navigation.forward`: navigate forward in app history
 - `terminal.toggle`: open/close terminal drawer
 - `terminal.split`: split terminal (in focused terminal context by default)
 - `terminal.new`: create new terminal (in focused terminal context by default)
 - `terminal.close`: close/kill the focused terminal (in focused terminal context by default)
-- `sidebar.toggle`: collapse/expand the sidebar
-- `search.open`: open the command search panel
+- `rightPanel.toggle`: show/hide the right side panel without selecting a tab
+- `rightPanel.review.open`: open the Review tab
+- `rightPanel.browser.open`: open the Browser tab
+- `rightPanel.editor.open`: open the Editor tab
+- `browser.back`: navigate browser history backward
+- `browser.forward`: navigate browser history forward
+- `browser.newTab`: add a Browser tab
+- `browser.closeTab`: close the active Browser tab
+- `browser.focusAddressBar`: focus the Browser address bar
+- `browser.reload`: reload the active Browser tab
+- `browser.devtools`: toggle browser DevTools
+- `browser.previousTab`: focus the previous Browser tab
+- `browser.nextTab`: focus the next Browser tab
+- `browser.designer.cursor`: toggle the designer cursor tool
+- `browser.designer.areaComment`: toggle the area comment tool
+- `browser.designer.drawComment`: toggle the draw comment tool
+- `browser.designer.elementComment`: toggle the element comment tool
 - `chat.new`: create a new chat thread preserving the active thread's branch/worktree state
 - `chat.newLocal`: create a new chat thread for the active project in a new environment (local/worktree determined by app settings (default `local`))
 - `project.add`: open the add-project command browser
 - `chat.toggleWorkspaceMode`: toggle between chat and editor workspace modes
+- `chat.togglePlanMode`: toggle the composer between plan and execute modes
 - `chat.toggleHeader`: hide/show the chat top header
 - `editor.openFavorite`: open current project/worktree in the last-used editor
+- `editor.newFile`: create a new file in the workspace
+- `editor.newFolder`: create a new folder in the workspace
+- `editor.rename`: rename the selected file or folder
 - `editor.split`: split the focused workspace editor into a new window
+- `editor.splitDown`: split the focused editor downward
+- `editor.toggleWordWrap`: toggle word wrap in the active editor
+- `editor.closeTab`: close the active editor tab
+- `editor.closeOtherTabs`: close all tabs except the active one
+- `editor.closeTabsToRight`: close tabs to the right of the active tab
+- `editor.reopenClosedTab`: reopen the most recently closed editor tab
 - `editor.closeWindow`: close the focused workspace editor window
 - `editor.focusPreviousWindow`: focus the previous workspace editor window
 - `editor.focusNextWindow`: focus the next workspace editor window
@@ -83,6 +128,9 @@ Invalid rules are ignored. Invalid config files are ignored. Warnings are logged
 - `editor.nextTab`: focus the next tab in the active workspace editor window
 - `editor.moveTabLeft`: move the active workspace editor tab left
 - `editor.moveTabRight`: move the active workspace editor tab right
+- `thread.previous`: move to the previous visible thread
+- `thread.next`: move to the next visible thread
+- `thread.jump.1` through `thread.jump.9`: jump to a visible thread by index
 - `script.{id}.run`: run a project script by id (for example `script.test.run`)
 
 ### Key Syntax
@@ -100,6 +148,8 @@ Examples:
 - `mod+j`
 - `mod+shift+d`
 - `mod+shift++`
+- `mod+[`
+- `mod+alt+1`
 - `ctrl+l`
 - `cmd+k`
 
@@ -130,6 +180,20 @@ Unknown condition keys evaluate to `false`.
 
 ### Precedence
 
-- Rules are evaluated in array order.
-- For a key event, the last rule where both `key` matches and `when` evaluates to `true` wins.
-- That means precedence is across commands, not only within the same command.
+- Rules are evaluated from the end of the array back to the start.
+- The last rule whose shortcut and `when` clause both match wins.
+- Precedence applies across commands, not only within one command.
+- This is why overrides belong later in the file.
+
+### Settings UI
+
+The Settings UI metadata comes from [`apps/web/src/lib/keybindingRegistry.ts`](apps/web/src/lib/keybindingRegistry.ts).
+That registry is intentionally presentation-only:
+
+- categories
+- labels
+- descriptions
+- example matching contexts
+- default shortcut labels for display
+
+Runtime behavior still comes from the resolved config pushed by the server.
