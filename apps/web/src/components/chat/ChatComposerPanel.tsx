@@ -289,7 +289,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
       : props.showPlanFollowUpPrompt && props.planFollowUpId
         ? "Feedback to refine the plan, or blank to implement"
         : props.isGitRepo
-          ? "Ask anything — @ files, / commands, # issues"
+          ? "Ask anything — @ files, / commands, # for issue refs"
           : "Follow-ups or attach images";
   const pendingAction = useMemo<ComponentProps<typeof ComposerPrimaryActions>["pendingAction"]>(
     () =>
