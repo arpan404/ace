@@ -66,24 +66,26 @@ const {
 
 <style is:global>
   :root {
-    --bg: #0b0d12;
-    --bg-soft: #12141a;
-    --surface: #efeadf;
-    --surface-strong: #fff9eb;
-    --ink: #10100e;
-    --fg: #f6f0e6;
-    --fg-muted: rgba(246, 240, 230, 0.7);
-    --fg-dim: rgba(246, 240, 230, 0.48);
-    --primary: oklch(0.68 0.18 255);
-    --primary-deep: oklch(0.5 0.15 255);
+    --bg: #080a0f;
+    --bg-soft: #10131a;
+    --surface: #171b22;
+    --surface-strong: #f2eee4;
+    --ink: #080a0f;
+    --fg: #f2eee4;
+    --fg-muted: rgba(242, 238, 228, 0.7);
+    --fg-dim: rgba(242, 238, 228, 0.46);
+    --primary: #00d4ff;
+    --primary-deep: #008ab0;
     --accent: var(--primary);
     --accent-deep: var(--primary-deep);
-    --clay: oklch(0.68 0.08 38);
-    --line: rgba(246, 240, 230, 0.13);
-    --line-strong: rgba(246, 240, 230, 0.24);
+    --review: #ffb545;
+    --risk: #ea5f43;
+    --clay: #ffb545;
+    --line: rgba(242, 238, 228, 0.13);
+    --line-strong: rgba(242, 238, 228, 0.24);
     --border: var(--line);
     --border-bright: var(--line-strong);
-    --accent-glow: oklch(0.68 0.18 255 / 0.16);
+    --accent-glow: rgba(0, 212, 255, 0.16);
     --shadow: rgba(0, 0, 0, 0.42);
     --radius: 8px;
     --font-sans: "Cabinet Grotesk", "Avenir Next", "Helvetica Neue", sans-serif;
@@ -106,9 +108,8 @@ const {
     min-height: 100vh;
     overflow-x: hidden;
     background:
-      radial-gradient(circle at 18% 8%, oklch(0.68 0.18 255 / 0.2), transparent 30rem),
-      radial-gradient(circle at 86% 2%, oklch(0.44 0.12 255 / 0.16), transparent 26rem),
-      linear-gradient(155deg, #0b0d12 0%, #101116 44%, #151515 100%),
+      linear-gradient(115deg, rgba(0, 212, 255, 0.08) 0 1px, transparent 1px 13rem),
+      linear-gradient(180deg, #080a0f 0%, #0c0f15 48%, #080a0f 100%),
       var(--bg);
     color: var(--fg);
     font-family: var(--font-sans);
@@ -125,8 +126,8 @@ const {
     z-index: 0;
     pointer-events: none;
     background-image:
-      linear-gradient(rgba(246, 240, 230, 0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(246, 240, 230, 0.03) 1px, transparent 1px);
+      linear-gradient(rgba(242, 238, 228, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(242, 238, 228, 0.03) 1px, transparent 1px);
     background-size: 44px 44px;
     mask-image: linear-gradient(to bottom, black, transparent 82%);
   }

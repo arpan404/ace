@@ -325,7 +325,8 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
     ],
   );
 
-  const isUltrathinkFrame = props.composerProviderState.composerFrameClassName === "ultrathink-frame";
+  const isUltrathinkFrame =
+    props.composerProviderState.composerFrameClassName === "ultrathink-frame";
 
   return (
     <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", props.isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4")}>

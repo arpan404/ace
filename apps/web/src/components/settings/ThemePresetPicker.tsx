@@ -42,7 +42,8 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
               }}
               className={cn(
                 "group relative flex aspect-video w-full min-w-0 flex-col overflow-hidden rounded-xl border p-2 text-left outline-none transition-[border-color,box-shadow,background-color] duration-150 focus-visible:ring-2 focus-visible:ring-[color:var(--preset-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                !active && "border-border bg-card hover:border-muted-foreground/35 hover:bg-accent/25",
+                !active &&
+                  "border-border bg-card hover:border-muted-foreground/35 hover:bg-accent/25",
                 active && "border-transparent",
               )}
               style={
