@@ -27,7 +27,6 @@ import ChatMarkdown from "./ChatMarkdown";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
-import { ScrollArea } from "./ui/scroll-area";
 import { Spinner } from "./ui/spinner";
 import { toastManager } from "./ui/toast";
 
@@ -207,7 +206,10 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden p-4">
       <section className="flex min-h-0 w-full min-w-0 flex-col overflow-hidden">
-        <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          data-plan-summary-scroll-container="true"
+        >
           <div className="flex min-h-full flex-col gap-6 px-4 py-4 sm:px-5">
             <div>
               <div className="flex items-start justify-between gap-3">
@@ -458,7 +460,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
               ) : null}
             </div>
           </div>
-        </ScrollArea>
+        </div>
       </section>
     </div>
   );
