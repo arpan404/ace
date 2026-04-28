@@ -70,6 +70,7 @@ const {
   if (!reducedMotion) {
     document.documentElement.classList.add("motion-ready");
     const revealItems = Array.from(document.querySelectorAll<HTMLElement>("[data-reveal]"));
+    const scroll3dItems = Array.from(document.querySelectorAll<HTMLElement>("[data-scroll-3d]"));
 
     const revealObserver = new IntersectionObserver(
       (entries) => {
@@ -86,6 +87,46 @@ const {
       item.style.setProperty("--reveal-delay", `${Math.min(index * 42, 220)}ms`);
       revealObserver.observe(item);
     });
+
+    if (scroll3dItems.length > 0) {
+      let scrollFrame = 0;
+
+      const updateScroll3d = () => {
+        scrollFrame = 0;
+        const viewportHeight = window.innerHeight || 1;
+        const viewportCenter = viewportHeight / 2;
+
+        scroll3dItems.forEach((item) => {
+          const rect = item.getBoundingClientRect();
+          if (rect.bottom < -160 || rect.top > viewportHeight + 160) return;
+
+          const center = rect.top + rect.height / 2;
+          const rawProgress = (center - viewportCenter) / viewportCenter;
+          const progress = Math.max(-1, Math.min(1, rawProgress));
+          const strength = Number(item.dataset.scrollStrength ?? "1");
+          const rotateX = -progress * 5.2 * strength;
+          const rotateY = progress * 2.8 * strength;
+          const translateY = -progress * 18 * strength;
+          const scale = 1 - Math.abs(progress) * 0.018 * strength;
+          const shadow = 1 - Math.abs(progress) * 0.22;
+
+          item.style.setProperty("--scroll-rotate-x", `${rotateX.toFixed(3)}deg`);
+          item.style.setProperty("--scroll-rotate-y", `${rotateY.toFixed(3)}deg`);
+          item.style.setProperty("--scroll-translate-y", `${translateY.toFixed(3)}px`);
+          item.style.setProperty("--scroll-scale", scale.toFixed(4));
+          item.style.setProperty("--scroll-shadow", shadow.toFixed(4));
+        });
+      };
+
+      const requestScroll3dUpdate = () => {
+        if (scrollFrame) return;
+        scrollFrame = window.requestAnimationFrame(updateScroll3d);
+      };
+
+      updateScroll3d();
+      window.addEventListener("scroll", requestScroll3dUpdate, { passive: true });
+      window.addEventListener("resize", requestScroll3dUpdate);
+    }
   }
 
   document.querySelectorAll<HTMLElement>("[data-interactive]").forEach((element) => {
@@ -196,6 +237,18 @@ const {
   .motion-ready [data-reveal].is-visible {
     opacity: 1;
     transform: translate3d(0, 0, 0);
+  }
+
+  .motion-ready [data-scroll-3d] {
+    --scroll-rotate-x: 0deg;
+    --scroll-rotate-y: 0deg;
+    --scroll-translate-y: 0px;
+    --scroll-scale: 1;
+    --scroll-shadow: 1;
+    transform: perspective(1100px) rotateX(var(--scroll-rotate-x)) rotateY(var(--scroll-rotate-y))
+      translate3d(0, var(--scroll-translate-y), 0) scale(var(--scroll-scale));
+    transform-style: preserve-3d;
+    will-change: transform;
   }
 
   [data-interactive] {
