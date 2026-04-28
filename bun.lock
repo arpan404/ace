@@ -15,7 +15,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.0.1",
+      "version": "0.1.2",
       "dependencies": {
         "effect": "catalog:",
         "electron": "40.6.0",
@@ -32,7 +32,7 @@
     },
     "apps/marketing": {
       "name": "@ace/marketing",
-      "version": "0.0.0",
+      "version": "0.1.2",
       "dependencies": {
         "astro": "^6.0.4",
         "gsap": "^3.15.0",
@@ -44,7 +44,7 @@
     },
     "apps/mobile": {
       "name": "@ace/mobile",
-      "version": "0.0.1",
+      "version": "0.1.2",
       "dependencies": {
         "@ace/contracts": "workspace:*",
         "@ace/shared": "workspace:*",
@@ -79,7 +79,7 @@
     },
     "apps/server": {
       "name": "ace",
-      "version": "0.0.1",
+      "version": "0.1.2",
       "bin": {
         "ace": "./dist/bin.mjs",
       },
@@ -103,7 +103,7 @@
         "@anthropic-ai/claude-agent-sdk": "0.2.77",
         "@effect/language-service": "catalog:",
         "@effect/vitest": "catalog:",
-        "@github/copilot-sdk": "0.2.0",
+        "@github/copilot-sdk": "0.3.0",
         "@types/bun": "catalog:",
         "@types/node": "catalog:",
         "@types/qrcode": "^1.5.6",
@@ -116,7 +116,7 @@
     },
     "apps/web": {
       "name": "@ace/web",
-      "version": "0.0.1",
+      "version": "0.1.2",
       "dependencies": {
         "@ace/contracts": "workspace:*",
         "@ace/shared": "workspace:*",
@@ -661,21 +661,21 @@
 
     "@formkit/auto-animate": ["@formkit/auto-animate@0.9.0", "", {}, "sha512-VhP4zEAacXS3dfTpJpJ88QdLqMTcabMg0jwpOSxZ/VzfQVfl3GkZSCZThhGC5uhq/TxPHPzW0dzr4H9Bb1OgKA=="],
 
-    "@github/copilot": ["@github/copilot@1.0.16", "", { "optionalDependencies": { "@github/copilot-darwin-arm64": "1.0.16", "@github/copilot-darwin-x64": "1.0.16", "@github/copilot-linux-arm64": "1.0.16", "@github/copilot-linux-x64": "1.0.16", "@github/copilot-win32-arm64": "1.0.16", "@github/copilot-win32-x64": "1.0.16" }, "bin": { "copilot": "npm-loader.js" } }, "sha512-ecLG87eEBVUfF49n1CDKddbm027Eg7noa7ccSHNtmgbteJ40k1sbMY3OJJ3JHhYgEqwt2OOJo7gEX17rp/8cVg=="],
+    "@github/copilot": ["@github/copilot@1.0.38", "", { "optionalDependencies": { "@github/copilot-darwin-arm64": "1.0.38", "@github/copilot-darwin-x64": "1.0.38", "@github/copilot-linux-arm64": "1.0.38", "@github/copilot-linux-x64": "1.0.38", "@github/copilot-win32-arm64": "1.0.38", "@github/copilot-win32-x64": "1.0.38" }, "bin": { "copilot": "npm-loader.js" } }, "sha512-GjtKCiFczeKuECOuxkBkJYb8estSnhxgh4iQ9BTkWg4y3EWYl2VaMCXCu9KkVPf/fwy/URt1l8Rf4M4tZxVZAA=="],
 
-    "@github/copilot-darwin-arm64": ["@github/copilot-darwin-arm64@1.0.16", "", { "os": "darwin", "cpu": "arm64", "bin": { "copilot-darwin-arm64": "copilot" } }, "sha512-Yxu8+Sau1X7Ah9lHeC/pHms40/6Dw2Ry/97BaKijZSTAbyhkfjy8UjAmROoihqmoW89kOaCi4JnT+1XvP/bYZw=="],
+    "@github/copilot-darwin-arm64": ["@github/copilot-darwin-arm64@1.0.38", "", { "os": "darwin", "cpu": "arm64", "bin": { "copilot-darwin-arm64": "copilot" } }, "sha512-JyzyQ/VUC30QBOnOoqBbfAlMbIycKVqIOepeTdArNk+oER8qfQ9LqQPxA6FDqCQl3GAMclzqZGL9jK7I2WldhA=="],
 
-    "@github/copilot-darwin-x64": ["@github/copilot-darwin-x64@1.0.16", "", { "os": "darwin", "cpu": "x64", "bin": { "copilot-darwin-x64": "copilot" } }, "sha512-EptQqgQ0GGdji0LQ09Q1BRB5TRpxkb4DK5bKGLbhE9chHsByv6ppukT8qLFZXktAB1DU5J5k0VZ77IhBuvF6Fw=="],
+    "@github/copilot-darwin-x64": ["@github/copilot-darwin-x64@1.0.38", "", { "os": "darwin", "cpu": "x64", "bin": { "copilot-darwin-x64": "copilot" } }, "sha512-2Wv/4KPY2XC6JRGvJzavrk/RBmbH3Z5pNZZslL0BW2+AeZsoYqmVrA/1pxUs+KSVaGDC420dqS7uZ6u/mg23oQ=="],
 
-    "@github/copilot-linux-arm64": ["@github/copilot-linux-arm64@1.0.16", "", { "os": "linux", "cpu": "arm64", "bin": { "copilot-linux-arm64": "copilot" } }, "sha512-OlG/WeJlnr/42w5w1mI3aKA2zpmSjCJKSSL0TM9chYW3J2vEPcghYHKGRRijRPHpyB4/+WGGE5UrcHc9DaL2FA=="],
+    "@github/copilot-linux-arm64": ["@github/copilot-linux-arm64@1.0.38", "", { "os": "linux", "cpu": "arm64", "bin": { "copilot-linux-arm64": "copilot" } }, "sha512-s+rNuvL3pKkZ6orZZoKcsbNDlu79f6/EBj5ovo2pJ6iBI3YMNwUM8AZq9pcFUpZCaLJ6E7GGZoujRMbpjKP/wQ=="],
 
-    "@github/copilot-linux-x64": ["@github/copilot-linux-x64@1.0.16", "", { "os": "linux", "cpu": "x64", "bin": { "copilot-linux-x64": "copilot" } }, "sha512-zbZCkU3FqqQEPIF1Qf/Eq6DzTclyGhU09JM6UciOfPUA3yC2uFQHYkUyK0xYNSNzJaD2TdOGtmi1/O5sDyqQ9A=="],
+    "@github/copilot-linux-x64": ["@github/copilot-linux-x64@1.0.38", "", { "os": "linux", "cpu": "x64", "bin": { "copilot-linux-x64": "copilot" } }, "sha512-8aAXJ0Qv+4naW4FcsqQNzgGykaiYe5q7ZO55ZuUMQ92ZY+Kae5kTttwiZ325T9CdeNHVT9f+aMx8gAGVWxfvFg=="],
 
-    "@github/copilot-sdk": ["@github/copilot-sdk@0.2.0", "", { "dependencies": { "@github/copilot": "^1.0.10", "vscode-jsonrpc": "^8.2.1", "zod": "^4.3.6" } }, "sha512-fCEpD9W9xqcaCAJmatyNQ1PkET9P9liK2P4Vk0raDFoMXcvpIdqewa5JQeKtWCBUsN/HCz7ExkkFP8peQuo+DA=="],
+    "@github/copilot-sdk": ["@github/copilot-sdk@0.3.0", "", { "dependencies": { "@github/copilot": "^1.0.36-0", "vscode-jsonrpc": "^8.2.1", "zod": "^4.3.6" } }, "sha512-SUo35k56pzzgYgwmDPHcu7kZxPrzXbH66IWXaEf6pmb94DlA709F82HrrDeja087TL4djJ9OuvRFWWOKCosAsg=="],
 
-    "@github/copilot-win32-arm64": ["@github/copilot-win32-arm64@1.0.16", "", { "os": "win32", "cpu": "arm64", "bin": { "copilot-win32-arm64": "copilot.exe" } }, "sha512-QgSBkcNwi7r5SbPiq8/0RYyQqdN4qfspliiuzlwjL0Ib7iG0zSCWJyQ5IRoUNPYfDbkgnpNZDp91aONhrhX4LQ=="],
+    "@github/copilot-win32-arm64": ["@github/copilot-win32-arm64@1.0.38", "", { "os": "win32", "cpu": "arm64", "bin": { "copilot-win32-arm64": "copilot.exe" } }, "sha512-M7Da1h25IsnYyw9LBCatxgQUsu+C5+xJsHMZeR8dnxRF/kt75Ksqk1+pWp8oBk1BqK9ahTgb4zFqCfFDhmUO3w=="],
 
-    "@github/copilot-win32-x64": ["@github/copilot-win32-x64@1.0.16", "", { "os": "win32", "cpu": "x64", "bin": { "copilot-win32-x64": "copilot.exe" } }, "sha512-t+w/dENE8AR/Bm7vtHMzQBPFHZWN/2vsXXNJewYUNZGkV3mIthl+fUOiY9Ni7oVuEfDsnfrz2LFvJ2CGxs8lHA=="],
+    "@github/copilot-win32-x64": ["@github/copilot-win32-x64@1.0.38", "", { "os": "win32", "cpu": "x64", "bin": { "copilot-win32-x64": "copilot.exe" } }, "sha512-PhAUhWRbg718Uc+a6RXqoGN8fGYD+Rj5FWQPQ3rbmgZitPRzlT/WrQaWj0BenRERUjLshPuxSm1GJUB4Kyc/7Q=="],
 
     "@google/generative-ai": ["@google/generative-ai@0.24.1", "", {}, "sha512-MqO+MLfM6kjxcKoy0p1wRzG3b4ZZXtPI+z2IE26UogS2Cm/XHO+7gGRBh6gcJsOiIVoH93UwKvW4HdgiOZCy9Q=="],
 
