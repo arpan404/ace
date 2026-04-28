@@ -3584,6 +3584,86 @@ export default function Sidebar() {
     remoteThreadRevealCountByProject,
     activeThreadId,
   ]);
+  useEffect(() => {
+    setThreadRevealCountByProject((current) => {
+      if (Object.keys(current).length === 0) {
+        return current;
+      }
+
+      let changed = false;
+      const next: Partial<Record<ProjectId, number>> = {};
+
+      for (const project of activeProjects) {
+        const configuredCount = current[project.id];
+        if (configuredCount === undefined) {
+          continue;
+        }
+        const projectThreadCount = (
+          projectListThreadsByProjectId.get(project.id) ?? EMPTY_SIDEBAR_THREADS
+        ).length;
+        const clampedCount = Math.max(
+          THREAD_REVEAL_STEP,
+          Math.min(configuredCount, projectThreadCount),
+        );
+        if (clampedCount > THREAD_REVEAL_STEP) {
+          next[project.id] = clampedCount;
+        }
+        if (clampedCount !== configuredCount || clampedCount === THREAD_REVEAL_STEP) {
+          changed = true;
+        }
+      }
+
+      if (!changed && Object.keys(next).length === Object.keys(current).length) {
+        return current;
+      }
+      return next;
+    });
+  }, [activeProjects, projectListThreadsByProjectId]);
+  useEffect(() => {
+    setRemoteThreadRevealCountByProject((current) => {
+      if (Object.keys(current).length === 0) {
+        return current;
+      }
+
+      const threadCountByProjectKey = new Map<string, number>();
+      for (const entry of remoteSidebarHosts) {
+        if (entry.status !== "available") {
+          continue;
+        }
+        for (const project of entry.projects) {
+          threadCountByProjectKey.set(
+            remoteProjectKey(entry.connectionUrl, project.id),
+            project.threads.length,
+          );
+        }
+      }
+
+      let changed = false;
+      const next: Record<string, number> = {};
+      for (const [projectKey, configuredCount] of Object.entries(current)) {
+        const projectThreadCount = threadCountByProjectKey.get(projectKey);
+        if (projectThreadCount === undefined) {
+          changed = true;
+          continue;
+        }
+        const clampedCount = Math.max(
+          THREAD_REVEAL_STEP,
+          Math.min(configuredCount, projectThreadCount),
+        );
+        if (clampedCount > THREAD_REVEAL_STEP) {
+          next[projectKey] = clampedCount;
+        }
+        if (clampedCount !== configuredCount || clampedCount === THREAD_REVEAL_STEP) {
+          changed = true;
+        }
+      }
+
+      if (!changed && Object.keys(next).length === Object.keys(current).length) {
+        return current;
+      }
+      return next;
+    });
+  }, [remoteSidebarHosts]);
   const unifiedRenderedProjects = useMemo(() => {
     const localProjects = filteredRenderedProjects.map((project) => ({
       kind: "local" as const,
@@ -4798,57 +4878,47 @@ export default function Sidebar() {
   }, [desktopUpdateButtonAction, desktopUpdateButtonDisabled, desktopUpdateState]);
 
   const expandThreadListForProject = useCallback((projectId: ProjectId) => {
-    startTransition(() => {
-      setThreadRevealCountByProject((current) => {
-        const nextCount = (current[projectId] ?? THREAD_REVEAL_STEP) + THREAD_REVEAL_STEP;
-        return {
-          ...current,
-          [projectId]: nextCount,
-        };
-      });
+    setThreadRevealCountByProject((current) => {
+      const nextCount = (current[projectId] ?? THREAD_REVEAL_STEP) + THREAD_REVEAL_STEP;
+      return {
+        ...current,
+        [projectId]: nextCount,
+      };
     });
   }, []);
 
   const collapseThreadListForProject = useCallback((projectId: ProjectId) => {
-    startTransition(() => {
-      setThreadRevealCountByProject((current) => {
-        if (current[projectId] === undefined) return current;
-        const next = { ...current };
-        delete next[projectId];
-        return next;
-      });
+    setThreadRevealCountByProject((current) => {
+      if (current[projectId] === undefined) return current;
+      const next = { ...current };
+      delete next[projectId];
+      return next;
     });
   }, []);
 
   const toggleRemoteProject = useCallback((projectKey: string) => {
-    startTransition(() => {
-      setRemoteProjectExpandedById((current) => ({
-        ...current,
-        [projectKey]: !(current[projectKey] ?? true),
-      }));
-    });
+    setRemoteProjectExpandedById((current) => ({
+      ...current,
+      [projectKey]: !(current[projectKey] ?? true),
+    }));
   }, []);
 
   const expandThreadListForRemoteProject = useCallback((projectKey: string) => {
-    startTransition(() => {
-      setRemoteThreadRevealCountByProject((current) => {
-        const nextCount = (current[projectKey] ?? THREAD_REVEAL_STEP) + THREAD_REVEAL_STEP;
-        return {
-          ...current,
-          [projectKey]: nextCount,
-        };
-      });
+    setRemoteThreadRevealCountByProject((current) => {
+      const nextCount = (current[projectKey] ?? THREAD_REVEAL_STEP) + THREAD_REVEAL_STEP;
+      return {
+        ...current,
+        [projectKey]: nextCount,
+      };
     });
   }, []);
 
   const collapseThreadListForRemoteProject = useCallback((projectKey: string) => {
-    startTransition(() => {
-      setRemoteThreadRevealCountByProject((current) => {
-        if (current[projectKey] === undefined) return current;
-        const next = { ...current };
-        delete next[projectKey];
-        return next;
-      });
+    setRemoteThreadRevealCountByProject((current) => {
+      if (current[projectKey] === undefined) return current;
+      const next = { ...current };
+      delete next[projectKey];
+      return next;
     });
   }, []);
 

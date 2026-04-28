@@ -42,7 +42,7 @@
     "@anthropic-ai/claude-agent-sdk": "0.2.77",
     "@effect/language-service": "catalog:",
     "@effect/vitest": "catalog:",
-    "@github/copilot-sdk": "0.2.0",
+    "@github/copilot-sdk": "0.3.0",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "@types/qrcode": "^1.5.6",

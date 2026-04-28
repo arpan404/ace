@@ -113,6 +113,7 @@ import {
   proposedPlanTitle,
   resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
+import { shouldEscalateInterruptToSessionStop } from "../lib/chat/interruptFallback";
 import { getDefaultServerModel } from "../providerModels";
 import {
   DEFAULT_INTERACTION_MODE,
@@ -425,6 +426,8 @@ const DEFAULT_LOCAL_DIFF_STATE: LocalDiffState = {
   turnId: null,
 };
 
+const INTERRUPT_STOP_FALLBACK_DELAY_MS = 3_000;
+
 interface PendingPullRequestSetupRequest {
   threadId: ThreadId;
   worktreePath: string;
@@ -691,6 +694,7 @@ export default function ChatView({
   const activeComposerMenuItemRef = useRef<ComposerCommandItem | null>(null);
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
+  const pendingInterruptStopFallbackRef = useRef<number | null>(null);
   const sendInFlightRef = useRef(false);
   const queuedDesignMessageEditRef = useRef<QueuedComposerMessage | null>(null);
   const [handoffInFlight, setHandoffInFlight] = useState(false);
@@ -6141,15 +6145,76 @@ export default function ChatView({
     );
   });
 
+  const clearPendingInterruptStopFallback = useEffectEvent(() => {
+    if (pendingInterruptStopFallbackRef.current === null) {
+      return;
+    }
+    window.clearTimeout(pendingInterruptStopFallbackRef.current);
+    pendingInterruptStopFallbackRef.current = null;
+  });
+
+  const dispatchInterruptStopFallback = useEffectEvent(
+    async (targetThreadId: ThreadId, targetTurnId: TurnId | null) => {
+      const api = readNativeApi();
+      if (!api) {
+        return;
+      }
+
+      const targetThread = getThreadById(useStore.getState().threads, targetThreadId);
+      if (
+        !shouldEscalateInterruptToSessionStop({
+          thread: targetThread,
+          interruptedTurnId: targetTurnId,
+        })
+      ) {
+        return;
+      }
+
+      await api.orchestration
+        .dispatchCommand({
+          type: "thread.session.stop",
+          commandId: newCommandId(),
+          threadId: targetThreadId,
+          createdAt: new Date().toISOString(),
+        })
+        .catch((err: unknown) => {
+          setStoreThreadError(
+            targetThreadId,
+            err instanceof Error ? err.message : "Failed to stop the thread session.",
+          );
+        });
+    },
+  );
+
+  const scheduleInterruptStopFallback = useEffectEvent(
+    (targetThreadId: ThreadId, targetTurnId: TurnId | null) => {
+      clearPendingInterruptStopFallback();
+      pendingInterruptStopFallbackRef.current = window.setTimeout(() => {
+        pendingInterruptStopFallbackRef.current = null;
+        void dispatchInterruptStopFallback(targetThreadId, targetTurnId);
+      }, INTERRUPT_STOP_FALLBACK_DELAY_MS);
+    },
+  );
+
+  useEffect(() => {
+    if (!liveTurnInProgress) {
+      clearPendingInterruptStopFallback();
+    }
+  }, [liveTurnInProgress]);
+
+  useEffect(() => () => clearPendingInterruptStopFallback(), []);
+
   const onInterrupt = useEffectEvent(async () => {
     const api = readNativeApi();
     if (!api || !activeThread) return;
+    const interruptedTurnId = activeLatestTurn?.turnId ?? null;
     await api.orchestration.dispatchCommand({
       type: "thread.turn.interrupt",
       commandId: newCommandId(),
       threadId: activeThread.id,
       createdAt: new Date().toISOString(),
     });
+    scheduleInterruptStopFallback(activeThread.id, interruptedTurnId);
   });
 
   const onRespondToApproval = useEffectEvent(
