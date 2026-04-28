@@ -51,7 +51,7 @@ import {
 } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
-import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import { parseDiffRouteSearch } from "../diffRouteSearch";
 import {
   normalizeThreadWorkspaceLayoutMode,
   THREAD_WORKSPACE_LAYOUT_BY_THREAD_ID_STORAGE_KEY,
@@ -213,11 +213,7 @@ import {
   type InAppBrowserMode,
 } from "./InAppBrowser";
 import { ComposerCommandItem } from "./chat/ComposerCommandMenu";
-import {
-  LocalDiffPanel,
-  RightSidePanelTabStrip,
-  RouteDiffPanel,
-} from "./chat/ChatViewRightSidePanels";
+import { LocalDiffPanel, RightSidePanelTabStrip } from "./chat/ChatViewRightSidePanels";
 import { useChatViewModelState } from "./chat/useChatViewModelState";
 import { getComposerProviderState } from "./chat/composerProviderRegistry";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
@@ -325,6 +321,7 @@ const RIGHT_SIDE_PANEL_MODE_STORAGE_KEY = "ace:chat:right-side-panel-mode:v1";
 const RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-review-open:v1";
 const RIGHT_SIDE_PANEL_EDITOR_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-editor-open:v1";
 const RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY = "ace:chat:right-side-panel-fullscreen:v1";
+const RIGHT_SIDE_PANEL_DIFF_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-diff-open:v1";
 
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
@@ -421,6 +418,12 @@ interface LocalDiffState {
   turnId: TurnId | null;
 }
 
+const DEFAULT_LOCAL_DIFF_STATE: LocalDiffState = {
+  filePath: null,
+  open: false,
+  turnId: null,
+};
+
 interface PendingPullRequestSetupRequest {
   threadId: ThreadId;
   worktreePath: string;
@@ -469,11 +472,9 @@ export default function ChatView({
     strict: false,
     select: (params) => parseDiffRouteSearch(params),
   });
-  const [localDiffState, setLocalDiffState] = useState<LocalDiffState>({
-    filePath: null,
-    open: false,
-    turnId: null,
-  });
+  const [localDiffStateByThreadId, setLocalDiffStateByThreadId] = useState<
+    Record<ThreadId, LocalDiffState>
+  >({});
   const rightSidePanelModeStorageKey = useMemo(
     () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_MODE_STORAGE_KEY, threadId),
     [threadId],
@@ -490,18 +491,31 @@ export default function ChatView({
     () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY, threadId),
     [threadId],
   );
+  const rightSidePanelDiffOpenStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_DIFF_OPEN_STORAGE_KEY, threadId),
+    [threadId],
+  );
   const browserPanelModeStorageKey = useMemo(
     () => resolveScopedBrowserStorageKey(BROWSER_PANEL_MODE_STORAGE_KEY, threadId),
     [threadId],
   );
+  const rightSidePanelWidthStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY, threadId),
+    [threadId],
+  );
   const [rightSidePanelMode, setRightSidePanelMode] = useLocalStorage(
     rightSidePanelModeStorageKey,
-    rawSearch.diff === "1" ? "diff" : null,
+    null,
     RightSidePanelModeStorageSchema,
+  );
+  const [rightSidePanelDiffOpen, setRightSidePanelDiffOpenState] = useLocalStorage(
+    rightSidePanelDiffOpenStorageKey,
+    false,
+    Schema.Boolean,
   );
   const [rightSidePanelReviewOpen, setRightSidePanelReviewOpen] = useLocalStorage(
     rightSidePanelReviewOpenStorageKey,
-    rawSearch.diff === "1",
+    false,
     Schema.Boolean,
   );
   const [rightSidePanelEditorOpen, setRightSidePanelEditorOpen] = useLocalStorage(
@@ -899,7 +913,31 @@ export default function ChatView({
     !splitPane && (rawSearch.mode === "editor" || rawSearch.mode === "split")
       ? rawSearch.mode
       : "chat";
-  const diffOpen = splitPane ? localDiffState.open : rawSearch.diff === "1";
+  const localDiffState = localDiffStateByThreadId[threadId] ?? DEFAULT_LOCAL_DIFF_STATE;
+  const setLocalDiffState = useCallback(
+    (nextState: LocalDiffState | ((state: LocalDiffState) => LocalDiffState)) => {
+      setLocalDiffStateByThreadId((previous) => {
+        const current = previous[threadId] ?? DEFAULT_LOCAL_DIFF_STATE;
+        const resolved =
+          typeof nextState === "function"
+            ? (nextState as (state: LocalDiffState) => LocalDiffState)(current)
+            : nextState;
+        if (
+          current.filePath === resolved.filePath &&
+          current.open === resolved.open &&
+          current.turnId === resolved.turnId
+        ) {
+          return previous;
+        }
+        return {
+          ...previous,
+          [threadId]: resolved,
+        };
+      });
+    },
+    [threadId],
+  );
+  const diffOpen = splitPane ? localDiffState.open : rightSidePanelDiffOpen;
   const rightSidePanelOpen = diffOpen || rightSidePanelMode !== null;
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
@@ -2248,7 +2286,7 @@ export default function ChatView({
     Schema.Number,
   );
   const [storedRightSidePanelWidth, setStoredRightSidePanelWidth] = useLocalStorage(
-    RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY,
+    rightSidePanelWidthStorageKey,
     DEFAULT_RIGHT_SIDE_PANEL_WIDTH,
     Schema.Number,
   );
@@ -2322,6 +2360,20 @@ export default function ChatView({
     ? "split"
     : workspaceMode;
   const browserOpen = browserMode !== "closed";
+  useEffect(() => {
+    if (rightSidePanelMode !== "diff" || rightSidePanelDiffOpen) {
+      return;
+    }
+    setRightSidePanelDiffOpenState(true);
+    setRightSidePanelReviewOpen(true);
+    setLocalDiffState((previous) => ({ ...previous, open: true }));
+  }, [
+    rightSidePanelDiffOpen,
+    rightSidePanelMode,
+    setLocalDiffState,
+    setRightSidePanelDiffOpenState,
+    setRightSidePanelReviewOpen,
+  ]);
   useEffect(() => {
     if (diffOpen) {
       setRightSidePanelReviewOpen(true);
@@ -2460,12 +2512,13 @@ export default function ChatView({
   }, []);
   const setRightSidePanelDiffOpen = useCallback(
     (nextDiffOpen: boolean) => {
+      setRightSidePanelDiffOpenState(nextDiffOpen);
       setRightSidePanelReviewOpen(nextDiffOpen);
+      setLocalDiffState((previous) => ({
+        ...previous,
+        open: nextDiffOpen,
+      }));
       if (splitPane) {
-        setLocalDiffState((previous) => ({
-          ...previous,
-          open: nextDiffOpen,
-        }));
         setRightSidePanelMode(nextDiffOpen ? "diff" : "summary");
         return;
       }
@@ -2474,25 +2527,14 @@ export default function ChatView({
       } else if (rightSidePanelMode === "diff") {
         setRightSidePanelMode("summary");
       }
-      startTransition(() => {
-        void navigate({
-          to: "/$threadId",
-          params: { threadId },
-          replace: true,
-          search: (previous) => {
-            const rest = stripDiffSearchParams(previous);
-            return nextDiffOpen ? { ...rest, diff: "1" } : { ...rest, diff: undefined };
-          },
-        });
-      });
     },
     [
-      navigate,
       rightSidePanelMode,
+      setLocalDiffState,
+      setRightSidePanelDiffOpenState,
       setRightSidePanelMode,
       setRightSidePanelReviewOpen,
       splitPane,
-      threadId,
     ],
   );
   const onToggleDiff = useCallback(() => {
@@ -2500,12 +2542,19 @@ export default function ChatView({
   }, [diffOpen, setRightSidePanelDiffOpen]);
   const onOpenRightSidePanelDiff = useCallback(() => {
     if (diffOpen) {
+      setRightSidePanelDiffOpenState(true);
       setRightSidePanelReviewOpen(true);
       setRightSidePanelMode("diff");
       return;
     }
     setRightSidePanelDiffOpen(true);
-  }, [diffOpen, setRightSidePanelDiffOpen, setRightSidePanelMode, setRightSidePanelReviewOpen]);
+  }, [
+    diffOpen,
+    setRightSidePanelDiffOpen,
+    setRightSidePanelDiffOpenState,
+    setRightSidePanelMode,
+    setRightSidePanelReviewOpen,
+  ]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3282,22 +3331,16 @@ export default function ChatView({
     }
   }, [rightSidePanelMode, setRightSidePanelEditorOpen, setRightSidePanelMode]);
   const onCloseRightSidePanelDiff = useCallback(() => {
+    setRightSidePanelDiffOpenState(false);
     setRightSidePanelReviewOpen(false);
     setRightSidePanelMode("summary");
-    if (splitPane) {
-      setLocalDiffState((previous) => ({ ...previous, open: false }));
-      return;
-    }
-    if (!diffOpen) {
-      return;
-    }
-    void navigate({
-      to: "/$threadId",
-      params: { threadId },
-      replace: true,
-      search: (previous) => stripDiffSearchParams(previous),
-    });
-  }, [diffOpen, navigate, setRightSidePanelMode, setRightSidePanelReviewOpen, splitPane, threadId]);
+    setLocalDiffState((previous) => ({ ...previous, open: false }));
+  }, [
+    setLocalDiffState,
+    setRightSidePanelDiffOpenState,
+    setRightSidePanelMode,
+    setRightSidePanelReviewOpen,
+  ]);
   const onToggleRightSidePanelFullscreen = useCallback(() => {
     setRightSidePanelFullscreen((current) => !current);
   }, [setRightSidePanelFullscreen]);
@@ -6922,24 +6965,17 @@ export default function ChatView({
   const expandedImageItem = expandedImage ? expandedImage.images[expandedImage.index] : null;
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
+      setRightSidePanelDiffOpenState(true);
       setRightSidePanelReviewOpen(true);
       setRightSidePanelMode("diff");
-      if (splitPane) {
-        setLocalDiffState({ open: true, turnId, filePath: filePath ?? null });
-        return;
-      }
-      void navigate({
-        to: "/$threadId",
-        params: { threadId },
-        search: (previous) => {
-          const rest = stripDiffSearchParams(previous);
-          return filePath
-            ? { ...rest, diff: "1", diffTurnId: turnId, diffFilePath: filePath }
-            : { ...rest, diff: "1", diffTurnId: turnId };
-        },
-      });
+      setLocalDiffState({ open: true, turnId, filePath: filePath ?? null });
     },
-    [navigate, setRightSidePanelMode, setRightSidePanelReviewOpen, splitPane, threadId],
+    [
+      setLocalDiffState,
+      setRightSidePanelDiffOpenState,
+      setRightSidePanelMode,
+      setRightSidePanelReviewOpen,
+    ],
   );
   const onRevertUserMessage = useCallback(
     (messageId: MessageId) => {
@@ -7327,6 +7363,7 @@ export default function ChatView({
             rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
             gitCwd={gitCwd}
             activePlanProgress={activePlanProgress}
+            isAgentWorking={isWorking}
             workspaceChangeStat={workspaceChangeStat}
             rightSidePanelOpen={rightSidePanelOpen}
             workspaceMode={headerWorkspaceMode}
@@ -7669,14 +7706,12 @@ export default function ChatView({
                             onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
                             workspaceRoot={activeProject?.cwd ?? undefined}
                           />
-                        ) : activeRightSidePanelMode === "diff" && splitPane ? (
+                        ) : activeRightSidePanelMode === "diff" ? (
                           <LocalDiffPanel
                             threadId={activeThread.id}
                             diffState={localDiffState}
                             onDiffStateChange={setLocalDiffState}
                           />
-                        ) : activeRightSidePanelMode === "diff" ? (
-                          <RouteDiffPanel threadId={activeThread.id} />
                         ) : activeRightSidePanelMode === "editor" ? (
                           <Suspense
                             fallback={

@@ -14,6 +14,7 @@ import {
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -102,7 +103,7 @@ const WORKSPACE_EDITOR_MARKER_OWNER = "ace-workspace-editor";
 const MONACO_DIAGNOSTIC_OWNERS = [WORKSPACE_EDITOR_MARKER_OWNER] as const;
 const DIAGNOSTIC_SYNC_DEBOUNCE_MS = 250;
 const DIAGNOSTIC_UNAVAILABLE_RETRY_MS = 3_000;
-const WORKSPACE_FILE_REFETCH_INTERVAL_MS = 1_200;
+const WORKSPACE_FILE_REFETCH_INTERVAL_MS = 5_000;
 const COMPLETION_TRIGGER_CHARACTERS = [".", "/", '"', "'", ":", "<", "@"] as const;
 const WORKSPACE_MODEL_URI_SCHEME = "ace-workspace";
 
@@ -349,7 +350,7 @@ function runEditorAction(
   return action.run();
 }
 
-export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
+function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const api = readNativeApi();
   const pane = props.pane;
   const canReopenClosedTab = props.canReopenClosedTab;
@@ -393,8 +394,8 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   const hasUnsavedBufferEdits = activeDraftInStore
     ? activeDraftInStore.draftContents !== activeDraftInStore.savedContents
     : false;
-  const activeFileQuery = useQuery(
-    projectReadFileQueryOptions({
+  const activeFileQuery = useQuery({
+    ...projectReadFileQueryOptions({
       connectionUrl: props.connectionUrl,
       cwd: props.gitCwd,
       relativePath: pane.activeFilePath,
@@ -403,9 +404,10 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
         props.gitCwd !== null &&
         (!isPreviewMode || isTextPreviewMode),
       refetchInterval: hasUnsavedBufferEdits ? false : WORKSPACE_FILE_REFETCH_INTERVAL_MS,
-      staleTime: 0,
     }),
-  );
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+  });
 
   useEffect(() => {
     if (isPreviewMode || !pane.activeFilePath || activeFileQuery.data?.contents === undefined) {
@@ -1733,3 +1735,8 @@ export default function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
     </section>
   );
 }
+
+const MemoizedWorkspaceEditorPane = memo(WorkspaceEditorPane);
+MemoizedWorkspaceEditorPane.displayName = "WorkspaceEditorPane";
+
+export default MemoizedWorkspaceEditorPane;

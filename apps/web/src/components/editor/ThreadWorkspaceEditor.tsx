@@ -87,7 +87,7 @@ import { joinWorkspaceAbsolutePath, revealInFileManagerLabel } from "./workspace
 import WorkspaceEditorPane from "./WorkspaceEditorPane";
 
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
-const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 1_500;
+const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 10_000;
 const WORKSPACE_SEARCH_RESULT_LIMIT = 400;
 const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
 
@@ -858,14 +858,15 @@ function ThreadWorkspaceEditor(inputProps: {
     [api, inputProps.connectionUrl],
   );
 
-  const workspaceTreeQuery = useQuery(
-    projectListTreeQueryOptions({
+  const workspaceTreeQuery = useQuery({
+    ...projectListTreeQueryOptions({
       connectionUrl: inputProps.connectionUrl,
       cwd: props.gitCwd,
       refetchInterval: WORKSPACE_TREE_REFETCH_INTERVAL_MS,
-      staleTime: 0,
     }),
-  );
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+  });
   const gitStatusQuery = useQuery(gitStatusQueryOptions(props.gitCwd, inputProps.connectionUrl));
   const searchMode = deferredTreeSearch.length > 0;
   const remoteSearchEnabled = shouldRunWorkspaceRemoteSearch(deferredTreeSearch);

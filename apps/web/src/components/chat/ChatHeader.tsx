@@ -37,6 +37,7 @@ interface ChatHeaderProps {
   rightSidePanelToggleShortcutLabel: string | null;
   gitCwd: string | null;
   activePlanProgress: ActivePlanProgressState | null;
+  isAgentWorking: boolean;
   workspaceChangeStat: { additions: number; deletions: number } | null;
   rightSidePanelOpen: boolean;
   workspaceMode: ThreadWorkspaceMode;
@@ -112,6 +113,7 @@ export const ChatHeader = memo(function ChatHeader({
   rightSidePanelOpen,
   gitCwd,
   activePlanProgress,
+  isAgentWorking,
   workspaceChangeStat,
   workspaceMode,
   onRunProjectScript,
@@ -159,7 +161,7 @@ export const ChatHeader = memo(function ChatHeader({
   }`;
   const hasWorkspaceChanges = hasWorkspaceChangeStat(workspaceChangeStat);
   const actionablePlanProgress: (ActivePlanProgressState & { currentIndex: number }) | null =
-    activePlanProgress && activePlanProgress.currentIndex !== null
+    isAgentWorking && activePlanProgress && activePlanProgress.currentIndex !== null
       ? { ...activePlanProgress, currentIndex: activePlanProgress.currentIndex }
       : null;
   const rightSidePanelButtonLabel = actionablePlanProgress

@@ -370,7 +370,9 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (thread.session?.status === "running") {
+  const hasLiveTurn =
+    thread.latestTurn?.state === "running" && thread.latestTurn.completedAt === null;
+  if (thread.session?.status === "running" || hasLiveTurn) {
     return {
       label: "Working",
       colorClass: "text-sky-600 dark:text-sky-300/80",

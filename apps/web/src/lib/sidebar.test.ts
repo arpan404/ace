@@ -30,16 +30,21 @@ import {
 } from "../types";
 
 function makeLatestTurn(overrides?: {
+  state?: OrchestrationLatestTurn["state"];
   completedAt?: string | null;
   startedAt?: string | null;
 }): OrchestrationLatestTurn {
+  const hasStartedAtOverride = overrides && "startedAt" in overrides;
+  const hasCompletedAtOverride = overrides && "completedAt" in overrides;
   return {
     turnId: "turn-1" as never,
-    state: "completed",
+    state: overrides?.state ?? "completed",
     assistantMessageId: null,
     requestedAt: "2026-03-09T10:00:00.000Z",
-    startedAt: overrides?.startedAt ?? "2026-03-09T10:00:00.000Z",
-    completedAt: overrides?.completedAt ?? "2026-03-09T10:05:00.000Z",
+    startedAt: hasStartedAtOverride ? (overrides?.startedAt ?? null) : "2026-03-09T10:00:00.000Z",
+    completedAt: hasCompletedAtOverride
+      ? (overrides?.completedAt ?? null)
+      : "2026-03-09T10:05:00.000Z",
   };
 }
 
@@ -512,6 +517,25 @@ describe("resolveThreadStatusPill", () => {
     expect(
       resolveThreadStatusPill({
         thread: baseThread,
+      }),
+    ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it("keeps working status while the latest turn is still running", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          latestTurn: makeLatestTurn({
+            state: "running",
+            completedAt: null,
+          }),
+          session: {
+            ...baseThread.session,
+            status: "ready",
+            orchestrationStatus: "ready",
+          },
+        },
       }),
     ).toMatchObject({ label: "Working", pulse: true });
   });
