@@ -111,6 +111,7 @@ describe("ProviderCommandReactor", () => {
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session" | "restart-session";
     readonly sessionModelOptionsSwitch?: "in-session" | "restart-session";
+    readonly turnSteeringMode?: "native" | "queued-message";
   }) {
     const now = new Date().toISOString();
     const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "ace-reactor-"));
@@ -157,6 +158,12 @@ describe("ProviderCommandReactor", () => {
       return Effect.succeed(session);
     });
     const sendTurn = vi.fn((_: unknown) =>
+      Effect.succeed({
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        turnId: asTurnId("turn-1"),
+      }),
+    );
+    const steerTurn = vi.fn((_: unknown) =>
       Effect.succeed({
         threadId: ThreadId.makeUnsafe("thread-1"),
         turnId: asTurnId("turn-1"),
@@ -212,6 +219,7 @@ describe("ProviderCommandReactor", () => {
     const service: ProviderServiceShape = {
       startSession: startSession as ProviderServiceShape["startSession"],
       sendTurn: sendTurn as ProviderServiceShape["sendTurn"],
+      steerTurn: steerTurn as ProviderServiceShape["steerTurn"],
       interruptTurn: interruptTurn as ProviderServiceShape["interruptTurn"],
       respondToRequest: respondToRequest as ProviderServiceShape["respondToRequest"],
       respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],
@@ -225,6 +233,9 @@ describe("ProviderCommandReactor", () => {
             : {}),
           ...(input?.sessionModelOptionsSwitch !== undefined
             ? { sessionModelOptionsSwitch: input.sessionModelOptionsSwitch }
+            : {}),
+          ...(input?.turnSteeringMode !== undefined
+            ? { turnSteeringMode: input.turnSteeringMode }
             : {}),
         }),
       rollbackConversation: () => unsupported(),
@@ -291,6 +302,7 @@ describe("ProviderCommandReactor", () => {
       engine,
       startSession,
       sendTurn,
+      steerTurn,
       interruptTurn,
       respondToRequest,
       respondToUserInput,
@@ -672,7 +684,9 @@ describe("ProviderCommandReactor", () => {
     ] as const;
 
     for (const boundaryCase of boundaryCases) {
-      const harness = await createHarness();
+      const harness = await createHarness({
+        turnSteeringMode: "queued-message",
+      });
       const now = new Date().toISOString();
       const threadId = ThreadId.makeUnsafe("thread-1");
       const activeTurnId = asTurnId(`turn-steer-${boundaryCase.name}`);
@@ -766,6 +780,108 @@ describe("ProviderCommandReactor", () => {
       await runtime?.dispose();
       runtime = null;
     }
+  });
+
+  it("steers queued messages natively when provider capability is native", async () => {
+    const harness = await createHarness({
+      turnSteeringMode: "native",
+    });
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const activeTurnId = asTurnId("turn-native-steer");
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-native-steer"),
+        threadId,
+        message: {
+          messageId: asMessageId("message-native-steer"),
+          role: "user",
+          text: "start",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    harness.sendTurn.mockClear();
+    harness.steerTurn.mockClear();
+    harness.interruptTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-running-session-native-steer"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    const liveSession = harness.runtimeSessions[0];
+    expect(liveSession).toBeDefined();
+    if (!liveSession) {
+      return;
+    }
+    harness.runtimeSessions[0] = {
+      ...liveSession,
+      status: "running",
+      activeTurnId,
+      updatedAt: now,
+    };
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.queue.append",
+        commandId: CommandId.makeUnsafe("cmd-native-steer-append"),
+        threadId,
+        position: "front",
+        message: {
+          id: asMessageId("queued-native-steer"),
+          prompt: "steer this natively",
+          images: [],
+          terminalContexts: [],
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        },
+        steerRequest: {
+          messageId: asMessageId("queued-native-steer"),
+          baselineWorkLogEntryCount: 0,
+          interruptRequested: false,
+        },
+      }),
+    );
+
+    await waitFor(() => harness.steerTurn.mock.calls.length === 1);
+
+    expect(harness.interruptTurn.mock.calls.length).toBe(0);
+    expect(harness.sendTurn.mock.calls.length).toBe(0);
+    expect(
+      (
+        harness.steerTurn.mock.calls[0]?.[0] as {
+          input?: string;
+        }
+      )?.input,
+    ).toBe("steer this natively");
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === threadId);
+    expect(thread?.queuedComposerMessages).toEqual([]);
+    expect(thread?.queuedSteerRequest).toBeNull();
   });
 
   it("passes handoff replay turns when starting the destination thread session", async () => {

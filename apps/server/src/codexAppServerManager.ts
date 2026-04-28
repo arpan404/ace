@@ -115,6 +115,12 @@ export interface CodexAppServerSendTurnInput {
   readonly interactionMode?: ProviderInteractionMode;
 }
 
+export interface CodexAppServerSteerTurnInput {
+  readonly threadId: ThreadId;
+  readonly input?: string;
+  readonly attachments?: ReadonlyArray<{ type: "image"; url: string }>;
+}
+
 export interface CodexAppServerStartSessionInput {
   readonly threadId: ThreadId;
   readonly provider?: "codex";
@@ -744,6 +750,70 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error("turn/start response did not include a turn id.");
     }
     const turnId = TurnId.makeUnsafe(turnIdRaw);
+
+    this.updateSession(context, {
+      status: "running",
+      activeTurnId: turnId,
+      ...(context.session.resumeCursor !== undefined
+        ? { resumeCursor: context.session.resumeCursor }
+        : {}),
+    });
+
+    return {
+      threadId: context.session.threadId,
+      turnId,
+      ...(context.session.resumeCursor !== undefined
+        ? { resumeCursor: context.session.resumeCursor }
+        : {}),
+    };
+  }
+
+  async steerTurn(input: CodexAppServerSteerTurnInput): Promise<ProviderTurnStartResult> {
+    const context = this.requireSession(input.threadId);
+    const activeTurnId = context.session.activeTurnId;
+    if (!activeTurnId) {
+      throw new Error("Session has no active turn to steer.");
+    }
+
+    const turnInput: Array<
+      { type: "text"; text: string; text_elements: [] } | { type: "image"; url: string }
+    > = [];
+    if (input.input) {
+      turnInput.push({
+        type: "text",
+        text: input.input,
+        text_elements: [],
+      });
+    }
+    for (const attachment of input.attachments ?? []) {
+      if (attachment.type === "image") {
+        turnInput.push({
+          type: "image",
+          url: attachment.url,
+        });
+      }
+    }
+    if (turnInput.length === 0) {
+      throw new Error("Turn steer input must include text or attachments.");
+    }
+
+    const providerThreadId = readResumeThreadId({
+      threadId: context.session.threadId,
+      runtimeMode: context.session.runtimeMode,
+      resumeCursor: context.session.resumeCursor,
+    });
+    if (!providerThreadId) {
+      throw new Error("Session is missing provider resume thread id.");
+    }
+
+    const response = await this.sendRequest(context, "turn/steer", {
+      threadId: providerThreadId,
+      input: turnInput,
+      expectedTurnId: activeTurnId,
+    });
+    const responseObject = this.readObject(response);
+    const resultTurnId = toTurnId(this.readString(responseObject, "turnId"));
+    const turnId = resultTurnId ?? activeTurnId;
 
     this.updateSession(context, {
       status: "running",

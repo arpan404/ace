@@ -1539,6 +1539,30 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     );
   });
 
+  const steerTurn: NonNullable<CodexAdapterShape["steerTurn"]> = Effect.fn("steerTurn")(
+    function* (input) {
+      const codexAttachments = yield* Effect.forEach(
+        input.attachments ?? [],
+        (attachment) => resolveAttachment(input, attachment),
+        { concurrency: 1 },
+      );
+      return yield* Effect.tryPromise({
+        try: () =>
+          manager.steerTurn({
+            threadId: input.threadId,
+            ...(input.input !== undefined ? { input: input.input } : {}),
+            ...(codexAttachments.length > 0 ? { attachments: codexAttachments } : {}),
+          }),
+        catch: (cause) => toRequestError(input.threadId, "turn/steer", cause),
+      }).pipe(
+        Effect.map((result) => ({
+          ...result,
+          threadId: input.threadId,
+        })),
+      );
+    },
+  );
+
   const interruptTurn: CodexAdapterShape["interruptTurn"] = (threadId, turnId) =>
     Effect.tryPromise({
       try: () => manager.interruptTurn(threadId, turnId),
@@ -1670,6 +1694,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     },
     startSession,
     sendTurn,
+    steerTurn,
     interruptTurn,
     readThread,
     rollbackThread,

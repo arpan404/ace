@@ -164,6 +164,14 @@ function stripIssueReferenceMarkers(text: string): string {
   return text.replaceAll(COMPOSER_ISSUE_REFERENCE_MARKER, "");
 }
 
+function resolveThreadProvider(thread: OrchestrationThread): ProviderKind {
+  const sessionProvider = thread.session?.providerName;
+  if (sessionProvider && Schema.is(ProviderKind)(sessionProvider)) {
+    return sessionProvider;
+  }
+  return thread.modelSelection.provider;
+}
+
 function threadCanDispatchQueuedMessage(thread: OrchestrationThread): boolean {
   if (thread.deletedAt !== null || thread.archivedAt !== null) {
     return false;
@@ -385,6 +393,7 @@ const make = Effect.gen(function* () {
     ThreadId,
     { readonly createdAt: string; readonly messageId: MessageId }
   >();
+  const nativeSteerReservationsByThreadId = new Set<ThreadId>();
 
   const resolveSessionCapabilities = (provider: ProviderKind) => {
     const cached = providerCapabilitiesByProvider.get(provider);
@@ -625,6 +634,107 @@ const make = Effect.gen(function* () {
     });
   });
 
+  const maybeDispatchNativeQueuedSteer = Effect.fnUntraced(function* (thread: OrchestrationThread) {
+    if (thread.latestTurn?.state !== "running" || thread.queuedSteerRequest === null) {
+      return false;
+    }
+
+    const provider = resolveThreadProvider(thread);
+    const capabilities = yield* resolveSessionCapabilities(provider).pipe(
+      Effect.catch(() => Effect.succeed<OrchestrationSession["capabilities"] | null>(null)),
+    );
+    if (!capabilities || capabilities.turnSteeringMode !== "native") {
+      return false;
+    }
+
+    if (nativeSteerReservationsByThreadId.has(thread.id)) {
+      return true;
+    }
+
+    const queuedSteerRequest = thread.queuedSteerRequest;
+    const steerMessage = thread.queuedComposerMessages.find(
+      (message) => message.id === queuedSteerRequest.messageId,
+    );
+    if (!steerMessage) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.queue.steer.clear",
+        commandId: serverCommandId("queue-steer-clear-stale"),
+        threadId: thread.id,
+      });
+      return true;
+    }
+
+    const createdAt = new Date().toISOString();
+    const messageText = buildQueuedMessageText(steerMessage);
+    if (messageText.length === 0 && steerMessage.images.length === 0) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.queue.delete",
+        commandId: serverCommandId("queue-drop-empty-native-steer"),
+        threadId: thread.id,
+        messageId: steerMessage.id,
+      });
+      return true;
+    }
+
+    const attachments = yield* normalizeUploadChatAttachments({
+      threadId: thread.id,
+      attachments: steerMessage.images.map((image) => ({
+        type: "image" as const,
+        name: image.name,
+        mimeType: image.mimeType,
+        sizeBytes: image.sizeBytes,
+        dataUrl: image.dataUrl,
+      })),
+    }).pipe(
+      Effect.catch((error) =>
+        appendQueueFailureActivity({
+          threadId: thread.id,
+          messageId: steerMessage.id,
+          detail: error instanceof Error ? error.message : "Failed to prepare queued attachments.",
+          createdAt,
+        }).pipe(Effect.as([] as ChatAttachment[])),
+      ),
+    );
+    if (attachments.length !== steerMessage.images.length) {
+      return true;
+    }
+
+    nativeSteerReservationsByThreadId.add(thread.id);
+    const steered = yield* providerService
+      .steerTurn({
+        threadId: thread.id,
+        ...(messageText.length > 0 ? { input: messageText } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+      })
+      .pipe(
+        Effect.as(true),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("provider command reactor failed native queued steering", {
+            threadId: thread.id,
+            provider,
+            cause: Cause.pretty(cause),
+          }).pipe(Effect.as(false)),
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            nativeSteerReservationsByThreadId.delete(thread.id);
+          }),
+        ),
+      );
+
+    if (!steered) {
+      return false;
+    }
+
+    yield* orchestrationEngine.dispatch({
+      type: "thread.queue.delete",
+      commandId: serverCommandId("queue-pop-native-steer"),
+      threadId: thread.id,
+      messageId: steerMessage.id,
+    });
+    return true;
+  });
+
   const dispatchNextQueuedComposerMessage = Effect.fnUntraced(function* (threadId: ThreadId) {
     if (queueDispatchReservationsByThreadId.has(threadId)) {
       return;
@@ -646,6 +756,10 @@ const make = Effect.gen(function* () {
         });
         thread = yield* resolveThread(threadId);
       }
+    }
+
+    if (thread && (yield* maybeDispatchNativeQueuedSteer(thread))) {
+      return;
     }
 
     if (!thread || !threadCanDispatchQueuedMessage(thread)) {
