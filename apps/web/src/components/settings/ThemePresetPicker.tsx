@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type CSSProperties } from "react";
 
 import { THEME_PRESET_OPTIONS, type ThemePresetId } from "~/themePresets";
 import { cn } from "~/lib/utils";
@@ -25,6 +25,11 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
             : `linear-gradient(145deg, ${preview.panel}, ${preview.panelDeep})`;
           const mockLeft = isGlass ? preview.panelDeep : preview.panel;
           const mockRight = isGlass ? preview.panel : preview.panelDeep;
+          const accent = preview.accent;
+          const presetStyle = {
+            ["--preset-accent" as string]: accent,
+          } as CSSProperties;
+
           return (
             <button
               key={option.id}
@@ -36,17 +41,30 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
                 onChange(option.id);
               }}
               className={cn(
-                "group relative flex aspect-video w-full min-w-0 flex-col overflow-hidden rounded-xl border p-2 text-left transition-[border-color,box-shadow,background-color] duration-150",
-                active
-                  ? "border-primary bg-primary/6 shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_35%,transparent)]"
-                  : "border-border bg-card hover:border-muted-foreground/35 hover:bg-accent/25",
+                "group relative flex aspect-video w-full min-w-0 flex-col overflow-hidden rounded-xl border p-2 text-left outline-none transition-[border-color,box-shadow,background-color] duration-150 focus-visible:ring-2 focus-visible:ring-[color:var(--preset-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                !active && "border-border bg-card hover:border-muted-foreground/35 hover:bg-accent/25",
+                active && "border-transparent",
               )}
+              style={
+                active
+                  ? {
+                      ...presetStyle,
+                      borderColor: accent,
+                      backgroundColor: `color-mix(in oklch, ${accent} 8%, var(--card))`,
+                      boxShadow: `0 0 0 1px color-mix(in oklch, ${accent} 40%, transparent)`,
+                    }
+                  : presetStyle
+              }
             >
               {active ? (
                 <Badge
-                  variant="default"
+                  variant="outline"
                   size="sm"
-                  className="absolute top-1.5 right-1.5 z-10 h-5 px-1.5 text-[10px] font-medium"
+                  className="absolute top-1.5 right-1.5 z-10 h-5 border px-1.5 text-[10px] font-medium text-foreground"
+                  style={{
+                    borderColor: `color-mix(in oklch, ${accent} 30%, var(--border))`,
+                    backgroundColor: `color-mix(in oklch, ${accent} 20%, var(--card))`,
+                  }}
                 >
                   Active
                 </Badge>
