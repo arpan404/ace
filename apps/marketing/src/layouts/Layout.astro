@@ -47,10 +47,14 @@ const {
       </main>
 
       <footer class="footer">
-        <div>
-          <a href="/" class="footer-brand">ace</a>
+        <div class="footer-brand-block">
+          <a href="/" class="footer-brand">
+            <img src="/logo.png" alt="" />
+            <span>ace</span>
+          </a>
           <p class="footer-copy">
-            A focused workspace for running coding agents without losing the thread.
+            Agent operations for real codebases: threads, review, recovery, and provider handoff in
+            one workspace.
           </p>
         </div>
         <div class="footer-links">
@@ -150,29 +154,29 @@ const {
 
 <style is:global>
   :root {
-    --bg: #0b0c0e;
-    --bg-soft: #111317;
-    --surface: #171a1f;
-    --surface-strong: #f4f1e8;
-    --ink: #0b0c0e;
-    --fg: #f4f1e8;
-    --fg-muted: rgba(244, 241, 232, 0.72);
-    --fg-dim: rgba(244, 241, 232, 0.48);
-    --primary: #8ad1ff;
-    --primary-deep: #386f91;
-    --accent: var(--primary);
-    --accent-deep: var(--primary-deep);
-    --review: #e2b15f;
-    --risk: #e06b5d;
-    --success: #83d9aa;
-    --clay: #d6a86a;
-    --line: rgba(244, 241, 232, 0.13);
-    --line-strong: rgba(244, 241, 232, 0.24);
+    --bg: #05080d;
+    --bg-soft: #0a0f16;
+    --surface: #0f141d;
+    --surface-strong: #edf2fb;
+    --ink: #0d1219;
+    --fg: #edf2fb;
+    --fg-muted: rgba(237, 242, 251, 0.74);
+    --fg-dim: rgba(237, 242, 251, 0.5);
+    --primary: #d3dae4;
+    --primary-deep: #7b8694;
+    --accent: #d3dae4;
+    --accent-deep: #7b8694;
+    --review: #b9c0c9;
+    --risk: #f1786d;
+    --success: #bcc6d2;
+    --clay: #96a0ad;
+    --line: rgba(237, 242, 251, 0.12);
+    --line-strong: rgba(237, 242, 251, 0.23);
     --border: var(--line);
     --border-bright: var(--line-strong);
-    --accent-glow: rgba(138, 209, 255, 0.14);
+    --accent-glow: rgba(211, 218, 228, 0.16);
     --shadow: rgba(0, 0, 0, 0.42);
-    --radius: 8px;
+    --radius: 10px;
     --font-sans: "Cabinet Grotesk", "Avenir Next", "Helvetica Neue", sans-serif;
     --font-mono: "JetBrains Mono", "SFMono-Regular", monospace;
   }
@@ -192,7 +196,10 @@ const {
   body {
     min-height: 100vh;
     overflow-x: hidden;
-    background: linear-gradient(180deg, #111317 0%, #0b0c0e 36rem, #0b0c0e 100%);
+    background:
+      radial-gradient(circle at top left, rgba(207, 216, 227, 0.04), transparent 24%),
+      radial-gradient(circle at top right, rgba(255, 255, 255, 0.02), transparent 20%),
+      linear-gradient(180deg, #090d14 0%, #05080d 28rem, #05080d 100%);
     color: var(--fg);
     font-family: var(--font-sans);
     font-feature-settings: "ss01" 1, "ss03" 1;
@@ -360,11 +367,23 @@ const {
     padding: 2.4rem 0 3rem;
   }
 
+  .footer-brand-block {
+    display: grid;
+    gap: 0.75rem;
+  }
+
   .footer-brand {
-    display: inline-block;
-    margin-bottom: 0.55rem;
-    font-size: 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1.05rem;
     font-weight: 800;
+  }
+
+  .footer-brand img {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.7rem;
   }
 
   .footer-copy {

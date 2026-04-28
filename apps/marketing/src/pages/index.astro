@@ -1,82 +1,88 @@
 ---
 import Layout from "../layouts/Layout.astro";
+import ProviderFloat from "../components/ProviderFloat.astro";
 import ProviderIcon from "../components/ProviderIcon.astro";
 
 const providers = [
   { label: "Codex", kind: "codex" },
-  { label: "Gemini", kind: "gemini" },
   { label: "Claude", kind: "claude" },
+  { label: "Gemini", kind: "gemini" },
   { label: "Cursor", kind: "cursor" },
   { label: "GitHub Copilot", kind: "githubCopilot" },
   { label: "OpenCode", kind: "opencode" },
 ] as const;
 
-const workspaceFeatures = [
+const systemRows = [
   {
-    label: "Browser",
-    title: "Built-in browser with design mode.",
-    text: "Open the local app beside the agent thread, inspect UI changes, and leave visual feedback without jumping between tools.",
+    label: "Project threads",
+    title: "Runs stay attached to a repo instead of disappearing into fresh chats.",
+    text: "Approvals, checkpoints, browser state, editor context, and event history stay with the work so supervision does not depend on memory.",
   },
   {
-    label: "Editor",
-    title: "In-app code editor for review.",
-    text: "Inspect files, changed paths, and implementation context next to the conversation before you approve, steer, or hand off work.",
+    label: "Review surfaces",
+    title: "Browser, editor, terminal, and diffs stay nearby while decisions are being made.",
+    text: "The operator does not need to bounce across windows to understand what changed, what failed, or what needs approval next.",
   },
   {
-    label: "Background work",
-    title: "Notifications when agents finish.",
-    text: "Let long turns run in the background and get attention prompts when an agent completes, needs approval, or asks for input.",
+    label: "Recovery",
+    title: "Long sessions remain readable when streams break, reconnect, or restart.",
+    text: "ace is designed around the awkward parts of real agent work, not just the happy-path screenshot.",
   },
   {
     label: "Performance",
-    title: "Built for heavy agent sessions.",
-    text: "ace is designed around large histories, partial streams, reconnects, and dense local context without turning the UI into a bottleneck.",
+    title: "Dense histories and local context stay usable under load.",
+    text: "The interface is shaped for supervision of active work rather than lightweight prompt demos.",
   },
 ] as const;
 
-const remoteFeatures = [
+const shiftRows = [
   {
-    label: "Remote host",
-    title: "Host ace on a remote server.",
-    text: "Run the daemon on a workstation or server, then use the UI from another device while the agents keep working near the repo.",
+    index: "01",
+    title: "Start where the repo can actually run",
+    text: "Use local provider CLIs, attach terminal context, and keep execution on the machine that holds the code and tools.",
   },
   {
-    label: "Many hosts",
-    title: "Connect as many hosts as you need.",
-    text: "Switch between machines, projects, and local runtimes instead of forcing every repo through one browser tab or one desktop.",
+    index: "02",
+    title: "Switch providers without losing continuity",
+    text: "Move between agents as the task changes while the same thread retains browser checks, history, approvals, and review state.",
   },
   {
-    label: "No GUI required",
-    title: "Install the daemon, use the UI elsewhere.",
-    text: "Prefer a headless setup? Run the host process where the code lives and connect from the device you actually want to use.",
-  },
-  {
-    label: "Mobile",
-    title: "Remote access on mobile.",
-    text: "Mobile access is coming soon, so you can monitor runs, respond to prompts, and keep work moving away from the desk.",
-    badge: "Coming soon",
+    index: "03",
+    title: "Monitor and steer from another device",
+    text: "Remote hosts keep work near the environment while the interface stays available on the machine you want to carry.",
   },
 ] as const;
 
-const roadmapFeatures = [
+const remoteModes = [
+  {
+    label: "Single workstation",
+    detail: "One heavy local machine running repo work with the full interface beside it.",
+  },
+  {
+    label: "Multiple hosts",
+    detail: "Separate workstations, servers, or sandboxes available through the same workspace.",
+  },
+  {
+    label: "Headless runtime",
+    detail: "The host runs where the code lives while the interface stays elsewhere.",
+  },
+] as const;
+
+const roadmapRows = [
   {
     label: "Flow Mode",
-    title: "Multi-agent flows across providers.",
-    text: "Set up loops where Codex finishes backend work, Gemini picks up the web UI, Claude handles mobile, Cursor writes tests, and OpenCode coordinates the run.",
-    badge: "Coming soon",
+    text: "Coordinated multi-agent loops where providers can pass responsibility across backend, web, mobile, and test work without breaking the run narrative.",
   },
   {
     label: "Skills",
-    title: "Skills management for agent workflows.",
-    text: "Manage reusable instructions, workflows, and capability packs so teams can standardize how agents work across projects.",
-    badge: "Coming soon",
+    text: "Reusable instruction packs and workflow standards so teams can shape agent behavior deliberately instead of reinventing prompts for every project.",
   },
 ] as const;
 ---
 
 <Layout
-  title="ace - Coding agent workspace"
-  description="ace is a desktop workspace for running coding agents with project threads, provider sessions, terminal context, browser checks, editor review, GitHub workflows, and recovery in one place."
+  title="ace - Agent operations for real codebases"
+  description="ace is a desktop and remote workspace for supervising coding agents across threads, providers, terminals, browsers, editors, and long-running recovery states."
 >
   <nav class="site-nav" aria-label="Primary">
     <a href="/" class="brand" aria-label="ace home">
@@ -84,28 +90,23 @@ const roadmapFeatures = [
       <span>ace</span>
     </a>
     <div class="nav-links">
-      <a href="#workspace">Workspace</a>
+      <a href="#system">System</a>
       <a href="#providers">Providers</a>
       <a href="#remote">Remote</a>
       <a href="#roadmap">Roadmap</a>
-      <a href="/changelog">Changelog</a>
+      <a href="/download">Download</a>
       <a href="https://github.com/arpan404/ace" target="_blank" rel="noopener noreferrer">GitHub</a>
     </div>
   </nav>
 
   <section class="hero" aria-labelledby="hero-heading">
     <div class="hero-copy" data-reveal>
-      <p class="eyebrow">Desktop app for coding agents</p>
-      <h1 id="hero-heading">ace</h1>
+      <p class="eyebrow">Multi-provider workspace for serious agent work</p>
+      <h1 id="hero-heading">A real interface for supervising coding agents.</h1>
       <p class="hero-intro">
-        Run Codex, Claude, Gemini, Cursor, GitHub Copilot, and OpenCode from one workspace built
-        around real project threads, local context, review surfaces, and recovery.
+        ace keeps the work legible while it is running: project threads, terminal context, browser
+        checks, editor review, provider handoff, and recovery when long sessions go sideways.
       </p>
-      <div class="hero-chips" aria-label="Product highlights">
-        <span>Local runtimes</span>
-        <span>Project threads</span>
-        <span>Recoverable runs</span>
-      </div>
       <div class="hero-actions" aria-label="Primary actions">
         <a id="download-btn" href="/download" class="button button-primary" data-interactive>
           <svg
@@ -133,17 +134,34 @@ const roadmapFeatures = [
           <span class="cta-icon cta-icon--linux" aria-hidden="true">Lx</span>
           <span id="download-label">Download ace</span>
         </a>
-        <a href="#workspace" class="button button-secondary" data-interactive>See product flow</a>
+        <a href="#system" class="button button-secondary" data-interactive>See how it works</a>
       </div>
     </div>
 
-    <figure class="product-shot" data-reveal data-interactive>
-      <div class="product-window" data-scroll-3d data-scroll-strength="1.08">
-        <div class="product-window-bar" aria-hidden="true">
-          <span class="window-controls"><i></i><i></i><i></i></span>
-          <span class="window-title">ace / project thread</span>
-          <span class="window-status">live workspace</span>
+    <div class="hero-stage" data-reveal data-scroll-3d data-scroll-strength="1.04">
+      <div class="hero-stage__rail">
+        <div>
+          <span>Providers</span>
+          <strong>Codex, Claude, Gemini, Cursor, Copilot, OpenCode</strong>
         </div>
+        <div>
+          <span>Environment</span>
+          <strong>Desktop UI plus remote host sessions</strong>
+        </div>
+        <div>
+          <span>Behavior</span>
+          <strong>Local-first, recoverable, thread-based supervision</strong>
+        </div>
+      </div>
+
+      <figure class="hero-canvas" data-interactive>
+        <figcaption class="hero-canvas__caption">
+          <div>
+            <span>Workspace view</span>
+            <strong>Conversation, browser, diffs, and execution state in one frame</strong>
+          </div>
+          <small>Live supervision surface</small>
+        </figcaption>
         <img
           src="/screenshot.png"
           alt="ace desktop workspace showing project threads, a coding agent conversation, and review panels"
@@ -152,139 +170,164 @@ const roadmapFeatures = [
           loading="eager"
           decoding="async"
         />
-      </div>
-      <figcaption>Project threads, agent timeline, terminal context, and review panels stay together.</figcaption>
-    </figure>
-  </section>
-
-  <section class="facts" aria-label="Product facts" data-scroll-3d data-scroll-strength="0.45">
-    <div data-reveal>
-      <span>Providers</span>
-      <strong>Codex, Claude, Gemini, Cursor, Copilot, OpenCode</strong>
-    </div>
-    <div data-reveal>
-      <span>Runtime</span>
-      <strong>Local sessions over desktop and WebSocket hosts</strong>
-    </div>
-    <div data-reveal>
-      <span>Review</span>
-      <strong>Terminal, browser, editor, diffs, GitHub handoff</strong>
+        <div class="hero-canvas__notes" aria-hidden="true">
+          <span>Thread history stays visible</span>
+          <span>Browser pass beside the run</span>
+          <span>Terminal context attached to the task</span>
+        </div>
+      </figure>
     </div>
   </section>
 
-  <section id="workspace" class="workspace feature-band" aria-labelledby="workspace-heading">
-    <div class="section-head" data-reveal>
-      <p class="eyebrow">Workspace</p>
-      <h2 id="workspace-heading">Everything needed to supervise agent work.</h2>
-      <p>
-        A coding-agent run is not just a chat. It needs browser checks, code review, background
-        notifications, and enough performance headroom for long-running local work.
+  <section class="run-strip" aria-label="Run characteristics" data-scroll-3d data-scroll-strength="0.35">
+    <div data-reveal>
+      <span>What matters</span>
+      <p>The run stays readable while work is happening, failing, and getting handed off.</p>
+    </div>
+    <div data-reveal>
+      <span>What you can do</span>
+      <p>Inspect, redirect, approve, and recover without rebuilding context from memory.</p>
+    </div>
+    <div data-reveal>
+      <span>What happens next</span>
+      <p>ace is moving toward persistent multi-agent workflows rather than isolated turns.</p>
+    </div>
+  </section>
+
+  <section id="system" class="system-section page-section" aria-labelledby="system-heading">
+    <div class="section-label" data-reveal>
+      <p class="eyebrow">System</p>
+      <h2 id="system-heading">Everything you need to keep agent work under control.</h2>
+    </div>
+
+    <div class="section-body">
+      <p class="section-intro" data-reveal>
+        ace keeps the important surfaces together so you can understand what is happening and decide
+        what to do next without context switching.
       </p>
-    </div>
 
-    <div class="feature-grid" data-scroll-3d data-scroll-strength="0.55">
-      {workspaceFeatures.map((feature, index) => (
-        <article class:list={["feature-card", index === 0 ? "feature-card--wide" : ""]} data-reveal data-interactive>
-          <div class="feature-card-visual" aria-hidden="true">
-            <img src="/screenshot.png" alt="" loading="lazy" decoding="async" />
-          </div>
-          <div class="feature-card-copy">
-            <span>{feature.label}</span>
-            <h3>{feature.title}</h3>
-            <p>{feature.text}</p>
-          </div>
-        </article>
-      ))}
-    </div>
-  </section>
-
-  <section id="providers" class="provider-section feature-band" aria-labelledby="providers-heading">
-    <div class="section-head compact" data-reveal>
-      <p class="eyebrow">Provider handoff</p>
-      <h2 id="providers-heading">Switch agents without losing the thread.</h2>
-      <p>
-        Work can move between providers while the project, conversation, terminal context, browser
-        checks, and review state stay attached to the same run. Bring your own subscriptions: use
-        whichever provider accounts, CLIs, and paid plans you already trust.
-      </p>
-    </div>
-
-    <div class="provider-story" data-scroll-3d data-scroll-strength="0.5">
-      <div class="provider-logo-grid" aria-label="Supported providers">
-        {providers.map((provider) => (
-          <div class="provider-logo-card" data-reveal data-interactive>
-            <ProviderIcon kind={provider.kind} />
-            <span>{provider.label}</span>
-          </div>
+      <div class="system-list" role="list">
+        {systemRows.map((row) => (
+          <article class="system-row" role="listitem" data-reveal>
+            <span>{row.label}</span>
+            <div>
+              <h3>{row.title}</h3>
+              <p>{row.text}</p>
+            </div>
+          </article>
         ))}
       </div>
-      <article class="provider-copy" data-reveal data-interactive>
-        <span>Bring your own subscription</span>
-        <h3>Hand off a run to the agent that fits the next job.</h3>
-        <p>
-          ace does not force one model choice. Connect the provider accounts you already pay for,
-          switch when another agent is stronger, and keep the same project history instead of
-          rebuilding context in a new chat.
+    </div>
+  </section>
+
+  <section id="providers" class="providers-section page-section" aria-labelledby="providers-heading">
+    <div class="section-label" data-reveal>
+      <p class="eyebrow">Providers</p>
+      <h2 id="providers-heading">Switch agents without starting over.</h2>
+    </div>
+
+    <div class="section-body section-body--wide providers-layout">
+      <div class="providers-summary">
+        <p class="section-intro" data-reveal>
+          Bring the provider accounts and CLIs you already trust. ace keeps the project narrative
+          continuous while responsibility moves between agents.
         </p>
-        <div class="handoff-line" aria-hidden="true">
-          {providers.slice(0, 5).map((provider) => (
-            <span><ProviderIcon kind={provider.kind} /></span>
+
+        <div class="provider-roster" data-reveal>
+          {providers.map((provider) => (
+            <div class="provider-roster__item">
+              <ProviderIcon kind={provider.kind} />
+              <span>{provider.label}</span>
+            </div>
           ))}
         </div>
-      </article>
+
+        <div class="provider-float-wrap" data-reveal>
+          <ProviderFloat />
+        </div>
+      </div>
+
+      <ol class="shift-list" aria-label="Example provider flow">
+        {shiftRows.map((row) => (
+          <li data-reveal>
+            <span>{row.index}</span>
+            <div>
+              <h3>{row.title}</h3>
+              <p>{row.text}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
     </div>
   </section>
 
-  <section id="remote" class="remote-section feature-band" aria-labelledby="remote-heading">
-    <div class="section-head compact" data-reveal>
-      <p class="eyebrow">Remote access</p>
-      <h2 id="remote-heading">Run agents where the code lives. Use ace where you are.</h2>
-      <p>
-        Host ace on a local workstation or remote server, connect from another device, and keep
-        multiple hosts available for different projects and machines.
-      </p>
+  <section id="remote" class="remote-section page-section" aria-labelledby="remote-heading">
+    <div class="section-label" data-reveal>
+      <p class="eyebrow">Remote</p>
+      <h2 id="remote-heading">Run where the code lives. Check in from anywhere.</h2>
     </div>
 
-    <div class="feature-grid feature-grid--remote" data-scroll-3d data-scroll-strength="0.48">
-      {remoteFeatures.map((feature) => (
-        <article class="feature-card feature-card--compact" data-reveal data-interactive>
-          <div class="feature-card-copy">
-            <span>{feature.label}</span>
-            <h3>{feature.title}</h3>
-            <p>{feature.text}</p>
-            {"badge" in feature ? <em>{feature.badge}</em> : null}
-          </div>
-        </article>
-      ))}
+    <div class="section-body remote-body">
+      <div class="remote-map" data-reveal data-scroll-3d data-scroll-strength="0.42">
+        <div class="remote-map__lane">
+          <span>Host machine</span>
+          <strong>repo + provider CLIs</strong>
+        </div>
+        <div class="remote-map__lane">
+          <span>ace daemon</span>
+          <strong>session broker + thread continuity</strong>
+        </div>
+        <div class="remote-map__lane">
+          <span>Operator interface</span>
+          <strong>desktop or laptop</strong>
+        </div>
+      </div>
+
+      <div class="remote-notes">
+        {remoteModes.map((mode) => (
+          <article class="remote-note" data-reveal>
+            <span>{mode.label}</span>
+            <p>{mode.detail}</p>
+          </article>
+        ))}
+      </div>
     </div>
   </section>
 
-  <section id="roadmap" class="roadmap-section feature-band" aria-labelledby="roadmap-heading">
-    <div class="section-head compact" data-reveal>
+  <section id="roadmap" class="roadmap-section page-section" aria-labelledby="roadmap-heading">
+    <div class="section-label" data-reveal>
       <p class="eyebrow">Roadmap</p>
-      <h2 id="roadmap-heading">Next: persistent multi-agent workflows.</h2>
-      <p>
-        ace is moving toward cross-provider, multi-agent flows where providers can pass work between
-        each other and keep running as a coordinated loop.
-      </p>
+      <h2 id="roadmap-heading">Built for longer-running, more connected workflows.</h2>
     </div>
 
-    <div class="roadmap-grid" data-scroll-3d data-scroll-strength="0.48">
-      {roadmapFeatures.map((feature) => (
-        <article class="roadmap-card" data-reveal data-interactive>
-          <span>{feature.label}</span>
-          <h3>{feature.title}</h3>
-          <p>{feature.text}</p>
-          <em>{feature.badge}</em>
-        </article>
-      ))}
+    <div class="section-body">
+      <p class="section-intro" data-reveal>
+        The direction is toward workflows that keep moving across providers and longer time spans
+        without sacrificing inspectability or operator control.
+      </p>
+
+      <div class="roadmap-list">
+        {roadmapRows.map((row) => (
+          <article class="roadmap-row" data-reveal>
+            <span>Coming soon</span>
+            <div>
+              <h3>{row.label}</h3>
+              <p>{row.text}</p>
+            </div>
+          </article>
+        ))}
+      </div>
     </div>
   </section>
 
-  <section class="final-cta" aria-labelledby="final-heading" data-scroll-3d data-scroll-strength="0.48">
+  <section class="final-cta" aria-labelledby="final-heading">
     <div data-reveal>
       <p class="eyebrow">Download</p>
-      <h2 id="final-heading">Put agent work in a workspace you can inspect.</h2>
+      <h2 id="final-heading">Put agent work in a workspace built to be supervised.</h2>
+      <p>
+        Install ace locally, keep the thread attached to the project, and stop spreading execution,
+        review, and recovery across disconnected tools.
+      </p>
     </div>
     <a href="/download" class="button button-primary" data-reveal data-interactive>Download ace</a>
   </section>
@@ -314,9 +357,8 @@ const roadmapFeatures = [
 <style>
   .site-nav,
   .hero,
-  .facts,
-  .workspace,
-  .feature-band,
+  .run-strip,
+  .page-section,
   .final-cta {
     width: min(100% - 2rem, 1240px);
     margin: 0 auto;
@@ -327,7 +369,7 @@ const roadmapFeatures = [
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    min-height: 4.5rem;
+    min-height: 5rem;
     border-bottom: 1px solid var(--line);
   }
 
@@ -340,21 +382,24 @@ const roadmapFeatures = [
   }
 
   .brand {
-    gap: 0.65rem;
-    color: var(--fg);
+    gap: 0.75rem;
+    font-size: 1rem;
     font-weight: 800;
+    letter-spacing: 0.02em;
   }
 
   .brand-icon {
     width: 2rem;
     height: 2rem;
-    border-radius: 7px;
+    border-radius: 0.7rem;
   }
 
   .nav-links {
-    gap: 1.4rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.85rem 1.25rem;
     color: var(--fg-muted);
-    font-size: 0.9rem;
+    font-size: 0.88rem;
     font-weight: 650;
   }
 
@@ -378,52 +423,30 @@ const roadmapFeatures = [
       transform 180ms ease;
   }
 
-  .nav-links a:hover {
+  .nav-links a:hover,
+  .nav-links a:focus-visible {
     color: var(--fg);
   }
 
   .nav-links a:hover::after,
   .nav-links a:focus-visible::after {
-    opacity: 0.55;
+    opacity: 0.6;
     transform: scaleX(1);
   }
 
   .hero {
-    position: relative;
     display: grid;
-    grid-template-columns: minmax(18rem, 0.54fr) minmax(0, 1fr);
-    gap: 4rem;
-    align-items: center;
-    min-height: min(42rem, calc(100svh - 4.5rem));
-    padding: 2rem 0 1.75rem;
-  }
-
-  .hero::before {
-    content: "";
-    position: absolute;
-    inset: 8% -3% auto auto;
-    z-index: -1;
-    width: min(38rem, 48vw);
-    height: min(27rem, 54vh);
-    border: 1px solid rgba(138, 209, 255, 0.16);
-    background:
-      linear-gradient(rgba(244, 241, 232, 0.045) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(244, 241, 232, 0.035) 1px, transparent 1px),
-      linear-gradient(135deg, rgba(138, 209, 255, 0.1), transparent 56%);
-    background-size: 32px 32px, 32px 32px, auto;
-    opacity: 0.58;
-    mask-image: linear-gradient(120deg, black, transparent 82%);
+    grid-template-columns: minmax(0, 0.44fr) minmax(0, 0.56fr);
+    gap: clamp(2rem, 4vw, 4rem);
+    align-items: start;
+    padding: clamp(2.2rem, 6vw, 5rem) 0 2rem;
   }
 
   .hero-copy,
-  .section-head,
+  .section-label,
   .final-cta > div {
     display: grid;
     gap: 1rem;
-  }
-
-  .hero-copy {
-    align-content: center;
   }
 
   .eyebrow {
@@ -431,7 +454,7 @@ const roadmapFeatures = [
     font-family: var(--font-mono);
     font-size: 0.74rem;
     font-weight: 700;
-    letter-spacing: 0;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
   }
 
@@ -443,54 +466,39 @@ const roadmapFeatures = [
   }
 
   .hero h1 {
-    color: var(--fg);
-    font-size: 8.8rem;
-    font-weight: 800;
-    letter-spacing: 0;
-    line-height: 0.82;
+    max-width: 10ch;
+    font-size: clamp(3.5rem, 7vw, 6.8rem);
+    line-height: 0.92;
+    letter-spacing: -0.055em;
   }
 
   .hero-intro,
-  .section-head p,
-  .feature-card p,
-  .provider-copy p,
-  .roadmap-card p,
-  .product-shot figcaption {
+  .section-intro,
+  .system-row p,
+  .shift-list p,
+  .remote-note p,
+  .roadmap-row p,
+  .final-cta p,
+  .run-strip p {
     color: var(--fg-muted);
-    font-size: 1.06rem;
-    line-height: 1.62;
-  }
-
-  .hero-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-
-  .hero-chips span {
-    border: 1px solid rgba(244, 241, 232, 0.16);
-    border-radius: 999px;
-    background: rgba(244, 241, 232, 0.045);
-    color: var(--fg-muted);
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
-    padding: 0.42rem 0.58rem;
+    font-size: 1rem;
+    line-height: 1.65;
   }
 
   .hero-actions {
     flex-wrap: wrap;
-    gap: 0.75rem;
+    gap: 0.8rem;
     padding-top: 0.35rem;
   }
 
   .button {
-    min-height: 2.85rem;
+    min-height: 3rem;
     justify-content: center;
     gap: 0.58rem;
     border: 1px solid transparent;
-    border-radius: 7px;
-    padding: 0.78rem 1rem;
-    font-size: 0.95rem;
+    border-radius: 999px;
+    padding: 0.8rem 1.15rem;
+    font-size: 0.94rem;
     font-weight: 800;
     line-height: 1;
     transition:
@@ -505,24 +513,20 @@ const roadmapFeatures = [
   }
 
   .button-primary {
-    background: var(--fg);
-    color: var(--ink);
-    box-shadow: 0 0 0 rgba(244, 241, 232, 0);
-  }
-
-  .button-primary:hover {
-    box-shadow: 0 16px 38px rgba(244, 241, 232, 0.12);
+    background: linear-gradient(135deg, #f1f4f8, #c7ced8);
+    color: #0f1620;
+    box-shadow: 0 18px 38px rgba(166, 174, 185, 0.18);
   }
 
   .button-secondary {
     border-color: var(--line-strong);
-    background: rgba(244, 241, 232, 0.045);
+    background: rgba(255, 255, 255, 0.035);
     color: var(--fg);
   }
 
   .button-secondary:hover {
-    border-color: rgba(244, 241, 232, 0.42);
-    background: rgba(244, 241, 232, 0.075);
+    border-color: rgba(233, 238, 248, 0.3);
+    background: rgba(255, 255, 255, 0.06);
   }
 
   .cta-icon {
@@ -549,529 +553,413 @@ const roadmapFeatures = [
     display: inline-grid;
   }
 
-  .product-shot {
+  .hero-stage {
     display: grid;
-    gap: 0.75rem;
-    min-width: 0;
-    margin: 0;
-    transform-origin: center;
-    transition:
-      transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
-      filter 220ms ease;
+    grid-template-columns: minmax(10rem, 12rem) minmax(0, 1fr);
+    gap: 1.1rem;
+    align-items: stretch;
   }
 
-  .product-window {
-    position: relative;
-    overflow: hidden;
-    border: 1px solid rgba(244, 241, 232, 0.22);
-    border-radius: 10px;
-    background:
-      linear-gradient(180deg, rgba(244, 241, 232, 0.07), rgba(244, 241, 232, 0.025)),
-      var(--surface);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.06) inset,
-      0 calc(18px + 18px * var(--scroll-shadow, 1))
-        calc(54px + 36px * var(--scroll-shadow, 1)) rgba(0, 0, 0, 0.34);
-    transition:
-      border-color 180ms ease,
-      box-shadow 220ms ease,
-      transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  .product-window::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-    pointer-events: none;
-    background: linear-gradient(
-      120deg,
-      rgba(255, 255, 255, calc(0.055 + 0.05 * var(--scroll-shadow, 1))),
-      transparent 24%,
-      transparent 72%
-    );
-    opacity: 0.82;
-  }
-
-  .product-window-bar {
+  .hero-stage__rail {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 0.75rem;
-    align-items: center;
-    min-height: 2.25rem;
-    border-bottom: 1px solid var(--line);
-    padding: 0 0.75rem;
+    align-content: start;
+    gap: 1.2rem;
+    padding-top: 0.2rem;
   }
 
-  .window-controls {
-    display: flex;
-    gap: 0.34rem;
+  .hero-stage__rail div,
+  .run-strip div,
+  .remote-note,
+  .roadmap-row,
+  .system-row,
+  .shift-list li {
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--line);
   }
 
-  .window-controls i {
-    width: 0.48rem;
-    height: 0.48rem;
-    border-radius: 999px;
-    background: var(--fg-dim);
-    opacity: 0.58;
-  }
-
-  .window-title,
-  .window-status {
-    overflow: hidden;
+  .hero-stage__rail span,
+  .hero-canvas__caption span,
+  .hero-canvas__notes span,
+  .run-strip span,
+  .system-row span,
+  .provider-roster__item span,
+  .remote-map__lane span,
+  .remote-note span,
+  .roadmap-row span,
+  .shift-list span {
     color: var(--fg-dim);
     font-family: var(--font-mono);
     font-size: 0.68rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 
-  .window-status {
-    color: var(--success);
+  .hero-stage__rail strong {
+    display: block;
+    margin-top: 0.45rem;
+    font-size: 0.96rem;
+    line-height: 1.45;
   }
 
-  .product-window img,
-  .screenshot-band img {
+  .hero-canvas {
+    position: relative;
+    min-width: 0;
+    margin: 0;
+    padding: 1rem 0 1.1rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .hero-canvas img {
     width: 100%;
     height: auto;
-    background: #050607;
-  }
-
-  .product-window-bar,
-  .product-window img {
-    position: relative;
-    z-index: 1;
-  }
-
-  .screenshot-band img {
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius);
-    box-shadow: 0 calc(16px + 20px * var(--scroll-shadow, 1))
-      calc(44px + 44px * var(--scroll-shadow, 1)) rgba(0, 0, 0, 0.26);
-    transition:
-      border-color 180ms ease,
-      box-shadow 220ms ease,
-      transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  .product-window img {
     display: block;
-    max-height: min(31rem, calc(100svh - 15.25rem));
-    object-fit: contain;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 1.5rem;
+    background: #07080d;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.04) inset,
+      0 calc(20px + 16px * var(--scroll-shadow, 1))
+        calc(52px + 32px * var(--scroll-shadow, 1)) rgba(0, 0, 0, 0.28);
   }
 
-  .product-shot:hover .product-window,
-  .product-shot:focus-visible .product-window {
-    border-color: rgba(244, 241, 232, 0.36);
-    box-shadow: 0 calc(24px + 22px * var(--scroll-shadow, 1))
-      calc(68px + 38px * var(--scroll-shadow, 1)) rgba(0, 0, 0, 0.42);
-  }
-
-  .product-shot figcaption {
-    max-width: 46rem;
-    color: var(--fg-dim);
-    font-size: 0.88rem;
-  }
-
-  .facts {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    overflow: hidden;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: rgba(244, 241, 232, 0.022);
-  }
-
-  .motion-ready .facts,
-  .motion-ready .feature-grid,
-  .motion-ready .provider-story,
-  .motion-ready .roadmap-grid,
-  .motion-ready .final-cta {
-    box-shadow: 0 calc(10px + 18px * var(--scroll-shadow, 1))
-      calc(28px + 34px * var(--scroll-shadow, 1)) rgba(0, 0, 0, 0.13);
-  }
-
-  .facts div {
+  .hero-canvas__caption {
+    position: absolute;
+    left: 1.25rem;
+    top: 0;
+    z-index: 1;
+    width: min(22rem, calc(100% - 8rem));
     display: grid;
     gap: 0.35rem;
-    min-height: 7rem;
-    align-content: center;
-    padding: 1rem 1.1rem;
-    transition:
-      background 180ms ease,
-      transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    padding: 0.95rem 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 1rem;
+    background: rgba(6, 8, 13, 0.78);
+    backdrop-filter: blur(10px);
   }
 
-  .facts div:hover {
-    background: rgba(244, 241, 232, 0.035);
-    transform: translateY(-1px);
+  .hero-canvas__caption strong {
+    font-size: 0.96rem;
+    line-height: 1.4;
   }
 
-  .facts div + div {
-    border-left: 1px solid var(--line);
-  }
-
-  .facts span,
-  .feature-card span,
-  .provider-copy span,
-  .roadmap-card span {
-    color: var(--fg-dim);
-    font-family: var(--font-mono);
-    font-size: 0.76rem;
-  }
-
-  .facts strong {
-    color: var(--fg);
-    font-size: 1.12rem;
-    line-height: 1.25;
-  }
-
-  .feature-band {
-    padding: clamp(4.5rem, 8vw, 7.5rem) 0;
-  }
-
-  .section-head {
-    max-width: 56rem;
-    margin-bottom: 3rem;
-  }
-
-  .section-head.compact {
-    max-width: 48rem;
-  }
-
-  .section-head h2,
-  .final-cta h2 {
-    color: var(--fg);
-    font-size: 4.8rem;
-    font-weight: 800;
-    letter-spacing: 0;
-    line-height: 0.94;
-  }
-
-  .feature-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
-  }
-
-  .feature-card,
-  .provider-copy,
-  .roadmap-card {
-    position: relative;
-    display: grid;
-    gap: 1rem;
-    overflow: hidden;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background:
-      linear-gradient(135deg, rgba(138, 209, 255, 0.045), transparent 34%),
-      rgba(244, 241, 232, 0.024);
-    padding: 1rem;
-    transition:
-      background 180ms ease,
-      border-color 180ms ease,
-      transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  .feature-card::before,
-  .provider-copy::before,
-  .roadmap-card::before {
-    content: "";
-    position: absolute;
-    inset: auto 1rem 1rem;
-    height: 2px;
-    background: linear-gradient(90deg, var(--accent), transparent);
-    opacity: 0.48;
-  }
-
-  .feature-card:hover,
-  .provider-copy:hover,
-  .roadmap-card:hover {
-    border-color: var(--line-strong);
-    background: rgba(244, 241, 232, 0.048);
-    transform: translateY(-3px);
-  }
-
-  .feature-card--wide {
-    grid-column: span 2;
-    grid-template-columns: minmax(0, 1.1fr) minmax(20rem, 0.9fr);
-    align-items: end;
-  }
-
-  .feature-card--compact {
-    min-height: 16rem;
-    align-content: end;
-  }
-
-  .feature-card-visual {
-    min-height: 11rem;
-    overflow: hidden;
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    background: #050607;
-  }
-
-  .feature-card-visual img {
-    width: 100%;
-    height: 100%;
-    min-height: 11rem;
-    object-fit: cover;
-    opacity: 0.72;
-    transform: scale(1.02);
-  }
-
-  .feature-card-copy {
-    display: grid;
-    gap: 0.7rem;
-    align-content: end;
-  }
-
-  .feature-card h3,
-  .provider-copy h3,
-  .roadmap-card h3 {
-    color: var(--fg);
-    font-size: clamp(1.35rem, 2rem, 2rem);
-    font-weight: 800;
-    line-height: 1;
-  }
-
-  .feature-card em,
-  .roadmap-card em {
-    width: fit-content;
-    border: 1px solid rgba(138, 209, 255, 0.24);
-    border-radius: 999px;
-    background: rgba(138, 209, 255, 0.08);
-    color: var(--accent);
-    font-family: var(--font-mono);
+  .hero-canvas__caption small {
+    margin-top: 0.2rem;
+    color: var(--fg-muted);
     font-size: 0.72rem;
-    font-style: normal;
-    padding: 0.35rem 0.5rem;
+    font-weight: 700;
   }
 
-  .provider-story {
+  .hero-canvas__notes {
+    position: absolute;
+    right: 1.25rem;
+    bottom: 2.25rem;
+    z-index: 1;
     display: grid;
-    grid-template-columns: minmax(0, 0.9fr) minmax(20rem, 0.7fr);
-    gap: 1rem;
+    gap: 0.45rem;
+    justify-items: end;
   }
 
-  .provider-logo-grid {
+  .hero-canvas__notes span {
+    padding: 0.5rem 0.72rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    background: rgba(6, 8, 13, 0.72);
+    color: var(--fg-muted);
+    backdrop-filter: blur(10px);
+  }
+
+  .run-strip {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.25rem;
+    padding: 1.25rem 0 0;
+  }
+
+  .run-strip p {
+    margin-top: 0.45rem;
+  }
+
+  .page-section {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    padding: clamp(3.4rem, 6vw, 5.6rem) 0 0;
+  }
+
+  .section-label {
+    align-content: start;
+    max-width: 54rem;
+  }
+
+  .section-label h2,
+  .final-cta h2 {
+    max-width: 14ch;
+    font-size: clamp(2rem, 4vw, 3.5rem);
+    line-height: 1.02;
+    letter-spacing: -0.05em;
+  }
+
+  .section-body {
+    display: grid;
+    gap: 1.4rem;
+    min-width: 0;
+    padding-top: 0;
+  }
+
+  .section-body--wide {
+    gap: 1rem;
+  }
+
+  .section-intro {
+    max-width: 40rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .system-list,
+  .roadmap-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 1.5rem;
+  }
+
+  .system-row,
+  .roadmap-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .system-row h3,
+  .shift-list h3,
+  .roadmap-row h3 {
+    font-size: clamp(1.28rem, 1.6vw, 1.65rem);
+    line-height: 1.12;
+  }
+
+  .system-row p,
+  .roadmap-row p {
+    margin-top: 0.45rem;
+    max-width: 32rem;
+  }
+
+  .system-row span,
+  .roadmap-row span {
+    margin-bottom: 0.1rem;
+  }
+
+  .provider-roster {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.8rem 1.1rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .provider-roster__item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 2.8rem;
+  }
+
+  .provider-roster__item :global(.provider-icon) {
+    width: 1.15rem;
+    height: 1.15rem;
+  }
+
+  .provider-roster__item span {
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .shift-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.25rem;
+    list-style: none;
+  }
+
+  .shift-list li {
+    display: grid;
+    grid-template-columns: 1fr;
     gap: 0.75rem;
   }
 
-  .provider-logo-card {
-    display: flex;
-    min-height: 7rem;
-    align-items: center;
-    justify-content: center;
-    gap: 0.7rem;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: rgba(244, 241, 232, 0.026);
-    color: var(--fg);
-    font-weight: 800;
-    transition:
-      background 180ms ease,
-      border-color 180ms ease,
-      transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  .shift-list p {
+    margin-top: 0.45rem;
+    max-width: 26rem;
   }
 
-  .provider-logo-card:hover {
-    border-color: var(--line-strong);
-    background: rgba(244, 241, 232, 0.045);
-    transform: translateY(-2px);
+  .providers-layout {
+    grid-template-columns: minmax(18rem, 0.42fr) minmax(0, 0.58fr);
+    gap: 2rem;
+    align-items: start;
   }
 
-  .provider-logo-card :global(.provider-icon),
-  .handoff-line :global(.provider-icon) {
-    width: 1.3rem;
-    height: 1.3rem;
-  }
-
-  .provider-copy {
-    align-content: end;
-    min-height: 22rem;
-  }
-
-  .handoff-line {
-    display: flex;
-    align-items: center;
-    gap: 0;
-    padding-top: 0.4rem;
-  }
-
-  .handoff-line span {
-    display: inline-flex;
-    width: 2.35rem;
-    height: 2.35rem;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    background: #0f1115;
-    box-shadow: -0.45rem 0 0 var(--bg);
-  }
-
-  .handoff-line span:first-child {
-    box-shadow: none;
-  }
-
-  .roadmap-grid {
+  .providers-summary {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
+    gap: 1.2rem;
+    min-width: 0;
   }
 
-  .roadmap-card {
-    min-height: 19rem;
-    align-content: end;
+  .provider-float-wrap {
+    overflow: hidden;
+    border-top: 1px solid var(--line);
+    padding-top: 0.5rem;
+    opacity: 0.8;
   }
 
-  .motion-ready .feature-grid,
-  .motion-ready .provider-story,
-  .motion-ready .roadmap-grid {
-    transform-style: preserve-3d;
+  .provider-float-wrap :global(.provider-float-container) {
+    padding: 0.6rem 0 0.2rem;
+  }
+
+  .remote-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .remote-map {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.25rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .remote-map__lane {
+    position: relative;
+    padding: 0.2rem 1rem 0 0;
+  }
+
+  .remote-map__lane:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 0.6rem;
+    right: 0;
+    width: calc(100% - 2rem);
+    height: 1px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.16), transparent);
+    transform: translateX(50%);
+  }
+
+  .remote-map__lane strong {
+    display: block;
+    margin-top: 0.55rem;
+    font-size: 1.12rem;
+    line-height: 1.35;
+  }
+
+  .remote-notes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+
+  .remote-note p {
+    margin-top: 0.5rem;
+  }
+
+  .roadmap-row {
+    align-items: start;
   }
 
   .final-cta {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 2rem;
+    display: flex;
     align-items: end;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background:
-      linear-gradient(135deg, rgba(138, 209, 255, 0.08), transparent 42%),
-      rgba(244, 241, 232, 0.024);
-    padding: clamp(1.4rem, 4vw, 2.2rem);
-    margin-bottom: clamp(3rem, 6vw, 5rem);
+    justify-content: space-between;
+    gap: 1.5rem;
+    padding: clamp(3.6rem, 6vw, 5rem) 0 clamp(4rem, 7vw, 6rem);
   }
 
-  @media (max-width: 1120px) {
-    .hero {
-      grid-template-columns: minmax(17rem, 0.58fr) minmax(0, 0.95fr);
-      gap: 2rem;
-    }
-
-    .hero h1 {
-      font-size: 7rem;
-    }
-
-    .hero-intro {
-      font-size: 1rem;
-    }
+  .final-cta > div {
+    max-width: 42rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--line);
   }
 
-  @media (max-width: 980px) {
+  .motion-ready .hero-stage,
+  .motion-ready .remote-map {
+    transform-style: preserve-3d;
+  }
+
+  @media (max-width: 1080px) {
     .hero,
-    .feature-card--wide,
-    .provider-story,
+    .hero-stage,
+    .run-strip,
+    .remote-map,
+    .remote-notes,
+    .providers-layout,
+    .provider-roster,
+    .shift-list,
+    .system-row,
+    .roadmap-row,
     .final-cta {
       grid-template-columns: 1fr;
     }
 
-    .hero {
-      min-height: auto;
-      padding-top: 2rem;
-    }
-
-    .hero h1 {
-      font-size: 6.4rem;
-    }
-
-    .product-window {
-      width: min(100%, 35rem);
-      max-height: none;
-    }
-
-    .feature-grid,
-    .feature-grid--remote,
-    .provider-logo-grid,
-    .roadmap-grid,
-    .facts {
+    .system-list,
+    .roadmap-list {
       grid-template-columns: 1fr;
     }
 
-    .facts div + div {
-      border-top: 1px solid var(--line);
-      border-left: 0;
-    }
-
-    .feature-card,
-    .roadmap-card,
-    .provider-copy {
-      min-height: auto;
-    }
-
     .final-cta {
-      align-items: start;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .hero-canvas__caption,
+    .hero-canvas__notes {
+      position: static;
+      width: auto;
+      justify-items: start;
+      margin-bottom: 0.9rem;
+    }
+
+    .hero-canvas__caption {
+      margin-bottom: 1rem;
+    }
+
+    .hero-canvas img {
+      border-radius: 1.2rem;
+    }
+
+    .remote-map__lane:not(:last-child)::after {
+      display: none;
     }
   }
 
-  @media (max-width: 720px) {
-    .site-nav {
-      align-items: flex-start;
-      flex-direction: column;
-      justify-content: center;
-      padding: 0.9rem 0;
-    }
-
+  @media (max-width: 820px) {
     .nav-links {
-      width: 100%;
-      overflow-x: auto;
-      padding-bottom: 0.1rem;
-      scrollbar-width: none;
-    }
-
-    .nav-links::-webkit-scrollbar {
       display: none;
     }
 
-    .hero h1 {
-      font-size: 4.55rem;
-    }
-
     .hero {
-      gap: 1.35rem;
-    }
-
-    .hero-copy {
-      gap: 0.82rem;
-    }
-
-    .hero-intro {
-      line-height: 1.5;
-    }
-
-    .hero-chips {
-      gap: 0.38rem;
-    }
-
-    .hero-chips span {
-      padding: 0.34rem 0.48rem;
-    }
-
-    .section-head h2,
-    .final-cta h2 {
-      font-size: 3.15rem;
+      padding-top: 1.5rem;
     }
 
     .button {
       width: 100%;
-      min-height: 3rem;
     }
 
-    .product-window-bar {
-      min-height: 1.85rem;
+    .hero-canvas__notes span {
+      white-space: normal;
     }
 
-    .product-shot figcaption {
-      display: none;
+    .provider-roster {
+      grid-template-columns: 1fr;
     }
+  }
 
-    .provider-logo-card {
-      min-height: 4.8rem;
+  @media (max-width: 640px) {
+    .site-nav,
+    .hero,
+    .run-strip,
+    .page-section,
+    .final-cta {
+      width: min(100% - 1.25rem, 1240px);
     }
   }
 </style>
