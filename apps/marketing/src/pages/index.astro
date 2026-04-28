@@ -60,25 +60,14 @@ import Layout from "../layouts/Layout.astro";
     </div>
 
     <figure class="product-shot" data-reveal data-interactive>
-      <div class="macbook-frame" aria-hidden="true">
-        <div class="macbook-screen">
-          <span class="macbook-camera"></span>
-          <img
-            src="/screenshot.png"
-            alt=""
-            width="3456"
-            height="2168"
-            loading="eager"
-            decoding="async"
-          />
-        </div>
-        <div class="macbook-base">
-          <span></span>
-        </div>
-      </div>
-      <span class="sr-only">
-        ace desktop workspace showing project threads, a coding agent conversation, and review panels
-      </span>
+      <img
+        src="/screenshot.png"
+        alt="ace desktop workspace showing project threads, a coding agent conversation, and review panels"
+        width="3456"
+        height="2168"
+        loading="eager"
+        decoding="async"
+      />
       <figcaption>Project threads, agent timeline, terminal context, and review panels stay together.</figcaption>
     </figure>
   </section>
@@ -464,16 +453,150 @@ import Layout from "../layouts/Layout.astro";
 
   .product-shot {
     display: grid;
-    gap: 0.75rem;
+    gap: 0.85rem;
     min-width: 0;
     margin: 0;
     transform-origin: center;
+    perspective: 1200px;
     transition:
       transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
       filter 220ms ease;
   }
 
-  .product-shot img,
+  .macbook-frame {
+    display: grid;
+    gap: 0;
+    width: 100%;
+    max-height: min(34rem, calc(100svh - 11.5rem));
+    transform: rotateX(1.4deg) rotateY(-2.4deg) translateZ(0);
+    transform-style: preserve-3d;
+    filter: drop-shadow(0 34px 48px rgba(0, 0, 0, 0.34));
+    transition:
+      filter 260ms ease,
+      transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .macbook-screen {
+    position: relative;
+    overflow: hidden;
+    padding: 0.54rem 0.54rem 0.66rem;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 18px 18px 8px 8px;
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.18), transparent 10%),
+      linear-gradient(180deg, #30343a 0%, #1d2026 11%, #08090c 12%, #07080a 100%);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      inset 0 -10px 18px rgba(0, 0, 0, 0.34),
+      0 22px 58px rgba(0, 0, 0, 0.38);
+    transform: translateZ(18px);
+  }
+
+  .macbook-screen::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(112deg, rgba(255, 255, 255, 0.12), transparent 17%, transparent 72%),
+      linear-gradient(180deg, transparent 74%, rgba(0, 0, 0, 0.28));
+    opacity: 0.14;
+  }
+
+  .macbook-screen::before {
+    content: "";
+    position: absolute;
+    inset: 0.54rem 0.54rem 0.66rem;
+    z-index: 1;
+    pointer-events: none;
+    border-radius: 10px 10px 4px 4px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.045),
+      inset 0 0 28px rgba(0, 0, 0, 0.32);
+  }
+
+  .macbook-camera {
+    position: absolute;
+    top: 0.2rem;
+    left: 50%;
+    z-index: 3;
+    width: 0.32rem;
+    height: 0.32rem;
+    border-radius: 999px;
+    background: #050607;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.12),
+      inset 0 0 0 1px rgba(138, 209, 255, 0.22);
+    transform: translateX(-50%);
+  }
+
+  .macbook-screen img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: min(30rem, calc(100svh - 15rem));
+    object-fit: contain;
+    border-radius: 8px 8px 3px 3px;
+    transform: translateZ(2px);
+  }
+
+  .macbook-base {
+    position: relative;
+    height: 1.18rem;
+    margin-top: -0.02rem;
+    margin-inline: 2.8%;
+    border-radius: 0 0 18px 18px;
+    background:
+      linear-gradient(90deg, rgba(0, 0, 0, 0.16), rgba(255, 255, 255, 0.34) 18%, rgba(255, 255, 255, 0.16) 50%, rgba(255, 255, 255, 0.34) 82%, rgba(0, 0, 0, 0.2)),
+      linear-gradient(180deg, #d7d9dc 0%, #aeb3b9 38%, #747b84 70%, #3c4149 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.65),
+      inset 0 -5px 10px rgba(0, 0, 0, 0.26),
+      0 18px 30px rgba(0, 0, 0, 0.28);
+    clip-path: polygon(7% 0, 93% 0, 100% 100%, 0 100%);
+    transform: rotateX(-8deg) translateZ(2px);
+    transform-origin: top center;
+  }
+
+  .macbook-base::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 17%;
+    height: 0.34rem;
+    border-radius: 0 0 999px 999px;
+    background:
+      linear-gradient(180deg, rgba(0, 0, 0, 0.2), rgba(255, 255, 255, 0.12)),
+      rgba(0, 0, 0, 0.1);
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.3);
+    transform: translateX(-50%);
+  }
+
+  .macbook-base::after {
+    content: "";
+    position: absolute;
+    top: -0.12rem;
+    right: 5%;
+    left: 5%;
+    height: 0.16rem;
+    border-radius: 999px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+    opacity: 0.7;
+  }
+
+  .macbook-base span {
+    position: absolute;
+    right: 4%;
+    bottom: -0.24rem;
+    left: 4%;
+    height: 0.26rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.32);
+    filter: blur(5px);
+  }
+
   .screenshot-band img {
     width: 100%;
     height: auto;
@@ -487,16 +610,26 @@ import Layout from "../layouts/Layout.astro";
       transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
-  .product-shot:hover img,
-  .product-shot:focus-visible img {
-    border-color: rgba(244, 241, 232, 0.36);
-    box-shadow: 0 34px 96px rgba(0, 0, 0, 0.42);
+  .product-shot:hover .macbook-screen,
+  .product-shot:focus-visible .macbook-screen {
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      inset 0 -10px 18px rgba(0, 0, 0, 0.3),
+      0 34px 96px rgba(0, 0, 0, 0.44);
     transform: translateY(-3px);
   }
 
-  .product-shot img {
-    max-height: min(31rem, calc(100svh - 13rem));
-    object-fit: contain;
+  .product-shot:hover .macbook-frame,
+  .product-shot:focus-visible .macbook-frame {
+    filter: drop-shadow(0 48px 58px rgba(0, 0, 0, 0.34));
+    transform: rotateX(1deg) rotateY(-1.5deg) translate3d(0, -2px, 0);
+  }
+
+  .macbook-screen {
+    transition:
+      box-shadow 220ms ease,
+      transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .product-shot figcaption {
@@ -723,8 +856,12 @@ import Layout from "../layouts/Layout.astro";
       font-size: 6.4rem;
     }
 
-    .product-shot img {
+    .macbook-frame {
       width: min(100%, 35rem);
+      max-height: none;
+    }
+
+    .macbook-screen img {
       max-height: none;
     }
 

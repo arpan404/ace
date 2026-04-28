@@ -268,10 +268,7 @@ import {
   subscribeToBrowserLaunchRequests,
   takePendingBrowserLaunchRequest,
 } from "~/lib/browser/launcher";
-import {
-  removeRecentBrowserInstanceId,
-  touchRecentBrowserInstanceId,
-} from "~/lib/browser/liveInstanceCache";
+import { touchRecentBrowserInstanceId } from "~/lib/browser/liveInstanceCache";
 import { resolveScopedBrowserStorageKey } from "~/lib/browser/storage";
 import {
   BROWSER_PANEL_MODE_STORAGE_KEY,
@@ -2459,11 +2456,37 @@ export default function ChatView({
       setMountedBrowserThreadIds([]);
       return;
     }
+    if (!browserOpen) {
+      setMountedBrowserThreadIds([]);
+      return;
+    }
     setMountedBrowserThreadIds((current) =>
-      browserOpen
-        ? touchRecentBrowserInstanceId(current, activeThreadId, MAX_CACHED_BROWSER_INSTANCES)
-        : removeRecentBrowserInstanceId(current, activeThreadId),
+      touchRecentBrowserInstanceId(current, activeThreadId, MAX_CACHED_BROWSER_INSTANCES),
     );
+  }, [activeThreadId, browserOpen]);
+  useEffect(() => {
+    if (!isElectron || !activeThreadId || !browserOpen) {
+      return;
+    }
+
+    const trimBackgroundBrowserCache = () => {
+      if (document.visibilityState !== "hidden") {
+        return;
+      }
+      setMountedBrowserThreadIds((current) =>
+        current.length <= 1 || current[0] === activeThreadId
+          ? current.slice(0, 1)
+          : [activeThreadId],
+      );
+    };
+
+    window.addEventListener("blur", trimBackgroundBrowserCache);
+    document.addEventListener("visibilitychange", trimBackgroundBrowserCache);
+
+    return () => {
+      window.removeEventListener("blur", trimBackgroundBrowserCache);
+      document.removeEventListener("visibilitychange", trimBackgroundBrowserCache);
+    };
   }, [activeThreadId, browserOpen]);
   useEffect(() => {
     const previousThreadIds = previousMountedBrowserThreadIdsRef.current;
