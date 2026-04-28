@@ -112,6 +112,10 @@ export function buildSingleThreadRouteSearch(
 ): Record<string, string | undefined> {
   const connectionUrl = normalizeRouteConnectionUrl(input?.connectionUrl);
   return {
+    diff: undefined,
+    diffFilePath: undefined,
+    diffTurnId: undefined,
+    mode: undefined,
     [THREAD_BOARD_ACTIVE_SEARCH_PARAM]: undefined,
     [THREAD_BOARD_SPLIT_SEARCH_PARAM]: undefined,
     [THREAD_BOARD_THREADS_SEARCH_PARAM]: undefined,

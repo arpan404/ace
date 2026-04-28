@@ -121,6 +121,13 @@ export function resolveNextBrowserSuggestionIndex(
   return Math.max(0, Math.min(currentIndex + direction, suggestionCount - 1));
 }
 
+export function shouldShowBrowserAddressBarSuggestions(options: {
+  isAddressBarFocused: boolean;
+  suggestionsDismissed: boolean;
+}): boolean {
+  return options.isAddressBarFocused && !options.suggestionsDismissed;
+}
+
 export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const {
     designerModeEnabled = true,
@@ -161,6 +168,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const [browserResetKey, setBrowserResetKey] = useState(0);
   const [isRepairingStorage, setIsRepairingStorage] = useState(false);
   const [isAddressBarFocused, setIsAddressBarFocused] = useState(false);
+  const [addressBarSuggestionsDismissed, setAddressBarSuggestionsDismissed] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
   const [tabRuntimeById, setTabRuntimeById] = useState<Record<string, BrowserTabRuntimeState>>({});
   const updateBrowserSession = useCallback(
@@ -186,7 +194,10 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const activeRuntime = activeTab
     ? (tabRuntimeById[activeTab.id] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE)
     : DEFAULT_BROWSER_TAB_RUNTIME_STATE;
-  const showAddressBarSuggestions = isAddressBarFocused;
+  const showAddressBarSuggestions = shouldShowBrowserAddressBarSuggestions({
+    isAddressBarFocused,
+    suggestionsDismissed: addressBarSuggestionsDismissed,
+  });
   const suggestionInput = activeTabIsInternal ? draftUrl : draftUrl || activeTabUrl;
   const deferredSuggestionInput = useDeferredValue(suggestionInput);
   const openTabs = useMemo(
@@ -221,9 +232,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       if (!input) {
         return;
       }
+      setAddressBarSuggestionsDismissed(false);
       input.focus();
       input.select();
     });
+  }, []);
+  const showAddressBarSuggestionOverlay = useCallback(() => {
+    setAddressBarSuggestionsDismissed(false);
   }, []);
 
   const setActiveTabByIndex = useCallback(
@@ -346,12 +361,14 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         updateBrowserSession((current) =>
           setActiveBrowserTab(current, suggestion.tabId ?? current.activeTabId),
         );
+        setAddressBarSuggestionsDismissed(false);
         setIsAddressBarFocused(false);
         setSelectedSuggestionIndex(-1);
         return;
       }
       setDraftUrl(resolveBrowserSuggestionDraftValue(suggestion));
       openUrl(suggestion.url);
+      setAddressBarSuggestionsDismissed(false);
       setIsAddressBarFocused(false);
       setSelectedSuggestionIndex(-1);
     },
@@ -682,6 +699,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
 
   const handleAddressBarKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setAddressBarSuggestionsDismissed(true);
+        setSelectedSuggestionIndex(-1);
+        return;
+      }
       if (!showAddressBarSuggestions || addressBarSuggestions.length === 0) {
         return;
       }
@@ -707,11 +731,14 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         }
         return;
       }
-      if (event.key === "Escape") {
-        setIsAddressBarFocused(false);
-      }
     },
-    [addressBarSuggestions, applySuggestion, selectedSuggestionIndex, showAddressBarSuggestions],
+    [
+      addressBarSuggestions,
+      applySuggestion,
+      selectedSuggestionIndex,
+      setAddressBarSuggestionsDismissed,
+      showAddressBarSuggestions,
+    ],
   );
 
   const handleBrowserKeyDownCapture = useCallback(
@@ -877,6 +904,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
 
   useEffect(() => {
     setDraftUrl(activeTabIsInternal ? "" : activeTabUrl);
+    setAddressBarSuggestionsDismissed(false);
   }, [activeTabIsInternal, activeTabUrl]);
 
   useEffect(() => {
@@ -1086,6 +1114,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     setDesignerPillPosition,
     selectedSuggestionIndex,
     setDraftUrl,
+    showAddressBarSuggestionOverlay,
     setIsAddressBarFocused,
     setSelectedSuggestionIndex,
     setActiveTabByIndex,
