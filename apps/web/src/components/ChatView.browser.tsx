@@ -35,6 +35,7 @@ import { isMacPlatform } from "../lib/utils";
 import { __resetNativeApiForTests } from "../nativeApi";
 import { getRouter } from "../router";
 import { useStore } from "../store";
+import { useTerminalStateStore } from "../terminalStateStore";
 import { BrowserWsRpcHarness, type NormalizedWsRpcRequestBody } from "../../test/wsRpcHarness";
 import { DEFAULT_CLIENT_SETTINGS } from "@ace/contracts/settings";
 import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX } from "../chat-scroll";
@@ -1354,6 +1355,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       threads: [],
       bootstrapComplete: false,
     });
+    useTerminalStateStore.setState({ terminalStateByThreadId: {} });
   });
 
   afterEach(() => {
@@ -1803,6 +1805,76 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 4_000, interval: 16 },
       );
       await expect.element(page.getByText("assistant filler 21")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("reuses mounted terminal drawers when switching back to an open thread", async () => {
+    useTerminalStateStore.getState().setTerminalOpen(THREAD_ID, true);
+    useTerminalStateStore.getState().setTerminalOpen(SECOND_THREAD_ID, true);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithTwoScrollableThreads(),
+    });
+
+    try {
+      await vi.waitFor(
+        () => {
+          const openRequests = wsRequests.filter(
+            (request) => request._tag === WS_METHODS.terminalOpen,
+          );
+          expect(openRequests).toHaveLength(1);
+          expect(openRequests[0]).toMatchObject({
+            _tag: WS_METHODS.terminalOpen,
+            threadId: THREAD_ID,
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const secondaryThreadRow = page.getByTestId(`thread-row-${SECOND_THREAD_ID}`);
+      await expect.element(secondaryThreadRow).toBeInTheDocument();
+      await secondaryThreadRow.click();
+      await waitForURL(
+        mounted.router,
+        (pathname) => pathname === `/${SECOND_THREAD_ID}`,
+        "Expected navigation to the secondary thread.",
+      );
+
+      await vi.waitFor(
+        () => {
+          const openRequests = wsRequests.filter(
+            (request) => request._tag === WS_METHODS.terminalOpen,
+          );
+          expect(openRequests).toHaveLength(2);
+          expect(openRequests[1]).toMatchObject({
+            _tag: WS_METHODS.terminalOpen,
+            threadId: SECOND_THREAD_ID,
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const primaryThreadRow = page.getByTestId(`thread-row-${THREAD_ID}`);
+      await expect.element(primaryThreadRow).toBeInTheDocument();
+      await primaryThreadRow.click();
+      await waitForURL(
+        mounted.router,
+        (pathname) => pathname === `/${THREAD_ID}`,
+        "Expected navigation back to the primary thread.",
+      );
+
+      await vi.waitFor(
+        () => {
+          const openRequests = wsRequests.filter(
+            (request) => request._tag === WS_METHODS.terminalOpen,
+          );
+          expect(openRequests).toHaveLength(2);
+        },
+        { timeout: 2_000, interval: 16 },
+      );
     } finally {
       await mounted.cleanup();
     }

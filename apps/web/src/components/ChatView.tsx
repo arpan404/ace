@@ -28,6 +28,7 @@ import { buildProviderModelSelection } from "@ace/shared/model";
 import { truncate } from "@ace/shared/String";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
+  type ComponentProps,
   type PointerEvent as ReactPointerEvent,
   Suspense,
   lazy,
@@ -332,12 +333,109 @@ const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnsw
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
+const MAX_RETAINED_THREAD_TERMINAL_DRAWERS = 4;
 
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
 const DEFAULT_RIGHT_SIDE_PANEL_WIDTH = 512;
 const MIN_RIGHT_SIDE_PANEL_WIDTH = 416;
+
+type ThreadTerminalDrawerProps = ComponentProps<typeof ThreadTerminalDrawer>;
+
+interface RetainedThreadTerminalDrawerEntry {
+  readonly threadId: ThreadId;
+  readonly props: ThreadTerminalDrawerProps;
+}
+
+function upsertRetainedThreadTerminalDrawerEntry(
+  entries: readonly RetainedThreadTerminalDrawerEntry[],
+  nextEntry: RetainedThreadTerminalDrawerEntry,
+): RetainedThreadTerminalDrawerEntry[] {
+  const filteredEntries = entries.filter((entry) => entry.threadId !== nextEntry.threadId);
+  const nextEntries = [...filteredEntries, nextEntry];
+  return nextEntries.length <= MAX_RETAINED_THREAD_TERMINAL_DRAWERS
+    ? nextEntries
+    : nextEntries.slice(nextEntries.length - MAX_RETAINED_THREAD_TERMINAL_DRAWERS);
+}
+
+// Preserve a small set of recent terminal drawers so thread switches can reuse
+// the mounted xterm instance instead of reopening it on every navigation.
+function RetainedThreadTerminalDrawers(props: {
+  activeThreadId: ThreadId;
+  activeDrawerProps: ThreadTerminalDrawerProps | null;
+}) {
+  const { activeDrawerProps, activeThreadId } = props;
+  const [retainedEntries, setRetainedEntries] = useState<RetainedThreadTerminalDrawerEntry[]>([]);
+  const previousVisibleEntryRef = useRef<RetainedThreadTerminalDrawerEntry | null>(null);
+  const previousVisibleEntry = previousVisibleEntryRef.current;
+  const renderEntries = (() => {
+    const hiddenEntries = retainedEntries.filter((entry) => entry.threadId !== activeThreadId);
+    const nextEntries =
+      previousVisibleEntry &&
+      previousVisibleEntry.threadId !== activeThreadId &&
+      !hiddenEntries.some((entry) => entry.threadId === previousVisibleEntry.threadId)
+        ? [...hiddenEntries, previousVisibleEntry]
+        : hiddenEntries;
+
+    if (!activeDrawerProps) {
+      return nextEntries;
+    }
+
+    return [
+      ...nextEntries,
+      {
+        threadId: activeThreadId,
+        props: activeDrawerProps,
+      },
+    ];
+  })();
+
+  useEffect(() => {
+    const previousEntry = previousVisibleEntryRef.current;
+    if (previousEntry && previousEntry.threadId !== activeThreadId) {
+      setRetainedEntries((currentEntries) =>
+        upsertRetainedThreadTerminalDrawerEntry(currentEntries, previousEntry),
+      );
+    }
+    if (activeDrawerProps === null) {
+      setRetainedEntries((currentEntries) => {
+        const nextEntries = currentEntries.filter((entry) => entry.threadId !== activeThreadId);
+        return nextEntries.length === currentEntries.length ? currentEntries : nextEntries;
+      });
+    }
+    previousVisibleEntryRef.current = activeDrawerProps
+      ? {
+          threadId: activeThreadId,
+          props: activeDrawerProps,
+        }
+      : null;
+  }, [activeDrawerProps, activeThreadId]);
+
+  return (
+    <motion.div
+      className="min-w-0 shrink-0 overflow-hidden"
+      initial={false}
+      animate={
+        activeDrawerProps ? { height: "auto", opacity: 1, y: 0 } : { height: 0, opacity: 0, y: 18 }
+      }
+      transition={TERMINAL_DRAWER_TRANSITION}
+    >
+      {renderEntries.map((entry) => {
+        const isActive = activeDrawerProps !== null && entry.threadId === activeThreadId;
+        return (
+          <div
+            key={entry.threadId}
+            className={isActive ? "min-w-0" : "hidden"}
+            aria-hidden={!isActive}
+          >
+            <ThreadTerminalDrawer {...(isActive ? activeDrawerProps : entry.props)} />
+          </div>
+        );
+      })}
+    </motion.div>
+  );
+}
 const MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH = 420;
 const MAX_CACHED_BROWSER_INSTANCES = 3;
 
@@ -7936,20 +8034,10 @@ export default function ChatView({
       </div>
       {/* end horizontal flex container */}
 
-      <AnimatePresence initial={false}>
-        {terminalDrawerProps ? (
-          <motion.div
-            key={terminalState.terminalOpen && activeProject ? activeProject.id : "terminal"}
-            className="min-w-0 shrink-0 overflow-hidden"
-            initial={{ height: 0, opacity: 0, y: 18 }}
-            animate={{ height: "auto", opacity: 1, y: 0 }}
-            exit={{ height: 0, opacity: 0, y: 18 }}
-            transition={TERMINAL_DRAWER_TRANSITION}
-          >
-            <ThreadTerminalDrawer {...terminalDrawerProps} />
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      <RetainedThreadTerminalDrawers
+        activeThreadId={activeThread.id}
+        activeDrawerProps={terminalDrawerProps}
+      />
     </div>
   );
 }
