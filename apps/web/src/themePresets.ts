@@ -40,12 +40,12 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
   {
     id: "neutral",
     label: "Neutral",
-    description: "Pure black or white surfaces with classic obsidian accents.",
+    description: "Pure black or white surfaces with a monochrome primary.",
     preview: {
       panel: "oklch(0.14 0 0)",
       panelDeep: "oklch(0.05 0 0)",
-      accent: "oklch(0.68 0.18 255)",
-      accentMuted: "oklch(0.5 0.1 255)",
+      accent: "oklch(0.88 0 0)",
+      accentMuted: "oklch(0.4 0 0)",
     },
   },
   {
@@ -62,12 +62,12 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
   {
     id: "glass",
     label: "Glass",
-    description: "Translucent chrome with blue focus accents.",
+    description: "Neutral frosted layers: white or charcoal bases with soft gray glass.",
     preview: {
-      panel: "oklch(0.99 0.006 248 / 0.72)",
-      panelDeep: "oklch(0.93 0.018 248 / 0.72)",
-      accent: "oklch(0.56 0.18 252)",
-      accentMuted: "oklch(0.76 0.026 248 / 0.6)",
+      panel: "oklch(0.24 0 0)",
+      panelDeep: "oklch(0.15 0 0)",
+      accent: "oklch(0.8 0 0)",
+      accentMuted: "oklch(0.66 0 0)",
     },
   },
   /* ── Accents ── */

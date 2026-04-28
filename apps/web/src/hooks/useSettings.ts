@@ -96,6 +96,24 @@ function splitPatch(patch: Partial<UnifiedSettings>): {
   };
 }
 
+// Stable merged snapshot for `useSyncExternalStore`. Building `{ ... }` on every
+// `getSnapshot` call yields a new reference each time, which makes React treat the
+// store as constantly updated and triggers error #185 (max update depth exceeded).
+let stableMergedUnifiedSettings: UnifiedSettings = DEFAULT_UNIFIED_SETTINGS;
+let stableMergedUnifiedFingerprint: string | null = null;
+
+function getStableMergedUnifiedSettings(): UnifiedSettings {
+  const server = getServerConfig()?.settings ?? DEFAULT_UNIFIED_SETTINGS;
+  const client = readClientSettingsSnapshot();
+  const fingerprint = `${JSON.stringify(server)}\0${JSON.stringify(client)}`;
+  if (fingerprint === stableMergedUnifiedFingerprint) {
+    return stableMergedUnifiedSettings;
+  }
+  stableMergedUnifiedFingerprint = fingerprint;
+  stableMergedUnifiedSettings = { ...server, ...client } satisfies UnifiedSettings;
+  return stableMergedUnifiedSettings;
+}
+
 // ── Hooks ────────────────────────────────────────────────────────────
 
 /**
@@ -107,10 +125,7 @@ export function useSettings(): UnifiedSettings;
 export function useSettings<T>(selector: (s: UnifiedSettings) => T): T;
 export function useSettings<T>(selector?: (s: UnifiedSettings) => T): UnifiedSettings | T {
   const getSnapshot = () => {
-    const settings = {
-      ...(getServerConfig()?.settings ?? DEFAULT_UNIFIED_SETTINGS),
-      ...readClientSettingsSnapshot(),
-    } satisfies UnifiedSettings;
+    const settings = getStableMergedUnifiedSettings();
     return selector ? selector(settings) : settings;
   };
 

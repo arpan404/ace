@@ -285,12 +285,12 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
   const placeholder = props.isComposerApprovalState
     ? (props.activePendingApproval?.detail ?? "Resolve this approval request to continue")
     : props.activePendingProgress
-      ? "Type your own answer, or leave this blank to use the selected option"
+      ? "Custom answer, or leave blank to use the selected option"
       : props.showPlanFollowUpPrompt && props.planFollowUpId
-        ? "Add feedback to refine the plan, or leave this blank to implement it"
+        ? "Feedback to refine the plan, or blank to implement"
         : props.isGitRepo
-          ? "Ask anything, @tag files/folders, or use / to show available commands"
-          : "Ask for follow-up changes or attach images";
+          ? "Ask anything — @ files, / commands, # issues"
+          : "Follow-ups or attach images";
   const pendingAction = useMemo<ComponentProps<typeof ComposerPrimaryActions>["pendingAction"]>(
     () =>
       props.activePendingProgress
@@ -325,6 +325,8 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
     ],
   );
 
+  const isUltrathinkFrame = props.composerProviderState.composerFrameClassName === "ultrathink-frame";
+
   return (
     <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", props.isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4")}>
       <form
@@ -335,7 +337,8 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
       >
         <div
           className={cn(
-            "group rounded-xl p-px transition-colors duration-200",
+            "group rounded-xl transition-colors duration-200",
+            isUltrathinkFrame && "p-px",
             props.composerProviderState.composerFrameClassName,
           )}
           onDragEnter={props.onComposerDragEnter}
@@ -345,8 +348,11 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         >
           <div
             className={cn(
-              "rounded-xl border-2 border-border bg-input transition-all duration-200 has-focus-visible:border-ring has-focus-visible:ring-2 has-focus-visible:ring-ring/35",
-              props.isDragOverComposer ? "border-primary bg-primary/8" : "border-border",
+              "rounded-xl",
+              isUltrathinkFrame
+                ? "border-0 bg-input transition-all duration-200 has-focus-visible:ring-2 has-focus-visible:ring-ring/55"
+                : "border border-border/40 bg-input transition-[border-color,box-shadow] duration-200 has-focus-visible:border-transparent has-focus-visible:ring-2 has-focus-visible:ring-ring/55",
+              props.isDragOverComposer && "bg-primary/8",
               props.composerProviderState.composerSurfaceClassName,
             )}
           >
