@@ -76,6 +76,41 @@ layer("GitHubCliLive", (it) => {
     }),
   );
 
+  it.effect("parses pull request list output with surrounding CLI noise", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockResolvedValueOnce({
+        stdout:
+          'warning: gh produced an informational line\n[{"number":42,"title":"Add PR thread creation","url":"https://github.com/pingdotgg/codething-mvp/pull/42","baseRefName":"main","headRefName":"feature/pr-threads","state":"OPEN","mergedAt":null,"isCrossRepository":false,"headRepository":{"nameWithOwner":"pingdotgg/codething-mvp"},"headRepositoryOwner":{"login":"pingdotgg"}}]\n',
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      });
+
+      const result = yield* Effect.gen(function* () {
+        const gh = yield* GitHubCli;
+        return yield* gh.listOpenPullRequests({
+          cwd: "/repo",
+          headSelector: "feature/pr-threads",
+        });
+      });
+
+      assert.deepStrictEqual(result, [
+        {
+          number: 42,
+          title: "Add PR thread creation",
+          url: "https://github.com/pingdotgg/codething-mvp/pull/42",
+          baseRefName: "main",
+          headRefName: "feature/pr-threads",
+          state: "open",
+          isCrossRepository: false,
+          headRepositoryNameWithOwner: "pingdotgg/codething-mvp",
+          headRepositoryOwnerLogin: "pingdotgg",
+        },
+      ]);
+    }),
+  );
+
   it.effect("reads repository clone URLs", () =>
     Effect.gen(function* () {
       mockedRunProcess.mockResolvedValueOnce({
