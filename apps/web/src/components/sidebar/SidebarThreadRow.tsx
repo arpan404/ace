@@ -6,6 +6,7 @@ import {
   IconTerminal,
 } from "@tabler/icons-react";
 import {
+  Columns2Icon,
   CircleAlertIcon,
   CircleCheckBig,
   GitPullRequestIcon,
@@ -17,6 +18,7 @@ import {
 import { type GitStatusResult, ThreadId } from "@ace/contracts";
 import {
   memo,
+  type DragEvent,
   type Dispatch,
   type MouseEvent,
   type MutableRefObject,
@@ -24,6 +26,7 @@ import {
 } from "react";
 
 import { resolveThreadRowClassName, resolveThreadStatusPill } from "../../lib/sidebar";
+import { cn } from "../../lib/utils";
 import { normalizeWsUrl } from "../../lib/remoteHosts";
 import { useSidebarThreadSummaryById } from "../../storeSelectors";
 import { selectThreadTerminalState, useTerminalStateStore } from "../../terminalStateStore";
@@ -176,6 +179,15 @@ export interface SidebarThreadRowProps {
   onTogglePinnedThread: (threadId: ThreadId) => void;
   openPrLink: (event: MouseEvent<HTMLElement>, prUrl: string) => void;
   pr: ThreadPr | null;
+  boardDrag?: {
+    isDragging: boolean;
+    isDropTarget: boolean;
+    onDragEnd: () => void;
+    onDragLeave: (event: DragEvent<HTMLLIElement>) => void;
+    onDragOver: (event: DragEvent<HTMLLIElement>) => void;
+    onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
+    onDrop: (event: DragEvent<HTMLLIElement>) => void;
+  } | null;
 }
 
 export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowProps) {
@@ -226,8 +238,14 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     <SidebarMenuSubItem
       ref={props.sortableHandleProps?.setNodeRef}
       style={props.sortableHandleProps?.style}
-      className="w-full"
+      className={cn(
+        "w-full rounded-md transition-colors",
+        props.boardDrag?.isDropTarget ? "bg-primary/[0.08] ring-1 ring-primary/35" : "",
+      )}
       data-thread-item
+      onDragLeave={props.boardDrag?.onDragLeave}
+      onDragOver={props.boardDrag?.onDragOver}
+      onDrop={props.boardDrag?.onDrop}
       onMouseLeave={() => {
         props.setConfirmingArchiveThreadId((current) => (current === thread.id ? null : current));
       }}
@@ -250,9 +268,11 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
         className={`${resolveThreadRowClassName({
           isActive,
           isSelected,
-        })} relative isolate ${
-          props.sortableHandleProps?.isDragging ? "z-20 opacity-80" : ""
-        } ${props.sortableHandleProps?.isOver && !props.sortableHandleProps.isDragging ? "ring-1 ring-primary/40" : ""}`}
+        })} relative isolate ${props.sortableHandleProps?.isDragging ? "z-20 opacity-80" : ""} ${
+          props.sortableHandleProps?.isOver && !props.sortableHandleProps.isDragging
+            ? "ring-1 ring-primary/40"
+            : ""
+        }`}
         {...(props.sortableHandleProps ? props.sortableHandleProps.attributes : {})}
         {...(props.sortableHandleProps ? props.sortableHandleProps.listeners : {})}
         onMouseEnter={prefetchThreadHistory}
@@ -348,6 +368,38 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
           )}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {props.boardDrag ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    draggable={props.renamingThreadId !== thread.id}
+                    data-thread-selection-safe
+                    aria-label={`Drag ${thread.title} into a board`}
+                    className={cn(
+                      "inline-flex size-5 cursor-grab items-center justify-center rounded-sm text-sidebar-foreground/55 opacity-0 transition-[opacity,color] duration-150 hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:opacity-100",
+                      props.boardDrag.isDragging
+                        ? "cursor-grabbing opacity-100 text-sidebar-accent-foreground"
+                        : "",
+                    )}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                    }}
+                    onDragStart={props.boardDrag.onDragStart}
+                    onDragEnd={props.boardDrag.onDragEnd}
+                  >
+                    <Columns2Icon className="size-3.5" />
+                  </button>
+                }
+              />
+              <TooltipPopup side="top">Drag to board</TooltipPopup>
+            </Tooltip>
+          ) : null}
           {terminalStatus && (
             <span
               role="img"
