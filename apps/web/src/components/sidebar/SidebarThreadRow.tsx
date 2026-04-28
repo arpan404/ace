@@ -1,13 +1,16 @@
 import {
-  ArchiveIcon,
+  IconArchive,
+  IconPin,
+  IconPinFilled,
+  IconPinnedOff,
+  IconTerminal,
+} from "@tabler/icons-react";
+import {
   CircleAlertIcon,
   CircleCheckBig,
   GitPullRequestIcon,
   LoaderCircleIcon,
-  PinIcon,
-  PinOffIcon,
   SparklesIcon,
-  TerminalIcon,
   TextCursorInput,
   TriangleAlert,
 } from "lucide-react";
@@ -62,7 +65,7 @@ export function ThreadStatusLabel({
   return (
     <span
       title={status.label}
-      className={`inline-flex shrink-0 items-center justify-center rounded-full border border-border/45 bg-background/85 shadow-[0_1px_2px_rgba(0,0,0,0.08)] backdrop-blur-sm ${shellClassName} ${status.colorClass}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-full bg-transparent ${shellClassName} ${status.colorClass}`}
     >
       {status.label === "Error" ? (
         <TriangleAlert className={iconClassName} strokeWidth={2.1} />
@@ -307,7 +310,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
           )}
           {threadStatus && <ThreadStatusLabel status={threadStatus} />}
           {canPin && props.isPinned && showPinnedIndicator && (
-            <PinIcon className="size-3 shrink-0 text-amber-500/80 dark:text-amber-300/85" />
+            <IconPinFilled className="size-3 shrink-0 text-sidebar-accent-foreground" />
           )}
           {props.renamingThreadId === thread.id ? (
             <input
@@ -352,7 +355,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
               title={terminalStatus.label}
               className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
             >
-              <TerminalIcon className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`} />
+              <IconTerminal className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`} />
             </span>
           )}
           <div className="flex min-w-12 justify-end">
@@ -395,10 +398,10 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                       data-thread-selection-safe
                       data-testid={`thread-pin-${thread.id}`}
                       aria-label={`${props.isPinned ? "Unpin" : "Pin"} ${thread.title}`}
-                      className={`inline-flex size-5 cursor-pointer items-center justify-center transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring ${
+                      className={`group/thread-pin inline-flex size-5 cursor-pointer items-center justify-center transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring ${
                         props.isPinned
-                          ? "text-amber-500/90 hover:text-amber-500 dark:text-amber-300/90 dark:hover:text-amber-300"
-                          : "text-muted-foreground hover:text-foreground"
+                          ? "text-sidebar-accent-foreground"
+                          : "text-sidebar-foreground/60 hover:text-sidebar-accent-foreground"
                       }`}
                       onPointerDown={(event) => {
                         event.stopPropagation();
@@ -410,9 +413,12 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                       }}
                     >
                       {props.isPinned ? (
-                        <PinOffIcon className="size-3.5" />
+                        <span className="relative inline-flex size-4 items-center justify-center">
+                          <IconPinFilled className="absolute size-4 opacity-100 transition-opacity duration-150 group-hover/thread-pin:opacity-0 group-focus-visible/thread-pin:opacity-0" />
+                          <IconPinnedOff className="absolute size-4 opacity-0 transition-opacity duration-150 group-hover/thread-pin:opacity-100 group-focus-visible/thread-pin:opacity-100" />
+                        </span>
                       ) : (
-                        <PinIcon className="size-3.5" />
+                        <IconPin className="size-4" />
                       )}
                     </button>
                   </div>
@@ -425,7 +431,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                         data-thread-selection-safe
                         data-testid={`thread-archive-${thread.id}`}
                         aria-label={`Archive ${thread.title}`}
-                        className="inline-flex size-5 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                        className="inline-flex size-5 cursor-pointer items-center justify-center text-sidebar-foreground/60 transition-colors hover:text-sidebar-accent-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                         onPointerDown={(event) => {
                           event.stopPropagation();
                         }}
@@ -438,7 +444,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                           });
                         }}
                       >
-                        <ArchiveIcon className="size-3.5" />
+                        <IconArchive className="size-3.5" />
                       </button>
                     </div>
                   ) : (
@@ -451,7 +457,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                               data-thread-selection-safe
                               data-testid={`thread-archive-${thread.id}`}
                               aria-label={`Archive ${thread.title}`}
-                              className="inline-flex size-5 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                              className="inline-flex size-5 cursor-pointer items-center justify-center text-sidebar-foreground/60 transition-colors hover:text-sidebar-accent-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                               onPointerDown={(event) => {
                                 event.stopPropagation();
                               }}
@@ -461,7 +467,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                                 void props.attemptArchiveThread(thread.id, props.connectionUrl);
                               }}
                             >
-                              <ArchiveIcon className="size-3.5" />
+                              <IconArchive className="size-3.5" />
                             </button>
                           </div>
                         }
@@ -475,7 +481,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
             <span className={threadMetaClassName}>
               {props.showThreadJumpHints && props.jumpLabel ? (
                 <span
-                  className="inline-flex h-5 items-center rounded-full border border-border/50 bg-background/80 px-1.5 font-mono text-[10px] font-medium tracking-tight text-foreground shadow-sm"
+                  className="inline-flex h-5 items-center rounded-full border border-sidebar-border bg-sidebar-accent px-1.5 font-mono text-[10px] font-medium tracking-tight text-sidebar-accent-foreground shadow-sm"
                   title={props.jumpLabel}
                 >
                   {props.jumpLabel}
@@ -483,7 +489,9 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
               ) : (
                 <span
                   className={`text-[10px] ${
-                    isHighlighted ? "text-foreground/60" : "text-muted-foreground/50"
+                    isHighlighted
+                      ? "text-sidebar-accent-foreground/70"
+                      : "text-sidebar-foreground/50"
                   }`}
                 >
                   {formatRelativeTimeLabel(thread.updatedAt ?? thread.createdAt)}

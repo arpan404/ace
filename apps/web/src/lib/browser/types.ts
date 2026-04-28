@@ -157,8 +157,6 @@ export function resolveSuggestionKindLabel(kind: BrowserSuggestion["kind"]): str
       return "Home";
     case "navigate":
       return "Address";
-    case "pinned":
-      return "Pinned";
     case "search":
       return "Search";
     case "tab":

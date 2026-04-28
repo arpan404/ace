@@ -7,19 +7,16 @@ import type {
   ResolvedKeybindingsConfig,
   ThreadId,
 } from "@ace/contracts";
+import { IconLayoutSidebar, IconLayoutSidebarFilled } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  Columns2Icon,
   ChevronDownIcon,
   ChevronRightIcon,
   FilePlus2Icon,
   FolderPlusIcon,
   GitBranchIcon,
   GitForkIcon,
-  Maximize2Icon,
-  PanelLeftCloseIcon,
-  PanelLeftIcon,
   SearchIcon,
 } from "lucide-react";
 import {
@@ -41,8 +38,8 @@ import {
   useEditorStateStore,
 } from "~/editorStateStore";
 import { usePreferredEditor } from "~/editorPreferences";
-import { useSettings } from "~/hooks/useSettings";
-import { useUpdateSettings } from "~/hooks/useSettings";
+import { useAppearancePrefs } from "~/appearancePrefs";
+import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
 import { isTerminalFocused } from "~/lib/terminalFocus";
 import {
@@ -61,6 +58,7 @@ import {
   projectQueryKeys,
   projectSearchEntriesQueryOptions,
 } from "~/lib/projectReactQuery";
+import { withRpcRouteConnection } from "~/lib/connectionRouting";
 import { ensureMonacoConfigured } from "~/lib/editor/monacoSetup";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
@@ -89,7 +87,7 @@ import { joinWorkspaceAbsolutePath, revealInFileManagerLabel } from "./workspace
 import WorkspaceEditorPane from "./WorkspaceEditorPane";
 
 const EMPTY_PROJECT_ENTRIES: readonly ProjectEntry[] = [];
-const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 1_500;
+const WORKSPACE_TREE_REFETCH_INTERVAL_MS = 10_000;
 const WORKSPACE_SEARCH_RESULT_LIMIT = 400;
 const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
 
@@ -129,10 +127,12 @@ function parseSaveConflictState(
 }
 
 const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
+  connectionUrl,
   gitCwd,
   keybindings,
   availableEditors,
 }: {
+  connectionUrl?: string | null | undefined;
   gitCwd: string | null;
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
@@ -160,9 +160,9 @@ const ExternalEditorOpenMenu = memo(function ExternalEditorOpenMenu({
     if (!api || !gitCwd || !preferredEditorOption) {
       return;
     }
-    void api.shell.openInEditor(gitCwd, preferredEditorOption.value);
+    void api.shell.openInEditor(gitCwd, preferredEditorOption.value, { connectionUrl });
     setPreferredEditor(preferredEditorOption.value);
-  }, [api, gitCwd, preferredEditorOption, setPreferredEditor]);
+  }, [api, connectionUrl, gitCwd, preferredEditorOption, setPreferredEditor]);
 
   if (!gitCwd) {
     return null;
@@ -642,16 +642,15 @@ function ThreadWorkspaceEditor(inputProps: {
   availableEditors: ReadonlyArray<EditorId>;
   branch?: string | null;
   browserOpen: boolean;
+  connectionUrl?: string | null | undefined;
   gitCwd: string | null;
   keybindings: ResolvedKeybindingsConfig;
   lspCwd?: string | null;
-  onWorkspaceModeChange?: ((mode: ThreadWorkspaceMode) => void) | undefined;
   terminalOpen: boolean;
   threadId: ThreadId;
   worktreePath?: string | null;
   workspaceMode?: ThreadWorkspaceMode | undefined;
 }) {
-  ensureMonacoConfigured();
   const editorStateScopeId = useMemo(
     () => resolveEditorStateScopeId({ gitCwd: inputProps.gitCwd, threadId: inputProps.threadId }),
     [inputProps.gitCwd, inputProps.threadId],
@@ -659,15 +658,32 @@ function ThreadWorkspaceEditor(inputProps: {
   const props = { ...inputProps, threadId: editorStateScopeId as ThreadId };
 
   const { resolvedTheme } = useTheme();
+  const { themePreset } = useAppearancePrefs();
   const { updateSettings } = useUpdateSettings();
-  const editorSettings = useSettings((settings) => ({
-    lineNumbers: settings.editorLineNumbers,
-    minimap: settings.editorMinimap,
-    renderWhitespace: settings.editorRenderWhitespace,
-    stickyScroll: settings.editorStickyScroll,
-    suggestions: settings.editorSuggestions,
-    wordWrap: settings.editorWordWrap,
-  }));
+  const editorLineNumbers = useSetting("editorLineNumbers");
+  const editorMinimap = useSetting("editorMinimap");
+  const editorRenderWhitespace = useSetting("editorRenderWhitespace");
+  const editorStickyScroll = useSetting("editorStickyScroll");
+  const editorSuggestions = useSetting("editorSuggestions");
+  const editorWordWrap = useSetting("editorWordWrap");
+  const editorSettings = useMemo(
+    () => ({
+      lineNumbers: editorLineNumbers,
+      minimap: editorMinimap,
+      renderWhitespace: editorRenderWhitespace,
+      stickyScroll: editorStickyScroll,
+      suggestions: editorSuggestions,
+      wordWrap: editorWordWrap,
+    }),
+    [
+      editorLineNumbers,
+      editorMinimap,
+      editorRenderWhitespace,
+      editorStickyScroll,
+      editorSuggestions,
+      editorWordWrap,
+    ],
+  );
   const queryClient = useQueryClient();
   const api = readNativeApi();
   const [treeSearch, setTreeSearch] = useState("");
@@ -710,9 +726,6 @@ function ThreadWorkspaceEditor(inputProps: {
         : null;
   const [dragTargetParentPath, setDragTargetParentPath] = useState<string | null>(null);
   const [saveConflict, setSaveConflict] = useState<SaveConflictState | null>(null);
-  const onWorkspaceModeChange = props.onWorkspaceModeChange;
-  const editorWorkspaceMode: ThreadWorkspaceMode =
-    props.workspaceMode === "split" ? "split" : "editor";
   const hasRecentlyClosedFiles = useEditorStateStore(
     useCallback(
       (state) =>
@@ -773,6 +786,10 @@ function ThreadWorkspaceEditor(inputProps: {
     [editorSettings],
   );
   const diffEditorOptions = useMemo(() => createWorkspaceDiffEditorOptions(), []);
+  const monacoTheme = ensureMonacoConfigured({
+    resolvedTheme,
+    themePreset,
+  });
 
   useEffect(() => {
     const previous = previousWorkspaceBufferStateRef.current;
@@ -788,10 +805,15 @@ function ThreadWorkspaceEditor(inputProps: {
       const previousCwd = previous.cwd;
       void Promise.allSettled(
         removedFilePaths.map((relativePath) =>
-          api.workspaceEditor.closeBuffer({
-            cwd: previousCwd,
-            relativePath,
-          }),
+          api.workspaceEditor.closeBuffer(
+            withRpcRouteConnection(
+              {
+                cwd: previousCwd,
+                relativePath,
+              },
+              inputProps.connectionUrl,
+            ),
+          ),
         ),
       ).then((results) => {
         for (const [index, result] of results.entries()) {
@@ -810,7 +832,7 @@ function ThreadWorkspaceEditor(inputProps: {
       cwd: diagnosticsCwd,
       filePaths: nextFilePaths,
     };
-  }, [api, diagnosticsCwd, openWorkspaceFilePaths]);
+  }, [api, diagnosticsCwd, inputProps.connectionUrl, openWorkspaceFilePaths]);
 
   useEffect(
     () => () => {
@@ -821,28 +843,36 @@ function ThreadWorkspaceEditor(inputProps: {
       const previousCwd = previous.cwd;
       void Promise.allSettled(
         Array.from(previous.filePaths).map((relativePath) =>
-          api.workspaceEditor.closeBuffer({
-            cwd: previousCwd,
-            relativePath,
-          }),
+          api.workspaceEditor.closeBuffer(
+            withRpcRouteConnection(
+              {
+                cwd: previousCwd,
+                relativePath,
+              },
+              inputProps.connectionUrl,
+            ),
+          ),
         ),
       );
     },
-    [api],
+    [api, inputProps.connectionUrl],
   );
 
-  const workspaceTreeQuery = useQuery(
-    projectListTreeQueryOptions({
+  const workspaceTreeQuery = useQuery({
+    ...projectListTreeQueryOptions({
+      connectionUrl: inputProps.connectionUrl,
       cwd: props.gitCwd,
       refetchInterval: WORKSPACE_TREE_REFETCH_INTERVAL_MS,
-      staleTime: 0,
     }),
-  );
-  const gitStatusQuery = useQuery(gitStatusQueryOptions(props.gitCwd));
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+  });
+  const gitStatusQuery = useQuery(gitStatusQueryOptions(props.gitCwd, inputProps.connectionUrl));
   const searchMode = deferredTreeSearch.length > 0;
   const remoteSearchEnabled = shouldRunWorkspaceRemoteSearch(deferredTreeSearch);
   const workspaceSearchQuery = useQuery(
     projectSearchEntriesQueryOptions({
+      connectionUrl: inputProps.connectionUrl,
       cwd: props.gitCwd,
       enabled: remoteSearchEnabled,
       limit: WORKSPACE_SEARCH_RESULT_LIMIT,
@@ -885,17 +915,6 @@ function ThreadWorkspaceEditor(inputProps: {
     );
   }, [props.threadId, syncTree, treeEntries]);
 
-  const hasAnyOpenFile = panes.some((pane) => pane.openFilePaths.length > 0);
-  useEffect(() => {
-    if (hasAnyOpenFile || treeEntries.length === 0 || activePane?.id === undefined) {
-      return;
-    }
-    const firstFile = treeEntries.find((entry) => entry.kind === "file");
-    if (firstFile) {
-      openFile(props.threadId, firstFile.path, activePane.id);
-    }
-  }, [activePane?.id, hasAnyOpenFile, openFile, props.threadId, treeEntries]);
-
   useEffect(() => {
     if (selectedEntryPath && entryByPath.has(selectedEntryPath)) {
       return;
@@ -927,11 +946,16 @@ function ThreadWorkspaceEditor(inputProps: {
         throw new Error("Workspace editor is unavailable.");
       }
       return api.projects.writeFile({
-        contents: input.contents,
-        cwd: props.gitCwd,
-        expectedVersion: input.expectedVersion,
-        overwrite: input.overwrite,
-        relativePath: input.relativePath,
+        ...withRpcRouteConnection(
+          {
+            contents: input.contents,
+            cwd: props.gitCwd,
+            expectedVersion: input.expectedVersion,
+            overwrite: input.overwrite,
+            relativePath: input.relativePath,
+          },
+          inputProps.connectionUrl,
+        ),
       });
     },
     onError: (error, variables) => {
@@ -952,13 +976,18 @@ function ThreadWorkspaceEditor(inputProps: {
         current?.relativePath === variables.relativePath ? null : current,
       );
       markFileSaved(props.threadId, variables.relativePath, variables.contents);
-      queryClient.setQueryData(projectQueryKeys.readFile(props.gitCwd, variables.relativePath), {
-        contents: variables.contents,
-        relativePath: variables.relativePath,
-        sizeBytes: new Blob([variables.contents]).size,
-        version: result.version,
+      queryClient.setQueryData(
+        projectQueryKeys.readFile(props.gitCwd, variables.relativePath, inputProps.connectionUrl),
+        {
+          contents: variables.contents,
+          relativePath: variables.relativePath,
+          sizeBytes: new Blob([variables.contents]).size,
+          version: result.version,
+        },
+      );
+      void queryClient.invalidateQueries({
+        queryKey: projectQueryKeys.listTree(props.gitCwd, inputProps.connectionUrl),
       });
-      void queryClient.invalidateQueries({ queryKey: projectQueryKeys.listTree(props.gitCwd) });
     },
   });
 
@@ -968,7 +997,7 @@ function ThreadWorkspaceEditor(inputProps: {
         return;
       }
       const readFileCache = queryClient.getQueryData<ProjectReadFileResult>(
-        projectQueryKeys.readFile(props.gitCwd, relativePath),
+        projectQueryKeys.readFile(props.gitCwd, relativePath, inputProps.connectionUrl),
       );
       const payload: {
         contents: string;
@@ -983,7 +1012,7 @@ function ThreadWorkspaceEditor(inputProps: {
       }
       void saveMutation.mutate(payload);
     },
-    [props.gitCwd, queryClient, saveMutation],
+    [inputProps.connectionUrl, props.gitCwd, queryClient, saveMutation],
   );
   const handleOverwriteSaveConflict = useCallback(() => {
     if (!saveConflict || saveMutation.isPending) {
@@ -1010,19 +1039,37 @@ function ThreadWorkspaceEditor(inputProps: {
     }
     markFileSaved(props.threadId, saveConflict.relativePath, saveConflict.currentContents);
     if (saveConflict.currentVersion) {
-      queryClient.setQueryData(projectQueryKeys.readFile(props.gitCwd, saveConflict.relativePath), {
-        contents: saveConflict.currentContents,
-        relativePath: saveConflict.relativePath,
-        sizeBytes: new Blob([saveConflict.currentContents]).size,
-        version: saveConflict.currentVersion,
-      });
+      queryClient.setQueryData(
+        projectQueryKeys.readFile(
+          props.gitCwd,
+          saveConflict.relativePath,
+          inputProps.connectionUrl,
+        ),
+        {
+          contents: saveConflict.currentContents,
+          relativePath: saveConflict.relativePath,
+          sizeBytes: new Blob([saveConflict.currentContents]).size,
+          version: saveConflict.currentVersion,
+        },
+      );
     } else {
       void queryClient.invalidateQueries({
-        queryKey: projectQueryKeys.readFile(props.gitCwd, saveConflict.relativePath),
+        queryKey: projectQueryKeys.readFile(
+          props.gitCwd,
+          saveConflict.relativePath,
+          inputProps.connectionUrl,
+        ),
       });
     }
     setSaveConflict(null);
-  }, [markFileSaved, props.gitCwd, props.threadId, queryClient, saveConflict]);
+  }, [
+    inputProps.connectionUrl,
+    markFileSaved,
+    props.gitCwd,
+    props.threadId,
+    queryClient,
+    saveConflict,
+  ]);
   const handleHydrateFile = useCallback(
     (filePath: string, contents: string) => {
       hydrateFile(props.threadId, filePath, contents);
@@ -1329,24 +1376,28 @@ function ThreadWorkspaceEditor(inputProps: {
       return;
     }
     void queryClient.invalidateQueries({
-      queryKey: projectQueryKeys.readFile(props.gitCwd, activePane.activeFilePath),
+      queryKey: projectQueryKeys.readFile(
+        props.gitCwd,
+        activePane.activeFilePath,
+        inputProps.connectionUrl,
+      ),
     });
-  }, [activePane?.activeFilePath, props.gitCwd, queryClient]);
+  }, [activePane?.activeFilePath, inputProps.connectionUrl, props.gitCwd, queryClient]);
 
   const invalidateWorkspaceTree = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: projectQueryKeys.listTree(props.gitCwd),
+      queryKey: projectQueryKeys.listTree(props.gitCwd, inputProps.connectionUrl),
     });
-  }, [props.gitCwd, queryClient]);
+  }, [inputProps.connectionUrl, props.gitCwd, queryClient]);
 
   const clearReadFileCache = useCallback(
     (relativePath: string) => {
       queryClient.removeQueries({
-        queryKey: projectQueryKeys.readFile(props.gitCwd, relativePath),
+        queryKey: projectQueryKeys.readFile(props.gitCwd, relativePath, inputProps.connectionUrl),
         exact: true,
       });
     },
-    [props.gitCwd, queryClient],
+    [inputProps.connectionUrl, props.gitCwd, queryClient],
   );
 
   const focusExplorerEntry = useCallback((path: string) => {
@@ -1385,9 +1436,14 @@ function ThreadWorkspaceEditor(inputProps: {
         throw new Error("Workspace editor is unavailable.");
       }
       return api.projects.createEntry({
-        cwd: props.gitCwd,
-        kind: input.kind,
-        relativePath: input.relativePath,
+        ...withRpcRouteConnection(
+          {
+            cwd: props.gitCwd,
+            kind: input.kind,
+            relativePath: input.relativePath,
+          },
+          inputProps.connectionUrl,
+        ),
       });
     },
     onError: (error, variables) => {
@@ -1429,9 +1485,14 @@ function ThreadWorkspaceEditor(inputProps: {
         throw new Error("Workspace editor is unavailable.");
       }
       return api.projects.renameEntry({
-        cwd: props.gitCwd,
-        nextRelativePath: input.nextRelativePath,
-        relativePath: input.relativePath,
+        ...withRpcRouteConnection(
+          {
+            cwd: props.gitCwd,
+            nextRelativePath: input.nextRelativePath,
+            relativePath: input.relativePath,
+          },
+          inputProps.connectionUrl,
+        ),
       });
     },
     onError: (error, variables) => {
@@ -1466,8 +1527,13 @@ function ThreadWorkspaceEditor(inputProps: {
         throw new Error("Workspace editor is unavailable.");
       }
       return api.projects.deleteEntry({
-        cwd: props.gitCwd,
-        relativePath: input.relativePath,
+        ...withRpcRouteConnection(
+          {
+            cwd: props.gitCwd,
+            relativePath: input.relativePath,
+          },
+          inputProps.connectionUrl,
+        ),
       });
     },
     onError: (error, variables) => {
@@ -1555,7 +1621,9 @@ function ThreadWorkspaceEditor(inputProps: {
           ? joinWorkspaceAbsolutePath(props.gitCwd, entry.path)
           : props.gitCwd;
         try {
-          await api.shell.revealInFileManager(targetPath);
+          await api.shell.revealInFileManager(targetPath, {
+            connectionUrl: inputProps.connectionUrl,
+          });
         } catch (error) {
           toastManager.add({
             description:
@@ -1582,6 +1650,7 @@ function ThreadWorkspaceEditor(inputProps: {
     [
       api,
       handleDeleteEntry,
+      inputProps.connectionUrl,
       props.gitCwd,
       revealEntryLabel,
       revealWorkspaceLabel,
@@ -2051,6 +2120,7 @@ function ThreadWorkspaceEditor(inputProps: {
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                   <ExternalEditorOpenMenu
                     availableEditors={props.availableEditors}
+                    connectionUrl={inputProps.connectionUrl}
                     gitCwd={props.gitCwd}
                     keybindings={props.keybindings}
                   />
@@ -2078,35 +2148,8 @@ function ThreadWorkspaceEditor(inputProps: {
                     onClick={() => setExplorerOpen(props.threadId, false)}
                     title="Collapse explorer"
                   >
-                    <PanelLeftCloseIcon className="size-3.5" />
+                    <IconLayoutSidebarFilled className="size-3.5" />
                   </Button>
-                  {onWorkspaceModeChange ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      className="size-6 shrink-0 text-muted-foreground/76 hover:bg-foreground/6 hover:text-foreground"
-                      aria-label={
-                        editorWorkspaceMode === "split"
-                          ? "Switch to full editor"
-                          : "Switch to split editor"
-                      }
-                      onClick={() =>
-                        onWorkspaceModeChange(editorWorkspaceMode === "split" ? "editor" : "split")
-                      }
-                      title={
-                        editorWorkspaceMode === "split"
-                          ? "Show editor in full-screen mode"
-                          : "Show editor side-by-side with chat"
-                      }
-                    >
-                      {editorWorkspaceMode === "split" ? (
-                        <Maximize2Icon className="size-3.5" />
-                      ) : (
-                        <Columns2Icon className="size-3.5" />
-                      )}
-                    </Button>
-                  ) : null}
                   <Button
                     variant="ghost"
                     size="icon-xs"
@@ -2353,38 +2396,15 @@ function ThreadWorkspaceEditor(inputProps: {
                                     }
                                   >
                                     {explorerOpen ? (
-                                      <PanelLeftCloseIcon className="size-3" />
+                                      <IconLayoutSidebarFilled className="size-3" />
                                     ) : (
-                                      <PanelLeftIcon className="size-3" />
+                                      <IconLayoutSidebar className="size-3" />
                                     )}
                                   </Button>
-                                  {onWorkspaceModeChange ? (
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon-xs"
-                                      className="size-5 text-muted-foreground/72 hover:bg-foreground/6 hover:text-foreground"
-                                      onClick={() =>
-                                        onWorkspaceModeChange(
-                                          editorWorkspaceMode === "split" ? "editor" : "split",
-                                        )
-                                      }
-                                      title={
-                                        editorWorkspaceMode === "split"
-                                          ? "Show editor in full-screen mode"
-                                          : "Show editor side-by-side with chat"
-                                      }
-                                    >
-                                      {editorWorkspaceMode === "split" ? (
-                                        <Maximize2Icon className="size-3" />
-                                      ) : (
-                                        <Columns2Icon className="size-3" />
-                                      )}
-                                    </Button>
-                                  ) : null}
                                 </>
                               ) : undefined
                             }
+                            connectionUrl={inputProps.connectionUrl}
                             diagnosticsCwd={diagnosticsCwd}
                             dirtyFilePaths={activeDirtyPaths}
                             draftsByFilePath={draftsByFilePath}
@@ -2417,6 +2437,7 @@ function ThreadWorkspaceEditor(inputProps: {
                             onUpdateDraft={(filePath, contents) =>
                               updateDraft(props.threadId, filePath, contents)
                             }
+                            monacoTheme={monacoTheme}
                             pane={pane}
                             paneIndex={paneIndex}
                             resolvedTheme={resolvedTheme}
@@ -2488,7 +2509,7 @@ function ThreadWorkspaceEditor(inputProps: {
                   height={WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT}
                   original={saveConflict.currentContents}
                   modified={saveConflict.localContents}
-                  theme={resolvedTheme === "dark" ? "ace-carbon" : "ace-paper"}
+                  theme={monacoTheme}
                   options={diffEditorOptions}
                 />
               </div>

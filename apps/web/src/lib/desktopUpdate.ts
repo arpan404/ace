@@ -78,9 +78,14 @@ export function getDesktopUpdateButtonTooltip(state: DesktopUpdateState): string
 
 export function getDesktopUpdateInstallConfirmationMessage(
   state: Pick<DesktopUpdateState, "availableVersion" | "downloadedVersion">,
+  runningAgentCount = 0,
 ): string {
   const version = state.downloadedVersion ?? state.availableVersion;
-  return `Install update${version ? ` ${version}` : ""} and restart ace?\n\nThis will update the desktop app, bundled web UI, server daemon runtime, and \`ace\` CLI command.\n\nAny running tasks will be interrupted. Make sure you're ready before continuing.`;
+  const runningAgentWarning =
+    runningAgentCount > 0
+      ? `\n\n${runningAgentCount === 1 ? "1 agent is" : `${String(runningAgentCount)} agents are`} running in the background. Continuing will stop ${runningAgentCount === 1 ? "that agent" : "those agents"} before the update installs.`
+      : "";
+  return `Install update${version ? ` ${version}` : ""} and restart ace?\n\nThis will update the desktop app, bundled web UI, server daemon runtime, and \`ace\` CLI command.${runningAgentWarning}\n\nAny running tasks will be interrupted. Make sure you're ready before continuing.`;
 }
 
 export function getDesktopUpdateActionError(result: DesktopUpdateActionResult): string | null {

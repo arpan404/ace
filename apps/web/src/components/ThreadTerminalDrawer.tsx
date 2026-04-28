@@ -1,4 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
+import { IconTerminal } from "@tabler/icons-react";
 import {
   Code2,
   Copy as CopyIcon,
@@ -9,7 +10,6 @@ import {
   RotateCcw as RotateCcwIcon,
   Server,
   SquareSplitHorizontal,
-  TerminalSquare,
   Trash as TrashIcon,
   Wrench,
   XIcon,
@@ -18,6 +18,7 @@ import { type ThreadId } from "@ace/contracts";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
   Fragment,
+  memo,
   type MouseEventHandler,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -56,6 +57,7 @@ import {
   extractTerminalLinks,
   isTerminalLinkActivation,
   resolvePathLinkTarget,
+  type TerminalLinkMatch,
 } from "../terminal-links";
 import { isTerminalClearShortcut, terminalNavigationShortcutData } from "../keybindings";
 import {
@@ -66,6 +68,7 @@ import {
 } from "../types";
 import { readNativeApi } from "~/nativeApi";
 import { reportBackgroundError, runAsyncTask } from "~/lib/async";
+import { SIDEBAR_RESIZE_END_EVENT, isLayoutResizeInProgress } from "~/lib/desktopChrome";
 import {
   TERMINAL_COLOR_OPTIONS,
   TERMINAL_ICON_OPTIONS,
@@ -83,6 +86,7 @@ const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
 const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
 const TERMINAL_FONT_LOAD_TIMEOUT_MS = 140;
+const TERMINAL_LINK_LINE_CACHE_LIMIT = 512;
 
 function maxDrawerHeight(): number {
   if (typeof window === "undefined") return DEFAULT_THREAD_TERMINAL_HEIGHT;
@@ -488,7 +492,7 @@ function TerminalIconGlyph(props: {
     case "wrench":
       return <Wrench className={resolvedClassName} />;
     default:
-      return <TerminalSquare className={resolvedClassName} />;
+      return <IconTerminal className={resolvedClassName} />;
   }
 }
 
@@ -503,7 +507,6 @@ interface TerminalViewportProps {
   onAutoTerminalTitleChange: (title: string | null) => void;
   focusRequestId: number;
   autoFocus: boolean;
-  resizeEpoch: number;
   drawerHeight: number;
 }
 
@@ -518,7 +521,6 @@ function TerminalViewport({
   onAutoTerminalTitleChange,
   focusRequestId,
   autoFocus,
-  resizeEpoch,
   drawerHeight,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -578,8 +580,10 @@ function TerminalViewport({
     if (!api) return;
     let resizeFrame: number | null = null;
     let lastObservedSize: `${number}x${number}` | null = null;
+    let pendingNativeWindowResizeFit = false;
 
     const fitToViewport = () => {
+      pendingNativeWindowResizeFit = false;
       const activeTerminal = terminalRef.current;
       const activeFitAddon = fitAddonRef.current;
       const mountElement = containerRef.current;
@@ -608,6 +612,10 @@ function TerminalViewport({
     };
 
     const scheduleFitToViewport = () => {
+      if (isLayoutResizeInProgress()) {
+        pendingNativeWindowResizeFit = true;
+        return;
+      }
       if (resizeFrame !== null) {
         window.cancelAnimationFrame(resizeFrame);
       }
@@ -623,6 +631,29 @@ function TerminalViewport({
         window.clearTimeout(selectionActionTimerRef.current);
         selectionActionTimerRef.current = null;
       }
+    };
+    const terminalLinkMatchCache = new Map<
+      number,
+      { lineText: string; matches: readonly TerminalLinkMatch[] }
+    >();
+    const readCachedTerminalLinkMatches = (
+      bufferLineNumber: number,
+      lineText: string,
+    ): readonly TerminalLinkMatch[] => {
+      const cached = terminalLinkMatchCache.get(bufferLineNumber);
+      if (cached && cached.lineText === lineText) {
+        return cached.matches;
+      }
+
+      const matches = extractTerminalLinks(lineText);
+      terminalLinkMatchCache.set(bufferLineNumber, { lineText, matches });
+      if (terminalLinkMatchCache.size > TERMINAL_LINK_LINE_CACHE_LIMIT) {
+        const oldestLineNumber = terminalLinkMatchCache.keys().next().value;
+        if (typeof oldestLineNumber === "number") {
+          terminalLinkMatchCache.delete(oldestLineNumber);
+        }
+      }
+      return matches;
     };
 
     const readSelectionAction = (): {
@@ -736,7 +767,7 @@ function TerminalViewport({
         }
 
         const lineText = line.translateToString(true);
-        const matches = extractTerminalLinks(lineText);
+        const matches = readCachedTerminalLinkMatches(bufferLineNumber, lineText);
         if (matches.length === 0) {
           callback(undefined);
           return;
@@ -895,6 +926,7 @@ function TerminalViewport({
       if (event.type === "started" || event.type === "restarted") {
         hasHandledExitRef.current = false;
         commandBufferRef.current = "";
+        terminalLinkMatchCache.clear();
         clearSelectionAction();
         activeTerminal.reset();
         onAutoTerminalTitleChangeRef.current(event.snapshot.title);
@@ -911,6 +943,7 @@ function TerminalViewport({
 
       if (event.type === "cleared") {
         commandBufferRef.current = "";
+        terminalLinkMatchCache.clear();
         clearSelectionAction();
         activeTerminal.clear();
         activeTerminal.write("\u001bc");
@@ -959,6 +992,15 @@ function TerminalViewport({
             scheduleFitToViewport();
           });
     resizeObserver?.observe(mount);
+    const handleNativeWindowResizeEnd = () => {
+      if (!pendingNativeWindowResizeFit) {
+        return;
+      }
+      lastObservedSize = null;
+      scheduleFitToViewport();
+    };
+    window.addEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+    window.addEventListener(SIDEBAR_RESIZE_END_EVENT, handleNativeWindowResizeEnd);
     void openTerminal();
 
     return () => {
@@ -968,6 +1010,8 @@ function TerminalViewport({
         window.cancelAnimationFrame(resizeFrame);
       }
       resizeObserver?.disconnect();
+      window.removeEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
+      window.removeEventListener(SIDEBAR_RESIZE_END_EVENT, handleNativeWindowResizeEnd);
       unsubscribe();
       inputDisposable.dispose();
       selectionDisposable.dispose();
@@ -1023,7 +1067,7 @@ function TerminalViewport({
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [drawerHeight, resizeEpoch, terminalId, threadId]);
+  }, [drawerHeight, terminalId, threadId]);
   return (
     <div ref={containerRef} className="terminal-viewport relative h-full w-full overflow-hidden" />
   );
@@ -1127,7 +1171,7 @@ const TERMINAL_HEADER_ACTION_BUTTON_CLASS_NAME = cn(
   "!size-6 !rounded-[var(--control-radius)] inline-flex items-center justify-center leading-none text-pill-foreground/78 hover:text-pill-foreground [&_svg]:shrink-0",
 );
 
-export default function ThreadTerminalDrawer({
+export default memo(function ThreadTerminalDrawer({
   threadId,
   cwd,
   runtimeEnv,
@@ -1173,7 +1217,6 @@ export default function ThreadTerminalDrawer({
   const [sidebarPanelWidth, setSidebarPanelWidth] = useState(() =>
     clampTerminalSidebarWidth(sidebarWidth),
   );
-  const [resizeEpoch, setResizeEpoch] = useState(0);
   const [editingTerminalId, setEditingTerminalId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [draggedTerminalId, setDraggedTerminalId] = useState<string | null>(null);
@@ -1593,7 +1636,6 @@ export default function ThreadTerminalDrawer({
         return;
       }
       syncHeight(drawerHeightRef.current);
-      setResizeEpoch((value) => value + 1);
     },
     [syncHeight],
   );
@@ -1638,28 +1680,44 @@ export default function ThreadTerminalDrawer({
   );
 
   useEffect(() => {
-    const onWindowResize = () => {
+    let resizeFrame: number | null = null;
+    const syncWindowBounds = () => {
+      resizeFrame = null;
       const clampedHeight = clampDrawerHeight(drawerHeightRef.current);
-      const changed = clampedHeight !== drawerHeightRef.current;
+      const heightChanged = clampedHeight !== drawerHeightRef.current;
       const clampedSidebarWidth = clampTerminalSidebarWidth(sidebarWidthRef.current);
-      if (changed) {
+      const sidebarWidthChanged = clampedSidebarWidth !== sidebarWidthRef.current;
+
+      if (!heightChanged && !sidebarWidthChanged) {
+        return;
+      }
+
+      if (heightChanged) {
         setDrawerHeight(clampedHeight);
         drawerHeightRef.current = clampedHeight;
       }
-      if (clampedSidebarWidth !== sidebarWidthRef.current) {
+      if (sidebarWidthChanged) {
         setSidebarPanelWidth(clampedSidebarWidth);
         sidebarWidthRef.current = clampedSidebarWidth;
       }
-      if (!resizeStateRef.current) {
+      if (heightChanged && !resizeStateRef.current) {
         syncHeight(clampedHeight);
       }
-      if (!sidebarResizeStateRef.current) {
+      if (sidebarWidthChanged && !sidebarResizeStateRef.current) {
         syncSidebarWidth(clampedSidebarWidth);
       }
-      setResizeEpoch((value) => value + 1);
+    };
+    const onWindowResize = () => {
+      if (resizeFrame !== null) {
+        return;
+      }
+      resizeFrame = window.requestAnimationFrame(syncWindowBounds);
     };
     window.addEventListener("resize", onWindowResize);
     return () => {
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
       window.removeEventListener("resize", onWindowResize);
     };
   }, [syncHeight, syncSidebarWidth]);
@@ -1700,7 +1758,6 @@ export default function ThreadTerminalDrawer({
         containerWidthPx: container.clientWidth,
       });
       onSplitRatiosChange(visibleTerminalGroupId, nextRatios);
-      setResizeEpoch((value) => value + 1);
     },
     [onSplitRatiosChange, visibleTerminalGroupId],
   );
@@ -1709,7 +1766,6 @@ export default function ThreadTerminalDrawer({
     const resizeState = splitResizeStateRef.current;
     if (!resizeState || (event && resizeState.pointerId !== event.pointerId)) return;
     splitResizeStateRef.current = null;
-    setResizeEpoch((value) => value + 1);
   }, []);
 
   useEffect(() => {
@@ -1742,7 +1798,7 @@ export default function ThreadTerminalDrawer({
 
   return (
     <aside
-      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/40 bg-terminal"
+      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/70 bg-terminal"
       style={{ height: `${drawerHeight}px` }}
     >
       <div
@@ -1808,7 +1864,7 @@ export default function ThreadTerminalDrawer({
                   onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "new")}
                   className="menu-item-with-icon"
                 >
-                  <TerminalSquare className="size-4 text-muted-foreground" />
+                  <IconTerminal className="size-4 text-muted-foreground" />
                   <span>New Terminal</span>
                 </MenuItem>
                 <MenuItem
@@ -1954,7 +2010,7 @@ export default function ThreadTerminalDrawer({
                   onClick={() => handleTerminalSectionAction("new-terminal")}
                   className="menu-item-with-icon"
                 >
-                  <TerminalSquare className="size-4 text-muted-foreground" />
+                  <IconTerminal className="size-4 text-muted-foreground" />
                   <span>New Terminal</span>
                 </MenuItem>
 
@@ -2027,7 +2083,6 @@ export default function ThreadTerminalDrawer({
                           }
                           focusRequestId={focusRequestId}
                           autoFocus={terminalId === resolvedActiveTerminalId}
-                          resizeEpoch={resizeEpoch}
                           drawerHeight={drawerHeight}
                         />
                       </div>
@@ -2060,7 +2115,6 @@ export default function ThreadTerminalDrawer({
                   }
                   focusRequestId={focusRequestId}
                   autoFocus
-                  resizeEpoch={resizeEpoch}
                   drawerHeight={drawerHeight}
                 />
               </div>
@@ -2070,10 +2124,13 @@ export default function ThreadTerminalDrawer({
           {hasTerminalSidebar && (
             <>
               <div
-                className="terminal-sidebar-resize-handle relative w-2 shrink-0 cursor-col-resize"
+                className="terminal-sidebar-resize-handle group relative w-3 shrink-0 cursor-col-resize"
                 onPointerDown={handleSidebarResizePointerDown}
                 aria-hidden="true"
-              />
+              >
+                <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/75 transition-colors duration-200 ease-out group-hover:bg-border" />
+                <div className="absolute inset-y-1 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent transition-[background-color,transform] duration-200 ease-out group-hover:scale-x-100 group-hover:bg-foreground/5" />
+              </div>
 
               <aside
                 className="terminal-sidebar flex shrink-0 flex-col overflow-hidden"
@@ -2129,7 +2186,7 @@ export default function ThreadTerminalDrawer({
                         onClick={onNewTerminalAction}
                         label={newTerminalActionLabel}
                       >
-                        <TerminalSquare className="size-3.5" />
+                        <IconTerminal className="size-3.5" />
                       </TerminalActionButton>
                       <TerminalActionButton
                         className={cn(
@@ -2373,4 +2430,4 @@ export default function ThreadTerminalDrawer({
       </div>
     </aside>
   );
-}
+});

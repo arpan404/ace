@@ -94,6 +94,10 @@ describe("normalizeModelSlug", () => {
     expect(normalizeModelSlug("sonnet-4", "cursor")).toBe("claude-4-sonnet");
   });
 
+  it("preserves exact Cursor variant slugs", () => {
+    expect(normalizeModelSlug("composer-2-fast", "cursor")).toBe("composer-2-fast");
+  });
+
   it("returns null for empty or missing values", () => {
     expect(normalizeModelSlug("")).toBeNull();
     expect(normalizeModelSlug("   ")).toBeNull();

@@ -9,6 +9,7 @@ import {
   PlusIcon,
   SettingsIcon,
   WrenchIcon,
+  XIcon,
 } from "lucide-react";
 import React, { type FormEvent, type KeyboardEvent, useCallback, useMemo, useState } from "react";
 
@@ -51,12 +52,21 @@ import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu"
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
-  HEADER_PILL_CONTROL_CLASS_NAME,
-  HEADER_PILL_ICON_CONTROL_CLASS_NAME,
+  HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME,
+  HEADER_ACTION_DIALOG_HEADER_CLASS_NAME,
+  HEADER_ACTION_DIALOG_PANEL_CLASS_NAME,
+  HEADER_ACTION_DIALOG_POPUP_CLASS_NAME,
+  HEADER_ACTION_DIVIDER_CLASS_NAME,
+  HEADER_ACTION_FIELD_CARD_CLASS_NAME,
+  HEADER_ACTION_FIELD_CONTROL_CLASS_NAME,
+  HEADER_ACTION_FIELD_LABEL_CLASS_NAME,
+  HEADER_ACTION_GROUP_CLASS_NAME,
+  HEADER_ACTION_ICON_CONTROL_CLASS_NAME,
   TopBarCluster,
-  TopBarClusterDivider,
 } from "./thread/TopBarCluster";
+import { DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME } from "~/lib/desktopChrome";
 
 const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
   { id: "play", label: "Play" },
@@ -130,7 +140,7 @@ export default function ProjectScriptsControl({
   }, [preferredScriptId, scripts]);
   const isEditing = editingScriptId !== null;
   const dropdownItemClassName =
-    "data-highlighted:bg-transparent data-highlighted:text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground data-highlighted:hover:bg-accent data-highlighted:hover:text-accent-foreground data-highlighted:focus-visible:bg-accent data-highlighted:focus-visible:text-accent-foreground";
+    "min-h-8 rounded-lg px-2.5 text-[13px] data-highlighted:bg-accent data-highlighted:text-foreground hover:bg-accent hover:text-foreground";
 
   const captureKeybinding = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Tab") return;
@@ -222,32 +232,48 @@ export default function ProjectScriptsControl({
   return (
     <>
       {primaryScript ? (
-        <TopBarCluster aria-label="Project scripts" className="shrink-0">
-          <Button
-            size="xs"
-            variant="ghost"
-            className={HEADER_PILL_CONTROL_CLASS_NAME}
-            onClick={() => onRunScript(primaryScript)}
-            title={`Run ${primaryScript.name}`}
-          >
-            <ScriptIcon icon={primaryScript.icon} />
-            <span className="sr-only md:not-sr-only md:ml-0.5">{primaryScript.name}</span>
-          </Button>
-          <TopBarClusterDivider />
+        <TopBarCluster
+          aria-label="Project scripts"
+          className={`${HEADER_ACTION_GROUP_CLASS_NAME} shrink-0`}
+        >
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  className={HEADER_ACTION_ICON_CONTROL_CLASS_NAME}
+                  onClick={() => onRunScript(primaryScript)}
+                  aria-label={`Run ${primaryScript.name}`}
+                />
+              }
+            >
+              <PlayIcon className="size-4" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom" align="end">
+              Run {primaryScript.name}
+            </TooltipPopup>
+          </Tooltip>
+          <div className={HEADER_ACTION_DIVIDER_CLASS_NAME} aria-hidden="true" />
           <Menu highlightItemOnHover={false}>
             <MenuTrigger
               render={
                 <Button
                   size="icon-xs"
                   variant="ghost"
-                  className={HEADER_PILL_ICON_CONTROL_CLASS_NAME}
+                  className={HEADER_ACTION_ICON_CONTROL_CLASS_NAME}
                   aria-label="Script actions"
                 />
               }
             >
               <ChevronDownIcon className="size-4" />
             </MenuTrigger>
-            <MenuPopup align="end">
+            <MenuPopup align="end" className="min-w-64 border-border/65 bg-popover/96 p-0">
+              <div className="border-b border-border/40 px-2.5 py-2">
+                <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                  Project actions
+                </div>
+              </div>
               {scripts.map((script) => {
                 const shortcutLabel = shortcutLabelForCommand(
                   keybindings,
@@ -273,7 +299,7 @@ export default function ProjectScriptsControl({
                         type="button"
                         variant="ghost"
                         size="icon-xs"
-                        className="absolute right-0 top-1/2 size-6 -translate-y-1/2 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-visible:opacity-100 group-focus-visible:pointer-events-auto"
+                        className="pointer-events-none absolute top-1/2 right-0 size-6 -translate-y-1/2 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-visible:pointer-events-auto group-focus-visible:opacity-100"
                         aria-label={`Edit ${script.name}`}
                         onPointerDown={(event) => {
                           event.preventDefault();
@@ -299,18 +325,26 @@ export default function ProjectScriptsControl({
           </Menu>
         </TopBarCluster>
       ) : (
-        <TopBarCluster aria-label="Project scripts" className="shrink-0">
-          <Button
-            size="xs"
-            variant="ghost"
-            className={HEADER_PILL_CONTROL_CLASS_NAME}
-            onClick={openAddDialog}
-            title="Add action"
-          >
-            <PlusIcon className="size-3.5" />
-            <span className="sr-only md:not-sr-only md:ml-0.5">Add action</span>
-          </Button>
-        </TopBarCluster>
+        <div className="flex shrink-0 items-center" aria-label="Project scripts">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon-lg"
+                  variant="ghost"
+                  className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME}
+                  onClick={openAddDialog}
+                  aria-label="Add action"
+                />
+              }
+            >
+              <PlusIcon className="size-[18px]" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom" align="end">
+              Add action
+            </TooltipPopup>
+          </Tooltip>
+        </div>
       )}
 
       <Dialog
@@ -332,17 +366,19 @@ export default function ProjectScriptsControl({
         }}
         open={dialogOpen}
       >
-        <DialogPopup>
-          <DialogHeader>
-            <DialogTitle>{isEditing ? "Edit Action" : "Add Action"}</DialogTitle>
-            <DialogDescription>
+        <DialogPopup className={`${HEADER_ACTION_DIALOG_POPUP_CLASS_NAME} max-w-2xl`}>
+          <DialogHeader className={HEADER_ACTION_DIALOG_HEADER_CLASS_NAME}>
+            <DialogTitle>{isEditing ? "Edit action" : "Add action"}</DialogTitle>
+            <DialogDescription className="max-w-xl">
               Actions are project-scoped commands you can run from the top bar or keybindings.
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel>
+          <DialogPanel className={HEADER_ACTION_DIALOG_PANEL_CLASS_NAME}>
             <form id={addScriptFormId} className="space-y-4" onSubmit={submitAddScript}>
               <div className="space-y-1.5">
-                <Label htmlFor="script-name">Name</Label>
+                <Label htmlFor="script-name" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
+                  Name
+                </Label>
                 <div className="flex items-center gap-2">
                   <Popover onOpenChange={setIconPickerOpen} open={iconPickerOpen}>
                     <PopoverTrigger
@@ -350,14 +386,14 @@ export default function ProjectScriptsControl({
                         <Button
                           type="button"
                           variant="outline"
-                          className="size-9 shrink-0 hover:bg-popover active:bg-popover data-pressed:bg-popover"
+                          className="size-9 shrink-0 rounded-xl border-border/55 bg-background/72 shadow-none hover:bg-accent active:bg-accent/80 data-pressed:bg-accent"
                           aria-label="Choose icon"
                         />
                       }
                     >
                       <ScriptIcon icon={icon} className="size-4.5" />
                     </PopoverTrigger>
-                    <PopoverPopup align="start">
+                    <PopoverPopup align="start" className="border-border/60 bg-popover/96 p-2">
                       <div className="grid grid-cols-3 gap-2">
                         {SCRIPT_ICONS.map((entry) => {
                           const isSelected = entry.id === icon;
@@ -365,10 +401,10 @@ export default function ProjectScriptsControl({
                             <button
                               key={entry.id}
                               type="button"
-                              className={`relative flex flex-col items-center gap-2 rounded-md border px-2 py-2 text-xs ${
+                              className={`relative flex flex-col items-center gap-2 rounded-lg border px-2 py-2 text-xs transition-colors ${
                                 isSelected
-                                  ? "border-primary bg-primary/10"
-                                  : "border-border hover:bg-accent"
+                                  ? "border-primary/50 bg-primary/10 text-foreground"
+                                  : "border-border/50 bg-background/40 text-muted-foreground hover:bg-accent hover:text-foreground"
                               }`}
                               onClick={() => {
                                 setIcon(entry.id);
@@ -388,33 +424,54 @@ export default function ProjectScriptsControl({
                     autoFocus
                     placeholder="Test"
                     value={name}
+                    className={HEADER_ACTION_FIELD_CONTROL_CLASS_NAME}
                     onChange={(event) => setName(event.target.value)}
                   />
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="script-keybinding">Keybinding</Label>
-                <Input
-                  id="script-keybinding"
-                  placeholder="Press shortcut"
-                  value={keybinding}
-                  readOnly
-                  onKeyDown={captureKeybinding}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Press a shortcut. Use <code>Backspace</code> to clear.
-                </p>
+                <Label htmlFor="script-keybinding" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
+                  Keybinding
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="script-keybinding"
+                    placeholder="Press shortcut"
+                    value={keybinding}
+                    className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} pr-9`}
+                    readOnly
+                    onKeyDown={captureKeybinding}
+                  />
+                  {keybinding ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="absolute top-1/2 right-1 size-7 -translate-y-1/2 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                      aria-label="Clear keybinding"
+                      onClick={() => setKeybinding("")}
+                    >
+                      <XIcon className="size-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
+                <p className="text-xs text-muted-foreground">Press a shortcut to capture it.</p>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="script-command">Command</Label>
+                <Label htmlFor="script-command" className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>
+                  Command
+                </Label>
                 <Textarea
                   id="script-command"
                   placeholder="bun test"
                   value={command}
+                  className={`${HEADER_ACTION_FIELD_CONTROL_CLASS_NAME} min-h-28 font-mono text-[13px]`}
                   onChange={(event) => setCommand(event.target.value)}
                 />
               </div>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
+              <label
+                className={`${HEADER_ACTION_FIELD_CARD_CLASS_NAME} flex items-center justify-between gap-3 px-3 py-2.5 text-sm`}
+              >
                 <span>Run automatically on worktree creation</span>
                 <Switch
                   checked={runOnWorktreeCreate}
@@ -424,7 +481,7 @@ export default function ProjectScriptsControl({
               {validationError && <p className="text-sm text-destructive">{validationError}</p>}
             </form>
           </DialogPanel>
-          <DialogFooter>
+          <DialogFooter className={HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME}>
             {isEditing && (
               <Button
                 type="button"

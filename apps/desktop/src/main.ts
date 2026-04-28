@@ -77,8 +77,6 @@ import {
   type DesktopBackgroundNotificationService,
 } from "./backgroundNotificationService";
 
-syncShellEnvironment();
-
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
 const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
@@ -99,10 +97,9 @@ const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
-const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
-const GET_IS_DEVELOPMENT_BUILD_CHANNEL = "desktop:get-is-development-build";
-const GET_WINDOW_SHOWN_AT_CHANNEL = "desktop:get-window-shown-at";
-const GET_TITLEBAR_LEFT_INSET_CHANNEL = "desktop:get-titlebar-left-inset";
+const GET_RENDERER_BOOTSTRAP_CHANNEL = "desktop:get-renderer-bootstrap";
+const WINDOW_SHOWN_AT_CHANGED_CHANNEL = "desktop:window-shown-at-changed";
+const TITLEBAR_LEFT_INSET_CHANGED_CHANNEL = "desktop:titlebar-left-inset-changed";
 const GET_NOTIFICATION_PERMISSION_CHANNEL = "desktop:get-notification-permission";
 const REQUEST_NOTIFICATION_PERMISSION_CHANNEL = "desktop:request-notification-permission";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
@@ -114,7 +111,7 @@ const APP_ZOOM_STEP = 0.1;
 const MIN_APP_ZOOM_FACTOR = 0.5;
 const MAX_APP_ZOOM_FACTOR = 2;
 const MAC_TRAFFIC_LIGHT_POSITION = { x: 16, y: 18 };
-const MAC_TITLEBAR_LEFT_INSET_PX = 90;
+const MAC_TITLEBAR_LEFT_INSET_PX = 78;
 const isSourceCheckoutRun = process.env.ACE_LOCAL_DESKTOP_RUN === "1";
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL) || isSourceCheckoutRun;
 const devServerUrl = process.env.VITE_DEV_SERVER_URL?.trim();
@@ -137,6 +134,7 @@ const LOG_DIR = Path.join(STATE_DIR, "logs");
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const DAEMON_LOGIN_ITEM_ARG = "--daemon-login-item";
+const DESKTOP_UPDATE_ARG = "--ace-update";
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -156,7 +154,11 @@ interface DaemonStartOutput {
     readonly port: number;
     readonly authToken: string;
     readonly wsUrl: string;
+    readonly serverVersion?: string;
   };
+  readonly upgraded?: true;
+  readonly recovered?: true;
+  readonly previousVersion?: string;
 }
 interface DaemonStatusOutput {
   readonly status: "running" | "stopped" | "stale";
@@ -167,6 +169,13 @@ interface DaemonStatusOutput {
 interface DaemonStopOutput {
   readonly status: "already-stopped" | "cleared-stale-state" | "stopped";
   readonly pid?: number;
+}
+
+interface DesktopRendererBootstrapPayload {
+  readonly isDevelopmentBuild: boolean;
+  readonly titlebarLeftInset: number | null;
+  readonly windowShownAt: number | null;
+  readonly wsUrl: string | null;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -538,12 +547,22 @@ async function requestDesktopNotificationPermission(): Promise<DesktopNotificati
     title: "ace notifications",
     body: "Enable notifications to get alerts when agent work completes or needs input.",
   });
+  const permissionWaitDeadlineMs = Date.now() + 10_000;
 
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, 1_000);
-  });
-  closeDesktopNotification(probeNotificationId);
-  return getDesktopNotificationPermission();
+  try {
+    while (Date.now() < permissionWaitDeadlineMs) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 250);
+      });
+      const nextPermission = getDesktopNotificationPermission();
+      if (nextPermission !== "default") {
+        return nextPermission;
+      }
+    }
+    return getDesktopNotificationPermission();
+  } finally {
+    closeDesktopNotification(probeNotificationId);
+  }
 }
 
 function writeDesktopStreamChunk(
@@ -818,6 +837,14 @@ function resolveTitlebarLeftInset(window: BrowserWindow | null | undefined): num
   return MAC_TITLEBAR_LEFT_INSET_PX;
 }
 
+function emitTitlebarLeftInsetChanged(window: BrowserWindow): void {
+  safelySendToWindow(window, TITLEBAR_LEFT_INSET_CHANGED_CHANNEL, resolveTitlebarLeftInset(window));
+}
+
+function emitWindowShownAtChanged(window: BrowserWindow): void {
+  safelySendToWindow(window, WINDOW_SHOWN_AT_CHANGED_CHANNEL, mainWindowShownAtMs);
+}
+
 function getDesktopCliUnavailableMessage(): string {
   if (!app.isPackaged) {
     return "CLI install is only available in packaged desktop builds.";
@@ -910,11 +937,15 @@ function parseDaemonStartOutput(raw: string): DaemonStartOutput {
   }
   const payload = parsed as {
     status?: unknown;
+    upgraded?: unknown;
+    recovered?: unknown;
+    previousVersion?: unknown;
     daemon?: {
       pid?: unknown;
       port?: unknown;
       authToken?: unknown;
       wsUrl?: unknown;
+      serverVersion?: unknown;
     };
   };
   if (payload.status !== "started" && payload.status !== "already-running") {
@@ -935,7 +966,15 @@ function parseDaemonStartOutput(raw: string): DaemonStartOutput {
       port: payload.daemon.port,
       authToken: payload.daemon.authToken,
       wsUrl: payload.daemon.wsUrl,
+      ...(typeof payload.daemon.serverVersion === "string"
+        ? { serverVersion: payload.daemon.serverVersion }
+        : {}),
     },
+    ...(payload.upgraded === true ? { upgraded: true as const } : {}),
+    ...(payload.recovered === true ? { recovered: true as const } : {}),
+    ...(typeof payload.previousVersion === "string"
+      ? { previousVersion: payload.previousVersion }
+      : {}),
   };
 }
 
@@ -1100,6 +1139,20 @@ function startOrConnectBackendDaemon(): void {
   writeDesktopLogHeader(
     `daemon backend ${parsed.status} pid=${String(parsed.daemon.pid)} port=${String(parsed.daemon.port)}`,
   );
+  if (parsed.upgraded === true) {
+    writeDesktopLogHeader(
+      `daemon backend upgraded previousVersion=${sanitizeLogValue(
+        parsed.previousVersion ?? "unknown",
+      )} currentVersion=${sanitizeLogValue(parsed.daemon.serverVersion ?? "unknown")}`,
+    );
+  }
+  if (parsed.recovered === true) {
+    writeDesktopLogHeader(
+      `daemon backend recovered currentVersion=${sanitizeLogValue(
+        parsed.daemon.serverVersion ?? "unknown",
+      )}`,
+    );
+  }
 }
 
 async function stopDaemonForUpdateInstall(timeoutMs = 10_000): Promise<void> {
@@ -1491,6 +1544,10 @@ function shouldRunHeadlessDaemonBootstrap(): boolean {
   }
 }
 
+function shouldRunHeadlessDesktopUpdate(): boolean {
+  return app.isPackaged && process.argv.includes(DESKTOP_UPDATE_ARG);
+}
+
 function getInAppBrowserSession(): Electron.Session {
   return session.fromPartition(IN_APP_BROWSER_PARTITION);
 }
@@ -1792,6 +1849,59 @@ async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed
   }
 }
 
+async function runHeadlessDesktopUpdate(): Promise<void> {
+  writeDesktopLogHeader("headless update start");
+  configureAutoUpdater();
+  if (!updaterConfigured) {
+    const message = updateState.message ?? "Automatic updates are unavailable in this build.";
+    writeDesktopLogHeader(`headless update unavailable message=${sanitizeLogValue(message)}`);
+    process.stdout.write(`${message}\n`);
+    process.exitCode = 2;
+    app.quit();
+    return;
+  }
+
+  const checked = await checkForUpdates("cli");
+  if (!checked) {
+    process.stdout.write("Update check could not be started.\n");
+    process.exitCode = 1;
+    app.quit();
+    return;
+  }
+
+  if (updateState.status === "up-to-date") {
+    process.stdout.write(`ace ${updateState.currentVersion} is up to date.\n`);
+    app.quit();
+    return;
+  }
+
+  if (updateState.status !== "available") {
+    const message = updateState.message ?? "No installable update is available.";
+    process.stdout.write(`${message}\n`);
+    process.exitCode = updateState.status === "error" ? 1 : 0;
+    app.quit();
+    return;
+  }
+
+  const version = updateState.availableVersion ?? "available";
+  process.stdout.write(`Downloading update ${version}...\n`);
+  const downloadResult = await downloadAvailableUpdate();
+  if (!downloadResult.completed || updateState.downloadedVersion === null) {
+    process.stdout.write(`${updateState.message ?? "Update download failed."}\n`);
+    process.exitCode = 1;
+    app.quit();
+    return;
+  }
+
+  process.stdout.write("Installing update and restarting ace...\n");
+  const installResult = await installDownloadedUpdate();
+  if (!installResult.accepted) {
+    process.stdout.write(`${updateState.message ?? "Update install could not be started."}\n`);
+    process.exitCode = 1;
+    app.quit();
+  }
+}
+
 function configureAutoUpdater(): void {
   const enabled = shouldEnableAutoUpdates();
   setUpdateState({
@@ -2084,26 +2194,16 @@ async function stopBackendAndWaitForExit(timeoutMs = 5_000): Promise<void> {
 }
 
 function registerIpcHandlers(): void {
-  ipcMain.removeAllListeners(GET_WS_URL_CHANNEL);
-  ipcMain.on(GET_WS_URL_CHANNEL, (event) => {
-    event.returnValue = backendWsUrl;
-  });
-
-  ipcMain.removeAllListeners(GET_IS_DEVELOPMENT_BUILD_CHANNEL);
-  ipcMain.on(GET_IS_DEVELOPMENT_BUILD_CHANNEL, (event) => {
-    event.returnValue = isDevelopmentBuild;
-  });
-
-  ipcMain.removeAllListeners(GET_WINDOW_SHOWN_AT_CHANNEL);
-  ipcMain.on(GET_WINDOW_SHOWN_AT_CHANNEL, (event) => {
-    event.returnValue = mainWindowShownAtMs;
-  });
-
-  ipcMain.removeAllListeners(GET_TITLEBAR_LEFT_INSET_CHANNEL);
-  ipcMain.on(GET_TITLEBAR_LEFT_INSET_CHANNEL, (event) => {
+  ipcMain.removeAllListeners(GET_RENDERER_BOOTSTRAP_CHANNEL);
+  ipcMain.on(GET_RENDERER_BOOTSTRAP_CHANNEL, (event) => {
     const owner =
       BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? mainWindow;
-    event.returnValue = resolveTitlebarLeftInset(owner);
+    event.returnValue = {
+      isDevelopmentBuild,
+      titlebarLeftInset: resolveTitlebarLeftInset(owner),
+      windowShownAt: mainWindowShownAtMs,
+      wsUrl: backendWsUrl,
+    } satisfies DesktopRendererBootstrapPayload;
   });
 
   ipcMain.removeHandler(GET_NOTIFICATION_PERMISSION_CHANNEL);
@@ -2524,8 +2624,9 @@ function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1100,
     height: 780,
-    minWidth: 840,
-    minHeight: 620,
+    minWidth: 720,
+    minHeight: 520,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#111313" : "#f4f7f6",
     show: false,
     autoHideMenuBar: true,
     ...getIconOption(),
@@ -2555,8 +2656,13 @@ function createWindow(): BrowserWindow {
     event.preventDefault();
     window.setTitle(APP_DISPLAY_NAME);
   });
+  window.on("enter-full-screen", () => emitTitlebarLeftInsetChanged(window));
+  window.on("leave-full-screen", () => emitTitlebarLeftInsetChanged(window));
+  window.on("enter-html-full-screen", () => emitTitlebarLeftInsetChanged(window));
+  window.on("leave-html-full-screen", () => emitTitlebarLeftInsetChanged(window));
   window.webContents.on("did-finish-load", () => {
     window.setTitle(APP_DISPLAY_NAME);
+    emitTitlebarLeftInsetChanged(window);
     emitUpdateState();
   });
   const revealWindow = () => {
@@ -2565,6 +2671,7 @@ function createWindow(): BrowserWindow {
     }
     if (mainWindowShownAtMs === null) {
       mainWindowShownAtMs = Date.now();
+      emitWindowShownAtChanged(window);
     }
     if (!window.isVisible()) {
       window.show();
@@ -2658,9 +2765,20 @@ app
   .whenReady()
   .then(() => {
     writeDesktopLogHeader("app ready");
-    configureAppIdentity();
+    syncShellEnvironment();
     if (useDaemonBackend) {
       ensureDaemonAutostartRegistration();
+    }
+    if (shouldRunHeadlessDesktopUpdate()) {
+      writeDesktopLogHeader("headless update launch detected");
+      void runHeadlessDesktopUpdate().catch((error) => {
+        const message = formatErrorMessage(error);
+        writeDesktopLogHeader(`headless update failed error=${sanitizeLogValue(message)}`);
+        process.stderr.write(`${message}\n`);
+        process.exitCode = 1;
+        app.quit();
+      });
+      return;
     }
     if (useDaemonBackend && shouldRunHeadlessDaemonBootstrap()) {
       writeDesktopLogHeader("headless login launch detected; starting daemon only");

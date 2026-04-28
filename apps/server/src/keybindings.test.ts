@@ -171,7 +171,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         DEFAULT_KEYBINDINGS.map((binding) => [binding.command, binding.key] as const),
       );
 
-      assert.equal(defaultsByCommand.get("browser.toggle"), "mod+b");
+      assert.equal(defaultsByCommand.get("rightPanel.browser.open"), "mod+b");
       assert.equal(defaultsByCommand.get("sidebar.toggle"), "mod+shift+b");
       assert.equal(defaultsByCommand.get("browser.back"), "mod+[");
       assert.equal(defaultsByCommand.get("browser.forward"), "mod+]");
@@ -182,14 +182,12 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.equal(defaultsByCommand.get("browser.devtools"), "mod+shift+i");
       assert.equal(defaultsByCommand.get("browser.previousTab"), "mod+shift+[");
       assert.equal(defaultsByCommand.get("browser.nextTab"), "mod+shift+]");
-      assert.equal(defaultsByCommand.get("browser.duplicateTab"), "mod+shift+d");
-      assert.equal(defaultsByCommand.get("browser.moveTabLeft"), "mod+alt+[");
-      assert.equal(defaultsByCommand.get("browser.moveTabRight"), "mod+alt+]");
       assert.equal(defaultsByCommand.get("browser.designer.cursor"), "mod+alt+1");
       assert.equal(defaultsByCommand.get("browser.designer.areaComment"), "mod+alt+2");
       assert.equal(defaultsByCommand.get("browser.designer.drawComment"), "mod+alt+3");
       assert.equal(defaultsByCommand.get("browser.designer.elementComment"), "mod+alt+4");
-      assert.equal(defaultsByCommand.get("chat.toggleWorkspaceMode"), "mod+e");
+      assert.equal(defaultsByCommand.get("rightPanel.review.open"), "mod+d");
+      assert.equal(defaultsByCommand.get("rightPanel.editor.open"), "mod+e");
       assert.equal(defaultsByCommand.get("chat.toggleHeader"), "mod+shift+h");
       assert.equal(defaultsByCommand.get("thread.previous"), "mod+shift+[");
       assert.equal(defaultsByCommand.get("thread.next"), "mod+shift+]");
@@ -258,6 +256,52 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         },
       ]);
     }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect(
+    "drops obsolete browser and sidepanel toggle keybindings without reporting config issues",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const { keybindingsConfigPath } = yield* ServerConfig;
+        yield* fs.writeFileString(
+          keybindingsConfigPath,
+          JSON.stringify([
+            { key: "mod+j", command: "terminal.toggle" },
+            { key: "mod+shift+arrowleft", command: "browser.moveTabLeft" },
+            { key: "mod+shift+arrowright", command: "browser.moveTabRight" },
+            { key: "mod+shift+d", command: "browser.duplicateTab" },
+            { key: "mod+b", command: "browser.toggle" },
+            { key: "mod+d", command: "diff.toggle" },
+            { key: "mod+e", command: "rightPanel.editor.toggle" },
+          ]),
+        );
+
+        const configState = yield* Effect.gen(function* () {
+          const keybindings = yield* Keybindings;
+          return yield* keybindings.loadConfigState;
+        });
+
+        assert.isTrue(configState.keybindings.some((entry) => entry.command === "terminal.toggle"));
+        assert.deepEqual(configState.issues, []);
+
+        yield* Effect.gen(function* () {
+          const keybindings = yield* Keybindings;
+          yield* keybindings.syncDefaultKeybindingsOnStartup;
+        });
+
+        const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+        assert.isFalse(
+          persisted.some((entry) => String(entry.command).startsWith("browser.moveTab")),
+        );
+        assert.isFalse(persisted.some((entry) => String(entry.command) === "browser.duplicateTab"));
+        assert.isFalse(persisted.some((entry) => String(entry.command) === "browser.toggle"));
+        assert.isFalse(persisted.some((entry) => String(entry.command) === "diff.toggle"));
+        assert.isFalse(
+          persisted.some((entry) => String(entry.command) === "rightPanel.editor.toggle"),
+        );
+        assert.isTrue(persisted.some((entry) => entry.command === "terminal.toggle"));
+      }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
   it.effect(

@@ -4,6 +4,7 @@ import {
   hasMinimumSelectionSize,
   isAbortedWebviewLoad,
   mapSelectionRectToCapturedImageCrop,
+  normalizeDesignCommentToSingleLine,
   resolveElementCommentWheelForwardingMode,
   shouldRunElementHoverInspection,
   shouldSubmitDesignDraftFromTextareaKey,
@@ -116,6 +117,17 @@ describe("shouldSubmitDesignDraftFromTextareaKey", () => {
         shiftKey: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("normalizeDesignCommentToSingleLine", () => {
+  it("replaces line breaks with spaces so comment submissions stay one line", () => {
+    expect(normalizeDesignCommentToSingleLine("Fix spacing\nfor header")).toBe(
+      "Fix spacing for header",
+    );
+    expect(normalizeDesignCommentToSingleLine("First line\r\nSecond line")).toBe(
+      "First line Second line",
+    );
   });
 });
 

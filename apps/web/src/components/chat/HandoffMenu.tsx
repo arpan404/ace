@@ -1,5 +1,5 @@
 import { PROVIDER_DISPLAY_NAMES, type ProviderKind, type ThreadHandoffMode } from "@ace/contracts";
-import { ArrowLeftRightIcon } from "lucide-react";
+import { IconTransfer } from "@tabler/icons-react";
 import { memo } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { Button, buttonVariants } from "../ui/button";
@@ -88,7 +88,7 @@ export const HandoffMenuButton = memo(function HandoffMenuButton(props: {
           />
         }
       >
-        <ArrowLeftRightIcon className="size-4" />
+        <IconTransfer className="size-4" />
         {showLabel ? <span className="sr-only sm:not-sr-only">Handoff</span> : null}
       </MenuTrigger>
       <MenuPopup align="start">

@@ -18,10 +18,23 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 ] as const;
 
 const PersistedUiStateSchema = Schema.Struct({
+  boardsSectionExpanded: Schema.optional(Schema.Boolean),
+  collapsedProjectCwds: Schema.optional(Schema.Array(Schema.String)),
   expandedProjectCwds: Schema.optional(Schema.Array(Schema.String)),
+  pinnedItems: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        cwd: Schema.optional(Schema.String),
+        id: Schema.optional(Schema.String),
+        kind: Schema.Literals(["project", "thread"]),
+      }),
+    ),
+  ),
   pinnedProjectCwds: Schema.optional(Schema.Array(Schema.String)),
   pinnedThreadIds: Schema.optional(Schema.Array(Schema.String)),
   projectOrderCwds: Schema.optional(Schema.Array(Schema.String)),
+  projectsSectionExpanded: Schema.optional(Schema.Boolean),
+  pinnedSectionExpanded: Schema.optional(Schema.Boolean),
   threadOrderByProjectCwds: Schema.optional(
     Schema.Record(Schema.String, Schema.Array(Schema.String)),
   ),
@@ -29,14 +42,18 @@ const PersistedUiStateSchema = Schema.Struct({
 type PersistedUiState = typeof PersistedUiStateSchema.Type;
 const decodePersistedUiState = Schema.decodeSync(Schema.fromJsonString(PersistedUiStateSchema));
 
+export type UiPinnedItem = { kind: "project"; id: ProjectId } | { kind: "thread"; id: ThreadId };
+
 export interface UiProjectState {
-  pinnedProjectIds: ProjectId[];
+  boardsSectionExpanded: boolean;
+  pinnedSectionExpanded: boolean;
   projectExpandedById: Record<string, boolean>;
   projectOrder: ProjectId[];
+  projectsSectionExpanded: boolean;
 }
 
 export interface UiThreadState {
-  pinnedThreadIds: ThreadId[];
+  pinnedItems: UiPinnedItem[];
   threadOrderByProjectId: Record<string, ThreadId[]>;
   threadLastVisitedAtById: Record<string, string>;
   activeThreadId: ThreadId | null;
@@ -57,16 +74,19 @@ export interface SyncThreadInput {
 }
 
 const initialState: UiState = {
-  pinnedProjectIds: [],
-  pinnedThreadIds: [],
+  boardsSectionExpanded: true,
+  pinnedItems: [],
+  pinnedSectionExpanded: true,
   threadOrderByProjectId: {},
   projectExpandedById: {},
   projectOrder: [],
+  projectsSectionExpanded: true,
   threadLastVisitedAtById: {},
   activeThreadId: null,
   previousActiveThreadId: null,
 };
 
+const persistedCollapsedProjectCwds = new Set<string>();
 const persistedExpandedProjectCwds = new Set<string>();
 const persistedPinnedProjectCwds = new Set<string>();
 const persistedPinnedThreadIds = new Set<string>();
@@ -87,20 +107,32 @@ function readPersistedState(): UiState {
         if (!legacyRaw) {
           continue;
         }
-        hydratePersistedProjectState(decodePersistedUiState(legacyRaw));
-        return initialState;
+        const parsed = decodePersistedUiState(legacyRaw);
+        hydratePersistedProjectState(parsed);
+        return hydratePersistedUiStateFields(initialState, parsed);
       }
       return initialState;
     }
-    hydratePersistedProjectState(decodePersistedUiState(raw));
-    return initialState;
+    const parsed = decodePersistedUiState(raw);
+    hydratePersistedProjectState(parsed);
+    return hydratePersistedUiStateFields(initialState, parsed);
   } catch {
     return initialState;
   }
 }
 
+function hydratePersistedUiStateFields(state: UiState, parsed: PersistedUiState): UiState {
+  return {
+    ...state,
+    boardsSectionExpanded: parsed.boardsSectionExpanded ?? state.boardsSectionExpanded,
+    pinnedSectionExpanded: parsed.pinnedSectionExpanded ?? state.pinnedSectionExpanded,
+    projectsSectionExpanded: parsed.projectsSectionExpanded ?? state.projectsSectionExpanded,
+  };
+}
+
 function hydratePersistedProjectState(parsed: PersistedUiState): void {
   persistedExpandedProjectCwds.clear();
+  persistedCollapsedProjectCwds.clear();
   persistedPinnedProjectCwds.clear();
   persistedPinnedThreadIds.clear();
   persistedThreadOrderByProjectCwd.clear();
@@ -110,14 +142,30 @@ function hydratePersistedProjectState(parsed: PersistedUiState): void {
       persistedExpandedProjectCwds.add(cwd);
     }
   }
-  for (const cwd of parsed.pinnedProjectCwds ?? []) {
+  for (const cwd of parsed.collapsedProjectCwds ?? []) {
     if (typeof cwd === "string" && cwd.length > 0) {
-      persistedPinnedProjectCwds.add(cwd);
+      persistedCollapsedProjectCwds.add(cwd);
     }
   }
-  for (const threadId of parsed.pinnedThreadIds ?? []) {
-    if (typeof threadId === "string" && threadId.length > 0) {
-      persistedPinnedThreadIds.add(threadId);
+  if (parsed.pinnedItems) {
+    for (const item of parsed.pinnedItems) {
+      if (item.kind === "project" && typeof item.cwd === "string" && item.cwd.length > 0) {
+        persistedPinnedProjectCwds.add(item.cwd);
+      }
+      if (item.kind === "thread" && typeof item.id === "string" && item.id.length > 0) {
+        persistedPinnedThreadIds.add(item.id);
+      }
+    }
+  } else {
+    for (const cwd of parsed.pinnedProjectCwds ?? []) {
+      if (typeof cwd === "string" && cwd.length > 0) {
+        persistedPinnedProjectCwds.add(cwd);
+      }
+    }
+    for (const threadId of parsed.pinnedThreadIds ?? []) {
+      if (typeof threadId === "string" && threadId.length > 0) {
+        persistedPinnedThreadIds.add(threadId);
+      }
     }
   }
   for (const [cwd, order] of Object.entries(parsed.threadOrderByProjectCwds ?? {})) {
@@ -149,10 +197,23 @@ function persistState(state: UiState): void {
         const cwd = currentProjectCwdById.get(projectId as ProjectId);
         return cwd ? [cwd] : [];
       });
-    const pinnedProjectCwds = state.pinnedProjectIds.flatMap((projectId) => {
-      const cwd = currentProjectCwdById.get(projectId);
-      return cwd ? [cwd] : [];
-    });
+    const collapsedProjectCwds = Object.entries(state.projectExpandedById)
+      .filter(([, expanded]) => !expanded)
+      .flatMap(([projectId]) => {
+        const cwd = currentProjectCwdById.get(projectId as ProjectId);
+        return cwd ? [cwd] : [];
+      });
+    const pinnedItems: Array<{ kind: "project" | "thread"; cwd?: string; id?: string }> = [];
+    for (const item of state.pinnedItems) {
+      if (item.kind === "thread") {
+        pinnedItems.push({ kind: "thread", id: item.id });
+        continue;
+      }
+      const cwd = currentProjectCwdById.get(item.id);
+      if (cwd) {
+        pinnedItems.push({ kind: "project", cwd });
+      }
+    }
     const projectOrderCwds = state.projectOrder.flatMap((projectId) => {
       const cwd = currentProjectCwdById.get(projectId);
       return cwd ? [cwd] : [];
@@ -171,10 +232,13 @@ function persistState(state: UiState): void {
     window.localStorage.setItem(
       PERSISTED_STATE_KEY,
       JSON.stringify({
+        boardsSectionExpanded: state.boardsSectionExpanded,
+        collapsedProjectCwds,
         expandedProjectCwds,
-        pinnedProjectCwds,
-        pinnedThreadIds: state.pinnedThreadIds,
+        pinnedItems,
+        pinnedSectionExpanded: state.pinnedSectionExpanded,
         projectOrderCwds,
+        projectsSectionExpanded: state.projectsSectionExpanded,
         threadOrderByProjectCwds,
       } satisfies PersistedUiState),
     );
@@ -213,6 +277,16 @@ function projectOrdersEqual(left: readonly ProjectId[], right: readonly ProjectI
 
 function threadOrdersEqual(left: readonly ThreadId[], right: readonly ThreadId[]): boolean {
   return left.length === right.length && left.every((threadId, index) => threadId === right[index]);
+}
+
+function pinnedItemsEqual(left: readonly UiPinnedItem[], right: readonly UiPinnedItem[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((item, index) => {
+      const rightItem = right[index];
+      return rightItem?.kind === item.kind && rightItem.id === item.id;
+    })
+  );
 }
 
 function threadOrdersByProjectEqual(
@@ -256,6 +330,7 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
     const expanded =
       previousExpandedById[project.id] ??
       (previousProjectIdForCwd ? previousExpandedById[previousProjectIdForCwd] : undefined) ??
+      (persistedCollapsedProjectCwds.has(project.cwd) ? false : undefined) ??
       (persistedExpandedProjectCwds.size > 0
         ? persistedExpandedProjectCwds.has(project.cwd)
         : true);
@@ -309,27 +384,36 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
     }
     nextThreadOrderByProjectId[project.id] = mergedOrder;
   }
-  const nextPinnedProjectIds: ProjectId[] = [];
+  const nextPinnedItems: UiPinnedItem[] = [];
   const seenPinnedProjectIds = new Set<ProjectId>();
-  for (const projectId of state.pinnedProjectIds) {
+  const seenPinnedThreadIds = new Set<ThreadId>();
+  for (const item of state.pinnedItems) {
+    if (item.kind === "thread") {
+      if (seenPinnedThreadIds.has(item.id)) {
+        continue;
+      }
+      seenPinnedThreadIds.add(item.id);
+      nextPinnedItems.push(item);
+      continue;
+    }
     const matchedProjectId =
-      (projectId in nextExpandedById ? projectId : undefined) ??
+      (item.id in nextExpandedById ? item.id : undefined) ??
       (() => {
-        const previousCwd = previousProjectCwdById.get(projectId);
+        const previousCwd = previousProjectCwdById.get(item.id);
         return previousCwd ? nextProjectIdByCwd.get(previousCwd) : undefined;
       })();
     if (!matchedProjectId || seenPinnedProjectIds.has(matchedProjectId)) {
       continue;
     }
     seenPinnedProjectIds.add(matchedProjectId);
-    nextPinnedProjectIds.push(matchedProjectId);
+    nextPinnedItems.push({ kind: "project", id: matchedProjectId });
   }
   for (const project of mappedProjects) {
     if (!persistedPinnedProjectCwds.has(project.cwd) || seenPinnedProjectIds.has(project.id)) {
       continue;
     }
     seenPinnedProjectIds.add(project.id);
-    nextPinnedProjectIds.push(project.id);
+    nextPinnedItems.push({ kind: "project", id: project.id });
   }
 
   const nextProjectOrder =
@@ -379,7 +463,7 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
           .map((project) => project.id);
 
   if (
-    projectOrdersEqual(state.pinnedProjectIds, nextPinnedProjectIds) &&
+    pinnedItemsEqual(state.pinnedItems, nextPinnedItems) &&
     threadOrdersByProjectEqual(state.threadOrderByProjectId, nextThreadOrderByProjectId) &&
     recordsEqual(state.projectExpandedById, nextExpandedById) &&
     projectOrdersEqual(state.projectOrder, nextProjectOrder) &&
@@ -390,7 +474,7 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
 
   return {
     ...state,
-    pinnedProjectIds: nextPinnedProjectIds,
+    pinnedItems: nextPinnedItems,
     threadOrderByProjectId: nextThreadOrderByProjectId,
     projectExpandedById: nextExpandedById,
     projectOrder: nextProjectOrder,
@@ -429,15 +513,17 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
       nextThreadOrderByProjectId[thread.projectId] = projectOrder;
     }
   }
-  const nextPinnedThreadIds = state.pinnedThreadIds.filter((threadId) =>
-    retainedThreadIds.has(threadId),
+  const nextPinnedItems = state.pinnedItems.filter(
+    (item) => item.kind === "project" || retainedThreadIds.has(item.id),
+  );
+  const nextPinnedThreadIds = new Set(
+    nextPinnedItems.flatMap((item) => (item.kind === "thread" ? [item.id] : [])),
   );
   for (const threadId of persistedPinnedThreadIds) {
-    if (
-      retainedThreadIds.has(threadId as ThreadId) &&
-      !nextPinnedThreadIds.includes(threadId as ThreadId)
-    ) {
-      nextPinnedThreadIds.push(threadId as ThreadId);
+    const typedThreadId = threadId as ThreadId;
+    if (retainedThreadIds.has(typedThreadId) && !nextPinnedThreadIds.has(typedThreadId)) {
+      nextPinnedThreadIds.add(typedThreadId);
+      nextPinnedItems.push({ kind: "thread", id: typedThreadId });
     }
   }
   const nextThreadLastVisitedAtById = Object.fromEntries(
@@ -465,7 +551,7 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
   if (
     threadOrdersByProjectEqual(state.threadOrderByProjectId, nextThreadOrderByProjectId) &&
     recordsEqual(state.threadLastVisitedAtById, nextThreadLastVisitedAtById) &&
-    threadOrdersEqual(state.pinnedThreadIds, nextPinnedThreadIds)
+    pinnedItemsEqual(state.pinnedItems, nextPinnedItems)
   ) {
     return state.activeThreadId === nextActiveThreadId &&
       state.previousActiveThreadId === nextPreviousActiveThreadId
@@ -478,7 +564,7 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
   }
   return {
     ...state,
-    pinnedThreadIds: nextPinnedThreadIds,
+    pinnedItems: nextPinnedItems,
     threadOrderByProjectId: nextThreadOrderByProjectId,
     threadLastVisitedAtById: nextThreadLastVisitedAtById,
     activeThreadId: nextActiveThreadId,
@@ -563,7 +649,7 @@ export function clearThreadUi(state: UiState, threadId: ThreadId): UiState {
   }
   if (
     !threadOrderChanged &&
-    !state.pinnedThreadIds.includes(threadId) &&
+    !state.pinnedItems.some((item) => item.kind === "thread" && item.id === threadId) &&
     !(threadId in state.threadLastVisitedAtById) &&
     state.activeThreadId !== threadId &&
     state.previousActiveThreadId !== threadId
@@ -574,7 +660,9 @@ export function clearThreadUi(state: UiState, threadId: ThreadId): UiState {
   delete nextThreadLastVisitedAtById[threadId];
   return {
     ...state,
-    pinnedThreadIds: state.pinnedThreadIds.filter((id) => id !== threadId),
+    pinnedItems: state.pinnedItems.filter(
+      (item) => !(item.kind === "thread" && item.id === threadId),
+    ),
     threadOrderByProjectId: nextThreadOrderByProjectId,
     threadLastVisitedAtById: nextThreadLastVisitedAtById,
     activeThreadId: state.activeThreadId === threadId ? null : state.activeThreadId,
@@ -618,13 +706,15 @@ export function reorderThreadsInProject(
 
 export function togglePinnedProject(state: UiState, projectId: ProjectId): UiState {
   const projectCwd = currentProjectCwdById.get(projectId);
-  if (state.pinnedProjectIds.includes(projectId)) {
+  if (state.pinnedItems.some((item) => item.kind === "project" && item.id === projectId)) {
     if (projectCwd) {
       persistedPinnedProjectCwds.delete(projectCwd);
     }
     return {
       ...state,
-      pinnedProjectIds: state.pinnedProjectIds.filter((id) => id !== projectId),
+      pinnedItems: state.pinnedItems.filter(
+        (item) => !(item.kind === "project" && item.id === projectId),
+      ),
     };
   }
 
@@ -633,23 +723,25 @@ export function togglePinnedProject(state: UiState, projectId: ProjectId): UiSta
   }
   return {
     ...state,
-    pinnedProjectIds: [...state.pinnedProjectIds, projectId],
+    pinnedItems: [...state.pinnedItems, { kind: "project", id: projectId }],
   };
 }
 
 export function togglePinnedThread(state: UiState, threadId: ThreadId): UiState {
-  if (state.pinnedThreadIds.includes(threadId)) {
+  if (state.pinnedItems.some((item) => item.kind === "thread" && item.id === threadId)) {
     persistedPinnedThreadIds.delete(threadId);
     return {
       ...state,
-      pinnedThreadIds: state.pinnedThreadIds.filter((id) => id !== threadId),
+      pinnedItems: state.pinnedItems.filter(
+        (item) => !(item.kind === "thread" && item.id === threadId),
+      ),
     };
   }
 
   persistedPinnedThreadIds.add(threadId);
   return {
     ...state,
-    pinnedThreadIds: [...state.pinnedThreadIds, threadId],
+    pinnedItems: [...state.pinnedItems, { kind: "thread", id: threadId }],
   };
 }
 
@@ -661,23 +753,27 @@ export function reorderPinnedThreads(
   if (draggedThreadId === targetThreadId) {
     return state;
   }
-  const draggedIndex = state.pinnedThreadIds.findIndex((threadId) => threadId === draggedThreadId);
-  const targetIndex = state.pinnedThreadIds.findIndex((threadId) => threadId === targetThreadId);
+  const draggedIndex = state.pinnedItems.findIndex(
+    (item) => item.kind === "thread" && item.id === draggedThreadId,
+  );
+  const targetIndex = state.pinnedItems.findIndex(
+    (item) => item.kind === "thread" && item.id === targetThreadId,
+  );
   if (draggedIndex < 0 || targetIndex < 0) {
     return state;
   }
-  const pinnedThreadIds = [...state.pinnedThreadIds];
-  const [draggedThread] = pinnedThreadIds.splice(draggedIndex, 1);
+  const pinnedItems = [...state.pinnedItems];
+  const [draggedThread] = pinnedItems.splice(draggedIndex, 1);
   if (!draggedThread) {
     return state;
   }
-  pinnedThreadIds.splice(targetIndex, 0, draggedThread);
-  if (threadOrdersEqual(state.pinnedThreadIds, pinnedThreadIds)) {
+  pinnedItems.splice(targetIndex, 0, draggedThread);
+  if (pinnedItemsEqual(state.pinnedItems, pinnedItems)) {
     return state;
   }
   return {
     ...state,
-    pinnedThreadIds,
+    pinnedItems,
   };
 }
 
@@ -706,6 +802,36 @@ export function setProjectExpanded(
       ...state.projectExpandedById,
       [projectId]: expanded,
     },
+  };
+}
+
+export function setPinnedSectionExpanded(state: UiState, expanded: boolean): UiState {
+  if (state.pinnedSectionExpanded === expanded) {
+    return state;
+  }
+  return {
+    ...state,
+    pinnedSectionExpanded: expanded,
+  };
+}
+
+export function setProjectsSectionExpanded(state: UiState, expanded: boolean): UiState {
+  if (state.projectsSectionExpanded === expanded) {
+    return state;
+  }
+  return {
+    ...state,
+    projectsSectionExpanded: expanded,
+  };
+}
+
+export function setBoardsSectionExpanded(state: UiState, expanded: boolean): UiState {
+  if (state.boardsSectionExpanded === expanded) {
+    return state;
+  }
+  return {
+    ...state,
+    boardsSectionExpanded: expanded,
   };
 }
 
@@ -751,6 +877,9 @@ interface UiStateStore extends UiState {
   togglePinnedThread: (threadId: ThreadId) => void;
   toggleProject: (projectId: ProjectId) => void;
   setProjectExpanded: (projectId: ProjectId, expanded: boolean) => void;
+  setPinnedSectionExpanded: (expanded: boolean) => void;
+  setProjectsSectionExpanded: (expanded: boolean) => void;
+  setBoardsSectionExpanded: (expanded: boolean) => void;
   reorderProjects: (draggedProjectId: ProjectId, targetProjectId: ProjectId) => void;
 }
 
@@ -773,6 +902,10 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),
+  setPinnedSectionExpanded: (expanded) => set((state) => setPinnedSectionExpanded(state, expanded)),
+  setProjectsSectionExpanded: (expanded) =>
+    set((state) => setProjectsSectionExpanded(state, expanded)),
+  setBoardsSectionExpanded: (expanded) => set((state) => setBoardsSectionExpanded(state, expanded)),
   reorderProjects: (draggedProjectId, targetProjectId) =>
     set((state) => reorderProjects(state, draggedProjectId, targetProjectId)),
 }));

@@ -384,7 +384,7 @@ describe("startSession", () => {
       clientInfo: {
         name: "ace_desktop",
         title: "ace Desktop",
-        version: "0.1.0",
+        version: "0.1.1",
       },
       capabilities: {
         experimentalApi: true,

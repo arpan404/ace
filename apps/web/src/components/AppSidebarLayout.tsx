@@ -5,13 +5,14 @@ import { useNavigate } from "@tanstack/react-router";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { requestInAppBrowserFromShell } from "../lib/browser/launcher";
 import { buildSingleThreadRouteSearch } from "../lib/chatThreadBoardRouteSearch";
-import { useSettings } from "../hooks/useSettings";
+import { useSetting } from "../hooks/useSettings";
 import { resolveDesktopMenuSettingsRoute } from "../lib/desktopMenu";
 import { resolveSidebarNewThreadEnvMode } from "../lib/sidebar";
 import { resolveThreadCreationOptions } from "../lib/threadCreation";
 import { resolveShortcutCommand } from "../keybindings";
 import { useUiStateStore } from "../uiStateStore";
 import { useServerKeybindings } from "../rpc/serverState";
+import { isTerminalFocused } from "../lib/terminalFocus";
 import ThreadSidebar from "./Sidebar";
 import { Sidebar, SidebarProvider, SidebarRail, useSidebar } from "./ui/sidebar";
 import { toastManager } from "./ui/toast";
@@ -35,7 +36,7 @@ function isEditableHotkeyTarget(target: EventTarget | null): boolean {
   );
 }
 
-function SidebarToggleHotkeyHandler() {
+function SidebarGlobalHotkeyHandler() {
   const { isMobile, toggleSidebar } = useSidebar();
   const keybindings = useServerKeybindings();
 
@@ -47,10 +48,31 @@ function SidebarToggleHotkeyHandler() {
       if (event.defaultPrevented || event.repeat) {
         return;
       }
-      const command = resolveShortcutCommand(event, keybindings);
-      if (command !== "sidebar.toggle" || isEditableHotkeyTarget(event.target)) {
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          terminalFocus: isTerminalFocused(),
+        },
+      });
+      if (!command || isEditableHotkeyTarget(event.target)) {
         return;
       }
+
+      if (command === "navigation.back") {
+        event.preventDefault();
+        event.stopPropagation();
+        window.history.back();
+        return;
+      }
+
+      if (command === "navigation.forward") {
+        event.preventDefault();
+        event.stopPropagation();
+        window.history.forward();
+        return;
+      }
+
+      if (command !== "sidebar.toggle") return;
+
       event.preventDefault();
       event.stopPropagation();
       toggleSidebar();
@@ -69,65 +91,62 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const { activeDraftThread, activeThread, defaultProjectId, handleNewThread, routeThreadId } =
     useHandleNewThread();
-  const appSettings = useSettings();
+  const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const activeThreadId = useUiStateStore((store) => store.activeThreadId);
   const previousActiveThreadId = useUiStateStore((store) => store.previousActiveThreadId);
 
-  const openBrowserFromShell = useCallback(
-    async (action: "open" | "toggle") => {
-      await requestInAppBrowserFromShell({
-        routeThreadId,
-        fallbackThreadId: activeThreadId ?? previousActiveThreadId,
-        activeProjectId: activeThread?.projectId ?? activeDraftThread?.projectId ?? null,
-        activeThread: activeThread
-          ? {
-              projectId: activeThread.projectId,
-              branch: activeThread.branch,
-              worktreePath: activeThread.worktreePath,
-            }
-          : null,
-        activeDraftThread: activeDraftThread
-          ? {
-              projectId: activeDraftThread.projectId,
-              branch: activeDraftThread.branch,
-              worktreePath: activeDraftThread.worktreePath,
-              envMode: activeDraftThread.envMode,
-            }
-          : null,
-        defaultProjectId,
-        defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
-          defaultEnvMode: appSettings.defaultThreadEnvMode,
-        }),
-        handleNewThread,
-        navigateToThread: async (threadId) => {
-          await navigate({
-            to: "/$threadId",
-            params: { threadId },
-            search: buildSingleThreadRouteSearch(),
-          });
-        },
-        request: { action },
-        onMissingProject: () => {
-          toastManager.add({
-            type: "error",
-            title: "Add a project to open the browser",
-            description: "The in-app browser opens from an active workspace thread.",
-          });
-        },
-      });
-    },
-    [
-      activeDraftThread,
-      activeThread,
-      activeThreadId,
-      appSettings.defaultThreadEnvMode,
-      defaultProjectId,
-      handleNewThread,
-      navigate,
-      previousActiveThreadId,
+  const openBrowserFromShell = useCallback(async () => {
+    await requestInAppBrowserFromShell({
       routeThreadId,
-    ],
-  );
+      fallbackThreadId: activeThreadId ?? previousActiveThreadId,
+      activeProjectId: activeThread?.projectId ?? activeDraftThread?.projectId ?? null,
+      activeThread: activeThread
+        ? {
+            projectId: activeThread.projectId,
+            branch: activeThread.branch,
+            worktreePath: activeThread.worktreePath,
+          }
+        : null,
+      activeDraftThread: activeDraftThread
+        ? {
+            projectId: activeDraftThread.projectId,
+            branch: activeDraftThread.branch,
+            worktreePath: activeDraftThread.worktreePath,
+            envMode: activeDraftThread.envMode,
+          }
+        : null,
+      defaultProjectId,
+      defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
+        defaultEnvMode: defaultThreadEnvMode,
+      }),
+      handleNewThread,
+      navigateToThread: async (threadId) => {
+        await navigate({
+          to: "/$threadId",
+          params: { threadId },
+          search: buildSingleThreadRouteSearch(),
+        });
+      },
+      request: { action: "open" },
+      onMissingProject: () => {
+        toastManager.add({
+          type: "error",
+          title: "Add a project to open the browser",
+          description: "The in-app browser opens from an active workspace thread.",
+        });
+      },
+    });
+  }, [
+    activeDraftThread,
+    activeThread,
+    activeThreadId,
+    defaultThreadEnvMode,
+    defaultProjectId,
+    handleNewThread,
+    navigate,
+    previousActiveThreadId,
+    routeThreadId,
+  ]);
 
   const handleDesktopMenuAction = useCallback(
     (action: DesktopMenuAction) => {
@@ -137,8 +156,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (action === "toggle-browser") {
-        void openBrowserFromShell("toggle");
+      if (action === "open-browser-tab") {
+        void openBrowserFromShell();
         return;
       }
 
@@ -180,7 +199,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
               }
             : null,
           defaultNewThreadEnvMode: resolveSidebarNewThreadEnvMode({
-            defaultEnvMode: appSettings.defaultThreadEnvMode,
+            defaultEnvMode: defaultThreadEnvMode,
           }),
         }),
       );
@@ -188,7 +207,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     [
       activeDraftThread,
       activeThread,
-      appSettings.defaultThreadEnvMode,
+      defaultThreadEnvMode,
       defaultProjectId,
       handleNewThread,
       navigate,
@@ -211,7 +230,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
 
   return (
     <SidebarProvider defaultOpen>
-      <SidebarToggleHotkeyHandler />
+      <SidebarGlobalHotkeyHandler />
       <Sidebar
         side="left"
         collapsible="offcanvas"
@@ -225,8 +244,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         }}
         resizable={{
           minWidth: THREAD_SIDEBAR_MIN_WIDTH,
-          shouldAcceptWidth: ({ nextWidth, wrapper }) =>
-            wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
+          shouldAcceptWidth: ({ nextWidth, wrapperWidth }) =>
+            wrapperWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
           storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
         }}
       >

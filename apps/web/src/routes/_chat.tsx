@@ -10,7 +10,7 @@ import { resolveShortcutCommand } from "../keybindings";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { resolveSidebarNewThreadEnvMode } from "~/lib/sidebar";
-import { useSettings } from "~/hooks/useSettings";
+import { useSetting } from "~/hooks/useSettings";
 import { useServerKeybindings } from "~/rpc/serverState";
 
 function ChatRouteGlobalShortcuts() {
@@ -24,13 +24,14 @@ function ChatRouteGlobalShortcuts() {
       ? selectThreadTerminalState(state.terminalStateByThreadId, routeThreadId).terminalOpen
       : false,
   );
-  const appSettings = useSettings();
+  const threadHydrationCacheMemoryMb = useSetting("threadHydrationCacheMemoryMb");
+  const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
 
   useEffect(() => {
     configureThreadHydrationCache({
-      maxMemoryBytes: appSettings.threadHydrationCacheMemoryMb * 1024 * 1024,
+      maxMemoryBytes: threadHydrationCacheMemoryMb * 1024 * 1024,
     });
-  }, [appSettings.threadHydrationCacheMemoryMb]);
+  }, [threadHydrationCacheMemoryMb]);
 
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
@@ -72,7 +73,7 @@ function ChatRouteGlobalShortcuts() {
                 }
               : null,
             defaultNewThreadEnvMode: resolveSidebarNewThreadEnvMode({
-              defaultEnvMode: appSettings.defaultThreadEnvMode,
+              defaultEnvMode: defaultThreadEnvMode,
             }),
           }),
         );
@@ -99,7 +100,7 @@ function ChatRouteGlobalShortcuts() {
                 }
               : null,
             defaultNewThreadEnvMode: resolveSidebarNewThreadEnvMode({
-              defaultEnvMode: appSettings.defaultThreadEnvMode,
+              defaultEnvMode: defaultThreadEnvMode,
             }),
           }),
         );
@@ -120,7 +121,7 @@ function ChatRouteGlobalShortcuts() {
     defaultProjectId,
     selectedThreadIdsSize,
     terminalOpen,
-    appSettings.defaultThreadEnvMode,
+    defaultThreadEnvMode,
   ]);
 
   return null;

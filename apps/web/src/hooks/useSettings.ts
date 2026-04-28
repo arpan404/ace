@@ -9,10 +9,9 @@
  * write. The hook transparently routes reads/writes to the correct backing
  * store.
  */
-import { useCallback, useMemo } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { ServerSettings, ServerSettingsPatch, ModelSelection, ThreadEnvMode } from "@ace/contracts";
 import {
-  BrowserOpenMode,
   BrowserSearchEngine,
   type ClientSettings,
   ClientSettingsSchema,
@@ -30,19 +29,25 @@ import {
   WorkspaceEditorOpenMode,
 } from "@ace/contracts/settings";
 import { ensureNativeApi } from "~/nativeApi";
-import { useLocalStorage } from "./useLocalStorage";
+import { getLocalStorageItem, useLocalStorage } from "./useLocalStorage";
 import { normalizeCustomModelSlugs } from "~/modelSelection";
 import { Predicate, Schema, Struct } from "effect";
 import { DeepMutable } from "effect/Types";
 import { deepMerge } from "@ace/shared/Struct";
-import { applySettingsUpdated, getServerConfig, useServerSettings } from "~/rpc/serverState";
+import {
+  applySettingsUpdated,
+  getServerConfig,
+  onServerConfigUpdated,
+  useServerSettingsValue,
+} from "~/rpc/serverState";
 
 const CLIENT_SETTINGS_STORAGE_KEY = "ace:client-settings:v1";
 const OLD_SETTINGS_KEY = "ace:app-settings:v1";
+const LOCAL_STORAGE_CHANGE_EVENT = "ace:local_storage_change";
 const JsonObjectSchema = Schema.Record(Schema.String, Schema.Unknown);
 const decodeJsonObject = Schema.decodeSync(Schema.fromJsonString(JsonObjectSchema));
+const CLIENT_SETTINGS_KEYS = new Set<string>(Struct.keys(ClientSettingsSchema.fields));
 const ClientSettingsPatchSchema = Schema.Struct({
-  browserOpenMode: Schema.optionalKey(ClientSettingsSchema.fields.browserOpenMode),
   browserSearchEngine: Schema.optionalKey(ClientSettingsSchema.fields.browserSearchEngine),
   confirmThreadArchive: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadArchive),
   confirmThreadDelete: Schema.optionalKey(ClientSettingsSchema.fields.confirmThreadDelete),
@@ -91,6 +96,24 @@ function splitPatch(patch: Partial<UnifiedSettings>): {
   };
 }
 
+// Stable merged snapshot for `useSyncExternalStore`. Building `{ ... }` on every
+// `getSnapshot` call yields a new reference each time, which makes React treat the
+// store as constantly updated and triggers error #185 (max update depth exceeded).
+let stableMergedUnifiedSettings: UnifiedSettings = DEFAULT_UNIFIED_SETTINGS;
+let stableMergedUnifiedFingerprint: string | null = null;
+
+function getStableMergedUnifiedSettings(): UnifiedSettings {
+  const server = getServerConfig()?.settings ?? DEFAULT_UNIFIED_SETTINGS;
+  const client = readClientSettingsSnapshot();
+  const fingerprint = `${JSON.stringify(server)}\0${JSON.stringify(client)}`;
+  if (fingerprint === stableMergedUnifiedFingerprint) {
+    return stableMergedUnifiedSettings;
+  }
+  stableMergedUnifiedFingerprint = fingerprint;
+  stableMergedUnifiedSettings = { ...server, ...client } satisfies UnifiedSettings;
+  return stableMergedUnifiedSettings;
+}
+
 // ── Hooks ────────────────────────────────────────────────────────────
 
 /**
@@ -101,22 +124,92 @@ function splitPatch(patch: Partial<UnifiedSettings>): {
 export function useSettings(): UnifiedSettings;
 export function useSettings<T>(selector: (s: UnifiedSettings) => T): T;
 export function useSettings<T>(selector?: (s: UnifiedSettings) => T): UnifiedSettings | T {
-  const serverSettings = useServerSettings();
-  const [clientSettings] = useLocalStorage(
-    CLIENT_SETTINGS_STORAGE_KEY,
-    DEFAULT_CLIENT_SETTINGS,
-    ClientSettingsSchema,
-  );
+  const getSnapshot = () => {
+    const settings = getStableMergedUnifiedSettings();
+    return selector ? selector(settings) : settings;
+  };
 
-  const merged = useMemo<UnifiedSettings>(
-    () => ({
-      ...serverSettings,
-      ...clientSettings,
-    }),
-    [clientSettings, serverSettings],
+  return useSyncExternalStore(subscribeToUnifiedSettings, getSnapshot, () =>
+    selector ? selector(DEFAULT_UNIFIED_SETTINGS) : DEFAULT_UNIFIED_SETTINGS,
   );
+}
 
-  return useMemo(() => (selector ? selector(merged) : merged), [merged, selector]);
+export function useSetting<K extends keyof UnifiedSettings>(key: K): UnifiedSettings[K] {
+  return useSettings((settings) => settings[key]);
+}
+
+function readClientSettingsSnapshot(): ClientSettings {
+  if (typeof window === "undefined") {
+    return DEFAULT_CLIENT_SETTINGS;
+  }
+
+  try {
+    return (
+      getLocalStorageItem(CLIENT_SETTINGS_STORAGE_KEY, ClientSettingsSchema) ??
+      DEFAULT_CLIENT_SETTINGS
+    );
+  } catch {
+    return DEFAULT_CLIENT_SETTINGS;
+  }
+}
+
+function subscribeToUnifiedSettings(listener: () => void): () => void {
+  const cleanupServerSettings = onServerConfigUpdated(() => {
+    listener();
+  });
+
+  if (typeof window === "undefined") {
+    return cleanupServerSettings;
+  }
+
+  const syncClientSettings = () => {
+    listener();
+  };
+  const handleStorageChange = (event: StorageEvent) => {
+    if (event.key === CLIENT_SETTINGS_STORAGE_KEY) {
+      syncClientSettings();
+    }
+  };
+  const handleLocalStorageChange = (event: Event) => {
+    const detail = event instanceof CustomEvent ? (event.detail as { key?: unknown }) : undefined;
+    if (detail?.key === CLIENT_SETTINGS_STORAGE_KEY) {
+      syncClientSettings();
+    }
+  };
+
+  window.addEventListener("storage", handleStorageChange);
+  window.addEventListener(LOCAL_STORAGE_CHANGE_EVENT, handleLocalStorageChange);
+
+  return () => {
+    cleanupServerSettings();
+    window.removeEventListener("storage", handleStorageChange);
+    window.removeEventListener(LOCAL_STORAGE_CHANGE_EVENT, handleLocalStorageChange);
+  };
+}
+
+function useClientSettingsValue<T>(selector: (settings: ClientSettings) => T): T {
+  return useSyncExternalStore(
+    subscribeToUnifiedSettings,
+    () => selector(readClientSettingsSnapshot()),
+    () => selector(DEFAULT_CLIENT_SETTINGS),
+  );
+}
+
+export function useClientSetting<K extends keyof ClientSettings>(key: K): ClientSettings[K] {
+  return useClientSettingsValue((settings) => settings[key]);
+}
+
+export function useScopedSetting<K extends keyof UnifiedSettings>(key: K): UnifiedSettings[K] {
+  const clientValue = useClientSettingsValue(
+    (settings) => settings[key as keyof ClientSettings] as UnifiedSettings[K] | undefined,
+  );
+  const serverValue = useServerSettingsValue(
+    (settings) => settings[key as keyof ServerSettings] as UnifiedSettings[K] | undefined,
+  );
+  return (
+    (CLIENT_SETTINGS_KEYS.has(String(key)) ? clientValue : serverValue) ??
+    DEFAULT_UNIFIED_SETTINGS[key]
+  );
 }
 
 /**
@@ -244,10 +337,6 @@ export function buildLegacyClientSettingsMigrationPatch(
   legacySettings: Record<string, unknown>,
 ): Partial<DeepMutable<ClientSettings>> {
   const patch: Partial<DeepMutable<ClientSettings>> = {};
-
-  if (Schema.is(BrowserOpenMode)(legacySettings.browserOpenMode)) {
-    patch.browserOpenMode = legacySettings.browserOpenMode;
-  }
 
   if (Schema.is(BrowserSearchEngine)(legacySettings.browserSearchEngine)) {
     patch.browserSearchEngine = legacySettings.browserSearchEngine;

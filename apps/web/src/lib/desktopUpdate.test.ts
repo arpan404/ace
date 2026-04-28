@@ -216,6 +216,19 @@ describe("desktop update UI helpers", () => {
     expect(copy).toContain("CLI");
   });
 
+  it("includes explicit running agent warning in install confirmation copy", () => {
+    const copy = getDesktopUpdateInstallConfirmationMessage(
+      {
+        availableVersion: "1.1.0",
+        downloadedVersion: "1.1.1",
+      },
+      2,
+    );
+
+    expect(copy).toContain("2 agents are running in the background");
+    expect(copy).toContain("Continuing will stop those agents");
+  });
+
   it("falls back to generic install confirmation copy when no version is available", () => {
     expect(
       getDesktopUpdateInstallConfirmationMessage({

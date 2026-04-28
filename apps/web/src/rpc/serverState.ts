@@ -307,6 +307,10 @@ export function useServerSettings(): ServerSettings {
   return useAtomValue(serverConfigAtom, selectSettings);
 }
 
+export function useServerSettingsValue<T>(selector: (settings: ServerSettings) => T): T {
+  return useAtomValue(serverConfigAtom, (config) => selector(selectSettings(config)));
+}
+
 export function useServerProviders(): ReadonlyArray<ServerProvider> {
   return useAtomValue(serverConfigAtom, selectProviders);
 }

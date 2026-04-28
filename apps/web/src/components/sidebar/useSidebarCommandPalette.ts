@@ -44,7 +44,6 @@ interface UseSidebarCommandPaletteInput {
   readonly projectById: ReadonlyMap<ProjectId, Project>;
   readonly activeWsUrl: string;
   readonly localDeviceConnectionUrl: string;
-  readonly threadIdsByProjectId: Readonly<Record<ProjectId, readonly ThreadId[] | undefined>>;
   readonly projectSortOrder: SidebarProjectSortOrder;
   readonly threadSortOrder: SidebarThreadSortOrder;
   readonly onStartAddProject: () => void;
@@ -417,8 +416,12 @@ export function useSidebarCommandPalette(
           }
           return;
         }
-        const projectThreadIds = input.threadIdsByProjectId[item.projectId] ?? [];
-        if (projectThreadIds.length === 0) {
+        const projectSnapshot = combinedSidebarSnapshot.projects.find(
+          (project) =>
+            project.id === item.projectId &&
+            project.connectionUrl === input.localDeviceConnectionUrl,
+        );
+        if (!projectSnapshot || projectSnapshot.threads.length === 0) {
           input.onStartNewThreadForProject(item.projectId);
           return;
         }
@@ -432,7 +435,7 @@ export function useSidebarCommandPalette(
       }
       input.onNavigateToThread(item.threadId);
     },
-    [closeSearchPalette, input, searchPaletteMode],
+    [closeSearchPalette, combinedSidebarSnapshot.projects, input, searchPaletteMode],
   );
 
   const handleSearchPaletteInputKeyDown = useCallback(

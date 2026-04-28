@@ -1,12 +1,24 @@
-import { STATIC_KEYBINDING_COMMANDS, type StaticKeybindingCommand } from "@ace/contracts";
-import type { ShortcutMatchContext } from "~/keybindings";
+import {
+  STATIC_KEYBINDING_COMMANDS,
+  type KeybindingShortcut,
+  type StaticKeybindingCommand,
+} from "@ace/contracts";
+import { formatShortcutLabel, type ShortcutMatchContext } from "~/keybindings";
 
-type KeybindingCategory = "Sidebar" | "Chat" | "Terminal" | "Browser" | "Editor" | "Threads";
+type KeybindingCategory =
+  | "Sidebar"
+  | "Chat"
+  | "Right Panel"
+  | "Terminal"
+  | "Browser"
+  | "Editor"
+  | "Threads";
 
 interface KeybindingDefinitionMeta {
   readonly category: KeybindingCategory;
   readonly label: string;
   readonly description: string;
+  readonly defaultShortcut?: KeybindingShortcut;
   readonly when?: string;
   readonly context?: Partial<ShortcutMatchContext>;
 }
@@ -47,6 +59,20 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       label: "Toggle sidebar",
       description: "Collapse or expand the main sidebar.",
     },
+    "navigation.back": {
+      category: "Sidebar",
+      label: "Navigate back",
+      description: "Go back in app history.",
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
+    "navigation.forward": {
+      category: "Sidebar",
+      label: "Navigate forward",
+      description: "Go forward in app history.",
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
     "project.add": {
       category: "Sidebar",
       label: "Add project",
@@ -80,17 +106,48 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       when: "terminalFocus",
       context: TERMINAL_FOCUS_CONTEXT,
     },
-    "diff.toggle": {
-      category: "Chat",
-      label: "Toggle diff panel",
-      description: "Show or hide the diff panel.",
+    "rightPanel.toggle": {
+      category: "Right Panel",
+      label: "Toggle right side panel",
+      description: "Show or hide the right side panel without selecting a Review tab.",
+      defaultShortcut: {
+        key: "b",
+        modKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: true,
+        shiftKey: false,
+      },
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
-    "browser.toggle": {
-      category: "Browser",
-      label: "Toggle in-app browser",
-      description: "Open or close the in-app browser.",
+    "rightPanel.review.open": {
+      category: "Right Panel",
+      label: "Open Review tab",
+      description: "Open and focus the Review tab in the right side panel.",
+      defaultShortcut: {
+        key: "d",
+        modKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+      },
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
+    "rightPanel.browser.open": {
+      category: "Right Panel",
+      label: "Open Browser tab",
+      description: "Open and focus the Browser tab in the right side panel.",
+      defaultShortcut: {
+        key: "b",
+        modKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+      },
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
@@ -109,11 +166,19 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       context: BROWSER_CONTEXT,
     },
     "browser.newTab": {
-      category: "Browser",
-      label: "New browser tab",
-      description: "Open a new browser tab.",
-      when: "browserOpen && !terminalFocus",
-      context: BROWSER_CONTEXT,
+      category: "Right Panel",
+      label: "Add Browser tab",
+      description: "Open a Browser tab in the right side panel.",
+      defaultShortcut: {
+        key: "t",
+        modKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+      },
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
     },
     "browser.closeTab": {
       category: "Browser",
@@ -154,27 +219,6 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       category: "Browser",
       label: "Next browser tab",
       description: "Activate the next browser tab.",
-      when: "browserOpen && !terminalFocus",
-      context: BROWSER_CONTEXT,
-    },
-    "browser.duplicateTab": {
-      category: "Browser",
-      label: "Duplicate browser tab",
-      description: "Duplicate the active browser tab.",
-      when: "browserOpen && !terminalFocus",
-      context: BROWSER_CONTEXT,
-    },
-    "browser.moveTabLeft": {
-      category: "Browser",
-      label: "Move browser tab left",
-      description: "Move the active browser tab to the left.",
-      when: "browserOpen && !terminalFocus",
-      context: BROWSER_CONTEXT,
-    },
-    "browser.moveTabRight": {
-      category: "Browser",
-      label: "Move browser tab right",
-      description: "Move the active browser tab to the right.",
       when: "browserOpen && !terminalFocus",
       context: BROWSER_CONTEXT,
     },
@@ -238,6 +282,21 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       category: "Chat",
       label: "Toggle top header",
       description: "Show or hide the chat top header.",
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
+    "rightPanel.editor.open": {
+      category: "Right Panel",
+      label: "Open Editor tab",
+      description: "Open and focus the Editor tab in the right side panel.",
+      defaultShortcut: {
+        key: "e",
+        modKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+      },
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
@@ -426,3 +485,11 @@ export const KEYBINDING_COMMAND_DEFINITIONS: readonly KeybindingCommandDefinitio
   STATIC_KEYBINDING_COMMANDS.map((command) =>
     Object.assign({ command }, KEYBINDING_DEFINITION_BY_COMMAND[command]),
   );
+
+export function defaultShortcutLabelForCommand(
+  command: StaticKeybindingCommand,
+  platform?: string,
+): string | null {
+  const shortcut = KEYBINDING_DEFINITION_BY_COMMAND[command].defaultShortcut;
+  return shortcut ? formatShortcutLabel(shortcut, platform) : null;
+}

@@ -12,8 +12,8 @@ import {
   formatShortcutLabel,
   isChatNewShortcut,
   isChatNewLocalShortcut,
-  isDiffToggleShortcut,
   isOpenFavoriteEditorShortcut,
+  isRightPanelReviewOpenShortcut,
   isTerminalClearShortcut,
   isTerminalCloseShortcut,
   isTerminalNewShortcut,
@@ -106,12 +106,12 @@ const DEFAULT_BINDINGS = compile([
   },
   {
     shortcut: modShortcut("d"),
-    command: "diff.toggle",
+    command: "rightPanel.review.open",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   {
     shortcut: modShortcut("b"),
-    command: "browser.toggle",
+    command: "rightPanel.browser.open",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   {
@@ -157,21 +157,6 @@ const DEFAULT_BINDINGS = compile([
   {
     shortcut: modShortcut("]", { shiftKey: true }),
     command: "browser.nextTab",
-    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
-  },
-  {
-    shortcut: modShortcut("d", { shiftKey: true }),
-    command: "browser.duplicateTab",
-    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
-  },
-  {
-    shortcut: modShortcut("[", { altKey: true }),
-    command: "browser.moveTabLeft",
-    whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
-  },
-  {
-    shortcut: modShortcut("]", { altKey: true }),
-    command: "browser.moveTabRight",
     whenAst: whenAnd(whenIdentifier("browserOpen"), whenNot(whenIdentifier("terminalFocus"))),
   },
   { shortcut: modShortcut("b", { shiftKey: true }), command: "sidebar.toggle" },
@@ -485,9 +470,12 @@ describe("shortcutLabelForCommand", () => {
       shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.toggleHeader", "MacIntel"),
       "⇧⌘H",
     );
-    assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
     assert.strictEqual(
-      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.toggle", "Linux"),
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.review.open", "Linux"),
+      "Ctrl+D",
+    );
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.browser.open", "Linux"),
       "Ctrl+B",
     );
     assert.strictEqual(
@@ -544,27 +532,6 @@ describe("shortcutLabelForCommand", () => {
       "⇧⌘]",
     );
     assert.strictEqual(
-      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.duplicateTab", {
-        platform: "MacIntel",
-        context: { browserOpen: true, terminalFocus: false },
-      }),
-      "⇧⌘D",
-    );
-    assert.strictEqual(
-      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.moveTabLeft", {
-        platform: "MacIntel",
-        context: { browserOpen: true, terminalFocus: false },
-      }),
-      "⌥⌘[",
-    );
-    assert.strictEqual(
-      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.moveTabRight", {
-        platform: "MacIntel",
-        context: { browserOpen: true, terminalFocus: false },
-      }),
-      "⌥⌘]",
-    );
-    assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFavorite", "Linux"),
       "Ctrl+O",
     );
@@ -618,7 +585,7 @@ describe("shortcutLabelForCommand", () => {
 
   it("respects when-context while resolving labels", () => {
     const bindings = compile([
-      { shortcut: modShortcut("d"), command: "diff.toggle" },
+      { shortcut: modShortcut("d"), command: "rightPanel.review.open" },
       {
         shortcut: modShortcut("d"),
         command: "terminal.split",
@@ -627,14 +594,14 @@ describe("shortcutLabelForCommand", () => {
     ]);
 
     assert.strictEqual(
-      shortcutLabelForCommand(bindings, "diff.toggle", {
+      shortcutLabelForCommand(bindings, "rightPanel.review.open", {
         platform: "Linux",
         context: { terminalFocus: false },
       }),
       "Ctrl+D",
     );
     assert.isNull(
-      shortcutLabelForCommand(bindings, "diff.toggle", {
+      shortcutLabelForCommand(bindings, "rightPanel.review.open", {
         platform: "Linux",
         context: { terminalFocus: true },
       }),
@@ -757,15 +724,15 @@ describe("chat/editor shortcuts", () => {
     );
   });
 
-  it("matches diff.toggle shortcut outside terminal focus", () => {
+  it("matches rightPanel.review.open shortcut outside terminal focus", () => {
     assert.isTrue(
-      isDiffToggleShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
+      isRightPanelReviewOpenShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
         context: { terminalFocus: false },
       }),
     );
     assert.isFalse(
-      isDiffToggleShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
+      isRightPanelReviewOpenShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
         platform: "MacIntel",
         context: { terminalFocus: true },
       }),
@@ -778,7 +745,7 @@ describe("chat/editor shortcuts", () => {
         platform: "Linux",
         context: { browserOpen: false, terminalFocus: false },
       }),
-      "browser.toggle",
+      "rightPanel.browser.open",
     );
     assert.strictEqual(
       resolveShortcutCommand(event({ key: "[", ctrlKey: true }), DEFAULT_BINDINGS, {
@@ -842,27 +809,6 @@ describe("chat/editor shortcuts", () => {
         context: { browserOpen: true, terminalFocus: false },
       }),
       "browser.nextTab",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "d", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
-        platform: "Linux",
-        context: { browserOpen: true, terminalFocus: false },
-      }),
-      "browser.duplicateTab",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "[", ctrlKey: true, altKey: true }), DEFAULT_BINDINGS, {
-        platform: "Linux",
-        context: { browserOpen: true, terminalFocus: false },
-      }),
-      "browser.moveTabLeft",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "]", ctrlKey: true, altKey: true }), DEFAULT_BINDINGS, {
-        platform: "Linux",
-        context: { browserOpen: true, terminalFocus: false },
-      }),
-      "browser.moveTabRight",
     );
   });
 

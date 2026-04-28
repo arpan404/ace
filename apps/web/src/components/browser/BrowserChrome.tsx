@@ -1,14 +1,12 @@
-import { Clock3Icon, GlobeIcon, PinIcon, SearchIcon } from "lucide-react";
+import { Clock3Icon, GlobeIcon, SearchIcon } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import type { BrowserSearchEngine } from "@ace/contracts/settings";
 import { cn } from "~/lib/utils";
 import type { BrowserSuggestion } from "~/lib/browser/history";
-import { type BrowserPinnedPage } from "~/lib/browser/pinnedPages";
 import { BROWSER_NEW_TAB_TITLE } from "~/lib/browser/session";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import { BrowserFavicon } from "./BrowserWebviewSurface";
 import { BROWSER_SEARCH_ENGINE_OPTIONS, resolveSuggestionKindLabel } from "~/lib/browser/types";
 
 function resolveSearchEngineLabel(browserSearchEngine: BrowserSearchEngine): string {
@@ -20,11 +18,9 @@ function resolveSearchEngineLabel(browserSearchEngine: BrowserSearchEngine): str
 
 export function BrowserNewTabPanel(props: {
   browserSearchEngine: BrowserSearchEngine;
-  pinnedPages: readonly BrowserPinnedPage[];
-  onOpenPinnedPage: (url: string) => void;
   onSubmitQuery: (query: string) => void;
 }) {
-  const { browserSearchEngine, onOpenPinnedPage, onSubmitQuery, pinnedPages } = props;
+  const { browserSearchEngine, onSubmitQuery } = props;
   const [query, setQuery] = useState("");
   const searchEngineLabel = resolveSearchEngineLabel(browserSearchEngine);
 
@@ -79,48 +75,6 @@ export function BrowserNewTabPanel(props: {
             </Button>
           </div>
         </form>
-
-        <section className="space-y-2.5">
-          <div>
-            <h3 className="text-[13px] font-medium tracking-tight text-foreground/85">
-              Pinned pages
-            </h3>
-            <p className="mt-0.5 text-[12px] text-muted-foreground/35">
-              Jump back into the pages you revisit the most.
-            </p>
-          </div>
-
-          {pinnedPages.length > 0 ? (
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              {pinnedPages.map((page) => (
-                <button
-                  key={page.url}
-                  type="button"
-                  className="group flex min-w-0 items-center gap-2.5 rounded-xl border border-border/15 bg-card/20 px-3.5 py-2.5 text-left transition-all duration-150 hover:border-border/15 hover:bg-card/30"
-                  onClick={() => onOpenPinnedPage(page.url)}
-                >
-                  <BrowserFavicon
-                    url={page.url}
-                    title={page.title}
-                    className="size-4"
-                    fallbackClassName="size-4 text-muted-foreground/40"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-medium text-foreground/90">
-                      {page.title}
-                    </div>
-                    <div className="truncate text-[11px] text-muted-foreground/35">{page.url}</div>
-                  </div>
-                  <PinIcon className="size-3 shrink-0 text-muted-foreground/15 transition-colors duration-150 group-hover:text-muted-foreground/40" />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-border/12 bg-card/10 px-4 py-4 text-[13px] text-muted-foreground/35">
-              Pin pages from the toolbar and they will appear here on every new tab.
-            </div>
-          )}
-        </section>
       </div>
     </div>
   );
@@ -153,8 +107,6 @@ export function BrowserSuggestionList(props: {
           const icon =
             suggestion.kind === "history" ? (
               <Clock3Icon className="size-3.5" />
-            ) : suggestion.kind === "pinned" ? (
-              <PinIcon className="size-3.5" />
             ) : suggestion.kind === "tab" ? (
               <GlobeIcon className="size-3.5" />
             ) : (

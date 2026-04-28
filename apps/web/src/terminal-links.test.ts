@@ -7,6 +7,10 @@ import {
 } from "./terminal-links";
 
 describe("extractTerminalLinks", () => {
+  it("skips plain text lines without link path separators", () => {
+    expect(extractTerminalLinks("INFO 2026-04-27 12:09:10 connected successfully")).toEqual([]);
+  });
+
   it("finds http urls and path tokens", () => {
     const line =
       "failed at https://example.com/docs and src/components/ThreadTerminalDrawer.tsx:42";

@@ -12,7 +12,7 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
     | "obsidian"
     | "neutral"
     | "ember"
-    | "terminal"
+    | "glass"
     | "midnight"
     | "aurora"
     | "nebula"
@@ -40,12 +40,12 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
   {
     id: "neutral",
     label: "Neutral",
-    description: "Pure black or white surfaces with classic obsidian accents.",
+    description: "Pure black or white surfaces with a monochrome primary.",
     preview: {
       panel: "oklch(0.14 0 0)",
       panelDeep: "oklch(0.05 0 0)",
-      accent: "oklch(0.68 0.18 255)",
-      accentMuted: "oklch(0.5 0.1 255)",
+      accent: "oklch(0.88 0 0)",
+      accentMuted: "oklch(0.4 0 0)",
     },
   },
   {
@@ -60,14 +60,14 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
     },
   },
   {
-    id: "terminal",
-    label: "Terminal",
-    description: "Clean neutral with retro green accents.",
+    id: "glass",
+    label: "Glass",
+    description: "Neutral frosted layers: white or charcoal bases with soft gray glass.",
     preview: {
-      panel: "oklch(0.17 0 0)",
-      panelDeep: "oklch(0.13 0 0)",
-      accent: "oklch(0.68 0.16 150)",
-      accentMuted: "oklch(0.5 0.08 150)",
+      panel: "oklch(0.24 0 0)",
+      panelDeep: "oklch(0.15 0 0)",
+      accent: "oklch(0.8 0 0)",
+      accentMuted: "oklch(0.66 0 0)",
     },
   },
   /* ── Accents ── */
@@ -172,6 +172,9 @@ export function isThemePresetId(value: string): value is ThemePresetId {
 }
 
 export function parseThemePresetId(raw: string | null): ThemePresetId {
+  if (raw === "terminal") {
+    return "glass";
+  }
   if (raw && isThemePresetId(raw)) {
     return raw;
   }

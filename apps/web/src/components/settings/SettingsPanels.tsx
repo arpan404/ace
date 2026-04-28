@@ -1,4 +1,4 @@
-import { ArchiveIcon, ArchiveX, ChevronDownIcon, LoaderCircleIcon } from "lucide-react";
+import { ArchiveIcon, ArchiveX, ChevronDownIcon } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -62,12 +62,17 @@ import { useStore } from "../../store";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { BROWSER_SEARCH_ENGINE_OPTIONS } from "../../lib/browser/types";
 import { cn, newCommandId } from "../../lib/utils";
-import { useInAppBrowserState } from "../../hooks/useInAppBrowserState";
 import {
   readAgentAttentionNotificationPermission,
   requestAgentAttentionNotificationPermission,
   type AgentAttentionNotificationPermission,
 } from "../../lib/agentAttentionNotifications";
+import {
+  buildAgentAttentionNotificationSettingsPatch,
+  buildScopedAgentAttentionNotificationSettingsPatch,
+  resolveNotificationToggleChangeIntent,
+  type AgentAttentionNotificationSettingKey,
+} from "../../lib/notificationSettings";
 import { showBrowserNotification } from "../../lib/browserNotifications";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -311,6 +316,9 @@ function AboutVersionTitle() {
 function AboutVersionSection() {
   const queryClient = useQueryClient();
   const updateStateQuery = useDesktopUpdateState();
+  const runningAgentCount = useStore(
+    (store) => store.threads.filter((thread) => thread.session?.status === "running").length,
+  );
 
   const updateState = updateStateQuery.data ?? null;
 
@@ -342,6 +350,7 @@ function AboutVersionSection() {
         const confirmed = await api.dialogs.confirm(
           getDesktopUpdateInstallConfirmationMessage(
             updateState ?? { availableVersion: null, downloadedVersion: null },
+            runningAgentCount,
           ),
         );
         if (!confirmed) return;
@@ -378,7 +387,7 @@ function AboutVersionSection() {
           description: error instanceof Error ? error.message : "Update check failed.",
         });
       });
-  }, [queryClient, updateState]);
+  }, [queryClient, runningAgentCount, updateState]);
 
   const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
   const buttonTooltip = updateState ? getDesktopUpdateButtonTooltip(updateState) : null;
@@ -610,9 +619,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.uiLetterSpacing !== DEFAULT_UNIFIED_SETTINGS.uiLetterSpacing
         ? ["Letter spacing"]
         : []),
-      ...(settings.browserOpenMode !== DEFAULT_UNIFIED_SETTINGS.browserOpenMode
-        ? ["Browser open mode"]
-        : []),
       ...(settings.browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine
         ? ["Browser search engine"]
         : []),
@@ -691,7 +697,6 @@ export function useSettingsRestore(onRestored?: () => void) {
     ],
     [
       areProviderSettingsDirty,
-      settings.browserOpenMode,
       settings.browserSearchEngine,
       isGitWritingModelDirty,
       settings.confirmThreadArchive,
@@ -869,11 +874,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     settings.notifyOnUserInputRequired;
   const setAgentAttentionNotificationToggles = useCallback(
     (enabled: boolean) => {
-      updateSettings({
-        notifyOnAgentCompletion: enabled,
-        notifyOnApprovalRequired: enabled,
-        notifyOnUserInputRequired: enabled,
-      });
+      updateSettings(buildAgentAttentionNotificationSettingsPatch(enabled));
     },
     [updateSettings],
   );
@@ -955,7 +956,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       title: "ace notifications",
       body: "You'll get alerts when agent work completes or needs input.",
       tag: probeId,
-    });
+    }).then((result) => result.shown);
   }, []);
 
   const handleSendNotificationTest = useCallback(() => {
@@ -1003,66 +1004,74 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       });
   }, [refreshNotificationPermission, sendNotificationProbe]);
 
-  const enableNotifications = useCallback(() => {
-    setIsUpdatingNotificationPermission(true);
-    const permissionRequest =
-      isElectron && typeof window.desktopBridge?.requestNotificationPermission === "function"
-        ? window.desktopBridge.requestNotificationPermission()
-        : requestAgentAttentionNotificationPermission();
+  const enableNotifications = useCallback(
+    (enabledKeys?: readonly AgentAttentionNotificationSettingKey[]) => {
+      setIsUpdatingNotificationPermission(true);
+      const permissionRequest =
+        isElectron && typeof window.desktopBridge?.requestNotificationPermission === "function"
+          ? window.desktopBridge.requestNotificationPermission()
+          : requestAgentAttentionNotificationPermission();
 
-    void permissionRequest
-      .then(async (permission) => {
-        setNotificationPermission(permission);
-        if (permission === "granted") {
-          await sendNotificationProbe();
-          setAgentAttentionNotificationToggles(true);
-          return;
-        }
-        if (permission === "denied") {
+      void permissionRequest
+        .then(async (permission) => {
+          setNotificationPermission(permission);
+          if (permission === "granted") {
+            await sendNotificationProbe();
+            if (enabledKeys && enabledKeys.length > 0) {
+              updateSettings(buildScopedAgentAttentionNotificationSettingsPatch(enabledKeys, true));
+            } else {
+              setAgentAttentionNotificationToggles(true);
+            }
+            return;
+          }
+          if (permission === "denied") {
+            toastManager.add({
+              type: "warning",
+              title: isElectron
+                ? "Notifications blocked by system settings"
+                : "Notifications blocked",
+              description: canOpenNotificationSystemSettings
+                ? "Open system settings and allow notifications for ace."
+                : "Allow notifications for ace in your browser or operating system settings.",
+            });
+            return;
+          }
+          if (permission === "default") {
+            toastManager.add({
+              type: "warning",
+              title: "Notification permission still pending",
+              description:
+                "If no prompt appeared, open notification settings and allow ace manually.",
+            });
+            return;
+          }
           toastManager.add({
             type: "warning",
-            title: isElectron
-              ? "Notifications blocked by system settings"
-              : "Notifications blocked",
-            description: canOpenNotificationSystemSettings
-              ? "Open system settings and allow notifications for ace."
-              : "Allow notifications for ace in your browser or operating system settings.",
+            title: "Notifications unavailable",
+            description: "This runtime does not support desktop notifications.",
           });
-          return;
-        }
-        if (permission === "default") {
+        })
+        .catch((error: unknown) => {
           toastManager.add({
-            type: "warning",
-            title: "Notification permission still pending",
+            type: "error",
+            title: "Unable to request notification permission",
             description:
-              "If no prompt appeared, open notification settings and allow ace manually.",
+              error instanceof Error ? error.message : "Unknown notification permission error.",
           });
-          return;
-        }
-        toastManager.add({
-          type: "warning",
-          title: "Notifications unavailable",
-          description: "This runtime does not support desktop notifications.",
+        })
+        .finally(() => {
+          void refreshNotificationPermission();
+          setIsUpdatingNotificationPermission(false);
         });
-      })
-      .catch((error: unknown) => {
-        toastManager.add({
-          type: "error",
-          title: "Unable to request notification permission",
-          description:
-            error instanceof Error ? error.message : "Unknown notification permission error.",
-        });
-      })
-      .finally(() => {
-        void refreshNotificationPermission();
-        setIsUpdatingNotificationPermission(false);
-      });
-  }, [
-    canOpenNotificationSystemSettings,
-    refreshNotificationPermission,
-    sendNotificationProbe,
-    setAgentAttentionNotificationToggles,
-  ]);
+    },
+    [
+      canOpenNotificationSystemSettings,
+      refreshNotificationPermission,
+      sendNotificationProbe,
+      setAgentAttentionNotificationToggles,
+      updateSettings,
+    ],
+  );
 
   const disableNotifications = useCallback(() => {
     setAgentAttentionNotificationToggles(false);
@@ -1098,18 +1107,17 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   }, [refreshNotificationPermission]);
 
   const handleNotificationToggleChange = useCallback(
-    (
-      key: "notifyOnAgentCompletion" | "notifyOnApprovalRequired" | "notifyOnUserInputRequired",
-      checked: boolean,
-    ) => {
-      updateSettings({ [key]: checked });
-      if (
-        checked &&
-        notificationPermission !== "granted" &&
-        notificationPermission !== "unsupported"
-      ) {
-        enableNotifications();
+    (key: AgentAttentionNotificationSettingKey, checked: boolean) => {
+      const intent = resolveNotificationToggleChangeIntent({
+        checked,
+        key,
+        permission: notificationPermission,
+      });
+      if (intent.kind === "request-permission") {
+        enableNotifications(intent.keys);
+        return;
       }
+      updateSettings(intent.patch);
     },
     [enableNotifications, notificationPermission, updateSettings],
   );
@@ -1279,23 +1287,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   const isProvidersPage = page === "providers";
   const isAdvancedPage = page === "advanced";
   const isAboutPage = page === "about";
-  const browserPinnedPageImportRef = useRef<HTMLInputElement | null>(null);
-  const {
-    browserHistoryCount,
-    browserSearchEngine,
-    clearHistory,
-    exportPinnedPages,
-    importPinnedPages,
-    isRepairingStorage,
-    openPinnedPage,
-    pinnedPages,
-    removePinnedPage,
-    repairBrowserStorage,
-    selectSearchEngine,
-  } = useInAppBrowserState({
-    mode: "full",
-    open: false,
-  });
   const lspTools = lspToolsStatus?.tools ?? EMPTY_LSP_TOOL_LIST;
   const lspCoreTools = useMemo(() => lspTools.filter((tool) => tool.builtin), [lspTools]);
   const lspCatalogTools = useMemo(
@@ -1836,47 +1827,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 />
               }
             />
-
-            <SettingsRow
-              title="Browser opening mode"
-              description="Choose whether opening the in-app browser starts in split view or full browser."
-              resetAction={
-                settings.browserOpenMode !== DEFAULT_UNIFIED_SETTINGS.browserOpenMode ? (
-                  <SettingResetButton
-                    label="browser opening mode"
-                    onClick={() =>
-                      updateSettings({
-                        browserOpenMode: DEFAULT_UNIFIED_SETTINGS.browserOpenMode,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Select
-                  value={settings.browserOpenMode}
-                  onValueChange={(value) => {
-                    if (value === "split" || value === "full") {
-                      updateSettings({ browserOpenMode: value });
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-full sm:w-44" aria-label="Browser opening mode">
-                    <SelectValue>
-                      {settings.browserOpenMode === "split" ? "Split view" : "Full browser"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup align="end" alignItemWithTrigger={false}>
-                    <SelectItem hideIndicator value="split">
-                      Split view
-                    </SelectItem>
-                    <SelectItem hideIndicator value="full">
-                      Full browser
-                    </SelectItem>
-                  </SelectPopup>
-                </Select>
-              }
-            />
           </SettingsSection>
         </>
       ) : null}
@@ -2041,7 +1991,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                       onClick={
                         hasAnyAgentAttentionNotificationsEnabled
                           ? disableNotifications
-                          : enableNotifications
+                          : () => enableNotifications()
                       }
                     >
                       {isUpdatingNotificationPermission
@@ -2056,7 +2006,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     size="sm"
                     variant="outline"
                     disabled={isUpdatingNotificationPermission}
-                    onClick={enableNotifications}
+                    onClick={() => enableNotifications()}
                   >
                     {isUpdatingNotificationPermission ? "Requesting..." : "Request permission"}
                   </Button>
@@ -2066,7 +2016,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                       size="sm"
                       variant="outline"
                       disabled={isUpdatingNotificationPermission}
-                      onClick={enableNotifications}
+                      onClick={() => enableNotifications()}
                     >
                       Request again
                     </Button>
@@ -2084,7 +2034,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     size="sm"
                     variant="outline"
                     disabled={isUpdatingNotificationPermission}
-                    onClick={enableNotifications}
+                    onClick={() => enableNotifications()}
                   >
                     {isUpdatingNotificationPermission ? "Requesting..." : "Request again"}
                   </Button>
@@ -2761,10 +2711,14 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             title="Search engine"
             description="Choose the default engine for new-tab search, address-bar suggestions, and quick browser entry."
             resetAction={
-              browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine ? (
+              settings.browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine ? (
                 <SettingResetButton
                   label="browser search engine"
-                  onClick={() => selectSearchEngine(DEFAULT_UNIFIED_SETTINGS.browserSearchEngine)}
+                  onClick={() =>
+                    updateSettings({
+                      browserSearchEngine: DEFAULT_UNIFIED_SETTINGS.browserSearchEngine,
+                    })
+                  }
                 />
               ) : null
             }
@@ -2774,108 +2728,14 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 <Button
                   key={engine.value}
                   size="sm"
-                  variant={browserSearchEngine === engine.value ? "default" : "outline"}
-                  onClick={() => selectSearchEngine(engine.value)}
+                  variant={settings.browserSearchEngine === engine.value ? "default" : "outline"}
+                  onClick={() => updateSettings({ browserSearchEngine: engine.value })}
                 >
                   {engine.label}
                 </Button>
               ))}
             </div>
           </SettingsRow>
-          <SettingsRow
-            title="Pinned pages"
-            description="Keep frequently revisited pages at the top of browser suggestions."
-            status={
-              pinnedPages.length === 0
-                ? "No pinned pages yet."
-                : `${pinnedPages.length} pinned ${pinnedPages.length === 1 ? "page" : "pages"}.`
-            }
-            control={
-              <div className="flex items-center gap-2">
-                <input
-                  ref={browserPinnedPageImportRef}
-                  type="file"
-                  accept="application/json"
-                  className="hidden"
-                  onChange={(event) => {
-                    const file = event.currentTarget.files?.[0];
-                    if (file) {
-                      void importPinnedPages(file);
-                    }
-                    event.currentTarget.value = "";
-                  }}
-                />
-                <Button
-                  size="xs"
-                  variant="outline"
-                  onClick={() => browserPinnedPageImportRef.current?.click()}
-                >
-                  Import
-                </Button>
-                <Button size="xs" variant="outline" onClick={exportPinnedPages}>
-                  Export
-                </Button>
-              </div>
-            }
-          >
-            {pinnedPages.length > 0 ? (
-              <div className="mt-3 space-y-2">
-                {pinnedPages.map((page) => (
-                  <div
-                    key={page.url}
-                    className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/20 px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-[12px] font-medium text-foreground">
-                        {page.title}
-                      </div>
-                      <div className="truncate text-[11px] text-muted-foreground">{page.url}</div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button size="xs" variant="ghost" onClick={() => openPinnedPage(page.url)}>
-                        Open
-                      </Button>
-                      <Button size="xs" variant="ghost" onClick={() => removePinnedPage(page.url)}>
-                        Remove
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </SettingsRow>
-          <SettingsRow
-            title="History"
-            description="Address-bar suggestions use browser history first."
-            status={`${browserHistoryCount} saved ${browserHistoryCount === 1 ? "entry" : "entries"}.`}
-            control={
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={clearHistory}
-                disabled={browserHistoryCount === 0}
-              >
-                Clear history
-              </Button>
-            }
-          />
-          <SettingsRow
-            title="Repair storage"
-            description="Clear cookies, cache, and service workers for the in-app browser partition."
-            control={
-              <Button
-                size="xs"
-                variant="destructive"
-                onClick={() => {
-                  void repairBrowserStorage();
-                }}
-                disabled={isRepairingStorage}
-              >
-                {isRepairingStorage ? <LoaderCircleIcon className="size-4 animate-spin" /> : null}
-                Repair browser storage
-              </Button>
-            }
-          />
         </SettingsSection>
       ) : null}
 

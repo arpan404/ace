@@ -119,7 +119,7 @@ export default function SettingsScreen() {
           <Info size={18} color={colors.muted} strokeWidth={1.8} />
           <View style={styles.rowContent}>
             <Text style={[styles.aboutLabel, { color: colors.foreground }]}>ace Mobile</Text>
-            <Text style={[styles.aboutValue, { color: colors.muted }]}>v0.0.1</Text>
+            <Text style={[styles.aboutValue, { color: colors.muted }]}>v0.1.1</Text>
           </View>
         </View>
       </ScrollView>

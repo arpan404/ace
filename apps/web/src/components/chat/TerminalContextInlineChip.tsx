@@ -1,4 +1,4 @@
-import { TerminalIcon } from "lucide-react";
+import { IconTerminal } from "@tabler/icons-react";
 
 import {
   COMPOSER_INLINE_CHIP_CLASS_NAME,
@@ -28,7 +28,7 @@ export function TerminalContextInlineChip(props: TerminalContextInlineChipProps)
             )}
             data-terminal-context-expired={expired ? "true" : undefined}
           >
-            <TerminalIcon
+            <IconTerminal
               className={cn(
                 COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
                 "size-3.5",

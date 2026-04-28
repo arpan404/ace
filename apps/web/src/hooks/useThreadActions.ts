@@ -14,10 +14,11 @@ import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { toastManager } from "../components/ui/toast";
-import { useSettings } from "./useSettings";
+import { useSetting } from "./useSettings";
 
 export function useThreadActions() {
-  const appSettings = useSettings();
+  const sidebarThreadSortOrder = useSetting("sidebarThreadSortOrder");
+  const confirmThreadDelete = useSetting("confirmThreadDelete");
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearDraftThread);
   const clearProjectDraftThreadById = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadById,
@@ -122,7 +123,7 @@ export function useThreadActions() {
         threads,
         deletedThreadId: threadId,
         deletedThreadIds,
-        sortOrder: appSettings.sidebarThreadSortOrder,
+        sortOrder: sidebarThreadSortOrder,
       });
       await api.orchestration.dispatchCommand({
         type: "thread.delete",
@@ -174,7 +175,7 @@ export function useThreadActions() {
       clearComposerDraftForThread,
       clearProjectDraftThreadById,
       clearTerminalState,
-      appSettings.sidebarThreadSortOrder,
+      sidebarThreadSortOrder,
       navigate,
       removeWorktreeMutation,
       routeThreadId,
@@ -188,7 +189,7 @@ export function useThreadActions() {
       const thread = useStore.getState().threads.find((entry) => entry.id === threadId);
       if (!thread) return;
 
-      if (appSettings.confirmThreadDelete) {
+      if (confirmThreadDelete) {
         const confirmed = await api.dialogs.confirm(
           [
             `Delete thread "${thread.title}"?`,
@@ -202,7 +203,7 @@ export function useThreadActions() {
 
       await deleteThread(threadId);
     },
-    [appSettings.confirmThreadDelete, deleteThread],
+    [confirmThreadDelete, deleteThread],
   );
 
   return {

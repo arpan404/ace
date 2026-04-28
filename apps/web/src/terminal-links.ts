@@ -13,6 +13,11 @@ const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/g;
 const FILE_PATH_PATTERN =
   /(?:~\/|\.{1,2}\/|\/|[A-Za-z]:[\\/]|\\\\)[^\s"'`<>]+|[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+(?::\d+){0,2}/g;
 const TRAILING_PUNCTUATION_PATTERN = /[.,;!?]+$/;
+const EMPTY_TERMINAL_LINK_MATCHES: readonly TerminalLinkMatch[] = [];
+
+function lineMayContainTerminalLinks(line: string): boolean {
+  return line.includes("/") || line.includes("\\");
+}
 
 function trimClosingDelimiters(value: string): string {
   let output = value.replace(TRAILING_PUNCTUATION_PATTERN, "");
@@ -53,7 +58,10 @@ function collectMatches(
 
     const trimmed = trimClosingDelimiters(raw);
     if (trimmed.length === 0) continue;
-    if (kind === "path" && /^https?:\/\//i.test(trimmed)) continue;
+    if (kind === "path") {
+      const normalized = trimmed.toLowerCase();
+      if (normalized.startsWith("http://") || normalized.startsWith("https://")) continue;
+    }
 
     const candidate: TerminalLinkMatch = {
       kind,
@@ -62,7 +70,21 @@ function collectMatches(
       end: start + trimmed.length,
     };
 
-    const collides = [...existing, ...matches].some((other) => overlaps(candidate, other));
+    let collides = false;
+    for (const other of existing) {
+      if (overlaps(candidate, other)) {
+        collides = true;
+        break;
+      }
+    }
+    if (!collides) {
+      for (const other of matches) {
+        if (overlaps(candidate, other)) {
+          collides = true;
+          break;
+        }
+      }
+    }
     if (collides) continue;
 
     matches.push(candidate);
@@ -139,7 +161,10 @@ function splitPathAndPosition(value: string): {
   return { path, line, column };
 }
 
-export function extractTerminalLinks(line: string): TerminalLinkMatch[] {
+export function extractTerminalLinks(line: string): readonly TerminalLinkMatch[] {
+  if (!lineMayContainTerminalLinks(line)) {
+    return EMPTY_TERMINAL_LINK_MATCHES;
+  }
   const urlMatches = collectMatches(line, "url", URL_PATTERN, []);
   const pathMatches = collectMatches(line, "path", FILE_PATH_PATTERN, urlMatches);
   return [...urlMatches, ...pathMatches].toSorted((a, b) => a.start - b.start);

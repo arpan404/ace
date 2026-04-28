@@ -152,8 +152,8 @@ export const DESKTOP_MENU_ACTIONS = [
   "new-local-thread",
   "toggle-plan-mode",
   "toggle-terminal",
-  "toggle-browser",
-  "toggle-diff",
+  "open-browser-tab",
+  "open-review-tab",
   "zoom-in",
   "zoom-out",
   "zoom-reset",
@@ -260,6 +260,7 @@ export interface DesktopBridge {
   getIsDevelopmentBuild?: () => boolean;
   getWindowShownAt?: () => number | null;
   getTitlebarLeftInset?: () => number | null;
+  onTitlebarLeftInsetChange?: (listener: (inset: number) => void) => () => void;
   getNotificationPermission?: () => Promise<DesktopNotificationPermission>;
   requestNotificationPermission?: () => Promise<DesktopNotificationPermission>;
   pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
@@ -331,8 +332,15 @@ export interface NativeApi {
     references: (input: WorkspaceEditorReferencesInput) => Promise<WorkspaceEditorReferencesResult>;
   };
   shell: {
-    openInEditor: (cwd: string, editor: EditorId) => Promise<void>;
-    revealInFileManager: (path: string) => Promise<void>;
+    openInEditor: (
+      cwd: string,
+      editor: EditorId,
+      options?: { readonly connectionUrl?: string | null | undefined },
+    ) => Promise<void>;
+    revealInFileManager: (
+      path: string,
+      options?: { readonly connectionUrl?: string | null | undefined },
+    ) => Promise<void>;
     openExternal: (url: string) => Promise<void>;
   };
   git: {

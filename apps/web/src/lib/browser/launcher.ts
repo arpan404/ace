@@ -4,8 +4,7 @@ import type { DraftThreadEnvMode } from "~/composerDraftStore";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
 
 export interface BrowserLaunchRequest {
-  readonly action?: "open" | "toggle";
-  readonly mode?: "full" | "split";
+  readonly action?: "open";
   readonly newTab?: boolean;
   readonly url?: string;
 }

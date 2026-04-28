@@ -142,7 +142,6 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string,
   },
   cursor: {
     composer: "composer-2",
-    "composer-2-fast": "composer-2",
     "composer-2": "composer-2",
     sonnet: "claude-4-sonnet",
     "sonnet-4": "claude-4-sonnet",

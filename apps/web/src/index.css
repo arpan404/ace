@@ -34,7 +34,7 @@
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   --color-terminal: var(--terminal-surface);
-  --color-sidebar: var(--background);
+  --color-sidebar: var(--sidebar-surface);
   --color-sidebar-foreground: hsl(var(--sidebar-foreground));
   --color-sidebar-border: hsl(var(--sidebar-border));
   --color-sidebar-accent: hsl(var(--sidebar-accent));
@@ -105,9 +105,30 @@
 .no-transitions,
 .no-transitions *,
 .no-transitions *::before,
-.no-transitions *::after {
+.no-transitions *::after,
+html.native-window-resizing,
+html.native-window-resizing *,
+html.native-window-resizing *::before,
+html.native-window-resizing *::after {
   transition-duration: 0s !important;
   animation-duration: 0s !important;
+}
+
+[data-slot="sidebar-container"],
+[data-slot="sidebar-inset"] {
+  contain: layout paint style;
+}
+
+[data-slot="sidebar-inner"],
+[data-slot="sidebar-content-frame"],
+[data-slot="sidebar-content"] {
+  contain: layout paint;
+}
+
+[data-slot="sidebar-content"] [data-slot="sidebar-menu-item"],
+[data-slot="sidebar-content"] [data-slot="sidebar-menu-sub-item"] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 32px;
 }
 
 :root {
@@ -132,8 +153,9 @@
   --sidebar-accent: 0 0% 93%;
   --sidebar-accent-foreground: 0 0% 14%;
   --background: oklch(0.97 0 0);
+  --sidebar-surface: var(--background);
   --foreground: oklch(0.14 0 0);
-  --card: oklch(1 0 0);
+  --card: var(--background);
   --card-foreground: oklch(0.14 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.14 0 0);
@@ -147,7 +169,7 @@
   --accent-foreground: oklch(0.2 0 0);
   --destructive: oklch(0.57 0.21 25);
   --border: oklch(0.91 0 0);
-  --input: oklch(0.91 0 0);
+  --input: var(--background);
   --ring: oklch(0.55 0.2 250);
   --destructive-foreground: oklch(0.46 0.17 25);
   --info: oklch(0.55 0.2 250);
@@ -156,6 +178,17 @@
   --success-foreground: oklch(0.4 0.13 155);
   --warning: oklch(0.68 0.15 75);
   --warning-foreground: oklch(0.48 0.13 60);
+  --terminal-swatch-emerald: oklch(0.7 0.17 158);
+  --terminal-swatch-amber: oklch(0.76 0.16 70);
+  --terminal-swatch-sky: oklch(0.68 0.15 235);
+  --terminal-swatch-rose: oklch(0.65 0.22 16);
+  --terminal-swatch-violet: oklch(0.61 0.2 300);
+  --ultrathink-red: oklch(0.7 0.18 25);
+  --ultrathink-orange: oklch(0.76 0.16 70);
+  --ultrathink-green: oklch(0.72 0.16 145);
+  --ultrathink-teal: oklch(0.7 0.12 190);
+  --ultrathink-blue: oklch(0.64 0.18 255);
+  --ultrathink-pink: oklch(0.68 0.2 350);
   --bg-glow: transparent;
   --pill: color-mix(in oklch, var(--card) 86%, white 14%);
   --pill-foreground: var(--foreground);
@@ -194,8 +227,9 @@
     --sidebar-accent: 0 0% 15%;
     --sidebar-accent-foreground: 0 0% 96%;
     --background: oklch(0.145 0 0);
+    --sidebar-surface: var(--background);
     --foreground: oklch(0.93 0 0);
-    --card: oklch(0.16 0 0);
+    --card: var(--background);
     --card-foreground: oklch(0.93 0 0);
     --popover: oklch(0.165 0 0);
     --popover-foreground: oklch(0.93 0 0);
@@ -209,7 +243,7 @@
     --accent-foreground: oklch(0.93 0 0);
     --destructive: oklch(0.6 0.19 25);
     --border: oklch(0.24 0 0);
-    --input: oklch(0.21 0 0);
+    --input: var(--background);
     --ring: oklch(0.68 0.17 250);
     --destructive-foreground: oklch(0.68 0.16 25);
     --info: oklch(0.68 0.17 250);
@@ -252,6 +286,7 @@
 
 html {
   font-size: var(--ui-font-size);
+  background-color: var(--background);
 }
 
 body {
@@ -279,6 +314,7 @@ body,
   overflow-x: hidden;
   overflow-x: clip;
   overscroll-behavior-y: none;
+  background-color: var(--background);
 }
 
 pre,
@@ -394,21 +430,18 @@ label {
   background-color: color-mix(in oklch, var(--accent) 45%, transparent);
 }
 
-.thread-terminal-drawer .terminal-split-divider,
-.thread-terminal-drawer .terminal-sidebar-resize-handle {
+.thread-terminal-drawer .terminal-split-divider {
   background-color: transparent;
   transition:
     background-color 150ms ease,
     opacity 150ms ease;
 }
 
-.thread-terminal-drawer .terminal-split-divider:hover,
-.thread-terminal-drawer .terminal-sidebar-resize-handle:hover {
+.thread-terminal-drawer .terminal-split-divider:hover {
   background-color: color-mix(in oklch, var(--accent) 35%, transparent);
 }
 
-.thread-terminal-drawer .terminal-split-divider:active,
-.thread-terminal-drawer .terminal-sidebar-resize-handle:active {
+.thread-terminal-drawer .terminal-split-divider:active {
   background-color: color-mix(in oklch, var(--accent) 48%, transparent);
 }
 
@@ -616,7 +649,7 @@ label {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--foreground) 12%, transparent);
   flex-shrink: 0;
 }
 
@@ -625,27 +658,27 @@ label {
 }
 
 .terminal-color-swatch.emerald {
-  background: #10b981;
+  background: var(--terminal-swatch-emerald);
 }
 
 .terminal-color-swatch.amber {
-  background: #f59e0b;
+  background: var(--terminal-swatch-amber);
 }
 
 .terminal-color-swatch.sky {
-  background: #0ea5e9;
+  background: var(--terminal-swatch-sky);
 }
 
 .terminal-color-swatch.rose {
-  background: #f43f5e;
+  background: var(--terminal-swatch-rose);
 }
 
 .terminal-color-swatch.violet {
-  background: #8b5cf6;
+  background: var(--terminal-swatch-violet);
 }
 
 .dark .terminal-color-swatch {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--foreground) 12%, transparent);
 }
 
 label:has(> select#reasoning-effort) {
@@ -893,13 +926,13 @@ label:has(> select#reasoning-effort) select {
 .ultrathink-frame {
   --ultrathink-spectrum: linear-gradient(
     120deg,
-    #ff6b6b 0%,
-    #f59e0b 18%,
-    #22c55e 36%,
-    #14b8a6 54%,
-    #3b82f6 72%,
-    #ec4899 90%,
-    #ff6b6b 100%
+    var(--ultrathink-red) 0%,
+    var(--ultrathink-orange) 18%,
+    var(--ultrathink-green) 36%,
+    var(--ultrathink-teal) 54%,
+    var(--ultrathink-blue) 72%,
+    var(--ultrathink-pink) 90%,
+    var(--ultrathink-red) 100%
   );
   background-image: var(--ultrathink-spectrum);
   background-size: 220% 220%;

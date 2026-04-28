@@ -1,4 +1,3 @@
-import type { ContextMenuItem } from "@ace/contracts";
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -12,7 +11,7 @@ import {
 
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
-import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
+import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import {
   BROWSER_HISTORY_STORAGE_KEY,
   BrowserHistorySchema,
@@ -28,26 +27,13 @@ import {
   resolveBrowserDesignerStateStorageKey,
 } from "~/lib/browser/designer";
 import {
-  BROWSER_PINNED_PAGES_STORAGE_KEY,
-  BrowserPinnedPagesSchema,
-  addPinnedBrowserPage,
-  isPinnedBrowserPage,
-  parsePinnedBrowserPages,
-  removePinnedBrowserPage,
-  serializePinnedBrowserPages,
-} from "~/lib/browser/pinnedPages";
-import {
   BROWSER_NEW_TAB_URL,
   BrowserSessionStorageSchema,
   addBrowserTab,
-  closeOtherBrowserTabs,
-  closeTabsToRight,
   closeBrowserTab,
   createBrowserSessionState,
-  duplicateBrowserTab,
   isBrowserInternalTabUrl,
   isBrowserNewTabUrl,
-  moveBrowserTab,
   normalizeBrowserSessionState,
   reorderBrowserTab,
   resolveBrowserSessionStorageKey,
@@ -56,11 +42,9 @@ import {
 } from "~/lib/browser/session";
 import {
   type BrowserTabHandle,
-  type BrowserTabContextMenuAction,
   type BrowserTabRuntimeState,
   type BrowserTabSnapshot,
   type BrowserTabSnapshotOptions,
-  type BrowserWebviewContextMenuAction,
   DEFAULT_BROWSER_TAB_RUNTIME_STATE,
 } from "~/lib/browser/types";
 import { normalizeBrowserInput } from "~/lib/browser/url";
@@ -69,18 +53,17 @@ import { toastManager } from "~/components/ui/toast";
 
 export interface InAppBrowserController {
   closeActiveTab: () => void;
+  closeTab: (tabId: string) => void;
   closeDevTools: () => void;
-  duplicateActiveTab: () => void;
   focusAddressBar: () => void;
   goBack: () => void;
   goForward: () => void;
-  moveActiveTabLeft: () => void;
-  moveActiveTabRight: () => void;
   goToNextTab: () => void;
   goToPreviousTab: () => void;
   openNewTab: () => void;
   openDevTools: () => void;
   openUrl: (rawUrl: string, options?: { newTab?: boolean }) => void;
+  reorderTabs: (draggedTabId: string, targetTabId: string) => void;
   reload: () => void;
   setActiveTabByIndex: (index: number) => void;
   toggleDesignerTool: (tool: BrowserDesignerTool) => void;
@@ -107,27 +90,11 @@ interface UseInAppBrowserStateOptions {
   open: boolean;
   scopeId?: string;
   onActiveRuntimeStateChange?: (state: ActiveBrowserRuntimeState) => void;
+  onClose?: () => void;
   onControllerChange?: (controller: InAppBrowserController | null) => void;
 }
 
 const EMPTY_BROWSER_SUGGESTIONS: BrowserSuggestion[] = [];
-
-function readTextFile(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener("load", () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-        return;
-      }
-      reject(new Error("Unable to read file contents."));
-    });
-    reader.addEventListener("error", () => {
-      reject(reader.error ?? new Error("Unable to read file."));
-    });
-    reader.readAsText(file);
-  });
-}
 
 export function shouldAutoFocusBrowserAddressBarOnOpen(options: {
   activeTabIsNewTab: boolean;
@@ -159,14 +126,14 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     designerModeEnabled = true,
     mode,
     onActiveRuntimeStateChange,
+    onClose,
     onControllerChange,
     open,
     scopeId,
   } = options;
   const api = readNativeApi();
-  const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
-  const browserSearchEngine = settings.browserSearchEngine;
+  const browserSearchEngine = useSetting("browserSearchEngine");
   const browserSessionStorageKey = resolveBrowserSessionStorageKey(scopeId);
   const browserDesignerStorageKey = resolveBrowserDesignerStateStorageKey(scopeId);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
@@ -189,11 +156,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     BROWSER_HISTORY_STORAGE_KEY,
     [],
     BrowserHistorySchema,
-  );
-  const [pinnedPages, setPinnedPages] = useLocalStorage(
-    BROWSER_PINNED_PAGES_STORAGE_KEY,
-    [],
-    BrowserPinnedPagesSchema,
   );
   const [draftUrl, setDraftUrl] = useState("");
   const [browserResetKey, setBrowserResetKey] = useState(0);
@@ -220,7 +182,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const activeTabIsInternal = activeTab ? isBrowserInternalTabUrl(activeTab.url) : false;
   const activeTabIsNewTab = activeTab ? isBrowserNewTabUrl(activeTab.url) : false;
   const activeTabId = activeTab?.id ?? null;
-  const activeTabIsPinned = activeTab ? isPinnedBrowserPage(pinnedPages, activeTab.url) : false;
   const activeTabUrl = activeTab?.url ?? "";
   const activeRuntime = activeTab
     ? (tabRuntimeById[activeTab.id] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE)
@@ -242,7 +203,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       ...(activeTabUrl ? { activePageUrl: activeTabUrl } : {}),
       history: browserHistory,
       openTabs,
-      pinnedPages,
       searchEngine: browserSearchEngine,
     });
   }, [
@@ -252,7 +212,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     browserSearchEngine,
     deferredSuggestionInput,
     openTabs,
-    pinnedPages,
     showAddressBarSuggestions,
   ]);
 
@@ -314,16 +273,13 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
 
   const closeTab = useCallback(
     (tabId: string) => {
+      if (browserSession.tabs.length <= 1 && browserSession.tabs.some((tab) => tab.id === tabId)) {
+        onClose?.();
+        return;
+      }
       updateBrowserSession((current) => closeBrowserTab(current, tabId, BROWSER_NEW_TAB_URL));
     },
-    [updateBrowserSession],
-  );
-
-  const duplicateTab = useCallback(
-    (tabId: string) => {
-      updateBrowserSession((current) => duplicateBrowserTab(current, tabId));
-    },
-    [updateBrowserSession],
+    [browserSession.tabs, onClose, updateBrowserSession],
   );
 
   const reorderTabs = useCallback(
@@ -333,58 +289,16 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     [updateBrowserSession],
   );
 
-  const moveTab = useCallback(
-    (tabId: string, direction: -1 | 1) => {
-      updateBrowserSession((current) => moveBrowserTab(current, tabId, direction));
-    },
-    [updateBrowserSession],
-  );
-
-  const closeOtherTabs = useCallback(
-    (tabId: string) => {
-      updateBrowserSession((current) => closeOtherBrowserTabs(current, tabId, BROWSER_NEW_TAB_URL));
-    },
-    [updateBrowserSession],
-  );
-
-  const closeTabsRight = useCallback(
-    (tabId: string) => {
-      updateBrowserSession((current) => closeTabsToRight(current, tabId, BROWSER_NEW_TAB_URL));
-    },
-    [updateBrowserSession],
-  );
-
   const closeActiveTab = useCallback(() => {
     if (!activeTab) {
       return;
     }
-    const shouldFocusReplacementTab = browserSession.tabs.length <= 1;
+    if (browserSession.tabs.length <= 1) {
+      onClose?.();
+      return;
+    }
     closeTab(activeTab.id);
-    if (shouldFocusReplacementTab) {
-      focusAddressBar();
-    }
-  }, [activeTab, browserSession.tabs.length, closeTab, focusAddressBar]);
-
-  const duplicateActiveTab = useCallback(() => {
-    if (!activeTab) {
-      return;
-    }
-    duplicateTab(activeTab.id);
-  }, [activeTab, duplicateTab]);
-
-  const moveActiveTabLeft = useCallback(() => {
-    if (!activeTab) {
-      return;
-    }
-    moveTab(activeTab.id, -1);
-  }, [activeTab, moveTab]);
-
-  const moveActiveTabRight = useCallback(() => {
-    if (!activeTab) {
-      return;
-    }
-    moveTab(activeTab.id, 1);
-  }, [activeTab, moveTab]);
+  }, [activeTab, browserSession.tabs.length, closeTab, onClose]);
 
   const zoomIn = useCallback(() => {
     if (!activeTab || activeTabIsInternal) {
@@ -467,7 +381,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       }
 
       const runtime = tabRuntimeById[tabId] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE;
-      const items: ContextMenuItem<BrowserWebviewContextMenuAction>[] = [
+      const items = [
         {
           disabled: !runtime.canGoBack,
           id: "back",
@@ -553,216 +467,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       }, 120);
     },
     [showBrowserContextMenuFallback],
-  );
-
-  const clearHistory = useCallback(() => {
-    setBrowserHistory([]);
-    toastManager.add({
-      type: "success",
-      title: "Browser history cleared.",
-    });
-  }, [setBrowserHistory]);
-
-  const togglePinnedActivePage = useCallback(() => {
-    if (!activeTab || activeTabIsInternal) {
-      return;
-    }
-
-    setPinnedPages((current) =>
-      isPinnedBrowserPage(current, activeTab.url)
-        ? removePinnedBrowserPage(current, activeTab.url)
-        : addPinnedBrowserPage(current, {
-            pinnedAt: Date.now(),
-            title: activeTab.title,
-            url: activeTab.url,
-          }),
-    );
-    toastManager.add({
-      type: "success",
-      title: activeTabIsPinned ? "Pinned page removed." : "Page pinned.",
-    });
-  }, [activeTab, activeTabIsInternal, activeTabIsPinned, setPinnedPages]);
-
-  const removePinnedPage = useCallback(
-    (url: string) => {
-      setPinnedPages((current) => removePinnedBrowserPage(current, url));
-      toastManager.add({
-        type: "success",
-        title: "Pinned page removed.",
-      });
-    },
-    [setPinnedPages],
-  );
-
-  const openPinnedPage = useCallback(
-    (url: string) => {
-      openUrl(url, { newTab: true });
-    },
-    [openUrl],
-  );
-
-  const openTabContextMenu = useCallback(
-    async (tabId: string, position: { x: number; y: number }) => {
-      const tab = browserSession.tabs.find((item) => item.id === tabId);
-      if (!tab) {
-        return;
-      }
-
-      const tabIndex = browserSession.tabs.findIndex((item) => item.id === tabId);
-      const canMoveLeft = tabIndex > 0;
-      const canMoveRight = tabIndex >= 0 && tabIndex < browserSession.tabs.length - 1;
-      const canCloseOthers = browserSession.tabs.length > 1;
-      const canCloseRight = canMoveRight;
-      const isInternalTab = isBrowserInternalTabUrl(tab.url);
-      const isPinned = !isInternalTab && isPinnedBrowserPage(pinnedPages, tab.url);
-      const runtime = tabRuntimeById[tabId] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE;
-
-      const items: ContextMenuItem<BrowserTabContextMenuAction>[] = [
-        { id: "new-tab", label: "New Tab" },
-        { id: "duplicate", label: `Duplicate ${tab.title}`, disabled: isInternalTab },
-        {
-          id: "reload",
-          label: runtime.loading ? `Stop Loading ${tab.title}` : `Reload ${tab.title}`,
-          disabled: isInternalTab,
-        },
-        {
-          id: isPinned ? "unpin-page" : "pin-page",
-          label: isPinned ? "Unpin Page" : "Pin Page",
-          disabled: isInternalTab,
-        },
-        { id: "copy-address", label: "Copy Address", disabled: isInternalTab },
-        { id: "open-external", label: "Open Externally", disabled: isInternalTab },
-        { id: "move-left", label: "Move Tab Left", disabled: !canMoveLeft },
-        { id: "move-right", label: "Move Tab Right", disabled: !canMoveRight },
-        { id: "close-others", label: "Close Other Tabs", disabled: !canCloseOthers },
-        { id: "close-right", label: "Close Tabs to the Right", disabled: !canCloseRight },
-        { id: "close", label: `Close ${tab.title}`, destructive: true },
-      ];
-
-      const clicked = await api?.contextMenu.show(items, position);
-      switch (clicked) {
-        case "new-tab":
-          openNewTab();
-          return;
-        case "duplicate":
-          duplicateTab(tabId);
-          return;
-        case "reload": {
-          const handle = webviewHandlesRef.current.get(tabId);
-          if (runtime.loading) {
-            handle?.stop();
-          } else {
-            handle?.reload();
-          }
-          return;
-        }
-        case "pin-page":
-        case "unpin-page":
-          if (!isInternalTab) {
-            setPinnedPages((current) =>
-              isPinnedBrowserPage(current, tab.url)
-                ? removePinnedBrowserPage(current, tab.url)
-                : addPinnedBrowserPage(current, {
-                    pinnedAt: Date.now(),
-                    title: tab.title,
-                    url: tab.url,
-                  }),
-            );
-          }
-          return;
-        case "copy-address":
-          if (!isInternalTab) {
-            await copyBrowserAddress(tab.url);
-          }
-          return;
-        case "open-external":
-          if (!isInternalTab) {
-            await api?.shell.openExternal(tab.url);
-          }
-          return;
-        case "move-left":
-          moveTab(tabId, -1);
-          return;
-        case "move-right":
-          moveTab(tabId, 1);
-          return;
-        case "close-others":
-          closeOtherTabs(tabId);
-          return;
-        case "close-right":
-          closeTabsRight(tabId);
-          return;
-        case "close":
-          closeTab(tabId);
-          return;
-        default:
-      }
-    },
-    [
-      api,
-      browserSession.tabs,
-      closeOtherTabs,
-      closeTab,
-      closeTabsRight,
-      copyBrowserAddress,
-      duplicateTab,
-      moveTab,
-      openNewTab,
-      pinnedPages,
-      setPinnedPages,
-      tabRuntimeById,
-    ],
-  );
-
-  const exportPinnedPages = useCallback(() => {
-    try {
-      const contents = serializePinnedBrowserPages(pinnedPages);
-      const blob = new Blob([contents], { type: "application/json;charset=utf-8" });
-      const downloadUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = downloadUrl;
-      anchor.download = "ace-browser-pinned-pages.json";
-      anchor.click();
-      URL.revokeObjectURL(downloadUrl);
-      toastManager.add({
-        type: "success",
-        title: "Pinned pages exported.",
-      });
-    } catch {
-      toastManager.add({
-        type: "error",
-        title: "Unable to export pinned pages.",
-      });
-    }
-  }, [pinnedPages]);
-
-  const importPinnedPages = useCallback(
-    async (file: File) => {
-      try {
-        const contents = await readTextFile(file);
-        const importedPages = parsePinnedBrowserPages(contents);
-        setPinnedPages((current) => {
-          let nextPages = current;
-          for (const page of importedPages) {
-            nextPages = addPinnedBrowserPage(nextPages, page);
-          }
-          return nextPages;
-        });
-        toastManager.add({
-          type: "success",
-          title:
-            importedPages.length === 1
-              ? "Imported 1 pinned page."
-              : `Imported ${importedPages.length} pinned pages.`,
-        });
-      } catch {
-        toastManager.add({
-          type: "error",
-          title: "Unable to import pinned pages.",
-        });
-      }
-    },
-    [setPinnedPages],
   );
 
   const goBack = useCallback(() => {
@@ -879,16 +583,15 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   );
 
   const closeActiveTabEvent = useEffectEvent(closeActiveTab);
+  const closeTabEvent = useEffectEvent(closeTab);
   const closeDevToolsEvent = useEffectEvent(closeDevTools);
-  const duplicateActiveTabEvent = useEffectEvent(duplicateActiveTab);
   const focusAddressBarEvent = useEffectEvent(focusAddressBar);
   const goBackEvent = useEffectEvent(goBack);
   const goForwardEvent = useEffectEvent(goForward);
-  const moveActiveTabLeftEvent = useEffectEvent(moveActiveTabLeft);
-  const moveActiveTabRightEvent = useEffectEvent(moveActiveTabRight);
   const moveTabSelectionEvent = useEffectEvent(moveTabSelection);
   const openDevToolsEvent = useEffectEvent(openDevTools);
   const openNewTabEvent = useEffectEvent(openNewTab);
+  const reorderTabsEvent = useEffectEvent(reorderTabs);
   const openUrlEvent = useEffectEvent(openUrl);
   const reloadEvent = useEffectEvent(reload);
   const setActiveTabByIndexEvent = useEffectEvent(setActiveTabByIndex);
@@ -900,18 +603,17 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const browserController = useMemo<InAppBrowserController>(
     () => ({
       closeActiveTab: () => closeActiveTabEvent(),
+      closeTab: (tabId) => closeTabEvent(tabId),
       closeDevTools: () => closeDevToolsEvent(),
-      duplicateActiveTab: () => duplicateActiveTabEvent(),
       focusAddressBar: () => focusAddressBarEvent(),
       goBack: () => goBackEvent(),
       goForward: () => goForwardEvent(),
-      moveActiveTabLeft: () => moveActiveTabLeftEvent(),
-      moveActiveTabRight: () => moveActiveTabRightEvent(),
       goToNextTab: () => moveTabSelectionEvent(1),
       goToPreviousTab: () => moveTabSelectionEvent(-1),
       openDevTools: () => openDevToolsEvent(),
       openNewTab: () => openNewTabEvent(),
       openUrl: (rawUrl, options) => openUrlEvent(rawUrl, options),
+      reorderTabs: (draggedTabId, targetTabId) => reorderTabsEvent(draggedTabId, targetTabId),
       reload: () => reloadEvent(),
       setActiveTabByIndex: (index) => setActiveTabByIndexEvent(index),
       toggleDesignerTool: (tool) => toggleDesignerToolEvent(tool),
@@ -1021,25 +723,8 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       }
 
       const key = event.key.toLowerCase();
-      if (event.altKey) {
-        if (key === "[") {
-          event.preventDefault();
-          event.stopPropagation();
-          moveActiveTabLeft();
-        } else if (key === "]") {
-          event.preventDefault();
-          event.stopPropagation();
-          moveActiveTabRight();
-        }
-        return;
-      }
-
       if (event.shiftKey) {
-        if (key === "d") {
-          event.preventDefault();
-          event.stopPropagation();
-          duplicateActiveTab();
-        } else if (key === "[") {
+        if (key === "[") {
           event.preventDefault();
           event.stopPropagation();
           moveTabSelection(-1);
@@ -1101,12 +786,9 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     },
     [
       closeActiveTab,
-      duplicateActiveTab,
       focusAddressBar,
       goBack,
       goForward,
-      moveActiveTabLeft,
-      moveActiveTabRight,
       moveTabSelection,
       openNewTab,
       reload,
@@ -1258,20 +940,11 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         case "designer-element-comment":
           toggleDesignerTool("element-comment");
           return;
-        case "duplicate-tab":
-          duplicateActiveTab();
-          return;
         case "focus-address-bar":
           focusAddressBar();
           return;
         case "forward":
           goForward();
-          return;
-        case "move-tab-left":
-          moveActiveTabLeft();
-          return;
-        case "move-tab-right":
-          moveActiveTabRight();
           return;
         case "new-tab":
           openNewTab();
@@ -1305,12 +978,9 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     closeActiveTab,
     designerModeEnabled,
     designerState.active,
-    duplicateActiveTab,
     focusAddressBar,
     goBack,
     goForward,
-    moveActiveTabLeft,
-    moveActiveTabRight,
     moveTabSelection,
     open,
     openNewTab,
@@ -1378,26 +1048,19 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     activeTab,
     activeTabIsInternal,
     activeTabIsNewTab,
-    activeTabIsPinned,
     addressBarSuggestions,
     addressInputRef,
     applySuggestion,
-    browserHistoryCount: browserHistory.length,
     browserResetKey,
     browserSearchEngine,
     browserSession,
     browserShellStyle,
     browserStatusLabel,
-    clearHistory,
     closeActiveTab,
     closeDevTools,
     closeTab,
-    closeOtherTabs,
-    closeTabsRight,
     draftUrl,
-    duplicateTab,
     designerState,
-    exportPinnedPages,
     focusAddressBar,
     goBack,
     goForward,
@@ -1405,21 +1068,15 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     handleBrowserKeyDownCapture,
     handleTabSnapshotChange,
     handleWebviewContextMenuFallbackRequest,
-    importPinnedPages,
     isAddressBarFocused,
     isRepairingStorage,
-    moveTab,
     openActiveTabExternally,
     openDevTools,
     openNewTab,
-    openPinnedPage,
-    openTabContextMenu,
     openUrl,
-    pinnedPages,
     reorderTabs,
     registerWebviewHandle,
     reload,
-    removePinnedPage,
     repairBrowserStorage,
     selectDesignerTool,
     selectSearchEngine: (engine: typeof browserSearchEngine) => {
@@ -1434,7 +1091,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     setActiveTabByIndex,
     showAddressBarSuggestions,
     toggleDevTools,
-    togglePinnedActivePage,
     zoomIn,
     zoomOut,
     zoomReset,

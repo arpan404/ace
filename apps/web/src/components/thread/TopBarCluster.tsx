@@ -19,6 +19,38 @@ export const HEADER_PILL_TOGGLE_CONTROL_CLASS_NAME = cn(
   "data-[pressed]:!border-pill-border data-[pressed]:!bg-foreground/[0.08] data-[pressed]:!text-pill-foreground data-[pressed]:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--foreground)_8%,transparent)] data-[pressed]:[&_svg]:scale-110 [&_svg]:transition-transform [&_svg]:duration-200",
 );
 
+export const HEADER_ACTION_GROUP_CLASS_NAME =
+  "flex h-8 min-w-0 items-center gap-px overflow-hidden rounded-lg border border-pill-border/72 bg-pill/92 p-0.5 shadow-none supports-[backdrop-filter]:bg-pill/84 supports-[backdrop-filter]:backdrop-blur-lg";
+
+export const HEADER_ACTION_CONTROL_CLASS_NAME =
+  "!h-7 !rounded-md !border !border-transparent !bg-transparent !shadow-none gap-1.5 px-2.25 sm:px-2.75 text-[11px]/none font-medium text-pill-foreground/76 transition-[background-color,color,border-color,opacity] duration-150 ease-out hover:!bg-foreground/[0.06] hover:text-pill-foreground active:!bg-foreground/[0.08] aria-expanded:!bg-foreground/[0.08] aria-expanded:text-pill-foreground disabled:text-pill-foreground/35 disabled:hover:!bg-transparent";
+
+export const HEADER_ACTION_ICON_CONTROL_CLASS_NAME = cn(
+  HEADER_ACTION_CONTROL_CLASS_NAME,
+  "!size-7 !px-0",
+);
+
+export const HEADER_ACTION_DIVIDER_CLASS_NAME = "mx-0.5 h-4 w-px bg-pill-border/55";
+
+export const HEADER_ACTION_DIALOG_POPUP_CLASS_NAME =
+  "overflow-hidden border-border/60 bg-popover/96 shadow-[0_24px_56px_-40px_color-mix(in_oklch,var(--foreground)_32%,transparent)] supports-[backdrop-filter]:bg-popover/90 supports-[backdrop-filter]:backdrop-blur-2xl";
+
+export const HEADER_ACTION_DIALOG_HEADER_CLASS_NAME =
+  "border-b border-border/35 bg-gradient-to-b from-muted/18 to-transparent px-5 py-4 sm:px-6 sm:py-5";
+
+export const HEADER_ACTION_DIALOG_PANEL_CLASS_NAME = "space-y-4 px-5 py-4 sm:px-6 sm:py-5";
+
+export const HEADER_ACTION_DIALOG_FOOTER_CLASS_NAME =
+  "border-t border-border/45 bg-background/42 px-5 py-3 sm:px-6 sm:py-3.5";
+
+export const HEADER_ACTION_FIELD_LABEL_CLASS_NAME = "text-[12px] font-medium text-foreground/86";
+
+export const HEADER_ACTION_FIELD_CONTROL_CLASS_NAME =
+  "border-border/55 bg-background/72 shadow-none transition-colors placeholder:text-muted-foreground/50 focus-visible:border-primary/55";
+
+export const HEADER_ACTION_FIELD_CARD_CLASS_NAME =
+  "rounded-xl border border-border/50 bg-background/45";
+
 export const HEADER_PILL_TRIGGER_CLASS_NAME = cn(
   HEADER_PILL_SURFACE_CLASS_NAME,
   "h-6.5 sm:h-7 rounded-[var(--control-radius)] px-2.25 sm:px-2.75 text-[10px]/none font-medium text-pill-foreground transition-[transform,border-color,background-color,color] duration-150 ease-out hover:!bg-pill hover:border-pill-border hover:text-pill-foreground active:!bg-foreground/[0.06] disabled:pointer-events-none disabled:opacity-50",

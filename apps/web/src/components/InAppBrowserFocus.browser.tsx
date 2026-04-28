@@ -7,7 +7,6 @@ import { render } from "vitest-browser-react";
 import { removeLocalStorageItem } from "~/hooks/useLocalStorage";
 import { useInAppBrowserState, type InAppBrowserMode } from "~/hooks/useInAppBrowserState";
 import { BROWSER_HISTORY_STORAGE_KEY } from "~/lib/browser/history";
-import { BROWSER_PINNED_PAGES_STORAGE_KEY } from "~/lib/browser/pinnedPages";
 import {
   BROWSER_SESSION_STORAGE_KEY,
   resolveBrowserSessionStorageKey,
@@ -31,7 +30,6 @@ function resetBrowserStorage() {
   removeLocalStorageItem(resolveBrowserSessionStorageKey("thread-a"));
   removeLocalStorageItem(resolveBrowserSessionStorageKey("thread-b"));
   removeLocalStorageItem(BROWSER_HISTORY_STORAGE_KEY);
-  removeLocalStorageItem(BROWSER_PINNED_PAGES_STORAGE_KEY);
 }
 
 function queryAddressInput(): HTMLInputElement | null {
