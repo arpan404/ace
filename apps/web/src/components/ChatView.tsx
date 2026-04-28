@@ -322,6 +322,7 @@ const RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-revi
 const RIGHT_SIDE_PANEL_EDITOR_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-editor-open:v1";
 const RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY = "ace:chat:right-side-panel-fullscreen:v1";
 const RIGHT_SIDE_PANEL_DIFF_OPEN_STORAGE_KEY = "ace:chat:right-side-panel-diff-open:v1";
+const RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY = "ace:chat:right-side-panel-visible:v1";
 
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
@@ -495,6 +496,10 @@ export default function ChatView({
     () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_DIFF_OPEN_STORAGE_KEY, threadId),
     [threadId],
   );
+  const rightSidePanelVisibleStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY, threadId),
+    [threadId],
+  );
   const browserPanelModeStorageKey = useMemo(
     () => resolveScopedBrowserStorageKey(BROWSER_PANEL_MODE_STORAGE_KEY, threadId),
     [threadId],
@@ -526,6 +531,11 @@ export default function ChatView({
   const [rightSidePanelFullscreen, setRightSidePanelFullscreen] = useLocalStorage(
     rightSidePanelFullscreenStorageKey,
     false,
+    Schema.Boolean,
+  );
+  const [rightSidePanelVisible, setRightSidePanelVisible] = useLocalStorage(
+    rightSidePanelVisibleStorageKey,
+    true,
     Schema.Boolean,
   );
   const { resolvedTheme } = useTheme();
@@ -938,7 +948,8 @@ export default function ChatView({
     [threadId],
   );
   const diffOpen = splitPane ? localDiffState.open : rightSidePanelDiffOpen;
-  const rightSidePanelOpen = diffOpen || rightSidePanelMode !== null;
+  const hasRightSidePanelContent = diffOpen || rightSidePanelMode !== null;
+  const rightSidePanelOpen = rightSidePanelVisible && hasRightSidePanelContent;
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
@@ -2389,8 +2400,15 @@ export default function ChatView({
     if (!splitPane && (routeWorkspaceMode === "editor" || routeWorkspaceMode === "split")) {
       setRightSidePanelEditorOpen(true);
       setRightSidePanelMode("editor");
+      setRightSidePanelVisible(true);
     }
-  }, [routeWorkspaceMode, setRightSidePanelEditorOpen, setRightSidePanelMode, splitPane]);
+  }, [
+    routeWorkspaceMode,
+    setRightSidePanelEditorOpen,
+    setRightSidePanelMode,
+    setRightSidePanelVisible,
+    splitPane,
+  ]);
   useEffect(() => {
     activeBrowserThreadIdRef.current = activeThreadId;
     browserControllerRef.current = activeThreadId
@@ -2455,6 +2473,7 @@ export default function ChatView({
       if (nextMode === "editor" || nextMode === "split") {
         setRightSidePanelEditorOpen(true);
         setRightSidePanelMode("editor");
+        setRightSidePanelVisible(true);
         setWorkspaceLayoutByThreadId((previous) => ({
           ...previous,
           [threadId]: nextMode,
@@ -2497,6 +2516,7 @@ export default function ChatView({
       rightSidePanelMode,
       setRightSidePanelEditorOpen,
       setRightSidePanelMode,
+      setRightSidePanelVisible,
       setWorkspaceLayoutByThreadId,
       setWorkspaceModeByThreadId,
       splitPane,
@@ -2518,6 +2538,9 @@ export default function ChatView({
         ...previous,
         open: nextDiffOpen,
       }));
+      if (nextDiffOpen) {
+        setRightSidePanelVisible(true);
+      }
       if (splitPane) {
         setRightSidePanelMode(nextDiffOpen ? "diff" : "summary");
         return;
@@ -2534,17 +2557,16 @@ export default function ChatView({
       setRightSidePanelDiffOpenState,
       setRightSidePanelMode,
       setRightSidePanelReviewOpen,
+      setRightSidePanelVisible,
       splitPane,
     ],
   );
-  const onToggleDiff = useCallback(() => {
-    setRightSidePanelDiffOpen(!diffOpen);
-  }, [diffOpen, setRightSidePanelDiffOpen]);
   const onOpenRightSidePanelDiff = useCallback(() => {
     if (diffOpen) {
       setRightSidePanelDiffOpenState(true);
       setRightSidePanelReviewOpen(true);
       setRightSidePanelMode("diff");
+      setRightSidePanelVisible(true);
       return;
     }
     setRightSidePanelDiffOpen(true);
@@ -2554,6 +2576,7 @@ export default function ChatView({
     setRightSidePanelDiffOpenState,
     setRightSidePanelMode,
     setRightSidePanelReviewOpen,
+    setRightSidePanelVisible,
   ]);
 
   const envLocked = Boolean(
@@ -3232,7 +3255,8 @@ export default function ChatView({
     if (!isElectron) return;
     setRightSidePanelMode("browser");
     setBrowserMode("split");
-  }, [setBrowserMode, setRightSidePanelMode]);
+    setRightSidePanelVisible(true);
+  }, [setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible]);
   const closeBrowser = useCallback(() => {
     setBrowserMode("closed");
     setBrowserDevToolsOpen(false);
@@ -3240,30 +3264,27 @@ export default function ChatView({
   }, [setBrowserMode, setRightSidePanelMode]);
   const onToggleRightSidePanel = useCallback(() => {
     if (rightSidePanelOpen) {
-      setRightSidePanelMode(null);
-      if (diffOpen) {
-        onToggleDiff();
-      }
-      if (browserOpen) {
-        closeBrowser();
-      }
+      setRightSidePanelVisible(false);
       return;
     }
-    setRightSidePanelMode("summary");
+    setRightSidePanelVisible(true);
+    if (!hasRightSidePanelContent) {
+      setRightSidePanelMode("summary");
+    }
   }, [
-    browserOpen,
-    closeBrowser,
-    diffOpen,
-    onToggleDiff,
+    hasRightSidePanelContent,
     rightSidePanelOpen,
     setRightSidePanelMode,
+    setRightSidePanelVisible,
   ]);
   const onOpenRightSidePanelEditor = useCallback(() => {
     setRightSidePanelEditorOpen(true);
     setRightSidePanelMode("editor");
-  }, [setRightSidePanelEditorOpen, setRightSidePanelMode]);
+    setRightSidePanelVisible(true);
+  }, [setRightSidePanelEditorOpen, setRightSidePanelMode, setRightSidePanelVisible]);
   const onSelectRightSidePanelMode = useCallback(
     (mode: RightSidePanelMode) => {
+      setRightSidePanelVisible(true);
       if (mode === "summary") {
         setRightSidePanelMode("summary");
         return;
@@ -3278,7 +3299,13 @@ export default function ChatView({
       }
       onOpenRightSidePanelEditor();
     },
-    [onOpenRightSidePanelDiff, onOpenRightSidePanelEditor, openBrowser, setRightSidePanelMode],
+    [
+      onOpenRightSidePanelDiff,
+      onOpenRightSidePanelEditor,
+      openBrowser,
+      setRightSidePanelMode,
+      setRightSidePanelVisible,
+    ],
   );
   const onOpenRightSidePanelBrowserTab = useCallback(() => {
     openBrowser();
@@ -3426,6 +3453,7 @@ export default function ChatView({
       if (!isElectron || typeof url !== "string" || url.length === 0) return;
       setRightSidePanelMode("browser");
       setBrowserMode("split");
+      setRightSidePanelVisible(true);
       const controller = browserControllerRef.current;
       if (!controller) {
         pendingBrowserOpenUrlRef.current = url;
@@ -3433,7 +3461,7 @@ export default function ChatView({
       }
       controller.openUrl(url, options);
     },
-    [setBrowserMode, setRightSidePanelMode],
+    [setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible],
   );
   const openBrowserUrlInNewTab = useCallback(
     (url: string) => {
@@ -4954,9 +4982,10 @@ export default function ChatView({
     if (openSummaryOnNextThreadRef.current) {
       openSummaryOnNextThreadRef.current = false;
       setRightSidePanelMode("summary");
+      setRightSidePanelVisible(true);
     }
     dismissedComposerTriggerRef.current = null;
-  }, [activeThread?.id, setRightSidePanelMode]);
+  }, [activeThread?.id, setRightSidePanelMode, setRightSidePanelVisible]);
 
   useEffect(() => {
     if (!composerMenuOpen) {
@@ -6367,6 +6396,7 @@ export default function ChatView({
         // stay in the same right-panel destination.
         if (nextInteractionMode === "default") {
           setRightSidePanelMode("summary");
+          setRightSidePanelVisible(true);
         }
         sendInFlightRef.current = false;
       } catch (err) {
@@ -6398,6 +6428,7 @@ export default function ChatView({
       selectedProviderModels,
       setComposerDraftInteractionMode,
       setRightSidePanelMode,
+      setRightSidePanelVisible,
       setThreadError,
       selectedModel,
     ],
@@ -6968,6 +6999,7 @@ export default function ChatView({
       setRightSidePanelDiffOpenState(true);
       setRightSidePanelReviewOpen(true);
       setRightSidePanelMode("diff");
+      setRightSidePanelVisible(true);
       setLocalDiffState({ open: true, turnId, filePath: filePath ?? null });
     },
     [
@@ -6975,6 +7007,7 @@ export default function ChatView({
       setRightSidePanelDiffOpenState,
       setRightSidePanelMode,
       setRightSidePanelReviewOpen,
+      setRightSidePanelVisible,
     ],
   );
   const onRevertUserMessage = useCallback(
