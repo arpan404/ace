@@ -33,6 +33,7 @@ import {
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
   selectPreferredGitHubCloneUrl,
 } from "../githubRemote.ts";
+import { parseJsonFromCliOutput } from "../githubCliJson.ts";
 
 const COMMIT_TIMEOUT_MS = 10 * 60_000;
 const MAX_PROGRESS_TEXT_LENGTH = 500;
@@ -930,7 +931,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       }
 
       const parsedJson = yield* Effect.try({
-        try: () => JSON.parse(raw) as unknown,
+        try: () => parseJsonFromCliOutput(raw),
         catch: (cause) =>
           gitManagerError("findLatestPr", "GitHub CLI returned invalid PR list JSON.", cause),
       });
