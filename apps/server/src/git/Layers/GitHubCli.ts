@@ -14,6 +14,7 @@ import {
   type GitHubCliShape,
   type GitHubPullRequestSummary,
 } from "../Services/GitHubCli.ts";
+import { parseJsonFromCliOutput } from "../githubCliJson.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -91,6 +92,15 @@ function normalizeGitHubCliError(operation: "execute" | "stdout", error: unknown
     detail: "GitHub CLI command failed.",
     cause: error,
   });
+}
+
+function isGitHubCliError(error: unknown): error is GitHubCliError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "_tag" in error &&
+    (error as { _tag?: unknown })._tag === "GitHubCliError"
+  );
 }
 
 function normalizePullRequestState(input: {
@@ -307,14 +317,24 @@ function decodeGitHubJson<S extends Schema.Top>(
     | "getRepositoryCloneUrls",
   invalidDetail: string,
 ): Effect.Effect<S["Type"], GitHubCliError, S["DecodingServices"]> {
-  return Schema.decodeEffect(Schema.fromJsonString(schema))(raw).pipe(
-    Effect.mapError(
-      (error) =>
-        new GitHubCliError({
-          operation,
-          detail: error instanceof Error ? `${invalidDetail}: ${error.message}` : invalidDetail,
-          cause: error,
-        }),
+  return Effect.try({
+    try: () => parseJsonFromCliOutput(raw),
+    catch: (error) =>
+      new GitHubCliError({
+        operation,
+        detail: error instanceof Error ? `${invalidDetail}: ${error.message}` : invalidDetail,
+        cause: error,
+      }),
+  }).pipe(
+    Effect.flatMap((parsed) => Schema.decodeUnknownEffect(schema)(parsed)),
+    Effect.mapError((error) =>
+      isGitHubCliError(error)
+        ? error
+        : new GitHubCliError({
+            operation,
+            detail: error instanceof Error ? `${invalidDetail}: ${error.message}` : invalidDetail,
+            cause: error,
+          }),
     ),
   );
 }
