@@ -269,6 +269,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         modelOptions: props.selectedProviderModelOptions,
         prompt: props.prompt,
         onPromptChange: props.onPromptChangeFromTraits,
+        showFastInTriggerLabel: false,
       }),
     [
       props.onPromptChangeFromTraits,
@@ -540,7 +541,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                         <Tooltip>
                           <TooltipTrigger
                             render={
-                              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] text-muted-foreground/80">
+                              <span className="-mr-1 inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] text-muted-foreground/80">
                                 <ZapIcon className="size-4" />
                               </span>
                             }
@@ -567,7 +568,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                           <Tooltip>
                             <TooltipTrigger
                               render={
-                                <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] text-muted-foreground/80">
+                                <span className="-mr-1 inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] text-muted-foreground/80">
                                   <ZapIcon className="size-4" />
                                 </span>
                               }
@@ -578,10 +579,12 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                       ) : null}
                       {providerTraitsPicker ? (
                         <>
-                          <Separator
-                            orientation="vertical"
-                            className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
-                          />
+                          {!fastModeEnabled ? (
+                            <Separator
+                              orientation="vertical"
+                              className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
+                            />
+                          ) : null}
                           {providerTraitsPicker}
                         </>
                       ) : null}
