@@ -46,6 +46,16 @@ describe("resolveMarkdownFileLinkTarget", () => {
   it("does not treat app routes as file links", () => {
     expect(resolveMarkdownFileLinkTarget("/chat/settings")).toBeNull();
   });
+
+  it("treats localhost file bridge urls as workspace file links", () => {
+    expect(
+      resolveMarkdownFileLinkTarget(
+        "http://localhost:5777/Users/arpanbhandari/.ace/worktrees/t3code/ace-4b62369b/apps/server/src/telemetry/Identify.ts",
+      ),
+    ).toBe(
+      "/Users/arpanbhandari/.ace/worktrees/t3code/ace-4b62369b/apps/server/src/telemetry/Identify.ts",
+    );
+  });
 });
 
 describe("resolveWorkspaceEditorFilePath", () => {

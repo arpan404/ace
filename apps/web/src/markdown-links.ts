@@ -58,6 +58,22 @@ function parseFileUrlHref(href: string): { path: string; hash: string } | null {
   }
 }
 
+function parseLocalHttpFilePathHref(href: string): { path: string; hash: string } | null {
+  try {
+    const parsed = new URL(href);
+    const protocol = parsed.protocol.toLowerCase();
+    if (protocol !== "http:" && protocol !== "https:") return null;
+    const hostname = parsed.hostname.toLowerCase();
+    const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+    if (!isLocalHost) return null;
+    const decodedPath = safeDecode(parsed.pathname);
+    if (decodedPath.length === 0) return null;
+    return { path: decodedPath, hash: parsed.hash };
+  } catch {
+    return null;
+  }
+}
+
 function looksLikePosixFilesystemPath(path: string): boolean {
   if (!path.startsWith("/")) return false;
   if (POSIX_FILE_ROOT_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
@@ -129,7 +145,8 @@ export function resolveMarkdownFileLinkTarget(
   const fileUrlTarget = rawHref.toLowerCase().startsWith("file:")
     ? parseFileUrlHref(rawHref)
     : null;
-  const source = fileUrlTarget ?? stripSearchAndHash(rawHref);
+  const localHttpTarget = fileUrlTarget ? null : parseLocalHttpFilePathHref(rawHref);
+  const source = fileUrlTarget ?? localHttpTarget ?? stripSearchAndHash(rawHref);
   const decodedPath = fileUrlTarget ? source.path.trim() : safeDecode(source.path.trim());
   const decodedHash = safeDecode(source.hash.trim());
 
