@@ -477,6 +477,7 @@ export interface TraitsMenuContentProps {
   onPromptChange: (prompt: string) => void;
   modelOptions?: ProviderOptions | null | undefined;
   allowPromptInjectedEffort?: boolean;
+  showFastInTriggerLabel?: boolean;
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
 }
@@ -681,6 +682,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   onPromptChange,
   modelOptions,
   allowPromptInjectedEffort = true,
+  showFastInTriggerLabel = true,
   triggerVariant,
   triggerClassName,
   ...persistence
@@ -714,7 +716,7 @@ export const TraitsPicker = memo(function TraitsPicker({
         : thinkingEnabled === null
           ? null
           : `Thinking ${thinkingEnabled ? "On" : "Off"}`,
-    ...(caps.supportsFastMode && fastModeEnabled ? ["Fast"] : []),
+    ...(showFastInTriggerLabel && caps.supportsFastMode && fastModeEnabled ? ["Fast"] : []),
     ...(contextWindowLabel ? [contextWindowLabel] : []),
   ]
     .filter(Boolean)
