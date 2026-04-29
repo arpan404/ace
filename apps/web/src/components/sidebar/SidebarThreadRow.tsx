@@ -497,7 +497,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
             <span className={threadMetaClassName}>
               {props.showThreadJumpHints && props.jumpLabel ? (
                 <span
-                  className="inline-flex h-5 items-center rounded-full border border-sidebar-border bg-sidebar-accent px-1.5 font-mono text-[10px] font-medium tracking-tight text-sidebar-accent-foreground shadow-sm"
+                  className="inline-flex h-5 items-center rounded-full border border-sidebar-border bg-sidebar-accent px-1.5 font-mono text-[10px] font-medium tracking-tight text-sidebar-accent-foreground "
                   title={props.jumpLabel}
                 >
                   {props.jumpLabel}

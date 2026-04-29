@@ -405,7 +405,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               ) : null}
               {props.showIssuesCommandExamplesPopover ? (
                 <div className="pointer-events-none absolute inset-x-0 bottom-full z-20 mb-2 px-1">
-                  <div className="rounded-lg border border-border bg-popover px-3 py-2 shadow-sm">
+                  <div className="rounded-lg border border-border bg-popover px-3 py-2 ">
                     <p className="mb-1 text-[11px] font-medium text-muted-foreground">
                       Use <span className="font-mono text-foreground">/issues</span> with issue
                       tags:

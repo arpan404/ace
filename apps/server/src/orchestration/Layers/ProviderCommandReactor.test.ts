@@ -890,6 +890,160 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.queuedSteerRequest).toBeNull();
   });
 
+  it("emits the steered user message before the next tool activity during native steering", async () => {
+    const harness = await createHarness({
+      turnSteeringMode: "native",
+    });
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const activeTurnId = asTurnId("turn-native-steer-ordering");
+    let steerMessageVisibleBeforeActivity = false;
+
+    harness.steerTurn.mockImplementation((_: unknown) =>
+      Effect.promise(async () => {
+        const readModelBeforeActivity = await Effect.runPromise(harness.engine.getReadModel());
+        const threadBeforeActivity = readModelBeforeActivity.threads.find(
+          (entry) => entry.id === threadId,
+        );
+        steerMessageVisibleBeforeActivity = Boolean(
+          threadBeforeActivity?.messages.some(
+            (message) => message.id === asMessageId("queued-native-steer-ordering"),
+          ),
+        );
+        await Effect.runPromise(
+          harness.engine.dispatch({
+            type: "thread.activity.append",
+            commandId: CommandId.makeUnsafe("cmd-native-steer-tool-activity"),
+            threadId,
+            activity: {
+              id: EventId.makeUnsafe("evt-native-steer-tool-started"),
+              tone: "tool",
+              kind: "tool.started",
+              summary: "Read file",
+              payload: {
+                itemType: "dynamic_tool_call",
+                detail: "Reading the next file after steer",
+              },
+              turnId: asTurnId("turn-1"),
+              createdAt: now,
+            },
+            createdAt: now,
+          }),
+        );
+        return {
+          threadId,
+          turnId: asTurnId("turn-1"),
+        };
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-native-steer-ordering"),
+        threadId,
+        message: {
+          messageId: asMessageId("message-native-steer-ordering"),
+          role: "user",
+          text: "start",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    harness.sendTurn.mockClear();
+    harness.interruptTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-running-session-native-steer-ordering"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    const liveSession = harness.runtimeSessions[0];
+    expect(liveSession).toBeDefined();
+    if (!liveSession) {
+      return;
+    }
+    harness.runtimeSessions[0] = {
+      ...liveSession,
+      status: "running",
+      activeTurnId,
+      updatedAt: now,
+    };
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.queue.append",
+        commandId: CommandId.makeUnsafe("cmd-native-steer-ordering-append"),
+        threadId,
+        position: "front",
+        message: {
+          id: asMessageId("queued-native-steer-ordering"),
+          prompt: "steer before tool call",
+          images: [],
+          terminalContexts: [],
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        },
+        steerRequest: {
+          messageId: asMessageId("queued-native-steer-ordering"),
+          baselineWorkLogEntryCount: 0,
+          interruptRequested: false,
+        },
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find((entry) => entry.id === threadId);
+      return Boolean(
+        thread?.messages.some(
+          (message) => message.id === asMessageId("queued-native-steer-ordering"),
+        ) &&
+        thread.activities.some(
+          (activity) => activity.id === EventId.makeUnsafe("evt-native-steer-tool-started"),
+        ),
+      );
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === threadId);
+    const steerMessage = thread?.messages.find(
+      (message) => message.id === asMessageId("queued-native-steer-ordering"),
+    );
+    const toolActivity = thread?.activities.find(
+      (activity) => activity.id === EventId.makeUnsafe("evt-native-steer-tool-started"),
+    );
+
+    expect(steerMessage).toMatchObject({
+      id: asMessageId("queued-native-steer-ordering"),
+      role: "user",
+      text: "steer before tool call",
+      turnId: asTurnId("turn-1"),
+    });
+    expect(steerMessageVisibleBeforeActivity).toBe(true);
+    expect(toolActivity?.kind).toBe("tool.started");
+  });
+
   it("passes handoff replay turns when starting the destination thread session", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

@@ -31,7 +31,7 @@ export function ComposerQueuedMessages(props: {
   return (
     <section
       className={cn(
-        "mb-2 overflow-hidden rounded-lg border border-border/50 bg-background/80 shadow-[0_18px_42px_-32px_rgba(0,0,0,0.82)] supports-[backdrop-filter]:bg-background/75 supports-[backdrop-filter]:backdrop-blur-md",
+        "mb-2 overflow-hidden rounded-lg border border-border/50 bg-background/80  supports-[backdrop-filter]:bg-background/75 supports-[backdrop-filter]:backdrop-blur-md",
         props.className,
       )}
     >
@@ -89,7 +89,7 @@ export function ComposerQueuedMessages(props: {
               className={cn(
                 "group relative mb-1.5 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 rounded-md border border-transparent px-2 py-2.5 transition-all last:mb-0",
                 isSteered
-                  ? "border-primary/22 bg-primary/[0.075] shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]"
+                  ? "border-primary/22 bg-primary/[0.075] "
                   : "bg-muted/[0.045] hover:border-border/45 hover:bg-muted/[0.08]",
               )}
             >

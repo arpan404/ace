@@ -112,7 +112,7 @@ function ThreadBoardDropPreview(props: {
       <div className="pointer-events-none absolute inset-0 z-30 rounded-[inherit] border border-primary/35 bg-primary/[0.05]" />
       <div
         className={cn(
-          "pointer-events-none absolute z-[31] rounded-[inherit] border border-primary/45 bg-primary/[0.14] shadow-[0_0_0_1px_color-mix(in_oklch,var(--color-primary)_16%,transparent)]",
+          "pointer-events-none absolute z-[31] rounded-[inherit] border border-primary/45 bg-primary/[0.14] ",
           props.direction === "left" || props.direction === "right"
             ? "top-0 bottom-0"
             : "left-0 right-0",
@@ -120,7 +120,7 @@ function ThreadBoardDropPreview(props: {
         )}
       />
       <div className="pointer-events-none absolute inset-x-3 top-3 z-[32] flex justify-center">
-        <div className="rounded-full border border-primary/30 bg-background/92 px-2.5 py-1 text-[10px] font-medium tracking-[0.12em] text-primary/85 uppercase shadow-sm backdrop-blur">
+        <div className="rounded-full border border-primary/30 bg-background/92 px-2.5 py-1 text-[10px] font-medium tracking-[0.12em] text-primary/85 uppercase  backdrop-blur">
           {props.isSinglePane ? "Create split" : "Insert pane"} {props.direction}
         </div>
       </div>
@@ -198,7 +198,7 @@ function ThreadBoardPane(props: {
             type="button"
             size="icon-xs"
             variant="ghost"
-            className="absolute right-2 top-2 z-30 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-opacity hover:bg-background hover:text-foreground group-hover/thread-pane:opacity-100 focus-visible:opacity-100"
+            className="absolute right-2 top-2 z-30 bg-background/90 text-muted-foreground opacity-0  backdrop-blur transition-opacity hover:bg-background hover:text-foreground group-hover/thread-pane:opacity-100 focus-visible:opacity-100"
             onClick={(event) => {
               event.stopPropagation();
               props.onClose();
@@ -666,7 +666,7 @@ export function ThreadBoard(props: {
       <div className="absolute right-3 bottom-3 z-40">
         <Menu>
           <MenuTrigger
-            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-background/90 px-2 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-background/90 px-2 text-xs font-medium text-muted-foreground  backdrop-blur transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="Change board layout"
           >
             <LayoutGridIcon className="size-3.5" />

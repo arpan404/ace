@@ -184,7 +184,7 @@ describe("designer element capture", () => {
               margin: 0 auto;
               border-radius: 24px;
               background: rgba(45, 51, 61, 0.96);
-              box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+              box-shadow: none;
               display: flex;
               align-items: center;
               justify-content: center;
@@ -273,7 +273,7 @@ describe("designer element capture", () => {
               margin: 0 auto;
               border-radius: 24px;
               background: rgba(45, 51, 61, 0.96);
-              box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+              box-shadow: none;
               display: flex;
               align-items: center;
               justify-content: center;
@@ -374,7 +374,7 @@ describe("designer element capture", () => {
               margin: 0 auto;
               border-radius: 24px;
               background: rgba(45, 51, 61, 0.96);
-              box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+              box-shadow: none;
               display: flex;
               align-items: center;
               justify-content: center;
