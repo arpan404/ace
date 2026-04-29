@@ -6,7 +6,7 @@ import type {
   ThreadHandoffMode,
   ThreadId,
 } from "@ace/contracts";
-import { BotIcon, CircleAlertIcon, ListTodoIcon, XIcon } from "lucide-react";
+import { BotIcon, CircleAlertIcon, ListTodoIcon, XIcon, ZapIcon } from "lucide-react";
 import {
   memo,
   useMemo,
@@ -39,6 +39,7 @@ import {
 } from "./composerProviderRegistry";
 import { ContextWindowMeter } from "./ContextWindowMeter";
 import { ProviderModelPicker } from "./ProviderModelPicker";
+import { getProviderModelCapabilities } from "../../providerModels";
 
 const EMPTY_TERMINAL_CONTEXTS: ComponentProps<typeof ComposerPromptEditor>["terminalContexts"] = [];
 
@@ -279,6 +280,26 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
       props.threadId,
     ],
   );
+  const fastModeEnabled = useMemo(() => {
+    const caps = getProviderModelCapabilities(
+      props.selectedProviderModels,
+      props.selectedModel,
+      props.selectedProvider,
+    );
+    if (!caps.supportsFastMode) {
+      return false;
+    }
+    return (
+      Boolean(props.selectedProviderModelOptions) &&
+      "fastMode" in props.selectedProviderModelOptions &&
+      props.selectedProviderModelOptions.fastMode === true
+    );
+  }, [
+    props.selectedModel,
+    props.selectedProvider,
+    props.selectedProviderModelOptions,
+    props.selectedProviderModels,
+  ]);
   const composerValue = props.isComposerApprovalState
     ? ""
     : (props.activePendingProgress?.customAnswer ?? props.prompt);
@@ -512,15 +533,47 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                   />
 
                   {props.isComposerFooterCompact ? (
-                    <CompactComposerControlsMenu
-                      interactionMode={props.interactionMode}
-                      runtimeMode={props.runtimeMode}
-                      traitsMenuContent={providerTraitsMenuContent}
-                      onToggleInteractionMode={props.onToggleInteractionMode}
-                      onRuntimeModeChange={props.onRuntimeModeChange}
-                    />
+                    <>
+                      {fastModeEnabled ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] text-muted-foreground/80">
+                                <ZapIcon className="size-4" />
+                              </span>
+                            }
+                          />
+                          <TooltipPopup side="top">Fast mode enabled</TooltipPopup>
+                        </Tooltip>
+                      ) : null}
+                      <CompactComposerControlsMenu
+                        interactionMode={props.interactionMode}
+                        runtimeMode={props.runtimeMode}
+                        traitsMenuContent={providerTraitsMenuContent}
+                        onToggleInteractionMode={props.onToggleInteractionMode}
+                        onRuntimeModeChange={props.onRuntimeModeChange}
+                      />
+                    </>
                   ) : (
                     <>
+                      {fastModeEnabled ? (
+                        <>
+                          <Separator
+                            orientation="vertical"
+                            className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
+                          />
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] text-muted-foreground/80">
+                                  <ZapIcon className="size-4" />
+                                </span>
+                              }
+                            />
+                            <TooltipPopup side="top">Fast mode enabled</TooltipPopup>
+                          </Tooltip>
+                        </>
+                      ) : null}
                       {providerTraitsPicker ? (
                         <>
                           <Separator

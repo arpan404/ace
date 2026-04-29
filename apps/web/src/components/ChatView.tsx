@@ -329,6 +329,10 @@ const TERMINAL_DRAWER_TRANSITION = {
   ease: [0.16, 1, 0.3, 1],
 } as const;
 
+function isAbsoluteFilesystemPath(path: string): boolean {
+  return /^(?:\/|\\\\|[A-Za-z]:[\\/])/.test(path);
+}
+
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const CACHED_BROWSER_INSTANCE_TTL_MS = 300_000;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
@@ -3596,7 +3600,13 @@ export default function ChatView({
     setRightSidePanelVisible(true);
   }, [setRightSidePanelEditorOpen, setRightSidePanelMode, setRightSidePanelVisible]);
   const openEditorFile = useEditorStateStore((state) => state.openFile);
-  const workspaceRootForInAppFileOpen = gitCwd ?? activeProject?.cwd ?? "";
+  const workspaceRootsForInAppFileOpen = useMemo(
+    () =>
+      [activeThread?.worktreePath, gitCwd, activeProject?.cwd].filter(
+        (root): root is string => typeof root === "string" && root.trim().length > 0,
+      ),
+    [activeProject?.cwd, activeThread?.worktreePath, gitCwd],
+  );
   const openMarkdownFileInAppEditor = useCallback(
     (targetPath: string) => {
       if (!activeThread) {
@@ -3606,17 +3616,26 @@ export default function ChatView({
       if (normalizedTargetPath.length === 0) {
         return;
       }
-      const resolvedFilePath = resolveWorkspaceEditorFilePath(
+      let resolvedFilePath = resolveWorkspaceEditorFilePath(
         normalizedTargetPath,
-        workspaceRootForInAppFileOpen,
+        workspaceRootsForInAppFileOpen[0] ?? "",
       );
+      if (isAbsoluteFilesystemPath(resolvedFilePath) && workspaceRootsForInAppFileOpen.length > 1) {
+        for (const workspaceRoot of workspaceRootsForInAppFileOpen.slice(1)) {
+          const candidatePath = resolveWorkspaceEditorFilePath(normalizedTargetPath, workspaceRoot);
+          if (!isAbsoluteFilesystemPath(candidatePath)) {
+            resolvedFilePath = candidatePath;
+            break;
+          }
+        }
+      }
       if (resolvedFilePath.length === 0) {
         return;
       }
       onOpenRightSidePanelEditor();
       openEditorFile(activeThread.id, resolvedFilePath);
     },
-    [activeThread, onOpenRightSidePanelEditor, openEditorFile, workspaceRootForInAppFileOpen],
+    [activeThread, onOpenRightSidePanelEditor, openEditorFile, workspaceRootsForInAppFileOpen],
   );
   const onSelectRightSidePanelMode = useCallback(
     (mode: RightSidePanelMode) => {
