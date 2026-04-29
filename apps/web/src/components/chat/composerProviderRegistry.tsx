@@ -245,8 +245,13 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     renderTraitsMenuContent: ({ threadId, model, models }) => (
       <CursorTraitsMenuContent threadId={threadId} model={model} models={models} />
     ),
-    renderTraitsPicker: ({ threadId, model, models }) => (
-      <CursorTraitsPicker threadId={threadId} model={model} models={models} />
+    renderTraitsPicker: ({ threadId, model, models, showFastInTriggerLabel }) => (
+      <CursorTraitsPicker
+        threadId={threadId}
+        model={model}
+        models={models}
+        {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
+      />
     ),
   },
   gemini: {

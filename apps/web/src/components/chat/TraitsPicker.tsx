@@ -21,7 +21,7 @@ import {
 } from "@ace/shared/model";
 import { memo, type ReactElement, useCallback, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, ZapIcon } from "lucide-react";
 import { Button, buttonVariants } from "../ui/button";
 import {
   Menu,
@@ -243,6 +243,7 @@ function readDefaultCursorTraits(
 function buildCursorTriggerLabel(input: {
   family: CursorSelectorFamily;
   model: string | null | undefined;
+  showFastInTriggerLabel?: boolean;
 }): string {
   const selectedTraits = readCursorSelectedTraits(input);
   const primaryLabel = selectedTraits.reasoningEffort
@@ -254,9 +255,12 @@ function buildCursorTriggerLabel(input: {
         : input.family.supportsMaxMode
           ? `Max ${selectedTraits.maxMode ? "On" : "Off"}`
           : "Variants";
+  const showFastInTriggerLabel = input.showFastInTriggerLabel ?? true;
   return [
     primaryLabel,
-    selectedTraits.fastMode && !primaryLabel.startsWith("Fast") ? "Fast" : null,
+    showFastInTriggerLabel && selectedTraits.fastMode && !primaryLabel.startsWith("Fast")
+      ? "Fast"
+      : null,
     selectedTraits.thinking && !primaryLabel.startsWith("Thinking") ? "Thinking" : null,
     selectedTraits.maxMode && !primaryLabel.startsWith("Max") ? "Max" : null,
   ]
@@ -424,6 +428,7 @@ export const CursorTraitsPicker = memo(function CursorTraitsPicker(props: {
   threadId: ThreadId;
   models: ReadonlyArray<ServerProviderModel>;
   model: string | null | undefined;
+  showFastInTriggerLabel?: boolean;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const family = resolveCursorSelectorFamily(props.models, props.model);
@@ -432,10 +437,18 @@ export const CursorTraitsPicker = memo(function CursorTraitsPicker(props: {
     return null;
   }
 
+  const showFastInTriggerLabel = props.showFastInTriggerLabel ?? true;
   const triggerLabel = buildCursorTriggerLabel({
     family,
     model: props.model,
+    ...(!showFastInTriggerLabel ? { showFastInTriggerLabel } : {}),
   });
+  const selectedTraits = readCursorSelectedTraits({
+    family,
+    model: props.model,
+  });
+  const showFastIconInTrigger =
+    family.supportsFastMode && selectedTraits.fastMode && !showFastInTriggerLabel;
 
   return (
     <Menu
@@ -454,6 +467,9 @@ export const CursorTraitsPicker = memo(function CursorTraitsPicker(props: {
         }
       >
         <span className="flex min-w-0 w-full items-center gap-2 overflow-hidden">
+          {showFastIconInTrigger ? (
+            <ZapIcon aria-hidden="true" className="size-3.5 shrink-0" />
+          ) : null}
           {triggerLabel}
           <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
         </span>
@@ -724,6 +740,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   const resolvedTriggerLabel = triggerLabel || (provider === "opencode" ? "Variant" : "Traits");
 
   const isCodexStyle = provider === "codex" || provider === "githubCopilot";
+  const showFastIconInTrigger = caps.supportsFastMode && fastModeEnabled && !showFastInTriggerLabel;
 
   if (
     !hasVisibleTraits({
@@ -759,11 +776,15 @@ export const TraitsPicker = memo(function TraitsPicker({
       >
         {isCodexStyle ? (
           <span className="flex min-w-0 w-full items-center gap-2 overflow-hidden">
+            {showFastIconInTrigger ? (
+              <ZapIcon aria-hidden="true" className="size-3.5 shrink-0" />
+            ) : null}
             {resolvedTriggerLabel}
             <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
           </span>
         ) : (
           <>
+            {showFastIconInTrigger ? <ZapIcon aria-hidden="true" className="size-3.5" /> : null}
             <span>{resolvedTriggerLabel}</span>
             <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
           </>
