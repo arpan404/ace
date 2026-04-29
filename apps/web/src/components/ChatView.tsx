@@ -3186,6 +3186,10 @@ export default function ChatView({
   );
   const queueCurrentComposerMessage = useCallback(
     async (mode: "queue" | "steer" = "queue") => {
+      const api = readNativeApi();
+      if (!api || !activeThread || (sendInFlightRef.current && !isServerThread)) {
+        return false;
+      }
       const hiddenDesignMessage = queuedDesignMessageEditRef.current;
       const { sendableTerminalContexts, expiredTerminalContextCount, hasSendableContent } =
         deriveComposerSendState({
@@ -3312,6 +3316,8 @@ export default function ChatView({
       selectedModelSelection,
       setThreadError,
       workLogEntries.length,
+      isServerThread,
+      activeThread,
       threadId,
     ],
   );
@@ -6195,7 +6201,7 @@ export default function ChatView({
   const onSend = useEffectEvent(async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     const api = readNativeApi();
-    if (!api || !activeThread || sendInFlightRef.current) return;
+    if (!api || !activeThread) return;
     if (activePendingProgress) {
       onAdvanceActivePendingUserInput();
       return;
@@ -6204,6 +6210,7 @@ export default function ChatView({
       await queueCurrentComposerMessage();
       return;
     }
+    if (sendInFlightRef.current) return;
     const promptForSend = promptRef.current;
     const promptForSendWithoutIssueMarkers = stripIssueReferenceMarkers(promptForSend);
     const hiddenDesignMessage = queuedDesignMessageEditRef.current;
@@ -7689,6 +7696,8 @@ export default function ChatView({
   const handleComposerSubmit = useCallback((event: React.FormEvent<HTMLFormElement>) => {
     void onSend(event);
   }, []);
+  const canQueueComposerMessage =
+    composerSendState.hasSendableContent && (!sendInFlightRef.current || isServerThread);
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
@@ -7845,6 +7854,7 @@ export default function ChatView({
                     activeContextWindow={activeContextWindow}
                     promptHasText={prompt.trim().length > 0}
                     hasSendableContent={composerSendState.hasSendableContent}
+                    canQueueMessage={canQueueComposerMessage}
                     activePendingApproval={activePendingApproval}
                     pendingApprovalsCount={pendingApprovals.length}
                     pendingUserInputs={pendingUserInputs}
