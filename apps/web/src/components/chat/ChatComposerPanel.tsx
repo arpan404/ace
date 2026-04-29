@@ -289,10 +289,12 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
     if (!caps.supportsFastMode) {
       return false;
     }
+    const selectedProviderModelOptions = props.selectedProviderModelOptions;
+    if (!selectedProviderModelOptions) {
+      return false;
+    }
     return (
-      Boolean(props.selectedProviderModelOptions) &&
-      "fastMode" in props.selectedProviderModelOptions &&
-      props.selectedProviderModelOptions.fastMode === true
+      "fastMode" in selectedProviderModelOptions && selectedProviderModelOptions.fastMode === true
     );
   }, [
     props.selectedModel,
