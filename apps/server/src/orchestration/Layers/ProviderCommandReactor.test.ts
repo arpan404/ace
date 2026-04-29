@@ -880,6 +880,12 @@ describe("ProviderCommandReactor", () => {
 
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
     const thread = readModel.threads.find((entry) => entry.id === threadId);
+    expect(thread?.messages.at(-1)).toMatchObject({
+      id: asMessageId("queued-native-steer"),
+      role: "user",
+      text: "steer this natively",
+      turnId: asTurnId("turn-1"),
+    });
     expect(thread?.queuedComposerMessages).toEqual([]);
     expect(thread?.queuedSteerRequest).toBeNull();
   });

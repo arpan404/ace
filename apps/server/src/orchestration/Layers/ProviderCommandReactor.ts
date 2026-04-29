@@ -700,20 +700,20 @@ const make = Effect.gen(function* () {
     }
 
     nativeSteerReservationsByThreadId.add(thread.id);
-    const steered = yield* providerService
+    const steerResult = yield* providerService
       .steerTurn({
         threadId: thread.id,
         ...(messageText.length > 0 ? { input: messageText } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       })
       .pipe(
-        Effect.as(true),
+        Effect.map((result) => result),
         Effect.catchCause((cause) =>
           Effect.logWarning("provider command reactor failed native queued steering", {
             threadId: thread.id,
             provider,
             cause: Cause.pretty(cause),
-          }).pipe(Effect.as(false)),
+          }).pipe(Effect.as(null)),
         ),
         Effect.ensuring(
           Effect.sync(() => {
@@ -722,10 +722,20 @@ const make = Effect.gen(function* () {
         ),
       );
 
-    if (!steered) {
+    if (!steerResult) {
       return false;
     }
 
+    yield* orchestrationEngine.dispatch({
+      type: "thread.message.user.append",
+      commandId: serverCommandId("queue-native-steer-message"),
+      threadId: thread.id,
+      messageId: steerMessage.id,
+      text: messageText,
+      ...(attachments.length > 0 ? { attachments } : {}),
+      turnId: steerResult.turnId,
+      createdAt,
+    });
     yield* orchestrationEngine.dispatch({
       type: "thread.queue.delete",
       commandId: serverCommandId("queue-pop-native-steer"),
