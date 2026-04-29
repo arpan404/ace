@@ -43,6 +43,18 @@ const formatPendingPrimaryActionLabel = (input: {
   return input.isLastQuestion ? "Submit answers" : "Next question";
 };
 
+const SendArrowIcon = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <path
+      d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   compact,
   pendingAction,
@@ -106,31 +118,41 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   }
 
   if (isRunning || (isSendBusy && canQueueMessage)) {
+    const shouldShowQueueAsPrimarySend = isRunning && canQueueMessage && hasSendableContent;
     return (
       <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
-        {canQueueMessage ? (
+        {canQueueMessage && !shouldShowQueueAsPrimarySend ? (
           <Button
             type="button"
-            size={isRunning ? "icon-xs" : "sm"}
+            size="icon-xs"
             variant="ghost"
             className={cn(
               "rounded-full transition-all duration-150",
               isRunning
                 ? "bg-primary/8 text-primary hover:bg-primary/14 hover:text-primary"
-                : compact
-                  ? "px-3"
-                  : "px-4",
+                : "text-primary hover:bg-primary/12 hover:text-primary",
             )}
             onClick={onQueueMessage}
             disabled={isConnecting}
             aria-label={isRunning ? "Steer message" : "Queue message"}
             title={isRunning ? "Steer message" : "Queue message"}
           >
-            {isRunning ? <BotIcon className="size-3.5" /> : "Queue"}
+            {isRunning ? <BotIcon className="size-3.5" /> : <SendArrowIcon size={12} />}
           </Button>
         ) : null}
 
-        {isRunning ? (
+        {shouldShowQueueAsPrimarySend ? (
+          <button
+            type="button"
+            className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground transition-all duration-150 hover:bg-primary/88 disabled:pointer-events-none disabled:opacity-15 sm:size-7"
+            onClick={onQueueMessage}
+            disabled={isConnecting}
+            aria-label="Queue message"
+            title="Queue message"
+          >
+            <SendArrowIcon />
+          </button>
+        ) : isRunning ? (
           <button
             type="button"
             className="flex size-7 cursor-pointer items-center justify-center rounded-full bg-destructive text-white transition-all duration-200 hover:bg-destructive/90 sm:size-7"
@@ -256,15 +278,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           />
         </svg>
       ) : (
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-          <path
-            d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <SendArrowIcon />
       )}
     </button>
   );

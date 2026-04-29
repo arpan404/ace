@@ -122,6 +122,7 @@ interface MessagesTimelineProps {
   onImageExpand: (preview: ExpandedImagePreview) => void;
   markdownCwd: string | undefined;
   onOpenBrowserUrl?: ((url: string) => void) | null;
+  onOpenFilePath?: ((path: string) => void) | null;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
@@ -151,6 +152,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onImageExpand,
   markdownCwd,
   onOpenBrowserUrl = null,
+  onOpenFilePath = null,
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
@@ -471,6 +473,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   markdownCwd={markdownCwd}
                   message={row.message}
                   onOpenBrowserUrl={onOpenBrowserUrl}
+                  onOpenFilePath={onOpenFilePath}
                   timestampFormat={timestampFormat}
                   {...(onMeasuredLayoutChange ? { onLayoutChange: onMeasuredLayoutChange } : {})}
                 />
@@ -495,6 +498,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           <ProposedPlanTimelineRow
             cwd={markdownCwd}
             onOpenBrowserUrl={onOpenBrowserUrl}
+            onOpenFilePath={onOpenFilePath}
             proposedPlan={row.proposedPlan}
             workspaceRoot={workspaceRoot}
             {...(onMeasuredLayoutChange ? { onLayoutChange: onMeasuredLayoutChange } : {})}
@@ -1661,9 +1665,11 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   message: AssistantTimelineMessage;
   onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
+  onOpenFilePath?: ((path: string) => void) | null;
   timestampFormat: TimestampFormat;
 }) {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
+  const onOpenFilePath = props.onOpenFilePath ?? null;
   const renderedMessageText = getChatMessageRenderableText(props.message);
   const messageText =
     renderedMessageText.trim().length > 0
@@ -1689,6 +1695,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         cwd={props.markdownCwd}
         isStreaming={Boolean(props.message.streaming)}
         onOpenBrowserUrl={onOpenBrowserUrl}
+        onOpenFilePath={onOpenFilePath}
         {...(props.message.streamingTextState
           ? { streamingTextState: props.message.streamingTextState }
           : {})}
@@ -1777,16 +1784,19 @@ const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
   cwd: string | undefined;
   onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
+  onOpenFilePath?: ((path: string) => void) | null;
   proposedPlan: TimelineProposedPlan;
   workspaceRoot: string | undefined;
 }) {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
+  const onOpenFilePath = props.onOpenFilePath ?? null;
   return (
     <div className="rounded-xl border border-border/45 bg-background/35 px-4 py-3">
       <ProposedPlanCard
         planMarkdown={props.proposedPlan.planMarkdown}
         cwd={props.cwd}
         onOpenBrowserUrl={onOpenBrowserUrl}
+        onOpenFilePath={onOpenFilePath}
         workspaceRoot={props.workspaceRoot}
         {...(props.onLayoutChange ? { onLayoutChange: props.onLayoutChange } : {})}
       />

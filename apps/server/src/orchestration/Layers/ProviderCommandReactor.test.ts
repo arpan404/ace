@@ -512,6 +512,182 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("does not start a queued OpenCode steer turn while the live provider turn is still running", async () => {
+    const harness = await createHarness({
+      threadModelSelection: {
+        provider: "opencode",
+        model: "auto",
+      },
+    });
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const activeTurnId = asTurnId("opencode-turn-running");
+
+    harness.runtimeSessions.push({
+      provider: "opencode",
+      status: "running",
+      runtimeMode: "approval-required",
+      threadId,
+      activeTurnId,
+      resumeCursor: { opaque: "resume-opencode-running" },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-opencode-stale-idle-session"),
+        threadId,
+        session: {
+          threadId,
+          status: "ready",
+          providerName: "opencode",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.queue.append",
+        commandId: CommandId.makeUnsafe("cmd-opencode-steer-append"),
+        threadId,
+        position: "front",
+        message: {
+          id: asMessageId("queued-opencode-steer"),
+          prompt: "Steer this while OpenCode is still running",
+          images: [],
+          terminalContexts: [],
+          modelSelection: {
+            provider: "opencode",
+            model: "auto",
+          },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        },
+        steerRequest: {
+          messageId: asMessageId("queued-opencode-steer"),
+          baselineWorkLogEntryCount: 0,
+          interruptRequested: false,
+        },
+      }),
+    );
+
+    await harness.drain();
+
+    expect(harness.sendTurn.mock.calls.length).toBe(0);
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === threadId);
+    expect(thread?.queuedComposerMessages).toHaveLength(1);
+    expect(thread?.session?.status).toBe("running");
+    expect(
+      thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed"),
+    ).toBe(false);
+  });
+
+  it("interrupts a running OpenCode turn immediately when queued steering is requested", async () => {
+    const harness = await createHarness({
+      threadModelSelection: {
+        provider: "opencode",
+        model: "auto",
+      },
+    });
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const activeTurnId = asTurnId("opencode-turn-live");
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-opencode-turn-start-for-steer"),
+        threadId,
+        message: {
+          messageId: asMessageId("message-opencode-turn-start-for-steer"),
+          role: "user",
+          text: "start",
+          attachments: [],
+        },
+        modelSelection: {
+          provider: "opencode",
+          model: "auto",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-opencode-running-session-for-steer"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "opencode",
+          runtimeMode: "approval-required",
+          activeTurnId,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    const liveSession = harness.runtimeSessions[0];
+    expect(liveSession).toBeDefined();
+    if (!liveSession) {
+      return;
+    }
+    harness.runtimeSessions[0] = {
+      ...liveSession,
+      status: "running",
+      activeTurnId,
+      updatedAt: now,
+    };
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.queue.append",
+        commandId: CommandId.makeUnsafe("cmd-opencode-queue-steer-immediate"),
+        threadId,
+        position: "front",
+        message: {
+          id: asMessageId("queued-opencode-steer-immediate"),
+          prompt: "Steer immediately in OpenCode",
+          images: [],
+          terminalContexts: [],
+          modelSelection: {
+            provider: "opencode",
+            model: "auto",
+          },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        },
+        steerRequest: {
+          messageId: asMessageId("queued-opencode-steer-immediate"),
+          baselineWorkLogEntryCount: 0,
+          interruptRequested: false,
+        },
+      }),
+    );
+
+    await waitFor(() => harness.interruptTurn.mock.calls.length === 1);
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === threadId);
+    expect(thread?.queuedSteerRequest?.interruptRequested).toBe(true);
+    expect(thread?.queuedComposerMessages[0]?.id).toBe(
+      asMessageId("queued-opencode-steer-immediate"),
+    );
+  });
+
   it("reconciles stale running session state when steer is clicked after work has finished", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

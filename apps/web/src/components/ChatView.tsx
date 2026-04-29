@@ -195,6 +195,7 @@ import {
 } from "~/lib/composer/footerLayout";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
+import { useEditorStateStore } from "../editorStateStore";
 import { type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatConversationExtras } from "./chat/ChatConversationExtras";
@@ -304,6 +305,7 @@ import {
   normalizeWsUrl,
   resolveHostConnectionWsUrl,
 } from "~/lib/remoteHosts";
+import { resolveWorkspaceEditorFilePath } from "~/markdown-links";
 
 const ThreadWorkspaceEditor = lazy(() => import("./editor/ThreadWorkspaceEditor"));
 
@@ -1482,6 +1484,8 @@ export default function ChatView({
   const queuedSteerRequest = serverThread?.queuedSteerRequest ?? null;
   const queuedComposerMessagesRef = useRef(queuedComposerMessages);
   queuedComposerMessagesRef.current = queuedComposerMessages;
+  const queuedSteerRequestRef = useRef(queuedSteerRequest);
+  queuedSteerRequestRef.current = queuedSteerRequest;
 
   const openPullRequestDialog = useCallback(
     (reference?: string) => {
@@ -3099,6 +3103,62 @@ export default function ChatView({
       revokeComposerImagePreviewUrls(queuedMessage.images);
     }
   }, [clearQueuedComposerState, queuedComposerMessages, serverThread]);
+  const reorderQueuedComposerMessages = useCallback(
+    async (
+      draggedMessageId: MessageId,
+      targetMessageId: MessageId,
+      placement: "before" | "after",
+    ) => {
+      if (!serverThread) {
+        return;
+      }
+      const currentQueue = queuedComposerMessagesRef.current;
+      const draggedIndex = currentQueue.findIndex((message) => message.id === draggedMessageId);
+      const targetIndex = currentQueue.findIndex((message) => message.id === targetMessageId);
+      if (draggedIndex < 0 || targetIndex < 0) {
+        return;
+      }
+
+      const nextQueue = [...currentQueue];
+      const [dragged] = nextQueue.splice(draggedIndex, 1);
+      if (!dragged) {
+        return;
+      }
+      let insertionIndex = targetIndex;
+      if (draggedIndex < targetIndex) {
+        insertionIndex -= 1;
+      }
+      if (placement === "after") {
+        insertionIndex += 1;
+      }
+      insertionIndex = Math.max(0, Math.min(nextQueue.length, insertionIndex));
+      nextQueue.splice(insertionIndex, 0, dragged);
+      const isUnchanged = nextQueue.every(
+        (message, index) => message.id === currentQueue[index]?.id,
+      );
+      if (isUnchanged) {
+        return;
+      }
+
+      const steerRequest = queuedSteerRequestRef.current;
+
+      if (!(await clearQueuedComposerState(serverThread.id))) {
+        return;
+      }
+
+      for (const message of nextQueue) {
+        const success = await appendQueuedComposerMessage(
+          serverThread.id,
+          message,
+          steerRequest?.messageId === message.id ? { steerRequest } : undefined,
+        );
+        if (!success) {
+          return;
+        }
+      }
+    },
+    [appendQueuedComposerMessage, clearQueuedComposerState, serverThread],
+  );
   const restoreQueuedComposerMessageToDraft = useCallback(
     (message: QueuedComposerMessage, restoredImages: ReadonlyArray<ComposerImageAttachment>) => {
       promptRef.current = message.prompt;
@@ -3535,6 +3595,29 @@ export default function ChatView({
     setRightSidePanelMode("editor");
     setRightSidePanelVisible(true);
   }, [setRightSidePanelEditorOpen, setRightSidePanelMode, setRightSidePanelVisible]);
+  const openEditorFile = useEditorStateStore((state) => state.openFile);
+  const workspaceRootForInAppFileOpen = gitCwd ?? activeProject?.cwd ?? "";
+  const openMarkdownFileInAppEditor = useCallback(
+    (targetPath: string) => {
+      if (!activeThread) {
+        return;
+      }
+      const normalizedTargetPath = targetPath.trim();
+      if (normalizedTargetPath.length === 0) {
+        return;
+      }
+      const resolvedFilePath = resolveWorkspaceEditorFilePath(
+        normalizedTargetPath,
+        workspaceRootForInAppFileOpen,
+      );
+      if (resolvedFilePath.length === 0) {
+        return;
+      }
+      onOpenRightSidePanelEditor();
+      openEditorFile(activeThread.id, resolvedFilePath);
+    },
+    [activeThread, onOpenRightSidePanelEditor, openEditorFile, workspaceRootForInAppFileOpen],
+  );
   const onSelectRightSidePanelMode = useCallback(
     (mode: RightSidePanelMode) => {
       setRightSidePanelVisible(true);
@@ -7448,6 +7531,7 @@ export default function ChatView({
       onImageExpand: onExpandTimelineImage,
       markdownCwd: codingGitCwd ?? undefined,
       onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
+      onOpenFilePath: openMarkdownFileInAppEditor,
       resolvedTheme,
       timestampFormat,
       workspaceRoot: activeProject?.cwd ?? undefined,
@@ -7474,6 +7558,7 @@ export default function ChatView({
       onToggleWorkGroup,
       openGitHubIssueDialog,
       openBrowserUrlInNewTab,
+      openMarkdownFileInAppEditor,
       resolvedTheme,
       revertTurnCountByUserMessageId,
       scheduleComposerFocus,
@@ -7887,6 +7972,7 @@ export default function ChatView({
                     onEditQueuedComposerMessage={onEditQueuedComposerMessage}
                     onDeleteQueuedComposerMessage={removeQueuedComposerMessage}
                     onClearQueuedComposerMessages={clearQueuedComposerMessages}
+                    onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
                     onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
                     onPreviewComposerImage={handleComposerImagePreview}
                     onRemoveComposerImage={removeComposerImage}
@@ -8076,6 +8162,7 @@ export default function ChatView({
                             activeProvider={activeThread?.session?.provider ?? null}
                             markdownCwd={gitCwd ?? undefined}
                             onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
+                            onOpenFilePath={openMarkdownFileInAppEditor}
                             workspaceRoot={activeProject?.cwd ?? undefined}
                           />
                         ) : activeRightSidePanelMode === "diff" ? (

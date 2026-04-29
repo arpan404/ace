@@ -133,6 +133,9 @@ interface ChatComposerPanelProps {
   readonly onClearQueuedComposerMessages: ComponentProps<
     typeof ComposerQueuedMessages
   >["onClearAll"];
+  readonly onReorderQueuedComposerMessages: ComponentProps<
+    typeof ComposerQueuedMessages
+  >["onReorder"];
   readonly onSteerQueuedComposerMessage: ComponentProps<typeof ComposerQueuedMessages>["onSteer"];
   readonly onPreviewComposerImage: (imageId: string) => void;
   readonly onRemoveComposerImage: (imageId: string) => void;
@@ -346,6 +349,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
           onEdit={props.onEditQueuedComposerMessage}
           onDelete={props.onDeleteQueuedComposerMessage}
           onClearAll={props.onClearQueuedComposerMessages}
+          onReorder={props.onReorderQueuedComposerMessages}
           onSteer={props.onSteerQueuedComposerMessage}
         />
 

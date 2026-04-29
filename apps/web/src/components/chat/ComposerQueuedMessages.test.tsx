@@ -6,7 +6,7 @@ import { appendBrowserDesignContextToPrompt } from "../../lib/terminalContext";
 import { ComposerQueuedMessages } from "./ComposerQueuedMessages";
 
 describe("ComposerQueuedMessages", () => {
-  it("renders the simplified queue row with steer/edit/delete and icon-only attachments", () => {
+  it("renders unified queue rows with steer/edit/delete actions and icon-only attachments", () => {
     const markup = renderToStaticMarkup(
       <ComposerQueuedMessages
         messages={[
@@ -22,6 +22,7 @@ describe("ComposerQueuedMessages", () => {
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onClearAll={vi.fn()}
+        onReorder={vi.fn()}
         onSteer={vi.fn()}
       />,
     );
@@ -58,6 +59,7 @@ describe("ComposerQueuedMessages", () => {
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onClearAll={vi.fn()}
+        onReorder={vi.fn()}
         onSteer={vi.fn()}
       />,
     );
@@ -74,6 +76,7 @@ describe("ComposerQueuedMessages", () => {
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onClearAll={vi.fn()}
+        onReorder={vi.fn()}
         onSteer={vi.fn()}
       />,
     );
