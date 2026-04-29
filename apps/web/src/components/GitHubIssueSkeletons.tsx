@@ -116,7 +116,7 @@ export function GitHubIssuePreviewHeaderSkeleton({ issueNumber }: { issueNumber:
 export function ThreadHistoryLoadingNotice() {
   return (
     <div className="sticky top-0 z-10 mb-3 flex justify-center">
-      <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-card/95 px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm backdrop-blur-sm">
+      <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-card/95 px-3 py-1.5 text-[11px] text-muted-foreground  backdrop-blur-sm">
         <Spinner className="size-3 text-primary" />
         <span>Restoring conversation...</span>
         <span className="hidden text-muted-foreground/70 sm:inline">syncing missing messages</span>

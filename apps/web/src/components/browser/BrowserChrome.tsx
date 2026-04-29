@@ -100,7 +100,7 @@ export function BrowserSuggestionList(props: {
   }
 
   return (
-    <div className="absolute inset-x-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded-xl border border-border/20 bg-popover/95 shadow-lg shadow-black/[0.03] backdrop-blur-xl">
+    <div className="absolute inset-x-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded-xl border border-border/20 bg-popover/95   backdrop-blur-xl">
       <div className="max-h-80 overflow-y-auto py-0.5">
         {suggestions.map((suggestion, index) => {
           const isActive = index === activeIndex;

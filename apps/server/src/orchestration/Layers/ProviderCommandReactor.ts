@@ -699,6 +699,16 @@ const make = Effect.gen(function* () {
       return true;
     }
 
+    yield* orchestrationEngine.dispatch({
+      type: "thread.message.user.append",
+      commandId: serverCommandId("queue-native-steer-message-pending"),
+      threadId: thread.id,
+      messageId: steerMessage.id,
+      text: messageText,
+      ...(attachments.length > 0 ? { attachments } : {}),
+      createdAt,
+    });
+
     nativeSteerReservationsByThreadId.add(thread.id);
     const steerResult = yield* providerService
       .steerTurn({

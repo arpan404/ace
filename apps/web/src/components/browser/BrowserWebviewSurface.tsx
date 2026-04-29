@@ -2916,13 +2916,13 @@ export function BrowserTabWebview(props: {
                 height: `${activeOverlaySelection.height}px`,
               }}
             >
-              <div className="absolute inset-0 border border-primary/75 bg-primary/[0.06] shadow-[0_28px_90px_-42px_rgba(91,106,255,0.85)]" />
+              <div className="absolute inset-0 border border-primary/75 bg-primary/[0.06] " />
             </div>
           )}
           {designDraft && designRequestPanelStyle && (
             <form
               ref={designRequestPanelRef}
-              className="absolute z-30 w-[272px] max-w-[calc(100%-16px)] rounded-2xl border border-border/60 bg-background/95 p-2.5 shadow-[0_28px_80px_-52px_rgba(0,0,0,0.88)] backdrop-blur-xl"
+              className="absolute z-30 w-[272px] max-w-[calc(100%-16px)] rounded-2xl border border-border/60 bg-background/95 p-2.5  backdrop-blur-xl"
               style={designRequestPanelStyle}
               onSubmit={(event) => {
                 event.preventDefault();

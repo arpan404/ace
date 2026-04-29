@@ -2111,7 +2111,7 @@ export default memo(function ThreadTerminalDrawer({
                         onPointerDown={(event) => handleSplitResizePointerDown(index, event)}
                       >
                         <div className="h-full w-px bg-border/20" />
-                        <div className="pointer-events-none absolute h-10 w-1 rounded-full bg-border/52 shadow-[0_0_0_1px_rgba(255,255,255,0.03)]" />
+                        <div className="pointer-events-none absolute h-10 w-1 rounded-full bg-border/52 " />
                       </div>
                     ) : null}
                   </Fragment>

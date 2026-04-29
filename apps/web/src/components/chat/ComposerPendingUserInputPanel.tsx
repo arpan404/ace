@@ -160,7 +160,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
               className={cn(
                 "group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-200",
                 isSelected
-                  ? "border-primary/30 bg-primary/6 text-foreground shadow-[0_0_12px_-4px] shadow-primary/15"
+                  ? "border-primary/30 bg-primary/6 text-foreground  "
                   : "border-border/25 bg-muted/12 text-foreground/80 hover:border-border/45 hover:bg-muted/30",
                 isResponding && "opacity-50 cursor-not-allowed",
               )}
@@ -170,7 +170,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                   className={cn(
                     "flex size-5 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold tabular-nums transition-all duration-200",
                     isSelected
-                      ? "bg-primary/15 text-primary shadow-sm shadow-primary/10"
+                      ? "bg-primary/15 text-primary  "
                       : "bg-muted/30 text-muted-foreground/40 group-hover:bg-muted/50 group-hover:text-muted-foreground/60",
                   )}
                 >

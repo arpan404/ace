@@ -828,7 +828,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                           <MenuTrigger
                             className={cn(
                               "group inline-flex h-9 max-w-[11.5rem] shrink-0 items-center gap-2 rounded-xl border px-2.5 text-left transition-[border-color,background-color,color,box-shadow] duration-150",
-                              "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_94%,transparent),color-mix(in_srgb,var(--background)_88%,transparent))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+                              "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_94%,transparent),color-mix(in_srgb,var(--background)_88%,transparent))] ",
                               collapsedDesignerSelectorActive
                                 ? "border-primary/32 text-foreground hover:border-primary/45 hover:bg-primary/[0.08] data-[popup-open]:border-primary/48 data-[popup-open]:bg-primary/[0.1]"
                                 : "border-border/60 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground data-[popup-open]:border-border/90 data-[popup-open]:bg-accent/55 data-[popup-open]:text-foreground",
@@ -875,7 +875,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                       align="end"
                       side="bottom"
                       sideOffset={8}
-                      className="min-w-[18.5rem] border-border/70 bg-popover/96 shadow-[0_16px_44px_rgba(0,0,0,0.28)] supports-[backdrop-filter]:bg-popover/92"
+                      className="min-w-[18.5rem] border-border/70 bg-popover/96  supports-[backdrop-filter]:bg-popover/92"
                     >
                       <div className="px-1.5 pb-1 pt-0.5">
                         <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_96%,transparent),color-mix(in_srgb,var(--background)_90%,transparent))] px-3 py-2.5">
@@ -915,7 +915,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                               <div className="flex min-w-0 items-start gap-3">
                                 <span
                                   className={cn(
-                                    "relative mt-0.5 inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-background/85 text-foreground/88 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
+                                    "relative mt-0.5 inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-background/85 text-foreground/88 ",
                                   )}
                                 >
                                   <span
@@ -999,7 +999,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                               {showDesignerToolShortcutHints &&
                               designerShortcutLabelByTool[tool] ? (
                                 <span
-                                  className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-3.5 items-center justify-center rounded-full border border-border/70 bg-background px-0.5 font-mono text-[8px] font-medium leading-none text-foreground shadow-sm"
+                                  className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-3.5 items-center justify-center rounded-full border border-border/70 bg-background px-0.5 font-mono text-[8px] font-medium leading-none text-foreground "
                                   title={designerShortcutLabelByTool[tool] ?? undefined}
                                 >
                                   {resolveDesignerShortcutHintLabel(

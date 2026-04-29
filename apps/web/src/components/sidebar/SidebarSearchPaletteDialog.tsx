@@ -73,7 +73,7 @@ export const SidebarSearchPaletteDialog = memo(function SidebarSearchPaletteDial
 }) {
   return (
     <CommandDialog open={props.open} onOpenChange={props.onOpenChange}>
-      <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border/50 bg-popover/98 p-0 shadow-lg">
+      <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border/50 bg-popover/98 p-0 ">
         <div className="flex items-center gap-3 border-b border-border/40 bg-gradient-to-b from-popover/50 to-popover/20 px-4 py-3">
           {props.mode === "new-thread-project" ? (
             <button

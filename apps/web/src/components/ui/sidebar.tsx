@@ -829,8 +829,7 @@ const sidebarMenuButtonVariants = cva(
       },
       variant: {
         default: "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-        outline:
-          "bg-sidebar shadow-[0_0_0_1px_hsl(var(--sidebar-border))] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:shadow-[0_0_0_1px_hsl(var(--sidebar-accent))]",
+        outline: "bg-sidebar  hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ",
       },
     },
   },
