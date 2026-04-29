@@ -54,7 +54,7 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
   deleteSplit: (splitId: string) => void;
   openThreadInBoard: (input: {
     connectionUrl?: string | null;
-    direction?: "down" | "right";
+    direction?: "down" | "left" | "right" | "up";
     sourcePaneId?: string | null;
     threadId: ThreadId;
   }) => string | null;
@@ -62,7 +62,7 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
     splitId: string,
     input: {
       connectionUrl?: string | null;
-      direction?: "down" | "right";
+      direction?: "down" | "left" | "right" | "up";
       sourcePaneId?: string | null;
       threadId: ThreadId;
     },
@@ -396,7 +396,7 @@ function insertPaneIntoBoard(
   state: BoardStateFields,
   pane: ChatThreadBoardPaneState,
   options?: {
-    direction?: "down" | "right" | undefined;
+    direction?: "down" | "left" | "right" | "up" | undefined;
     sourcePaneId?: string | null | undefined;
   },
 ): BoardStateFields {
@@ -435,11 +435,17 @@ function insertPaneIntoBoard(
 
   if (options?.direction === "down") {
     rows.splice(sourceRowIndex + 1, 0, createRow([pane.id]));
+  } else if (options?.direction === "up") {
+    rows.splice(sourceRowIndex, 0, createRow([pane.id]));
   } else {
     const sourceRow = rows[sourceRowIndex]!;
     const sourcePaneIndex = sourceRow.paneIds.indexOf(sourcePaneId);
     const paneIds = [...sourceRow.paneIds];
-    paneIds.splice(sourcePaneIndex + 1, 0, pane.id);
+    paneIds.splice(
+      options?.direction === "left" ? sourcePaneIndex : sourcePaneIndex + 1,
+      0,
+      pane.id,
+    );
     rows[sourceRowIndex] = createRow(paneIds, {
       id: sourceRow.id,
       paneRatios: sourceRow.paneRatios,

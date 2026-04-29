@@ -63,4 +63,38 @@ describe("chatThreadBoardStore", () => {
     expect(split?.panes).toHaveLength(3);
     expect(split?.activePaneId).toBe(firstOpenPaneId);
   });
+
+  it("inserts a thread before the source pane when opening to the left", () => {
+    const store = useChatThreadBoardStore.getState();
+    const sourcePaneId = store.syncRouteThread({ threadId: THREAD_A });
+
+    store.openThreadInBoard({
+      direction: "left",
+      sourcePaneId,
+      threadId: THREAD_B,
+    });
+
+    const state = useChatThreadBoardStore.getState();
+    expect(state.rows).toHaveLength(1);
+    expect(state.rows[0]?.paneIds).toEqual([state.panes[1]?.id, state.panes[0]?.id]);
+    expect(state.panes.map((pane) => pane.threadId)).toEqual([THREAD_A, THREAD_B]);
+    expect(state.activePaneId).toBe(state.panes[1]?.id);
+  });
+
+  it("inserts a thread above the source pane when opening upward", () => {
+    const store = useChatThreadBoardStore.getState();
+    const sourcePaneId = store.syncRouteThread({ threadId: THREAD_A });
+
+    store.openThreadInBoard({
+      direction: "up",
+      sourcePaneId,
+      threadId: THREAD_B,
+    });
+
+    const state = useChatThreadBoardStore.getState();
+    expect(state.rows).toHaveLength(2);
+    expect(state.rows[0]?.paneIds).toEqual([state.panes[1]?.id]);
+    expect(state.rows[1]?.paneIds).toEqual([state.panes[0]?.id]);
+    expect(state.activePaneId).toBe(state.panes[1]?.id);
+  });
 });

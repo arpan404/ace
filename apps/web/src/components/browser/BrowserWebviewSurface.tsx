@@ -2806,6 +2806,50 @@ export function BrowserTabWebview(props: {
     },
     [],
   );
+  useEffect(() => {
+    const resetPointerInteractions = () => {
+      const overlay = overlayRef.current;
+      const dragSelection = dragSelectionRef.current;
+      if (overlay && dragSelection && overlay.hasPointerCapture(dragSelection.pointerId)) {
+        overlay.releasePointerCapture(dragSelection.pointerId);
+      }
+      dragSelectionRef.current = null;
+      setSelectionRect(null);
+
+      const annotationCanvas = annotationCanvasRef.current;
+      const annotationState = annotationPointerRef.current;
+      if (
+        annotationCanvas &&
+        annotationState &&
+        annotationCanvas.hasPointerCapture(annotationState.pointerId)
+      ) {
+        annotationCanvas.releasePointerCapture(annotationState.pointerId);
+      }
+      annotationPointerRef.current = null;
+
+      const designRequestPanel = designRequestPanelRef.current;
+      const panelDragState = designRequestPanelDragStateRef.current;
+      if (
+        designRequestPanel &&
+        panelDragState &&
+        designRequestPanel.hasPointerCapture(panelDragState.pointerId)
+      ) {
+        designRequestPanel.releasePointerCapture(panelDragState.pointerId);
+      }
+      designRequestPanelDragStateRef.current = null;
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        resetPointerInteractions();
+      }
+    };
+    window.addEventListener("blur", resetPointerInteractions);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", resetPointerInteractions);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
   const designRequestPanelStyle = useMemo<CSSProperties | undefined>(() => {
     const position = designRequestPanelPosition ?? defaultDesignRequestPanelPosition;
     if (!position || !designRequestPanelViewport) {
