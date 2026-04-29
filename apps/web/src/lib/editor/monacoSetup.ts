@@ -107,23 +107,113 @@ function rgbChannelToHex(value: number): string {
     .padStart(2, "0");
 }
 
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
 function alphaToHex(alpha: number): string {
-  return Math.max(0, Math.min(255, Math.round(alpha * 255)))
+  return Math.max(0, Math.min(255, Math.round(clamp01(alpha) * 255)))
     .toString(16)
     .padStart(2, "0");
 }
 
+function parseAlphaValue(value: string | undefined): number {
+  if (!value) {
+    return 1;
+  }
+  const trimmed = value.trim();
+  if (trimmed.endsWith("%")) {
+    return clamp01(Number.parseFloat(trimmed.slice(0, -1)) / 100);
+  }
+  return clamp01(Number.parseFloat(trimmed));
+}
+
+function normalizeHexColor(value: string): string | null {
+  const hex = value.trim();
+  const shortMatch = hex.match(/^#([0-9a-f]{3,4})$/i);
+  if (shortMatch) {
+    const channels = shortMatch[1]?.split("");
+    if (!channels) {
+      return null;
+    }
+    return `#${channels.map((channel) => `${channel}${channel}`).join("")}`;
+  }
+  const fullMatch = hex.match(/^#([0-9a-f]{6}|[0-9a-f]{8})$/i);
+  if (fullMatch) {
+    return `#${fullMatch[1]}`;
+  }
+  return null;
+}
+
+function linearSrgbToChannel(linear: number): number {
+  const bounded = clamp01(linear);
+  if (bounded <= 0.0031308) {
+    return bounded * 12.92;
+  }
+  return 1.055 * Math.pow(bounded, 1 / 2.4) - 0.055;
+}
+
+function oklchToHex(lightness: number, chroma: number, hueDegrees: number, alpha: number): string {
+  const hueRadians = (hueDegrees * Math.PI) / 180;
+  const a = chroma * Math.cos(hueRadians);
+  const b = chroma * Math.sin(hueRadians);
+
+  const lPrime = lightness + 0.3963377774 * a + 0.2158037573 * b;
+  const mPrime = lightness - 0.1055613458 * a - 0.0638541728 * b;
+  const sPrime = lightness - 0.0894841775 * a - 1.291485548 * b;
+
+  const l = lPrime * lPrime * lPrime;
+  const m = mPrime * mPrime * mPrime;
+  const s = sPrime * sPrime * sPrime;
+
+  const redLinear = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const greenLinear = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const blueLinear = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s;
+
+  const red = linearSrgbToChannel(redLinear);
+  const green = linearSrgbToChannel(greenLinear);
+  const blue = linearSrgbToChannel(blueLinear);
+  const hex = `#${rgbChannelToHex(red * 255)}${rgbChannelToHex(green * 255)}${rgbChannelToHex(blue * 255)}`;
+  return alpha >= 1 ? hex : `${hex}${alphaToHex(alpha)}`;
+}
+
 function normalizeResolvedColorToHex(value: string): string | null {
+  const normalizedHex = normalizeHexColor(value);
+  if (normalizedHex) {
+    return normalizedHex;
+  }
+
   const match = value
     .trim()
     .match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\s*\)$/i);
   if (!match) {
-    return null;
+    const oklchMatch = value
+      .trim()
+      .match(/^oklch\(\s*([-\d.]+%?)\s+([-\d.]+)\s+([-\d.]+)(?:\s*\/\s*([-\d.]+%?))?\s*\)$/i);
+    if (!oklchMatch) {
+      return null;
+    }
+    const lightnessToken = oklchMatch[1]?.trim() ?? "0";
+    const lightness = lightnessToken.endsWith("%")
+      ? Number.parseFloat(lightnessToken.slice(0, -1)) / 100
+      : Number.parseFloat(lightnessToken);
+    const chroma = Number.parseFloat(oklchMatch[2] ?? "0");
+    const hue = Number.parseFloat(oklchMatch[3] ?? "0");
+    const alpha = parseAlphaValue(oklchMatch[4]);
+    if (
+      !Number.isFinite(lightness) ||
+      !Number.isFinite(chroma) ||
+      !Number.isFinite(hue) ||
+      !Number.isFinite(alpha)
+    ) {
+      return null;
+    }
+    return oklchToHex(clamp01(lightness), Math.max(0, chroma), hue, alpha);
   }
   const red = Number.parseFloat(match[1] ?? "0");
   const green = Number.parseFloat(match[2] ?? "0");
   const blue = Number.parseFloat(match[3] ?? "0");
-  const alpha = Number.parseFloat(match[4] ?? "1");
+  const alpha = parseAlphaValue(match[4]);
   const base = `#${rgbChannelToHex(red)}${rgbChannelToHex(green)}${rgbChannelToHex(blue)}`;
   return alpha >= 1 ? base : `${base}${alphaToHex(alpha)}`;
 }

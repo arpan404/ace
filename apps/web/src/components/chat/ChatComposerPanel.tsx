@@ -337,6 +337,18 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         className="mx-auto w-full min-w-0 max-w-208"
         data-chat-composer-form="true"
       >
+        <ComposerQueuedMessages
+          messages={props.queuedComposerMessages}
+          className="mb-2"
+          {...(props.queuedSteerMessageId !== undefined
+            ? { steerMessageId: props.queuedSteerMessageId }
+            : {})}
+          onEdit={props.onEditQueuedComposerMessage}
+          onDelete={props.onDeleteQueuedComposerMessage}
+          onClearAll={props.onClearQueuedComposerMessages}
+          onSteer={props.onSteerQueuedComposerMessage}
+        />
+
         <div
           className={cn(
             "group rounded-xl transition-colors duration-200",
@@ -424,18 +436,6 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                   </div>
                 </div>
               ) : null}
-
-              <ComposerQueuedMessages
-                messages={props.queuedComposerMessages}
-                className="mb-3"
-                {...(props.queuedSteerMessageId !== undefined
-                  ? { steerMessageId: props.queuedSteerMessageId }
-                  : {})}
-                onEdit={props.onEditQueuedComposerMessage}
-                onDelete={props.onDeleteQueuedComposerMessage}
-                onClearAll={props.onClearQueuedComposerMessages}
-                onSteer={props.onSteerQueuedComposerMessage}
-              />
 
               {!props.isComposerApprovalState && props.pendingUserInputs.length === 0 ? (
                 <ComposerImageStrip
