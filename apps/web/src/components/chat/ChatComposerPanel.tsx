@@ -89,6 +89,7 @@ interface ChatComposerPanelProps {
   readonly activeContextWindow: ComponentProps<typeof ContextWindowMeter>["usage"] | null;
   readonly promptHasText: boolean;
   readonly hasSendableContent: boolean;
+  readonly canQueueMessage: boolean;
   readonly activePendingApproval:
     | ComponentProps<typeof ComposerPendingApprovalPanel>["approval"]
     | null;
@@ -582,7 +583,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                     isConnecting={props.isConnecting}
                     isPreparingWorktree={props.isPreparingWorktree}
                     hasSendableContent={props.hasSendableContent}
-                    canQueueMessage={props.hasSendableContent}
+                    canQueueMessage={props.canQueueMessage}
                     onPreviousPendingQuestion={props.onPreviousPendingQuestion}
                     onInterrupt={props.onInterrupt}
                     onImplementPlanInNewThread={props.onImplementPlanInNewThread}

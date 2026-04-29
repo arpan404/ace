@@ -935,6 +935,13 @@ async function waitForSendButton(): Promise<HTMLButtonElement> {
   );
 }
 
+async function waitForQueueButton(): Promise<HTMLButtonElement> {
+  return waitForElement(
+    () => document.querySelector<HTMLButtonElement>('button[aria-label="Queue message"]'),
+    "Unable to find queue button.",
+  );
+}
+
 async function waitForMessagesScrollContainer(): Promise<HTMLDivElement> {
   return waitForElement(
     () => document.querySelector<HTMLDivElement>("div.overflow-y-auto.overscroll-y-contain"),
@@ -3182,6 +3189,86 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("queues a follow-up submit while the current server-thread send is still in flight", async () => {
+    const releaseFirstTurnStartRef: { current: (() => void) | null } = { current: null };
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-queue-while-sending" as MessageId,
+        targetText: "queue while sending target",
+      }),
+      resolveRpc: (body) => {
+        if (
+          body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+          body.type === "thread.turn.start"
+        ) {
+          return new Promise<{ sequence: number }>((resolve) => {
+            // Keep the first send in flight so the composer flips into queue mode.
+            releaseFirstTurnStartRef.current = () => resolve({ sequence: 1 });
+          });
+        }
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: 1 };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      await waitForComposerEditor();
+      const composerEditor = page.getByTestId("composer-editor");
+      await composerEditor.fill("Ship the first change");
+
+      const sendButton = await waitForSendButton();
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          );
+          expect(turnStartRequest).toBeDefined();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await composerEditor.fill("Queue the follow-up");
+
+      const queueButton = await waitForQueueButton();
+      expect(queueButton.disabled).toBe(false);
+      queueButton.click();
+
+      await vi.waitFor(
+        () => {
+          const queueAppendRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.queue.append",
+          );
+          expect(queueAppendRequest).toBeDefined();
+          expect(
+            queueAppendRequest &&
+              typeof queueAppendRequest === "object" &&
+              "message" in queueAppendRequest &&
+              typeof queueAppendRequest.message === "object" &&
+              queueAppendRequest.message &&
+              "prompt" in queueAppendRequest.message
+              ? queueAppendRequest.message.prompt
+              : null,
+          ).toBe("Queue the follow-up");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      if (releaseFirstTurnStartRef.current !== null) {
+        releaseFirstTurnStartRef.current();
+      }
       await mounted.cleanup();
     }
   });
