@@ -1795,6 +1795,24 @@ export default memo(function ThreadTerminalDrawer({
     handleSplitResizePointerEnd,
     handleSplitResizePointerMove,
   ]);
+  useEffect(() => {
+    const resetResizeInteractions = () => {
+      handleResizePointerEnd();
+      handleSidebarResizePointerEnd();
+      handleSplitResizePointerEnd();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        resetResizeInteractions();
+      }
+    };
+    window.addEventListener("blur", resetResizeInteractions);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", resetResizeInteractions);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [handleResizePointerEnd, handleSidebarResizePointerEnd, handleSplitResizePointerEnd]);
 
   return (
     <aside

@@ -551,9 +551,6 @@ function buildThreadSortTimestampById<
 export function sortThreadsForSidebar<
   T extends Pick<Thread, "id" | "createdAt" | "updatedAt"> & SidebarThreadSortInput,
 >(threads: readonly T[], sortOrder: SidebarThreadSortOrder): T[] {
-  if (sortOrder === "manual") {
-    return [...threads];
-  }
   const timestampByThreadId = buildThreadSortTimestampById(threads, sortOrder);
   return threads.toSorted((left, right) => {
     const rightTimestamp = timestampByThreadId.get(right.id) ?? Number.NEGATIVE_INFINITY;

@@ -50,3 +50,11 @@ export function decodeThreadBoardDragThread(value: string): ThreadBoardDragThrea
     return null;
   }
 }
+
+export function readThreadBoardDragThread(
+  dataTransfer: DataTransfer,
+): ThreadBoardDragThread | null {
+  return decodeThreadBoardDragThread(
+    dataTransfer.getData(THREAD_BOARD_DRAG_MIME) || dataTransfer.getData("text/plain"),
+  );
+}

@@ -269,7 +269,12 @@ import {
   subscribeToBrowserLaunchRequests,
   takePendingBrowserLaunchRequest,
 } from "~/lib/browser/launcher";
-import { touchRecentBrowserInstanceId } from "~/lib/browser/liveInstanceCache";
+import {
+  evictExpiredRecentBrowserInstances,
+  resolveNextRecentBrowserInstanceExpiry,
+  touchRecentBrowserInstance,
+  type RecentBrowserInstanceEntry,
+} from "~/lib/browser/liveInstanceCache";
 import { resolveScopedBrowserStorageKey } from "~/lib/browser/storage";
 import {
   BROWSER_PANEL_MODE_STORAGE_KEY,
@@ -323,6 +328,7 @@ const TERMINAL_DRAWER_TRANSITION = {
 } as const;
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
+const CACHED_BROWSER_INSTANCE_TTL_MS = 300_000;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
@@ -2456,8 +2462,12 @@ export default function ChatView({
   } | null>(null);
   const didResizeBrowserSplitDuringDragRef = useRef(false);
   const lastSyncedBrowserSplitWidthRef = useRef(browserSplitWidth);
-  const [mountedBrowserThreadIds, setMountedBrowserThreadIds] = useState<readonly ThreadId[]>([]);
-  const previousMountedBrowserThreadIdsRef = useRef<readonly ThreadId[]>([]);
+  const [mountedBrowserInstances, setMountedBrowserInstances] = useState<
+    readonly RecentBrowserInstanceEntry<ThreadId>[]
+  >([]);
+  const previousMountedBrowserInstancesRef = useRef<
+    readonly RecentBrowserInstanceEntry<ThreadId>[]
+  >([]);
   const workspaceEditorSplitWidthRef = useRef(workspaceEditorSplitWidth);
   const workspaceEditorSplitResizePointerIdRef = useRef<number | null>(null);
   const workspaceEditorSplitResizeStateRef = useRef<{
@@ -2487,6 +2497,36 @@ export default function ChatView({
     ? "split"
     : workspaceMode;
   const browserOpen = browserMode !== "closed";
+  const cleanupBrowserInstanceState = useCallback(
+    (browserThreadId: ThreadId, options?: { resetVisibleState?: boolean }) => {
+      browserControllerByThreadRef.current.delete(browserThreadId);
+      browserRuntimeStateByThreadRef.current.delete(browserThreadId);
+      browserControllerChangeHandlerByThreadRef.current.delete(browserThreadId);
+      browserRuntimeStateChangeHandlerByThreadRef.current.delete(browserThreadId);
+      if (activeBrowserThreadIdRef.current !== browserThreadId) {
+        return;
+      }
+      browserControllerRef.current = null;
+      pendingBrowserOpenUrlRef.current = null;
+      if (options?.resetVisibleState !== false) {
+        setBrowserDevToolsOpen(false);
+      }
+    },
+    [],
+  );
+  const resetBrowserCacheState = useCallback((options?: { resetVisibleState?: boolean }) => {
+    browserControllerByThreadRef.current.clear();
+    browserRuntimeStateByThreadRef.current.clear();
+    browserControllerChangeHandlerByThreadRef.current.clear();
+    browserRuntimeStateChangeHandlerByThreadRef.current.clear();
+    activeBrowserThreadIdRef.current = null;
+    browserControllerRef.current = null;
+    pendingBrowserOpenUrlRef.current = null;
+    previousMountedBrowserInstancesRef.current = [];
+    if (options?.resetVisibleState !== false) {
+      setBrowserDevToolsOpen(false);
+    }
+  }, []);
   useEffect(() => {
     if (rightSidePanelMode !== "diff" || rightSidePanelDiffOpen) {
       return;
@@ -2546,24 +2586,56 @@ export default function ChatView({
   }, [activeThreadId]);
   useEffect(() => {
     if (!isElectron || !activeThreadId) {
-      browserControllerByThreadRef.current.clear();
-      browserRuntimeStateByThreadRef.current.clear();
-      browserControllerChangeHandlerByThreadRef.current.clear();
-      browserRuntimeStateChangeHandlerByThreadRef.current.clear();
-      browserControllerRef.current = null;
-      setMountedBrowserThreadIds([]);
+      resetBrowserCacheState();
+      setMountedBrowserInstances([]);
       return;
     }
     if (!browserOpen) {
-      setMountedBrowserThreadIds([]);
       return;
     }
-    setMountedBrowserThreadIds((current) =>
-      touchRecentBrowserInstanceId(current, activeThreadId, MAX_CACHED_BROWSER_INSTANCES),
+    setMountedBrowserInstances((current) =>
+      touchRecentBrowserInstance(current, activeThreadId, Date.now(), MAX_CACHED_BROWSER_INSTANCES),
     );
-  }, [activeThreadId, browserOpen]);
+  }, [activeThreadId, browserOpen, resetBrowserCacheState]);
   useEffect(() => {
-    if (!isElectron || !activeThreadId || !browserOpen) {
+    if (!isElectron || mountedBrowserInstances.length === 0) {
+      return;
+    }
+
+    const protectedThreadId = browserOpen ? activeThreadId : null;
+    const pruneExpiredBrowserCache = () => {
+      setMountedBrowserInstances((current) =>
+        evictExpiredRecentBrowserInstances(
+          current,
+          Date.now(),
+          CACHED_BROWSER_INSTANCE_TTL_MS,
+          protectedThreadId,
+        ),
+      );
+    };
+
+    pruneExpiredBrowserCache();
+
+    const nextExpiryAt = resolveNextRecentBrowserInstanceExpiry(
+      mountedBrowserInstances,
+      CACHED_BROWSER_INSTANCE_TTL_MS,
+      protectedThreadId,
+    );
+    if (nextExpiryAt === null) {
+      return;
+    }
+
+    const timeoutHandle = window.setTimeout(
+      pruneExpiredBrowserCache,
+      Math.max(0, nextExpiryAt - Date.now()),
+    );
+
+    return () => {
+      window.clearTimeout(timeoutHandle);
+    };
+  }, [activeThreadId, browserOpen, mountedBrowserInstances]);
+  useEffect(() => {
+    if (!isElectron || !activeThreadId) {
       return;
     }
 
@@ -2571,11 +2643,10 @@ export default function ChatView({
       if (document.visibilityState !== "hidden") {
         return;
       }
-      setMountedBrowserThreadIds((current) =>
-        current.length <= 1 || current[0] === activeThreadId
-          ? current.slice(0, 1)
-          : [activeThreadId],
-      );
+      setMountedBrowserInstances((current) => {
+        const activeEntry = current.find((entry) => entry.instanceId === activeThreadId);
+        return activeEntry ? [activeEntry] : current.slice(0, 1);
+      });
     };
 
     window.addEventListener("blur", trimBackgroundBrowserCache);
@@ -2585,25 +2656,28 @@ export default function ChatView({
       window.removeEventListener("blur", trimBackgroundBrowserCache);
       document.removeEventListener("visibilitychange", trimBackgroundBrowserCache);
     };
-  }, [activeThreadId, browserOpen]);
+  }, [activeThreadId]);
   useEffect(() => {
-    const previousThreadIds = previousMountedBrowserThreadIdsRef.current;
-    previousMountedBrowserThreadIdsRef.current = mountedBrowserThreadIds;
+    const previousThreadIds = previousMountedBrowserInstancesRef.current.map(
+      (entry) => entry.instanceId,
+    );
+    const mountedBrowserThreadIds = new Set(
+      mountedBrowserInstances.map((entry) => entry.instanceId),
+    );
+    previousMountedBrowserInstancesRef.current = mountedBrowserInstances;
 
     for (const previousThreadId of previousThreadIds) {
-      if (mountedBrowserThreadIds.includes(previousThreadId)) {
+      if (mountedBrowserThreadIds.has(previousThreadId)) {
         continue;
       }
-      browserControllerByThreadRef.current.delete(previousThreadId);
-      browserRuntimeStateByThreadRef.current.delete(previousThreadId);
-      browserControllerChangeHandlerByThreadRef.current.delete(previousThreadId);
-      browserRuntimeStateChangeHandlerByThreadRef.current.delete(previousThreadId);
-      if (activeBrowserThreadIdRef.current === previousThreadId) {
-        browserControllerRef.current = null;
-        setBrowserDevToolsOpen(false);
-      }
+      cleanupBrowserInstanceState(previousThreadId);
     }
-  }, [mountedBrowserThreadIds]);
+  }, [cleanupBrowserInstanceState, mountedBrowserInstances]);
+  useEffect(() => {
+    return () => {
+      resetBrowserCacheState({ resetVisibleState: false });
+    };
+  }, [resetBrowserCacheState]);
   useEffect(() => {
     if (splitPane || routeWorkspaceMode === "chat") {
       return;
@@ -3794,7 +3868,6 @@ export default function ChatView({
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
   }, [handleBrowserSplitResizePointerEnd, handleBrowserSplitResizePointerMove]);
-
   useEffect(() => {
     const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
     const clampedWidth = clampBrowserSplitWidth(storedBrowserSplitWidth, viewportWidth);
@@ -4132,6 +4205,28 @@ export default function ChatView({
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
   }, [handleRightSidePanelResizePointerEnd, handleRightSidePanelResizePointerMove]);
+  useEffect(() => {
+    const resetResizeInteractions = () => {
+      handleBrowserSplitResizePointerEnd();
+      handleWorkspaceEditorSplitResizePointerEnd();
+      handleRightSidePanelResizePointerEnd();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        resetResizeInteractions();
+      }
+    };
+    window.addEventListener("blur", resetResizeInteractions);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", resetResizeInteractions);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [
+    handleBrowserSplitResizePointerEnd,
+    handleRightSidePanelResizePointerEnd,
+    handleWorkspaceEditorSplitResizePointerEnd,
+  ]);
 
   useEffect(() => {
     const viewportWidth = chatViewportRef.current?.clientWidth ?? window.innerWidth;
@@ -7466,6 +7561,7 @@ export default function ChatView({
   const browserPanel =
     isElectron && activeThreadId
       ? (() => {
+          const mountedBrowserThreadIds = mountedBrowserInstances.map((entry) => entry.instanceId);
           const orderedBrowserThreadIds = [
             ...(browserOpen ? [activeThreadId] : []),
             ...mountedBrowserThreadIds.filter(

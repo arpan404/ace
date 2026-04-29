@@ -254,6 +254,7 @@ export interface DesktopNotificationReplyEvent {
 
 export type DesktopNotificationPermission = "granted" | "denied" | "default" | "unsupported";
 export type DesktopZoomAction = "zoom-in" | "zoom-out" | "zoom-reset";
+export type DesktopWindowResumeReason = "focus" | "resume" | "unlock-screen";
 
 export interface DesktopBridge {
   getWsUrl: () => string | null;
@@ -261,6 +262,7 @@ export interface DesktopBridge {
   getWindowShownAt?: () => number | null;
   getTitlebarLeftInset?: () => number | null;
   onTitlebarLeftInsetChange?: (listener: (inset: number) => void) => () => void;
+  onWindowResume?: (listener: (reason: DesktopWindowResumeReason) => void) => () => void;
   getNotificationPermission?: () => Promise<DesktopNotificationPermission>;
   requestNotificationPermission?: () => Promise<DesktopNotificationPermission>;
   pickFolder: (options?: PickFolderOptions) => Promise<string | null>;

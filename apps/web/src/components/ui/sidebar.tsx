@@ -599,6 +599,26 @@ function SidebarRail({
       document.body.style.removeProperty("user-select");
     };
   }, []);
+  React.useEffect(() => {
+    const resetResizeState = () => {
+      const resizeState = resizeStateRef.current;
+      if (!resizeState) {
+        return;
+      }
+      stopResize(resizeState.pointerId);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        resetResizeState();
+      }
+    };
+    window.addEventListener("blur", resetResizeState);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", resetResizeState);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [stopResize]);
 
   return (
     <button
