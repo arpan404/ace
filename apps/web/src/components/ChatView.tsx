@@ -204,6 +204,7 @@ import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
 import { PlanSummaryPanel } from "./PlanSummaryPanel";
 import { ChatComposerPanel } from "./chat/ChatComposerPanel";
+import BranchToolbar from "./BranchToolbar";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -324,6 +325,8 @@ const RIGHT_SIDE_PANEL_CONTENT_TRANSITION = {
   duration: 0.18,
   ease: [0.16, 1, 0.3, 1],
 } as const;
+const RIGHT_SIDE_PANEL_FLOATING_CHAT_OPEN_STORAGE_KEY =
+  "ace:chat:right-side-panel-floating-chat:v1";
 const TERMINAL_DRAWER_TRANSITION = {
   duration: 0.2,
   ease: [0.16, 1, 0.3, 1],
@@ -664,6 +667,15 @@ export default function ChatView({
     true,
     Schema.Boolean,
   );
+  const rightSidePanelFloatingChatOpenStorageKey = useMemo(
+    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_FLOATING_CHAT_OPEN_STORAGE_KEY, threadId),
+    [threadId],
+  );
+  const [rightSidePanelFloatingChatOpen, setRightSidePanelFloatingChatOpen] = useLocalStorage(
+    rightSidePanelFloatingChatOpenStorageKey,
+    false,
+    Schema.Boolean,
+  );
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
   const createWorktreeMutation = useMutation(gitCreateWorktreeMutationOptions({ queryClient }));
@@ -802,10 +814,15 @@ export default function ChatView({
   const pendingInteractionAnchorFrameRef = useRef<number | null>(null);
   const composerEditorRef = useRef<ComposerPromptEditorHandle>(null);
   const composerFormRef = useRef<HTMLFormElement>(null);
+  const floatingComposerEditorRef = useRef<ComposerPromptEditorHandle>(null);
+  const floatingComposerFormRef = useRef<HTMLFormElement>(null);
   const composerFormHeightRef = useRef(0);
   const composerFooterRef = useRef<HTMLDivElement>(null);
+  const floatingComposerFooterRef = useRef<HTMLDivElement>(null);
   const composerFooterLeadingRef = useRef<HTMLDivElement>(null);
+  const floatingComposerFooterLeadingRef = useRef<HTMLDivElement>(null);
   const composerFooterActionsRef = useRef<HTMLDivElement>(null);
+  const floatingComposerFooterActionsRef = useRef<HTMLDivElement>(null);
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerSelectLockRef = useRef(false);
   const composerMenuOpenRef = useRef(false);
@@ -2995,6 +3012,16 @@ export default function ChatView({
       })),
     [dispatchQueuedComposerCommand],
   );
+  const reorderQueuedComposerState = useCallback(
+    async (targetThreadId: ThreadId, messageIds: ReadonlyArray<MessageId>) =>
+      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+        type: "thread.queue.reorder",
+        commandId,
+        threadId,
+        messageIds: [...messageIds],
+      })),
+    [dispatchQueuedComposerCommand],
+  );
   const steerQueuedComposerMessage = useCallback(
     async (
       targetThreadId: ThreadId,
@@ -3108,11 +3135,7 @@ export default function ChatView({
     }
   }, [clearQueuedComposerState, queuedComposerMessages, serverThread]);
   const reorderQueuedComposerMessages = useCallback(
-    async (
-      draggedMessageId: MessageId,
-      targetMessageId: MessageId,
-      placement: "before" | "after",
-    ) => {
+    async (draggedMessageId: MessageId, targetMessageId: MessageId) => {
       if (!serverThread) {
         return;
       }
@@ -3125,18 +3148,8 @@ export default function ChatView({
 
       const nextQueue = [...currentQueue];
       const [dragged] = nextQueue.splice(draggedIndex, 1);
-      if (!dragged) {
-        return;
-      }
-      let insertionIndex = targetIndex;
-      if (draggedIndex < targetIndex) {
-        insertionIndex -= 1;
-      }
-      if (placement === "after") {
-        insertionIndex += 1;
-      }
-      insertionIndex = Math.max(0, Math.min(nextQueue.length, insertionIndex));
-      nextQueue.splice(insertionIndex, 0, dragged);
+      if (!dragged) return;
+      nextQueue.splice(targetIndex, 0, dragged);
       const isUnchanged = nextQueue.every(
         (message, index) => message.id === currentQueue[index]?.id,
       );
@@ -3145,23 +3158,15 @@ export default function ChatView({
       }
 
       const steerRequest = queuedSteerRequestRef.current;
-
-      if (!(await clearQueuedComposerState(serverThread.id))) {
+      const nextMessageIds = nextQueue.map((message) => message.id);
+      if (!(await reorderQueuedComposerState(serverThread.id, nextMessageIds))) {
         return;
       }
-
-      for (const message of nextQueue) {
-        const success = await appendQueuedComposerMessage(
-          serverThread.id,
-          message,
-          steerRequest?.messageId === message.id ? { steerRequest } : undefined,
-        );
-        if (!success) {
-          return;
-        }
+      if (steerRequest && !nextMessageIds.includes(steerRequest.messageId)) {
+        return;
       }
     },
-    [appendQueuedComposerMessage, clearQueuedComposerState, serverThread],
+    [reorderQueuedComposerState, serverThread],
   );
   const restoreQueuedComposerMessageToDraft = useCallback(
     (message: QueuedComposerMessage, restoredImages: ReadonlyArray<ComposerImageAttachment>) => {
@@ -7802,6 +7807,8 @@ export default function ChatView({
   }, []);
   const canQueueComposerMessage =
     composerSendState.hasSendableContent && (!sendInFlightRef.current || isServerThread);
+  const showRightPanelChatDock =
+    rightSidePanelFullscreen && rightSidePanelFloatingChatOpen && activeRightSidePanelMode !== null;
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
@@ -8154,6 +8161,7 @@ export default function ChatView({
                   fullscreen={rightSidePanelFullscreen}
                   reviewShortcutLabel={reviewPanelShortcutLabel}
                   reviewOpen={rightSidePanelReviewOpen}
+                  floatingChatOpen={rightSidePanelFloatingChatOpen}
                   onBrowserTabClose={onCloseRightSidePanelBrowserTab}
                   onBrowserTabReorder={onReorderRightSidePanelBrowserTab}
                   onBrowserTabSelect={onSelectRightSidePanelBrowserTab}
@@ -8161,6 +8169,9 @@ export default function ChatView({
                   onEditorClose={onCloseRightSidePanelEditor}
                   onNewBrowserTab={onOpenRightSidePanelBrowserTab}
                   onSelectMode={onSelectRightSidePanelMode}
+                  onToggleFloatingChat={() => {
+                    setRightSidePanelFloatingChatOpen((current) => !current);
+                  }}
                   onToggleFullscreen={onToggleRightSidePanelFullscreen}
                 />
                 <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -8234,6 +8245,116 @@ export default function ChatView({
                       {browserPanel.instances.map((instance) => (
                         <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
                       ))}
+                    </div>
+                  ) : null}
+                  {showRightPanelChatDock ? (
+                    <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-20">
+                      <ChatComposerPanel
+                        threadId={threadId}
+                        isGitRepo={isGitRepo}
+                        isDragOverComposer={isDragOverComposer}
+                        hasComposerHeader={hasComposerHeader}
+                        isComposerApprovalState={isComposerApprovalState}
+                        isComposerFooterCompact={isComposerFooterCompact}
+                        isComposerPrimaryActionsCompact={isComposerPrimaryActionsCompact}
+                        isComposerMenuLoading={isComposerMenuLoading}
+                        composerMenuOpen={composerMenuOpen}
+                        showIssuesCommandExamplesPopover={showIssuesCommandExamplesPopover}
+                        isConnecting={isConnecting}
+                        isPreparingWorktree={isPreparingWorktree}
+                        liveTurnInProgress={liveTurnInProgress}
+                        isSendBusy={isSendBusy}
+                        showPlanFollowUpPrompt={showPlanFollowUpPrompt}
+                        showQueue={true}
+                        prompt={prompt}
+                        composerCursor={composerCursor}
+                        composerTriggerKind={composerTriggerKind}
+                        composerMenuItems={composerMenuItems}
+                        activeComposerMenuItemId={activeComposerMenuItem?.id ?? null}
+                        composerImages={composerImages}
+                        nonPersistedComposerImageIdSet={nonPersistedComposerImageIdSet}
+                        composerTerminalContexts={composerTerminalContexts}
+                        queuedComposerMessages={queuedComposerMessages}
+                        queuedSteerMessageId={queuedSteerRequest?.messageId ?? null}
+                        composerProviderState={composerProviderState}
+                        selectedProvider={selectedProvider}
+                        selectedModel={selectedModel}
+                        selectedProviderModels={selectedProviderModels}
+                        selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
+                        selectedModelForPickerWithCustomFallback={
+                          selectedModelForPickerWithCustomFallback
+                        }
+                        lockedProvider={lockedProvider}
+                        providers={providerStatuses}
+                        modelOptionsByProvider={modelOptionsByProvider}
+                        isServerThread={isServerThread}
+                        handoffTargetProviders={handoffTargetProviders}
+                        handoffDisabled={handoffDisabled}
+                        interactionMode={interactionMode}
+                        runtimeMode={runtimeMode}
+                        activeContextWindow={activeContextWindow}
+                        promptHasText={prompt.trim().length > 0}
+                        hasSendableContent={composerSendState.hasSendableContent}
+                        canQueueMessage={canQueueComposerMessage}
+                        activePendingApproval={activePendingApproval}
+                        pendingApprovalsCount={pendingApprovals.length}
+                        pendingUserInputs={pendingUserInputs}
+                        respondingApprovalRequestIds={respondingRequestIds}
+                        respondingUserInputRequestIds={respondingUserInputRequestIds}
+                        activePendingDraftAnswers={activePendingDraftAnswers}
+                        activePendingQuestionIndex={activePendingQuestionIndex}
+                        activePendingProgress={activePendingProgress}
+                        activePendingIsResponding={activePendingIsResponding}
+                        activePendingResolvedAnswers={activePendingResolvedAnswers}
+                        planFollowUpId={activeProposedPlan?.id ?? null}
+                        planFollowUpTitle={
+                          activeProposedPlan
+                            ? (proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null)
+                            : null
+                        }
+                        resolvedTheme={resolvedTheme}
+                        composerFormRef={floatingComposerFormRef}
+                        composerEditorRef={floatingComposerEditorRef}
+                        composerFooterRef={floatingComposerFooterRef}
+                        composerFooterLeadingRef={floatingComposerFooterLeadingRef}
+                        composerFooterActionsRef={floatingComposerFooterActionsRef}
+                        onSubmit={handleComposerSubmit}
+                        onComposerDragEnter={onComposerDragEnter}
+                        onComposerDragOver={onComposerDragOver}
+                        onComposerDragLeave={onComposerDragLeave}
+                        onComposerDrop={onComposerDrop}
+                        onHighlightedItemChange={onComposerMenuItemHighlighted}
+                        onSelectComposerItem={onSelectComposerItem}
+                        onEditQueuedComposerMessage={onEditQueuedComposerMessage}
+                        onDeleteQueuedComposerMessage={removeQueuedComposerMessage}
+                        onClearQueuedComposerMessages={clearQueuedComposerMessages}
+                        onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
+                        onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
+                        onPreviewComposerImage={handleComposerImagePreview}
+                        onRemoveComposerImage={removeComposerImage}
+                        onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
+                        onPromptChange={onPromptChange}
+                        onCommandKeyDown={onComposerCommandKey}
+                        onIssueTokenClick={onComposerIssueTokenClick}
+                        onPaste={onComposerPaste}
+                        onRespondToApproval={onRespondToApproval}
+                        onSelectPendingUserInputOption={onSelectActivePendingUserInputOption}
+                        onAdvancePendingUserInput={onAdvanceActivePendingUserInput}
+                        onProviderModelSelect={onProviderModelSelect}
+                        onHandoffToProvider={onHandoffToProvider}
+                        onToggleInteractionMode={toggleInteractionMode}
+                        onRuntimeModeChange={handleRuntimeModeChange}
+                        onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+                        onInterrupt={onInterrupt}
+                        onImplementPlanInNewThread={onImplementPlanInNewThread}
+                        onQueueMessage={handleQueueComposerMessage}
+                        onPromptChangeFromTraits={setPromptFromTraits}
+                      />
+                      {branchToolbarProps ? (
+                        <div className="mx-auto w-full max-w-208 rounded-md bg-background/95 backdrop-blur-sm">
+                          <BranchToolbar {...branchToolbarProps} />
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

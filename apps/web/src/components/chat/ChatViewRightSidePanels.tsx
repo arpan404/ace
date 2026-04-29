@@ -18,6 +18,7 @@ import {
   GlobeIcon,
   ListTodoIcon,
   Maximize2Icon,
+  MessageSquareIcon,
   Minimize2Icon,
   PlusIcon,
   XIcon,
@@ -221,6 +222,7 @@ export function RightSidePanelTabStrip(props: {
   fullscreen: boolean;
   reviewShortcutLabel: string | null;
   reviewOpen: boolean;
+  floatingChatOpen: boolean;
   onBrowserTabClose: (tabId: string) => void;
   onBrowserTabReorder: (draggedTabId: string, targetTabId: string) => void;
   onBrowserTabSelect: (tabId: string) => void;
@@ -228,6 +230,7 @@ export function RightSidePanelTabStrip(props: {
   onEditorClose: () => void;
   onNewBrowserTab: () => void;
   onSelectMode: (mode: RightSidePanelMode) => void;
+  onToggleFloatingChat: () => void;
   onToggleFullscreen: () => void;
 }) {
   const { onBrowserTabReorder } = props;
@@ -489,6 +492,33 @@ export function RightSidePanelTabStrip(props: {
           onNewBrowserTab={props.onNewBrowserTab}
           onSelectMode={props.onSelectMode}
         />
+      ) : null}
+      {props.fullscreen ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+                  props.floatingChatOpen
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+                aria-pressed={props.floatingChatOpen}
+                aria-label={
+                  props.floatingChatOpen ? "Hide floating chat input" : "Show floating chat input"
+                }
+                onClick={props.onToggleFloatingChat}
+              />
+            }
+          >
+            <MessageSquareIcon className="size-4" />
+          </TooltipTrigger>
+          <TooltipPopup side="bottom" align="end">
+            {props.floatingChatOpen ? "Hide floating chat input" : "Show floating chat input"}
+          </TooltipPopup>
+        </Tooltip>
       ) : null}
       <Tooltip>
         <TooltipTrigger

@@ -127,6 +127,13 @@ export const ThreadQueueUpdateCommand = Schema.Struct({
   message: QueuedComposerMessage,
 });
 
+export const ThreadQueueReorderCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue.reorder"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageIds: Schema.Array(MessageId),
+});
+
 export const ThreadQueueDeleteCommand = Schema.Struct({
   type: Schema.Literal("thread.queue.delete"),
   commandId: CommandId,
@@ -261,6 +268,7 @@ export const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadQueueAppendCommand,
   ThreadQueueUpdateCommand,
+  ThreadQueueReorderCommand,
   ThreadQueueDeleteCommand,
   ThreadQueueClearCommand,
   ThreadQueueSteerCommand,
@@ -288,6 +296,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadMetaUpdateCommand,
   ThreadQueueAppendCommand,
   ThreadQueueUpdateCommand,
+  ThreadQueueReorderCommand,
   ThreadQueueDeleteCommand,
   ThreadQueueClearCommand,
   ThreadQueueSteerCommand,
