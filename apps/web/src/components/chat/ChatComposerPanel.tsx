@@ -58,6 +58,7 @@ interface ChatComposerPanelProps {
   readonly liveTurnInProgress: boolean;
   readonly isSendBusy: boolean;
   readonly showPlanFollowUpPrompt: boolean;
+  readonly showQueue?: boolean;
   readonly prompt: string;
   readonly composerCursor: ComponentProps<typeof ComposerPromptEditor>["cursor"];
   readonly composerTriggerKind: ComponentProps<typeof ComposerCommandMenu>["triggerKind"];
@@ -341,18 +342,20 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         className="mx-auto w-full min-w-0 max-w-208"
         data-chat-composer-form="true"
       >
-        <ComposerQueuedMessages
-          messages={props.queuedComposerMessages}
-          className="mb-2"
-          {...(props.queuedSteerMessageId !== undefined
-            ? { steerMessageId: props.queuedSteerMessageId }
-            : {})}
-          onEdit={props.onEditQueuedComposerMessage}
-          onDelete={props.onDeleteQueuedComposerMessage}
-          onClearAll={props.onClearQueuedComposerMessages}
-          onReorder={props.onReorderQueuedComposerMessages}
-          onSteer={props.onSteerQueuedComposerMessage}
-        />
+        {(props.showQueue ?? true) ? (
+          <ComposerQueuedMessages
+            messages={props.queuedComposerMessages}
+            className="mb-2"
+            {...(props.queuedSteerMessageId !== undefined
+              ? { steerMessageId: props.queuedSteerMessageId }
+              : {})}
+            onEdit={props.onEditQueuedComposerMessage}
+            onDelete={props.onDeleteQueuedComposerMessage}
+            onClearAll={props.onClearQueuedComposerMessages}
+            onReorder={props.onReorderQueuedComposerMessages}
+            onSteer={props.onSteerQueuedComposerMessage}
+          />
+        ) : null}
 
         <div
           className={cn(

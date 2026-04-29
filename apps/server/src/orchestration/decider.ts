@@ -380,6 +380,54 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.queue.reorder": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const existingMessageIds = thread.queuedComposerMessages.map((message) => message.id);
+      const expectedIds = new Set(existingMessageIds);
+      const nextIds = command.messageIds;
+      const byId = new Map(
+        thread.queuedComposerMessages.map((message) => [message.id, message] as const),
+      );
+      const seen = new Set<string>();
+      const prioritizedIds: typeof existingMessageIds = [];
+      for (const id of nextIds) {
+        if (!expectedIds.has(id) || seen.has(id)) {
+          continue;
+        }
+        seen.add(id);
+        prioritizedIds.push(id);
+      }
+      for (const id of existingMessageIds) {
+        if (seen.has(id)) {
+          continue;
+        }
+        seen.add(id);
+        prioritizedIds.push(id);
+      }
+      const queuedComposerMessages = prioritizedIds
+        .map((id) => byId.get(id))
+        .filter((message) => message !== undefined);
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: command.threadId,
+          queuedComposerMessages,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
     case "thread.queue.delete": {
       const thread = yield* requireThread({
         readModel,

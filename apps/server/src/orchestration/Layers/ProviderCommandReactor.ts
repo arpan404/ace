@@ -393,6 +393,7 @@ const make = Effect.gen(function* () {
     ThreadId,
     { readonly createdAt: string; readonly messageId: MessageId }
   >();
+  const pausedQueueDispatchByThreadId = new Set<ThreadId>();
   const nativeSteerReservationsByThreadId = new Set<ThreadId>();
 
   const resolveSessionCapabilities = (provider: ProviderKind) => {
@@ -795,6 +796,9 @@ const make = Effect.gen(function* () {
   });
 
   const dispatchNextQueuedComposerMessage = Effect.fnUntraced(function* (threadId: ThreadId) {
+    if (pausedQueueDispatchByThreadId.has(threadId)) {
+      return;
+    }
     if (queueDispatchReservationsByThreadId.has(threadId)) {
       return;
     }
@@ -1670,6 +1674,17 @@ const make = Effect.gen(function* () {
         event.type === "thread.user-input-response-requested" ||
         event.type === "thread.session-stop-requested"
       ) {
+        if (event.type === "thread.turn-start-requested") {
+          pausedQueueDispatchByThreadId.delete(event.payload.threadId);
+        } else if (event.type === "thread.turn-interrupt-requested") {
+          const thread = yield* resolveThread(event.payload.threadId);
+          const isQueuedSteerInterrupt = thread?.queuedSteerRequest?.interruptRequested === true;
+          if (!isQueuedSteerInterrupt) {
+            pausedQueueDispatchByThreadId.add(event.payload.threadId);
+          }
+        } else if (event.type === "thread.session-stop-requested") {
+          pausedQueueDispatchByThreadId.add(event.payload.threadId);
+        }
         return yield* worker.enqueue(event);
       }
       if (event.type === "thread.message-sent") {
