@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildRenderedSidebarThreadGroups,
   createThreadJumpHintVisibilityController,
   getVisibleSidebarThreadIds,
   resolveAdjacentThreadId,
@@ -403,6 +404,72 @@ describe("getVisibleSidebarThreadIds", () => {
         },
       ]),
     ).toEqual([ThreadId.makeUnsafe("thread-12"), ThreadId.makeUnsafe("thread-11")]);
+  });
+});
+
+describe("buildRenderedSidebarThreadGroups", () => {
+  it("includes pinned thread rows and pinned project threads ahead of other projects", () => {
+    const renderedThreadGroups = buildRenderedSidebarThreadGroups({
+      pinnedSectionExpanded: true,
+      pinnedItems: [
+        {
+          kind: "thread" as const,
+          threadId: ThreadId.makeUnsafe("thread-pinned-row"),
+        },
+        {
+          kind: "project" as const,
+          renderedProject: {
+            shouldShowThreadPanel: true,
+            renderedThreadIds: [
+              ThreadId.makeUnsafe("thread-pinned-project-2"),
+              ThreadId.makeUnsafe("thread-pinned-project-1"),
+            ],
+          },
+        },
+      ],
+      renderedProjects: [
+        {
+          shouldShowThreadPanel: true,
+          renderedThreadIds: [ThreadId.makeUnsafe("thread-project-1")],
+        },
+      ],
+    });
+
+    expect(getVisibleSidebarThreadIds(renderedThreadGroups)).toEqual([
+      ThreadId.makeUnsafe("thread-pinned-row"),
+      ThreadId.makeUnsafe("thread-pinned-project-2"),
+      ThreadId.makeUnsafe("thread-pinned-project-1"),
+      ThreadId.makeUnsafe("thread-project-1"),
+    ]);
+  });
+
+  it("omits pinned section threads when the pinned section is collapsed", () => {
+    const renderedThreadGroups = buildRenderedSidebarThreadGroups({
+      pinnedSectionExpanded: false,
+      pinnedItems: [
+        {
+          kind: "thread" as const,
+          threadId: ThreadId.makeUnsafe("thread-pinned-row"),
+        },
+        {
+          kind: "project" as const,
+          renderedProject: {
+            shouldShowThreadPanel: true,
+            renderedThreadIds: [ThreadId.makeUnsafe("thread-pinned-project-1")],
+          },
+        },
+      ],
+      renderedProjects: [
+        {
+          shouldShowThreadPanel: true,
+          renderedThreadIds: [ThreadId.makeUnsafe("thread-project-1")],
+        },
+      ],
+    });
+
+    expect(getVisibleSidebarThreadIds(renderedThreadGroups)).toEqual([
+      ThreadId.makeUnsafe("thread-project-1"),
+    ]);
   });
 });
 

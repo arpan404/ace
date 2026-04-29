@@ -148,6 +148,7 @@ import {
   toBrowseDirectoryPath,
 } from "../lib/projectPaths";
 import {
+  buildRenderedSidebarThreadGroups,
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
   resolveAdjacentThreadId,
@@ -4158,13 +4159,13 @@ export default function Sidebar() {
   });
 
   const renderedSidebarThreadGroups = useMemo(
-    () => [
-      ...(renderedPinnedThreadIds.length > 0
-        ? [{ renderedThreadIds: renderedPinnedThreadIds }]
-        : []),
-      ...filteredRenderedProjects,
-    ],
-    [filteredRenderedProjects, renderedPinnedThreadIds],
+    () =>
+      buildRenderedSidebarThreadGroups({
+        pinnedItems: sortedRenderedPinnedItems,
+        renderedProjects: filteredRenderedProjects,
+        pinnedSectionExpanded,
+      }),
+    [filteredRenderedProjects, pinnedSectionExpanded, sortedRenderedPinnedItems],
   );
   const { visibleSidebarThreadIds, prByThreadId } = useSidebarThreadPrStatus({
     renderedProjects: renderedSidebarThreadGroups,

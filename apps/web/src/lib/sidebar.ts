@@ -260,6 +260,41 @@ export function getVisibleSidebarThreadIds<TThreadId>(
   );
 }
 
+export function buildRenderedSidebarThreadGroups<
+  TThreadId,
+  TRenderedProject extends {
+    shouldShowThreadPanel?: boolean;
+    renderedThreadIds: readonly TThreadId[];
+  },
+>(input: {
+  pinnedItems: readonly (
+    | {
+        kind: "thread";
+        threadId: TThreadId;
+      }
+    | {
+        kind: "project";
+        renderedProject: TRenderedProject;
+      }
+  )[];
+  renderedProjects: readonly TRenderedProject[];
+  pinnedSectionExpanded: boolean;
+}): Array<{
+  shouldShowThreadPanel?: boolean;
+  renderedThreadIds: readonly TThreadId[];
+}> {
+  if (!input.pinnedSectionExpanded || input.pinnedItems.length === 0) {
+    return [...input.renderedProjects];
+  }
+
+  return [
+    ...input.pinnedItems.map((item) =>
+      item.kind === "thread" ? { renderedThreadIds: [item.threadId] } : item.renderedProject,
+    ),
+    ...input.renderedProjects,
+  ];
+}
+
 export function resolveAdjacentThreadId<T>(input: {
   threadIds: readonly T[];
   currentThreadId: T | null;
