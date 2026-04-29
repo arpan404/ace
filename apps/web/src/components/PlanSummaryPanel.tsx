@@ -59,6 +59,7 @@ interface PlanSummaryPanelProps {
   activeProvider?: ProviderKind | null;
   markdownCwd: string | undefined;
   onOpenBrowserUrl?: ((url: string) => void) | null;
+  onOpenFilePath?: ((path: string) => void) | null;
   workspaceRoot: string | undefined;
 }
 
@@ -92,6 +93,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   activeProvider = null,
   markdownCwd,
   onOpenBrowserUrl = null,
+  onOpenFilePath = null,
   workspaceRoot,
 }: PlanSummaryPanelProps) {
   const [proposedPlanExpanded, setProposedPlanExpanded] = useState(false);
@@ -297,6 +299,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
                         cwd={markdownCwd}
                         isStreaming={false}
                         onOpenBrowserUrl={onOpenBrowserUrl}
+                        onOpenFilePath={onOpenFilePath}
                       />
                     </div>
                   ) : (

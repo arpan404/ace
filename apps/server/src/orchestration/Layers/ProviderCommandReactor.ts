@@ -616,11 +616,22 @@ const make = Effect.gen(function* () {
       return;
     }
 
+    yield* requestQueuedSteerInterrupt(thread, queuedSteerRequest);
+  });
+
+  const requestQueuedSteerInterrupt = Effect.fnUntraced(function* (
+    thread: OrchestrationThread,
+    queuedSteerRequest: NonNullable<OrchestrationThread["queuedSteerRequest"]>,
+  ) {
+    const activeTurn = thread.latestTurn;
+    if (!activeTurn || activeTurn.state !== "running") {
+      return;
+    }
     const createdAt = new Date().toISOString();
     yield* orchestrationEngine.dispatch({
       type: "thread.queue.steer",
       commandId: serverCommandId("queue-steer-interrupt-requested"),
-      threadId,
+      threadId: thread.id,
       messageId: queuedSteerRequest.messageId,
       baselineWorkLogEntryCount: queuedSteerRequest.baselineWorkLogEntryCount,
       interruptRequested: true,
@@ -628,10 +639,38 @@ const make = Effect.gen(function* () {
     yield* orchestrationEngine.dispatch({
       type: "thread.turn.interrupt",
       commandId: serverCommandId("queue-steer-interrupt"),
-      threadId,
-      turnId: thread.latestTurn.turnId,
+      threadId: thread.id,
+      turnId: activeTurn.turnId,
       createdAt,
     });
+  });
+
+  const maybeInterruptOpenCodeQueuedSteerImmediately = Effect.fnUntraced(function* (
+    thread: OrchestrationThread,
+  ) {
+    const queuedSteerRequest = thread.queuedSteerRequest;
+    if (
+      thread.latestTurn?.state !== "running" ||
+      !queuedSteerRequest ||
+      queuedSteerRequest.interruptRequested
+    ) {
+      return false;
+    }
+    if (resolveThreadProvider(thread) !== "opencode") {
+      return false;
+    }
+    if (
+      !thread.queuedComposerMessages.some((message) => message.id === queuedSteerRequest.messageId)
+    ) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.queue.steer.clear",
+        commandId: serverCommandId("queue-steer-clear-stale"),
+        threadId: thread.id,
+      });
+      return true;
+    }
+    yield* requestQueuedSteerInterrupt(thread, queuedSteerRequest);
+    return true;
   });
 
   const maybeDispatchNativeQueuedSteer = Effect.fnUntraced(function* (thread: OrchestrationThread) {
@@ -781,8 +820,21 @@ const make = Effect.gen(function* () {
     if (thread && (yield* maybeDispatchNativeQueuedSteer(thread))) {
       return;
     }
+    if (thread && (yield* maybeInterruptOpenCodeQueuedSteerImmediately(thread))) {
+      return;
+    }
 
     if (!thread || !threadCanDispatchQueuedMessage(thread)) {
+      return;
+    }
+
+    const liveSession = yield* findLiveSession(threadId);
+    if (liveProviderSessionBlocksQueueDispatch(liveSession)) {
+      yield* reconcileThreadSessionFromLiveRuntime({
+        thread,
+        liveSession,
+        createdAt: new Date().toISOString(),
+      });
       return;
     }
 

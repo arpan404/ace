@@ -8,6 +8,7 @@ const RELATIVE_FILE_PATH_PATTERN = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+(?::\d
 const RELATIVE_FILE_NAME_PATTERN = /^[A-Za-z0-9._-]+\.[A-Za-z0-9_-]+(?::\d+){0,2}$/;
 const POSITION_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
 const POSITION_ONLY_PATTERN = /^\d+(?::\d+)?$/;
+const NORMALIZED_WINDOWS_DRIVE_ROOT_PATTERN = /^[A-Za-z]:\/$/;
 const POSIX_FILE_ROOT_PREFIXES = [
   "/Users/",
   "/home/",
@@ -98,6 +99,25 @@ function hasExternalScheme(path: string): boolean {
   return !POSITION_ONLY_PATTERN.test(rest);
 }
 
+function stripLineColumnSuffix(path: string): string {
+  return path.replace(POSITION_SUFFIX_PATTERN, "");
+}
+
+function normalizePathSeparators(path: string): string {
+  return path.replaceAll("\\", "/");
+}
+
+function stripTrailingDirectorySeparators(path: string): string {
+  if (path === "/" || NORMALIZED_WINDOWS_DRIVE_ROOT_PATTERN.test(path)) {
+    return path;
+  }
+  return path.replace(/\/+$/g, "");
+}
+
+function isNormalizedWindowsPath(path: string): boolean {
+  return /^[A-Za-z]:\//.test(path);
+}
+
 export function resolveMarkdownFileLinkTarget(
   href: string | undefined,
   cwd?: string,
@@ -131,4 +151,34 @@ export function resolveMarkdownFileLinkTarget(
 
   if (!cwd) return null;
   return resolvePathLinkTarget(pathWithPosition, cwd);
+}
+
+export function resolveWorkspaceEditorFilePath(targetPath: string, workspaceRoot?: string): string {
+  const normalizedTargetPath = targetPath.trim();
+  if (normalizedTargetPath.length === 0) {
+    return "";
+  }
+  const filePath = stripLineColumnSuffix(normalizedTargetPath);
+  const normalizedWorkspaceRoot = workspaceRoot?.trim() ?? "";
+  if (normalizedWorkspaceRoot.length === 0) {
+    return filePath;
+  }
+
+  const normalizedFilePath = stripTrailingDirectorySeparators(normalizePathSeparators(filePath));
+  const normalizedRootPath = stripTrailingDirectorySeparators(
+    normalizePathSeparators(normalizedWorkspaceRoot),
+  );
+  const caseInsensitive =
+    isNormalizedWindowsPath(normalizedFilePath) || isNormalizedWindowsPath(normalizedRootPath);
+  const comparisonFilePath = caseInsensitive
+    ? normalizedFilePath.toLowerCase()
+    : normalizedFilePath;
+  const comparisonRootPath = caseInsensitive
+    ? normalizedRootPath.toLowerCase()
+    : normalizedRootPath;
+  const prefix = comparisonRootPath.endsWith("/") ? comparisonRootPath : `${comparisonRootPath}/`;
+  if (!comparisonFilePath.startsWith(prefix)) {
+    return filePath;
+  }
+  return normalizedFilePath.slice(normalizedRootPath.length + 1);
 }
