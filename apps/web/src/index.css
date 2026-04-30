@@ -445,6 +445,16 @@ label {
   background-color: color-mix(in oklch, var(--accent) 48%, transparent);
 }
 
+.thread-terminal-drawer .terminal-tabs-strip {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--card) 92%, transparent),
+      color-mix(in srgb, var(--terminal-surface) 92%, var(--card))
+    ),
+    var(--terminal-surface);
+}
+
 @keyframes terminal-pulse {
   0%,
   100% {

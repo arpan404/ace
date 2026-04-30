@@ -753,6 +753,13 @@ function moveThreadTerminal(
     return normalized;
   }
 
+  if (sourceGroup.id === initialTargetGroup.id) {
+    const finalIndex = Math.max(0, Math.min(targetIndex, sourceGroup.terminalIds.length - 1));
+    if (sourceIndex === finalIndex) {
+      return normalized;
+    }
+  }
+
   sourceGroup.terminalIds.splice(sourceIndex, 1);
   let nextTargetGroupIndex = targetGroupIndex;
   if (sourceGroup.terminalIds.length === 0) {
@@ -768,9 +775,6 @@ function moveThreadTerminal(
   }
 
   let insertionIndex = Math.max(0, Math.min(targetIndex, targetGroup.terminalIds.length));
-  if (sourceGroup.id === targetGroup.id && sourceIndex < insertionIndex) {
-    insertionIndex -= 1;
-  }
 
   const targetIds = targetGroup.terminalIds;
   if (sourceGroup.id === targetGroup.id && sourceIndex === insertionIndex) {

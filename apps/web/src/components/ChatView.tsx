@@ -863,8 +863,6 @@ export default function ChatView({
   );
   const storeSetTerminalOpen = useTerminalStateStore((s) => s.setTerminalOpen);
   const storeSetTerminalHeight = useTerminalStateStore((s) => s.setTerminalHeight);
-  const storeSetTerminalSidebarWidth = useTerminalStateStore((s) => s.setTerminalSidebarWidth);
-  const storeSetTerminalSidebarDensity = useTerminalStateStore((s) => s.setTerminalSidebarDensity);
   const storeSplitTerminal = useTerminalStateStore((s) => s.splitTerminal);
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
   const storeSetActiveTerminal = useTerminalStateStore((s) => s.setActiveTerminal);
@@ -2316,10 +2314,6 @@ export default function ChatView({
     () => shortcutLabelForCommand(keybindings, "terminal.new", terminalShortcutLabelOptions),
     [keybindings, terminalShortcutLabelOptions],
   );
-  const closeTerminalShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "terminal.close", terminalShortcutLabelOptions),
-    [keybindings, terminalShortcutLabelOptions],
-  );
   const rightSidePanelToggleShortcutLabel = useMemo(
     () =>
       shortcutLabelForCommand(keybindings, "rightPanel.toggle", nonTerminalShortcutLabelOptions) ??
@@ -3564,20 +3558,6 @@ export default function ChatView({
       storeSetTerminalHeight(activeThreadId, height);
     },
     [activeThreadId, storeSetTerminalHeight],
-  );
-  const setTerminalSidebarWidth = useCallback(
-    (width: number) => {
-      if (!activeThreadId) return;
-      storeSetTerminalSidebarWidth(activeThreadId, width);
-    },
-    [activeThreadId, storeSetTerminalSidebarWidth],
-  );
-  const setTerminalSidebarDensity = useCallback(
-    (density: "compact" | "comfortable") => {
-      if (!activeThreadId) return;
-      storeSetTerminalSidebarDensity(activeThreadId, density);
-    },
-    [activeThreadId, storeSetTerminalSidebarDensity],
   );
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadId) return;
@@ -7747,8 +7727,6 @@ export default function ChatView({
           cwd: gitCwd ?? activeProject.cwd,
           runtimeEnv: threadTerminalRuntimeEnv,
           height: terminalState.terminalHeight,
-          sidebarWidth: terminalState.terminalSidebarWidth,
-          sidebarDensity: terminalState.terminalSidebarDensity,
           terminalIds: terminalState.terminalIds,
           activeTerminalId: terminalState.activeTerminalId,
           terminalGroups: terminalState.terminalGroups,
@@ -7765,7 +7743,6 @@ export default function ChatView({
           onNewTerminal: createNewTerminal,
           splitShortcutLabel: splitTerminalShortcutLabel ?? undefined,
           newShortcutLabel: newTerminalShortcutLabel ?? undefined,
-          closeShortcutLabel: closeTerminalShortcutLabel ?? undefined,
           onActiveTerminalChange: activateTerminal,
           onMoveTerminal: moveTerminal,
           onDuplicateTerminal: duplicateTerminal,
@@ -7780,8 +7757,6 @@ export default function ChatView({
           onSplitRatiosChange: setTerminalGroupSplitRatios,
           onCloseTerminal: closeTerminal,
           onHeightChange: setTerminalHeight,
-          onSidebarWidthChange: setTerminalSidebarWidth,
-          onSidebarDensityChange: setTerminalSidebarDensity,
           onAddTerminalContext: addTerminalContextToDraft,
         }
       : null;
