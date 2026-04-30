@@ -1199,6 +1199,7 @@ function SortableTerminalTab(props: {
   suppressClickAfterDragRef: MutableRefObject<boolean>;
   terminalId: string;
   onClose: (terminalId: string) => void;
+  onContextMenu: (terminalId: string, position: { x: number; y: number }) => void;
   onSelect: (terminalId: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } =
@@ -1223,6 +1224,11 @@ function SortableTerminalTab(props: {
           return;
         }
         props.onSelect(props.terminalId);
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        props.onContextMenu(props.terminalId, { x: event.clientX, y: event.clientY });
       }}
       {...attributes}
       aria-pressed={props.active}
@@ -1992,6 +1998,7 @@ export default memo(function ThreadTerminalDrawer({
                     suppressClickAfterDragRef={suppressTerminalTabClickAfterDragRef}
                     terminalId={terminalId}
                     onClose={onCloseTerminal}
+                    onContextMenu={handleTerminalContextMenu}
                     onSelect={onActiveTerminalChange}
                   />
                 ))}
