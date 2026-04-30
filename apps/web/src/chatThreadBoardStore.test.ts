@@ -182,6 +182,39 @@ describe("chatThreadBoardStore", () => {
     expect(state.activeSplitId).toBeTruthy();
   });
 
+  it("uses the provided title when drag-opening a new board", () => {
+    const store = useChatThreadBoardStore.getState();
+    const sourcePaneId = store.syncRouteThread({ threadId: THREAD_A });
+
+    store.openThreadInBoard({
+      sourcePaneId,
+      threadId: THREAD_B,
+      title: "Thread A + 1",
+    });
+
+    const state = useChatThreadBoardStore.getState();
+    const split = state.splits.find((candidate) => candidate.id === state.activeSplitId);
+    expect(split?.title).toBe("Thread A + 1");
+  });
+
+  it("does not rewrite state when restoring an already active board pane", () => {
+    const store = useChatThreadBoardStore.getState();
+    const splitId = store.createSplit({
+      activeThread: { threadId: THREAD_B },
+      threads: [{ threadId: THREAD_A }, { threadId: THREAD_B }],
+      title: "Board",
+    });
+
+    expect(splitId).toBeTruthy();
+
+    const beforeRestore = useChatThreadBoardStore.getState();
+    const restoredPaneId = store.restoreSplit(splitId!, beforeRestore.activePaneId);
+    const afterRestore = useChatThreadBoardStore.getState();
+
+    expect(restoredPaneId).toBe(beforeRestore.activePaneId);
+    expect(afterRestore).toBe(beforeRestore);
+  });
+
   it("inserts a thread above the source pane when opening upward", () => {
     const store = useChatThreadBoardStore.getState();
     const sourcePaneId = store.syncRouteThread({ threadId: THREAD_A });
