@@ -152,24 +152,24 @@ html.native-window-resizing *::after {
   --sidebar-border: 0 0% 89%;
   --sidebar-accent: 0 0% 93%;
   --sidebar-accent-foreground: 0 0% 14%;
-  --background: oklch(0.985 0 0);
+  --background: oklch(0.97 0 0);
   --sidebar-surface: var(--background);
-  --foreground: oklch(0.15 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.15 0 0);
+  --foreground: oklch(0.14 0 0);
+  --card: var(--background);
+  --card-foreground: oklch(0.14 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.15 0 0);
+  --popover-foreground: oklch(0.14 0 0);
   --primary: oklch(0.55 0.2 250);
   --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.965 0 0);
+  --secondary: oklch(0.96 0 0);
   --secondary-foreground: oklch(0.25 0 0);
-  --muted: oklch(0.965 0 0);
-  --muted-foreground: oklch(0.44 0 0);
-  --accent: color-mix(in srgb, var(--background) 92%, var(--foreground) 8%);
+  --muted: oklch(0.96 0 0);
+  --muted-foreground: oklch(0.46 0 0);
+  --accent: oklch(0.94 0 0);
   --accent-foreground: oklch(0.2 0 0);
   --destructive: oklch(0.57 0.21 25);
-  --border: oklch(0.895 0 0);
-  --input: oklch(1 0 0);
+  --border: oklch(0.91 0 0);
+  --input: var(--background);
   --ring: oklch(0.55 0.2 250);
   --destructive-foreground: oklch(0.46 0.17 25);
   --info: oklch(0.55 0.2 250);
@@ -190,10 +190,10 @@ html.native-window-resizing *::after {
   --ultrathink-blue: oklch(0.64 0.18 255);
   --ultrathink-pink: oklch(0.68 0.2 350);
   --bg-glow: transparent;
-  --pill: color-mix(in oklch, var(--card) 92%, var(--background) 8%);
+  --pill: color-mix(in oklch, var(--card) 86%, white 14%);
   --pill-foreground: var(--foreground);
-  --pill-border: color-mix(in oklch, var(--foreground) 10%, var(--background) 90%);
-  --chat-bubble: color-mix(in oklch, var(--card) 94%, var(--background) 6%);
+  --pill-border: color-mix(in oklch, var(--foreground) 9%, var(--background) 91%);
+  --chat-bubble: color-mix(in oklch, var(--card) 88%, var(--background) 12%);
   --terminal-surface: var(--background);
   --terminal-surface-elevated: color-mix(in oklch, var(--background) 96%, var(--card) 4%);
   --terminal-foreground: oklch(0.2 0.01 260);
@@ -226,24 +226,24 @@ html.native-window-resizing *::after {
     --sidebar-border: 0 0% 19%;
     --sidebar-accent: 0 0% 15%;
     --sidebar-accent-foreground: 0 0% 96%;
-    --background: oklch(0.13 0 0);
+    --background: oklch(0.145 0 0);
     --sidebar-surface: var(--background);
     --foreground: oklch(0.93 0 0);
-    --card: oklch(0.165 0 0);
+    --card: var(--background);
     --card-foreground: oklch(0.93 0 0);
-    --popover: oklch(0.18 0 0);
+    --popover: oklch(0.165 0 0);
     --popover-foreground: oklch(0.93 0 0);
     --primary: oklch(0.68 0.17 250);
-    --primary-foreground: oklch(0.13 0 0);
-    --secondary: oklch(0.185 0 0);
+    --primary-foreground: oklch(0.145 0 0);
+    --secondary: oklch(0.19 0 0);
     --secondary-foreground: oklch(0.93 0 0);
-    --muted: oklch(0.185 0 0);
-    --muted-foreground: oklch(0.62 0 0);
-    --accent: color-mix(in srgb, var(--background) 86%, var(--foreground) 14%);
+    --muted: oklch(0.19 0 0);
+    --muted-foreground: oklch(0.56 0 0);
+    --accent: oklch(0.21 0 0);
     --accent-foreground: oklch(0.93 0 0);
     --destructive: oklch(0.6 0.19 25);
-    --border: oklch(0.25 0 0);
-    --input: oklch(0.17 0 0);
+    --border: oklch(0.24 0 0);
+    --input: var(--background);
     --ring: oklch(0.68 0.17 250);
     --destructive-foreground: oklch(0.68 0.16 25);
     --info: oklch(0.68 0.17 250);
@@ -253,10 +253,10 @@ html.native-window-resizing *::after {
     --warning: oklch(0.7 0.15 75);
     --warning-foreground: oklch(0.76 0.12 75);
     --bg-glow: transparent;
-    --pill: color-mix(in oklch, var(--card) 90%, white 10%);
+    --pill: color-mix(in oklch, var(--card) 82%, white 6%);
     --pill-foreground: var(--foreground);
-    --pill-border: color-mix(in oklch, var(--foreground) 15%, var(--background) 85%);
-    --chat-bubble: color-mix(in oklch, var(--card) 92%, var(--background) 8%);
+    --pill-border: color-mix(in oklch, var(--foreground) 14%, var(--background) 86%);
+    --chat-bubble: color-mix(in oklch, var(--card) 94%, var(--background) 6%);
     --terminal-surface: var(--background);
     --terminal-surface-elevated: color-mix(in oklch, var(--background) 96%, var(--card) 4%);
     --terminal-foreground: oklch(0.9 0.005 260);
@@ -443,16 +443,6 @@ label {
 
 .thread-terminal-drawer .terminal-split-divider:active {
   background-color: color-mix(in oklch, var(--accent) 48%, transparent);
-}
-
-.thread-terminal-drawer .terminal-tabs-strip {
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--card) 92%, transparent),
-      color-mix(in srgb, var(--terminal-surface) 92%, var(--card))
-    ),
-    var(--terminal-surface);
 }
 
 @keyframes terminal-pulse {

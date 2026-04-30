@@ -99,6 +99,7 @@ describe("normalizeTerminalDisplayTitle", () => {
     expect(normalizeTerminalDisplayTitle("Terminal EC9E")).toBeNull();
     expect(normalizeTerminalDisplayTitle("Workspace shell")).toBeNull();
     expect(normalizeTerminalDisplayTitle("zsh")).toBeNull();
+    expect(normalizeTerminalDisplayTitle("oaoaoa:web")).toBeNull();
   });
 });
 
@@ -118,6 +119,14 @@ describe("resolveTerminalDisplayTitle", () => {
     expect(
       resolveTerminalDisplayTitle({
         autoTitle: "Terminal EC9E",
+        cwd: "/Users/arpanbhandari/Code/ace",
+        isRunning: true,
+        terminalId: "terminal-2",
+      }),
+    ).toBe("Terminal");
+    expect(
+      resolveTerminalDisplayTitle({
+        autoTitle: "oaoaoa:web",
         cwd: "/Users/arpanbhandari/Code/ace",
         isRunning: true,
         terminalId: "terminal-2",

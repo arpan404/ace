@@ -24,6 +24,7 @@ export function normalizeTerminalDisplayTitle(title: string | null | undefined):
   const normalized = normalizeTerminalTitleText(title);
   if (!normalized) return null;
   if (/\bshell$/i.test(normalized)) return null;
+  if (/^[\w.-]+:[\w.-]+$/.test(normalized)) return null;
   return deriveTerminalTitleFromCommand(normalized);
 }
 
