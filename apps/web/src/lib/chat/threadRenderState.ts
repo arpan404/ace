@@ -9,6 +9,7 @@ import {
   filterVisibleWorkLogActivities,
 } from "../../session-logic";
 import { type ChatMessage, type Thread, type TurnDiffSummary } from "../../types";
+import { measureRenderWork } from "../renderProfiling";
 
 export interface ThreadActivityVisibilitySettings {
   readonly enableThinkingStreaming: boolean;
@@ -128,10 +129,8 @@ export function deriveThreadTimelineRenderState(input: {
   }
 
   const nextState = {
-    timelineEntries: deriveTimelineEntries(
-      input.messages,
-      input.proposedPlans,
-      input.workLogEntries,
+    timelineEntries: measureRenderWork("chat.deriveTimelineEntries", () =>
+      deriveTimelineEntries(input.messages, input.proposedPlans, input.workLogEntries),
     ),
     turnDiffSummaryByAssistantMessageId,
     visibleTurnDiffSummaryByAssistantMessageId: deriveVisibleTurnDiffSummaryByAssistantMessageId(
