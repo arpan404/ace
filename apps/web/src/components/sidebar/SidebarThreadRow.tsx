@@ -8,6 +8,9 @@ import {
 import {
   CircleAlertIcon,
   CircleCheckBig,
+  GitBranchPlusIcon,
+  GitMergeIcon,
+  GitPullRequestClosedIcon,
   GitPullRequestIcon,
   LoaderCircleIcon,
   SparklesIcon,
@@ -42,9 +45,13 @@ interface TerminalStatusIndicator {
 
 interface PrStatusIndicator {
   label: "PR open" | "PR closed" | "PR merged";
-  colorClass: string;
+  Icon: typeof GitPullRequestIcon;
   tooltip: string;
   url: string;
+}
+
+interface WorktreeStatusIndicator {
+  label: string;
 }
 
 function connectionUrlsEqual(left: string, right: string): boolean {
@@ -111,7 +118,7 @@ function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   if (pr.state === "open") {
     return {
       label: "PR open",
-      colorClass: "text-emerald-600 dark:text-emerald-300/90",
+      Icon: GitPullRequestIcon,
       tooltip: `#${pr.number} PR open: ${pr.title}`,
       url: pr.url,
     };
@@ -119,7 +126,7 @@ function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   if (pr.state === "closed") {
     return {
       label: "PR closed",
-      colorClass: "text-zinc-500 dark:text-zinc-400/80",
+      Icon: GitPullRequestClosedIcon,
       tooltip: `#${pr.number} PR closed: ${pr.title}`,
       url: pr.url,
     };
@@ -127,12 +134,21 @@ function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   if (pr.state === "merged") {
     return {
       label: "PR merged",
-      colorClass: "text-violet-600 dark:text-violet-300/90",
+      Icon: GitMergeIcon,
       tooltip: `#${pr.number} PR merged: ${pr.title}`,
       url: pr.url,
     };
   }
   return null;
+}
+
+function worktreeStatusIndicator(thread: { branch: string | null; worktreePath: string | null }) {
+  if (!thread.worktreePath) {
+    return null;
+  }
+  return {
+    label: thread.branch ? `Worktree: ${thread.branch}` : "Worktree",
+  } satisfies WorktreeStatusIndicator;
 }
 
 export interface SidebarThreadRowProps {
@@ -213,6 +229,8 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     },
   });
   const prStatus = prStatusIndicator(props.pr);
+  const PrStatusIcon = prStatus?.Icon ?? GitPullRequestIcon;
+  const worktreeStatus = worktreeStatusIndicator(thread);
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   const isConfirmingArchive = props.confirmingArchiveThreadId === thread.id && !isThreadRunning;
   const canPin = props.pinEnabled ?? true;
@@ -222,6 +240,9 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     : !isThreadRunning || canPin
       ? "pointer-events-none transition-opacity duration-150 group-hover/menu-sub-item:opacity-0 group-focus-within/menu-sub-item:opacity-0"
       : "pointer-events-none";
+  const threadGitMetaClassName = isConfirmingArchive
+    ? "pointer-events-none opacity-0"
+    : "pointer-events-auto";
   const prefetchThreadHistory = () => {
     if (isActive) {
       return;
@@ -304,25 +325,6 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
         }}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-          {prStatus && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label={prStatus.tooltip}
-                    className={`inline-flex cursor-pointer items-center justify-center rounded-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring ${prStatus.colorClass}`}
-                    onClick={(event) => {
-                      props.openPrLink(event, prStatus.url);
-                    }}
-                  >
-                    <GitPullRequestIcon className="size-3" />
-                  </button>
-                }
-              />
-              <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
-            </Tooltip>
-          )}
           {threadStatus && <ThreadStatusLabel status={threadStatus} />}
           {canPin && props.isPinned && showPinnedIndicator && (
             <IconPinFilled className="size-3 shrink-0 text-sidebar-accent-foreground" />
@@ -493,7 +495,46 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                 ) : null}
               </>
             )}
-            <span className={threadMetaClassName}>
+            {(worktreeStatus || prStatus) && (
+              <span className={cn(threadGitMetaClassName, "mr-2 inline-flex items-center gap-1")}>
+                {worktreeStatus && (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <span
+                          aria-label={worktreeStatus.label}
+                          className="inline-flex items-center justify-center rounded-sm text-sidebar-foreground/45 outline-hidden transition-colors hover:text-sidebar-foreground/70 focus-visible:ring-1 focus-visible:ring-ring"
+                          title={worktreeStatus.label}
+                        >
+                          <GitBranchPlusIcon className="size-3" />
+                        </span>
+                      }
+                    />
+                    <TooltipPopup side="top">{worktreeStatus.label}</TooltipPopup>
+                  </Tooltip>
+                )}
+                {prStatus && (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          aria-label={prStatus.tooltip}
+                          className="inline-flex cursor-pointer items-center justify-center rounded-sm text-sidebar-foreground/45 outline-hidden transition-colors hover:text-sidebar-foreground/70 focus-visible:ring-1 focus-visible:ring-ring"
+                          onClick={(event) => {
+                            props.openPrLink(event, prStatus.url);
+                          }}
+                        >
+                          <PrStatusIcon className="size-3" />
+                        </button>
+                      }
+                    />
+                    <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
+                  </Tooltip>
+                )}
+              </span>
+            )}
+            <span className={cn(threadMetaClassName, "inline-flex items-center")}>
               {props.showThreadJumpHints && props.jumpLabel ? (
                 <span
                   className="inline-flex h-5 items-center rounded-full border border-sidebar-border bg-sidebar-accent px-1.5 font-mono text-[10px] font-medium tracking-tight text-sidebar-accent-foreground "

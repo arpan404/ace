@@ -1,9 +1,10 @@
 import { type MessageId, type TurnId } from "@ace/contracts";
 import { IconTerminal } from "@tabler/icons-react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import {
   Fragment,
   memo,
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -65,6 +66,9 @@ import {
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
+const IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES = 12;
+const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
+const ASSISTANT_MARKDOWN_IDLE_BATCH_DELAY_MS = 64;
 
 const timelineRowHeightCache = new Map<string, number>();
 type TimelineIcon = ComponentType<{ className?: string }>;
@@ -183,6 +187,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   >({});
   const [timelineRootElement, setTimelineRootElement] = useState<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
+  const [renderedAssistantMarkdownMessageIds, setRenderedAssistantMarkdownMessageIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const onToggleAllDirectories = useCallback((turnId: TurnId) => {
     setAllDirectoriesExpandedByTurnId((current) => ({
       ...current,
@@ -280,6 +287,144 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   });
   const shouldUseVirtualizedBuffer =
     scrollContainer !== null && virtualizedRows.length > 0 && !activeTurnInProgress;
+  const shouldPrioritizeAssistantMarkdown = shouldUseVirtualizedBuffer;
+  const virtualItems = shouldUseVirtualizedBuffer ? rowVirtualizer.getVirtualItems() : [];
+  const mountedVirtualizedAssistantMarkdownMessageIds = shouldPrioritizeAssistantMarkdown
+    ? deriveMountedVirtualizedAssistantMarkdownMessageIds(virtualItems, virtualizedRows)
+    : [];
+  const mountedVirtualizedAssistantMarkdownMessageIdSet = new Set(
+    mountedVirtualizedAssistantMarkdownMessageIds,
+  );
+  const immediateAssistantMarkdownMessageIds = useMemo(
+    () =>
+      shouldPrioritizeAssistantMarkdown
+        ? deriveImmediateAssistantMarkdownMessageIds(rows, firstUnvirtualizedRowIndex)
+        : [],
+    [firstUnvirtualizedRowIndex, rows, shouldPrioritizeAssistantMarkdown],
+  );
+  const immediateAssistantMarkdownMessageIdSet = useMemo(
+    () => new Set(immediateAssistantMarkdownMessageIds),
+    [immediateAssistantMarkdownMessageIds],
+  );
+  const allAssistantMarkdownMessageIds = useMemo(
+    () => rows.filter(isCompletedAssistantMessageRow).map((row) => String(row.message.id)),
+    [rows],
+  );
+  const pendingAssistantMarkdownMessageIds = shouldPrioritizeAssistantMarkdown
+    ? derivePendingAssistantMarkdownMessageIdsBottomUp(rows, {
+        firstUnvirtualizedRowIndex,
+        immediateMessageIds: immediateAssistantMarkdownMessageIdSet,
+        mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIdSet,
+        renderedMessageIds: renderedAssistantMarkdownMessageIds,
+      })
+    : [];
+  const allAssistantMarkdownMessageIdKey = allAssistantMarkdownMessageIds.join("\0");
+  const immediateAssistantMarkdownMessageIdKey = immediateAssistantMarkdownMessageIds.join("\0");
+  const mountedVirtualizedAssistantMarkdownMessageIdKey =
+    mountedVirtualizedAssistantMarkdownMessageIds.join("\0");
+  const pendingAssistantMarkdownMessageIdKey = pendingAssistantMarkdownMessageIds.join("\0");
+  const assistantMarkdownPriorityRef = useRef({
+    allMessageIds: allAssistantMarkdownMessageIds,
+    immediateMessageIds: immediateAssistantMarkdownMessageIds,
+    mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIds,
+    pendingMessageIds: pendingAssistantMarkdownMessageIds,
+  });
+  assistantMarkdownPriorityRef.current = {
+    allMessageIds: allAssistantMarkdownMessageIds,
+    immediateMessageIds: immediateAssistantMarkdownMessageIds,
+    mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIds,
+    pendingMessageIds: pendingAssistantMarkdownMessageIds,
+  };
+
+  useEffect(() => {
+    if (!shouldPrioritizeAssistantMarkdown) {
+      setRenderedAssistantMarkdownMessageIds((current) =>
+        current.size === 0 ? current : new Set(),
+      );
+      return;
+    }
+    const { allMessageIds, immediateMessageIds, mountedMessageIds } =
+      assistantMarkdownPriorityRef.current;
+    const validMessageIds = new Set(allMessageIds);
+    setRenderedAssistantMarkdownMessageIds((current) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const messageId of current) {
+        if (!validMessageIds.has(messageId)) {
+          changed = true;
+          continue;
+        }
+        next.add(messageId);
+      }
+      for (const messageId of immediateMessageIds) {
+        if (!next.has(messageId)) {
+          changed = true;
+          next.add(messageId);
+        }
+      }
+      for (const messageId of mountedMessageIds) {
+        if (!next.has(messageId)) {
+          changed = true;
+          next.add(messageId);
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [
+    allAssistantMarkdownMessageIdKey,
+    immediateAssistantMarkdownMessageIdKey,
+    mountedVirtualizedAssistantMarkdownMessageIdKey,
+    shouldPrioritizeAssistantMarkdown,
+  ]);
+
+  useEffect(() => {
+    if (!shouldPrioritizeAssistantMarkdown || pendingAssistantMarkdownMessageIdKey.length === 0) {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+    const pendingMessageIds = assistantMarkdownPriorityRef.current.pendingMessageIds;
+
+    let cancelled = false;
+    let cursor = 0;
+    let timerId: number | null = null;
+
+    const activateNextBatch = () => {
+      if (cancelled) {
+        return;
+      }
+      const batch = pendingMessageIds.slice(cursor, cursor + ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE);
+      cursor += batch.length;
+      if (batch.length > 0) {
+        startTransition(() => {
+          setRenderedAssistantMarkdownMessageIds((current) => {
+            let changed = false;
+            const next = new Set(current);
+            for (const messageId of batch) {
+              if (!next.has(messageId)) {
+                changed = true;
+                next.add(messageId);
+              }
+            }
+            return changed ? next : current;
+          });
+        });
+      }
+      if (cursor >= pendingMessageIds.length) {
+        return;
+      }
+      timerId = window.setTimeout(activateNextBatch, ASSISTANT_MARKDOWN_IDLE_BATCH_DELAY_MS);
+    };
+
+    timerId = window.setTimeout(activateNextBatch, ASSISTANT_MARKDOWN_IDLE_BATCH_DELAY_MS);
+    return () => {
+      cancelled = true;
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
+    };
+  }, [pendingAssistantMarkdownMessageIdKey, shouldPrioritizeAssistantMarkdown]);
   const registerMeasuredRowElement = useCallback(
     (rowId: string, element: HTMLDivElement | null) => {
       if (element) {
@@ -461,6 +606,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               turnSummary !== null &&
               turnSummary.files.length > 0 &&
               !(activeTurnInProgress && isEventInActiveTurn(row.createdAt, activeTurnStartedAtMs));
+            const assistantMessageId = String(row.message.id);
+            const shouldRenderAssistantMarkdown =
+              !shouldPrioritizeAssistantMarkdown ||
+              row.message.streaming ||
+              immediateAssistantMarkdownMessageIdSet.has(assistantMessageId) ||
+              mountedVirtualizedAssistantMarkdownMessageIdSet.has(assistantMessageId) ||
+              renderedAssistantMarkdownMessageIds.has(assistantMessageId);
 
             return (
               <div className="min-w-0">
@@ -474,6 +626,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   message={row.message}
                   onOpenBrowserUrl={onOpenBrowserUrl}
                   onOpenFilePath={onOpenFilePath}
+                  renderMarkdown={shouldRenderAssistantMarkdown}
                   timestampFormat={timestampFormat}
                   {...(onMeasuredLayoutChange ? { onLayoutChange: onMeasuredLayoutChange } : {})}
                 />
@@ -595,7 +748,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           className="relative"
           style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
         >
-          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          {virtualItems.map((virtualRow) => {
             const row = virtualizedRows[virtualRow.index];
             if (!row) {
               return null;
@@ -691,6 +844,84 @@ type TimelineRow =
       mode: "live" | "silent-thinking";
       intentText: string | null;
     };
+
+function isCompletedAssistantMessageRow(
+  row: TimelineRow,
+): row is Extract<TimelineRow, { kind: "message" }> {
+  return row.kind === "message" && row.message.role === "assistant" && !row.message.streaming;
+}
+
+function deriveMountedVirtualizedAssistantMarkdownMessageIds(
+  virtualItems: ReadonlyArray<VirtualItem>,
+  virtualizedRows: ReadonlyArray<TimelineRow>,
+): string[] {
+  const messageIds: string[] = [];
+  for (const virtualItem of virtualItems) {
+    const row = virtualizedRows[virtualItem.index];
+    if (!row || !isCompletedAssistantMessageRow(row)) {
+      continue;
+    }
+    messageIds.push(String(row.message.id));
+  }
+  return messageIds;
+}
+
+function deriveImmediateAssistantMarkdownMessageIds(
+  rows: ReadonlyArray<TimelineRow>,
+  firstUnvirtualizedRowIndex: number,
+): string[] {
+  const messageIds = new Set<string>();
+  for (let index = firstUnvirtualizedRowIndex; index < rows.length; index += 1) {
+    const row = rows[index];
+    if (!row || !isCompletedAssistantMessageRow(row)) {
+      continue;
+    }
+    messageIds.add(String(row.message.id));
+  }
+
+  let assistantMessageCount = 0;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (!row || !isCompletedAssistantMessageRow(row)) {
+      continue;
+    }
+    messageIds.add(String(row.message.id));
+    assistantMessageCount += 1;
+    if (assistantMessageCount >= IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES) {
+      break;
+    }
+  }
+
+  return [...messageIds];
+}
+
+export function derivePendingAssistantMarkdownMessageIdsBottomUp(
+  rows: ReadonlyArray<TimelineRow>,
+  input: {
+    firstUnvirtualizedRowIndex: number;
+    immediateMessageIds: ReadonlySet<string>;
+    mountedMessageIds: ReadonlySet<string>;
+    renderedMessageIds: ReadonlySet<string>;
+  },
+): string[] {
+  const messageIds: string[] = [];
+  for (let index = input.firstUnvirtualizedRowIndex - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (!row || !isCompletedAssistantMessageRow(row)) {
+      continue;
+    }
+    const messageId = String(row.message.id);
+    if (
+      input.immediateMessageIds.has(messageId) ||
+      input.mountedMessageIds.has(messageId) ||
+      input.renderedMessageIds.has(messageId)
+    ) {
+      continue;
+    }
+    messageIds.push(messageId);
+  }
+  return messageIds;
+}
 
 export function deriveFirstUnvirtualizedTimelineRowIndex(
   rows: ReadonlyArray<TimelineRow>,
@@ -1655,6 +1886,18 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
   );
 });
 
+const AssistantMarkdownPendingPlaceholder = memo(function AssistantMarkdownPendingPlaceholder() {
+  return (
+    <div
+      className="space-y-2 py-1 text-sm text-muted-foreground/58"
+      data-assistant-markdown-pending="true"
+    >
+      <div className="h-3.5 w-2/3 rounded bg-muted-foreground/9" />
+      <div className="h-3.5 w-1/2 rounded bg-muted-foreground/7" />
+    </div>
+  );
+});
+
 const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(props: {
   completionSummary: string | null;
   durationStart: string;
@@ -1666,6 +1909,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
   onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
+  renderMarkdown: boolean;
   timestampFormat: TimestampFormat;
 }) {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
@@ -1690,18 +1934,21 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
 
   return (
     <div className="min-w-0">
-      <ChatMarkdown
-        text={messageText}
-        cwd={props.markdownCwd}
-        isStreaming={Boolean(props.message.streaming)}
-        deferMarkdownUntilVisible={!props.message.streaming}
-        onOpenBrowserUrl={onOpenBrowserUrl}
-        onOpenFilePath={onOpenFilePath}
-        {...(props.message.streamingTextState
-          ? { streamingTextState: props.message.streamingTextState }
-          : {})}
-        {...(props.onLayoutChange ? { onLayoutChange: props.onLayoutChange } : {})}
-      />
+      {props.renderMarkdown ? (
+        <ChatMarkdown
+          text={messageText}
+          cwd={props.markdownCwd}
+          isStreaming={Boolean(props.message.streaming)}
+          onOpenBrowserUrl={onOpenBrowserUrl}
+          onOpenFilePath={onOpenFilePath}
+          {...(props.message.streamingTextState
+            ? { streamingTextState: props.message.streamingTextState }
+            : {})}
+          {...(props.onLayoutChange ? { onLayoutChange: props.onLayoutChange } : {})}
+        />
+      ) : (
+        <AssistantMarkdownPendingPlaceholder />
+      )}
       {completedAtLabel && elapsedLabel && (
         <div className="mt-2 flex min-h-4 flex-wrap items-center gap-x-2 gap-y-1">
           <span
