@@ -131,6 +131,14 @@ html.native-window-resizing *::after {
   contain-intrinsic-size: auto 32px;
 }
 
+.sidebar-resizing [data-slot="sidebar-content"] {
+  pointer-events: none;
+}
+
+.sidebar-resizing [data-slot="sidebar-content"] * {
+  transition-duration: 0ms !important;
+}
+
 :root {
   color-scheme: light;
   --radius: 0.5rem;

@@ -265,7 +265,6 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
             isSelected,
           }),
           "relative isolate",
-          props.boardDrag ? "cursor-pointer active:cursor-grabbing" : "",
           props.boardDrag?.isDragging ? "z-20 opacity-80" : "",
         )}
         draggable={Boolean(props.boardDrag) && props.renamingThreadId !== thread.id}

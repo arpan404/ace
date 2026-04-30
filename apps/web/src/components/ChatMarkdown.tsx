@@ -4,6 +4,7 @@ import React, {
   Children,
   Suspense,
   isValidElement,
+  startTransition,
   use,
   useCallback,
   memo,
@@ -66,6 +67,7 @@ interface ChatMarkdownProps {
   isStreaming?: boolean;
   renderPlainText?: boolean;
   streamingTextState?: ChatMessageStreamingTextState;
+  deferMarkdownUntilVisible?: boolean;
   onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
@@ -80,21 +82,36 @@ const MAX_HIGHLIGHT_CACHE_MEMORY_BYTES = clampCacheBudgetBytes(50 * 1024 * 1024,
   moderateCapBytes: 24 * 1024 * 1024,
   constrainedCapBytes: 12 * 1024 * 1024,
 });
+const MAX_MARKDOWN_ACTIVATION_CACHE_ENTRIES = clampCacheEntryCount(1_000, {
+  moderateCapEntries: 640,
+  constrainedCapEntries: 320,
+});
 const highlightedCodeCache = new LRUCache<string>(
   MAX_HIGHLIGHT_CACHE_ENTRIES,
   MAX_HIGHLIGHT_CACHE_MEMORY_BYTES,
 );
+const markdownActivationCache = new LRUCache<boolean>(
+  MAX_MARKDOWN_ACTIVATION_CACHE_ENTRIES,
+  MAX_MARKDOWN_ACTIVATION_CACHE_ENTRIES,
+);
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+const LAZY_MARKDOWN_PREVIEW_MAX_CHARS = 8_000;
+const LAZY_MARKDOWN_INTERSECTION_ROOT_MARGIN = "1400px 0px";
 
 registerMemoryPressureHandler({
   id: "markdown-highlight-cache",
   minLevel: "high",
   release: () => {
     highlightedCodeCache.clear();
+    markdownActivationCache.clear();
     highlighterPromiseCache.clear();
   },
 });
+
+function createMarkdownActivationCacheKey(text: string, cwd: string | undefined): string {
+  return `${fnv1a32(text).toString(36)}:${text.length}:${cwd ?? ""}`;
+}
 
 function extractFenceLanguage(className: string | undefined): string {
   const match = className?.match(CODE_FENCE_LANGUAGE_REGEX);
@@ -218,6 +235,22 @@ function MarkdownCodeBlock({ code, children }: { code: string; children: ReactNo
   );
 }
 
+function MermaidDiagramLoading({ className }: { className?: string }) {
+  return (
+    <div
+      className={[
+        "flex min-h-[120px] items-center justify-center rounded-lg border border-border/60 bg-muted/35 px-3 text-xs text-muted-foreground/75",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      data-mermaid-diagram-state="loading"
+    >
+      Rendering Mermaid diagram...
+    </div>
+  );
+}
+
 interface SuspenseShikiCodeBlockProps {
   className: string | undefined;
   code: string;
@@ -325,6 +358,18 @@ function PreviewTextPanel({
   );
 }
 
+function buildLazyMarkdownPreviewText(text: string): string {
+  if (text.length <= LAZY_MARKDOWN_PREVIEW_MAX_CHARS) {
+    return text;
+  }
+  return `${text.slice(0, LAZY_MARKDOWN_PREVIEW_MAX_CHARS)}\n\n[... markdown will render when this message is visible ...]`;
+}
+
+function LazyMarkdownPreview({ text }: { text: string }) {
+  const previewText = useMemo(() => buildLazyMarkdownPreviewText(text), [text]);
+  return <PreviewTextPanel text={previewText} dataAttribute="data-large-markdown-preview" />;
+}
+
 function StreamingMarkdownPreview({
   text,
   streamingTextState,
@@ -402,6 +447,7 @@ function ChatMarkdown({
   isStreaming = false,
   renderPlainText = false,
   streamingTextState,
+  deferMarkdownUntilVisible = false,
   onLayoutChange,
   onOpenBrowserUrl = null,
   onOpenFilePath = null,
@@ -411,10 +457,26 @@ function ChatMarkdown({
   const [renderPreference, setRenderPreference] = useState<"auto" | "markdown">("auto");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isMarkdownTransitionPending, startMarkdownTransition] = useTransition();
+  const markdownActivationCacheKey = useMemo(
+    () => createMarkdownActivationCacheKey(text, cwd),
+    [cwd, text],
+  );
+  const [markdownActivated, setMarkdownActivated] = useState(
+    () =>
+      !deferMarkdownUntilVisible ||
+      typeof IntersectionObserver === "undefined" ||
+      markdownActivationCache.get(markdownActivationCacheKey) === true,
+  );
   const useLargePreview =
     !isStreaming &&
     renderPreference !== "markdown" &&
     shouldUseLargeMarkdownPreview(text, streamingTextState?.totalLineCount);
+  const shouldDeferMarkdown =
+    deferMarkdownUntilVisible &&
+    !markdownActivated &&
+    !isStreaming &&
+    !renderPlainText &&
+    !useLargePreview;
   const openLinkExternally = useCallback((href: string) => {
     const api = readNativeApi();
     if (api) {
@@ -517,7 +579,7 @@ function ChatMarkdown({
         if (language === "mermaid") {
           return (
             <MarkdownCodeBlock code={codeBlock.code}>
-              <Suspense fallback={<pre {...props}>{children}</pre>}>
+              <Suspense fallback={<MermaidDiagramLoading className="chat-markdown-mermaid" />}>
                 <MermaidDiagram
                   source={codeBlock.code}
                   theme={resolvedTheme}
@@ -554,7 +616,6 @@ function ChatMarkdown({
       resolvedTheme,
     ],
   );
-
   useEffect(() => {
     if (isStreaming) {
       setRenderPreference("auto");
@@ -562,8 +623,50 @@ function ChatMarkdown({
   }, [isStreaming]);
 
   useEffect(() => {
+    if (!deferMarkdownUntilVisible || typeof IntersectionObserver === "undefined") {
+      setMarkdownActivated(true);
+      return;
+    }
+    if (markdownActivationCache.get(markdownActivationCacheKey) === true) {
+      setMarkdownActivated(true);
+      return;
+    }
+    setMarkdownActivated(false);
+  }, [deferMarkdownUntilVisible, markdownActivationCacheKey]);
+
+  useEffect(() => {
+    if (!shouldDeferMarkdown) {
+      return;
+    }
+    const rootElement = rootRef.current;
+    if (!rootElement || typeof IntersectionObserver === "undefined") {
+      setMarkdownActivated(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting || entry.intersectionRatio > 0)) {
+          return;
+        }
+        observer.disconnect();
+        markdownActivationCache.set(markdownActivationCacheKey, true, 1);
+        startTransition(() => {
+          setMarkdownActivated(true);
+        });
+      },
+      { root: null, rootMargin: LAZY_MARKDOWN_INTERSECTION_ROOT_MARGIN },
+    );
+    observer.observe(rootElement);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [markdownActivationCacheKey, shouldDeferMarkdown]);
+
+  useEffect(() => {
     onLayoutChange?.();
-  }, [isStreaming, onLayoutChange, renderPreference, text, useLargePreview]);
+  }, [isStreaming, markdownActivated, onLayoutChange, renderPreference, text, useLargePreview]);
 
   useEffect(() => {
     if (!onLayoutChange || typeof ResizeObserver === "undefined") {
@@ -605,6 +708,8 @@ function ChatMarkdown({
   let content: ReactNode;
   if (renderPlainText) {
     content = <PreviewTextPanel text={text} />;
+  } else if (shouldDeferMarkdown) {
+    content = <LazyMarkdownPreview text={text} />;
   } else if (
     isStreaming &&
     streamingTextState &&
