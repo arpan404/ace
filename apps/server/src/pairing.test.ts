@@ -156,4 +156,67 @@ describe("pairing relay auth hardening", () => {
       expect(rejected.code).toBe("already-claimed");
     }
   });
+
+  it("rejects replay of the same relay route authorization", () => {
+    const created = createPairingSession({
+      relayUrl: "wss://relay.example.com/v1/ws",
+      hostDeviceId: "host-device-1",
+      hostIdentityPublicKey: "host-public-key-1",
+      nowMs: Date.parse("2026-04-30T12:00:00.000Z"),
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) {
+      return;
+    }
+
+    const routeAuthIssuedAt = "2026-04-30T12:00:30.000Z";
+    const pairingAuthKey = deriveRelayPairingAuthKey({
+      pairingId: created.value.sessionId,
+      pairingSecret: created.value.secret,
+      hostDeviceId: "host-device-1",
+      hostIdentityPublicKey: "host-public-key-1",
+      viewerDeviceId: "viewer-device-1",
+      viewerIdentityPublicKey: "viewer-public-key-1",
+    });
+    const routeAuthProof = createRelayRouteAuthProof({
+      pairingAuthKey,
+      routeId: "route-1",
+      clientSessionId: "client-session-1",
+      connectionId: "connection-1",
+      viewerDeviceId: "viewer-device-1",
+      viewerIdentityPublicKey: "viewer-public-key-1",
+      issuedAt: routeAuthIssuedAt,
+    });
+
+    const first = approveRelayPairingRequest({
+      sessionId: created.value.sessionId,
+      viewerDeviceId: "viewer-device-1",
+      viewerIdentityPublicKey: "viewer-public-key-1",
+      routeId: "route-1",
+      clientSessionId: "client-session-1",
+      connectionId: "connection-1",
+      routeAuthIssuedAt,
+      routeAuthProof,
+      nowMs: Date.parse("2026-04-30T12:00:31.000Z"),
+    });
+    expect(first.ok).toBe(true);
+
+    const replayed = approveRelayPairingRequest({
+      sessionId: created.value.sessionId,
+      viewerDeviceId: "viewer-device-1",
+      viewerIdentityPublicKey: "viewer-public-key-1",
+      routeId: "route-1",
+      clientSessionId: "client-session-1",
+      connectionId: "connection-1",
+      routeAuthIssuedAt,
+      routeAuthProof,
+      nowMs: Date.parse("2026-04-30T12:00:32.000Z"),
+    });
+
+    expect(replayed.ok).toBe(false);
+    if (!replayed.ok) {
+      expect(replayed.code).toBe("invalid-secret");
+      expect(replayed.message).toContain("already been used");
+    }
+  });
 });

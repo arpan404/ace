@@ -220,8 +220,8 @@ const ProviderLayerLive = Layer.unwrap(
 );
 
 const PersistenceLayerLive = Layer.empty.pipe(
-  Layer.provideMerge(SqlitePersistenceLayerLive),
   Layer.provideMerge(PairingSessionRepositoryLive),
+  Layer.provideMerge(SqlitePersistenceLayerLive),
 );
 
 const GitLayerLive = Layer.empty.pipe(
@@ -249,6 +249,7 @@ const WorkspaceLayerLive = Layer.mergeAll(
 
 const RuntimeServicesLive = Layer.empty.pipe(
   Layer.provideMerge(ServerRuntimeStartupLive),
+  Layer.provideMerge(RelayHostManagerLive),
   Layer.provideMerge(ReactorLayerLive),
 
   // Core Services
@@ -257,13 +258,12 @@ const RuntimeServicesLive = Layer.empty.pipe(
   Layer.provideMerge(ProviderLayerLive),
   Layer.provideMerge(GitLayerLive),
   Layer.provideMerge(TerminalLayerLive),
+  Layer.provideMerge(PairingPersistenceRuntimeLive),
   Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(MaintenanceRuntimeLive),
-  Layer.provideMerge(PairingPersistenceRuntimeLive),
   Layer.provideMerge(KeybindingsLive),
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(ServerSettingsLive),
-  Layer.provideMerge(RelayHostManagerLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
 

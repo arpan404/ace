@@ -26,7 +26,6 @@ interface RegisteredRelayClient {
   readonly socket: RelaySocketHandle;
   readonly connectedAt: string;
   deviceName: string | null;
-  lastSeenAtMs: number;
 }
 
 interface RelayRoute {
@@ -65,6 +64,18 @@ const DEFAULT_MAX_FRAME_BYTES = 1_000_000;
 const DEFAULT_MAX_CONNECTIONS = 10_000;
 const PING_INTERVAL_MS = 30_000;
 const WS_PATH = "/v1/ws";
+const MAX_BUN_IDLE_TIMEOUT_SECONDS = 255;
+const CLIENT_IDLE_TIMEOUT_MS = 90_000;
+const MAX_DEVICE_ID_LENGTH = 128;
+const MAX_DEVICE_NAME_LENGTH = 160;
+const MAX_PUBLIC_KEY_LENGTH = 128;
+const MAX_ROUTE_ID_LENGTH = 128;
+const MAX_CLIENT_CONNECTION_ID_LENGTH = 128;
+const MAX_PAIRING_ID_LENGTH = 128;
+const MAX_TIMESTAMP_LENGTH = 64;
+const MAX_ROUTE_AUTH_PROOF_LENGTH = 128;
+const MAX_ROUTE_CLOSE_REASON_LENGTH = 128;
+const MAX_ROUTE_ERROR_LENGTH = 256;
 
 function randomId(): string {
   if (typeof crypto.randomUUID === "function") {
@@ -175,6 +186,10 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function isBoundedString(value: unknown, maxLength: number): value is string {
+  return isNonEmptyString(value) && value.trim().length <= maxLength;
+}
+
 function closeRoute(
   routes: Map<string, RelayRoute>,
   routeId: string,
@@ -198,7 +213,7 @@ function closeRoute(
 
 function buildMetrics(input: {
   readonly config: RelayConfig;
-  readonly connections: Map<string, RegisteredRelayClient>;
+  readonly liveSockets: Map<string, RelaySocketHandle>;
   readonly hosts: Map<string, RegisteredRelayClient>;
   readonly viewers: Map<string, RegisteredRelayClient>;
   readonly routes: Map<string, RelayRoute>;
@@ -206,7 +221,7 @@ function buildMetrics(input: {
   return [
     "# HELP ace_relay_connections Total live relay websocket connections.",
     "# TYPE ace_relay_connections gauge",
-    `ace_relay_connections ${String(input.connections.size)}`,
+    `ace_relay_connections ${String(input.liveSockets.size)}`,
     "# HELP ace_relay_hosts Total registered host devices.",
     "# TYPE ace_relay_hosts gauge",
     `ace_relay_hosts ${String(input.hosts.size)}`,
@@ -224,6 +239,7 @@ function buildMetrics(input: {
 }
 
 const config = loadConfig();
+const liveSockets = new Map<string, RelaySocketHandle>();
 const connections = new Map<string, RegisteredRelayClient>();
 const hosts = new Map<string, RegisteredRelayClient>();
 const viewers = new Map<string, RegisteredRelayClient>();
@@ -237,7 +253,10 @@ if (!BunRuntime) {
 const server = BunRuntime.serve({
   hostname: config.host,
   port: config.port,
-  idleTimeout: Math.max(30, Math.ceil(config.idleRouteTtlMs / 1_000)),
+  idleTimeout: Math.min(
+    MAX_BUN_IDLE_TIMEOUT_SECONDS,
+    Math.max(30, Math.ceil(config.idleRouteTtlMs / 1_000)),
+  ),
   fetch(request: Request, serverInstance: unknown) {
     const url = new URL(request.url);
     if (url.pathname === "/healthz") {
@@ -245,7 +264,7 @@ const server = BunRuntime.serve({
         JSON.stringify({
           ok: true,
           relayUrl: config.publicUrl,
-          connections: connections.size,
+          connections: liveSockets.size,
           routes: routes.size,
         }),
         {
@@ -259,7 +278,7 @@ const server = BunRuntime.serve({
       return new Response(
         buildMetrics({
           config,
-          connections,
+          liveSockets,
           hosts,
           viewers,
           routes,
@@ -274,7 +293,7 @@ const server = BunRuntime.serve({
     if (url.pathname !== WS_PATH) {
       return new Response("Not Found", { status: 404 });
     }
-    if (connections.size >= config.maxConnections) {
+    if (liveSockets.size >= config.maxConnections) {
       return new Response("Relay is at capacity.", { status: 503 });
     }
     const connectionId = randomId();
@@ -299,12 +318,21 @@ const server = BunRuntime.serve({
   },
   websocket: {
     open(socket: RelaySocketHandle) {
+      liveSockets.set(socket.data.connectionId, socket);
       log(config, "debug", "connection opened", {
         connectionId: socket.data.connectionId,
       });
     },
     message(socket: RelaySocketHandle, rawMessage: string | Buffer) {
       socket.data.lastSeenAtMs = Date.now();
+      const messageBytes =
+        typeof rawMessage === "string"
+          ? Buffer.byteLength(rawMessage, "utf8")
+          : rawMessage.byteLength;
+      if (messageBytes > config.maxFrameBytes) {
+        socket.close(1_009, "message-too-large");
+        return;
+      }
       const envelope = parseEnvelope(rawMessage);
       if (!envelope || envelope.version !== 1 || !isNonEmptyString(envelope.type)) {
         sendRelayError(socket, "invalid_message", "Relay message must be valid JSON.");
@@ -312,7 +340,10 @@ const server = BunRuntime.serve({
       }
 
       const registerClient = (role: RelayRole) => {
-        if (!isNonEmptyString(envelope.deviceId) || !isNonEmptyString(envelope.identityPublicKey)) {
+        if (
+          !isBoundedString(envelope.deviceId, MAX_DEVICE_ID_LENGTH) ||
+          !isBoundedString(envelope.identityPublicKey, MAX_PUBLIC_KEY_LENGTH)
+        ) {
           sendRelayError(socket, "invalid_register", "Relay registration is missing fields.");
           return;
         }
@@ -320,7 +351,9 @@ const server = BunRuntime.serve({
         const deviceId = envelope.deviceId.trim();
         const existing = (role === "host" ? hosts : viewers).get(deviceId);
         if (existing && existing.connectionId !== socket.data.connectionId) {
-          existing.socket.close(1_000, "relay-replaced");
+          sendRelayError(socket, "duplicate_device", "Relay device is already connected.");
+          socket.close(1_008, "duplicate-device");
+          return;
         }
 
         const client: RegisteredRelayClient = {
@@ -330,8 +363,9 @@ const server = BunRuntime.serve({
           identityPublicKey: envelope.identityPublicKey.trim(),
           socket,
           connectedAt: socket.data.connectedAt,
-          deviceName: isNonEmptyString(envelope.deviceName) ? envelope.deviceName.trim() : null,
-          lastSeenAtMs: socket.data.lastSeenAtMs,
+          deviceName: isBoundedString(envelope.deviceName, MAX_DEVICE_NAME_LENGTH)
+            ? envelope.deviceName.trim()
+            : null,
         };
         socket.data.role = role;
         socket.data.deviceId = client.deviceId;
@@ -365,14 +399,14 @@ const server = BunRuntime.serve({
             return;
           }
           if (
-            !isNonEmptyString(envelope.routeId) ||
-            !isNonEmptyString(envelope.hostDeviceId) ||
-            !isNonEmptyString(envelope.viewerDeviceId) ||
-            !isNonEmptyString(envelope.clientSessionId) ||
-            !isNonEmptyString(envelope.connectionId) ||
-            !isNonEmptyString(envelope.pairingId) ||
-            !isNonEmptyString(envelope.routeAuthIssuedAt) ||
-            !isNonEmptyString(envelope.routeAuthProof)
+            !isBoundedString(envelope.routeId, MAX_ROUTE_ID_LENGTH) ||
+            !isBoundedString(envelope.hostDeviceId, MAX_DEVICE_ID_LENGTH) ||
+            !isBoundedString(envelope.viewerDeviceId, MAX_DEVICE_ID_LENGTH) ||
+            !isBoundedString(envelope.clientSessionId, MAX_CLIENT_CONNECTION_ID_LENGTH) ||
+            !isBoundedString(envelope.connectionId, MAX_CLIENT_CONNECTION_ID_LENGTH) ||
+            !isBoundedString(envelope.pairingId, MAX_PAIRING_ID_LENGTH) ||
+            !isBoundedString(envelope.routeAuthIssuedAt, MAX_TIMESTAMP_LENGTH) ||
+            !isBoundedString(envelope.routeAuthProof, MAX_ROUTE_AUTH_PROOF_LENGTH)
           ) {
             sendRelayError(socket, "invalid_route_open", "Relay route.open is missing fields.");
             return;
@@ -445,8 +479,8 @@ const server = BunRuntime.serve({
             return;
           }
           if (
-            !isNonEmptyString(envelope.hostDeviceId) ||
-            !isNonEmptyString(envelope.hostIdentityPublicKey)
+            !isBoundedString(envelope.hostDeviceId, MAX_DEVICE_ID_LENGTH) ||
+            !isBoundedString(envelope.hostIdentityPublicKey, MAX_PUBLIC_KEY_LENGTH)
           ) {
             sendRelayError(
               socket,
@@ -479,7 +513,7 @@ const server = BunRuntime.serve({
             state: "closed",
             hostDeviceId: envelope.hostDeviceId.trim(),
             hostIdentityPublicKey: envelope.hostIdentityPublicKey.trim(),
-            error: isNonEmptyString(envelope.error)
+            error: isBoundedString(envelope.error, MAX_ROUTE_ERROR_LENGTH)
               ? envelope.error.trim()
               : "Relay route was rejected.",
           });
@@ -491,7 +525,7 @@ const server = BunRuntime.serve({
         }
         case "relay.route.handshakeInit":
         case "relay.route.handshakeAck": {
-          if (!isNonEmptyString(envelope.routeId)) {
+          if (!isBoundedString(envelope.routeId, MAX_ROUTE_ID_LENGTH)) {
             sendRelayError(socket, "invalid_handshake", "Relay handshake is missing routeId.");
             return;
           }
@@ -581,7 +615,7 @@ const server = BunRuntime.serve({
           return;
         }
         case "relay.route.close": {
-          if (!isNonEmptyString(envelope.routeId)) {
+          if (!isBoundedString(envelope.routeId, MAX_ROUTE_ID_LENGTH)) {
             sendRelayError(socket, "invalid_route_close", "Relay route.close is missing routeId.");
             return;
           }
@@ -590,7 +624,7 @@ const server = BunRuntime.serve({
           if (!route) {
             return;
           }
-          const reason = isNonEmptyString(envelope.reason)
+          const reason = isBoundedString(envelope.reason, MAX_ROUTE_CLOSE_REASON_LENGTH)
             ? envelope.reason.trim()
             : "relay-route-closed";
           if (route.hostConnectionId === socket.data.connectionId) {
@@ -632,6 +666,7 @@ const server = BunRuntime.serve({
       }
     },
     close(socket: RelaySocketHandle) {
+      liveSockets.delete(socket.data.connectionId);
       const connection = connections.get(socket.data.connectionId);
       if (connection) {
         if (connection.role === "host") {
@@ -661,6 +696,11 @@ const server = BunRuntime.serve({
 
 setInterval(() => {
   const nowMs = Date.now();
+  for (const socket of liveSockets.values()) {
+    if (nowMs - socket.data.lastSeenAtMs > CLIENT_IDLE_TIMEOUT_MS) {
+      socket.close(1_000, "client-idle-timeout");
+    }
+  }
   for (const route of routes.values()) {
     const idleMs = nowMs - Date.parse(route.lastActivityAt);
     if (Number.isFinite(idleMs) && idleMs > config.idleRouteTtlMs) {

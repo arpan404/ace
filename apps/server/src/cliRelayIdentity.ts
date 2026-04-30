@@ -24,6 +24,7 @@ export async function loadCliRelayDeviceIdentity(
   const identityPath = Path.join(stateDir, CLI_RELAY_DEVICE_IDENTITY_FILE);
   try {
     const raw = await FS.readFile(identityPath, "utf8");
+    await FS.chmod(identityPath, 0o600).catch(() => undefined);
     const parsed = JSON.parse(raw) as unknown;
     if (isRelayStoredDeviceIdentity(parsed)) {
       return parsed;
@@ -34,6 +35,9 @@ export async function loadCliRelayDeviceIdentity(
 
   const created = createRelayDeviceIdentity();
   await FS.mkdir(Path.dirname(identityPath), { recursive: true });
-  await FS.writeFile(identityPath, `${JSON.stringify(created, null, 2)}\n`, "utf8");
+  await FS.writeFile(identityPath, `${JSON.stringify(created, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
   return created;
 }

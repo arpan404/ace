@@ -1,5 +1,6 @@
 import { type ServerRelayStatus, type RelayRegistrationSnapshot } from "@ace/contracts";
 import {
+  DEFAULT_RELAY_MAX_FRAME_BYTES,
   RELAY_REKEY_AFTER_ACTIVE_MS,
   RELAY_REKEY_AFTER_BYTES,
   buildRelayFrameAssociatedData,
@@ -128,6 +129,9 @@ function openWebSocketConnection(
 function parseRelayMessage(data: unknown): Record<string, unknown> | null {
   if (typeof data !== "string") {
     return null;
+  }
+  if (Buffer.byteLength(data, "utf8") > DEFAULT_RELAY_MAX_FRAME_BYTES) {
+    throw new Error("Relay message exceeded the maximum allowed size.");
   }
   try {
     const parsed = JSON.parse(data) as unknown;
@@ -522,7 +526,15 @@ const makeRelayHostManager = Effect.gen(function* () {
     socket: RelayWebSocketLike,
     rawData: unknown,
   ): Promise<void> => {
-    const message = parseRelayMessage(rawData);
+    let message: Record<string, unknown> | null;
+    try {
+      message = parseRelayMessage(rawData);
+    } catch (error) {
+      registration.lastError = formatErrorMessage(error);
+      publishStatus();
+      safelyCloseSocket(socket, 1_009, "relay-message-too-large");
+      return;
+    }
     if (!message) {
       return;
     }

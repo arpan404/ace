@@ -1,8 +1,9 @@
 import { WS_METHODS, WsRpcGroup } from "@ace/contracts";
-import { Effect, Exit, Scope, Stream, Duration, Option } from "effect";
+import { Cause, Effect, Exit, Scope, Stream, Duration, Option } from "effect";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import type { WsClientConnectionIdentity, WsRpcProtocolClient } from "./wsRpcProtocol";
 import {
+  DEFAULT_RELAY_MAX_FRAME_BYTES,
   createRelayRouteAuthProof,
   type RelayConnectionMetadata,
   type RelayStoredDeviceIdentity,
@@ -25,6 +26,89 @@ const DEFAULT_REQUEST_RETRY_DELAY_MS = 250;
 const DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS = 250;
 const DEFAULT_SUBSCRIPTION_RETRY_MULTIPLIER = 2;
 const DEFAULT_SUBSCRIPTION_MAX_RETRY_DELAY_MS = 30_000;
+
+function normalizeRpcProtocolMessageForJson(message: unknown): unknown {
+  if (Array.isArray(message)) {
+    return message.map((item) => normalizeRpcProtocolMessageForJson(item));
+  }
+  if (typeof message !== "object" || message === null) {
+    return message;
+  }
+  const protocolMessage = {
+    ...(message as Record<string, unknown>),
+  };
+  if (protocolMessage._tag === "Request") {
+    const headers = protocolMessage.headers;
+    protocolMessage.headers = Array.isArray(headers)
+      ? headers
+      : typeof headers === "object" && headers !== null
+        ? Object.entries(headers as Record<string, unknown>)
+        : [];
+  }
+  return protocolMessage;
+}
+
+export function encodeRpcProtocolMessage(message: unknown): string {
+  return JSON.stringify(normalizeRpcProtocolMessageForJson(message), (_key, value) =>
+    typeof value === "bigint" ? value.toString() : value,
+  );
+}
+
+export function reviveRpcProtocolMessage(message: unknown): unknown {
+  if (typeof message !== "object" || message === null) {
+    return message;
+  }
+  const protocolMessage = message as {
+    _tag?: unknown;
+    id?: unknown;
+    requestId?: unknown;
+    exit?: unknown;
+  };
+  if (typeof protocolMessage.id === "string") {
+    protocolMessage.id = BigInt(protocolMessage.id);
+  }
+  if (typeof protocolMessage.requestId === "string") {
+    protocolMessage.requestId = BigInt(protocolMessage.requestId);
+  }
+  if (protocolMessage._tag === "Exit") {
+    protocolMessage.exit = reviveRpcExit(protocolMessage.exit);
+  }
+  return protocolMessage;
+}
+
+function reviveRpcCause(cause: unknown): Cause.Cause<unknown> {
+  if (Cause.isCause(cause)) {
+    return cause;
+  }
+  if (Array.isArray(cause)) {
+    return Cause.fromReasons(cause as ReadonlyArray<Cause.Reason<unknown>>);
+  }
+  if (typeof cause === "object" && cause !== null) {
+    const maybeReasons = (cause as { reasons?: unknown }).reasons;
+    if (Array.isArray(maybeReasons)) {
+      return Cause.fromReasons(maybeReasons as ReadonlyArray<Cause.Reason<unknown>>);
+    }
+  }
+  return Cause.die(cause);
+}
+
+function reviveRpcExit(exit: unknown): unknown {
+  if (typeof exit !== "object" || exit === null) {
+    return exit;
+  }
+  const encodedExit = exit as {
+    _tag?: unknown;
+    value?: unknown;
+    cause?: unknown;
+  };
+  if (encodedExit._tag === "Success") {
+    return Exit.succeed(encodedExit.value);
+  }
+  if (encodedExit._tag === "Failure") {
+    return Exit.failCause(reviveRpcCause(encodedExit.cause));
+  }
+  return exit;
+}
 
 interface RelayWebSocketLike {
   readyState: number;
@@ -102,6 +186,9 @@ function parseRelayMessage(data: unknown): Record<string, unknown> | null {
   const text = typeof data === "string" ? data : null;
   if (!text) {
     return null;
+  }
+  if (byteLengthOfString(text) > DEFAULT_RELAY_MAX_FRAME_BYTES) {
+    throw new Error("Relay message exceeded the maximum allowed size.");
   }
   try {
     const parsed = JSON.parse(text) as unknown;
@@ -319,7 +406,13 @@ export class RelayRpcTransport {
       };
 
       socket.onmessage = (event) => {
-        const message = parseRelayMessage(event.data);
+        let message: Record<string, unknown> | null;
+        try {
+          message = parseRelayMessage(event.data);
+        } catch (error) {
+          finish("reject", error instanceof Error ? error : new Error(String(error)));
+          return;
+        }
         if (!message) {
           return;
         }
@@ -468,7 +561,12 @@ export class RelayRpcTransport {
 
     const clientState = await this.clientStatePromise;
     socket.onmessage = (event) => {
-      void this.handleSteadyStateMessage(routeReady, clientState.write, event.data);
+      void this.handleSteadyStateMessage(routeReady, clientState.write, event.data).catch(
+        (error) => {
+          this.noteDisconnected(error);
+          this.closeActiveRoute("relay-message-error");
+        },
+      );
     };
     socket.onerror = () => {
       const error = new Error("Relay transport disconnected.");
@@ -526,10 +624,7 @@ export class RelayRpcTransport {
 
   private async sendRpcMessage(message: unknown): Promise<void> {
     const route = await this.ensureRoute();
-    const encoded = this.parser.encode(message);
-    if (typeof encoded !== "string") {
-      throw new Error("Relay RPC transport only supports JSON-framed messages.");
-    }
+    const encoded = encodeRpcProtocolMessage(message);
     this.rotateSendKeyIfNeeded(route);
     const associatedData = buildRelayFrameAssociatedData({
       routeId: route.routeId,
@@ -645,7 +740,7 @@ export class RelayRpcTransport {
     });
     const decoded = new TextDecoder().decode(plaintext);
     for (const rpcMessage of this.parser.decode(decoded)) {
-      await writeMessage(rpcMessage);
+      await writeMessage(reviveRpcProtocolMessage(rpcMessage));
     }
     route.receiveSequence += 1;
   }

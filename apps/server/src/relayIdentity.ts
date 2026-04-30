@@ -1,3 +1,4 @@
+import * as NodeFs from "node:fs/promises";
 import { Effect, FileSystem, Path } from "effect";
 import { createRelayDeviceIdentity, type RelayStoredDeviceIdentity } from "@ace/shared/relay";
 import { ServerConfig } from "./config";
@@ -39,13 +40,19 @@ export const getRelayDeviceIdentity = Effect.fn("getRelayDeviceIdentity")(functi
   );
 
   if (existing) {
+    yield* Effect.promise(() => NodeFs.chmod(identityPath, 0o600).catch(() => undefined));
     cachedIdentity = existing;
     return existing;
   }
 
   const created = createRelayDeviceIdentity();
   yield* fileSystem.makeDirectory(path.dirname(identityPath), { recursive: true });
-  yield* fileSystem.writeFileString(identityPath, `${JSON.stringify(created, null, 2)}\n`);
+  yield* Effect.promise(() =>
+    NodeFs.writeFile(identityPath, `${JSON.stringify(created, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    }),
+  );
   cachedIdentity = created;
   return created;
 });
