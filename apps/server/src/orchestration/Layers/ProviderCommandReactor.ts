@@ -78,6 +78,7 @@ const turnStartKeyForEvent = (event: ProviderIntentEvent): string =>
 
 const serverCommandId = (tag: string): CommandId =>
   CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
+const serverMessageId = (tag: string): MessageId => `${tag}:${crypto.randomUUID()}` as MessageId;
 
 const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
@@ -915,34 +916,42 @@ const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.catch((error) =>
-          orchestrationEngine
-            .dispatch({
-              type: "thread.queue.append",
-              commandId: serverCommandId("queue-restore"),
-              threadId,
-              message: nextQueuedMessage,
-              position: "front",
-              ...(previousSteerRequest?.messageId === nextQueuedMessage.id
-                ? { steerRequest: previousSteerRequest }
-                : {}),
-            })
-            .pipe(
-              Effect.flatMap(() =>
-                appendQueueFailureActivity({
-                  threadId,
-                  messageId: nextQueuedMessage.id,
-                  detail:
-                    error instanceof Error ? error.message : "Failed to start queued message turn.",
-                  createdAt,
-                }),
-              ),
-              Effect.tap(() =>
-                Effect.sync(() => {
-                  queueDispatchReservationsByThreadId.delete(threadId);
-                }),
-              ),
-              Effect.asVoid,
+          Effect.sync(() => {
+            const restoredMessageId = serverMessageId("queue-restore");
+            return {
+              restoredMessage: { ...nextQueuedMessage, id: restoredMessageId },
+              restoredSteerRequest:
+                previousSteerRequest?.messageId === nextQueuedMessage.id
+                  ? { ...previousSteerRequest, messageId: restoredMessageId }
+                  : undefined,
+            } as const;
+          }).pipe(
+            Effect.flatMap(({ restoredMessage, restoredSteerRequest }) =>
+              orchestrationEngine.dispatch({
+                type: "thread.queue.append",
+                commandId: serverCommandId("queue-restore"),
+                threadId,
+                message: restoredMessage,
+                position: "front",
+                ...(restoredSteerRequest ? { steerRequest: restoredSteerRequest } : {}),
+              }),
             ),
+            Effect.flatMap(() =>
+              appendQueueFailureActivity({
+                threadId,
+                messageId: nextQueuedMessage.id,
+                detail:
+                  error instanceof Error ? error.message : "Failed to start queued message turn.",
+                createdAt,
+              }),
+            ),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                queueDispatchReservationsByThreadId.delete(threadId);
+              }),
+            ),
+            Effect.asVoid,
+          ),
         ),
       );
   });

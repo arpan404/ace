@@ -372,8 +372,8 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
             className={cn(
               "rounded-xl",
               isUltrathinkFrame
-                ? "border-0 bg-input transition-all duration-200 has-focus-visible:ring-2 has-focus-visible:ring-ring/55"
-                : "border border-border/40 bg-input transition-[border-color,box-shadow] duration-200 has-focus-visible:border-transparent has-focus-visible:ring-2 has-focus-visible:ring-ring/55",
+                ? "border-0 bg-input transition-all duration-200 focus-within:ring-2 focus-within:ring-ring/55"
+                : "border border-border/40 bg-input transition-[border-color,box-shadow] duration-200 focus-within:border-transparent focus-within:ring-2 focus-within:ring-ring/55",
               props.isDragOverComposer && "bg-primary/8",
               props.composerProviderState.composerSurfaceClassName,
             )}
