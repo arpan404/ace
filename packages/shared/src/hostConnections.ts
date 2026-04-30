@@ -1,7 +1,9 @@
 import {
   buildRelayConnectionUrl,
+  deriveRelayPairingAuthKey,
   normalizeRelayWebSocketUrl,
   parseRelayConnectionUrl,
+  type RelayStoredDeviceIdentity,
 } from "./relay";
 
 export interface HostConnectionDraft {
@@ -432,10 +434,22 @@ export function buildPairingPayload(input: HostPairingPayload): string {
   );
 }
 
-export function buildRelayHostConnectionDraft(pairing: HostPairingPayload): HostConnectionDraft {
+export function buildRelayHostConnectionDraft(input: {
+  readonly pairing: HostPairingPayload;
+  readonly viewerIdentity: Pick<RelayStoredDeviceIdentity, "deviceId" | "publicKey">;
+}): HostConnectionDraft {
+  const { pairing, viewerIdentity } = input;
   if (!pairing.relayUrl || !pairing.hostDeviceId || !pairing.hostIdentityPublicKey) {
     throw new Error("Relay pairing payload is missing relay metadata.");
   }
+  const pairingAuthKey = deriveRelayPairingAuthKey({
+    pairingId: pairing.sessionId,
+    pairingSecret: pairing.secret,
+    hostDeviceId: pairing.hostDeviceId,
+    hostIdentityPublicKey: pairing.hostIdentityPublicKey,
+    viewerDeviceId: viewerIdentity.deviceId,
+    viewerIdentityPublicKey: viewerIdentity.publicKey,
+  });
   return {
     ...(pairing.name?.trim() ? { name: pairing.name.trim() } : {}),
     wsUrl: buildRelayConnectionUrl({
@@ -444,7 +458,7 @@ export function buildRelayHostConnectionDraft(pairing: HostPairingPayload): Host
       hostDeviceId: pairing.hostDeviceId,
       hostIdentityPublicKey: pairing.hostIdentityPublicKey,
       pairingId: pairing.sessionId,
-      pairingSecret: pairing.secret,
+      pairingAuthKey,
       ...(pairing.name?.trim() ? { hostName: pairing.name.trim() } : {}),
       ...(pairing.expiresAt ? { expiresAt: pairing.expiresAt } : {}),
     }),

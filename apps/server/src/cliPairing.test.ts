@@ -193,11 +193,17 @@ describe("cliPairing", () => {
       .mockResolvedValue({} as never);
     const disposeSpy = vi.spyOn(RelayRpcTransport.prototype, "dispose").mockResolvedValue();
     const relayDraft = buildRelayHostConnectionDraft({
-      relayUrl: "wss://relay.example.com/v1/ws",
-      hostDeviceId: "host-device-1",
-      hostIdentityPublicKey: "host-public-key-1",
-      sessionId: "session-1",
-      secret: "secret-1",
+      pairing: {
+        relayUrl: "wss://relay.example.com/v1/ws",
+        hostDeviceId: "host-device-1",
+        hostIdentityPublicKey: "host-public-key-1",
+        sessionId: "session-1",
+        secret: "secret-1",
+      },
+      viewerIdentity: {
+        deviceId: "viewer-device-1",
+        publicKey: "viewer-public-key-1",
+      },
     });
 
     const ping = await pingCliHostConnection({

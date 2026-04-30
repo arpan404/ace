@@ -11,6 +11,7 @@ import {
   wsUrlToBrowserBaseUrl,
 } from "@ace/shared/hostConnections";
 import { NativeModules, Platform } from "react-native";
+import { loadMobileRelayDeviceIdentity } from "./relayDeviceIdentity";
 
 const DEFAULT_ACE_PORT = 3773;
 
@@ -105,7 +106,10 @@ export async function resolvePairingHostConnection(
   },
 ): Promise<HostConnectionDraft> {
   if (pairing.relayUrl && pairing.hostDeviceId && pairing.hostIdentityPublicKey) {
-    return buildRelayHostConnectionDraft(pairing);
+    return buildRelayHostConnectionDraft({
+      pairing,
+      viewerIdentity: await loadMobileRelayDeviceIdentity(),
+    });
   }
   const receipt = await requestPairingClaim(pairing, {
     ...(options?.requesterName ? { requesterName: options.requesterName } : {}),

@@ -12,6 +12,7 @@ export const RELAY_NONCE_BYTES = 24;
 export const RELAY_PREVIOUS_EPOCH_OVERLAP_FRAMES = 32;
 export const RELAY_REKEY_AFTER_BYTES = 64 * 1024 * 1024;
 export const RELAY_REKEY_AFTER_ACTIVE_MS = 10 * 60_000;
+export const RELAY_ROUTE_AUTH_MAX_AGE_MS = 2 * 60_000;
 
 export interface RelayConnectionMetadata {
   readonly version: 1;
@@ -19,7 +20,8 @@ export interface RelayConnectionMetadata {
   readonly hostDeviceId: string;
   readonly hostIdentityPublicKey: string;
   readonly pairingId: string;
-  readonly pairingSecret: string;
+  readonly pairingAuthKey?: string;
+  readonly pairingSecret?: string;
   readonly hostName?: string;
   readonly expiresAt?: string;
 }
@@ -112,6 +114,10 @@ function encodeBase64UrlUtf8(input: string): string {
 
 function decodeBase64UrlUtf8(input: string): string {
   return new TextDecoder().decode(decodeBase64UrlBytes(input));
+}
+
+function encodeUtf8Bytes(input: string): Uint8Array {
+  return new TextEncoder().encode(input);
 }
 
 function isRfc1918Ipv4(hostname: string): boolean {
@@ -213,6 +219,9 @@ export function resolveConfiguredRelayWebSocketUrl(input?: {
 }
 
 export function buildRelayConnectionUrl(metadata: RelayConnectionMetadata): string {
+  if (typeof metadata.pairingAuthKey !== "string" && typeof metadata.pairingSecret !== "string") {
+    throw new Error("Relay metadata requires either pairingAuthKey or pairingSecret.");
+  }
   const relayUrl = normalizeRelayWebSocketUrl(metadata.relayUrl);
   const encoded = encodeBase64UrlUtf8(
     JSON.stringify({
@@ -221,7 +230,8 @@ export function buildRelayConnectionUrl(metadata: RelayConnectionMetadata): stri
       hostDeviceId: metadata.hostDeviceId,
       hostIdentityPublicKey: metadata.hostIdentityPublicKey,
       pairingId: metadata.pairingId,
-      pairingSecret: metadata.pairingSecret,
+      ...(metadata.pairingAuthKey ? { pairingAuthKey: metadata.pairingAuthKey } : {}),
+      ...(metadata.pairingSecret ? { pairingSecret: metadata.pairingSecret } : {}),
       ...(metadata.hostName ? { hostName: metadata.hostName } : {}),
       ...(metadata.expiresAt ? { expiresAt: metadata.expiresAt } : {}),
     } satisfies RelayConnectionMetadata),
@@ -244,13 +254,17 @@ export function parseRelayConnectionUrl(input: string): RelayConnectionMetadata 
   }
   try {
     const decoded = JSON.parse(decodeBase64UrlUtf8(encoded)) as Partial<RelayConnectionMetadata>;
+    const pairingAuthKey =
+      typeof decoded.pairingAuthKey === "string" ? decoded.pairingAuthKey : undefined;
+    const pairingSecret =
+      typeof decoded.pairingSecret === "string" ? decoded.pairingSecret : undefined;
     if (
       decoded.version !== 1 ||
       typeof decoded.relayUrl !== "string" ||
       typeof decoded.hostDeviceId !== "string" ||
       typeof decoded.hostIdentityPublicKey !== "string" ||
       typeof decoded.pairingId !== "string" ||
-      typeof decoded.pairingSecret !== "string"
+      (typeof pairingAuthKey !== "string" && typeof pairingSecret !== "string")
     ) {
       return null;
     }
@@ -260,7 +274,8 @@ export function parseRelayConnectionUrl(input: string): RelayConnectionMetadata 
       hostDeviceId: decoded.hostDeviceId,
       hostIdentityPublicKey: decoded.hostIdentityPublicKey,
       pairingId: decoded.pairingId,
-      pairingSecret: decoded.pairingSecret,
+      ...(pairingAuthKey ? { pairingAuthKey } : {}),
+      ...(pairingSecret ? { pairingSecret } : {}),
       ...(typeof decoded.hostName === "string" ? { hostName: decoded.hostName } : {}),
       ...(typeof decoded.expiresAt === "string" ? { expiresAt: decoded.expiresAt } : {}),
     };
@@ -315,6 +330,122 @@ function routeContextBytes(input: {
       input.viewerDeviceId,
     ].join("\u0000"),
   );
+}
+
+function relayPairingAuthContextBytes(input: {
+  readonly pairingId: string;
+  readonly hostDeviceId: string;
+  readonly hostIdentityPublicKey: string;
+  readonly viewerDeviceId: string;
+  readonly viewerIdentityPublicKey: string;
+}): Uint8Array {
+  return encodeUtf8Bytes(
+    [
+      "ace-relay-pairing-auth-v1",
+      input.pairingId,
+      input.hostDeviceId,
+      input.hostIdentityPublicKey,
+      input.viewerDeviceId,
+      input.viewerIdentityPublicKey,
+    ].join("\u0000"),
+  );
+}
+
+function relayRouteAuthContextBytes(input: {
+  readonly routeId: string;
+  readonly clientSessionId: string;
+  readonly connectionId: string;
+  readonly viewerDeviceId: string;
+  readonly viewerIdentityPublicKey: string;
+  readonly issuedAt: string;
+}): Uint8Array {
+  return encodeUtf8Bytes(
+    [
+      "ace-relay-route-auth-v1",
+      input.routeId,
+      input.clientSessionId,
+      input.connectionId,
+      input.viewerDeviceId,
+      input.viewerIdentityPublicKey,
+      input.issuedAt,
+    ].join("\u0000"),
+  );
+}
+
+function timingSafeEqualBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left[index]! ^ right[index]!;
+  }
+  return difference === 0;
+}
+
+export function deriveRelayPairingAuthKey(input: {
+  readonly pairingId: string;
+  readonly pairingSecret: string;
+  readonly hostDeviceId: string;
+  readonly hostIdentityPublicKey: string;
+  readonly viewerDeviceId: string;
+  readonly viewerIdentityPublicKey: string;
+}): string {
+  const derived = hkdf(
+    blake2s,
+    encodeUtf8Bytes(input.pairingSecret),
+    relayPairingAuthContextBytes(input),
+    encodeUtf8Bytes("ace relay pairing auth key"),
+    RELAY_KEY_BYTES,
+  );
+  return encodeBase64UrlBytes(derived);
+}
+
+export function createRelayRouteAuthProof(input: {
+  readonly pairingAuthKey: string;
+  readonly routeId: string;
+  readonly clientSessionId: string;
+  readonly connectionId: string;
+  readonly viewerDeviceId: string;
+  readonly viewerIdentityPublicKey: string;
+  readonly issuedAt: string;
+}): string {
+  const proof = hkdf(
+    blake2s,
+    decodeBase64UrlBytes(input.pairingAuthKey),
+    relayRouteAuthContextBytes(input),
+    encodeUtf8Bytes("ace relay route auth proof"),
+    RELAY_KEY_BYTES,
+  );
+  return encodeBase64UrlBytes(proof);
+}
+
+export function verifyRelayRouteAuthProof(input: {
+  readonly pairingAuthKey: string;
+  readonly routeId: string;
+  readonly clientSessionId: string;
+  readonly connectionId: string;
+  readonly viewerDeviceId: string;
+  readonly viewerIdentityPublicKey: string;
+  readonly issuedAt: string;
+  readonly proof: string;
+  readonly nowMs?: number;
+  readonly maxAgeMs?: number;
+}): boolean {
+  const issuedAtMs = Date.parse(input.issuedAt);
+  if (!Number.isFinite(issuedAtMs)) {
+    return false;
+  }
+  const maxAgeMs = Math.max(1_000, input.maxAgeMs ?? RELAY_ROUTE_AUTH_MAX_AGE_MS);
+  if (Math.abs((input.nowMs ?? Date.now()) - issuedAtMs) > maxAgeMs) {
+    return false;
+  }
+  try {
+    const expected = createRelayRouteAuthProof(input);
+    return timingSafeEqualBytes(decodeBase64UrlBytes(expected), decodeBase64UrlBytes(input.proof));
+  } catch {
+    return false;
+  }
 }
 
 export function deriveRelayRouteKeys(input: {

@@ -47,7 +47,8 @@ export const RelayRouteOpen = Schema.Struct({
   clientSessionId: TrimmedNonEmptyString,
   connectionId: TrimmedNonEmptyString,
   pairingId: TrimmedNonEmptyString,
-  pairingSecret: TrimmedNonEmptyString,
+  routeAuthIssuedAt: IsoDateTime,
+  routeAuthProof: TrimmedNonEmptyString,
 });
 export type RelayRouteOpen = typeof RelayRouteOpen.Type;
 
@@ -62,7 +63,8 @@ export const RelayRouteRequest = Schema.Struct({
   viewerDeviceName: Schema.optional(TrimmedNonEmptyString),
   viewerIdentityPublicKey: TrimmedNonEmptyString,
   pairingId: TrimmedNonEmptyString,
-  pairingSecret: TrimmedNonEmptyString,
+  routeAuthIssuedAt: IsoDateTime,
+  routeAuthProof: TrimmedNonEmptyString,
 });
 export type RelayRouteRequest = typeof RelayRouteRequest.Type;
 

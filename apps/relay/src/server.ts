@@ -371,7 +371,8 @@ const server = BunRuntime.serve({
             !isNonEmptyString(envelope.clientSessionId) ||
             !isNonEmptyString(envelope.connectionId) ||
             !isNonEmptyString(envelope.pairingId) ||
-            !isNonEmptyString(envelope.pairingSecret)
+            !isNonEmptyString(envelope.routeAuthIssuedAt) ||
+            !isNonEmptyString(envelope.routeAuthProof)
           ) {
             sendRelayError(socket, "invalid_route_open", "Relay route.open is missing fields.");
             return;
@@ -423,7 +424,8 @@ const server = BunRuntime.serve({
             clientSessionId: envelope.clientSessionId.trim(),
             connectionId: envelope.connectionId.trim(),
             pairingId: envelope.pairingId.trim(),
-            pairingSecret: envelope.pairingSecret.trim(),
+            routeAuthIssuedAt: envelope.routeAuthIssuedAt.trim(),
+            routeAuthProof: envelope.routeAuthProof.trim(),
           });
           return;
         }
