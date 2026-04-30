@@ -3,7 +3,11 @@ import { DEFAULT_MANAGED_RELAY_URL } from "@ace/contracts";
 
 import {
   buildRelayConnectionUrl,
+  createRelayEphemeralKeyPair,
+  createRelayHandshakeNonce,
   createRelayRouteAuthProof,
+  createRelayDeviceIdentity,
+  deriveRelayRouteKeys,
   deriveRelayPairingAuthKey,
   parseRelayConnectionUrl,
   resolveConfiguredRelayWebSocketUrl,
@@ -76,10 +80,42 @@ describe("relay", () => {
       hostName: "Primary host",
     });
     const parsed = parseRelayConnectionUrl(url);
+    const built = new URL(url);
 
+    expect(built.searchParams.get("aceRelay")).toBeNull();
+    expect(built.hash).toContain("aceRelay=");
     expect(parsed?.pairingAuthKey).toBe(pairingAuthKey);
     expect(parsed?.pairingSecret).toBeUndefined();
     expect(parsed?.hostName).toBe("Primary host");
+  });
+
+  it("parses legacy relay metadata from the query string for backward compatibility", () => {
+    const legacyPayload = Buffer.from(
+      JSON.stringify({
+        version: 1,
+        relayUrl: "wss://relay.example.com/v1/ws",
+        hostDeviceId: "host-device-1",
+        hostIdentityPublicKey: "host-public-key-1",
+        pairingId: "session-1",
+        pairingAuthKey: "pairing-auth-key-1",
+      }),
+      "utf8",
+    )
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+    const legacyUrl = `wss://relay.example.com/v1/ws?aceRelay=${legacyPayload}`;
+    const parsed = parseRelayConnectionUrl(legacyUrl);
+
+    expect(parsed).toMatchObject({
+      version: 1,
+      relayUrl: "wss://relay.example.com/v1/ws",
+      hostDeviceId: "host-device-1",
+      hostIdentityPublicKey: "host-public-key-1",
+      pairingId: "session-1",
+      pairingAuthKey: "pairing-auth-key-1",
+    });
   });
 
   it("verifies relay route auth proofs and rejects stale ones", () => {
@@ -129,5 +165,45 @@ describe("relay", () => {
         nowMs: Date.parse("2026-04-30T12:05:00.000Z"),
       }),
     ).toBe(false);
+  });
+
+  it("derives matching session keys for host and viewer", () => {
+    const viewerIdentity = createRelayDeviceIdentity("2026-04-30T00:00:00.000Z");
+    const hostIdentity = createRelayDeviceIdentity("2026-04-30T00:00:00.000Z");
+    const viewerEphemeral = createRelayEphemeralKeyPair();
+    const hostEphemeral = createRelayEphemeralKeyPair();
+    const viewerNonce = createRelayHandshakeNonce();
+    const hostNonce = createRelayHandshakeNonce();
+
+    const viewerKeys = deriveRelayRouteKeys({
+      relayUrl: "wss://relay.example.com/v1/ws",
+      routeId: "route-1",
+      hostDeviceId: hostIdentity.deviceId,
+      viewerDeviceId: viewerIdentity.deviceId,
+      localRole: "viewer",
+      localStaticSecretKey: viewerIdentity.secretKey,
+      localEphemeralSecretKey: viewerEphemeral.secretKey,
+      remoteStaticPublicKey: hostIdentity.publicKey,
+      remoteEphemeralPublicKey: hostEphemeral.publicKey,
+      localHandshakeNonce: viewerNonce,
+      remoteHandshakeNonce: hostNonce,
+    });
+    const hostKeys = deriveRelayRouteKeys({
+      relayUrl: "wss://relay.example.com/v1/ws",
+      routeId: "route-1",
+      hostDeviceId: hostIdentity.deviceId,
+      viewerDeviceId: viewerIdentity.deviceId,
+      localRole: "host",
+      localStaticSecretKey: hostIdentity.secretKey,
+      localEphemeralSecretKey: hostEphemeral.secretKey,
+      remoteStaticPublicKey: viewerIdentity.publicKey,
+      remoteEphemeralPublicKey: viewerEphemeral.publicKey,
+      localHandshakeNonce: hostNonce,
+      remoteHandshakeNonce: viewerNonce,
+    });
+
+    expect(Array.from(viewerKeys.sendKey)).toEqual(Array.from(hostKeys.receiveKey));
+    expect(Array.from(viewerKeys.receiveKey)).toEqual(Array.from(hostKeys.sendKey));
+    expect(Array.from(viewerKeys.exporterKey)).toEqual(Array.from(hostKeys.exporterKey));
   });
 });

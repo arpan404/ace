@@ -870,10 +870,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
 
 export const websocketRpcRouteLayer = Layer.unwrap(
   Effect.gen(function* () {
-    const rpcWebSocketHttpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup).pipe(
+    const wsUpgradeAttempts = new Map<string, { count: number; resetAt: number }>();
+    const websocketHttpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup).pipe(
       Effect.provide(Layer.mergeAll(WsRpcLayer, RpcSerialization.layerJson)),
     );
-    const wsUpgradeAttempts = new Map<string, { count: number; resetAt: number }>();
 
     const takeWsUpgradeBudget = (clientKey: string, now = Date.now()) => {
       for (const [key, value] of wsUpgradeAttempts.entries()) {
@@ -908,13 +908,26 @@ export const websocketRpcRouteLayer = Layer.unwrap(
       } as const;
     };
 
+    const releaseWsUpgradeBudget = (clientKey: string) => {
+      const current = wsUpgradeAttempts.get(clientKey);
+      if (!current) {
+        return;
+      }
+      if (current.count <= 1) {
+        wsUpgradeAttempts.delete(clientKey);
+        return;
+      }
+      current.count -= 1;
+    };
+
     return HttpRouter.add(
       "GET",
       "/ws",
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const config = yield* ServerConfig;
-        const rateLimit = takeWsUpgradeBudget(resolveWsRateLimitKey(request.headers));
+        const clientKey = resolveWsRateLimitKey(request.headers);
+        const rateLimit = takeWsUpgradeBudget(clientKey);
         if (!rateLimit.allowed) {
           return HttpServerResponse.text("Too many WebSocket upgrade attempts", {
             status: 429,
@@ -938,13 +951,15 @@ export const websocketRpcRouteLayer = Layer.unwrap(
             return HttpServerResponse.text("Unauthorized WebSocket connection", { status: 401 });
           }
         }
+
         if ((clientSessionId && !connectionId) || (!clientSessionId && connectionId)) {
           return HttpServerResponse.text("Invalid WebSocket client identity", { status: 400 });
         }
+        releaseWsUpgradeBudget(clientKey);
         if (clientSessionId && connectionId) {
           registerWsClientSession(clientSessionId, connectionId);
         }
-        return yield* rpcWebSocketHttpEffect;
+        return yield* websocketHttpEffect;
       }),
     );
   }),

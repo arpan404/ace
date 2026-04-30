@@ -1,5 +1,9 @@
 import * as Crypto from "node:crypto";
-import { deriveRelayPairingAuthKey, verifyRelayRouteAuthProof } from "@ace/shared/relay";
+import {
+  RELAY_ROUTE_AUTH_MAX_AGE_MS,
+  deriveRelayPairingAuthKey,
+  verifyRelayRouteAuthProof,
+} from "@ace/shared/relay";
 import { Effect } from "effect";
 import type { ProjectionRepositoryError } from "./persistence/Errors";
 
@@ -67,6 +71,7 @@ interface PairingSessionRecord {
 
 const pairingSessions = new Map<string, PairingSessionRecord>();
 const pairingClaimSessions = new Map<string, string>();
+const usedRelayRouteAuthorizations = new Map<string, number>();
 
 export interface CreatePairingSessionInput {
   readonly wsUrl?: string;
@@ -144,6 +149,14 @@ function succeed<TValue>(value: TValue): PairingSuccess<TValue> {
 
 function fail(code: PairingErrorCode, message: string): PairingFailure {
   return { ok: false, code, message };
+}
+
+function pruneUsedRelayRouteAuthorizations(nowMs: number): void {
+  for (const [key, expiresAtMs] of usedRelayRouteAuthorizations.entries()) {
+    if (expiresAtMs <= nowMs) {
+      usedRelayRouteAuthorizations.delete(key);
+    }
+  }
 }
 
 function clampTtlMs(value: number | undefined): number {
@@ -319,11 +332,16 @@ export function approveRelayPairingRequest(input: {
   readonly nowMs?: number;
 }): PairingResult<PairingSessionView> {
   const nowMs = input.nowMs ?? Date.now();
+  pruneUsedRelayRouteAuthorizations(nowMs);
   const recordResult = readPairingSession(input.sessionId, nowMs);
   if (!recordResult.ok) {
     return recordResult;
   }
   const record = recordResult.value;
+  const routeAuthorizationKey = `${input.sessionId}\u0000${input.routeId}`;
+  if (usedRelayRouteAuthorizations.has(routeAuthorizationKey)) {
+    return fail("invalid-secret", "Relay route authorization has already been used.");
+  }
   if (record.viewerDeviceId && record.viewerDeviceId !== input.viewerDeviceId) {
     return fail("already-claimed", "Pairing session is already bound to another device.");
   }
@@ -377,6 +395,7 @@ export function approveRelayPairingRequest(input: {
   if (!proofValid) {
     return fail("invalid-secret", "Relay pairing proof is invalid.");
   }
+  usedRelayRouteAuthorizations.set(routeAuthorizationKey, nowMs + RELAY_ROUTE_AUTH_MAX_AGE_MS);
   record.claim = {
     claimId: record.claim?.claimId ?? Crypto.randomUUID(),
     requesterName: normalizeOptionalName(
@@ -538,6 +557,7 @@ export function getPairingClaim(
 export function __resetPairingStoreForTests(): void {
   pairingSessions.clear();
   pairingClaimSessions.clear();
+  usedRelayRouteAuthorizations.clear();
 }
 
 export async function persistPairingSessionsToDatabase(repo: {

@@ -9,6 +9,7 @@ export const RELAY_CONNECTION_QUERY_PARAM = "aceRelay";
 export const DEFAULT_RELAY_WS_PATH = "/v1/ws";
 export const RELAY_KEY_BYTES = 32;
 export const RELAY_NONCE_BYTES = 24;
+export const DEFAULT_RELAY_MAX_FRAME_BYTES = 1_000_000;
 export const RELAY_PREVIOUS_EPOCH_OVERLAP_FRAMES = 32;
 export const RELAY_REKEY_AFTER_BYTES = 64 * 1024 * 1024;
 export const RELAY_REKEY_AFTER_ACTIVE_MS = 10 * 60_000;
@@ -237,7 +238,10 @@ export function buildRelayConnectionUrl(metadata: RelayConnectionMetadata): stri
     } satisfies RelayConnectionMetadata),
   );
   const parsed = new URL(relayUrl);
-  parsed.searchParams.set(RELAY_CONNECTION_QUERY_PARAM, encoded);
+  parsed.searchParams.delete(RELAY_CONNECTION_QUERY_PARAM);
+  const hashParams = new URLSearchParams(parsed.hash.startsWith("#") ? parsed.hash.slice(1) : "");
+  hashParams.set(RELAY_CONNECTION_QUERY_PARAM, encoded);
+  parsed.hash = hashParams.toString();
   return parsed.toString();
 }
 
@@ -248,7 +252,11 @@ export function parseRelayConnectionUrl(input: string): RelayConnectionMetadata 
   } catch {
     return null;
   }
-  const encoded = parsed.searchParams.get(RELAY_CONNECTION_QUERY_PARAM);
+  const encoded =
+    parsed.searchParams.get(RELAY_CONNECTION_QUERY_PARAM) ??
+    new URLSearchParams(parsed.hash.startsWith("#") ? parsed.hash.slice(1) : "").get(
+      RELAY_CONNECTION_QUERY_PARAM,
+    );
   if (!encoded) {
     return null;
   }
@@ -461,24 +469,37 @@ export function deriveRelayRouteKeys(input: {
   readonly localHandshakeNonce: string;
   readonly remoteHandshakeNonce: string;
 }): RelayRouteSessionKeys {
-  const dh1 = x25519.getSharedSecret(
-    decodeBase64UrlBytes(input.localStaticSecretKey),
-    decodeBase64UrlBytes(input.remoteEphemeralPublicKey),
-  );
-  const dh2 = x25519.getSharedSecret(
-    decodeBase64UrlBytes(input.localEphemeralSecretKey),
-    decodeBase64UrlBytes(input.remoteStaticPublicKey),
-  );
-  const dh3 = x25519.getSharedSecret(
-    decodeBase64UrlBytes(input.localEphemeralSecretKey),
-    decodeBase64UrlBytes(input.remoteEphemeralPublicKey),
+  const localStaticSecretKey = decodeBase64UrlBytes(input.localStaticSecretKey);
+  const localEphemeralSecretKey = decodeBase64UrlBytes(input.localEphemeralSecretKey);
+  const remoteStaticPublicKey = decodeBase64UrlBytes(input.remoteStaticPublicKey);
+  const remoteEphemeralPublicKey = decodeBase64UrlBytes(input.remoteEphemeralPublicKey);
+
+  const viewerStaticToHostEphemeral =
+    input.localRole === "viewer"
+      ? x25519.getSharedSecret(localStaticSecretKey, remoteEphemeralPublicKey)
+      : x25519.getSharedSecret(localEphemeralSecretKey, remoteStaticPublicKey);
+  const viewerEphemeralToHostStatic =
+    input.localRole === "viewer"
+      ? x25519.getSharedSecret(localEphemeralSecretKey, remoteStaticPublicKey)
+      : x25519.getSharedSecret(localStaticSecretKey, remoteEphemeralPublicKey);
+  const viewerEphemeralToHostEphemeral = x25519.getSharedSecret(
+    localEphemeralSecretKey,
+    remoteEphemeralPublicKey,
   );
 
-  const ikm = concatBytes(dh1, dh2, dh3);
+  const ikm = concatBytes(
+    viewerStaticToHostEphemeral,
+    viewerEphemeralToHostStatic,
+    viewerEphemeralToHostEphemeral,
+  );
+  const viewerHandshakeNonce =
+    input.localRole === "viewer" ? input.localHandshakeNonce : input.remoteHandshakeNonce;
+  const hostHandshakeNonce =
+    input.localRole === "viewer" ? input.remoteHandshakeNonce : input.localHandshakeNonce;
   const salt = concatBytes(
     routeContextBytes(input),
-    decodeBase64UrlBytes(input.localHandshakeNonce),
-    decodeBase64UrlBytes(input.remoteHandshakeNonce),
+    decodeBase64UrlBytes(viewerHandshakeNonce),
+    decodeBase64UrlBytes(hostHandshakeNonce),
   );
   const info = new TextEncoder().encode("ace relay session keys");
   const keyMaterial = hkdf(blake2s, ikm, salt, info, RELAY_KEY_BYTES * 3);
