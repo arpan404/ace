@@ -13,6 +13,7 @@ async function mountMenu(props?: {
   modelSelection?: ModelSelection;
   prompt?: string;
   runtimeMode?: RuntimeMode;
+  interactionModeShortcutLabel?: string | null;
   onRuntimeModeChange?: (mode: RuntimeMode) => void;
 }) {
   const threadId = ThreadId.makeUnsafe("thread-compact-menu");
@@ -120,6 +121,7 @@ async function mountMenu(props?: {
     <CompactComposerControlsMenu
       interactionMode="default"
       runtimeMode={props?.runtimeMode ?? "approval-required"}
+      interactionModeShortcutLabel={props?.interactionModeShortcutLabel ?? "⇧⌘P"}
       traitsMenuContent={
         <TraitsMenuContent
           provider={provider}

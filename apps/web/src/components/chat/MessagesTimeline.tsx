@@ -1453,7 +1453,7 @@ const UserMessageTerminalContextInlineLabel = memo(
 
 const UserMessageBody = memo(function UserMessageBody(props: {
   text: string;
-  terminalContexts: ParsedTerminalContextEntry[];
+  terminalContexts: ReadonlyArray<ParsedTerminalContextEntry>;
 }) {
   if (props.terminalContexts.length > 0) {
     const hasEmbeddedInlineLabels = textContainsInlineTerminalContextLabels(

@@ -1,5 +1,6 @@
 import type {
   ProviderKind,
+  ProviderInteractionMode,
   ProviderModelOptions,
   ServerProvider,
   ServerProviderModel,
@@ -22,6 +23,7 @@ import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import { cn } from "../../lib/utils";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "../ComposerPromptEditor";
 import { Button } from "../ui/button";
+import { Kbd } from "../ui/kbd";
 import { Separator } from "../ui/separator";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
@@ -41,6 +43,22 @@ import { ContextWindowMeter } from "./ContextWindowMeter";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 
 const EMPTY_TERMINAL_CONTEXTS: ComponentProps<typeof ComposerPromptEditor>["terminalContexts"] = [];
+
+function renderInteractionModeTooltipContent(
+  interactionMode: ProviderInteractionMode,
+  shortcutLabel: string | null,
+) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span>{interactionMode === "plan" ? "Switch to Agent" : "Switch to Plan"}</span>
+      {shortcutLabel ? (
+        <Kbd className="h-4.5 min-w-0 rounded-md bg-background/70 px-1.5 text-[10px] text-foreground/75 dark:bg-background/25">
+          {shortcutLabel}
+        </Kbd>
+      ) : null}
+    </span>
+  );
+}
 
 interface ChatComposerPanelProps {
   readonly threadId: ThreadId;
@@ -87,6 +105,7 @@ interface ChatComposerPanelProps {
   readonly handoffDisabled: boolean;
   readonly interactionMode: ComponentProps<typeof CompactComposerControlsMenu>["interactionMode"];
   readonly runtimeMode: ComponentProps<typeof CompactComposerControlsMenu>["runtimeMode"];
+  readonly interactionModeShortcutLabel: string | null;
   readonly activeContextWindow: ComponentProps<typeof ContextWindowMeter>["usage"] | null;
   readonly promptHasText: boolean;
   readonly hasSendableContent: boolean;
@@ -521,6 +540,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                     <CompactComposerControlsMenu
                       interactionMode={props.interactionMode}
                       runtimeMode={props.runtimeMode}
+                      interactionModeShortcutLabel={props.interactionModeShortcutLabel}
                       traitsMenuContent={providerTraitsMenuContent}
                       onToggleInteractionMode={props.onToggleInteractionMode}
                       onRuntimeModeChange={props.onRuntimeModeChange}
@@ -542,27 +562,39 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                         className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
                       />
 
-                      <Button
-                        variant="ghost"
-                        className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5"
-                        size="sm"
-                        type="button"
-                        onClick={props.onToggleInteractionMode}
-                        title={
-                          props.interactionMode === "plan"
-                            ? "Plan mode — click to return to build mode"
-                            : "Build mode — click to enter plan mode"
-                        }
-                      >
-                        {props.interactionMode === "plan" ? (
-                          <ListTodoIcon className="size-4" />
-                        ) : (
-                          <BotIcon className="size-4" />
-                        )}
-                        <span className="sr-only sm:not-sr-only">
-                          {props.interactionMode === "plan" ? "Plan" : "Build"}
-                        </span>
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5"
+                              size="sm"
+                              type="button"
+                              onClick={props.onToggleInteractionMode}
+                              aria-label={
+                                props.interactionMode === "plan"
+                                  ? "Switch to agent mode"
+                                  : "Switch to plan mode"
+                              }
+                            />
+                          }
+                        >
+                          {props.interactionMode === "plan" ? (
+                            <ListTodoIcon className="size-4" />
+                          ) : (
+                            <BotIcon className="size-4" />
+                          )}
+                          <span className="sr-only sm:not-sr-only">
+                            {props.interactionMode === "plan" ? "Plan" : "Agent"}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipPopup side="top" sideOffset={4}>
+                          {renderInteractionModeTooltipContent(
+                            props.interactionMode,
+                            props.interactionModeShortcutLabel,
+                          )}
+                        </TooltipPopup>
+                      </Tooltip>
                     </>
                   )}
                 </div>
