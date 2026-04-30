@@ -1,6 +1,5 @@
 import { type ServerRelayStatus, type RelayRegistrationSnapshot } from "@ace/contracts";
 import {
-  MAX_HOST_RELAY_URLS,
   RELAY_REKEY_AFTER_ACTIVE_MS,
   RELAY_REKEY_AFTER_BYTES,
   buildRelayFrameAssociatedData,
@@ -11,15 +10,10 @@ import {
   deriveRelayRouteKeys,
   encryptRelayFrame,
   resolveConfiguredRelayWebSocketUrl,
-  resolveActiveRelayUrls,
 } from "@ace/shared/relay";
 import { resolveWebSocketAuthConnection } from "@ace/shared/wsAuth";
 import { Effect, Layer, ServiceMap, Stream } from "effect";
-import {
-  approveRelayPairingRequest,
-  listPairingSessions,
-  persistPairingSessionsToDatabase,
-} from "./pairing";
+import { approveRelayPairingRequest, persistPairingSessionsToDatabase } from "./pairing";
 import { ServerConfig } from "./config";
 import { PairingSessionRepository } from "./persistence/Services/PairingSessions";
 import { getRelayDeviceIdentity } from "./relayIdentity";
@@ -91,6 +85,8 @@ export class RelayHostManagerService extends ServiceMap.Service<
   RelayHostManagerService,
   RelayHostManagerShape
 >()("ace/relayHostManager") {}
+
+const ACTIVE_RELAY_LIMIT = 1;
 
 function formatErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -191,37 +187,6 @@ function createRegistration(relayUrl: string): ManagedRelayRegistration {
   };
 }
 
-function resolveDesiredRelayUrls(input: {
-  readonly defaultRelayUrl: string;
-  readonly pinnedRelayUrls: ReadonlyArray<string>;
-  readonly allowInsecureLocalUrls: boolean;
-}):
-  | {
-      readonly ok: true;
-      readonly value: ReadonlyArray<string>;
-    }
-  | {
-      readonly ok: false;
-      readonly error: string;
-    } {
-  try {
-    return {
-      ok: true,
-      value: resolveActiveRelayUrls({
-        defaultRelayUrl: input.defaultRelayUrl,
-        pinnedRelayUrls: input.pinnedRelayUrls,
-        allowInsecureLocalUrls: input.allowInsecureLocalUrls,
-        maxRelayUrls: MAX_HOST_RELAY_URLS,
-      }),
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: formatErrorMessage(error),
-    };
-  }
-}
-
 function safelyCloseSocket(socket: RelayWebSocketLike | null, code: number, reason: string): void {
   try {
     socket?.close(code, reason);
@@ -290,7 +255,7 @@ const makeRelayHostManager = Effect.gen(function* () {
   let statusSnapshot: ServerRelayStatus = {
     deviceId: relayIdentity.deviceId,
     defaultRelayUrl: initialDefaultRelayUrl,
-    activeRelayLimit: MAX_HOST_RELAY_URLS,
+    activeRelayLimit: ACTIVE_RELAY_LIMIT,
     registrations: [],
   };
 
@@ -300,7 +265,7 @@ const makeRelayHostManager = Effect.gen(function* () {
   const buildStatus = (): ServerRelayStatus => ({
     deviceId: relayIdentity.deviceId,
     defaultRelayUrl: currentDefaultRelayUrl,
-    activeRelayLimit: MAX_HOST_RELAY_URLS,
+    activeRelayLimit: ACTIVE_RELAY_LIMIT,
     registrations: Array.from(registrations.values())
       .map((registration) => ({
         relayUrl: registration.relayUrl,
@@ -748,28 +713,9 @@ const makeRelayHostManager = Effect.gen(function* () {
       persistedRelayUrl: settings.remoteRelay.defaultUrl,
       allowInsecureLocalUrls: settings.remoteRelay.allowInsecureLocalUrls,
     });
-    const pinnedRelayUrls = listPairingSessions()
-      .filter((session) => session.status === "approved" && typeof session.relayUrl === "string")
-      .map((session) => session.relayUrl as string);
-
-    const desiredRelayUrlsResult = resolveDesiredRelayUrls({
-      defaultRelayUrl: currentDefaultRelayUrl,
-      pinnedRelayUrls,
-      allowInsecureLocalUrls: settings.remoteRelay.allowInsecureLocalUrls,
-    });
-
-    if (!desiredRelayUrlsResult.ok) {
-      const existing = registrations.get(currentDefaultRelayUrl);
-      const registration = existing ?? createRegistration(currentDefaultRelayUrl);
-      registration.lastError = desiredRelayUrlsResult.error;
-      registration.status = registration.socket ? "connected" : "disconnected";
-      registrations.set(registration.relayUrl, registration);
-      publishStatus();
-      return;
-    }
-    const desiredRelayUrls = desiredRelayUrlsResult.value;
-
-    const desiredRelayUrlSet = new Set(desiredRelayUrls);
+    const desiredRelayUrlSet = settings.remoteRelay.enabled
+      ? new Set([currentDefaultRelayUrl])
+      : new Set<string>();
 
     for (const [relayUrl, registration] of registrations.entries()) {
       if (desiredRelayUrlSet.has(relayUrl)) {
@@ -792,7 +738,12 @@ const makeRelayHostManager = Effect.gen(function* () {
       registrations.delete(relayUrl);
     }
 
-    for (const relayUrl of desiredRelayUrls) {
+    if (!settings.remoteRelay.enabled) {
+      publishStatus();
+      return;
+    }
+
+    for (const relayUrl of desiredRelayUrlSet) {
       let registration = registrations.get(relayUrl);
       if (!registration) {
         registration = createRegistration(relayUrl);

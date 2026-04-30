@@ -220,7 +220,7 @@ const buildAppUnderTest = (options?: {
           getStatus: Effect.succeed({
             deviceId: "relay-host-test",
             defaultRelayUrl: DEFAULT_SERVER_SETTINGS.remoteRelay.defaultUrl,
-            activeRelayLimit: 3,
+            activeRelayLimit: 1,
             registrations: [],
           }),
           refreshRegistrations: Effect.void,
@@ -860,6 +860,92 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         }),
       );
       assert.equal(response.status, 401);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects relay pairing creation when remote relay is disabled", () =>
+    Effect.gen(function* () {
+      __resetPairingStoreForTests();
+
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+        layers: {
+          serverSettings: {
+            getSettings: Effect.succeed({
+              ...DEFAULT_SERVER_SETTINGS,
+              remoteRelay: {
+                ...DEFAULT_SERVER_SETTINGS.remoteRelay,
+                enabled: false,
+              },
+            }),
+          },
+        },
+      });
+
+      const baseUrl = yield* getHttpServerUrl();
+      const response = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer secret-token",
+          },
+          body: JSON.stringify({
+            name: "Primary ace host",
+          }),
+        }),
+      );
+      assert.equal(response.status, 409);
+      const payload = (yield* Effect.promise(() => response.json())) as {
+        readonly error: string;
+      };
+      assert.include(payload.error, "Remote relay is disabled");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects pairing creation when a different relay URL is requested", () =>
+    Effect.gen(function* () {
+      __resetPairingStoreForTests();
+
+      yield* buildAppUnderTest({
+        config: {
+          authToken: "secret-token",
+        },
+        layers: {
+          serverSettings: {
+            getSettings: Effect.succeed({
+              ...DEFAULT_SERVER_SETTINGS,
+              remoteRelay: {
+                ...DEFAULT_SERVER_SETTINGS.remoteRelay,
+                enabled: true,
+                defaultUrl: "wss://relay.example.com/v1/ws",
+              },
+            }),
+          },
+        },
+      });
+
+      const baseUrl = yield* getHttpServerUrl();
+      const response = yield* Effect.promise(() =>
+        fetch(`${baseUrl}/api/pairing/sessions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer secret-token",
+          },
+          body: JSON.stringify({
+            name: "Primary ace host",
+            relayUrl: "wss://other-relay.example.com/v1/ws",
+          }),
+        }),
+      );
+      assert.equal(response.status, 409);
+      const payload = (yield* Effect.promise(() => response.json())) as {
+        readonly error: string;
+      };
+      assert.include(payload.error, "Only one relay server is allowed");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

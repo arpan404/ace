@@ -10,6 +10,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { DEFAULT_MANAGED_RELAY_URL } from "@ace/contracts";
+import { describeHostConnection } from "@ace/shared/hostConnections";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { validateRelayWebSocketUrl } from "@ace/shared/relay";
@@ -17,6 +18,10 @@ import { validateRelayWebSocketUrl } from "@ace/shared/relay";
 import { isElectron } from "../../env";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
+import {
+  subscribeToDesktopPairingLinks,
+  takePendingDesktopPairingLink,
+} from "../../lib/desktopPairingLinks";
 import { ensureNativeApi } from "../../nativeApi";
 import {
   buildHostPairingConnectionString,
@@ -127,6 +132,7 @@ export function DevicesSettingsPanel() {
   const [pairingSessionStatus, setPairingSessionStatus] = useState<HostPairingSessionStatus | null>(
     null,
   );
+  const [pendingDesktopPairingSignal, setPendingDesktopPairingSignal] = useState(0);
   const [pairedSessions, setPairedSessions] = useState<ReadonlyArray<HostPairingSessionSummary>>(
     [],
   );
@@ -222,6 +228,9 @@ export function DevicesSettingsPanel() {
     [pairedSessions],
   );
   const relayRegistrations = serverConfig?.relay?.registrations ?? [];
+  const hasPinnedRelayMismatch = pinnedRelayUrls.some(
+    (relayUrl) => relayUrl !== remoteRelaySettings.defaultUrl,
+  );
 
   useEffect(() => {
     const availableHostIds = new Set(hosts.map((host) => host.id));
@@ -287,6 +296,7 @@ export function DevicesSettingsPanel() {
       });
       updateSettings({
         remoteRelay: {
+          enabled: remoteRelaySettings.enabled,
           defaultUrl: normalized,
           allowInsecureLocalUrls: remoteRelaySettings.allowInsecureLocalUrls,
         },
@@ -303,18 +313,37 @@ export function DevicesSettingsPanel() {
         description: error instanceof Error ? error.message : "Relay URL validation failed.",
       });
     }
-  }, [relayUrlDraft, remoteRelaySettings.allowInsecureLocalUrls, updateSettings]);
+  }, [
+    relayUrlDraft,
+    remoteRelaySettings.allowInsecureLocalUrls,
+    remoteRelaySettings.enabled,
+    updateSettings,
+  ]);
 
   const toggleInsecureRelayUrls = useCallback(
     (allow: boolean) => {
       updateSettings({
         remoteRelay: {
+          enabled: remoteRelaySettings.enabled,
           defaultUrl: relayUrlDraft,
           allowInsecureLocalUrls: allow,
         },
       });
     },
-    [relayUrlDraft, updateSettings],
+    [relayUrlDraft, remoteRelaySettings.enabled, updateSettings],
+  );
+
+  const toggleRemoteRelayEnabled = useCallback(
+    (enabled: boolean) => {
+      updateSettings({
+        remoteRelay: {
+          enabled,
+          defaultUrl: relayUrlDraft,
+          allowInsecureLocalUrls: remoteRelaySettings.allowInsecureLocalUrls,
+        },
+      });
+    },
+    [relayUrlDraft, remoteRelaySettings.allowInsecureLocalUrls, updateSettings],
   );
 
   const markHostLastConnected = useCallback(
@@ -332,6 +361,19 @@ export function DevicesSettingsPanel() {
   useEffect(() => {
     void refreshLocalEndpoint();
   }, [refreshLocalEndpoint]);
+
+  useEffect(() => {
+    if (!desktopMode) {
+      return;
+    }
+
+    const handlePendingPairingLink = () => {
+      setPendingDesktopPairingSignal((current) => current + 1);
+    };
+
+    handlePendingPairingLink();
+    return subscribeToDesktopPairingLinks(handlePendingPairingLink);
+  }, [desktopMode]);
 
   const upsertHost = useCallback(
     (
@@ -413,44 +455,39 @@ export function DevicesSettingsPanel() {
     [desktopMode, hosts, saveHosts],
   );
 
-  const addRemoteHost = useCallback(async () => {
-    const parsed = parseHostConnectionQrPayload(hostDraft.connection);
-    if (!parsed) {
-      toastManager.add({
-        type: "error",
-        title: "Invalid connection input.",
-        description: "Use a pairing link (ace://...) or a ws/http host URL.",
-      });
-      return;
-    }
+  const importRemoteHostConnection = useCallback(
+    async (
+      connectionInput: string,
+      options?: {
+        readonly existingHostId?: string;
+        readonly overrideName?: string;
+        readonly iconGlyph?: RemoteHostInstance["iconGlyph"];
+        readonly iconColor?: RemoteHostInstance["iconColor"];
+        readonly requesterName?: string;
+      },
+    ): Promise<RemoteHostInstance> => {
+      const parsed = parseHostConnectionQrPayload(connectionInput);
+      if (!parsed) {
+        throw new Error("Use a pairing link (ace://...) or a ws/http host URL.");
+      }
 
-    setImportingHost(true);
-    try {
-      const editingHost = editingHostId
-        ? hosts.find((host) => host.id === editingHostId)
-        : undefined;
       const resolvedDraft =
         parsed.kind === "pairing"
           ? await resolvePairingHostConnection(parsed.pairing, {
-              requesterName: desktopMode ? "ace desktop" : "ace web",
+              requesterName: options?.requesterName ?? (desktopMode ? "ace desktop" : "ace web"),
             })
           : parsed.draft;
 
       const upsertedHost = upsertHost(
         {
-          name: hostDraft.name.trim() || resolvedDraft.name || "",
+          name: options?.overrideName?.trim() || resolvedDraft.name || "",
           wsUrl: resolvedDraft.wsUrl,
           ...(resolvedDraft.authToken ? { authToken: resolvedDraft.authToken } : {}),
-          ...(hostDraft.iconGlyph ? { iconGlyph: hostDraft.iconGlyph } : {}),
-          ...(hostDraft.iconColor ? { iconColor: hostDraft.iconColor } : {}),
+          ...(options?.iconGlyph ? { iconGlyph: options.iconGlyph } : {}),
+          ...(options?.iconColor ? { iconColor: options.iconColor } : {}),
         },
-        editingHost?.id,
+        options?.existingHostId,
       );
-      clearHostDraft();
-      toastManager.add({
-        type: "success",
-        title: editingHost ? "Remote host updated." : "Remote host added.",
-      });
 
       try {
         await verifyWsHostConnection(resolveHostConnectionWsUrl(upsertedHost), {
@@ -472,6 +509,29 @@ export function DevicesSettingsPanel() {
             error instanceof Error ? error.message : "Could not reach this host right now.",
         });
       }
+
+      return upsertedHost;
+    },
+    [desktopMode, upsertHost],
+  );
+
+  const addRemoteHost = useCallback(async () => {
+    setImportingHost(true);
+    try {
+      const editingHost = editingHostId
+        ? hosts.find((host) => host.id === editingHostId)
+        : undefined;
+      await importRemoteHostConnection(hostDraft.connection, {
+        overrideName: hostDraft.name,
+        ...(editingHost?.id ? { existingHostId: editingHost.id } : {}),
+        ...(hostDraft.iconGlyph ? { iconGlyph: hostDraft.iconGlyph } : {}),
+        ...(hostDraft.iconColor ? { iconColor: hostDraft.iconColor } : {}),
+      });
+      clearHostDraft();
+      toastManager.add({
+        type: "success",
+        title: editingHost ? "Remote host updated." : "Remote host added.",
+      });
     } catch (error) {
       toastManager.add({
         type: "error",
@@ -483,15 +543,59 @@ export function DevicesSettingsPanel() {
     }
   }, [
     clearHostDraft,
-    desktopMode,
     editingHostId,
     hostDraft.connection,
     hostDraft.iconColor,
     hostDraft.iconGlyph,
     hostDraft.name,
     hosts,
-    upsertHost,
+    importRemoteHostConnection,
   ]);
+
+  useEffect(() => {
+    if (!desktopMode || importingHost) {
+      return;
+    }
+
+    const pendingPairingLink = takePendingDesktopPairingLink();
+    if (!pendingPairingLink) {
+      return;
+    }
+
+    let active = true;
+    setImportingHost(true);
+    void importRemoteHostConnection(pendingPairingLink, {
+      requesterName: "ace desktop",
+    })
+      .then(() => {
+        if (!active) {
+          return;
+        }
+        toastManager.add({
+          type: "success",
+          title: "Pairing link imported.",
+        });
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+        toastManager.add({
+          type: "error",
+          title: "Could not import pairing link.",
+          description: error instanceof Error ? error.message : "Pairing link import failed.",
+        });
+      })
+      .finally(() => {
+        if (active) {
+          setImportingHost(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [desktopMode, importRemoteHostConnection, importingHost, pendingDesktopPairingSignal]);
 
   const startEditingHost = useCallback((host: RemoteHostInstance) => {
     setEditingHostId(host.id);
@@ -658,6 +762,14 @@ export function DevicesSettingsPanel() {
   }, [connectingHostId, localControlConnectionUrl]);
 
   const createPairingLink = useCallback(async () => {
+    if (!remoteRelaySettings.enabled) {
+      toastManager.add({
+        type: "warning",
+        title: "Remote relay is disabled.",
+        description: "Enable the remote relay before creating a pairing link.",
+      });
+      return;
+    }
     const pairingName = pairingLabel.trim();
     if (pairingName.length === 0) {
       toastManager.add({
@@ -711,7 +823,12 @@ export function DevicesSettingsPanel() {
     } finally {
       setCreatingPairingLink(false);
     }
-  }, [localAdvertisedWsUrl, localDeviceConnection.authToken, pairingLabel]);
+  }, [
+    localAdvertisedWsUrl,
+    localDeviceConnection.authToken,
+    pairingLabel,
+    remoteRelaySettings.enabled,
+  ]);
 
   const revokePairingLink = useCallback(async () => {
     if (!pairingLink) {
@@ -880,10 +997,7 @@ export function DevicesSettingsPanel() {
           [host.id]: { status: "checking", requestId },
         }));
         try {
-          await readHostPairingAdvertisedEndpoint({
-            wsUrl: host.wsUrl,
-            ...(host.authToken ? { authToken: host.authToken } : {}),
-          });
+          await verifyWsHostConnection(resolveHostConnectionWsUrl(host), { timeoutMs: 3_500 });
           setHostAvailability((current) => {
             if (current[host.id]?.requestId !== requestId) return current;
             return { ...current, [host.id]: { status: "available", requestId } };
@@ -979,7 +1093,11 @@ export function DevicesSettingsPanel() {
 
         <SettingsRow
           title="Pairing link"
-          description="Set a device label, then create a one-time pairing link for another device."
+          description={
+            remoteRelaySettings.enabled
+              ? "Set a device label, then create a one-time pairing link for another device."
+              : "Remote relay is disabled. Local desktop and local browser access still work, but relay pairing is unavailable."
+          }
           control={
             <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
               {pairingLink ? (
@@ -995,7 +1113,7 @@ export function DevicesSettingsPanel() {
               <Button
                 size="xs"
                 onClick={() => void createPairingLink()}
-                disabled={creatingPairingLink}
+                disabled={creatingPairingLink || !remoteRelaySettings.enabled}
               >
                 {creatingPairingLink ? "Creating…" : "Create Link"}
               </Button>
@@ -1066,13 +1184,18 @@ export function DevicesSettingsPanel() {
         </SettingsRow>
 
         <SettingsRow
-          title="Default relay URL"
-          description="New pairings use this relay. Existing paired devices stay pinned to the relay they were paired through."
+          title="Remote relay"
+          description="Only one relay server can be active at a time. This relay is used for new pairings and daemon registration."
           status={
-            pinnedRelayUrls.some((relayUrl) => relayUrl !== remoteRelaySettings.defaultUrl) ? (
+            !remoteRelaySettings.enabled ? (
+              <span className="block text-[11px] text-muted-foreground">
+                Relay remote access is disabled. Local desktop and local browser connections are
+                unaffected.
+              </span>
+            ) : hasPinnedRelayMismatch ? (
               <span className="block text-[11px] text-amber-300">
-                Some paired devices are still pinned to older relay URLs. Create fresh pairing links
-                on the new relay to migrate them.
+                Some paired devices were created against another relay URL. Re-pair those devices
+                after switching the configured relay.
               </span>
             ) : (
               <span className="block text-[11px] text-muted-foreground">
@@ -1088,6 +1211,7 @@ export function DevicesSettingsPanel() {
                 onClick={() => {
                   updateSettings({
                     remoteRelay: {
+                      enabled: remoteRelaySettings.enabled,
                       defaultUrl: DEFAULT_MANAGED_RELAY_URL,
                       allowInsecureLocalUrls: remoteRelaySettings.allowInsecureLocalUrls,
                     },
@@ -1102,6 +1226,13 @@ export function DevicesSettingsPanel() {
             </div>
           }
         >
+          <div className="mt-3 flex items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-xs text-muted-foreground">
+            <Switch
+              checked={remoteRelaySettings.enabled}
+              onCheckedChange={toggleRemoteRelayEnabled}
+            />
+            <span>Enable remote relay</span>
+          </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <Input
               value={relayUrlDraft}
@@ -1118,7 +1249,9 @@ export function DevicesSettingsPanel() {
           </div>
           <div className="mt-3 space-y-2">
             <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-              {serverConfig?.relay ? (
+              {!remoteRelaySettings.enabled ? (
+                "Remote relay is disabled."
+              ) : serverConfig?.relay ? (
                 <>
                   Host device:{" "}
                   <span className="font-mono text-foreground">{serverConfig.relay.deviceId}</span>
@@ -1333,11 +1466,19 @@ export function DevicesSettingsPanel() {
           sortedHosts.map((host) => {
             const isConnected = connectedHostIds.includes(host.id);
             const connectionString = resolveHostConnectionWsUrl(host);
+            const connectionDescriptor = describeHostConnection({
+              wsUrl: host.wsUrl,
+              authToken: host.authToken,
+            });
+            const description =
+              connectionDescriptor.kind === "relay"
+                ? `${connectionDescriptor.summary} · ${connectionDescriptor.detail}`
+                : connectionDescriptor.summary;
             return (
               <SettingsRow
                 key={host.id}
                 title={host.name}
-                description={host.wsUrl}
+                description={description}
                 status={
                   <>
                     <span className="block">

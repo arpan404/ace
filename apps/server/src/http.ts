@@ -800,17 +800,52 @@ const pairingCreateSessionRouteLayer = HttpRouter.add(
     const serverSettings = yield* ServerSettingsService;
     const relayHostManager = yield* RelayHostManagerService;
     const settings = yield* serverSettings.getSettings;
+    if (!settings.remoteRelay.enabled) {
+      return withPairingHeaders(
+        respondJson(
+          {
+            error:
+              "Remote relay is disabled. Enable it in settings or start the daemon with a relay URL before creating pairing links.",
+          },
+          { status: 409 },
+        ),
+      );
+    }
     const relayIdentity = yield* getRelayDeviceIdentity();
-    const relayUrlResult = resolveRequestedRelayUrl({
-      ...(typeof payload.relayUrl === "string" ? { explicitRelayUrl: payload.relayUrl } : {}),
+    const configuredRelayUrlResult = resolveRequestedRelayUrl({
       persistedRelayUrl: settings.remoteRelay.defaultUrl,
       allowInsecureLocalUrls: settings.remoteRelay.allowInsecureLocalUrls,
     });
-    if (!relayUrlResult.ok) {
-      return withPairingHeaders(respondJson({ error: relayUrlResult.error }, { status: 400 }));
+    if (!configuredRelayUrlResult.ok) {
+      return withPairingHeaders(
+        respondJson({ error: configuredRelayUrlResult.error }, { status: 400 }),
+      );
+    }
+    if (typeof payload.relayUrl === "string") {
+      const requestedRelayUrlResult = resolveRequestedRelayUrl({
+        explicitRelayUrl: payload.relayUrl,
+        persistedRelayUrl: settings.remoteRelay.defaultUrl,
+        allowInsecureLocalUrls: settings.remoteRelay.allowInsecureLocalUrls,
+      });
+      if (!requestedRelayUrlResult.ok) {
+        return withPairingHeaders(
+          respondJson({ error: requestedRelayUrlResult.error }, { status: 400 }),
+        );
+      }
+      if (requestedRelayUrlResult.value !== configuredRelayUrlResult.value) {
+        return withPairingHeaders(
+          respondJson(
+            {
+              error:
+                "Only one relay server is allowed. Update the daemon relay URL in settings or restart it with --relay-url before creating a pairing link.",
+            },
+            { status: 409 },
+          ),
+        );
+      }
     }
     const created = createPairingSession({
-      relayUrl: relayUrlResult.value,
+      relayUrl: configuredRelayUrlResult.value,
       hostDeviceId: relayIdentity.deviceId,
       hostIdentityPublicKey: relayIdentity.publicKey,
       ...(typeof payload.name === "string" ? { name: payload.name } : {}),

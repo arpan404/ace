@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { buildRelayHostConnectionDraft } from "@ace/shared/hostConnections";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -76,6 +77,35 @@ describe("cliRemoteConnections", () => {
       }),
     );
     expect(removedByName.connection.id).toBe(created.connection.id);
+    expect(await system.run(listCliRemoteConnections)).toHaveLength(0);
+
+    await system.dispose();
+  });
+
+  it("matches relay-backed remote selectors by relay host metadata", async () => {
+    const system = await createCliRemoteSystem();
+    const relayDraft = buildRelayHostConnectionDraft({
+      name: "Relay host",
+      relayUrl: "wss://relay.example.com/v1/ws",
+      hostDeviceId: "host-device-1",
+      hostIdentityPublicKey: "host-public-key-1",
+      sessionId: "session-1",
+      secret: "secret-1",
+    });
+
+    const created = await system.run(
+      addCliRemoteConnection({
+        wsUrl: relayDraft.wsUrl,
+        name: "Relay host",
+      }),
+    );
+
+    const removed = await system.run(
+      removeCliRemoteConnection({
+        selector: "host-device-1",
+      }),
+    );
+    expect(removed.connection.id).toBe(created.connection.id);
     expect(await system.run(listCliRemoteConnections)).toHaveLength(0);
 
     await system.dispose();

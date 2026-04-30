@@ -28,8 +28,10 @@ import {
 } from "./cliProjects";
 import {
   addCliRemoteConnection,
+  describeCliRemoteConnection,
   listCliRemoteConnections,
   removeCliRemoteConnection,
+  remoteConnectionMatchesSelector,
   type CliRemoteConnectionSummary,
   CliRemoteConnectionServicesLive,
 } from "./cliRemoteConnections";
@@ -584,17 +586,25 @@ const maskToken = (token: string): string => {
   return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
 };
 
+const formatRemoteConnectionTarget = (connection: CliRemoteConnectionSummary): string => {
+  const descriptor = describeCliRemoteConnection(connection);
+  return descriptor.mode === "relay"
+    ? `${descriptor.target} (${descriptor.detail})`
+    : descriptor.target;
+};
+
 const formatRemoteConnectionRows = (
   connections: ReadonlyArray<CliRemoteConnectionSummary>,
 ): string => {
   if (connections.length === 0) {
     return `${pc.dim("No remote connections saved yet.")}\n`;
   }
-  const headers = ["ID", "NAME", "WS URL", "TOKEN", "UPDATED"] as const;
+  const headers = ["ID", "NAME", "MODE", "TARGET", "TOKEN", "UPDATED"] as const;
   const rows = connections.map((connection) => [
     connection.id,
     connection.name,
-    connection.wsUrl,
+    describeCliRemoteConnection(connection).mode,
+    formatRemoteConnectionTarget(connection),
     maskToken(connection.authToken),
     connection.updatedAt,
   ]);
@@ -696,7 +706,7 @@ const promptRemoteConnectionSelection = (
         process.stdout.write(`  ${pc.cyan("0")}. ${pc.dim("all linked hosts")}\n`);
         connections.forEach((connection, index) => {
           process.stdout.write(
-            `  ${pc.cyan(String(index + 1))}. ${connection.name} ${pc.dim(`(${connection.wsUrl})`)}\n`,
+            `  ${pc.cyan(String(index + 1))}. ${connection.name} ${pc.dim(`(${formatRemoteConnectionTarget(connection)})`)}\n`,
           );
         });
         const answer = (await rl.question(`${pc.magenta("›")} `)).trim();
@@ -710,14 +720,15 @@ const promptRemoteConnectionSelection = (
             return selected.id;
           }
         }
-        const bySelector = connections.find(
-          (connection) =>
-            connection.id === answer || connection.name === answer || connection.wsUrl === answer,
+        const bySelector = connections.find((connection) =>
+          remoteConnectionMatchesSelector(connection, answer),
         );
         if (bySelector) {
           return bySelector.id;
         }
-        throw new Error("Invalid selection. Use a list number, id, name, ws url, or 0 for all.");
+        throw new Error(
+          "Invalid selection. Use a list number, id, name, target, relay host, host device id, or 0 for all.",
+        );
       } finally {
         rl.close();
       }
@@ -1960,7 +1971,7 @@ const remoteLinkCommand = Command.make("link", {
       }
       const verb = result.status === "created" ? pc.green("Linked") : pc.yellow("Updated");
       return yield* writeStdout(
-        `${verb} remote "${result.connection.name}" (${result.connection.wsUrl}) [${result.connection.id}]\n`,
+        `${verb} remote "${result.connection.name}" (${formatRemoteConnectionTarget(result.connection)}) [${result.connection.id}]\n`,
       );
     }),
   ),
@@ -2018,7 +2029,7 @@ const remoteRemoveCommand = Command.make("remove", {
           return;
         }
         return yield* writeStdout(
-          `${pc.green("Removed")} remote "${entry.name}" (${entry.wsUrl}).\n`,
+          `${pc.green("Removed")} remote "${entry.name}" (${formatRemoteConnectionTarget(entry)}).\n`,
         );
       }
       yield* writeStdout(`${pc.green("Removed")} ${String(removed.length)} remote hosts.\n`);
@@ -2062,22 +2073,12 @@ const remotePingCommand = Command.make("ping", {
         : interactive
           ? yield* promptRemoteConnectionSelection(connections, "ping")
           : "__all__";
-      const normalizedResolvedSelector = (() => {
-        try {
-          return normalizeWsUrl(resolvedSelector);
-        } catch {
-          return null;
-        }
-      })();
+      const logLevel = yield* GlobalFlag.LogLevel;
+      const dataConfig = yield* resolveDataConfig(flags, logLevel);
       const selectedConnections =
         resolvedSelector === "__all__" || resolvedSelector === "all"
           ? connections
-          : connections.filter(
-              (entry) =>
-                entry.id === resolvedSelector ||
-                entry.name === resolvedSelector ||
-                entry.wsUrl === normalizedResolvedSelector,
-            );
+          : connections.filter((entry) => remoteConnectionMatchesSelector(entry, resolvedSelector));
       if (selectedConnections.length === 0) {
         return yield* new DaemonCommandError({
           message: `No linked remote matched '${resolvedSelector}'.`,
@@ -2108,6 +2109,7 @@ const remotePingCommand = Command.make("ping", {
                 wsUrl: connection.wsUrl,
                 authToken: connection.authToken,
                 timeoutMs: resolvedTimeoutMs,
+                stateDir: dataConfig.stateDir,
               }),
             ).pipe(
               Effect.map((ping) => ({

@@ -7,7 +7,6 @@ import { hkdf } from "@noble/hashes/hkdf.js";
 
 export const RELAY_CONNECTION_QUERY_PARAM = "aceRelay";
 export const DEFAULT_RELAY_WS_PATH = "/v1/ws";
-export const MAX_HOST_RELAY_URLS = 3;
 export const RELAY_KEY_BYTES = 32;
 export const RELAY_NONCE_BYTES = 24;
 export const RELAY_PREVIOUS_EPOCH_OVERLAP_FRAMES = 32;
@@ -268,36 +267,6 @@ export function parseRelayConnectionUrl(input: string): RelayConnectionMetadata 
   } catch {
     return null;
   }
-}
-
-export function resolveActiveRelayUrls(input: {
-  readonly defaultRelayUrl?: string;
-  readonly pinnedRelayUrls?: ReadonlyArray<string>;
-  readonly allowInsecureLocalUrls?: boolean;
-  readonly maxRelayUrls?: number;
-}): ReadonlyArray<string> {
-  const urls = new Set<string>();
-  const allowInsecureLocalUrls = input.allowInsecureLocalUrls ?? false;
-  const maxRelayUrls = input.maxRelayUrls ?? MAX_HOST_RELAY_URLS;
-  const add = (value: string | undefined) => {
-    if (!value) {
-      return;
-    }
-    urls.add(validateRelayWebSocketUrl(value, { allowInsecureLocalUrls }));
-  };
-
-  add(input.defaultRelayUrl ?? DEFAULT_MANAGED_RELAY_URL);
-  for (const relayUrl of input.pinnedRelayUrls ?? []) {
-    add(relayUrl);
-  }
-
-  const resolved = [...urls];
-  if (resolved.length > maxRelayUrls) {
-    throw new Error(
-      `Relay registration limit exceeded (${String(resolved.length)}/${String(maxRelayUrls)}). Revoke or migrate older paired devices before adding another relay.`,
-    );
-  }
-  return resolved;
 }
 
 export function createRelayDeviceIdentity(

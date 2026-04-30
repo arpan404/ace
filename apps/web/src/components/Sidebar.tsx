@@ -169,6 +169,7 @@ import type {
   RemoteSidebarThreadEntry,
 } from "./sidebar/sidebarTypes";
 import { prefetchHydratedThread, readCachedHydratedThread } from "../lib/threadHydrationCache";
+import { describeHostConnection } from "@ace/shared/hostConnections";
 import {
   isHostConnectionActive,
   loadConnectedRemoteHostIds,
@@ -1580,11 +1581,12 @@ export default function Sidebar() {
   const pickerEnvironments = useMemo((): ProjectPickerEnvironment[] => {
     const uniqueByConnection = new Map<string, ProjectPickerEnvironment>();
     const connectedHostIds = new Set(projectPickerConnectedHostIds);
+    const localConnectionDescriptor = describeHostConnection(localDeviceHost);
 
     uniqueByConnection.set(localDeviceConnectionUrl, {
       id: "local-device",
       name: "This device",
-      subtitle: localDeviceHost.wsUrl,
+      subtitle: localConnectionDescriptor.summary,
       connectionUrl: localDeviceConnectionUrl,
       icon: {
         glyph: "terminal",
@@ -1602,10 +1604,17 @@ export default function Sidebar() {
       if (uniqueByConnection.has(connectionUrl)) {
         continue;
       }
+      const connectionDescriptor = describeHostConnection({
+        wsUrl: host.wsUrl,
+        authToken: host.authToken,
+      });
       uniqueByConnection.set(connectionUrl, {
         id: host.id,
         name: host.name,
-        subtitle: host.wsUrl,
+        subtitle:
+          connectionDescriptor.kind === "relay"
+            ? `${connectionDescriptor.summary} · ${connectionDescriptor.detail}`
+            : connectionDescriptor.summary,
         connectionUrl,
         icon:
           host.iconGlyph && host.iconColor
@@ -1622,7 +1631,7 @@ export default function Sidebar() {
     return [...uniqueByConnection.values()];
   }, [
     localDeviceConnectionUrl,
-    localDeviceHost.wsUrl,
+    localDeviceHost,
     projectPickerConnectedHostIds,
     projectPickerRemoteHosts,
   ]);
@@ -3615,9 +3624,12 @@ export default function Sidebar() {
     }
     return visibleRemoteSidebarHosts
       .map((entry) => {
+        const connectionDescriptor = describeHostConnection(entry.host);
         const hostMatches =
           entry.host.name.toLowerCase().includes(normalizedProjectSearchQuery) ||
-          entry.host.wsUrl.toLowerCase().includes(normalizedProjectSearchQuery);
+          connectionDescriptor.selectorValues.some((value) =>
+            value.toLowerCase().includes(normalizedProjectSearchQuery),
+          );
         const filteredProjects = entry.projects.filter((project) => {
           if (
             project.name.toLowerCase().includes(normalizedProjectSearchQuery) ||

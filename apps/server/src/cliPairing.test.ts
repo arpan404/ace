@@ -1,9 +1,12 @@
+import { buildRelayHostConnectionDraft } from "@ace/shared/hostConnections";
+import { RelayRpcTransport } from "@ace/shared/relayRpcTransport";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CliPairingCommandError,
   createCliPairingSession,
   listCliPairingSessions,
+  pingCliHostConnection,
   revokeCliPairingSession,
 } from "./cliPairing";
 
@@ -161,6 +164,50 @@ describe("cliPairing", () => {
       requesterName: "Arpan Laptop",
       claimId: "claim-1",
     });
+  });
+
+  it("pings direct hosts through the pairing endpoint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, init?: RequestInit) => {
+        if (input.includes("/api/pairing/advertised-endpoint") && init?.method === "GET") {
+          return jsonResponse(200, {
+            wsUrl: "ws://192.168.1.10:3773/ws",
+          });
+        }
+        return jsonResponse(404, { error: "Unexpected URL" });
+      }),
+    );
+
+    const ping = await pingCliHostConnection({
+      wsUrl: "ws://host.example:3773/ws",
+      authToken: "token-1",
+    });
+
+    expect(ping.status).toBe("available");
+  });
+
+  it("pings relay-backed hosts through the relay transport", async () => {
+    const requestSpy = vi
+      .spyOn(RelayRpcTransport.prototype, "request")
+      .mockResolvedValue({} as never);
+    const disposeSpy = vi.spyOn(RelayRpcTransport.prototype, "dispose").mockResolvedValue();
+    const relayDraft = buildRelayHostConnectionDraft({
+      relayUrl: "wss://relay.example.com/v1/ws",
+      hostDeviceId: "host-device-1",
+      hostIdentityPublicKey: "host-public-key-1",
+      sessionId: "session-1",
+      secret: "secret-1",
+    });
+
+    const ping = await pingCliHostConnection({
+      wsUrl: relayDraft.wsUrl,
+      stateDir: "/tmp/ace-cli-relay-test",
+    });
+
+    expect(ping.status).toBe("available");
+    expect(requestSpy).toHaveBeenCalledOnce();
+    expect(disposeSpy).toHaveBeenCalledOnce();
   });
 
   it("surfaces server pairing errors", async () => {
