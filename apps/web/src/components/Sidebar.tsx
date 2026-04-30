@@ -113,15 +113,7 @@ import {
 } from "./ui/dialog";
 import { CommandDialog, CommandDialogPopup } from "./ui/command";
 import { Input } from "./ui/input";
-import {
-  Menu,
-  MenuItem,
-  MenuPopup,
-  MenuSub,
-  MenuSubPopup,
-  MenuSubTrigger,
-  MenuTrigger,
-} from "./ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Kbd } from "./ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -216,14 +208,14 @@ import {
   decodeThreadBoardDragThread,
   encodeThreadBoardDragThread,
   getThreadBoardDragThreadKey,
+  setActiveThreadBoardDrag,
   THREAD_BOARD_DRAG_MIME,
   type ThreadBoardDragThread,
 } from "../lib/threadBoardDrag";
-import { buildThreadBoardLayoutOptions, getCurrentLayoutColumns } from "../lib/threadBoardLayout";
 import {
+  orderBoardPanes,
   type ChatThreadBoardSplitState,
   type ChatThreadBoardPaneState,
-  type ChatThreadBoardRowState,
   useChatThreadBoardStore,
 } from "../chatThreadBoardStore";
 const THREAD_REVEAL_STEP = 5;
@@ -303,34 +295,6 @@ function resolveIsoTimestamp(input: string | undefined): number {
 
 function connectionUrlsEqual(left: string, right: string): boolean {
   return normalizeWsUrl(left) === normalizeWsUrl(right);
-}
-
-function orderSplitBoardPanes(
-  panes: readonly ChatThreadBoardPaneState[],
-  rows: readonly ChatThreadBoardRowState[],
-): ChatThreadBoardPaneState[] {
-  const paneById = new Map(panes.map((pane) => [pane.id, pane]));
-  const orderedPanes: ChatThreadBoardPaneState[] = [];
-  const orderedPaneIds = new Set<string>();
-
-  for (const row of rows) {
-    for (const paneId of row.paneIds) {
-      const pane = paneById.get(paneId);
-      if (!pane || orderedPaneIds.has(pane.id)) {
-        continue;
-      }
-      orderedPaneIds.add(pane.id);
-      orderedPanes.push(pane);
-    }
-  }
-
-  for (const pane of panes) {
-    if (!orderedPaneIds.has(pane.id)) {
-      orderedPanes.push(pane);
-    }
-  }
-
-  return orderedPanes;
 }
 
 function sortByUpdatedAtDescending<T extends { readonly updatedAt: string }>(
@@ -882,8 +846,8 @@ export default function Sidebar() {
     useShallow((store) => ({
       activePaneId: store.activePaneId,
       activeSplitId: store.activeSplitId,
+      layoutRoot: store.layoutRoot,
       panes: store.panes,
-      rows: store.rows,
       splits: store.splits,
     })),
   );
@@ -1090,14 +1054,6 @@ export default function Sidebar() {
         : null,
     [savedBoards, splitContextMenuState],
   );
-  const contextMenuSplitLayoutOptions = useMemo(
-    () => (contextMenuSplit ? buildThreadBoardLayoutOptions(contextMenuSplit.panes.length) : []),
-    [contextMenuSplit],
-  );
-  const contextMenuSplitCurrentColumns = useMemo(
-    () => (contextMenuSplit ? getCurrentLayoutColumns(contextMenuSplit.rows) : 1),
-    [contextMenuSplit],
-  );
   useEffect(() => {
     setSplitRevealCount(SPLIT_REVEAL_STEP);
   }, [splitSortOrder]);
@@ -1117,6 +1073,7 @@ export default function Sidebar() {
     [savedSplitBoard.splits.length, sidebarThreadsById],
   );
   const clearBoardThreadDrag = useCallback(() => {
+    setActiveThreadBoardDrag(null);
     setBoardThreadDragState(null);
   }, []);
   const setBoardThreadDragOverTarget = useCallback((targetKey: string | null) => {
@@ -1144,7 +1101,7 @@ export default function Sidebar() {
   );
   const restoreSavedSplit = useCallback(
     (split: ChatThreadBoardSplitState, targetPane?: ChatThreadBoardPaneState | null) => {
-      const orderedPanes = orderSplitBoardPanes(split.panes, split.rows);
+      const orderedPanes = orderBoardPanes(split.panes, split.layoutRoot);
       const activePane =
         targetPane ??
         orderedPanes.find((pane) => pane.id === split.activePaneId) ??
@@ -1167,7 +1124,10 @@ export default function Sidebar() {
         void navigate({
           to: "/$threadId",
           params: { threadId: activePane.threadId },
-          search: buildThreadBoardRouteSearch(orderedPanes, activePane, { splitId: split.id }),
+          search: buildThreadBoardRouteSearch(orderedPanes, activePane, {
+            paneId: activePane.id,
+            splitId: split.id,
+          }),
         });
       });
     },
@@ -1176,7 +1136,7 @@ export default function Sidebar() {
   const navigateToCurrentSplit = useCallback(
     (activePane: { connectionUrl: string | null; threadId: ThreadId }) => {
       const boardState = useChatThreadBoardStore.getState();
-      const routePanes = orderSplitBoardPanes(boardState.panes, boardState.rows);
+      const routePanes = orderBoardPanes(boardState.panes, boardState.layoutRoot);
       if (routePanes.length <= 1 || !boardState.activeSplitId) {
         return;
       }
@@ -1185,6 +1145,7 @@ export default function Sidebar() {
           to: "/$threadId",
           params: { threadId: activePane.threadId },
           search: buildThreadBoardRouteSearch(routePanes, activePane, {
+            paneId: boardState.activePaneId,
             splitId: boardState.activeSplitId,
           }),
         });
@@ -1235,6 +1196,7 @@ export default function Sidebar() {
       event.dataTransfer.effectAllowed = "copyMove";
       event.dataTransfer.setData(THREAD_BOARD_DRAG_MIME, payload);
       event.dataTransfer.setData("text/plain", payload);
+      setActiveThreadBoardDrag(dragThread);
       setBoardsSectionExpanded(true);
       setBoardThreadDragState({
         activeThread: dragThread,
@@ -1277,7 +1239,9 @@ export default function Sidebar() {
           .getState()
           .upsertThreadOwnership(source.connectionUrl, source.threadId);
       }
-      const openedPaneId = useChatThreadBoardStore.getState().openThreadInSplit(split.id, source);
+      const openedPaneId = useChatThreadBoardStore
+        .getState()
+        .openThreadInSplit(split.id, { ...source, allowDuplicate: true });
       const nextSplit = useChatThreadBoardStore
         .getState()
         .splits.find((candidate) => candidate.id === split.id);
@@ -1519,13 +1483,6 @@ export default function Sidebar() {
       setSplitContextMenuState({ position, splitId: split.id });
     },
     [],
-  );
-  const handleSplitLayoutSelect = useCallback(
-    (split: ChatThreadBoardSplitState, columns: number) => {
-      useChatThreadBoardStore.getState().setSplitGridLayout(split.id, { columns });
-      closeSplitContextMenu();
-    },
-    [closeSplitContextMenu],
   );
   const handleSplitMenuAction = useCallback(
     async (split: ChatThreadBoardSplitState, action: "archive" | "delete" | "open" | "rename") => {
@@ -5368,37 +5325,6 @@ export default function Sidebar() {
             <MenuItem onClick={() => void handleSplitMenuAction(contextMenuSplit, "open")}>
               Open board
             </MenuItem>
-            <MenuSub>
-              <MenuSubTrigger>
-                <span>Layout</span>
-                <span className="ms-auto truncate text-[10px] text-muted-foreground">
-                  {contextMenuSplitCurrentColumns} col
-                </span>
-              </MenuSubTrigger>
-              <MenuSubPopup sideOffset={4}>
-                {contextMenuSplitLayoutOptions.map((option) => {
-                  const selected = option.columns === contextMenuSplitCurrentColumns;
-                  return (
-                    <MenuItem
-                      key={option.value}
-                      onClick={() => handleSplitLayoutSelect(contextMenuSplit, option.columns)}
-                    >
-                      <span className="min-w-0 flex-1">{option.label}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {option.columns === 1
-                          ? "stack"
-                          : option.rows === 1
-                            ? "row"
-                            : `${option.columns} cols`}
-                      </span>
-                      {selected ? (
-                        <span className="ml-1 text-xs text-muted-foreground">Selected</span>
-                      ) : null}
-                    </MenuItem>
-                  );
-                })}
-              </MenuSubPopup>
-            </MenuSub>
             <div className="mx-2 my-1 h-px bg-border" />
             <MenuItem onClick={() => void handleSplitMenuAction(contextMenuSplit, "rename")}>
               Rename board
