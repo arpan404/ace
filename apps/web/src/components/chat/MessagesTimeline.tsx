@@ -55,6 +55,7 @@ import {
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
 import { cn } from "~/lib/utils";
+import { measureRenderWork } from "~/lib/renderProfiling";
 import { type TimestampFormat } from "@ace/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
 import {
@@ -163,14 +164,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 }: MessagesTimelineProps) {
   const rows = useMemo<TimelineRow[]>(
     () =>
-      buildTimelineRows({
-        timelineEntries,
-        activeTurnInProgress,
-        activeTurnStartedAt,
-        completionDividerBeforeEntryId,
-        completionSummary,
-        isWorking,
-      }),
+      measureRenderWork("chat.buildTimelineRows", () =>
+        buildTimelineRows({
+          timelineEntries,
+          activeTurnInProgress,
+          activeTurnStartedAt,
+          completionDividerBeforeEntryId,
+          completionSummary,
+          isWorking,
+        }),
+      ),
     [
       activeTurnInProgress,
       timelineEntries,
@@ -445,12 +448,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     },
     [rowVirtualizer],
   );
+  const handleMeasuredRowLayoutChangeRef = useRef(handleMeasuredRowLayoutChange);
+  handleMeasuredRowLayoutChangeRef.current = handleMeasuredRowLayoutChange;
+  const measuredRowLayoutChangeCallbackByIdRef = useRef(new Map<string, () => void>());
+  const getMeasuredRowLayoutChangeCallback = useCallback((rowId: string) => {
+    const cached = measuredRowLayoutChangeCallbackByIdRef.current.get(rowId);
+    if (cached) {
+      return cached;
+    }
+    const callback = () => {
+      handleMeasuredRowLayoutChangeRef.current(rowId);
+    };
+    measuredRowLayoutChangeCallbackByIdRef.current.set(rowId, callback);
+    return callback;
+  }, []);
 
   const renderRowContent = (row: TimelineRow, _rowIndex: number) => {
     const onMeasuredLayoutChange = shouldUseVirtualizedBuffer
-      ? () => {
-          handleMeasuredRowLayoutChange(row.id);
-        }
+      ? getMeasuredRowLayoutChangeCallback(row.id)
       : undefined;
     return (
       <div

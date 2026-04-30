@@ -45,6 +45,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
+import { useShallow } from "zustand/react/shallow";
 import {
   gitBranchesQueryOptions,
   gitCreateWorktreeMutationOptions,
@@ -155,6 +156,7 @@ import {
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { reportBackgroundError } from "~/lib/async";
+import { measureRenderWork } from "~/lib/renderProfiling";
 import { deriveTerminalTitleFromCommand } from "~/lib/terminalPresentation";
 import { getProviderModels, resolveSelectableProvider } from "../providerModels";
 import { useSetting } from "../hooks/useSettings";
@@ -449,6 +451,78 @@ function RetainedThreadTerminalDrawers(props: {
         );
       })}
     </motion.div>
+  );
+}
+
+interface ConnectedRetainedThreadTerminalDrawersProps {
+  activeThreadId: ThreadId;
+  activeProjectAvailable: boolean;
+  cwd: string | null;
+  runtimeEnv: Record<string, string> | undefined;
+  focusRequestId: number;
+  newShortcutLabel?: string | undefined;
+  toggleShortcutLabel?: string | undefined;
+  onNewTerminal: () => void;
+  onActiveTerminalChange: (terminalId: string) => void;
+  onMoveTerminal: (terminalId: string, targetGroupId: string, targetIndex: number) => void;
+  onAutoTerminalTitleChange: (terminalId: string, title: string | null) => void;
+  onCloseTerminal: (terminalId: string) => void;
+  onToggleTerminal: () => void;
+  onHeightChange: (height: number) => void;
+  onAddTerminalContext: (selection: TerminalContextSelection) => void;
+}
+
+function ConnectedRetainedThreadTerminalDrawers({
+  activeThreadId,
+  activeProjectAvailable,
+  cwd,
+  runtimeEnv,
+  focusRequestId,
+  newShortcutLabel,
+  toggleShortcutLabel,
+  onNewTerminal,
+  onActiveTerminalChange,
+  onMoveTerminal,
+  onAutoTerminalTitleChange,
+  onCloseTerminal,
+  onToggleTerminal,
+  onHeightChange,
+  onAddTerminalContext,
+}: ConnectedRetainedThreadTerminalDrawersProps) {
+  const terminalDrawerState = useTerminalStateStore((state) =>
+    selectThreadTerminalState(state.terminalStateByThreadId, activeThreadId),
+  );
+  const activeDrawerProps: ThreadTerminalDrawerProps | null =
+    terminalDrawerState.terminalOpen && activeProjectAvailable && cwd
+      ? {
+          threadId: activeThreadId,
+          cwd,
+          ...(runtimeEnv ? { runtimeEnv } : {}),
+          height: terminalDrawerState.terminalHeight,
+          terminalIds: terminalDrawerState.terminalIds,
+          activeTerminalId: terminalDrawerState.activeTerminalId,
+          terminalGroups: terminalDrawerState.terminalGroups,
+          runningTerminalIds: terminalDrawerState.runningTerminalIds,
+          autoTerminalTitlesById: terminalDrawerState.autoTerminalTitlesById,
+          focusRequestId,
+          onNewTerminal,
+          newShortcutLabel,
+          toggleShortcutLabel,
+          onActiveTerminalChange,
+          onMoveTerminal,
+          onAutoTerminalTitleChange,
+          onCloseTerminal,
+          onToggleTerminal,
+          onHeightChange,
+          onAddTerminalContext,
+        }
+      : null;
+
+  return (
+    <RetainedThreadTerminalDrawers
+      activeThreadId={activeThreadId}
+      activeDrawerProps={activeDrawerProps}
+    />
   );
 }
 const MIN_RIGHT_SIDE_PANEL_CHAT_WIDTH = 420;
@@ -895,8 +969,14 @@ export default function ChatView({
     }
   }, [composerImages.length, composerTerminalContexts.length, prompt]);
 
-  const threadTerminalState = useTerminalStateStore((state) =>
-    selectThreadTerminalState(state.terminalStateByThreadId, threadId),
+  const terminalState = useTerminalStateStore(
+    useShallow((state) => {
+      const selectedState = selectThreadTerminalState(state.terminalStateByThreadId, threadId);
+      return {
+        terminalOpen: selectedState.terminalOpen,
+        activeTerminalId: selectedState.activeTerminalId,
+      };
+    }),
   );
   const storeSetTerminalOpen = useTerminalStateStore((s) => s.setTerminalOpen);
   const storeSetTerminalHeight = useTerminalStateStore((s) => s.setTerminalHeight);
@@ -1500,7 +1580,6 @@ export default function ChatView({
           color: activeRemoteHost.iconColor ?? "slate",
         }
       : null;
-  const terminalState = threadTerminalState;
   const handleActiveProjectChange = useCallback(
     (projectId: ProjectId) => {
       void handleNewThread(projectId, {
@@ -2040,12 +2119,14 @@ export default function ChatView({
     useTurnDiffSummaries(activeThread);
   const { timelineEntries, turnDiffSummaryByAssistantMessageId } = useMemo(
     () =>
-      deriveThreadTimelineRenderState({
-        messages: timelineMessages,
-        proposedPlans: timelineProposedPlans,
-        workLogEntries: timelineWorkEntries,
-        turnDiffSummaries,
-      }),
+      measureRenderWork("chat.deriveThreadTimelineRenderState", () =>
+        deriveThreadTimelineRenderState({
+          messages: timelineMessages,
+          proposedPlans: timelineProposedPlans,
+          workLogEntries: timelineWorkEntries,
+          turnDiffSummaries,
+        }),
+      ),
     [timelineMessages, timelineProposedPlans, timelineWorkEntries, turnDiffSummaries],
   );
   const revertTurnCountByUserMessageId = useMemo(() => {
@@ -3618,7 +3699,7 @@ export default function ChatView({
   );
   const openMarkdownFileInAppEditor = useCallback(
     (targetPath: string) => {
-      if (!activeThread) {
+      if (!activeThreadId) {
         return;
       }
       const normalizedTargetPath = targetPath.trim();
@@ -3642,9 +3723,9 @@ export default function ChatView({
         return;
       }
       onOpenRightSidePanelEditor();
-      openEditorFile(activeThread.id, resolvedFilePath);
+      openEditorFile(activeThreadId, resolvedFilePath);
     },
-    [activeThread, onOpenRightSidePanelEditor, openEditorFile, workspaceRootsForInAppFileOpen],
+    [activeThreadId, onOpenRightSidePanelEditor, openEditorFile, workspaceRootsForInAppFileOpen],
   );
   const onSelectRightSidePanelMode = useCallback(
     (mode: RightSidePanelMode) => {
@@ -4438,11 +4519,21 @@ export default function ChatView({
     },
     [activeThreadId, storeMoveTerminal],
   );
+  const readActiveTerminalState = useCallback(() => {
+    if (!activeThreadId) {
+      return null;
+    }
+    return selectThreadTerminalState(
+      useTerminalStateStore.getState().terminalStateByThreadId,
+      activeThreadId,
+    );
+  }, [activeThreadId]);
   const closeTerminalTarget = useCallback(
     (targetTerminalId: string) => {
       const api = readNativeApi();
       if (!api || !activeThreadId) return;
-      const isFinalTerminal = terminalState.terminalIds.length <= 1;
+      const currentTerminalState = readActiveTerminalState();
+      const isFinalTerminal = (currentTerminalState?.terminalIds.length ?? 1) <= 1;
       const fallbackExitWrite = () =>
         api.terminal
           .write({
@@ -4483,7 +4574,7 @@ export default function ChatView({
       storeCloseTerminal(activeThreadId, targetTerminalId);
       setTerminalFocusRequestId((value) => value + 1);
     },
-    [activeThreadId, storeCloseTerminal, terminalState.terminalIds.length],
+    [activeThreadId, readActiveTerminalState, storeCloseTerminal],
   );
   const setTerminalAutoTitle = useCallback(
     (terminalId: string, title: string | null) => {
@@ -4519,11 +4610,13 @@ export default function ChatView({
         });
       }
       const targetCwd = options?.cwd ?? gitCwd ?? activeProject.cwd;
+      const currentTerminalState = readActiveTerminalState();
       const baseTerminalId =
-        terminalState.activeTerminalId ||
-        terminalState.terminalIds[0] ||
+        currentTerminalState?.activeTerminalId ||
+        currentTerminalState?.terminalIds[0] ||
         DEFAULT_THREAD_TERMINAL_ID;
-      const isBaseTerminalBusy = terminalState.runningTerminalIds.includes(baseTerminalId);
+      const isBaseTerminalBusy =
+        currentTerminalState?.runningTerminalIds.includes(baseTerminalId) ?? false;
       const wantsNewTerminal = Boolean(options?.preferNewTerminal) || isBaseTerminalBusy;
       const shouldCreateNewTerminal = wantsNewTerminal;
       const targetTerminalId = shouldCreateNewTerminal
@@ -4585,15 +4678,13 @@ export default function ChatView({
       activeThread,
       activeThreadId,
       gitCwd,
+      readActiveTerminalState,
       setTerminalOpen,
       setThreadError,
       storeNewTerminal,
       storeSetTerminalAutoTitle,
       storeSetActiveTerminal,
       setLastInvokedScriptByProjectId,
-      terminalState.activeTerminalId,
-      terminalState.runningTerminalIds,
-      terminalState.terminalIds,
     ],
   );
 
@@ -7573,31 +7664,6 @@ export default function ChatView({
           };
         })()
       : null;
-  const terminalDrawerProps =
-    terminalState.terminalOpen && activeProject
-      ? {
-          threadId: activeThread.id,
-          cwd: gitCwd ?? activeProject.cwd,
-          runtimeEnv: threadTerminalRuntimeEnv,
-          height: terminalState.terminalHeight,
-          terminalIds: terminalState.terminalIds,
-          activeTerminalId: terminalState.activeTerminalId,
-          terminalGroups: terminalState.terminalGroups,
-          runningTerminalIds: terminalState.runningTerminalIds,
-          autoTerminalTitlesById: terminalState.autoTerminalTitlesById,
-          focusRequestId: terminalFocusRequestId,
-          onNewTerminal: createNewTerminal,
-          newShortcutLabel: newTerminalShortcutLabel ?? undefined,
-          toggleShortcutLabel: terminalToggleShortcutLabel ?? undefined,
-          onActiveTerminalChange: activateTerminal,
-          onMoveTerminal: moveTerminal,
-          onAutoTerminalTitleChange: setTerminalAutoTitle,
-          onCloseTerminal: closeTerminal,
-          onToggleTerminal: toggleTerminalVisibility,
-          onHeightChange: setTerminalHeight,
-          onAddTerminalContext: addTerminalContextToDraft,
-        }
-      : null;
   const expandedImageOverlay =
     expandedImage && expandedImageItem
       ? {
@@ -8199,9 +8265,22 @@ export default function ChatView({
       </div>
       {/* end horizontal flex container */}
 
-      <RetainedThreadTerminalDrawers
+      <ConnectedRetainedThreadTerminalDrawers
         activeThreadId={activeThread.id}
-        activeDrawerProps={terminalDrawerProps}
+        activeProjectAvailable={activeProject !== undefined}
+        cwd={gitCwd ?? activeProject?.cwd ?? null}
+        runtimeEnv={threadTerminalRuntimeEnv}
+        focusRequestId={terminalFocusRequestId}
+        onNewTerminal={createNewTerminal}
+        newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+        toggleShortcutLabel={terminalToggleShortcutLabel ?? undefined}
+        onActiveTerminalChange={activateTerminal}
+        onMoveTerminal={moveTerminal}
+        onAutoTerminalTitleChange={setTerminalAutoTitle}
+        onCloseTerminal={closeTerminal}
+        onToggleTerminal={toggleTerminalVisibility}
+        onHeightChange={setTerminalHeight}
+        onAddTerminalContext={addTerminalContextToDraft}
       />
     </div>
   );

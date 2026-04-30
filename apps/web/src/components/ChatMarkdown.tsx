@@ -2,6 +2,7 @@ import { DiffsHighlighter, getSharedHighlighter, SupportedLanguages } from "@pie
 import { CheckIcon, CopyIcon, GlobeIcon } from "lucide-react";
 import React, {
   Children,
+  Profiler,
   Suspense,
   isValidElement,
   use,
@@ -34,6 +35,7 @@ import {
   shouldUseLargeMarkdownPreview,
 } from "../lib/chat/messageText";
 import { normalizeBrowserHttpUrl } from "../lib/browser/url";
+import { isRenderProfilingEnabled, recordReactRenderProfile } from "../lib/renderProfiling";
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
 import type { ChatMessageStreamingTextState } from "../types";
@@ -86,6 +88,13 @@ const highlightedCodeCache = new LRUCache<string>(
 );
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+const onMarkdownProfilerRender = (
+  _id: string,
+  phase: "mount" | "update" | "nested-update",
+  actualDuration: number,
+) => {
+  recordReactRenderProfile("chat.markdown.render", phase, actualDuration);
+};
 
 registerMemoryPressureHandler({
   id: "markdown-highlight-cache",
@@ -310,14 +319,24 @@ const MarkdownBody = memo(function MarkdownBody({
   isStreaming: boolean;
   markdownComponents: Components;
 }) {
+  const markdown = (
+    <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
+      {children}
+    </ReactMarkdown>
+  );
+
   return (
     <div
       className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80"
       data-streaming-markdown={isStreaming ? "true" : undefined}
     >
-      <ReactMarkdown remarkPlugins={MARKDOWN_REMARK_PLUGINS} components={markdownComponents}>
-        {children}
-      </ReactMarkdown>
+      {isRenderProfilingEnabled() ? (
+        <Profiler id="chat-markdown" onRender={onMarkdownProfilerRender}>
+          {markdown}
+        </Profiler>
+      ) : (
+        markdown
+      )}
     </div>
   );
 });
