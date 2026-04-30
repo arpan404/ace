@@ -8,12 +8,14 @@ import {
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator as MenuDivider,
+  MenuShortcut,
   MenuTrigger,
 } from "../ui/menu";
 
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
+  interactionModeShortcutLabel: string | null;
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
@@ -47,7 +49,12 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             props.onToggleInteractionMode();
           }}
         >
-          <MenuRadioItem value="default">Build</MenuRadioItem>
+          <MenuRadioItem value="default">
+            Agent
+            {props.interactionModeShortcutLabel ? (
+              <MenuShortcut>{props.interactionModeShortcutLabel}</MenuShortcut>
+            ) : null}
+          </MenuRadioItem>
           <MenuRadioItem value="plan">Plan</MenuRadioItem>
         </MenuRadioGroup>
       </MenuPopup>
