@@ -35,6 +35,28 @@ describe("ChatMarkdown", () => {
     expect(markup).not.toContain('data-streaming-markdown="true"');
   });
 
+  it("does not defer small completed markdown behind the lazy plain-text preview", () => {
+    const originalIntersectionObserver = globalThis.IntersectionObserver;
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+
+    try {
+      const markup = renderToStaticMarkup(
+        <ChatMarkdown text="**bold**" cwd={undefined} deferMarkdownUntilVisible />,
+      );
+
+      expect(markup).toContain("<strong>bold</strong>");
+      expect(markup).not.toContain('data-lazy-markdown-preview="true"');
+    } finally {
+      vi.stubGlobal("IntersectionObserver", originalIntersectionObserver);
+    }
+  });
+
   it("renders streaming code fences as markdown code blocks", () => {
     const markup = renderToStaticMarkup(
       <ChatMarkdown text={"```text\nUse this exact prompt\n```"} cwd={undefined} isStreaming />,

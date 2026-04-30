@@ -97,7 +97,50 @@ const markdownActivationCache = new LRUCache<boolean>(
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 const LAZY_MARKDOWN_PREVIEW_MAX_CHARS = 8_000;
-const LAZY_MARKDOWN_INTERSECTION_ROOT_MARGIN = "1400px 0px";
+const LAZY_MARKDOWN_INTERSECTION_ROOT_MARGIN_PX = 1400;
+const LAZY_MARKDOWN_INTERSECTION_ROOT_MARGIN = `${LAZY_MARKDOWN_INTERSECTION_ROOT_MARGIN_PX}px 0px`;
+const LAZY_MARKDOWN_MIN_DEFER_CHARS = 2_500;
+const LAZY_MARKDOWN_MIN_DEFER_LINES = 32;
+const LAZY_MARKDOWN_IDLE_FALLBACK_DELAY_MS = 700;
+const LAZY_MARKDOWN_IDLE_QUEUE_DELAY_MS = 80;
+type LazyMarkdownActivationTask = {
+  cancelled: boolean;
+  activate: () => void;
+};
+const lazyMarkdownActivationQueue: LazyMarkdownActivationTask[] = [];
+let lazyMarkdownActivationQueueTimer: number | null = null;
+
+function scheduleLazyMarkdownActivationQueue() {
+  if (lazyMarkdownActivationQueueTimer !== null || typeof window === "undefined") {
+    return;
+  }
+  lazyMarkdownActivationQueueTimer = window.setTimeout(() => {
+    lazyMarkdownActivationQueueTimer = null;
+    while (lazyMarkdownActivationQueue.length > 0) {
+      const task = lazyMarkdownActivationQueue.shift();
+      if (!task || task.cancelled) {
+        continue;
+      }
+      task.activate();
+      break;
+    }
+    if (lazyMarkdownActivationQueue.some((task) => !task.cancelled)) {
+      scheduleLazyMarkdownActivationQueue();
+    }
+  }, LAZY_MARKDOWN_IDLE_QUEUE_DELAY_MS);
+}
+
+function enqueueLazyMarkdownActivation(activate: () => void): () => void {
+  const task: LazyMarkdownActivationTask = {
+    cancelled: false,
+    activate,
+  };
+  lazyMarkdownActivationQueue.push(task);
+  scheduleLazyMarkdownActivationQueue();
+  return () => {
+    task.cancelled = true;
+  };
+}
 
 registerMemoryPressureHandler({
   id: "markdown-highlight-cache",
@@ -111,6 +154,42 @@ registerMemoryPressureHandler({
 
 function createMarkdownActivationCacheKey(text: string, cwd: string | undefined): string {
   return `${fnv1a32(text).toString(36)}:${text.length}:${cwd ?? ""}`;
+}
+
+function shouldDeferCompletedMarkdown(text: string, lineCount: number | undefined): boolean {
+  if (text.length >= LAZY_MARKDOWN_MIN_DEFER_CHARS) {
+    return true;
+  }
+  if (typeof lineCount === "number") {
+    return lineCount >= LAZY_MARKDOWN_MIN_DEFER_LINES;
+  }
+
+  let lines = 1;
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) !== 10) {
+      continue;
+    }
+    lines += 1;
+    if (lines >= LAZY_MARKDOWN_MIN_DEFER_LINES) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isElementNearViewport(element: HTMLElement): boolean {
+  if (typeof window === "undefined") {
+    return true;
+  }
+  const rect = element.getBoundingClientRect();
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+  return (
+    rect.bottom >= -LAZY_MARKDOWN_INTERSECTION_ROOT_MARGIN_PX &&
+    rect.top <= viewportHeight + LAZY_MARKDOWN_INTERSECTION_ROOT_MARGIN_PX &&
+    rect.right >= 0 &&
+    rect.left <= viewportWidth
+  );
 }
 
 function extractFenceLanguage(className: string | undefined): string {
@@ -344,7 +423,10 @@ function PreviewTextPanel({
   dataAttribute,
 }: {
   text: string;
-  dataAttribute?: "data-streaming-markdown" | "data-large-markdown-preview";
+  dataAttribute?:
+    | "data-streaming-markdown"
+    | "data-large-markdown-preview"
+    | "data-lazy-markdown-preview";
 }) {
   return (
     <div
@@ -367,7 +449,7 @@ function buildLazyMarkdownPreviewText(text: string): string {
 
 function LazyMarkdownPreview({ text }: { text: string }) {
   const previewText = useMemo(() => buildLazyMarkdownPreviewText(text), [text]);
-  return <PreviewTextPanel text={previewText} dataAttribute="data-large-markdown-preview" />;
+  return <PreviewTextPanel text={previewText} dataAttribute="data-lazy-markdown-preview" />;
 }
 
 function StreamingMarkdownPreview({
@@ -473,6 +555,7 @@ function ChatMarkdown({
     shouldUseLargeMarkdownPreview(text, streamingTextState?.totalLineCount);
   const shouldDeferMarkdown =
     deferMarkdownUntilVisible &&
+    shouldDeferCompletedMarkdown(text, streamingTextState?.totalLineCount) &&
     !markdownActivated &&
     !isStreaming &&
     !renderPlainText &&
@@ -643,6 +726,26 @@ function ChatMarkdown({
       setMarkdownActivated(true);
       return;
     }
+    let isCancelled = false;
+    let cancelQueuedActivation: (() => void) | null = null;
+    const activateMarkdown = () => {
+      if (isCancelled) {
+        return;
+      }
+      markdownActivationCache.set(markdownActivationCacheKey, true, 1);
+      startTransition(() => {
+        if (!isCancelled) {
+          setMarkdownActivated(true);
+        }
+      });
+    };
+
+    if (isElementNearViewport(rootElement)) {
+      activateMarkdown();
+      return () => {
+        isCancelled = true;
+      };
+    }
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -650,17 +753,20 @@ function ChatMarkdown({
           return;
         }
         observer.disconnect();
-        markdownActivationCache.set(markdownActivationCacheKey, true, 1);
-        startTransition(() => {
-          setMarkdownActivated(true);
-        });
+        activateMarkdown();
       },
       { root: null, rootMargin: LAZY_MARKDOWN_INTERSECTION_ROOT_MARGIN },
     );
     observer.observe(rootElement);
+    const fallbackTimer = window.setTimeout(() => {
+      cancelQueuedActivation = enqueueLazyMarkdownActivation(activateMarkdown);
+    }, LAZY_MARKDOWN_IDLE_FALLBACK_DELAY_MS);
 
     return () => {
+      isCancelled = true;
       observer.disconnect();
+      window.clearTimeout(fallbackTimer);
+      cancelQueuedActivation?.();
     };
   }, [markdownActivationCacheKey, shouldDeferMarkdown]);
 
