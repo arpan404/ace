@@ -7,6 +7,9 @@ export interface ThreadBoardDragThread {
   threadId: ThreadId;
 }
 
+const activeThreadBoardDragListeners = new Set<() => void>();
+let activeThreadBoardDrag: ThreadBoardDragThread | null = null;
+
 export const THREAD_BOARD_DRAG_MIME = "application/x-ace-thread-board";
 
 export function createThreadBoardDragThread(input: {
@@ -57,4 +60,22 @@ export function readThreadBoardDragThread(
   return decodeThreadBoardDragThread(
     dataTransfer.getData(THREAD_BOARD_DRAG_MIME) || dataTransfer.getData("text/plain"),
   );
+}
+
+export function getActiveThreadBoardDrag(): ThreadBoardDragThread | null {
+  return activeThreadBoardDrag;
+}
+
+export function setActiveThreadBoardDrag(thread: ThreadBoardDragThread | null): void {
+  activeThreadBoardDrag = thread;
+  for (const listener of activeThreadBoardDragListeners) {
+    listener();
+  }
+}
+
+export function subscribeActiveThreadBoardDrag(listener: () => void): () => void {
+  activeThreadBoardDragListeners.add(listener);
+  return () => {
+    activeThreadBoardDragListeners.delete(listener);
+  };
 }

@@ -18,6 +18,7 @@ import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import {
   THREAD_BOARD_THREADS_SEARCH_PARAM,
   THREAD_BOARD_ACTIVE_SEARCH_PARAM,
+  THREAD_BOARD_PANE_SEARCH_PARAM,
   THREAD_BOARD_SPLIT_SEARCH_PARAM,
   decodeThreadBoardRoutePane,
   parseThreadBoardRoutePanes,
@@ -27,6 +28,7 @@ import { useHostConnectionStore } from "../hostConnectionStore";
 export interface ChatThreadRouteSearch extends DiffRouteSearch {
   readonly active?: string;
   readonly connection?: string;
+  readonly pane?: string;
   readonly split?: string;
   readonly threads?: string;
 }
@@ -45,6 +47,10 @@ function parseChatThreadRouteSearch(search: Record<string, unknown>): ChatThread
     typeof search[THREAD_BOARD_SPLIT_SEARCH_PARAM] === "string"
       ? search[THREAD_BOARD_SPLIT_SEARCH_PARAM].trim()
       : "";
+  const pane =
+    typeof search[THREAD_BOARD_PANE_SEARCH_PARAM] === "string"
+      ? search[THREAD_BOARD_PANE_SEARCH_PARAM].trim()
+      : "";
   const connectionRaw =
     typeof search[THREAD_ROUTE_CONNECTION_SEARCH_PARAM] === "string"
       ? search[THREAD_ROUTE_CONNECTION_SEARCH_PARAM].trim()
@@ -52,6 +58,7 @@ function parseChatThreadRouteSearch(search: Record<string, unknown>): ChatThread
   const boardSearch = {
     ...diffSearch,
     ...(active.length > 0 ? { active } : {}),
+    ...(pane.length > 0 ? { pane } : {}),
     ...(split.length > 0 ? { split } : {}),
     ...(threads.length > 0 ? { threads } : {}),
   };
@@ -89,6 +96,7 @@ function ChatThreadRouteView() {
     () => (search.active ? decodeThreadBoardRoutePane(search.active) : null),
     [search.active],
   );
+  const routePaneId = useMemo(() => search.pane?.trim() || null, [search.pane]);
   const serverThread = useStore((store) => getThreadById(store.threads, threadId));
   const threadExists = serverThread !== undefined;
   const draftThreadExists = useComposerDraftStore((store) =>
@@ -285,6 +293,7 @@ function ChatThreadRouteView() {
         threadId={threadId}
         connectionUrl={routeConnectionUrl ?? null}
         routeActiveThread={routeActiveBoardPane ?? routePathBoardPane}
+        routePaneId={routePaneId}
         routeSplitId={search.split ?? null}
         routeThreads={routeBoardPanes}
       />
