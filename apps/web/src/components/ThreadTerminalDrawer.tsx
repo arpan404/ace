@@ -385,12 +385,6 @@ type TerminalMenuAction =
 
 type TerminalSectionMenuAction = "new-terminal" | "clear-all" | "close-all";
 type TerminalSidebarDensity = "compact" | "comfortable";
-type TerminalContextMenuState = {
-  kind: "terminal";
-  terminalId: string;
-  position: { x: number; y: number };
-};
-
 interface TerminalMenuItemDescriptor<T extends string> {
   id: T;
   label: string;
@@ -1189,81 +1183,312 @@ const TERMINAL_HEADER_ACTION_BUTTON_CLASS_NAME = cn(
   "!size-6 !rounded-[var(--control-radius)] inline-flex items-center justify-center leading-none text-pill-foreground/78 hover:text-pill-foreground [&_svg]:shrink-0",
 );
 
+function TerminalActionsMenuContent(props: {
+  canSplit: boolean;
+  canUnsplit: boolean;
+  color: TerminalColorName | null;
+  hasCustomTitle: boolean;
+  icon: TerminalIconName | null;
+  terminalId: string;
+  onAction: (terminalId: string, action: TerminalMenuAction) => void;
+  onColorSelect: (terminalId: string, color: TerminalColorName) => void;
+  onIconSelect: (terminalId: string, icon: TerminalIconName) => void;
+  onRequestClose: () => void;
+  onSectionAction: (action: TerminalSectionMenuAction) => void;
+}) {
+  const runAction = (action: TerminalMenuAction) => {
+    props.onRequestClose();
+    props.onAction(props.terminalId, action);
+  };
+  const runSectionAction = (action: TerminalSectionMenuAction) => {
+    props.onRequestClose();
+    props.onSectionAction(action);
+  };
+
+  return (
+    <>
+      <MenuItem
+        onClick={() => runAction("split")}
+        disabled={!props.canSplit}
+        className="menu-item-with-icon"
+      >
+        <SquareSplitHorizontal className="size-4 text-muted-foreground" />
+        <span>Split Terminal</span>
+      </MenuItem>
+      {props.canUnsplit ? (
+        <MenuItem onClick={() => runAction("unsplit")} className="menu-item-with-icon">
+          <RotateCcwIcon className="size-4 text-muted-foreground" />
+          <span>Unsplit Terminal</span>
+        </MenuItem>
+      ) : null}
+      <MenuItem onClick={() => runAction("new")} className="menu-item-with-icon">
+        <IconTerminal className="size-4 text-muted-foreground" />
+        <span>New Terminal</span>
+      </MenuItem>
+      <MenuItem onClick={() => runAction("duplicate")} className="menu-item-with-icon">
+        <CopyIcon className="size-4 text-muted-foreground" />
+        <span>Duplicate</span>
+      </MenuItem>
+      <div className="mx-2 my-1 h-px bg-border" />
+      <MenuSub>
+        <MenuSubTrigger className="menu-item-with-icon">
+          <TerminalIconGlyph icon={props.icon} color={props.color} className="size-4 shrink-0" />
+          <span>Icon</span>
+          <span className="ms-auto truncate text-[10px] text-muted-foreground">
+            {TERMINAL_ICON_OPTIONS.find((option) => option.id === (props.icon ?? "terminal"))
+              ?.label ?? "Terminal"}
+          </span>
+        </MenuSubTrigger>
+        <MenuSubPopup className="p-1.5" sideOffset={4}>
+          <div className="terminal-icon-picker">
+            {TERMINAL_ICON_OPTIONS.map((option) => {
+              const isSelected = (props.icon ?? "terminal") === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={`icon-option ${isSelected ? "selected" : ""}`}
+                  onClick={() => {
+                    props.onRequestClose();
+                    props.onIconSelect(props.terminalId, option.id as TerminalIconName);
+                  }}
+                >
+                  {TerminalIconGlyph({
+                    icon: option.id as TerminalIconName,
+                    color: props.color,
+                    className: "size-5",
+                  })}
+                  <span>{option.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </MenuSubPopup>
+      </MenuSub>
+      <MenuSub>
+        <MenuSubTrigger className="menu-item-with-icon">
+          <span
+            className={`terminal-color-swatch ${props.color ?? "default"}`}
+            style={{ width: 14, height: 14 }}
+          />
+          <span>Color</span>
+          <span className="ms-auto truncate text-[10px] text-muted-foreground">
+            {TERMINAL_COLOR_OPTIONS.find((option) => option.id === (props.color ?? "default"))
+              ?.label ?? "Default"}
+          </span>
+        </MenuSubTrigger>
+        <MenuSubPopup className="p-1.5" sideOffset={4}>
+          <div className="terminal-color-picker">
+            {TERMINAL_COLOR_OPTIONS.map((option) => {
+              const isSelected = (props.color ?? "default") === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={`color-option ${isSelected ? "selected" : ""}`}
+                  onClick={() => {
+                    props.onRequestClose();
+                    props.onColorSelect(props.terminalId, option.id as TerminalColorName);
+                  }}
+                >
+                  <span className={`terminal-color-swatch ${option.id}`} />
+                  <span>{option.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </MenuSubPopup>
+      </MenuSub>
+      <div className="mx-2 my-1 h-px bg-border" />
+      <MenuItem onClick={() => runAction("rename")} className="menu-item-with-icon">
+        <Edit2Icon className="size-4 text-muted-foreground" />
+        <span>Rename</span>
+      </MenuItem>
+      {props.hasCustomTitle ? (
+        <MenuItem onClick={() => runAction("reset-title")} className="menu-item-with-icon">
+          <RotateCcwIcon className="size-4 text-muted-foreground" />
+          <span>Reset Title</span>
+        </MenuItem>
+      ) : null}
+      <MenuItem onClick={() => runAction("clear")} className="menu-item-with-icon">
+        <TrashIcon className="size-4 text-muted-foreground" />
+        <span>Clear</span>
+      </MenuItem>
+      <MenuItem onClick={() => runAction("restart")} className="menu-item-with-icon">
+        <RefreshCwIcon className="size-4 text-muted-foreground" />
+        <span>Restart</span>
+      </MenuItem>
+      <div className="mx-2 my-1 h-px bg-border" />
+      <MenuItem
+        onClick={() => runAction("close")}
+        variant="destructive"
+        className="menu-item-with-icon menu-item-danger"
+      >
+        <XIcon className="size-4" />
+        <span>Close</span>
+      </MenuItem>
+      <MenuItem onClick={() => runSectionAction("clear-all")} className="menu-item-with-icon">
+        <TrashIcon className="size-4 text-muted-foreground" />
+        <span>Clear All</span>
+      </MenuItem>
+      <MenuItem
+        onClick={() => runSectionAction("close-all")}
+        variant="destructive"
+        className="menu-item-with-icon menu-item-danger"
+      >
+        <XIcon className="size-4" />
+        <span>Kill All Terminals</span>
+      </MenuItem>
+    </>
+  );
+}
+
+function TerminalActionsMenuButton(props: {
+  className: string;
+  label: string;
+  children: ReactNode;
+  renderMenu: (closeMenu: () => void) => ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const closeMenu = useCallback(() => setOpen(false), []);
+
+  return (
+    <Menu open={open} onOpenChange={setOpen} modal={false}>
+      <MenuTrigger
+        render={<button type="button" className={props.className} aria-label={props.label} />}
+      >
+        {props.children}
+      </MenuTrigger>
+      <MenuPopup align="end" side="top" sideOffset={6} className="terminal-context-menu min-w-48">
+        {props.renderMenu(closeMenu)}
+      </MenuPopup>
+    </Menu>
+  );
+}
+
 function SortableTerminalTab(props: {
   active: boolean;
   canClose: boolean;
   color: TerminalColorName | null;
   icon: TerminalIconName | null;
   label: string;
+  menuContent: (closeMenu: () => void) => ReactNode;
   running: boolean;
   suppressClickAfterDragRef: MutableRefObject<boolean>;
   terminalId: string;
   onClose: (terminalId: string) => void;
-  onContextMenu: (terminalId: string, position: { x: number; y: number }) => void;
   onSelect: (terminalId: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } =
     useSortable({ id: props.terminalId });
+  const [menuOpen, setMenuOpen] = useState(false);
+  const allowMenuOpenRef = useRef(false);
+  const closeMenu = useCallback(() => {
+    allowMenuOpenRef.current = false;
+    setMenuOpen(false);
+  }, []);
 
   return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={cn(
-        "group/tab inline-flex h-8 min-w-0 max-w-56 shrink-0 touch-none items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors",
-        props.active
-          ? "bg-accent text-foreground"
-          : "text-muted-foreground hover:bg-accent hover:text-foreground",
-        isDragging && "z-20 opacity-70",
-        isOver && !isDragging && "bg-accent/70",
-      )}
-      title={props.label}
-      onClick={() => {
-        if (props.suppressClickAfterDragRef.current) {
+    <Menu
+      open={menuOpen}
+      modal={false}
+      onOpenChange={(open) => {
+        if (!open) {
+          closeMenu();
           return;
         }
-        props.onSelect(props.terminalId);
+        if (allowMenuOpenRef.current) {
+          setMenuOpen(true);
+        }
       }}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        props.onContextMenu(props.terminalId, { x: event.clientX, y: event.clientY });
-      }}
-      {...attributes}
-      aria-pressed={props.active}
-      {...listeners}
     >
-      <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-        <TerminalIconGlyph icon={props.icon} color={props.color} className="size-4" />
-        {props.canClose ? (
-          <span
-            role="button"
-            tabIndex={-1}
-            className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-            aria-label={`Close ${props.label}`}
-            onPointerDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              props.onClose(props.terminalId);
-            }}
-          >
-            <XIcon className="size-3" />
-          </span>
-        ) : null}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{props.label}</span>
-      <span
+      <div
+        ref={setNodeRef}
+        style={{ transform: CSS.Translate.toString(transform), transition }}
         className={cn(
-          "terminal-live-indicator shrink-0 rounded-full",
-          props.running ? "size-2 bg-emerald-400" : "size-1.5 bg-border",
+          "group/tab relative inline-flex h-8 min-w-0 max-w-56 shrink-0 touch-none cursor-default items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors",
+          props.active
+            ? "bg-accent text-foreground"
+            : "text-muted-foreground hover:bg-accent hover:text-foreground",
+          isDragging && "z-20 opacity-70",
+          isOver && !isDragging && "bg-accent/70",
         )}
-      />
-    </button>
+        title={props.label}
+        onClick={(event) => {
+          event.preventDefault();
+          if (props.suppressClickAfterDragRef.current) {
+            return;
+          }
+          props.onSelect(props.terminalId);
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          props.onSelect(props.terminalId);
+          allowMenuOpenRef.current = true;
+          setMenuOpen(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            props.onSelect(props.terminalId);
+            return;
+          }
+          if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+            event.preventDefault();
+            props.onSelect(props.terminalId);
+            allowMenuOpenRef.current = true;
+            setMenuOpen(true);
+          }
+        }}
+        {...attributes}
+        aria-pressed={props.active}
+        {...listeners}
+      >
+        <MenuTrigger
+          render={
+            <button
+              type="button"
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 rounded-lg"
+              tabIndex={-1}
+            />
+          }
+        />
+        <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+          <TerminalIconGlyph icon={props.icon} color={props.color} className="size-4" />
+          {props.canClose ? (
+            <span
+              role="button"
+              tabIndex={-1}
+              className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+              aria-label={`Close ${props.label}`}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                props.onClose(props.terminalId);
+              }}
+            >
+              <XIcon className="size-3" />
+            </span>
+          ) : null}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{props.label}</span>
+        <span
+          className={cn(
+            "terminal-live-indicator shrink-0 rounded-full",
+            props.running ? "size-2 bg-emerald-400" : "size-1.5 bg-border",
+          )}
+        />
+      </div>
+      <MenuPopup align="start" side="top" sideOffset={6} className="terminal-context-menu min-w-48">
+        {props.menuContent(closeMenu)}
+      </MenuPopup>
+    </Menu>
   );
 }
 
@@ -1305,7 +1530,6 @@ export default memo(function ThreadTerminalDrawer({
   onAddTerminalContext,
 }: ThreadTerminalDrawerProps) {
   const [drawerHeight, setDrawerHeight] = useState(() => clampDrawerHeight(height));
-  const [contextMenuState, setContextMenuState] = useState<TerminalContextMenuState | null>(null);
   const drawerHeightRef = useRef(drawerHeight);
   const lastSyncedHeightRef = useRef(clampDrawerHeight(height));
   const onHeightChangeRef = useRef(onHeightChange);
@@ -1422,25 +1646,6 @@ export default memo(function ThreadTerminalDrawer({
   const newTerminalActionLabel = newShortcutLabel
     ? `New Terminal (${newShortcutLabel})`
     : "New Terminal";
-  const activeContextMenuTerminalId = contextMenuState ? contextMenuState.terminalId : null;
-  const activeContextMenuHasCustomTitle = activeContextMenuTerminalId
-    ? Boolean(customTerminalTitlesById[activeContextMenuTerminalId])
-    : false;
-  const activeContextMenuGroup = activeContextMenuTerminalId
-    ? (resolvedTerminalGroups.find((group) =>
-        group.terminalIds.includes(activeContextMenuTerminalId),
-      ) ?? null)
-    : null;
-  const activeContextMenuCanSplit =
-    (activeContextMenuGroup?.terminalIds.length ?? visibleTerminalIds.length) <
-    MAX_TERMINALS_PER_GROUP;
-  const activeContextMenuCanUnsplit = (activeContextMenuGroup?.terminalIds.length ?? 0) > 1;
-  const activeContextMenuIcon = activeContextMenuTerminalId
-    ? (terminalIconById.get(activeContextMenuTerminalId) ?? null)
-    : null;
-  const activeContextMenuColor = activeContextMenuTerminalId
-    ? (terminalColorById.get(activeContextMenuTerminalId) ?? null)
-    : null;
   const onSplitTerminalAction = useCallback(() => {
     if (hasReachedSplitLimit) return;
     onSplitTerminal();
@@ -1459,18 +1664,8 @@ export default memo(function ThreadTerminalDrawer({
     },
     [onRenameTerminal, terminalLabelById],
   );
-  const closeContextMenu = useCallback(() => {
-    setContextMenuState(null);
-  }, []);
-  const handleTerminalContextMenu = useCallback(
-    (terminalId: string, position: { x: number; y: number }) => {
-      setContextMenuState({ kind: "terminal", terminalId, position });
-    },
-    [],
-  );
   const handleTerminalMenuAction = useCallback(
     (terminalId: string, action: TerminalMenuAction) => {
-      closeContextMenu();
       if (action === "split") {
         onSplitTerminalAction();
         return;
@@ -1508,7 +1703,6 @@ export default memo(function ThreadTerminalDrawer({
       }
     },
     [
-      closeContextMenu,
       onClearTerminal,
       onCloseTerminal,
       onDuplicateTerminal,
@@ -1522,21 +1716,18 @@ export default memo(function ThreadTerminalDrawer({
   );
   const handleTerminalIconSelect = useCallback(
     (terminalId: string, icon: TerminalIconName) => {
-      closeContextMenu();
       onTerminalIconChange(terminalId, icon);
     },
-    [closeContextMenu, onTerminalIconChange],
+    [onTerminalIconChange],
   );
   const handleTerminalColorSelect = useCallback(
     (terminalId: string, color: TerminalColorName) => {
-      closeContextMenu();
       onTerminalColorChange(terminalId, color);
     },
-    [closeContextMenu, onTerminalColorChange],
+    [onTerminalColorChange],
   );
   const handleTerminalSectionAction = useCallback(
     (action: TerminalSectionMenuAction) => {
-      closeContextMenu();
       if (action === "new-terminal") {
         onNewTerminalAction();
         return;
@@ -1549,7 +1740,7 @@ export default memo(function ThreadTerminalDrawer({
         onCloseAllTerminals();
       }
     },
-    [closeContextMenu, onClearAllTerminals, onCloseAllTerminals, onNewTerminalAction],
+    [onClearAllTerminals, onCloseAllTerminals, onNewTerminalAction],
   );
   const handleTerminalTabDragStart = useCallback((event: DragStartEvent) => {
     suppressTerminalTabClickAfterDragRef.current = true;
@@ -1576,12 +1767,6 @@ export default memo(function ThreadTerminalDrawer({
       suppressTerminalTabClickAfterDragRef.current = false;
     }, 0);
   }, []);
-
-  useEffect(() => {
-    if (contextMenuState && !normalizedTerminalIds.includes(contextMenuState.terminalId)) {
-      closeContextMenu();
-    }
-  }, [closeContextMenu, contextMenuState, normalizedTerminalIds]);
 
   useEffect(() => {
     onHeightChangeRef.current = onHeightChange;
@@ -1764,6 +1949,38 @@ export default memo(function ThreadTerminalDrawer({
     };
   }, [handleResizePointerEnd, handleSplitResizePointerEnd]);
 
+  const getTerminalMenuState = (terminalId: string) => {
+    const terminalGroup =
+      resolvedTerminalGroups.find((group) => group.terminalIds.includes(terminalId)) ?? null;
+    const terminalCountInGroup = terminalGroup?.terminalIds.length ?? visibleTerminalIds.length;
+    return {
+      canSplit: terminalCountInGroup < MAX_TERMINALS_PER_GROUP,
+      canUnsplit: terminalCountInGroup > 1,
+      color: terminalColorById.get(terminalId) ?? null,
+      hasCustomTitle: Boolean(customTerminalTitlesById[terminalId]),
+      icon: terminalIconById.get(terminalId) ?? null,
+    };
+  };
+
+  const renderTerminalActionsMenu = (terminalId: string, closeMenu: () => void) => {
+    const menuState = getTerminalMenuState(terminalId);
+    return (
+      <TerminalActionsMenuContent
+        canSplit={menuState.canSplit}
+        canUnsplit={menuState.canUnsplit}
+        color={menuState.color}
+        hasCustomTitle={menuState.hasCustomTitle}
+        icon={menuState.icon}
+        terminalId={terminalId}
+        onAction={handleTerminalMenuAction}
+        onColorSelect={handleTerminalColorSelect}
+        onIconSelect={handleTerminalIconSelect}
+        onRequestClose={closeMenu}
+        onSectionAction={handleTerminalSectionAction}
+      />
+    );
+  };
+
   return (
     <aside
       className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/70 bg-terminal"
@@ -1773,206 +1990,6 @@ export default memo(function ThreadTerminalDrawer({
         className="terminal-resize-handle absolute inset-x-0 top-0 z-20 h-2 cursor-row-resize"
         onPointerDown={handleResizePointerDown}
       />
-
-      {contextMenuState ? (
-        <Menu
-          key={`terminal:${contextMenuState.terminalId}:${contextMenuState.position.x}:${contextMenuState.position.y}`}
-          defaultOpen
-          modal={false}
-          onOpenChange={(open) => {
-            if (!open) {
-              closeContextMenu();
-            }
-          }}
-        >
-          <MenuTrigger
-            render={
-              <button
-                type="button"
-                tabIndex={-1}
-                aria-hidden="true"
-                className="pointer-events-none fixed z-50 size-px opacity-0"
-                style={{
-                  left: `${contextMenuState.position.x}px`,
-                  top: `${contextMenuState.position.y}px`,
-                }}
-              />
-            }
-          />
-          <MenuPopup
-            align="start"
-            side="bottom"
-            sideOffset={6}
-            className="terminal-context-menu min-w-48"
-          >
-            <MenuItem
-              onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "split")}
-              disabled={!activeContextMenuCanSplit}
-              className="menu-item-with-icon"
-            >
-              <SquareSplitHorizontal className="size-4 text-muted-foreground" />
-              <span>Split Terminal</span>
-            </MenuItem>
-            {activeContextMenuCanUnsplit ? (
-              <MenuItem
-                onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "unsplit")}
-                className="menu-item-with-icon"
-              >
-                <RotateCcwIcon className="size-4 text-muted-foreground" />
-                <span>Unsplit Terminal</span>
-              </MenuItem>
-            ) : null}
-            <MenuItem
-              onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "new")}
-              className="menu-item-with-icon"
-            >
-              <IconTerminal className="size-4 text-muted-foreground" />
-              <span>New Terminal</span>
-            </MenuItem>
-            <MenuItem
-              onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "duplicate")}
-              className="menu-item-with-icon"
-            >
-              <CopyIcon className="size-4 text-muted-foreground" />
-              <span>Duplicate</span>
-            </MenuItem>
-            <div className="mx-2 my-1 h-px bg-border" />
-            <MenuSub>
-              <MenuSubTrigger className="menu-item-with-icon">
-                <TerminalIconGlyph
-                  icon={activeContextMenuIcon}
-                  color={activeContextMenuColor}
-                  className="size-4 shrink-0"
-                />
-                <span>Icon</span>
-                <span className="ms-auto truncate text-[10px] text-muted-foreground">
-                  {TERMINAL_ICON_OPTIONS.find((o) => o.id === (activeContextMenuIcon ?? "terminal"))
-                    ?.label ?? "Terminal"}
-                </span>
-              </MenuSubTrigger>
-              <MenuSubPopup className="p-1.5" sideOffset={4}>
-                <div className="terminal-icon-picker">
-                  {TERMINAL_ICON_OPTIONS.map((option) => {
-                    const isSelected = (activeContextMenuIcon ?? "terminal") === option.id;
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        className={`icon-option ${isSelected ? "selected" : ""}`}
-                        onClick={() => {
-                          handleTerminalIconSelect(
-                            contextMenuState.terminalId,
-                            option.id as TerminalIconName,
-                          );
-                        }}
-                      >
-                        {TerminalIconGlyph({
-                          icon: option.id as TerminalIconName,
-                          color: activeContextMenuColor,
-                          className: "size-5",
-                        })}
-                        <span>{option.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </MenuSubPopup>
-            </MenuSub>
-            <MenuSub>
-              <MenuSubTrigger className="menu-item-with-icon">
-                <span
-                  className={`terminal-color-swatch ${activeContextMenuColor ?? "default"}`}
-                  style={{ width: 14, height: 14 }}
-                />
-                <span>Color</span>
-                <span className="ms-auto truncate text-[10px] text-muted-foreground">
-                  {TERMINAL_COLOR_OPTIONS.find(
-                    (o) => o.id === (activeContextMenuColor ?? "default"),
-                  )?.label ?? "Default"}
-                </span>
-              </MenuSubTrigger>
-              <MenuSubPopup className="p-1.5" sideOffset={4}>
-                <div className="terminal-color-picker">
-                  {TERMINAL_COLOR_OPTIONS.map((option) => {
-                    const isSelected = (activeContextMenuColor ?? "default") === option.id;
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        className={`color-option ${isSelected ? "selected" : ""}`}
-                        onClick={() => {
-                          handleTerminalColorSelect(
-                            contextMenuState.terminalId,
-                            option.id as TerminalColorName,
-                          );
-                        }}
-                      >
-                        <span className={`terminal-color-swatch ${option.id}`} />
-                        <span>{option.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </MenuSubPopup>
-            </MenuSub>
-            <div className="mx-2 my-1 h-px bg-border" />
-            <MenuItem
-              onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "rename")}
-              className="menu-item-with-icon"
-            >
-              <Edit2Icon className="size-4 text-muted-foreground" />
-              <span>Rename</span>
-            </MenuItem>
-            {activeContextMenuHasCustomTitle && (
-              <MenuItem
-                onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "reset-title")}
-                className="menu-item-with-icon"
-              >
-                <RotateCcwIcon className="size-4 text-muted-foreground" />
-                <span>Reset Title</span>
-              </MenuItem>
-            )}
-            <MenuItem
-              onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "clear")}
-              className="menu-item-with-icon"
-            >
-              <TrashIcon className="size-4 text-muted-foreground" />
-              <span>Clear</span>
-            </MenuItem>
-            <MenuItem
-              onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "restart")}
-              className="menu-item-with-icon"
-            >
-              <RefreshCwIcon className="size-4 text-muted-foreground" />
-              <span>Restart</span>
-            </MenuItem>
-            <div className="mx-2 my-1 h-px bg-border" />
-            <MenuItem
-              onClick={() => handleTerminalMenuAction(contextMenuState.terminalId, "close")}
-              variant="destructive"
-              className="menu-item-with-icon menu-item-danger"
-            >
-              <XIcon className="size-4" />
-              <span>Close</span>
-            </MenuItem>
-            <MenuItem
-              onClick={() => handleTerminalSectionAction("clear-all")}
-              className="menu-item-with-icon"
-            >
-              <TrashIcon className="size-4 text-muted-foreground" />
-              <span>Clear All</span>
-            </MenuItem>
-            <MenuItem
-              onClick={() => handleTerminalSectionAction("close-all")}
-              variant="destructive"
-              className="menu-item-with-icon menu-item-danger"
-            >
-              <XIcon className="size-4" />
-              <span>Kill All Terminals</span>
-            </MenuItem>
-          </MenuPopup>
-        </Menu>
-      ) : null}
 
       <div className="terminal-tabs-strip flex h-11 shrink-0 items-center gap-2 border-b border-border/50 bg-card/80 px-3">
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -1994,11 +2011,11 @@ export default memo(function ThreadTerminalDrawer({
                     color={terminalColorById.get(terminalId) ?? null}
                     icon={terminalIconById.get(terminalId) ?? null}
                     label={sidebarTerminalLabelById.get(terminalId) ?? "shell"}
+                    menuContent={(closeMenu) => renderTerminalActionsMenu(terminalId, closeMenu)}
                     running={runningTerminalIds.includes(terminalId)}
                     suppressClickAfterDragRef={suppressTerminalTabClickAfterDragRef}
                     terminalId={terminalId}
                     onClose={onCloseTerminal}
-                    onContextMenu={handleTerminalContextMenu}
                     onSelect={onActiveTerminalChange}
                   />
                 ))}
@@ -2038,22 +2055,18 @@ export default memo(function ThreadTerminalDrawer({
               <RotateCcwIcon className="size-3.5" />
             </TerminalActionButton>
           ) : null}
-          <TerminalActionButton
+          <TerminalActionsMenuButton
             className={cn(
               "terminal-action-btn hover:bg-background/70",
               TERMINAL_HEADER_ACTION_BUTTON_CLASS_NAME,
             )}
-            onClick={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect();
-              handleTerminalContextMenu(resolvedActiveTerminalId, {
-                x: rect.left,
-                y: rect.bottom,
-              });
-            }}
             label="Terminal actions"
+            renderMenu={(closeMenu) =>
+              renderTerminalActionsMenu(resolvedActiveTerminalId, closeMenu)
+            }
           >
             <MoreHorizontalIcon className="size-3.5" />
-          </TerminalActionButton>
+          </TerminalActionsMenuButton>
         </div>
       </div>
 
