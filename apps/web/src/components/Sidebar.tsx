@@ -209,6 +209,7 @@ import {
   encodeThreadBoardDragThread,
   getThreadBoardDragThreadKey,
   setActiveThreadBoardDrag,
+  setThreadBoardDragImage,
   THREAD_BOARD_DRAG_MIME,
   type ThreadBoardDragThread,
 } from "../lib/threadBoardDrag";
@@ -1089,13 +1090,16 @@ export default function Sidebar() {
   }, []);
   const readBoardThreadDrag = useCallback(
     (event?: DragEvent<HTMLElement>): ThreadBoardDragThread | null => {
+      if (boardThreadDragState?.activeThread) {
+        return boardThreadDragState.activeThread;
+      }
       const encodedThread =
         event?.dataTransfer?.getData(THREAD_BOARD_DRAG_MIME) ||
         event?.dataTransfer?.getData("text/plain");
       if (encodedThread) {
         return decodeThreadBoardDragThread(encodedThread);
       }
-      return boardThreadDragState?.activeThread ?? null;
+      return null;
     },
     [boardThreadDragState],
   );
@@ -1196,6 +1200,10 @@ export default function Sidebar() {
       event.dataTransfer.effectAllowed = "copyMove";
       event.dataTransfer.setData(THREAD_BOARD_DRAG_MIME, payload);
       event.dataTransfer.setData("text/plain", payload);
+      setThreadBoardDragImage(event.dataTransfer, {
+        label: event.currentTarget.textContent,
+        tone: "copy",
+      });
       setActiveThreadBoardDrag(dragThread);
       setBoardsSectionExpanded(true);
       setBoardThreadDragState({
@@ -1239,9 +1247,7 @@ export default function Sidebar() {
           .getState()
           .upsertThreadOwnership(source.connectionUrl, source.threadId);
       }
-      const openedPaneId = useChatThreadBoardStore
-        .getState()
-        .openThreadInSplit(split.id, { ...source, allowDuplicate: true });
+      const openedPaneId = useChatThreadBoardStore.getState().openThreadInSplit(split.id, source);
       const nextSplit = useChatThreadBoardStore
         .getState()
         .splits.find((candidate) => candidate.id === split.id);
@@ -1346,14 +1352,13 @@ export default function Sidebar() {
       }
 
       const shouldUpdateActiveSplit =
-        routeHasSplitThreads &&
-        activeRouteSplitId !== null &&
-        savedSplitBoard.activeSplitId === activeRouteSplitId;
+        activeRouteSplitId !== null && savedSplitBoard.activeSplitId === activeRouteSplitId;
 
       if (shouldUpdateActiveSplit) {
         useChatThreadBoardStore.getState().openThreadInBoard({
           connectionUrl: target.connectionUrl,
           direction: "right",
+          sourcePaneId: savedSplitBoard.activePaneId,
           threadId: target.threadId,
         });
         navigateToCurrentSplit(target);
@@ -1383,8 +1388,8 @@ export default function Sidebar() {
       activeRouteSplitId,
       buildSplitTitle,
       navigateToCurrentSplit,
-      routeHasSplitThreads,
       routeThreadId,
+      savedSplitBoard.activePaneId,
       savedSplitBoard.activeSplitId,
     ],
   );
@@ -1402,12 +1407,12 @@ export default function Sidebar() {
       }
       const activeTarget = targets[targets.length - 1]!;
       const shouldUpdateActiveSplit =
-        routeHasSplitThreads &&
-        activeRouteSplitId !== null &&
-        savedSplitBoard.activeSplitId === activeRouteSplitId;
+        activeRouteSplitId !== null && savedSplitBoard.activeSplitId === activeRouteSplitId;
 
       if (shouldUpdateActiveSplit) {
-        useChatThreadBoardStore.getState().openThreadsInBoard(targets);
+        useChatThreadBoardStore
+          .getState()
+          .openThreadsInBoard(targets, { sourcePaneId: savedSplitBoard.activePaneId });
         navigateToCurrentSplit(activeTarget);
         return;
       }
@@ -1436,8 +1441,8 @@ export default function Sidebar() {
       activeRouteSplitId,
       buildSplitTitle,
       navigateToCurrentSplit,
-      routeHasSplitThreads,
       routeThreadId,
+      savedSplitBoard.activePaneId,
       savedSplitBoard.activeSplitId,
     ],
   );

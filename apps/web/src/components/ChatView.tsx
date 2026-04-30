@@ -30,6 +30,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ComponentProps,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   Suspense,
   lazy,
   startTransition,
@@ -482,6 +483,7 @@ type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
 interface ChatViewProps {
   connectionUrl?: string | null;
+  paneControls?: ReactNode;
   shortcutsEnabled?: boolean;
   showSidebarTrigger?: boolean;
   splitPane?: boolean;
@@ -553,6 +555,7 @@ interface PendingPullRequestSetupRequest {
 
 export default function ChatView({
   connectionUrl = null,
+  paneControls = null,
   shortcutsEnabled = true,
   showSidebarTrigger = true,
   splitPane = false,
@@ -7826,7 +7829,7 @@ export default function ChatView({
       {/* Persistent top bar — always visible regardless of workspace mode */}
       <div
         className={cn(
-          "overflow-hidden transition-[max-height,opacity] duration-200 ease-out",
+          "shrink-0 overflow-hidden transition-[max-height,opacity] duration-200 ease-out",
           isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
         )}
       >
@@ -7839,6 +7842,9 @@ export default function ChatView({
           )}
           showSidebarTrigger={showSidebarTrigger}
         >
+          {paneControls ? (
+            <div className="mr-1 flex shrink-0 items-center gap-0.5">{paneControls}</div>
+          ) : null}
           <ChatHeader
             activeThreadId={activeThread.id}
             activeThreadTitle={activeThread.title}

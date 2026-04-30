@@ -12,7 +12,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { XIcon } from "lucide-react";
+import { GripVerticalIcon, XIcon } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import {
   orderBoardPanes,
@@ -37,9 +38,13 @@ import {
   type ChatThreadBoardRoutePane,
 } from "../../lib/chatThreadBoardRouteSearch";
 import {
+  createThreadBoardDragThread,
+  encodeThreadBoardDragThread,
   getActiveThreadBoardDrag,
   getThreadBoardDragThreadKey,
   readThreadBoardDragThread,
+  setActiveThreadBoardDrag,
+  setThreadBoardDragImage,
   subscribeActiveThreadBoardDrag,
   THREAD_BOARD_DRAG_MIME,
   type ThreadBoardDragThread,
@@ -51,12 +56,17 @@ import { Button } from "../ui/button";
 const BOARD_MIN_COLUMN_WIDTH_PX = 360;
 const BOARD_MIN_ROW_HEIGHT_PX = 240;
 const EMPTY_ROUTE_THREADS: readonly ChatThreadBoardRoutePane[] = [];
+const BOARD_PANE_TRANSITION = { duration: 0.24, ease: [0.16, 1, 0.3, 1] } as const;
+const BOARD_DRAG_PANE_TRANSITION = { duration: 0.1, ease: [0.16, 1, 0.3, 1] } as const;
+const BOARD_DROP_TRANSITION = { duration: 0.07, ease: [0.16, 1, 0.3, 1] } as const;
+const BOARD_REDUCED_MOTION_TRANSITION = { duration: 0 } as const;
 type ThreadBoardDropDirection = "down" | "left" | "right" | "up";
 
 interface ThreadBoardDropTargetState {
   direction: ThreadBoardDropDirection;
   paneId: string;
   thread: ThreadBoardDragThread;
+  threadKey: string;
 }
 
 function isSameRoutePane(left: ChatThreadBoardRoutePane, right: ChatThreadBoardRoutePane): boolean {
@@ -95,9 +105,12 @@ function resolveThreadBoardDropDirection(
 }
 
 function ThreadBoardDropPreview(props: {
+  action: "insert" | "move";
   direction: ThreadBoardDropDirection;
   isSinglePane: boolean;
 }) {
+  const reducedMotion = useReducedMotion();
+  const transition = reducedMotion ? BOARD_REDUCED_MOTION_TRANSITION : BOARD_DROP_TRANSITION;
   const frameClassName =
     props.direction === "left"
       ? "right-1/2 w-1/2"
@@ -108,36 +121,73 @@ function ThreadBoardDropPreview(props: {
           : "top-1/2 h-1/2";
 
   return (
-    <>
-      <div className="pointer-events-none absolute inset-0 z-30 rounded-[inherit] border border-primary/35 bg-primary/[0.05]" />
-      <div
+    <motion.div
+      className="pointer-events-none absolute inset-0 z-30 rounded-[inherit]"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={transition}
+      aria-hidden="true"
+    >
+      <div className="absolute inset-0 rounded-[inherit] border border-primary/28 bg-primary/[0.04]" />
+      <motion.div
         className={cn(
-          "pointer-events-none absolute z-[31] rounded-[inherit] border border-primary/45 bg-primary/[0.14]",
+          "absolute z-[31] rounded-[inherit] border border-primary/40 bg-primary/[0.12] shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.06)]",
           props.direction === "left" || props.direction === "right"
             ? "top-0 bottom-0"
             : "left-0 right-0",
           frameClassName,
         )}
+        initial={{ opacity: 0, scale: 0.985 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.99 }}
+        transition={transition}
       />
-      <div className="pointer-events-none absolute inset-x-3 top-3 z-[32] flex justify-center">
+      <motion.div
+        className="absolute inset-x-3 top-3 z-[32] flex justify-center"
+        initial={{ opacity: 0, y: -4 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -2 }}
+        transition={transition}
+      >
         <div className="rounded-full border border-primary/30 bg-background/92 px-2.5 py-1 text-[10px] font-medium tracking-[0.12em] text-primary/85 uppercase backdrop-blur">
-          {props.isSinglePane ? "Create split" : "Insert pane"} {props.direction}
+          {props.action === "move"
+            ? "Move pane"
+            : props.isSinglePane
+              ? "Create split"
+              : "Insert pane"}{" "}
+          {props.direction}
         </div>
-      </div>
-    </>
+      </motion.div>
+    </motion.div>
   );
 }
 
 function ThreadBoardDropHint(props: { isSinglePane: boolean }) {
+  const reducedMotion = useReducedMotion();
+  const transition = reducedMotion ? BOARD_REDUCED_MOTION_TRANSITION : BOARD_DROP_TRANSITION;
   return (
-    <>
-      <div className="pointer-events-none absolute inset-0 z-20 rounded-[inherit] border border-dashed border-primary/30 bg-primary/[0.035]" />
-      <div className="pointer-events-none absolute inset-x-3 top-3 z-[32] flex justify-center">
+    <motion.div
+      className="pointer-events-none absolute inset-0 z-20 rounded-[inherit]"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={transition}
+      aria-hidden="true"
+    >
+      <div className="absolute inset-0 rounded-[inherit] border border-dashed border-primary/28 bg-primary/[0.03]" />
+      <motion.div
+        className="absolute inset-x-3 top-3 z-[32] flex justify-center"
+        initial={{ opacity: 0, y: -4 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -2 }}
+        transition={transition}
+      >
         <div className="rounded-full border border-primary/25 bg-background/92 px-2.5 py-1 text-[10px] font-medium tracking-[0.12em] text-primary/80 uppercase backdrop-blur">
           {props.isSinglePane ? "Drop to create split" : "Drop to add pane"}
         </div>
-      </div>
-    </>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -158,7 +208,9 @@ function isThreadBoardDrag(dataTransfer: DataTransfer | null): boolean {
 
 function ThreadBoardPane(props: {
   activePaneId: string | null;
+  dropPreviewAction?: "insert" | "move";
   dropPreviewDirection?: ThreadBoardDropDirection | null;
+  dragActive?: boolean;
   isPrimary: boolean;
   isSinglePane: boolean;
   pane: ChatThreadBoardPaneState;
@@ -168,26 +220,45 @@ function ThreadBoardPane(props: {
   showSidebarTrigger: boolean;
   splitPane?: boolean;
   onClose: () => void;
+  onDragEnter?: (event: ReactDragEvent<HTMLDivElement>) => void;
   onDragLeave?: (event: ReactDragEvent<HTMLDivElement>) => void;
   onDragOver?: (event: ReactDragEvent<HTMLDivElement>) => void;
   onDrop?: (event: ReactDragEvent<HTMLDivElement>) => void;
+  onPaneDragEnd?: (event: ReactDragEvent<HTMLButtonElement>) => void;
+  onPaneDragStart?: (
+    pane: ChatThreadBoardPaneState,
+    label: string,
+  ) => (event: ReactDragEvent<HTMLButtonElement>) => void;
   onPromote: () => void;
   setActivePane: (paneId: string) => void;
 }) {
   const { pane } = props;
   const sidebarThread = useSidebarThreadSummaryById(pane.threadId);
   const paneTitle = sidebarThread?.title ?? "thread";
+  const isFocusedPane = props.isSinglePane || props.activePaneId === pane.id;
+  const isDimmedPane = !props.isSinglePane && !isFocusedPane;
+  const reducedMotion = useReducedMotion();
+  const transition = reducedMotion
+    ? BOARD_REDUCED_MOTION_TRANSITION
+    : props.dragActive
+      ? BOARD_DRAG_PANE_TRANSITION
+      : BOARD_PANE_TRANSITION;
 
   return (
-    <div
+    <motion.div
+      layout="position"
+      transition={transition}
       className={cn(
         "group/thread-pane relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background",
-        props.isPrimary ? "border-0" : "border-l border-border/80",
       )}
+      onDragEnter={props.onDragEnter}
       onDragLeave={props.onDragLeave}
       onDragOver={props.onDragOver}
       onDrop={props.onDrop}
       onPointerDown={() => {
+        props.setActivePane(pane.id);
+      }}
+      onFocusCapture={() => {
         props.setActivePane(pane.id);
       }}
       onClick={(event) => {
@@ -196,59 +267,97 @@ function ThreadBoardPane(props: {
         }
       }}
     >
-      <ChatView
-        connectionUrl={pane.connectionUrl}
-        threadId={pane.threadId}
-        shortcutsEnabled={props.shortcutsEnabled}
-        showSidebarTrigger={props.showSidebarTrigger}
-        splitPane={props.splitPane ?? true}
-      />
+      <div
+        className={cn(
+          "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-[opacity,filter] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
+          props.dragActive ? "duration-150" : "duration-300",
+          isDimmedPane ? "opacity-92 saturate-[0.92] brightness-[1] contrast-[1]" : "opacity-100",
+        )}
+      >
+        <ChatView
+          connectionUrl={pane.connectionUrl}
+          paneControls={
+            !props.isSinglePane ? (
+              <>
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  draggable
+                  className="no-drag-region h-7 w-7 cursor-grab text-muted-foreground/55 opacity-80 transition-[background-color,color,opacity,transform] duration-150 hover:-translate-y-px hover:text-foreground hover:opacity-100 active:cursor-grabbing active:translate-y-0"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onDragStart={props.onPaneDragStart?.(pane, paneTitle)}
+                  onDragEnd={props.onPaneDragEnd}
+                  aria-label={`Move ${paneTitle}`}
+                >
+                  <GripVerticalIcon className="size-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  className="no-drag-region h-7 w-7 text-muted-foreground/55 opacity-80 transition-[background-color,color,opacity,transform] duration-150 hover:-translate-y-px hover:text-foreground hover:opacity-100 active:translate-y-0"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    props.onClose();
+                  }}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                  aria-label={`Close ${paneTitle}`}
+                >
+                  <XIcon className="size-3.5" />
+                </Button>
+              </>
+            ) : null
+          }
+          threadId={pane.threadId}
+          shortcutsEnabled={props.shortcutsEnabled}
+          showSidebarTrigger={props.showSidebarTrigger}
+          splitPane={props.splitPane ?? true}
+        />
+      </div>
 
       {props.showDropOverlay ? (
         <div
           className="absolute inset-0 z-20"
+          onDragEnter={props.onDragEnter}
           onDragLeave={props.onDragLeave}
           onDragOver={props.onDragOver}
           onDrop={props.onDrop}
         />
       ) : null}
 
-      {props.dropPreviewDirection ? (
-        <ThreadBoardDropPreview
-          direction={props.dropPreviewDirection}
-          isSinglePane={props.isSinglePane}
-        />
-      ) : props.showDropHint ? (
-        <ThreadBoardDropHint isSinglePane={props.isSinglePane} />
-      ) : null}
-
-      {!props.isPrimary ? (
-        <>
-          <Button
-            type="button"
-            size="icon-xs"
-            variant="ghost"
-            className="absolute right-2 top-2 z-30 bg-background/90 text-muted-foreground opacity-0 backdrop-blur transition-opacity hover:bg-background hover:text-foreground group-hover/thread-pane:opacity-100 focus-visible:opacity-100"
-            onClick={(event) => {
-              event.stopPropagation();
-              props.onClose();
-            }}
-            onPointerDown={(event) => {
-              event.stopPropagation();
-            }}
-            aria-label={`Close ${paneTitle}`}
-          >
-            <XIcon className="size-3.5" />
-          </Button>
-          <div
-            className={cn(
-              "pointer-events-none absolute inset-0 ring-1 ring-inset transition-colors",
-              props.activePaneId === pane.id ? "ring-primary/35" : "ring-border/60",
-            )}
+      <AnimatePresence initial={false}>
+        {props.dropPreviewDirection ? (
+          <ThreadBoardDropPreview
+            key="drop-preview"
+            action={props.dropPreviewAction ?? "insert"}
+            direction={props.dropPreviewDirection}
+            isSinglePane={props.isSinglePane}
           />
-        </>
+        ) : props.showDropHint ? (
+          <ThreadBoardDropHint key="drop-hint" isSinglePane={props.isSinglePane} />
+        ) : null}
+      </AnimatePresence>
+
+      {props.activePaneId && !props.isSinglePane ? (
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-0 z-[33] border transition-[border-color,box-shadow] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
+            props.dragActive ? "duration-100" : "duration-300",
+            isFocusedPane
+              ? "border-primary/55 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.08)]"
+              : "border-border/35",
+          )}
+        />
       ) : null}
-    </div>
+    </motion.div>
   );
 }
 
@@ -261,8 +370,11 @@ export function ThreadBoard(props: {
   threadId: ThreadId;
 }) {
   const navigate = useNavigate();
+  const reducedMotion = useReducedMotion();
   const branchRefs = useRef(new Map<string, HTMLDivElement>());
+  const restoredSplitRouteKeyRef = useRef<string | null>(null);
   const activePaneId = useChatThreadBoardStore((state) => state.activePaneId);
+  const activeSplitId = useChatThreadBoardStore((state) => state.activeSplitId);
   const layoutRoot = useChatThreadBoardStore((state) => state.layoutRoot);
   const panes = useChatThreadBoardStore((state) => state.panes);
   const routeSplit = useChatThreadBoardStore((state) =>
@@ -271,6 +383,7 @@ export function ThreadBoard(props: {
       : null,
   );
   const closePane = useChatThreadBoardStore((state) => state.closePane);
+  const movePane = useChatThreadBoardStore((state) => state.movePane);
   const openThreadInBoard = useChatThreadBoardStore((state) => state.openThreadInBoard);
   const restoreSplit = useChatThreadBoardStore((state) => state.restoreSplit);
   const setActivePane = useChatThreadBoardStore((state) => state.setActivePane);
@@ -299,12 +412,20 @@ export function ThreadBoard(props: {
   const isSavedSplitRoute = Boolean(
     props.routeSplitId && routeSplit && routeSplit.archivedAt === null,
   );
+  const routeSplitActivePaneId = routeSplit?.activePaneId ?? null;
+  const routeSplitIsRestorable = Boolean(props.routeSplitId && routeSplit?.archivedAt === null);
 
   useEffect(() => {
-    if (props.routeSplitId && routeSplit && routeSplit.archivedAt === null) {
-      restoreSplit(props.routeSplitId, props.routePaneId ?? routeSplit.activePaneId);
+    if (props.routeSplitId && routeSplitIsRestorable) {
+      const restorePaneId = props.routePaneId ?? routeSplitActivePaneId;
+      const restoreKey = `${props.routeSplitId}:${restorePaneId ?? ""}`;
+      if (restoredSplitRouteKeyRef.current !== restoreKey) {
+        restoredSplitRouteKeyRef.current = restoreKey;
+        restoreSplit(props.routeSplitId, restorePaneId);
+      }
       return;
     }
+    restoredSplitRouteKeyRef.current = null;
     if (splitRouteThreads.length <= 1) {
       return;
     }
@@ -318,7 +439,8 @@ export function ThreadBoard(props: {
     props.routePaneId,
     props.routeSplitId,
     restoreSplit,
-    routeSplit,
+    routeSplitActivePaneId,
+    routeSplitIsRestorable,
     setActiveSplit,
     splitRouteThreads,
     syncRouteThreads,
@@ -326,27 +448,28 @@ export function ThreadBoard(props: {
 
   useEffect(() => {
     const activePane = selectBoardPaneById(panes, activePaneId);
-    const isSplitRoute = Boolean(
-      props.routeSplitId && routeSplit && routeSplit.archivedAt === null,
-    );
+    const isSplitRoute = routeSplitIsRestorable;
     if (!isSplitRoute && splitRouteThreads.length <= 1) {
       return;
     }
-    const nextSearch = buildThreadBoardRouteSearch(
-      isSplitRoute ? [] : splitRouteThreads,
-      isSplitRoute && activePane
+    const nextSplitId = isSplitRoute ? (props.routeSplitId ?? null) : activeSplitId;
+    const nextActivePane =
+      nextSplitId && activePane
         ? { connectionUrl: activePane.connectionUrl, threadId: activePane.threadId }
-        : activeRouteThread,
+        : activeRouteThread;
+    const nextSearch = buildThreadBoardRouteSearch(
+      nextSplitId ? [] : splitRouteThreads,
+      nextActivePane,
       {
-        paneId: isSplitRoute ? (activePane?.id ?? null) : null,
-        splitId: isSplitRoute ? (props.routeSplitId ?? null) : null,
+        paneId: nextSplitId ? (activePane?.id ?? null) : null,
+        splitId: nextSplitId,
       },
     );
     startTransition(() => {
       void navigate({
         to: "/$threadId",
         params: {
-          threadId: isSplitRoute && activePane ? activePane.threadId : props.threadId,
+          threadId: nextSplitId && activePane ? activePane.threadId : props.threadId,
         },
         replace: true,
         search: (previous) => {
@@ -374,11 +497,12 @@ export function ThreadBoard(props: {
   }, [
     activePaneId,
     activeRouteThread,
+    activeSplitId,
     navigate,
     panes,
     props.routeSplitId,
     props.threadId,
-    routeSplit,
+    routeSplitIsRestorable,
     splitRouteThreads,
   ]);
 
@@ -408,6 +532,11 @@ export function ThreadBoard(props: {
     getActiveThreadBoardDrag,
   );
   const threadDragActive = activeDraggedThread !== null;
+  const boardPaneTransition = reducedMotion
+    ? BOARD_REDUCED_MOTION_TRANSITION
+    : threadDragActive
+      ? BOARD_DRAG_PANE_TRANSITION
+      : BOARD_PANE_TRANSITION;
 
   const navigateToBoardRoute = useCallback(
     (activePane: ChatThreadBoardRoutePane) => {
@@ -522,18 +651,23 @@ export function ThreadBoard(props: {
     [],
   );
 
-  const handlePaneDragOver = useCallback(
-    (pane: ChatThreadBoardPaneState) => (event: ReactDragEvent<HTMLDivElement>) => {
-      const draggedThread = readThreadBoardDragThread(event.dataTransfer) ?? activeDraggedThread;
+  const updatePaneDropTarget = useCallback(
+    (pane: ChatThreadBoardPaneState, event: ReactDragEvent<HTMLDivElement>) => {
+      const draggedThread = activeDraggedThread ?? readThreadBoardDragThread(event.dataTransfer);
       if (!draggedThread) {
-        return;
+        return false;
       }
-      if (getThreadBoardDragThreadKey(draggedThread) === getThreadBoardDragThreadKey(pane)) {
+      const sourcePaneId = draggedThread.sourcePaneId ?? null;
+      const draggedThreadKey = getThreadBoardDragThreadKey(draggedThread);
+      const isSamePaneDrag = sourcePaneId === pane.id;
+      const isSameSidebarThreadDrop =
+        sourcePaneId === null && draggedThreadKey === getThreadBoardDragThreadKey(pane);
+      if (isSamePaneDrag || isSameSidebarThreadDrop) {
         setDropTarget((current) => (current?.paneId === pane.id ? null : current));
-        return;
+        return false;
       }
       event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
+      event.dataTransfer.dropEffect = sourcePaneId ? "move" : "copy";
       const direction = resolveThreadBoardDropDirection(
         event,
         event.currentTarget.getBoundingClientRect(),
@@ -542,22 +676,39 @@ export function ThreadBoard(props: {
         current &&
         current.paneId === pane.id &&
         current.direction === direction &&
-        getThreadBoardDragThreadKey(current.thread) === getThreadBoardDragThreadKey(draggedThread)
+        current.threadKey === draggedThreadKey
           ? current
           : {
               direction,
               paneId: pane.id,
               thread: draggedThread,
+              threadKey: draggedThreadKey,
             },
       );
+      return true;
     },
     [activeDraggedThread],
+  );
+
+  const handlePaneDragEnter = useCallback(
+    (pane: ChatThreadBoardPaneState) => (event: ReactDragEvent<HTMLDivElement>) => {
+      updatePaneDropTarget(pane, event);
+    },
+    [updatePaneDropTarget],
+  );
+
+  const handlePaneDragOver = useCallback(
+    (pane: ChatThreadBoardPaneState) => (event: ReactDragEvent<HTMLDivElement>) => {
+      updatePaneDropTarget(pane, event);
+    },
+    [updatePaneDropTarget],
   );
 
   const handlePaneDrop = useCallback(
     (pane: ChatThreadBoardPaneState) => (event: ReactDragEvent<HTMLDivElement>) => {
       event.preventDefault();
-      const draggedThread = readThreadBoardDragThread(event.dataTransfer) ?? activeDraggedThread;
+      event.stopPropagation();
+      const draggedThread = activeDraggedThread ?? readThreadBoardDragThread(event.dataTransfer);
       const direction =
         dropTarget?.paneId === pane.id
           ? dropTarget.direction
@@ -566,18 +717,41 @@ export function ThreadBoard(props: {
       if (!draggedThread) {
         return;
       }
-      if (getThreadBoardDragThreadKey(draggedThread) === getThreadBoardDragThreadKey(pane)) {
+      const sourcePaneId = draggedThread.sourcePaneId ?? null;
+      if (sourcePaneId === pane.id) {
+        setActiveThreadBoardDrag(null);
         return;
       }
 
-      const sourcePaneId = boardVisible ? pane.id : syncRouteThread(activeRouteThread);
+      if (sourcePaneId) {
+        const movedPaneId = movePane({
+          direction,
+          paneId: sourcePaneId,
+          targetPaneId: pane.id,
+        });
+        setActiveThreadBoardDrag(null);
+        if (movedPaneId) {
+          navigateToBoardRoute({
+            connectionUrl: draggedThread.connectionUrl,
+            threadId: draggedThread.threadId,
+          });
+        }
+        return;
+      }
+
+      if (getThreadBoardDragThreadKey(draggedThread) === getThreadBoardDragThreadKey(pane)) {
+        setActiveThreadBoardDrag(null);
+        return;
+      }
+
+      const insertionSourcePaneId = boardVisible ? pane.id : syncRouteThread(activeRouteThread);
       openThreadInBoard({
-        allowDuplicate: true,
         connectionUrl: draggedThread.connectionUrl,
         direction,
-        sourcePaneId,
+        sourcePaneId: insertionSourcePaneId,
         threadId: draggedThread.threadId,
       });
+      setActiveThreadBoardDrag(null);
       navigateToBoardRoute({
         connectionUrl: draggedThread.connectionUrl,
         threadId: draggedThread.threadId,
@@ -589,11 +763,37 @@ export function ThreadBoard(props: {
       boardVisible,
       clearDropTarget,
       dropTarget,
+      movePane,
       navigateToBoardRoute,
       openThreadInBoard,
       syncRouteThread,
     ],
   );
+
+  const handlePaneDragStart = useCallback(
+    (pane: ChatThreadBoardPaneState, label: string) =>
+      (event: ReactDragEvent<HTMLButtonElement>) => {
+        const dragThread = createThreadBoardDragThread({
+          connectionUrl: pane.connectionUrl,
+          sourcePaneId: pane.id,
+          threadId: pane.threadId,
+        });
+        const payload = encodeThreadBoardDragThread(dragThread);
+        event.stopPropagation();
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData(THREAD_BOARD_DRAG_MIME, payload);
+        event.dataTransfer.setData("text/plain", payload);
+        setThreadBoardDragImage(event.dataTransfer, { label, tone: "move" });
+        setActiveThreadBoardDrag(dragThread);
+        setActivePane(pane.id);
+      },
+    [setActivePane],
+  );
+
+  const handlePaneDragEnd = useCallback(() => {
+    setActiveThreadBoardDrag(null);
+    clearDropTarget();
+  }, [clearDropTarget]);
 
   const branchResizeStateRef = useRef<{
     axis: ChatThreadBoardLayoutAxis;
@@ -689,6 +889,7 @@ export function ThreadBoard(props: {
   useEffect(() => {
     const clear = () => {
       setDropTarget(null);
+      setActiveThreadBoardDrag(null);
     };
     window.addEventListener("dragend", clear);
     window.addEventListener("drop", clear);
@@ -727,20 +928,24 @@ export function ThreadBoard(props: {
         <ThreadBoardPane
           key={pane.id}
           activePaneId={activePaneId}
+          dropPreviewAction={dropTarget?.thread.sourcePaneId ? "move" : "insert"}
           dropPreviewDirection={dropTarget?.paneId === pane.id ? dropTarget.direction : null}
+          dragActive={threadDragActive}
           isPrimary={pane.id === primaryPane.id}
           isSinglePane={false}
           pane={pane}
           shortcutsEnabled={(activePaneId ?? primaryPane.id) === pane.id}
           showSidebarTrigger={pane.id === firstPaneId}
-          showDropHint={threadDragActive && dropTarget?.paneId !== pane.id}
           showDropOverlay={threadDragActive}
           onClose={() => {
             handleClosePane(pane);
           }}
+          onDragEnter={handlePaneDragEnter(pane)}
           onDragLeave={handlePaneDragLeave(pane.id)}
           onDragOver={handlePaneDragOver(pane)}
           onDrop={handlePaneDrop(pane)}
+          onPaneDragEnd={handlePaneDragEnd}
+          onPaneDragStart={handlePaneDragStart}
           onPromote={() => {
             promotePane(pane);
           }}
@@ -753,9 +958,12 @@ export function ThreadBoard(props: {
       dropTarget,
       firstPaneId,
       handleClosePane,
+      handlePaneDragEnter,
       handlePaneDragLeave,
       handlePaneDragOver,
       handlePaneDrop,
+      handlePaneDragEnd,
+      handlePaneDragStart,
       paneById,
       primaryPane,
       promotePane,
@@ -789,8 +997,10 @@ export function ThreadBoard(props: {
         >
           {node.children.map((child, index) => (
             <Fragment key={child.id}>
-              <div
+              <motion.div
+                layout="position"
                 className="flex min-h-0 min-w-0 overflow-hidden"
+                transition={boardPaneTransition}
                 style={{
                   flexBasis: 0,
                   flexGrow: ratios[index] ?? 1,
@@ -800,7 +1010,7 @@ export function ThreadBoard(props: {
                 }}
               >
                 {renderLayoutNode(child)}
-              </div>
+              </motion.div>
               {index < node.children.length - 1 ? (
                 <div
                   role="separator"
@@ -809,7 +1019,7 @@ export function ThreadBoard(props: {
                   }
                   aria-orientation={node.axis === "horizontal" ? "vertical" : "horizontal"}
                   className={cn(
-                    "group relative z-10 shrink-0 touch-none select-none",
+                    "group relative z-10 shrink-0 touch-none select-none outline-none transition-[background-color] duration-150",
                     node.axis === "horizontal"
                       ? "-mx-px flex w-2 cursor-col-resize items-center justify-center"
                       : "-my-px flex h-2 cursor-row-resize items-center justify-center",
@@ -821,7 +1031,15 @@ export function ThreadBoard(props: {
                 >
                   <div
                     className={cn(
-                      "absolute bg-border/70 transition-colors group-hover:bg-foreground/30",
+                      "absolute rounded-full bg-primary/0 transition-[background-color,transform,opacity] duration-150 ease-out group-hover:bg-primary/10 group-focus-visible:bg-primary/10 group-active:bg-primary/15",
+                      node.axis === "horizontal"
+                        ? "inset-y-2 left-1/2 w-1 -translate-x-1/2 group-hover:scale-x-125"
+                        : "inset-x-2 top-1/2 h-1 -translate-y-1/2 group-hover:scale-y-125",
+                    )}
+                  />
+                  <div
+                    className={cn(
+                      "absolute bg-border/55 transition-colors duration-150 group-hover:bg-primary/45 group-focus-visible:bg-primary/45 group-active:bg-primary/60",
                       node.axis === "horizontal"
                         ? "inset-y-0 left-1/2 w-px -translate-x-1/2"
                         : "inset-x-0 top-1/2 h-px -translate-y-1/2",
@@ -834,7 +1052,13 @@ export function ThreadBoard(props: {
         </div>
       );
     },
-    [handleBranchResizeEnd, handleBranchResizeMove, handleBranchResizeStart, renderLeaf],
+    [
+      boardPaneTransition,
+      handleBranchResizeEnd,
+      handleBranchResizeMove,
+      handleBranchResizeStart,
+      renderLeaf,
+    ],
   );
 
   if (!boardVisible || !primaryPane) {
@@ -854,15 +1078,17 @@ export function ThreadBoard(props: {
         <ThreadBoardPane
           activePaneId={singlePane.id}
           dropPreviewDirection={dropTarget?.paneId === singlePane.id ? dropTarget.direction : null}
+          dragActive={threadDragActive}
           isPrimary
           isSinglePane
           pane={singlePane}
           shortcutsEnabled
           showSidebarTrigger
-          showDropHint={threadDragActive}
+          showDropHint={threadDragActive && dropTarget?.paneId !== singlePane.id}
           showDropOverlay={threadDragActive}
           splitPane={false}
           onClose={() => {}}
+          onDragEnter={handlePaneDragEnter(singlePane)}
           onDragLeave={handlePaneDragLeave(singlePane.id)}
           onDragOver={handlePaneDragOver(singlePane)}
           onDrop={handlePaneDrop(singlePane)}
