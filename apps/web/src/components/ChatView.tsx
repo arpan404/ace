@@ -543,7 +543,7 @@ function resolveHandoffLineageFromIndex(
   let currentThreadId: ThreadId | null = sourceThreadId;
 
   while (currentThreadId !== null) {
-    const thread = threadsById[currentThreadId];
+    const thread: Thread | undefined = threadsById[String(currentThreadId)];
     if (!thread) {
       return {
         threads: lineageNewestFirst.toReversed(),
