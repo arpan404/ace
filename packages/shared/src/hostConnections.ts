@@ -1,3 +1,5 @@
+import { buildRelayConnectionUrl, normalizeRelayWebSocketUrl } from "./relay";
+
 export interface HostConnectionDraft {
   readonly name?: string;
   readonly wsUrl: string;
@@ -6,11 +8,15 @@ export interface HostConnectionDraft {
 
 export interface HostPairingPayload {
   readonly name?: string;
-  readonly wsUrl: string;
+  readonly wsUrl?: string;
+  readonly relayUrl?: string;
+  readonly hostDeviceId?: string;
+  readonly hostIdentityPublicKey?: string;
   readonly sessionId: string;
   readonly secret: string;
   readonly claimUrl?: string;
   readonly pollingUrl?: string;
+  readonly expiresAt?: string;
 }
 
 export type HostConnectionQrPayload =
@@ -28,6 +34,10 @@ interface QrHostPayload {
   readonly wsUrl?: string;
   readonly url?: string;
   readonly ws?: string;
+  readonly relayUrl?: string;
+  readonly hostDeviceId?: string;
+  readonly hostIdentityPublicKey?: string;
+  readonly expiresAt?: string;
   readonly authToken?: string;
   readonly token?: string;
   readonly sessionId?: string;
@@ -97,9 +107,17 @@ function parseAceSchemePayload(rawPayload: string): QrHostPayload | null {
       ...(token ? { token } : {}),
       ...(decodedPairingPayload?.name ? { name: decodedPairingPayload.name } : {}),
       ...(decodedPairingPayload?.wsUrl ? { wsUrl: decodedPairingPayload.wsUrl } : {}),
+      ...(decodedPairingPayload?.relayUrl ? { relayUrl: decodedPairingPayload.relayUrl } : {}),
+      ...(decodedPairingPayload?.hostDeviceId
+        ? { hostDeviceId: decodedPairingPayload.hostDeviceId }
+        : {}),
+      ...(decodedPairingPayload?.hostIdentityPublicKey
+        ? { hostIdentityPublicKey: decodedPairingPayload.hostIdentityPublicKey }
+        : {}),
       ...(decodedPairingPayload?.sessionId ? { sessionId: decodedPairingPayload.sessionId } : {}),
       ...(decodedPairingPayload?.secret ? { secret: decodedPairingPayload.secret } : {}),
       ...(decodedPairingPayload?.claimUrl ? { claimUrl: decodedPairingPayload.claimUrl } : {}),
+      ...(decodedPairingPayload?.expiresAt ? { expiresAt: decodedPairingPayload.expiresAt } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(secret ? { secret } : {}),
       ...(claimUrl ? { claimUrl } : {}),
@@ -145,9 +163,13 @@ function decodeBase64UrlUtf8(input: string): string | null {
 function decodeEncodedPairingPayload(encodedPayload: string | null): {
   readonly name?: string;
   readonly wsUrl?: string;
+  readonly relayUrl?: string;
+  readonly hostDeviceId?: string;
+  readonly hostIdentityPublicKey?: string;
   readonly sessionId?: string;
   readonly secret?: string;
   readonly claimUrl?: string;
+  readonly expiresAt?: string;
 } | null {
   if (!encodedPayload) {
     return null;
@@ -168,9 +190,13 @@ function decodeEncodedPairingPayload(encodedPayload: string | null): {
   const value = parsed as {
     readonly name?: unknown;
     readonly wsUrl?: unknown;
+    readonly relayUrl?: unknown;
+    readonly hostDeviceId?: unknown;
+    readonly hostIdentityPublicKey?: unknown;
     readonly sessionId?: unknown;
     readonly secret?: unknown;
     readonly claimUrl?: unknown;
+    readonly expiresAt?: unknown;
   };
   return {
     ...(typeof value.name === "string" && value.name.trim().length > 0
@@ -179,9 +205,20 @@ function decodeEncodedPairingPayload(encodedPayload: string | null): {
     ...(typeof value.wsUrl === "string" && value.wsUrl.trim().length > 0
       ? { wsUrl: value.wsUrl.trim() }
       : {}),
+    ...(typeof value.relayUrl === "string" && value.relayUrl.trim().length > 0
+      ? { relayUrl: value.relayUrl.trim() }
+      : {}),
+    ...(typeof value.hostDeviceId === "string" && value.hostDeviceId.trim().length > 0
+      ? { hostDeviceId: value.hostDeviceId.trim() }
+      : {}),
+    ...(typeof value.hostIdentityPublicKey === "string" &&
+    value.hostIdentityPublicKey.trim().length > 0
+      ? { hostIdentityPublicKey: value.hostIdentityPublicKey.trim() }
+      : {}),
     ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
     ...(typeof value.secret === "string" ? { secret: value.secret } : {}),
     ...(typeof value.claimUrl === "string" ? { claimUrl: value.claimUrl } : {}),
+    ...(typeof value.expiresAt === "string" ? { expiresAt: value.expiresAt } : {}),
   };
 }
 
@@ -223,6 +260,26 @@ function resolvePairingFromPayload(payload: QrHostPayload): HostPairingPayload |
   const trimmedSecret = secret.trim();
   if (trimmedSessionId.length === 0 || trimmedSecret.length === 0) {
     return null;
+  }
+  if (
+    typeof payload.relayUrl === "string" &&
+    payload.relayUrl.trim().length > 0 &&
+    typeof payload.hostDeviceId === "string" &&
+    payload.hostDeviceId.trim().length > 0 &&
+    typeof payload.hostIdentityPublicKey === "string" &&
+    payload.hostIdentityPublicKey.trim().length > 0
+  ) {
+    return {
+      ...(typeof payload.name === "string" && payload.name.trim().length > 0
+        ? { name: payload.name.trim() }
+        : {}),
+      relayUrl: normalizeRelayWebSocketUrl(payload.relayUrl),
+      hostDeviceId: payload.hostDeviceId.trim(),
+      hostIdentityPublicKey: payload.hostIdentityPublicKey.trim(),
+      sessionId: trimmedSessionId,
+      secret: trimmedSecret,
+      ...(typeof payload.expiresAt === "string" ? { expiresAt: payload.expiresAt } : {}),
+    };
   }
   const wsUrl = payload.wsUrl ?? payload.url ?? payload.ws;
   if (typeof wsUrl !== "string" || wsUrl.trim().length === 0) {
@@ -310,20 +367,42 @@ export function parseHostDraftFromQrPayload(rawPayload: string): HostConnectionD
 }
 
 export function buildPairingPayload(input: HostPairingPayload): string {
-  const claimUrl = input.claimUrl ? resolvePairingClaimUrl(input.claimUrl) : null;
-  if (!claimUrl) {
-    throw new Error("Pairing claim URL must use http:// or https://.");
-  }
-  const wsUrl = input.wsUrl.trim();
-  if (wsUrl.length === 0) {
-    throw new Error("Pairing host URL is required.");
-  }
   const sessionId = input.sessionId.trim();
   const secret = input.secret.trim();
   if (sessionId.length === 0 || secret.length === 0) {
     throw new Error("Pairing session ID and secret are required.");
   }
   const name = input.name?.trim() ?? "";
+  if (
+    typeof input.relayUrl === "string" &&
+    input.relayUrl.trim().length > 0 &&
+    typeof input.hostDeviceId === "string" &&
+    input.hostDeviceId.trim().length > 0 &&
+    typeof input.hostIdentityPublicKey === "string" &&
+    input.hostIdentityPublicKey.trim().length > 0
+  ) {
+    return JSON.stringify(
+      {
+        ...(name.length > 0 ? { name } : {}),
+        relayUrl: normalizeRelayWebSocketUrl(input.relayUrl),
+        hostDeviceId: input.hostDeviceId.trim(),
+        hostIdentityPublicKey: input.hostIdentityPublicKey.trim(),
+        sessionId,
+        secret,
+        ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+      },
+      null,
+      2,
+    );
+  }
+  const claimUrl = input.claimUrl ? resolvePairingClaimUrl(input.claimUrl) : null;
+  if (!claimUrl) {
+    throw new Error("Pairing claim URL must use http:// or https://.");
+  }
+  const wsUrl = input.wsUrl?.trim() ?? "";
+  if (wsUrl.length === 0) {
+    throw new Error("Pairing host URL is required.");
+  }
   return JSON.stringify(
     {
       ...(name.length > 0 ? { name } : {}),
@@ -335,6 +414,25 @@ export function buildPairingPayload(input: HostPairingPayload): string {
     null,
     2,
   );
+}
+
+export function buildRelayHostConnectionDraft(pairing: HostPairingPayload): HostConnectionDraft {
+  if (!pairing.relayUrl || !pairing.hostDeviceId || !pairing.hostIdentityPublicKey) {
+    throw new Error("Relay pairing payload is missing relay metadata.");
+  }
+  return {
+    ...(pairing.name?.trim() ? { name: pairing.name.trim() } : {}),
+    wsUrl: buildRelayConnectionUrl({
+      version: 1,
+      relayUrl: pairing.relayUrl,
+      hostDeviceId: pairing.hostDeviceId,
+      hostIdentityPublicKey: pairing.hostIdentityPublicKey,
+      pairingId: pairing.sessionId,
+      pairingSecret: pairing.secret,
+      ...(pairing.name?.trim() ? { hostName: pairing.name.trim() } : {}),
+      ...(pairing.expiresAt ? { expiresAt: pairing.expiresAt } : {}),
+    }),
+  };
 }
 
 export function resolveHostDisplayName(rawName: string | undefined, wsUrl: string): string {

@@ -87,6 +87,14 @@
     "./hostConnections": {
       "types": "./src/hostConnections.ts",
       "import": "./src/hostConnections.ts"
+    },
+    "./relay": {
+      "types": "./src/relay.ts",
+      "import": "./src/relay.ts"
+    },
+    "./relayRpcTransport": {
+      "types": "./src/relayRpcTransport.ts",
+      "import": "./src/relayRpcTransport.ts"
     }
   },
   "scripts": {
@@ -96,6 +104,9 @@
   },
   "dependencies": {
     "@ace/contracts": "workspace:*",
+    "@noble/ciphers": "^2.0.1",
+    "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.1",
     "effect": "catalog:"
   },
   "devDependencies": {

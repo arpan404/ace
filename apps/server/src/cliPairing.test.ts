@@ -55,9 +55,51 @@ describe("cliPairing", () => {
     expect(created.connectionString.startsWith("ace://pair?p=")).toBe(true);
     const encoded = new URL(created.connectionString).searchParams.get("p");
     expect(encoded).toBeTruthy();
-    const decoded = Buffer.from(encoded ?? "", "base64url").toString("utf8");
-    expect(decoded).toContain('"name":"Workstation"');
-    expect(decoded).toContain('"wsUrl":"ws://192.168.1.10:3773/ws"');
+    const decoded = JSON.parse(Buffer.from(encoded ?? "", "base64url").toString("utf8")) as {
+      readonly name: string;
+      readonly wsUrl: string;
+    };
+    expect(decoded.name).toBe("Workstation");
+    expect(decoded.wsUrl).toBe("ws://192.168.1.10:3773/ws");
+  });
+
+  it("uses relay pairing metadata when the host returns a relay-backed pairing session", async () => {
+    const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input.endsWith("/api/pairing/sessions") && init?.method === "POST") {
+        return jsonResponse(200, {
+          sessionId: "session-relay-1",
+          name: "Workstation",
+          createdAt: "2026-04-15T22:59:00.000Z",
+          status: "waiting-claim",
+          expiresAt: "2026-04-15T23:00:00.000Z",
+          secret: "secret-relay-1",
+          relayUrl: "wss://relay.example.com/v1/ws",
+          hostDeviceId: "host-device-1",
+          hostIdentityPublicKey: "host-public-key-1",
+        });
+      }
+      return jsonResponse(404, { error: "Unexpected URL" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const created = await createCliPairingSession({
+      wsUrl: "http://localhost:3773",
+      authToken: "token-1",
+      name: "Workstation",
+      relayUrl: "wss://relay.example.com/v1/ws",
+    });
+
+    expect(created.advertisedWsUrl).toBe("wss://relay.example.com/v1/ws");
+    const encoded = new URL(created.connectionString).searchParams.get("p");
+    const decoded = JSON.parse(Buffer.from(encoded ?? "", "base64url").toString("utf8")) as {
+      readonly relayUrl: string;
+      readonly hostDeviceId: string;
+      readonly hostIdentityPublicKey: string;
+    };
+    expect(decoded.relayUrl).toBe("wss://relay.example.com/v1/ws");
+    expect(decoded.hostDeviceId).toBe("host-device-1");
+    expect(decoded.hostIdentityPublicKey).toBe("host-public-key-1");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("revokes pairing sessions", async () => {

@@ -130,6 +130,7 @@ export type ThreadEnvMode = typeof ThreadEnvMode.Type;
 export const DEFAULT_PROVIDER_CLI_MAX_OPEN = 5;
 export const DEFAULT_PROVIDER_CLI_IDLE_TTL_SECONDS = 300;
 export const DEFAULT_ADD_PROJECT_BASE_DIRECTORY = "";
+export const DEFAULT_MANAGED_RELAY_URL = "wss://relay.ace.app/v1/ws";
 
 const makeBinaryPathSetting = (fallback: string) =>
   TrimmedString.pipe(
@@ -187,6 +188,12 @@ export const OpenCodeSettings = Schema.Struct({
 });
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
 
+export const RemoteRelaySettings = Schema.Struct({
+  defaultUrl: TrimmedString.pipe(Schema.withDecodingDefault(() => DEFAULT_MANAGED_RELAY_URL)),
+  allowInsecureLocalUrls: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+});
+export type RemoteRelaySettings = typeof RemoteRelaySettings.Type;
+
 export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   enableToolStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
@@ -207,6 +214,7 @@ export const ServerSettings = Schema.Struct({
   providerCliIdleTtlSeconds: PositiveInt.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_CLI_IDLE_TTL_SECONDS),
   ),
+  remoteRelay: RemoteRelaySettings.pipe(Schema.withDecodingDefault(() => ({}))),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(() => ({
       provider: "codex" as const,
@@ -346,6 +354,11 @@ const OpenCodeSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+const RemoteRelaySettingsPatch = Schema.Struct({
+  defaultUrl: Schema.optionalKey(Schema.String),
+  allowInsecureLocalUrls: Schema.optionalKey(Schema.Boolean),
+});
+
 export const ServerSettingsPatch = Schema.Struct({
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   enableToolStreaming: Schema.optionalKey(Schema.Boolean),
@@ -358,6 +371,7 @@ export const ServerSettingsPatch = Schema.Struct({
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   providerCliMaxOpen: Schema.optionalKey(PositiveInt),
   providerCliIdleTtlSeconds: Schema.optionalKey(PositiveInt),
+  remoteRelay: Schema.optionalKey(RemoteRelaySettingsPatch),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   providers: Schema.optionalKey(
     Schema.Struct({

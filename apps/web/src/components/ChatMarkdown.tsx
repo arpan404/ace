@@ -306,6 +306,17 @@ function MarkdownBody({
   );
 }
 
+function MermaidDiagramLoadingFallback() {
+  return (
+    <div
+      className="chat-markdown-mermaid flex min-h-[120px] items-center justify-center rounded-lg border border-border/60 bg-muted/35 px-3 text-xs text-muted-foreground/75"
+      data-mermaid-diagram-state="loading"
+    >
+      Rendering Mermaid diagram...
+    </div>
+  );
+}
+
 function PreviewTextPanel({
   text,
   dataAttribute,
@@ -517,7 +528,7 @@ function ChatMarkdown({
         if (language === "mermaid") {
           return (
             <MarkdownCodeBlock code={codeBlock.code}>
-              <Suspense fallback={<pre {...props}>{children}</pre>}>
+              <Suspense fallback={<MermaidDiagramLoadingFallback />}>
                 <MermaidDiagram
                   source={codeBlock.code}
                   theme={resolvedTheme}

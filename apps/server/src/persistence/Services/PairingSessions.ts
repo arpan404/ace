@@ -14,14 +14,19 @@ export const PairingSessionRecord = Schema.Struct({
   secret: Schema.String,
   wsUrl: Schema.String,
   authToken: Schema.String,
+  relayUrl: Schema.String,
+  hostDeviceId: Schema.String,
+  hostIdentityPublicKey: Schema.String,
   name: Schema.String,
   createdAtMs: Schema.Number,
   expiresAtMs: Schema.Number,
-  claimId: Schema.String,
-  claimRequesterName: Schema.String,
-  claimRequestedAtMs: Schema.Number,
-  resolution: Schema.String,
-  resolvedAtMs: Schema.Number,
+  claimId: Schema.NullOr(Schema.String),
+  claimRequesterName: Schema.NullOr(Schema.String),
+  claimRequestedAtMs: Schema.NullOr(Schema.Number),
+  resolution: Schema.NullOr(Schema.String),
+  resolvedAtMs: Schema.NullOr(Schema.Number),
+  viewerDeviceId: Schema.NullOr(Schema.String),
+  viewerIdentityPublicKey: Schema.NullOr(Schema.String),
 });
 
 export type PairingSessionRecord = typeof PairingSessionRecord.Type;
@@ -30,6 +35,11 @@ export interface PairingSessionRepositoryShape {
   readonly upsert: (
     session: PairingSessionRecord,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
+
+  readonly getAll: () => Effect.Effect<
+    ReadonlyArray<PairingSessionRecord>,
+    ProjectionRepositoryError
+  >;
 
   readonly getBySessionId: (
     sessionId: string,
