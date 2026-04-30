@@ -189,6 +189,7 @@ export const OpenCodeSettings = Schema.Struct({
 export type OpenCodeSettings = typeof OpenCodeSettings.Type;
 
 export const RemoteRelaySettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   defaultUrl: TrimmedString.pipe(Schema.withDecodingDefault(() => DEFAULT_MANAGED_RELAY_URL)),
   allowInsecureLocalUrls: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
 });
@@ -355,6 +356,7 @@ const OpenCodeSettingsPatch = Schema.Struct({
 });
 
 const RemoteRelaySettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
   defaultUrl: Schema.optionalKey(Schema.String),
   allowInsecureLocalUrls: Schema.optionalKey(Schema.Boolean),
 });

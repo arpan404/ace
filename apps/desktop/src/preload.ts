@@ -27,6 +27,7 @@ const TITLEBAR_LEFT_INSET_CHANGED_CHANNEL = "desktop:titlebar-left-inset-changed
 const WINDOW_RESUME_CHANNEL = "desktop:window-resume";
 const GET_NOTIFICATION_PERMISSION_CHANNEL = "desktop:get-notification-permission";
 const REQUEST_NOTIFICATION_PERMISSION_CHANNEL = "desktop:request-notification-permission";
+const PAIRING_URL_CHANNEL = "desktop:pairing-url";
 const BROWSER_OPEN_URL_CHANNEL = "desktop:browser-open-url";
 const BROWSER_CONTEXT_MENU_SHOWN_CHANNEL = "desktop:browser-context-menu-shown";
 const BROWSER_SHORTCUT_ACTION_CHANNEL = "desktop:browser-shortcut-action";
@@ -65,6 +66,27 @@ function readDesktopRendererBootstrap(): DesktopRendererBootstrapPayload {
 const desktopRendererBootstrap = readDesktopRendererBootstrap();
 let cachedTitlebarLeftInset = desktopRendererBootstrap.titlebarLeftInset;
 let cachedWindowShownAt = desktopRendererBootstrap.windowShownAt;
+const pairingUrlListeners = new Set<(url: string) => void>();
+const pendingPairingUrls: string[] = [];
+
+function enqueuePairingUrl(url: unknown): void {
+  if (typeof url !== "string" || url.length === 0) {
+    return;
+  }
+
+  if (pairingUrlListeners.size === 0) {
+    pendingPairingUrls.push(url);
+    return;
+  }
+
+  for (const listener of pairingUrlListeners) {
+    listener(url);
+  }
+}
+
+ipcRenderer.on(PAIRING_URL_CHANNEL, (_event, url: unknown) => {
+  enqueuePairingUrl(url);
+});
 
 ipcRenderer.on(WINDOW_SHOWN_AT_CHANGED_CHANNEL, (_event, value: unknown) => {
   cachedWindowShownAt = typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -208,6 +230,18 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(UPDATE_STATE_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(UPDATE_STATE_CHANNEL, wrappedListener);
+    };
+  },
+  onPairingUrl: (listener) => {
+    pairingUrlListeners.add(listener);
+    while (pendingPairingUrls.length > 0) {
+      const nextUrl = pendingPairingUrls.shift();
+      if (nextUrl) {
+        listener(nextUrl);
+      }
+    }
+    return () => {
+      pairingUrlListeners.delete(listener);
     };
   },
   onBrowserOpenUrl: (listener) => {

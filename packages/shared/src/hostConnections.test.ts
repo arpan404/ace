@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildRelayHostConnectionDraft,
+  describeHostConnection,
   parseHostConnectionQrPayload,
   parseHostDraftFromQrPayload,
   requestPairingClaim,
+  resolveHostDisplayName,
   waitForPairingApproval,
   type PairingClaimReceipt,
 } from "./hostConnections";
@@ -96,6 +99,24 @@ describe("hostConnections", () => {
         expiresAt: "2026-05-01T00:00:00.000Z",
       },
     });
+  });
+
+  it("describes relay-backed connections with relay metadata", () => {
+    const draft = buildRelayHostConnectionDraft({
+      name: "Primary host",
+      relayUrl: "wss://relay.example.com/v1/ws",
+      hostDeviceId: "host-device-1",
+      hostIdentityPublicKey: "host-public-key-1",
+      sessionId: "session-1",
+      secret: "secret-1",
+    });
+    const descriptor = describeHostConnection({ wsUrl: draft.wsUrl });
+
+    expect(descriptor.kind).toBe("relay");
+    expect(descriptor.summary).toBe("Relay via relay.example.com");
+    expect(descriptor.detail).toBe("Host host-device-1");
+    expect(descriptor.selectorValues).toContain("relay.example.com");
+    expect(resolveHostDisplayName(undefined, descriptor.connectionUrl)).toBe("ace @ Primary host");
   });
 
   it("requests claim and waits for pairing approval", async () => {

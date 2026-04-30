@@ -1,4 +1,8 @@
-import { buildRelayConnectionUrl, normalizeRelayWebSocketUrl } from "./relay";
+import {
+  buildRelayConnectionUrl,
+  normalizeRelayWebSocketUrl,
+  parseRelayConnectionUrl,
+} from "./relay";
 
 export interface HostConnectionDraft {
   readonly name?: string;
@@ -17,6 +21,18 @@ export interface HostPairingPayload {
   readonly claimUrl?: string;
   readonly pollingUrl?: string;
   readonly expiresAt?: string;
+}
+
+export interface HostConnectionDescriptor {
+  readonly kind: "direct" | "relay";
+  readonly connectionUrl: string;
+  readonly endpointUrl: string;
+  readonly summary: string;
+  readonly detail: string;
+  readonly selectorValues: ReadonlyArray<string>;
+  readonly relayUrl?: string;
+  readonly relayHost?: string;
+  readonly hostDeviceId?: string;
 }
 
 export type HostConnectionQrPayload =
@@ -441,6 +457,13 @@ export function resolveHostDisplayName(rawName: string | undefined, wsUrl: strin
     return trimmed;
   }
 
+  const relayMetadata = parseRelayConnectionUrl(wsUrl);
+  if (relayMetadata) {
+    const preferredName =
+      relayMetadata.hostName?.trim() || relayMetadata.hostDeviceId.trim() || relayMetadata.relayUrl;
+    return `ace @ ${preferredName}`;
+  }
+
   const parsed = new URL(wsUrl);
   return `ace @ ${parsed.host}`;
 }
@@ -469,6 +492,59 @@ export function appendWsAuthToken(wsUrl: string, authToken: string | undefined):
     parsed.searchParams.set("token", trimmedToken);
   }
   return parsed.toString();
+}
+
+function compactSelectorValues(values: ReadonlyArray<string | undefined>): string[] {
+  const deduped = new Set<string>();
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      deduped.add(trimmed);
+      deduped.add(trimmed.toLowerCase());
+    }
+  }
+  return [...deduped];
+}
+
+export function describeHostConnection(input: {
+  readonly wsUrl: string;
+  readonly authToken?: string;
+}): HostConnectionDescriptor {
+  const connectionUrl = appendWsAuthToken(input.wsUrl, input.authToken);
+  const relayMetadata = parseRelayConnectionUrl(connectionUrl);
+  if (relayMetadata) {
+    const relayParsed = new URL(relayMetadata.relayUrl);
+    const relayHost = relayParsed.host || relayParsed.hostname;
+    const detail = `Host ${relayMetadata.hostDeviceId}`;
+    return {
+      kind: "relay",
+      connectionUrl,
+      endpointUrl: relayMetadata.relayUrl,
+      summary: `Relay via ${relayHost}`,
+      detail,
+      selectorValues: compactSelectorValues([
+        connectionUrl,
+        relayMetadata.relayUrl,
+        relayHost,
+        relayMetadata.hostDeviceId,
+        relayMetadata.hostName,
+      ]),
+      relayUrl: relayMetadata.relayUrl,
+      relayHost,
+      hostDeviceId: relayMetadata.hostDeviceId,
+    };
+  }
+
+  const normalizedWsUrl = normalizeWsUrl(input.wsUrl);
+  const parsed = new URL(normalizedWsUrl);
+  return {
+    kind: "direct",
+    connectionUrl,
+    endpointUrl: normalizedWsUrl,
+    summary: normalizedWsUrl,
+    detail: parsed.host,
+    selectorValues: compactSelectorValues([connectionUrl, normalizedWsUrl, parsed.host]),
+  };
 }
 
 export function wsUrlToBrowserBaseUrl(wsUrl: string): string {

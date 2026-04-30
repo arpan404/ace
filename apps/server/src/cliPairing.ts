@@ -1,3 +1,4 @@
+import { WS_METHODS } from "@ace/contracts";
 import {
   buildPairingPayload,
   normalizeWsUrl,
@@ -5,7 +6,11 @@ import {
   wsUrlToBrowserBaseUrl,
   type HostPairingPayload,
 } from "@ace/shared/hostConnections";
+import { parseRelayConnectionUrl } from "@ace/shared/relay";
+import { RelayRpcTransport } from "@ace/shared/relayRpcTransport";
 import { Data } from "effect";
+
+import { loadCliRelayDeviceIdentity } from "./cliRelayIdentity";
 
 export class CliPairingCommandError extends Data.TaggedError("CliPairingCommandError")<{
   readonly message: string;
@@ -371,6 +376,7 @@ export async function pingCliHostConnection(input: {
   readonly wsUrl: string;
   readonly authToken?: string;
   readonly timeoutMs?: number;
+  readonly stateDir?: string;
 }): Promise<CliHostPingResult> {
   const normalized = normalizeConnectionInput({
     wsUrl: input.wsUrl,
@@ -378,6 +384,45 @@ export async function pingCliHostConnection(input: {
   });
   const timeoutMs = Math.max(100, input.timeoutMs ?? 4_000);
   const startedAt = Date.now();
+  if (parseRelayConnectionUrl(normalized.wsUrl)) {
+    if (!input.stateDir?.trim()) {
+      return {
+        status: "unavailable",
+        latencyMs: Date.now() - startedAt,
+        detail: "Relay ping requires a CLI state directory.",
+      };
+    }
+    const stateDir = input.stateDir.trim();
+    const transport = new RelayRpcTransport({
+      connectionUrl: normalized.wsUrl,
+      clientSessionId: `ace-cli-ping-${Date.now().toString(36)}`,
+      connectionId: `ace-cli-connection-${Date.now().toString(36)}`,
+      deviceName: "ace cli",
+      loadIdentity: () => loadCliRelayDeviceIdentity(stateDir),
+    });
+    try {
+      await Promise.race([
+        transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`Relay ping timed out after ${String(timeoutMs)}ms.`));
+          }, timeoutMs);
+        }),
+      ]);
+      return {
+        status: "available",
+        latencyMs: Date.now() - startedAt,
+      };
+    } catch (error) {
+      return {
+        status: "unavailable",
+        latencyMs: Date.now() - startedAt,
+        detail: error instanceof Error ? error.message : "Relay ping failed.",
+      };
+    } finally {
+      await transport.dispose().catch(() => undefined);
+    }
+  }
   try {
     const { response, payload } = await requestPairingSessionStatus({
       wsUrl: normalized.wsUrl,

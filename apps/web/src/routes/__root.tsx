@@ -24,6 +24,7 @@ import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { runAsyncTask } from "../lib/async";
 import { beginLoadPhase, logLoadDiagnostic } from "../loadDiagnostics";
 import { readNativeApi } from "../nativeApi";
+import { isElectron } from "../env";
 import {
   type ServerConfigUpdateSource,
   useServerConfig,
@@ -54,9 +55,11 @@ import { createOrchestrationRecoveryCoordinator } from "../orchestrationRecovery
 import { useEffectEvent } from "../hooks/useEffectEvent";
 import { resetWsRpcClient } from "../wsRpcClient";
 import { useDesktopCliInstallState } from "../lib/desktopCliInstallReactQuery";
-import { getRouteRpcClient } from "../lib/remoteWsRouter";
-import { resolveLocalDeviceWsUrl } from "../lib/remoteHosts";
+import { getRouteRpcClient, subscribeToRemoteRelayConnectionState } from "../lib/remoteWsRouter";
+import { parseHostConnectionQrPayload, resolveLocalDeviceWsUrl } from "../lib/remoteHosts";
 import { useHostConnectionStore } from "../hostConnectionStore";
+import { queueDesktopPairingLink } from "../lib/desktopPairingLinks";
+import { parseRelayConnectionUrl } from "@ace/shared/relay";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -118,6 +121,8 @@ function RootRouteView() {
             <AnchoredToastProvider>
               <UiTypographyBridge />
               <DesktopCliInstallToastBridge />
+              <DesktopPairingLinkBridge />
+              <RemoteRelayConnectionToastBridge />
               <EventRouter key={`event-router-${String(wsHostEpoch)}`} />
               <AgentAttentionNotificationBridge />
               {startupState === "ready" ? (
@@ -255,6 +260,73 @@ function errorDetails(error: unknown): string {
   } catch {
     return "No additional error details are available.";
   }
+}
+
+function DesktopPairingLinkBridge() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!isElectron) {
+      return;
+    }
+
+    return window.desktopBridge?.onPairingUrl?.((url) => {
+      const parsed = parseHostConnectionQrPayload(url);
+      if (!parsed || parsed.kind !== "pairing") {
+        toastManager.add({
+          type: "error",
+          title: "Unsupported pairing link.",
+          description: "ace desktop only imports ace://pair links through the desktop protocol.",
+        });
+        return;
+      }
+
+      queueDesktopPairingLink(url);
+      if (window.location.pathname === "/settings/devices") {
+        return;
+      }
+
+      void navigate({ to: "/settings/devices" });
+    });
+  }, [navigate]);
+
+  return null;
+}
+
+function RemoteRelayConnectionToastBridge() {
+  const disconnectedConnectionUrlsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    return subscribeToRemoteRelayConnectionState((event) => {
+      const relayMetadata = parseRelayConnectionUrl(event.connectionUrl);
+      const relayHost = relayMetadata ? new URL(relayMetadata.relayUrl).host : null;
+      const remoteLabel = relayHost ? `Relay via ${relayHost}` : "Remote relay";
+
+      if (event.kind === "disconnected") {
+        disconnectedConnectionUrlsRef.current.add(event.connectionUrl);
+        toastManager.add({
+          type: "warning",
+          title: "Remote relay disconnected.",
+          description: event.error?.trim().length
+            ? `${remoteLabel} is unavailable. ${event.error}`
+            : `${remoteLabel} is unavailable. ace will retry automatically.`,
+        });
+        return;
+      }
+
+      if (!disconnectedConnectionUrlsRef.current.delete(event.connectionUrl)) {
+        return;
+      }
+
+      toastManager.add({
+        type: "success",
+        title: "Remote relay reconnected.",
+        description: `${remoteLabel} is reachable again.`,
+      });
+    });
+  }, []);
+
+  return null;
 }
 
 function EventRouter() {

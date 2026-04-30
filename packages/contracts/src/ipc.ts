@@ -288,6 +288,7 @@ export interface DesktopBridge {
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
+  onPairingUrl?: (listener: (url: string) => void) => () => void;
   onBrowserOpenUrl?: (listener: (url: string) => void) => () => void;
   onBrowserContextMenuShown?: (listener: () => void) => () => void;
   onBrowserShortcutAction?: (listener: (action: BrowserShortcutAction) => void) => () => void;
