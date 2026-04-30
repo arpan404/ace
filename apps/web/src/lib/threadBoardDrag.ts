@@ -6,6 +6,7 @@ export interface ThreadBoardDragThread {
   connectionUrl: string | null;
   sourcePaneId?: string | null;
   threadId: ThreadId;
+  title?: string | null | undefined;
 }
 
 const activeThreadBoardDragListeners = new Set<() => void>();
@@ -17,10 +18,12 @@ export function createThreadBoardDragThread(input: {
   connectionUrl?: string | null;
   sourcePaneId?: string | null;
   threadId: ThreadId;
+  title?: string | null | undefined;
 }): ThreadBoardDragThread {
   return {
     connectionUrl: normalizeThreadBoardConnectionUrl(input.connectionUrl),
     ...(input.sourcePaneId ? { sourcePaneId: input.sourcePaneId } : {}),
+    ...(input.title?.trim() ? { title: input.title.trim() } : {}),
     threadId: input.threadId,
   };
 }
@@ -36,6 +39,7 @@ export function encodeThreadBoardDragThread(input: ThreadBoardDragThread): strin
   return JSON.stringify({
     connectionUrl: input.connectionUrl,
     ...(input.sourcePaneId ? { sourcePaneId: input.sourcePaneId } : {}),
+    ...(input.title?.trim() ? { title: input.title.trim() } : {}),
     threadId: input.threadId,
   });
 }
@@ -46,6 +50,7 @@ export function decodeThreadBoardDragThread(value: string): ThreadBoardDragThrea
       connectionUrl?: string | null;
       sourcePaneId?: string | null;
       threadId?: string;
+      title?: string | null;
     };
     if (!parsed || typeof parsed.threadId !== "string" || parsed.threadId.length === 0) {
       return null;
@@ -54,6 +59,9 @@ export function decodeThreadBoardDragThread(value: string): ThreadBoardDragThrea
       connectionUrl: normalizeThreadBoardConnectionUrl(parsed.connectionUrl),
       ...(typeof parsed.sourcePaneId === "string" && parsed.sourcePaneId.length > 0
         ? { sourcePaneId: parsed.sourcePaneId }
+        : {}),
+      ...(typeof parsed.title === "string" && parsed.title.trim().length > 0
+        ? { title: parsed.title.trim() }
         : {}),
       threadId: parsed.threadId as ThreadId,
     };

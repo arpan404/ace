@@ -65,6 +65,7 @@ interface ChatThreadBoardStoreState extends PersistedChatThreadBoardState {
     direction?: "down" | "left" | "right" | "up";
     sourcePaneId?: string | null;
     threadId: ThreadId;
+    title?: string | undefined;
   }) => string | null;
   openThreadInSplit: (
     splitId: string,
@@ -420,6 +421,63 @@ function normalizeBoardState(input: LegacyBoardStateFields): BoardStateFields {
   };
 }
 
+function boardLayoutNodesEqual(
+  left: ChatThreadBoardLayoutNode | null,
+  right: ChatThreadBoardLayoutNode | null,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right || left.kind !== right.kind || left.id !== right.id) {
+    return false;
+  }
+  if (left.kind === "pane" || right.kind === "pane") {
+    return left.kind === "pane" && right.kind === "pane" && left.paneId === right.paneId;
+  }
+  if (left.axis !== right.axis || left.children.length !== right.children.length) {
+    return false;
+  }
+  const leftRatios = normalizePaneRatios(left.ratios, left.children.length);
+  const rightRatios = normalizePaneRatios(right.ratios, right.children.length);
+  for (let index = 0; index < leftRatios.length; index += 1) {
+    if (leftRatios[index] !== rightRatios[index]) {
+      return false;
+    }
+  }
+  return left.children.every((child, index) =>
+    boardLayoutNodesEqual(child, right.children[index] ?? null),
+  );
+}
+
+function boardPanesEqual(
+  left: readonly ChatThreadBoardPaneState[],
+  right: readonly ChatThreadBoardPaneState[],
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((leftPane, index) => {
+    const rightPane = right[index];
+    return (
+      rightPane !== undefined &&
+      leftPane.id === rightPane.id &&
+      leftPane.threadId === rightPane.threadId &&
+      leftPane.connectionUrl === rightPane.connectionUrl
+    );
+  });
+}
+
+function boardStatesEqual(left: BoardStateFields, right: BoardStateFields): boolean {
+  return (
+    left.activePaneId === right.activePaneId &&
+    boardPanesEqual(left.panes, right.panes) &&
+    boardLayoutNodesEqual(left.layoutRoot, right.layoutRoot)
+  );
+}
+
 function normalizeSplitState(
   input: ChatThreadBoardSplitState | (Partial<ChatThreadBoardSplitState> & LegacyBoardStateFields),
 ): ChatThreadBoardSplitState | null {
@@ -496,6 +554,7 @@ function normalizePersistedState(
 function saveBoardToActiveSplit(
   state: PersistedChatThreadBoardState,
   board: LegacyBoardStateFields,
+  input?: { title?: string | null | undefined },
 ): PersistedChatThreadBoardState {
   const normalizedBoard = normalizeBoardState(board);
 
@@ -513,7 +572,7 @@ function saveBoardToActiveSplit(
   if (!state.activeSplitId) {
     const split = createSplitFromBoard({
       board: normalizedBoard,
-      title: createSplitTitle(state.splits.length + 1),
+      title: input?.title ?? createSplitTitle(state.splits.length + 1),
     });
     if (!split) {
       return {
@@ -1040,6 +1099,7 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
               ...(input.direction ? { direction: input.direction } : {}),
               ...(input.sourcePaneId ? { sourcePaneId: input.sourcePaneId } : {}),
             }),
+            { title: input.title },
           );
         });
         return openedPaneId;
@@ -1129,6 +1189,9 @@ export const useChatThreadBoardStore = create<ChatThreadBoardStoreState>()(
             panes: split.panes,
           });
           restoredPaneId = board.activePaneId;
+          if (state.activeSplitId === split.id && boardStatesEqual(state, board)) {
+            return state;
+          }
           return {
             ...state,
             ...board,

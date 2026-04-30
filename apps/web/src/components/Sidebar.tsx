@@ -203,6 +203,7 @@ import {
   THREAD_BOARD_SPLIT_SEARCH_PARAM,
   THREAD_BOARD_THREADS_SEARCH_PARAM,
 } from "../lib/chatThreadBoardRouteSearch";
+import { buildThreadBoardTitle } from "../lib/threadBoardTitle";
 import {
   createThreadBoardDragThread,
   decodeThreadBoardDragThread,
@@ -1060,16 +1061,13 @@ export default function Sidebar() {
   }, [splitSortOrder]);
   const buildSplitTitle = useCallback(
     (threads: ReadonlyArray<{ threadId: ThreadId }>) => {
-      const titles = threads
-        .map((thread) => sidebarThreadsById[thread.threadId]?.title?.trim())
-        .filter((title): title is string => Boolean(title));
-      if (titles.length === 0) {
-        return `Board ${savedSplitBoard.splits.length + 1}`;
-      }
-      if (titles.length === 1) {
-        return titles[0]!;
-      }
-      return `${titles[0]} + ${titles.length - 1}`;
+      return buildThreadBoardTitle({
+        fallbackIndex: savedSplitBoard.splits.length + 1,
+        threads: threads.map((thread) => ({
+          threadId: thread.threadId,
+          title: sidebarThreadsById[thread.threadId]?.title,
+        })),
+      });
     },
     [savedSplitBoard.splits.length, sidebarThreadsById],
   );
@@ -1122,9 +1120,15 @@ export default function Sidebar() {
             .upsertThreadOwnership(pane.connectionUrl, pane.threadId);
         }
       }
-      useChatThreadBoardStore.getState().restoreSplit(split.id, activePane.id);
-
+      if (
+        activeRouteSplitId === split.id &&
+        savedSplitBoard.activeSplitId === split.id &&
+        savedSplitBoard.activePaneId === activePane.id
+      ) {
+        return;
+      }
       startTransition(() => {
+        useChatThreadBoardStore.getState().restoreSplit(split.id, activePane.id);
         void navigate({
           to: "/$threadId",
           params: { threadId: activePane.threadId },
@@ -1135,7 +1139,7 @@ export default function Sidebar() {
         });
       });
     },
-    [navigate],
+    [activeRouteSplitId, navigate, savedSplitBoard.activePaneId, savedSplitBoard.activeSplitId],
   );
   const navigateToCurrentSplit = useCallback(
     (activePane: { connectionUrl: string | null; threadId: ThreadId }) => {
@@ -1195,7 +1199,10 @@ export default function Sidebar() {
       thread: { connectionUrl: string | null; threadId: ThreadId },
       event: DragEvent<HTMLAnchorElement>,
     ) => {
-      const dragThread = createThreadBoardDragThread(thread);
+      const dragThread = createThreadBoardDragThread({
+        ...thread,
+        title: sidebarThreadsById[thread.threadId]?.title,
+      });
       const payload = encodeThreadBoardDragThread(dragThread);
       event.dataTransfer.effectAllowed = "copyMove";
       event.dataTransfer.setData(THREAD_BOARD_DRAG_MIME, payload);
@@ -1212,7 +1219,7 @@ export default function Sidebar() {
         overTargetKey: null,
       });
     },
-    [setBoardsSectionExpanded],
+    [setBoardsSectionExpanded, sidebarThreadsById],
   );
   const handleBoardThreadDropOnThread = useCallback(
     (
@@ -3406,7 +3413,8 @@ export default function Sidebar() {
     [],
   );
 
-  const activeThreadId = routeHasSplitThreads ? undefined : (routeThreadId ?? undefined);
+  const routeIsBoard = routeHasSplitThreads || activeRouteSplitId !== null;
+  const activeThreadId = routeIsBoard ? undefined : (routeThreadId ?? undefined);
   const activeSidebarRouteThreadId = activeThreadId ?? null;
   const pinnedProjectIdSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds]);
   const pinnedThreadIdSet = useMemo(() => new Set(pinnedThreadIds), [pinnedThreadIds]);
