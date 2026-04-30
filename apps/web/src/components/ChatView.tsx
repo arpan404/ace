@@ -90,6 +90,7 @@ import {
   isLatestTurnSettled,
   summarizeActivePlan,
   formatElapsed,
+  type PendingUserInput,
 } from "../session-logic";
 import {
   isScrollContainerNearBottom,
@@ -346,6 +347,44 @@ const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
+const DEMO_PENDING_USER_INPUT_QUERY_PARAM = "demoUserInput";
+const DEMO_PENDING_USER_INPUT_REQUEST_ID = "req-demo-pending-user-input" as ApprovalRequestId;
+const DEMO_PENDING_USER_INPUT: PendingUserInput = {
+  requestId: DEMO_PENDING_USER_INPUT_REQUEST_ID,
+  createdAt: "2026-04-29T00:00:00.000Z",
+  questions: [
+    {
+      id: "scope",
+      header: "Scope",
+      question: "What should this change cover?",
+      options: [
+        {
+          label: "Tight",
+          description: "Touch only the pending-input panel styling.",
+        },
+        {
+          label: "Broad",
+          description: "Also align adjacent composer controls and spacing.",
+        },
+      ],
+    },
+    {
+      id: "risk",
+      header: "Risk",
+      question: "How aggressive should the implementation be?",
+      options: [
+        {
+          label: "Conservative",
+          description: "Keep the behavior identical and change presentation only.",
+        },
+        {
+          label: "Balanced",
+          description: "Clean up shared composer structure while keeping behavior stable.",
+        },
+      ],
+    },
+  ],
+};
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 const BrowserPanelModeSchema = Schema.Literals(["closed", "full", "split"]);
 const MAX_RETAINED_THREAD_TERMINAL_DRAWERS = 4;
@@ -754,6 +793,8 @@ export default function ChatView({
   const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
     ApprovalRequestId[]
   >([]);
+  const [dismissedDemoPendingUserInputByThreadId, setDismissedDemoPendingUserInputByThreadId] =
+    useState<Record<ThreadId, boolean>>({});
   const [pendingUserInputAnswersByRequestId, setPendingUserInputAnswersByRequestId] = useState<
     Record<string, Record<string, PendingUserInputDraftAnswer>>
   >({});
@@ -970,6 +1011,15 @@ export default function ChatView({
     } catch {
       return null;
     }
+  }, [locationSearch]);
+  const demoPendingUserInputEnabled = useMemo(() => {
+    if (!import.meta.env.DEV) {
+      return false;
+    }
+    const value = new URLSearchParams(locationSearch)
+      .get(DEMO_PENDING_USER_INPUT_QUERY_PARAM)
+      ?.trim();
+    return value === "1" || value === "true";
   }, [locationSearch]);
   const activeServerConnectionUrl = useMemo(
     () =>
@@ -1691,6 +1741,20 @@ export default function ChatView({
     () => deriveThreadActivityRenderState(threadActivities, activityVisibilitySettings),
     [activityVisibilitySettings, threadActivities],
   );
+  const effectivePendingUserInputs = useMemo(
+    () =>
+      demoPendingUserInputEnabled &&
+      pendingUserInputs.length === 0 &&
+      dismissedDemoPendingUserInputByThreadId[threadId] !== true
+        ? [DEMO_PENDING_USER_INPUT]
+        : pendingUserInputs,
+    [
+      demoPendingUserInputEnabled,
+      dismissedDemoPendingUserInputByThreadId,
+      pendingUserInputs,
+      threadId,
+    ],
+  );
   const activeWorkTurnId = useMemo(
     () =>
       deriveVisibleWorkTurnId(
@@ -1700,7 +1764,7 @@ export default function ChatView({
       ),
     [activeLatestTurn, activeThread?.session, visibleThreadActivities],
   );
-  const activePendingUserInput = pendingUserInputs[0] ?? null;
+  const activePendingUserInput = effectivePendingUserInputs[0] ?? null;
   const activePendingDraftAnswers = useMemo(
     () =>
       activePendingUserInput
@@ -1758,7 +1822,7 @@ export default function ChatView({
   );
   const activePlanProgress = useMemo(() => summarizeActivePlan(activePlan), [activePlan]);
   const showPlanFollowUpPrompt =
-    pendingUserInputs.length === 0 &&
+    effectivePendingUserInputs.length === 0 &&
     interactionMode === "plan" &&
     latestTurnSettled &&
     hasActionableProposedPlan(activeProposedPlan);
@@ -1785,9 +1849,7 @@ export default function ChatView({
   );
   const isComposerApprovalState = activePendingApproval !== null;
   const hasComposerHeader =
-    isComposerApprovalState ||
-    pendingUserInputs.length > 0 ||
-    (showPlanFollowUpPrompt && activeProposedPlan !== null);
+    isComposerApprovalState || (showPlanFollowUpPrompt && activeProposedPlan !== null);
   const composerFooterHasWideActions = showPlanFollowUpPrompt || activePendingProgress !== null;
   const composerFooterActionLayoutKey = useMemo(() => {
     if (activePendingProgress) {
@@ -5833,7 +5895,7 @@ export default function ChatView({
   const addComposerImages = useEffectEvent((files: File[]) => {
     if (!activeThreadId || files.length === 0) return;
 
-    if (pendingUserInputs.length > 0) {
+    if (effectivePendingUserInputs.length > 0) {
       toastManager.add({
         type: "error",
         title: "Attach images after answering plan questions.",
@@ -6630,12 +6692,32 @@ export default function ChatView({
 
   const onRespondToUserInput = useCallback(
     async (requestId: ApprovalRequestId, answers: Record<string, unknown>) => {
-      const api = readNativeApi();
-      if (!api || !activeThreadId) return;
+      if (!activeThreadId) return;
 
       setRespondingUserInputRequestIds((existing) =>
         existing.includes(requestId) ? existing : [...existing, requestId],
       );
+      if (requestId === DEMO_PENDING_USER_INPUT_REQUEST_ID) {
+        setDismissedDemoPendingUserInputByThreadId((existing) => ({
+          ...existing,
+          [activeThreadId]: true,
+        }));
+        setPendingUserInputAnswersByRequestId((existing) => {
+          const { [requestId]: _removed, ...rest } = existing;
+          return rest;
+        });
+        setPendingUserInputQuestionIndexByRequestId((existing) => {
+          const { [requestId]: _removed, ...rest } = existing;
+          return rest;
+        });
+        setRespondingUserInputRequestIds((existing) => existing.filter((id) => id !== requestId));
+        return;
+      }
+      const api = readNativeApi();
+      if (!api) {
+        setRespondingUserInputRequestIds((existing) => existing.filter((id) => id !== requestId));
+        return;
+      }
       await api.orchestration
         .dispatchCommand({
           type: "thread.user-input.respond",
@@ -7336,7 +7418,7 @@ export default function ChatView({
       (issueTriggerLookupQuery.isLoading || issueTriggerLookupQuery.isFetching));
   const showIssuesCommandExamplesHint =
     !isComposerApprovalState &&
-    pendingUserInputs.length === 0 &&
+    effectivePendingUserInputs.length === 0 &&
     /^\/issues\s*$/i.test(prompt.trimStart());
   const showIssuesCommandExamplesPopover = showIssuesCommandExamplesHint && !composerMenuOpen;
 
@@ -7968,7 +8050,7 @@ export default function ChatView({
                     canQueueMessage={canQueueComposerMessage}
                     activePendingApproval={activePendingApproval}
                     pendingApprovalsCount={pendingApprovals.length}
-                    pendingUserInputs={pendingUserInputs}
+                    pendingUserInputs={effectivePendingUserInputs}
                     respondingApprovalRequestIds={respondingRequestIds}
                     respondingUserInputRequestIds={respondingUserInputRequestIds}
                     activePendingDraftAnswers={activePendingDraftAnswers}
@@ -8298,7 +8380,7 @@ export default function ChatView({
                         canQueueMessage={canQueueComposerMessage}
                         activePendingApproval={activePendingApproval}
                         pendingApprovalsCount={pendingApprovals.length}
-                        pendingUserInputs={pendingUserInputs}
+                        pendingUserInputs={effectivePendingUserInputs}
                         respondingApprovalRequestIds={respondingRequestIds}
                         respondingUserInputRequestIds={respondingUserInputRequestIds}
                         activePendingDraftAnswers={activePendingDraftAnswers}
