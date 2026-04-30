@@ -20,6 +20,7 @@ export const PairingSessionRecord = Schema.Struct({
   name: Schema.String,
   createdAtMs: Schema.Number,
   expiresAtMs: Schema.Number,
+  relayAuthKey: Schema.NullOr(Schema.String),
   claimId: Schema.NullOr(Schema.String),
   claimRequesterName: Schema.NullOr(Schema.String),
   claimRequestedAtMs: Schema.NullOr(Schema.Number),

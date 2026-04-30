@@ -749,7 +749,10 @@ export async function resolvePairingHostConnection(
   },
 ): Promise<HostConnectionDraft> {
   if (pairing.relayUrl && pairing.hostDeviceId && pairing.hostIdentityPublicKey) {
-    return buildRelayHostConnectionDraft(pairing);
+    return buildRelayHostConnectionDraft({
+      pairing,
+      viewerIdentity: await loadWebRelayDeviceIdentity(),
+    });
   }
   const claimOptions = options?.requesterName
     ? { requesterName: options.requesterName }

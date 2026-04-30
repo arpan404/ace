@@ -3,6 +3,7 @@ import { Effect, Exit, Scope, Stream, Duration, Option } from "effect";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import type { WsClientConnectionIdentity, WsRpcProtocolClient } from "./wsRpcProtocol";
 import {
+  createRelayRouteAuthProof,
   type RelayConnectionMetadata,
   type RelayStoredDeviceIdentity,
   RELAY_REKEY_AFTER_ACTIVE_MS,
@@ -12,6 +13,7 @@ import {
   createRelayHandshakeNonce,
   decryptRelayFrame,
   deriveNextRelayEpochKey,
+  deriveRelayPairingAuthKey,
   deriveRelayRouteKeys,
   encryptRelayFrame,
   normalizeRelayWebSocketUrl,
@@ -265,6 +267,31 @@ export class RelayRpcTransport {
     const viewerIdentity = await this.loadIdentity();
     const socket = await openRelayWebSocket(this.metadata.relayUrl);
     const routeId = createRandomId();
+    const pairingAuthKey =
+      this.metadata.pairingAuthKey ??
+      (this.metadata.pairingSecret
+        ? deriveRelayPairingAuthKey({
+            pairingId: this.metadata.pairingId,
+            pairingSecret: this.metadata.pairingSecret,
+            hostDeviceId: this.metadata.hostDeviceId,
+            hostIdentityPublicKey: this.metadata.hostIdentityPublicKey,
+            viewerDeviceId: viewerIdentity.deviceId,
+            viewerIdentityPublicKey: viewerIdentity.publicKey,
+          })
+        : null);
+    if (!pairingAuthKey) {
+      throw new Error("Relay connection metadata is missing pairing authorization material.");
+    }
+    const routeAuthIssuedAt = new Date().toISOString();
+    const routeAuthProof = createRelayRouteAuthProof({
+      pairingAuthKey,
+      routeId,
+      clientSessionId: this.identity.clientSessionId,
+      connectionId: this.identity.connectionId,
+      viewerDeviceId: viewerIdentity.deviceId,
+      viewerIdentityPublicKey: viewerIdentity.publicKey,
+      issuedAt: routeAuthIssuedAt,
+    });
 
     const routeReady = await new Promise<RelayRouteContext>((resolve, reject) => {
       let settled = false;
@@ -433,7 +460,8 @@ export class RelayRpcTransport {
           clientSessionId: this.identity.clientSessionId,
           connectionId: this.identity.connectionId,
           pairingId: this.metadata.pairingId,
-          pairingSecret: this.metadata.pairingSecret,
+          routeAuthIssuedAt,
+          routeAuthProof,
         }),
       );
     });

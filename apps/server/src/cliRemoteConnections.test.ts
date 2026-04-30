@@ -85,12 +85,18 @@ describe("cliRemoteConnections", () => {
   it("matches relay-backed remote selectors by relay host metadata", async () => {
     const system = await createCliRemoteSystem();
     const relayDraft = buildRelayHostConnectionDraft({
-      name: "Relay host",
-      relayUrl: "wss://relay.example.com/v1/ws",
-      hostDeviceId: "host-device-1",
-      hostIdentityPublicKey: "host-public-key-1",
-      sessionId: "session-1",
-      secret: "secret-1",
+      pairing: {
+        name: "Relay host",
+        relayUrl: "wss://relay.example.com/v1/ws",
+        hostDeviceId: "host-device-1",
+        hostIdentityPublicKey: "host-public-key-1",
+        sessionId: "session-1",
+        secret: "secret-1",
+      },
+      viewerIdentity: {
+        deviceId: "viewer-device-1",
+        publicKey: "viewer-public-key-1",
+      },
     });
 
     const created = await system.run(

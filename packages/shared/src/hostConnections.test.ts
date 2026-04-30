@@ -103,12 +103,18 @@ describe("hostConnections", () => {
 
   it("describes relay-backed connections with relay metadata", () => {
     const draft = buildRelayHostConnectionDraft({
-      name: "Primary host",
-      relayUrl: "wss://relay.example.com/v1/ws",
-      hostDeviceId: "host-device-1",
-      hostIdentityPublicKey: "host-public-key-1",
-      sessionId: "session-1",
-      secret: "secret-1",
+      pairing: {
+        name: "Primary host",
+        relayUrl: "wss://relay.example.com/v1/ws",
+        hostDeviceId: "host-device-1",
+        hostIdentityPublicKey: "host-public-key-1",
+        sessionId: "session-1",
+        secret: "secret-1",
+      },
+      viewerIdentity: {
+        deviceId: "viewer-device-1",
+        publicKey: "viewer-public-key-1",
+      },
     });
     const descriptor = describeHostConnection({ wsUrl: draft.wsUrl });
 

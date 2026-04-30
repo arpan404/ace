@@ -42,6 +42,7 @@ import {
   revokeCliPairingSession,
   type CliPairingSessionStatus,
 } from "./cliPairing";
+import { loadCliRelayDeviceIdentity } from "./cliRelayIdentity";
 import { normalizeCliWorkspaceRoot } from "./cliPaths";
 import {
   type AceServerDaemonState,
@@ -1092,7 +1093,10 @@ const resolveLocalDaemonConnection = Effect.fn("resolveLocalDaemonConnection")(f
   } as const;
 });
 
-const resolveRemoteLinkDraft = Effect.fn("resolveRemoteLinkDraft")(function* (token: string) {
+const resolveRemoteLinkDraft = Effect.fn("resolveRemoteLinkDraft")(function* (
+  flags: CliDataFlags,
+  token: string,
+) {
   const parsed = parseHostConnectionQrPayload(token);
   if (!parsed) {
     return yield* new DaemonCommandError({
@@ -1107,7 +1111,13 @@ const resolveRemoteLinkDraft = Effect.fn("resolveRemoteLinkDraft")(function* (to
     parsed.pairing.hostDeviceId &&
     parsed.pairing.hostIdentityPublicKey
   ) {
-    return buildRelayHostConnectionDraft(parsed.pairing);
+    const logLevel = yield* GlobalFlag.LogLevel;
+    const config = yield* resolveDataConfig(flags, logLevel);
+    const viewerIdentity = yield* Effect.promise(() => loadCliRelayDeviceIdentity(config.stateDir));
+    return buildRelayHostConnectionDraft({
+      pairing: parsed.pairing,
+      viewerIdentity,
+    });
   }
   const receipt = yield* Effect.promise(() =>
     requestPairingClaim(parsed.pairing, {
@@ -1945,7 +1955,7 @@ const remoteLinkCommand = Command.make("link", {
   Command.withDescription("Claim a pairing token and save the remote host."),
   Command.withHandler(({ token, name, json, ...flags }) =>
     Effect.gen(function* () {
-      const draft = yield* resolveRemoteLinkDraft(token);
+      const draft = yield* resolveRemoteLinkDraft(flags, token);
       const result = yield* runCliRemoteConnectionCommand(
         flags,
         addCliRemoteConnection({

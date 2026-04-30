@@ -1,4 +1,5 @@
 import * as Crypto from "node:crypto";
+import { deriveRelayPairingAuthKey, verifyRelayRouteAuthProof } from "@ace/shared/relay";
 import { Effect } from "effect";
 import type { ProjectionRepositoryError } from "./persistence/Errors";
 
@@ -47,7 +48,7 @@ interface PairingClaimRecord {
 
 interface PairingSessionRecord {
   readonly sessionId: string;
-  readonly secret: string;
+  secret: string;
   readonly wsUrl: string;
   readonly authToken: string;
   readonly relayUrl: string;
@@ -56,6 +57,7 @@ interface PairingSessionRecord {
   readonly name: string;
   readonly createdAtMs: number;
   readonly expiresAtMs: number;
+  relayAuthKey: string | null;
   claim: PairingClaimRecord | null;
   resolution: "approved" | "rejected" | null;
   resolvedAtMs: number | null;
@@ -281,6 +283,7 @@ export function createPairingSession(
     name: normalizeOptionalName(input.name, "ace host", MAX_HOST_NAME_LENGTH),
     createdAtMs: nowMs,
     expiresAtMs,
+    relayAuthKey: null,
     claim: null,
     resolution: null,
     resolvedAtMs: null,
@@ -305,9 +308,13 @@ export function createPairingSession(
 
 export function approveRelayPairingRequest(input: {
   readonly sessionId: string;
-  readonly secret: string;
   readonly viewerDeviceId: string;
   readonly viewerIdentityPublicKey: string;
+  readonly routeId: string;
+  readonly clientSessionId: string;
+  readonly connectionId: string;
+  readonly routeAuthIssuedAt: string;
+  readonly routeAuthProof: string;
   readonly requesterName?: string;
   readonly nowMs?: number;
 }): PairingResult<PairingSessionView> {
@@ -317,9 +324,6 @@ export function approveRelayPairingRequest(input: {
     return recordResult;
   }
   const record = recordResult.value;
-  if (record.secret !== input.secret) {
-    return fail("invalid-secret", "Pairing secret is invalid.");
-  }
   if (record.viewerDeviceId && record.viewerDeviceId !== input.viewerDeviceId) {
     return fail("already-claimed", "Pairing session is already bound to another device.");
   }
@@ -335,6 +339,44 @@ export function approveRelayPairingRequest(input: {
   if (record.resolution !== "approved" && nowMs >= record.expiresAtMs) {
     return fail("expired", "Pairing session has expired.");
   }
+  if (record.relayUrl.trim().length === 0) {
+    return fail("invalid-secret", "Pairing session is not a relay pairing.");
+  }
+  let relayAuthKey = record.relayAuthKey;
+  if (!relayAuthKey) {
+    if (record.secret.trim().length === 0) {
+      return fail("invalid-secret", "Relay pairing secret is unavailable.");
+    }
+    relayAuthKey = deriveRelayPairingAuthKey({
+      pairingId: record.sessionId,
+      pairingSecret: record.secret,
+      hostDeviceId: record.hostDeviceId,
+      hostIdentityPublicKey: record.hostIdentityPublicKey,
+      viewerDeviceId: input.viewerDeviceId,
+      viewerIdentityPublicKey: input.viewerIdentityPublicKey,
+    });
+  } else if (
+    !record.viewerDeviceId ||
+    !record.viewerIdentityPublicKey ||
+    record.viewerDeviceId !== input.viewerDeviceId ||
+    record.viewerIdentityPublicKey !== input.viewerIdentityPublicKey
+  ) {
+    return fail("already-claimed", "Pairing session is already bound to another device.");
+  }
+  const proofValid = verifyRelayRouteAuthProof({
+    pairingAuthKey: relayAuthKey,
+    routeId: input.routeId,
+    clientSessionId: input.clientSessionId,
+    connectionId: input.connectionId,
+    viewerDeviceId: input.viewerDeviceId,
+    viewerIdentityPublicKey: input.viewerIdentityPublicKey,
+    issuedAt: input.routeAuthIssuedAt,
+    proof: input.routeAuthProof,
+    nowMs,
+  });
+  if (!proofValid) {
+    return fail("invalid-secret", "Relay pairing proof is invalid.");
+  }
   record.claim = {
     claimId: record.claim?.claimId ?? Crypto.randomUUID(),
     requesterName: normalizeOptionalName(
@@ -348,6 +390,10 @@ export function approveRelayPairingRequest(input: {
   record.viewerIdentityPublicKey = input.viewerIdentityPublicKey;
   record.resolution = "approved";
   record.resolvedAtMs = record.resolvedAtMs ?? nowMs;
+  record.relayAuthKey = relayAuthKey;
+  if (record.relayUrl.length > 0) {
+    record.secret = "";
+  }
   return succeed(toPairingSessionView(record, nowMs));
 }
 
@@ -506,6 +552,7 @@ export async function persistPairingSessionsToDatabase(repo: {
     name: string;
     createdAtMs: number;
     expiresAtMs: number;
+    relayAuthKey: string | null;
     claimId: string | null;
     claimRequesterName: string | null;
     claimRequestedAtMs: number | null;
@@ -529,6 +576,7 @@ export async function persistPairingSessionsToDatabase(repo: {
           name: session.name,
           createdAtMs: session.createdAtMs,
           expiresAtMs: session.expiresAtMs,
+          relayAuthKey: session.relayAuthKey,
           claimId: session.claim?.claimId ?? null,
           claimRequesterName: session.claim?.requesterName ?? null,
           claimRequestedAtMs: session.claim?.requestedAtMs ?? null,
@@ -556,6 +604,7 @@ export async function loadPairingSessionsFromDatabase(repo: {
       name: string;
       createdAtMs: number;
       expiresAtMs: number;
+      relayAuthKey: string | null;
       claimId: string | null;
       claimRequesterName: string | null;
       claimRequestedAtMs: number | null;
@@ -580,6 +629,7 @@ export async function loadPairingSessionsFromDatabase(repo: {
       name: session.name,
       createdAtMs: session.createdAtMs,
       expiresAtMs: session.expiresAtMs,
+      relayAuthKey: session.relayAuthKey,
       claim: session.claimId
         ? {
             claimId: session.claimId,

@@ -550,15 +550,20 @@ const makeRelayHostManager = Effect.gen(function* () {
       typeof message.viewerDeviceId === "string" &&
       typeof message.viewerIdentityPublicKey === "string" &&
       typeof message.pairingId === "string" &&
-      typeof message.pairingSecret === "string" &&
+      typeof message.routeAuthIssuedAt === "string" &&
+      typeof message.routeAuthProof === "string" &&
       typeof message.clientSessionId === "string" &&
       typeof message.connectionId === "string"
     ) {
       const approved = approveRelayPairingRequest({
         sessionId: message.pairingId,
-        secret: message.pairingSecret,
         viewerDeviceId: message.viewerDeviceId,
         viewerIdentityPublicKey: message.viewerIdentityPublicKey,
+        routeId: message.routeId,
+        clientSessionId: message.clientSessionId,
+        connectionId: message.connectionId,
+        routeAuthIssuedAt: message.routeAuthIssuedAt,
+        routeAuthProof: message.routeAuthProof,
         ...(typeof message.viewerDeviceName === "string"
           ? { requesterName: message.viewerDeviceName }
           : {}),
